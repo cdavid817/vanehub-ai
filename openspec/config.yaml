@@ -1,0 +1,69 @@
+schema: spec-driven
+
+context: |
+  Project: VaneHub AI.
+
+  Product direction:
+  - Build a unified management and switching tool for developers who use multiple AI coding agents daily.
+  - Initial supported agents are Claude Code, OpenCode, Codex CLI, and Gemini CLI.
+  - The product must support both a Tauri desktop client and a browser-accessible Web UI.
+  - Full local capabilities are provided by the Tauri desktop runtime; the Web UI must remain usable through a Web/mock adapter and may later connect to an HTTP backend.
+
+  Technology stack:
+  - Desktop shell: Tauri 2.
+  - Frontend: React, TypeScript, Vite.
+  - UI: Tailwind CSS with shadcn-style components and lucide-react icons.
+  - Native/backend layer: Rust Tauri commands.
+  - Local storage: SQLite through the Rust layer.
+  - Browser automation mode: Playwright.
+  - Windows builds target the stable x86_64-pc-windows-msvc Rust toolchain and require MSVC Build Tools.
+
+  Architecture constraints:
+  - Keep frontend UI and backend/native runtime isolated.
+  - React components MUST depend on frontend service interfaces, not direct Tauri `invoke()` calls.
+  - Runtime-specific integrations MUST live behind adapters.
+  - Tauri desktop runtime uses a Tauri adapter that calls Rust commands for SQLite, local CLI checks, workflow state, launch routing, and native/window capabilities.
+  - Browser/Web runtime uses a Web adapter for mock data now and future HTTP API integration later.
+  - Agent-specific launch, availability, session details, and interaction behavior MUST remain behind agent/runtime adapters.
+  - Interaction modes are first-class runtime selections. Do not model browser/native/CLI variants as separate agents when they represent the same tool.
+
+  Domain model:
+  - Agent registry entries use stable kebab-case ids, display names, provider names, launch metadata, supported interaction modes, availability state, unavailable reason, and capability tags.
+  - Workflow state tracks the active agent id, active interaction mode, lifecycle state, and workflow intent.
+  - Common lifecycle states are idle, starting, running, failed, and stopped.
+  - Availability checks MUST be separate from launch and MUST not start interactive sessions.
+
+  Current implementation structure:
+  - `src/` contains React UI and frontend service interfaces/adapters.
+  - `src/services/agent-service.ts` defines the frontend service boundary.
+  - `src/services/tauri-agent-client.ts` contains Tauri-specific frontend adapter code.
+  - `src/services/web-agent-client.ts` contains Web/mock adapter code.
+  - `src-tauri/` contains Rust/Tauri commands, SQLite schema, local availability checks, and native runtime integration.
+
+  Verification commands:
+  - Frontend build: `npm run build`.
+  - Rust check: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; $env:CARGO_NET_OFFLINE="true"; cargo check --manifest-path src-tauri\Cargo.toml`.
+  - Tauri environment: `$env:PATH="$env:USERPROFILE\.cargo\bin;$env:PATH"; npm run tauri -- info`.
+  - OpenSpec validation: `openspec validate "<change-name>" --strict`.
+
+rules:
+  proposal:
+    - "State whether a change affects desktop runtime, Web runtime, or both."
+    - "List new or modified capabilities using kebab-case names."
+    - "Call out any impact to frontend/backend isolation or runtime adapter boundaries."
+  design:
+    - "Include the runtime boundary: React service interface, Tauri adapter, Web/mock or HTTP adapter, and Rust/native layer when relevant."
+    - "Keep Tauri `invoke()` usage out of React components; place it only in Tauri-specific frontend adapters."
+    - "Keep SQLite, CLI detection, native window management, and process launch concerns in the Rust/Tauri layer."
+    - "Prefer additive adapter changes over hard-coded agent-specific UI branches."
+    - "Document browser mode and native desktop mode separately when behavior differs."
+  specs:
+    - "Requirements MUST be testable and use SHALL or MUST for normative behavior."
+    - "Each requirement MUST include at least one four-hash scenario heading: `#### Scenario: ...`."
+    - "Specs that mention agent selection MUST preserve stable agent ids rather than display-name matching."
+    - "Specs that mention launch or readiness MUST distinguish availability checks from launching an interactive session."
+  tasks:
+    - "Use checkbox tasks in `- [ ] X.Y ...` format."
+    - "Include verification tasks for frontend build, Rust check, and OpenSpec validation when implementation code changes."
+    - "Include both desktop/Tauri and Web adapter considerations when a task touches frontend services."
+    - "Keep tasks small enough to complete and verify in one focused session."

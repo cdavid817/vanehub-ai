@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.vanehub/
+.idea/
+src-tauri/target/
+*.log

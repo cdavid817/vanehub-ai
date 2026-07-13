@@ -1,0 +1,91 @@
+name: Package Desktop Apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  package:
+    name: ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            arch: x64
+            runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            npm_script: package:windows:x64
+          - platform: windows
+            arch: arm64
+            runner: windows-latest
+            rust_target: aarch64-pc-windows-msvc
+            npm_script: package:windows:arm64
+          - platform: macos
+            arch: x64
+            runner: macos-latest
+            rust_target: x86_64-apple-darwin
+            npm_script: package:macos:x64
+          - platform: macos
+            arch: arm64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+            npm_script: package:macos:arm64
+          - platform: linux
+            arch: x64
+            runner: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+            npm_script: package:linux:x64
+          - platform: linux
+            arch: arm64
+            runner: ubuntu-latest
+            rust_target: aarch64-unknown-linux-gnu
+            npm_script: package:linux:arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux prerequisites
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf \
+            wget
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run ${{ matrix.npm_script }}
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: VaneHub-AI-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}
+          path: |
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/**
+            src-tauri/target/release/bundle/**
+          if-no-files-found: error
