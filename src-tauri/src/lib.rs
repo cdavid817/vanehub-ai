@@ -6,6 +6,8 @@ use std::sync::Mutex;
 use tauri::State;
 use thiserror::Error;
 
+mod mcp;
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("database error: {0}")]
@@ -20,6 +22,12 @@ enum AppError {
     NoActiveAgent,
     #[error("launch failed: {0}")]
     LaunchFailed(String),
+    #[error("MCP server not found: {0}")]
+    McpServerNotFound(String),
+    #[error("MCP connection failed: {0}")]
+    McpConnection(String),
+    #[error("validation error: {0}")]
+    Validation(String),
     #[error("storage error: {0}")]
     Storage(String),
 }
@@ -199,6 +207,27 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
             id INTEGER PRIMARY KEY CHECK (id = 1),
             adapter TEXT NOT NULL,
             message TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+            name TEXT PRIMARY KEY,
+            transport_type TEXT NOT NULL DEFAULT 'stdio',
+            command TEXT,
+            args TEXT,
+            env TEXT,
+            url TEXT,
+            headers TEXT,
+            description TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            scope TEXT NOT NULL DEFAULT 'user',
+            project_path TEXT,
+            last_connection_status TEXT,
+            last_connected TEXT,
+            last_error TEXT,
+            last_tools TEXT,
+            last_test_duration_ms INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
         "#,
     )?;
@@ -684,7 +713,16 @@ pub fn run() {
             select_agent,
             check_browser_readiness,
             launch_active_workflow,
-            get_session_details
+            get_session_details,
+            mcp::commands::list_mcp_servers,
+            mcp::commands::add_mcp_server,
+            mcp::commands::update_mcp_server,
+            mcp::commands::remove_mcp_server,
+            mcp::commands::toggle_mcp_server,
+            mcp::commands::test_mcp_connection,
+            mcp::commands::get_mcp_server_status,
+            mcp::commands::import_mcp_servers,
+            mcp::commands::export_mcp_servers
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
