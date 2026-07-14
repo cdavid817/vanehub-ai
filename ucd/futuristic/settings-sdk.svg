@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" font-family="Inter, Microsoft YaHei, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="brandGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5b9cf5" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#5b9cf5" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#5b9cf5" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadowDeep" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#5b9cf5" flood-opacity="0.15"/>
+    </filter>
+    <filter id="nodeGlow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#5b9cf5" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="820" fill="url(#bgGrad)"/>
+
+  <!-- Top nav bar -->
+  <rect x="10" y="10" width="1180" height="44" rx="12" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1"/>
+  <!-- Blue highlight line at top edge -->
+  <rect x="10" y="10" width="1180" height="1" fill="#5b9cf5" opacity="0.3" rx="0"/>
+  <!-- VaneHub AI Logo -->
+  <rect x="24" y="22" width="18" height="18" rx="3" fill="#5b9cf5" opacity="0.9"/>
+  <text x="28" y="35" fill="#ffffff" font-size="9" font-weight="bold" text-anchor="middle">V</text>
+  <text x="50" y="37" fill="#5b9cf5" font-size="14" font-weight="bold">VaneHub AI</text>
+  <!-- Breadcrumb -->
+  <text x="155" y="37" fill="#6e7681" font-size="11">设置 / SDK 依赖</text>
+  <!-- Search input -->
+  <rect x="720" y="20" width="240" height="26" rx="6" fill="#0d1117" stroke="#2d3548" stroke-width="1"/>
+  <text x="734" y="37" fill="#6e7681" font-size="10">搜索 SDK...</text>
+  <circle cx="942" cy="33" r="8" fill="none" stroke="#484f58" stroke-width="1.2"/>
+  <line x1="948" y1="39" x2="952" y2="43" stroke="#484f58" stroke-width="1.2"/>
+  <!-- Return button -->
+  <rect x="1096" y="20" width="84" height="26" rx="4" fill="#2d3548" stroke="#3d4a5c" stroke-width="1"/>
+  <text x="1138" y="37" fill="#8b949e" font-size="10" text-anchor="middle">返回</text>
+
+  <!-- ===== Left Sidebar ===== -->
+  <rect x="10" y="58" width="230" height="700" rx="12" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" filter="url(#shadow)"/>
+  <!-- Sidebar title -->
+  <text x="24" y="86" fill="#e6edf3" font-size="13" font-weight="bold">系统设置</text>
+  <line x1="18" y1="96" x2="232" y2="96" stroke="#2d3548" stroke-width="1"/>
+
+  <!-- Nav item 1: 基础配置 -->
+  <rect x="18" y="108" width="214" height="36" rx="6" fill="transparent"/>
+  <text x="32" y="131" fill="#8b949e" font-size="11">基础配置</text>
+
+  <!-- Nav item 2: 供应商管理 -->
+  <rect x="18" y="150" width="214" height="36" rx="6" fill="transparent"/>
+  <text x="32" y="173" fill="#8b949e" font-size="11">供应商管理</text>
+  <!-- Badge: 3 -->
+  <circle cx="210" cy="168" r="9" fill="#f85149"/>
+  <text x="210" y="172" fill="#ffffff" font-size="8" text-anchor="middle" font-weight="bold">3</text>
+
+  <!-- Nav item 3: SDK依赖 (ACTIVE) -->
+  <rect x="18" y="192" width="214" height="36" rx="6" fill="rgba(91,156,245,0.1)"/>
+  <!-- Left blue indicator bar -->
+  <rect x="18" y="192" width="3" height="36" rx="1" fill="#5b9cf5"/>
+  <text x="40" y="215" fill="#5b9cf5" font-size="11" font-weight="bold">SDK 依赖</text>
+  <!-- Badge: 2 -->
+  <circle cx="210" cy="210" r="9" fill="#d29922"/>
+  <text x="210" y="214" fill="#ffffff" font-size="8" text-anchor="middle" font-weight="bold">2</text>
+
+  <!-- Nav item 4: MCP 服务器 -->
+  <rect x="18" y="234" width="214" height="36" rx="6" fill="transparent"/>
+  <text x="32" y="257" fill="#8b949e" font-size="11">MCP 服务器</text>
+
+  <!-- Nav item 5: Agents -->
+  <rect x="18" y="276" width="214" height="36" rx="6" fill="transparent"/>
+  <text x="32" y="299" fill="#8b949e" font-size="11">Agents</text>
+
+  <!-- Nav item 6: Skills -->
+  <rect x="18" y="318" width="214" height="36" rx="6" fill="transparent"/>
+  <text x="32" y="341" fill="#8b949e" font-size="11">Skills</text>
+
+  <line x1="18" y1="370" x2="232" y2="370" stroke="#2d3548" stroke-width="1"/>
+
+  <!-- Sidebar bottom version info -->
+  <rect x="18" y="710" width="214" height="38" rx="6" fill="rgba(13,17,23,0.5)"/>
+  <text x="28" y="728" fill="#6e7681" font-size="9">VaneHub AI v0.1.0</text>
+  <text x="28" y="742" fill="#6e7681" font-size="8">构建: 2026-07-14</text>
+
+  <!-- ===== Right Content Panel ===== -->
+  <rect x="246" y="58" width="944" height="700" rx="12" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" filter="url(#shadowDeep)"/>
+
+  <!-- Breadcrumb + Action buttons -->
+  <text x="262" y="82" fill="#6e7681" font-size="11">设置</text>
+  <text x="292" y="82" fill="#484f58" font-size="11">/</text>
+  <text x="302" y="82" fill="#e6edf3" font-size="11" font-weight="bold">SDK 依赖</text>
+  <!-- 检查更新 button -->
+  <rect x="960" y="66" width="100" height="26" rx="4" fill="#2d3548" stroke="#3d4a5c" stroke-width="1"/>
+  <text x="1010" y="83" fill="#8b949e" font-size="10" text-anchor="middle">检查更新</text>
+  <!-- 安装SDK primary button -->
+  <rect x="1070" y="66" width="108" height="26" rx="4" fill="#5b9cf5"/>
+  <text x="1124" y="83" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="bold">安装 SDK</text>
+
+  <!-- ===== 4 Stat Summary Cards ===== -->
+  <!-- Card 1: 5个SDK已安装 (blue) -->
+  <rect x="260" y="96" width="220" height="50" rx="8" fill="rgba(91,156,245,0.1)" stroke="rgba(91,156,245,0.3)" stroke-width="1"/>
+  <text x="278" y="118" fill="#5b9cf5" font-size="20" font-weight="bold" font-family="Inter, monospace">5</text>
+  <text x="302" y="118" fill="#5b9cf5" font-size="10">个 SDK 已安装</text>
+  <text x="278" y="136" fill="#6e7681" font-size="9">总占用 128 MB</text>
+
+  <!-- Card 2: 2个SDK可更新 (yellow) -->
+  <rect x="490" y="96" width="220" height="50" rx="8" fill="rgba(210,153,34,0.1)" stroke="rgba(210,153,34,0.3)" stroke-width="1"/>
+  <text x="508" y="118" fill="#d29922" font-size="20" font-weight="bold" font-family="Inter, monospace">2</text>
+  <text x="532" y="118" fill="#d29922" font-size="10">个 SDK 可更新</text>
+  <text x="508" y="136" fill="#6e7681" font-size="9">建议及时更新</text>
+
+  <!-- Card 3: 3个SDK为最新 (green) -->
+  <rect x="720" y="96" width="220" height="50" rx="8" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="1"/>
+  <text x="738" y="118" fill="#3fb950" font-size="20" font-weight="bold" font-family="Inter, monospace">3</text>
+  <text x="762" y="118" fill="#3fb950" font-size="10">个 SDK 为最新</text>
+  <text x="738" y="136" fill="#6e7681" font-size="9">运行状态良好</text>
+
+  <!-- Card 4: 0个SDK异常 (red) -->
+  <rect x="950" y="96" width="220" height="50" rx="8" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="968" y="118" fill="#f85149" font-size="20" font-weight="bold" font-family="Inter, monospace">0</text>
+  <text x="992" y="118" fill="#f85149" font-size="10">个 SDK 异常</text>
+  <text x="968" y="136" fill="#6e7681" font-size="9">无缺失依赖</text>
+
+  <!-- ===== SDK List Table Header ===== -->
+  <rect x="260" y="156" width="906" height="28" rx="6" fill="#0d1117"/>
+  <text x="280" y="174" fill="#8b949e" font-size="9" font-weight="bold">SDK 名称</text>
+  <text x="460" y="174" fill="#8b949e" font-size="9" font-weight="bold">当前版本</text>
+  <text x="570" y="174" fill="#8b949e" font-size="9" font-weight="bold">最新版本</text>
+  <text x="670" y="174" fill="#8b949e" font-size="9" font-weight="bold">状态</text>
+  <text x="760" y="174" fill="#8b949e" font-size="9" font-weight="bold">大小</text>
+  <text x="840" y="174" fill="#8b949e" font-size="9" font-weight="bold">来源</text>
+  <text x="1060" y="174" fill="#8b949e" font-size="9" font-weight="bold">操作</text>
+
+  <!-- ===== SDK Row 1: @anthropic/sdk (最新) ===== -->
+  <rect x="260" y="188" width="906" height="36" rx="4" fill="rgba(33,40,59,0.3)"/>
+  <text x="280" y="208" fill="#e6edf3" font-size="10" font-weight="bold">@anthropic/sdk</text>
+  <text x="280" y="220" fill="#6e7681" font-size="8">Anthropic 官方 SDK</text>
+  <!-- Current version -->
+  <rect x="460" y="200" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="486" y="212" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v0.28.0</text>
+  <!-- Latest version -->
+  <rect x="570" y="200" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="596" y="212" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v0.28.0</text>
+  <!-- Status -->
+  <circle cx="680" cy="208" r="4" fill="#3fb950"/>
+  <text x="690" y="212" fill="#3fb950" font-size="9">最新</text>
+  <text x="760" y="212" fill="#8b949e" font-size="9" font-family="Inter, monospace">32MB</text>
+  <text x="840" y="212" fill="#6e7681" font-size="9">npm</text>
+  <!-- Actions -->
+  <rect x="1040" y="200" width="50" height="20" rx="4" fill="#2d3548" stroke="#3d4a5c" stroke-width="1"/>
+  <text x="1065" y="214" fill="#8b949e" font-size="9" text-anchor="middle">详情</text>
+  <rect x="1096" y="200" width="50" height="20" rx="4" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="1121" y="214" fill="#f85149" font-size="9" text-anchor="middle">卸载</text>
+
+  <!-- ===== SDK Row 2: openai (可更新) ===== -->
+  <rect x="260" y="228" width="906" height="36" rx="4" fill="rgba(13,17,23,0.3)"/>
+  <text x="280" y="248" fill="#e6edf3" font-size="10" font-weight="bold">openai</text>
+  <text x="280" y="260" fill="#6e7681" font-size="8">OpenAI 官方 SDK</text>
+  <!-- Current version (outdated) -->
+  <rect x="460" y="240" width="52" height="16" rx="4" fill="rgba(210,153,34,0.1)" stroke="rgba(210,153,34,0.3)" stroke-width="0.5"/>
+  <text x="486" y="252" fill="#d29922" font-size="8" text-anchor="middle" font-family="Inter, monospace">v4.52.0</text>
+  <!-- Latest version -->
+  <rect x="570" y="240" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="596" y="252" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v4.67.0</text>
+  <!-- Status -->
+  <circle cx="680" cy="248" r="4" fill="#d29922"/>
+  <text x="690" y="252" fill="#d29922" font-size="9">可更新</text>
+  <text x="760" y="252" fill="#8b949e" font-size="9" font-family="Inter, monospace">45MB</text>
+  <text x="840" y="252" fill="#6e7681" font-size="9">npm</text>
+  <!-- Actions: 更新 (primary) + 卸载 -->
+  <rect x="1040" y="240" width="50" height="20" rx="4" fill="#5b9cf5"/>
+  <text x="1065" y="254" fill="#ffffff" font-size="9" text-anchor="middle" font-weight="bold">更新</text>
+  <rect x="1096" y="240" width="50" height="20" rx="4" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="1121" y="254" fill="#f85149" font-size="9" text-anchor="middle">卸载</text>
+
+  <!-- ===== SDK Row 3: @zhipu/sdk (最新) ===== -->
+  <rect x="260" y="268" width="906" height="36" rx="4" fill="rgba(33,40,59,0.3)"/>
+  <text x="280" y="288" fill="#e6edf3" font-size="10" font-weight="bold">@zhipu/sdk</text>
+  <text x="280" y="300" fill="#6e7681" font-size="8">智谱 AI 官方 SDK</text>
+  <!-- Current version -->
+  <rect x="460" y="280" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="486" y="292" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v2.1.4</text>
+  <!-- Latest version -->
+  <rect x="570" y="280" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="596" y="292" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v2.1.4</text>
+  <!-- Status -->
+  <circle cx="680" cy="288" r="4" fill="#3fb950"/>
+  <text x="690" y="292" fill="#3fb950" font-size="9">最新</text>
+  <text x="760" y="292" fill="#8b949e" font-size="9" font-family="Inter, monospace">18MB</text>
+  <text x="840" y="292" fill="#6e7681" font-size="9">npm</text>
+  <!-- Actions -->
+  <rect x="1040" y="280" width="50" height="20" rx="4" fill="#2d3548" stroke="#3d4a5c" stroke-width="1"/>
+  <text x="1065" y="294" fill="#8b949e" font-size="9" text-anchor="middle">详情</text>
+  <rect x="1096" y="280" width="50" height="20" rx="4" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="1121" y="294" fill="#f85149" font-size="9" text-anchor="middle">卸载</text>
+
+  <!-- ===== SDK Row 4: @mcp/sdk (可更新) ===== -->
+  <rect x="260" y="308" width="906" height="36" rx="4" fill="rgba(13,17,23,0.3)"/>
+  <text x="280" y="328" fill="#e6edf3" font-size="10" font-weight="bold">@mcp/sdk</text>
+  <text x="280" y="340" fill="#6e7681" font-size="8">MCP 协议 SDK</text>
+  <!-- Current version (outdated) -->
+  <rect x="460" y="320" width="52" height="16" rx="4" fill="rgba(210,153,34,0.1)" stroke="rgba(210,153,34,0.3)" stroke-width="0.5"/>
+  <text x="486" y="332" fill="#d29922" font-size="8" text-anchor="middle" font-family="Inter, monospace">v1.0.3</text>
+  <!-- Latest version -->
+  <rect x="570" y="320" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="596" y="332" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v1.2.0</text>
+  <!-- Status -->
+  <circle cx="680" cy="328" r="4" fill="#d29922"/>
+  <text x="690" y="332" fill="#d29922" font-size="9">可更新</text>
+  <text x="760" y="332" fill="#8b949e" font-size="9" font-family="Inter, monospace">12MB</text>
+  <text x="840" y="332" fill="#6e7681" font-size="9">npm</text>
+  <!-- Actions: 更新 (primary) + 卸载 -->
+  <rect x="1040" y="320" width="50" height="20" rx="4" fill="#5b9cf5"/>
+  <text x="1065" y="334" fill="#ffffff" font-size="9" text-anchor="middle" font-weight="bold">更新</text>
+  <rect x="1096" y="320" width="50" height="20" rx="4" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="1121" y="334" fill="#f85149" font-size="9" text-anchor="middle">卸载</text>
+
+  <!-- ===== SDK Row 5: @tauri-apps/api (最新) ===== -->
+  <rect x="260" y="348" width="906" height="36" rx="4" fill="rgba(33,40,59,0.3)"/>
+  <text x="280" y="368" fill="#e6edf3" font-size="10" font-weight="bold">@tauri-apps/api</text>
+  <text x="280" y="380" fill="#6e7681" font-size="8">Tauri 桌面框架 API</text>
+  <!-- Current version -->
+  <rect x="460" y="360" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="486" y="372" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v2.0.2</text>
+  <!-- Latest version -->
+  <rect x="570" y="360" width="52" height="16" rx="4" fill="rgba(63,185,80,0.1)" stroke="rgba(63,185,80,0.3)" stroke-width="0.5"/>
+  <text x="596" y="372" fill="#3fb950" font-size="8" text-anchor="middle" font-family="Inter, monospace">v2.0.2</text>
+  <!-- Status -->
+  <circle cx="680" cy="368" r="4" fill="#3fb950"/>
+  <text x="690" y="372" fill="#3fb950" font-size="9">最新</text>
+  <text x="760" y="372" fill="#8b949e" font-size="9" font-family="Inter, monospace">21MB</text>
+  <text x="840" y="372" fill="#6e7681" font-size="9">npm</text>
+  <!-- Actions -->
+  <rect x="1040" y="360" width="50" height="20" rx="4" fill="#2d3548" stroke="#3d4a5c" stroke-width="1"/>
+  <text x="1065" y="374" fill="#8b949e" font-size="9" text-anchor="middle">详情</text>
+  <rect x="1096" y="360" width="50" height="20" rx="4" fill="rgba(248,81,73,0.1)" stroke="rgba(248,81,73,0.3)" stroke-width="1"/>
+  <text x="1121" y="374" fill="#f85149" font-size="9" text-anchor="middle">卸载</text>
+
+  <!-- ===== 安装配置 Section ===== -->
+  <rect x="260" y="400" width="906" height="130" rx="8" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1"/>
+  <!-- Section header accent line -->
+  <rect x="260" y="400" width="906" height="1" fill="url(#brandGlow)"/>
+  <text x="276" y="424" fill="#e6edf3" font-size="12" font-weight="bold">安装配置</text>
+  <text x="352" y="424" fill="#6e7681" font-size="9">SDK 安装源与镜像配置</text>
+
+  <!-- 安装源 -->
+  <text x="276" y="454" fill="#8b949e" font-size="10">安装源</text>
+  <rect x="340" y="442" width="200" height="24" rx="6" fill="#0d1117" stroke="#2d3548" stroke-width="1"/>
+  <text x="352" y="458" fill="#e6edf3" font-size="10">华为内网镜像</text>
+  <text x="524" y="458" fill="#6e7681" font-size="8">v</text>
+
+  <!-- 镜像地址 -->
+  <text x="560" y="454" fill="#8b949e" font-size="10">镜像地址</text>
+  <rect x="630" y="442" width="420" height="24" rx="6" fill="#0d1117" stroke="#2d3548" stroke-width="1"/>
+  <text x="642" y="458" fill="#8b949e" font-size="9" font-family="Inter, monospace">https://repo.huawei.com/npm/repository/npm-group/</text>
+
+  <!-- 自动更新 toggle (ON) -->
+  <text x="276" y="492" fill="#8b949e" font-size="10">自动更新</text>
+  <rect x="340" y="480" width="36" height="18" rx="9" fill="#5b9cf5"/>
+  <circle cx="364" cy="489" r="6" fill="#ffffff"/>
+  <text x="384" y="494" fill="#6e7681" font-size="8">启动时检查 SDK 更新</text>
+
+  <!-- 更新范围 -->
+  <text x="560" y="492" fill="#8b949e" font-size="10">更新范围</text>
+  <rect x="630" y="480" width="140" height="24" rx="6" fill="#0d1117" stroke="#2d3548" stroke-width="1"/>
+  <text x="642" y="496" fill="#e6edf3" font-size="10">仅补丁版本</text>
+  <text x="754" y="496" fill="#6e7681" font-size="8">v</text>
+
+  <!-- ===== 依赖关系 Section ===== -->
+  <rect x="260" y="542" width="906" height="160" rx="8" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1"/>
+  <rect x="260" y="542" width="906" height="1" fill="url(#brandGlow)"/>
+  <text x="276" y="566" fill="#e6edf3" font-size="12" font-weight="bold">依赖关系</text>
+  <text x="352" y="566" fill="#6e7681" font-size="9">SDK 之间的依赖关系概览</text>
+
+  <!-- Dependency graph nodes -->
+  <!-- Node 1: @tauri-apps/api -->
+  <rect x="296" y="590" width="130" height="36" rx="6" fill="rgba(33,40,59,0.7)" stroke="#5b9cf5" stroke-width="1" filter="url(#nodeGlow)"/>
+  <text x="361" y="612" fill="#e6edf3" font-size="9" text-anchor="middle" font-weight="bold">@tauri-apps/api</text>
+
+  <!-- Node 2: @mcp/sdk -->
+  <rect x="480" y="590" width="100" height="36" rx="6" fill="rgba(33,40,59,0.7)" stroke="#5b9cf5" stroke-width="1" filter="url(#nodeGlow)"/>
+  <text x="530" y="612" fill="#e6edf3" font-size="9" text-anchor="middle" font-weight="bold">@mcp/sdk</text>
+
+  <!-- Node 3: openai -->
+  <rect x="640" y="590" width="80" height="36" rx="6" fill="rgba(33,40,59,0.7)" stroke="#5b9cf5" stroke-width="1" filter="url(#nodeGlow)"/>
+  <text x="680" y="612" fill="#e6edf3" font-size="9" text-anchor="middle" font-weight="bold">openai</text>
+
+  <!-- Node 4: @anthropic/sdk -->
+  <rect x="780" y="590" width="130" height="36" rx="6" fill="rgba(33,40,59,0.7)" stroke="#5b9cf5" stroke-width="1" filter="url(#nodeGlow)"/>
+  <text x="845" y="612" fill="#e6edf3" font-size="9" text-anchor="middle" font-weight="bold">@anthropic/sdk</text>
+
+  <!-- Node 5: @zhipu/sdk (center bottom) -->
+  <rect x="500" y="654" width="100" height="36" rx="6" fill="rgba(33,40,59,0.7)" stroke="#5b9cf5" stroke-width="1" filter="url(#nodeGlow)"/>
+  <text x="550" y="676" fill="#e6edf3" font-size="9" text-anchor="middle" font-weight="bold">@zhipu/sdk</text>
+
+  <!-- Dependency edges (dashed lines) -->
+  <line x1="426" y1="608" x2="480" y2="608" stroke="#5b9cf5" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="580" y1="608" x2="640" y2="608" stroke="#5b9cf5" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="720" y1="608" x2="780" y2="608" stroke="#5b9cf5" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <!-- Vertical connections to @zhipu/sdk -->
+  <line x1="530" y1="626" x2="530" y2="654" stroke="#5b9cf5" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+  <line x1="680" y1="626" x2="580" y2="654" stroke="#5b9cf5" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+
+  <!-- ===== Bottom Status Bar ===== -->
+  <rect x="10" y="762" width="1180" height="28" rx="12" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1"/>
+  <!-- Green status dot -->
+  <circle cx="28" cy="776" r="4" fill="#3fb950"/>
+  <text x="38" y="780" fill="#8b949e" font-size="10">SDK 状态正常</text>
+  <!-- Update count -->
+  <text x="200" y="780" fill="#d29922" font-size="10">2 个可更新</text>
+  <!-- Version -->
+  <text x="1140" y="780" fill="#6e7681" font-size="9">VaneHub AI v0.1.0</text>
+</svg>

@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" font-family="Arial, Helvetica, &quot;PingFang SC&quot;, sans-serif">
+  <!-- Background -->
+  <rect width="1200" height="820" fill="#FFFFFF" />
+  <!-- Subtle grid pattern -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#111827" stroke-width="1.5" />
+  </pattern>
+  <rect width="1200" height="820" fill="#FFFFFF" />
+  <!-- ===== TOP NAV ===== -->
+  <rect x="10" y="10" width="1180" height="44" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <!-- Blue highlight line -->
+  <rect x="10" y="10" width="1180" height="2" rx="4" fill="#FFFFFF" />
+  <!-- Brand -->
+  <text x="28" y="38" fill="#111827" font-size="16" font-weight="bold">VaneHub AI</text>
+  <!-- Breadcrumb in nav -->
+  <text x="148" y="38" fill="#111827" font-size="11">设置 / Skills</text>
+  <!-- Search -->
+  <rect x="720" y="20" width="220" height="26" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="734" y="37" fill="#111827" font-size="11">搜索 Skill...</text>
+  <circle cx="926" cy="33" r="6" fill="none" stroke="#111827" stroke-width="1.5" />
+  <line x1="930" y1="37" x2="934" y2="41" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Return button -->
+  <rect x="1136" y="20" width="44" height="26" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="1158" y="37" fill="#111827" font-size="11" text-anchor="middle">返回</text>
+  <!-- ===== LEFT SIDEBAR ===== -->
+  <rect x="10" y="58" width="230" height="698" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <!-- Section title -->
+  <text x="24" y="84" fill="#111827" font-size="12" font-weight="bold">系统设置</text>
+  <line x1="18" y1="94" x2="232" y2="94" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Nav: 基础配置 -->
+  <rect x="18" y="104" width="214" height="36" rx="4" fill="none" />
+  <text x="36" y="127" fill="#111827" font-size="11">基础配置</text>
+  <!-- Nav: 供应商管理 -->
+  <rect x="18" y="146" width="214" height="36" rx="4" fill="none" />
+  <text x="36" y="169" fill="#111827" font-size="11">供应商管理</text>
+  <!-- Nav: SDK 依赖 -->
+  <rect x="18" y="188" width="214" height="36" rx="4" fill="none" />
+  <text x="36" y="211" fill="#111827" font-size="11">SDK 依赖</text>
+  <!-- Nav: MCP 服务器 -->
+  <rect x="18" y="230" width="214" height="36" rx="4" fill="none" />
+  <text x="36" y="253" fill="#111827" font-size="11">MCP 服务器</text>
+  <!-- Nav: Agents -->
+  <rect x="18" y="272" width="214" height="36" rx="4" fill="none" />
+  <text x="36" y="295" fill="#111827" font-size="11">Agents</text>
+  <!-- Nav: Skills ACTIVE -->
+  <rect x="18" y="314" width="214" height="36" rx="4" fill="#FFFFFF" />
+  <rect x="18" y="314" width="3" height="36" rx="4" fill="#2563EB" />
+  <text x="40" y="337" fill="#2563EB" font-size="11" font-weight="bold">Skills</text>
+  <!-- badge -->
+  <rect x="186" y="324" width="36" height="16" rx="4" fill="#FFFFFF" />
+  <text x="204" y="335" fill="#2563EB" font-size="11" text-anchor="middle">8</text>
+  <line x1="18" y1="366" x2="232" y2="366" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Sidebar footer -->
+  <rect x="18" y="704" width="214" height="44" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="28" y="722" fill="#111827" font-size="11">VaneHub AI v0.1.0</text>
+  <text x="28" y="738" fill="#111827" font-size="11">构建: 2026-07-14</text>
+  <!-- ===== RIGHT CONTENT AREA ===== -->
+  <rect x="246" y="58" width="944" height="698" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <!-- Breadcrumb -->
+  <text x="262" y="82" fill="#111827" font-size="11">设置</text>
+  <text x="290" y="82" fill="#111827" font-size="11">/</text>
+  <text x="300" y="82" fill="#111827" font-size="11" font-weight="bold">Skills</text>
+  <!-- ===== FILTER TABS ===== -->
+  <!-- 全部 (8) - active -->
+  <rect x="260" y="94" width="76" height="24" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+  <text x="298" y="110" fill="#2563EB" font-size="11" text-anchor="middle">全部 (8)</text>
+  <!-- 已启用 (6) -->
+  <rect x="342" y="94" width="80" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="382" y="110" fill="#111827" font-size="11" text-anchor="middle">已启用 (6)</text>
+  <!-- 已禁用 (2) -->
+  <rect x="428" y="94" width="80" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="468" y="110" fill="#111827" font-size="11" text-anchor="middle">已禁用 (2)</text>
+  <!-- Category filters -->
+  <rect x="540" y="94" width="66" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="573" y="110" fill="#111827" font-size="11" text-anchor="middle">代码类</text>
+  <rect x="612" y="94" width="66" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="645" y="110" fill="#111827" font-size="11" text-anchor="middle">文档类</text>
+  <rect x="684" y="94" width="66" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="717" y="110" fill="#111827" font-size="11" text-anchor="middle">分析类</text>
+  <rect x="756" y="94" width="66" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="789" y="110" fill="#111827" font-size="11" text-anchor="middle">流程类</text>
+  <!-- Action buttons -->
+  <rect x="960" y="94" width="94" height="24" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="1007" y="110" fill="#111827" font-size="11" text-anchor="middle">导入 Skill</text>
+  <rect x="1062" y="94" width="118" height="24" rx="4" fill="#2563EB" />
+  <text x="1121" y="110" fill="#111827" font-size="11" text-anchor="middle" font-weight="bold">+ 创建 Skill</text>
+  <!-- ===== SKILL CARDS 4x2 GRID ===== -->
+  <!-- Row 1 -->
+  <!-- Skill 1: 代码审查 - blue header -->
+  <g>
+    <rect x="260" y="126" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <!-- Blue header band -->
+    <rect x="260" y="126" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="260" y="144" width="220" height="8" fill="#FFFFFF" />
+    <text x="274" y="143" fill="#111827" font-size="11" font-weight="bold">代码审查</text>
+    <!-- Green dot -->
+    <circle cx="466" cy="139" r="4" fill="#2563EB" />
+    <!-- Tags -->
+    <rect x="274" y="158" width="46" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="297" y="168" fill="#2563EB" font-size="11" text-anchor="middle">代码类</text>
+    <rect x="326" y="158" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="345" y="168" fill="#2563EB" font-size="11" text-anchor="middle">安全</text>
+    <!-- Trigger info -->
+    <text x="274" y="194" fill="#111827" font-size="11">触发: /review</text>
+    <text x="274" y="208" fill="#111827" font-size="11">Agent: 代码审查员</text>
+    <!-- Stats -->
+    <text x="274" y="226" fill="#111827" font-size="11">32次</text>
+    <text x="310" y="226" fill="#2563EB" font-size="11">96.8%</text>
+    <!-- Toggle ON -->
+    <rect x="442" y="218" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="462" cy="225" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 2: 安全扫描 - red header -->
+  <g>
+    <rect x="490" y="126" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <!-- Red header band -->
+    <rect x="490" y="126" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="490" y="144" width="220" height="8" fill="#FFFFFF" />
+    <text x="504" y="143" fill="#111827" font-size="11" font-weight="bold">安全扫描</text>
+    <circle cx="696" cy="139" r="4" fill="#2563EB" />
+    <rect x="504" y="158" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="523" y="168" fill="#2563EB" font-size="11" text-anchor="middle">安全</text>
+    <rect x="548" y="158" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="567" y="168" fill="#2563EB" font-size="11" text-anchor="middle">扫描</text>
+    <text x="504" y="194" fill="#111827" font-size="11">触发: /scan</text>
+    <text x="504" y="208" fill="#111827" font-size="11">Agent: 代码审查员</text>
+    <text x="504" y="226" fill="#111827" font-size="11">18次</text>
+    <text x="540" y="226" fill="#2563EB" font-size="11">100%</text>
+    <rect x="672" y="218" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="692" cy="225" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 3: 质量评分 - green header -->
+  <g>
+    <rect x="720" y="126" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="720" y="126" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="720" y="144" width="220" height="8" fill="#FFFFFF" />
+    <text x="734" y="143" fill="#111827" font-size="11" font-weight="bold">质量评分</text>
+    <circle cx="926" cy="139" r="4" fill="#2563EB" />
+    <rect x="734" y="158" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="753" y="168" fill="#2563EB" font-size="11" text-anchor="middle">分析</text>
+    <rect x="778" y="158" width="46" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="801" y="168" fill="#2563EB" font-size="11" text-anchor="middle">代码类</text>
+    <text x="734" y="194" fill="#111827" font-size="11">触发: /score</text>
+    <text x="734" y="208" fill="#111827" font-size="11">Agent: 代码审查员</text>
+    <text x="734" y="226" fill="#111827" font-size="11">15次</text>
+    <text x="770" y="226" fill="#2563EB" font-size="11">93.3%</text>
+    <rect x="902" y="218" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="922" cy="225" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 4: 单元测试生成 - yellow header -->
+  <g>
+    <rect x="950" y="126" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="950" y="126" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="950" y="144" width="220" height="8" fill="#FFFFFF" />
+    <text x="964" y="143" fill="#111827" font-size="11" font-weight="bold">单元测试生成</text>
+    <circle cx="1156" cy="139" r="4" fill="#2563EB" />
+    <rect x="964" y="158" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="983" y="168" fill="#2563EB" font-size="11" text-anchor="middle">测试</text>
+    <rect x="1008" y="158" width="46" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="1031" y="168" fill="#2563EB" font-size="11" text-anchor="middle">代码类</text>
+    <text x="964" y="194" fill="#111827" font-size="11">触发: /test</text>
+    <text x="964" y="208" fill="#111827" font-size="11">Agent: 测试工程师</text>
+    <text x="964" y="226" fill="#111827" font-size="11">28次</text>
+    <text x="1000" y="226" fill="#2563EB" font-size="11">89.2%</text>
+    <rect x="1132" y="218" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="1152" cy="225" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Row 2 -->
+  <!-- Skill 5: API文档生成 - blue header -->
+  <g>
+    <rect x="260" y="256" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="260" y="256" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="260" y="274" width="220" height="8" fill="#FFFFFF" />
+    <text x="274" y="273" fill="#111827" font-size="11" font-weight="bold">API文档生成</text>
+    <circle cx="466" cy="269" r="4" fill="#2563EB" />
+    <rect x="274" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="293" y="298" fill="#2563EB" font-size="11" text-anchor="middle">文档</text>
+    <rect x="318" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="337" y="298" fill="#2563EB" font-size="11" text-anchor="middle">API</text>
+    <text x="274" y="324" fill="#111827" font-size="11">触发: /apidoc</text>
+    <text x="274" y="338" fill="#111827" font-size="11">Agent: 文档生成器</text>
+    <text x="274" y="356" fill="#111827" font-size="11">22次</text>
+    <text x="310" y="356" fill="#2563EB" font-size="11">95.4%</text>
+    <rect x="442" y="348" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="462" cy="355" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 6: README生成 - green header -->
+  <g>
+    <rect x="490" y="256" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="490" y="256" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="490" y="274" width="220" height="8" fill="#FFFFFF" />
+    <text x="504" y="273" fill="#111827" font-size="11" font-weight="bold">README生成</text>
+    <circle cx="696" cy="269" r="4" fill="#2563EB" />
+    <rect x="504" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="523" y="298" fill="#2563EB" font-size="11" text-anchor="middle">文档</text>
+    <rect x="548" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+    <text x="567" y="298" fill="#2563EB" font-size="11" text-anchor="middle">项目</text>
+    <text x="504" y="324" fill="#111827" font-size="11">触发: /readme</text>
+    <text x="504" y="338" fill="#111827" font-size="11">Agent: 文档生成器</text>
+    <text x="504" y="356" fill="#111827" font-size="11">14次</text>
+    <text x="540" y="356" fill="#2563EB" font-size="11">92.8%</text>
+    <rect x="672" y="348" width="28" height="14" rx="4" fill="#2563EB" />
+    <circle cx="692" cy="355" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 7: 数据可视化 - gray header, DISABLED -->
+  <g>
+    <rect x="720" y="256" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="720" y="256" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="720" y="274" width="220" height="8" fill="#FFFFFF" />
+    <text x="734" y="273" fill="#111827" font-size="11" font-weight="bold">数据可视化</text>
+    <circle cx="926" cy="269" r="4" fill="#FFFFFF" />
+    <rect x="734" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <text x="753" y="298" fill="#111827" font-size="11" text-anchor="middle">分析</text>
+    <rect x="778" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <text x="797" y="298" fill="#111827" font-size="11" text-anchor="middle">图表</text>
+    <text x="734" y="324" fill="#111827" font-size="11">触发: /chart</text>
+    <text x="734" y="338" fill="#111827" font-size="11">Agent: 数据分析师</text>
+    <text x="734" y="356" fill="#111827" font-size="11">5次</text>
+    <text x="766" y="356" fill="#2563EB" font-size="11">80%</text>
+    <!-- Toggle OFF -->
+    <rect x="902" y="348" width="28" height="14" rx="4" fill="#FFFFFF" />
+    <circle cx="912" cy="355" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- Skill 8: 趋势预测 - gray header, DISABLED -->
+  <g>
+    <rect x="950" y="256" width="220" height="120" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <rect x="950" y="256" width="220" height="26" rx="4" fill="#FFFFFF" />
+    <rect x="950" y="274" width="220" height="8" fill="#FFFFFF" />
+    <text x="964" y="273" fill="#111827" font-size="11" font-weight="bold">趋势预测</text>
+    <circle cx="1156" cy="269" r="4" fill="#FFFFFF" />
+    <rect x="964" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <text x="983" y="298" fill="#111827" font-size="11" text-anchor="middle">分析</text>
+    <rect x="1008" y="288" width="38" height="14" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+    <text x="1027" y="298" fill="#111827" font-size="11" text-anchor="middle">预测</text>
+    <text x="964" y="324" fill="#111827" font-size="11">触发: /predict</text>
+    <text x="964" y="338" fill="#111827" font-size="11">Agent: 数据分析师</text>
+    <text x="964" y="356" fill="#111827" font-size="11">3次</text>
+    <text x="996" y="356" fill="#2563EB" font-size="11">66.7%</text>
+    <!-- Toggle OFF -->
+    <rect x="1132" y="348" width="28" height="14" rx="4" fill="#FFFFFF" />
+    <circle cx="1142" cy="355" r="5" fill="#FFFFFF" />
+  </g>
+  <!-- ===== SKILL CONFIGURATION DETAIL SECTION ===== -->
+  <rect x="260" y="392" width="918" height="350" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <!-- Section title -->
+  <text x="276" y="416" fill="#111827" font-size="12" font-weight="bold">Skill 配置详情</text>
+  <text x="396" y="416" fill="#111827" font-size="11">--</text>
+  <text x="414" y="416" fill="#2563EB" font-size="12" font-weight="bold">代码审查</text>
+  <!-- Divider -->
+  <line x1="276" y1="426" x2="1162" y2="426" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Row 1: Basic Info -->
+  <text x="276" y="448" fill="#111827" font-size="11">Skill ID</text>
+  <text x="360" y="448" fill="#111827" font-size="11">skill-code-review</text>
+  <text x="530" y="448" fill="#111827" font-size="11">版本</text>
+  <text x="580" y="448" fill="#111827" font-size="11">1.2.0</text>
+  <text x="640" y="448" fill="#111827" font-size="11">创建时间</text>
+  <text x="720" y="448" fill="#111827" font-size="11">2026-07-08</text>
+  <text x="840" y="448" fill="#111827" font-size="11">作者</text>
+  <text x="890" y="448" fill="#111827" font-size="11">VaneHub Team</text>
+  <!-- Row 2: Trigger Info -->
+  <text x="276" y="476" fill="#111827" font-size="11">触发命令</text>
+  <rect x="360" y="464" width="100" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="372" y="478" fill="#111827" font-size="11">/review</text>
+  <text x="476" y="476" fill="#111827" font-size="11">触发方式</text>
+  <rect x="556" y="464" width="120" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="568" y="478" fill="#111827" font-size="11">命令 + 自动</text>
+  <text x="696" y="476" fill="#111827" font-size="11">关联Agent</text>
+  <rect x="776" y="464" width="120" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="788" y="478" fill="#111827" font-size="11">代码审查员</text>
+  <!-- Row 3: Execution Params -->
+  <text x="276" y="508" fill="#111827" font-size="11">超时</text>
+  <rect x="360" y="496" width="70" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="372" y="510" fill="#111827" font-size="11">60秒</text>
+  <text x="446" y="508" fill="#111827" font-size="11">重试</text>
+  <rect x="496" y="496" width="50" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="508" y="510" fill="#111827" font-size="11">2</text>
+  <text x="562" y="508" fill="#111827" font-size="11">并发</text>
+  <rect x="612" y="496" width="50" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="624" y="510" fill="#111827" font-size="11">5</text>
+  <text x="678" y="508" fill="#111827" font-size="11">优先级</text>
+  <rect x="738" y="496" width="50" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="750" y="510" fill="#111827" font-size="11">高</text>
+  <!-- Row 4: Prompt Template -->
+  <text x="276" y="540" fill="#111827" font-size="11">Prompt模板</text>
+  <rect x="360" y="526" width="806" height="56" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="374" y="542" fill="#111827" font-size="11">请审查以下代码变更，关注以下维度：</text>
+  <text x="374" y="556" fill="#111827" font-size="11">1. 代码质量与可读性  2. 安全漏洞检测  3. 性能优化建议  4. 最佳实践合规性</text>
+  <text x="374" y="570" fill="#111827" font-size="11">输出格式：按严重程度排序，标注文件名与行号，给出具体改进建议。</text>
+  <!-- Monospace prompt hint -->
+  <text x="1144" y="542" fill="#111827" font-size="11" text-anchor="end">PROMPT</text>
+  <!-- Row 5: Input/Output -->
+  <text x="276" y="602" fill="#111827" font-size="11">输入格式</text>
+  <rect x="360" y="590" width="100" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="372" y="604" fill="#111827" font-size="11">代码 Diff</text>
+  <text x="476" y="602" fill="#111827" font-size="11">输出格式</text>
+  <rect x="556" y="590" width="100" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="568" y="604" fill="#111827" font-size="11">Markdown</text>
+  <text x="676" y="602" fill="#111827" font-size="11">输出目标</text>
+  <rect x="756" y="590" width="130" height="20" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="768" y="604" fill="#111827" font-size="11">对话窗口 + 文件</text>
+  <!-- Divider -->
+  <line x1="276" y1="618" x2="1162" y2="618" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Row 6: Statistics -->
+  <text x="276" y="640" fill="#111827" font-size="11">累计调用</text>
+  <text x="360" y="640" fill="#111827" font-size="11" font-weight="bold">32次</text>
+  <text x="416" y="640" fill="#111827" font-size="11">成功率</text>
+  <text x="476" y="640" fill="#2563EB" font-size="11" font-weight="bold">96.8%</text>
+  <text x="536" y="640" fill="#111827" font-size="11">平均耗时</text>
+  <text x="608" y="640" fill="#111827" font-size="11" font-weight="bold">5.2秒</text>
+  <text x="668" y="640" fill="#111827" font-size="11">Token消耗</text>
+  <text x="748" y="640" fill="#111827" font-size="11" font-weight="bold">45,200</text>
+  <text x="816" y="640" fill="#111827" font-size="11">最近调用</text>
+  <text x="886" y="640" fill="#111827" font-size="11">2分钟前</text>
+  <!-- Row 7: Action Buttons -->
+  <rect x="276" y="656" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="304" y="670" fill="#111827" font-size="11" text-anchor="middle">编辑</text>
+  <rect x="340" y="656" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="368" y="670" fill="#111827" font-size="11" text-anchor="middle">复制</text>
+  <rect x="404" y="656" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <text x="432" y="670" fill="#111827" font-size="11" text-anchor="middle">导出</text>
+  <!-- Delete button - danger -->
+  <rect x="468" y="656" width="56" height="22" rx="4" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" />
+  <text x="496" y="670" fill="#2563EB" font-size="11" text-anchor="middle">删除</text>
+  <!-- Primary: 立即测试 -->
+  <rect x="536" y="656" width="76" height="22" rx="4" fill="#2563EB" />
+  <text x="574" y="670" fill="#111827" font-size="11" text-anchor="middle" font-weight="bold">立即测试</text>
+  <!-- ===== BOTTOM STATUS BAR ===== -->
+  <rect x="10" y="762" width="1180" height="28" rx="4" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" />
+  <circle cx="26" cy="778" r="4" fill="#2563EB" />
+  <text x="36" y="782" fill="#111827" font-size="11">6/8 Skills已启用</text>
+  <text x="200" y="782" fill="#111827" font-size="11">今日调用 137次</text>
+  <text x="1140" y="782" fill="#111827" font-size="11">VaneHub AI v0.1.0</text>
+  <!-- Subtle glow accents on corners of detail panel -->
+  <circle cx="260" cy="392" r="2" fill="#2563EB" />
+  <circle cx="1178" cy="392" r="2" fill="#2563EB" />
+  <circle cx="260" cy="742" r="2" fill="#2563EB" />
+  <circle cx="1178" cy="742" r="2" fill="#2563EB" />
+</svg>

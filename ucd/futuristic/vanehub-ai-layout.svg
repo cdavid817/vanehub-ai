@@ -1,0 +1,509 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" font-family="Inter, Microsoft YaHei, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="rgba(33,40,59,0.95)"/>
+      <stop offset="100%" stop-color="rgba(22,27,34,0.9)"/>
+    </linearGradient>
+    <linearGradient id="glowLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5b9cf5" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#5b9cf5" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#5b9cf5" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="connGrad1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5b9cf5"/>
+      <stop offset="100%" stop-color="#9c7cff"/>
+    </linearGradient>
+    <linearGradient id="connGrad2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4dd0e1"/>
+      <stop offset="100%" stop-color="#5b9cf5"/>
+    </linearGradient>
+    <linearGradient id="btnPrimaryGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6aadff"/>
+      <stop offset="100%" stop-color="#4a8ad5"/>
+    </linearGradient>
+    <filter id="shadowDeep">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glow">
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#5b9cf5" flood-opacity="0.15"/>
+    </filter>
+    <filter id="glowStrong">
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#5b9cf5" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+    <filter id="glowCyan">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#4dd0e1" flood-opacity="0.3"/>
+    </filter>
+    <filter id="glowPurple">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#9c7cff" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#5b9cf5" opacity="0.8"/>
+    </marker>
+    <marker id="arrowCyan" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#4dd0e1" opacity="0.8"/>
+    </marker>
+    <clipPath id="sidebarClip">
+      <rect x="10" y="58" width="230" height="700" rx="12"/>
+    </clipPath>
+  </defs>
+
+  <!-- ===== BACKGROUND ===== -->
+  <rect width="1200" height="820" fill="url(#bgGrad)"/>
+  <!-- Subtle grid pattern -->
+  <g opacity="0.03">
+    <line x1="0" y1="0" x2="0" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="100" y1="0" x2="100" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="200" y1="0" x2="200" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="300" y1="0" x2="300" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="400" y1="0" x2="400" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="500" y1="0" x2="500" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="600" y1="0" x2="600" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="700" y1="0" x2="700" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="800" y1="0" x2="800" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="900" y1="0" x2="900" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="1000" y1="0" x2="1000" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="1100" y1="0" x2="1100" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="1200" y1="0" x2="1200" y2="820" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="200" x2="1200" y2="200" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="300" x2="1200" y2="300" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="400" x2="1200" y2="400" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="500" x2="1200" y2="500" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="600" x2="1200" y2="600" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="0" y1="700" x2="1200" y2="700" stroke="#5b9cf5" stroke-width="0.5"/>
+  </g>
+
+  <!-- ================================================================== -->
+  <!-- TOP NAV BAR                                                        -->
+  <!-- ================================================================== -->
+  <rect x="10" y="10" width="1180" height="44" fill="rgba(22,27,34,0.92)" stroke="#2d3548" stroke-width="1" rx="12" filter="url(#shadow)"/>
+  <!-- Blue accent line at top edge -->
+  <rect x="10" y="10" width="1180" height="2" fill="url(#glowLine)" rx="12"/>
+  <rect x="10" y="10" width="1180" height="1.5" fill="#5b9cf5" opacity="0.5" rx="12"/>
+
+  <!-- Logo -->
+  <g transform="translate(26, 22)">
+    <rect x="0" y="0" width="22" height="22" fill="#5b9cf5" rx="4" opacity="0.15"/>
+    <rect x="2" y="2" width="18" height="18" fill="none" stroke="#5b9cf5" stroke-width="1.5" rx="3"/>
+    <text x="11" y="16" fill="#5b9cf5" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter, monospace">V</text>
+  </g>
+  <text x="56" y="38" fill="#e6edf3" font-size="16" font-weight="700" letter-spacing="0.5">VaneHub AI</text>
+  <text x="162" y="38" fill="#6e7681" font-size="12" font-family="Inter, monospace">#SID-20260714</text>
+
+  <!-- Global search -->
+  <rect x="660" y="19" width="240" height="28" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <circle cx="678" cy="33" r="7" fill="none" stroke="#6e7681" stroke-width="1.2"/>
+  <line x1="683" y1="38" x2="688" y2="43" stroke="#6e7681" stroke-width="1.2"/>
+  <text x="696" y="37" fill="#484f58" font-size="12">搜索 Agent、对话、任务...</text>
+
+  <!-- Notification bell -->
+  <rect x="1040" y="19" width="36" height="28" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <circle cx="1058" cy="30" r="6" fill="none" stroke="#8b949e" stroke-width="1.2"/>
+  <line x1="1058" y1="24" x2="1058" y2="27" stroke="#8b949e" stroke-width="1.2"/>
+  <circle cx="1062" cy="25" r="2.5" fill="#f85149"/>
+
+  <!-- User avatar -->
+  <rect x="1084" y="19" width="96" height="28" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <circle cx="1102" cy="33" r="9" fill="#1a2332" stroke="#5b9cf5" stroke-width="1"/>
+  <text x="1102" y="37" fill="#5b9cf5" font-size="10" text-anchor="middle" font-weight="600">C</text>
+  <text x="1118" y="37" fill="#8b949e" font-size="11">c00606997</text>
+
+  <!-- ================================================================== -->
+  <!-- LEFT SIDEBAR                                                       -->
+  <!-- ================================================================== -->
+  <rect x="10" y="58" width="230" height="700" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" rx="12" filter="url(#shadowDeep)"/>
+
+  <!-- Sidebar section title -->
+  <text x="24" y="84" fill="#e6edf3" font-size="14" font-weight="600">会话列表</text>
+  <rect x="172" y="70" width="56" height="22" fill="#5b9cf5" rx="4" filter="url(#glow)"/>
+  <text x="200" y="85" fill="#ffffff" font-size="12" text-anchor="middle" font-weight="600">+ 新建</text>
+
+  <!-- Filter row -->
+  <rect x="20" y="96" width="78" height="22" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="30" y="111" fill="#8b949e" font-size="12">全部</text>
+  <text x="68" y="111" fill="#6e7681" font-size="10">&#9662;</text>
+  <rect x="104" y="96" width="44" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="126" y="111" fill="#8b949e" font-size="12" text-anchor="middle">收藏</text>
+  <rect x="154" y="96" width="44" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="176" y="111" fill="#8b949e" font-size="12" text-anchor="middle">归档</text>
+
+  <!-- ===== Conversation Card 1 (ACTIVE - with left blue indicator) ===== -->
+  <rect x="20" y="128" width="210" height="56" fill="rgba(33,40,59,0.7)" stroke="#2d3548" stroke-width="1" rx="8" filter="url(#glow)"/>
+  <!-- Active left indicator bar -->
+  <rect x="20" y="132" width="3" height="48" fill="#5b9cf5" rx="1.5"/>
+  <text x="34" y="148" fill="#e6edf3" font-size="13" font-weight="600">智能客服优化方案</text>
+  <circle cx="34" cy="166" r="3.5" fill="#3fb950"/>
+  <text x="42" y="170" fill="#8b949e" font-size="12">进行中</text>
+  <text x="80" y="170" fill="#6e7681" font-size="12">&#183;</text>
+  <text x="90" y="170" fill="#6e7681" font-size="12" font-family="Inter, monospace">3 Agents</text>
+  <text x="190" y="170" fill="#6e7681" font-size="11" font-family="Inter, monospace">07-14</text>
+
+  <!-- ===== Conversation Card 2 ===== -->
+  <rect x="20" y="192" width="210" height="56" fill="rgba(33,40,59,0.5)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="34" y="212" fill="#e6edf3" font-size="13" font-weight="500">数据分析报告生成</text>
+  <circle cx="34" cy="230" r="3.5" fill="#d29922"/>
+  <text x="42" y="234" fill="#8b949e" font-size="12">进行中</text>
+  <text x="80" y="234" fill="#6e7681" font-size="12">&#183;</text>
+  <text x="90" y="234" fill="#6e7681" font-size="12" font-family="Inter, monospace">2 Agents</text>
+  <text x="190" y="234" fill="#6e7681" font-size="11" font-family="Inter, monospace">07-13</text>
+
+  <!-- ===== Conversation Card 3 ===== -->
+  <rect x="20" y="256" width="210" height="56" fill="rgba(33,40,59,0.4)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="34" y="276" fill="#8b949e" font-size="13" font-weight="500">代码审查自动化</text>
+  <circle cx="34" cy="294" r="3.5" fill="#6e7681"/>
+  <text x="42" y="298" fill="#6e7681" font-size="12">已归档</text>
+  <text x="80" y="298" fill="#484f58" font-size="12">&#183;</text>
+  <text x="90" y="298" fill="#6e7681" font-size="12" font-family="Inter, monospace">4 Agents</text>
+  <text x="190" y="298" fill="#484f58" font-size="11" font-family="Inter, monospace">07-10</text>
+
+  <!-- ===== Conversation Card 4 ===== -->
+  <rect x="20" y="320" width="210" height="56" fill="rgba(33,40,59,0.4)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="34" y="340" fill="#8b949e" font-size="13" font-weight="500">产品文档协作</text>
+  <circle cx="34" cy="358" r="3.5" fill="#6e7681"/>
+  <text x="42" y="362" fill="#6e7681" font-size="12">已归档</text>
+  <text x="80" y="362" fill="#484f58" font-size="12">&#183;</text>
+  <text x="90" y="362" fill="#6e7681" font-size="12" font-family="Inter, monospace">2 Agents</text>
+  <text x="190" y="362" fill="#484f58" font-size="11" font-family="Inter, monospace">07-08</text>
+
+  <!-- ===== Conversation Card 5 ===== -->
+  <rect x="20" y="384" width="210" height="56" fill="rgba(33,40,59,0.4)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="34" y="404" fill="#8b949e" font-size="13" font-weight="500">营销文案创作</text>
+  <circle cx="34" cy="422" r="3.5" fill="#6e7681"/>
+  <text x="42" y="426" fill="#6e7681" font-size="12">已归档</text>
+  <text x="80" y="426" fill="#484f58" font-size="12">&#183;</text>
+  <text x="90" y="426" fill="#6e7681" font-size="12" font-family="Inter, monospace">3 Agents</text>
+  <text x="190" y="426" fill="#484f58" font-size="11" font-family="Inter, monospace">07-05</text>
+
+  <!-- ===== Bottom Tool Section ===== -->
+  <line x1="20" y1="530" x2="230" y2="530" stroke="#2d3548" stroke-width="1"/>
+  <text x="24" y="550" fill="#e6edf3" font-size="14" font-weight="600">工具</text>
+
+  <!-- Tool items -->
+  <rect x="20" y="560" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="573" r="8" fill="#1a2332" stroke="#9c7cff" stroke-width="1"/>
+  <text x="35" y="577" fill="#9c7cff" font-size="9" text-anchor="middle" font-weight="700">S</text>
+  <text x="50" y="577" fill="#e6edf3" font-size="12">技能</text>
+
+  <rect x="20" y="590" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="603" r="8" fill="#1a2332" stroke="#4dd0e1" stroke-width="1"/>
+  <text x="35" y="607" fill="#4dd0e1" font-size="9" text-anchor="middle" font-weight="700">M</text>
+  <text x="50" y="607" fill="#e6edf3" font-size="12">MCP 服务器</text>
+
+  <rect x="20" y="620" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="633" r="8" fill="#1a2332" stroke="#5b9cf5" stroke-width="1"/>
+  <text x="35" y="637" fill="#5b9cf5" font-size="9" text-anchor="middle" font-weight="700">P</text>
+  <text x="50" y="637" fill="#e6edf3" font-size="12">插件</text>
+
+  <rect x="20" y="650" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="663" r="8" fill="#1a2332" stroke="#66d9a0" stroke-width="1"/>
+  <text x="35" y="667" fill="#66d9a0" font-size="9" text-anchor="middle" font-weight="700">K</text>
+  <text x="50" y="667" fill="#e6edf3" font-size="12">看板</text>
+
+  <rect x="20" y="680" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="693" r="8" fill="#1a2332" stroke="#d29922" stroke-width="1"/>
+  <text x="35" y="697" fill="#d29922" font-size="9" text-anchor="middle" font-weight="700">R</text>
+  <text x="50" y="697" fill="#e6edf3" font-size="12">规则</text>
+
+  <rect x="20" y="710" width="210" height="26" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="35" cy="723" r="8" fill="#1a2332" stroke="#5b9cf5" stroke-width="1"/>
+  <text x="35" y="727" fill="#5b9cf5" font-size="9" text-anchor="middle" font-weight="700">C</text>
+  <text x="50" y="727" fill="#e6edf3" font-size="12">连接器</text>
+
+  <!-- Bottom action buttons -->
+  <rect x="20" y="744" width="66" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="53" y="759" fill="#8b949e" font-size="11" text-anchor="middle">设置</text>
+  <rect x="92" y="744" width="66" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="125" y="759" fill="#8b949e" font-size="11" text-anchor="middle">模式</text>
+  <rect x="164" y="744" width="66" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="197" y="759" fill="#8b949e" font-size="11" text-anchor="middle">帮助</text>
+
+  <!-- ================================================================== -->
+  <!-- CENTER CANVAS                                                      -->
+  <!-- ================================================================== -->
+  <rect x="246" y="58" width="620" height="700" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" rx="12" filter="url(#shadowDeep)"/>
+
+  <!-- Canvas view tabs -->
+  <rect x="260" y="68" width="96" height="26" fill="rgba(33,40,59,0.8)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="308" y="85" fill="#6e7681" font-size="12" text-anchor="middle">对话聊天</text>
+  <rect x="362" y="68" width="96" height="26" fill="rgba(91,156,245,0.12)" stroke="#5b9cf5" stroke-width="1" rx="4"/>
+  <text x="410" y="85" fill="#5b9cf5" font-size="12" text-anchor="middle" font-weight="600">流程图模式</text>
+
+  <!-- Canvas workspace -->
+  <rect x="256" y="100" width="600" height="530" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <!-- Subtle canvas grid -->
+  <g opacity="0.04">
+    <line x1="256" y1="200" x2="856" y2="200" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="256" y1="300" x2="856" y2="300" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="256" y1="400" x2="856" y2="400" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="256" y1="500" x2="856" y2="500" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="356" y1="100" x2="356" y2="630" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="456" y1="100" x2="456" y2="630" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="556" y1="100" x2="556" y2="630" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="656" y1="100" x2="656" y2="630" stroke="#5b9cf5" stroke-width="0.5"/>
+    <line x1="756" y1="100" x2="756" y2="630" stroke="#5b9cf5" stroke-width="0.5"/>
+  </g>
+
+  <!-- ===== Connection lines (drawn first, behind nodes) ===== -->
+  <!-- Node1 -> Node3 (curved) -->
+  <path d="M430,230 C430,280 480,280 480,320" fill="none" stroke="url(#connGrad1)" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowBlue)"/>
+  <!-- Node2 -> Node3 (curved) -->
+  <path d="M600,230 C600,280 480,280 480,320" fill="none" stroke="url(#connGrad2)" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowCyan)"/>
+  <!-- Node1 -> Node2 (horizontal) -->
+  <path d="M430,185 L530,185" fill="none" stroke="#5b9cf5" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrowBlue)"/>
+
+  <!-- Connection labels -->
+  <rect x="448" y="170" width="70" height="18" fill="rgba(13,17,23,0.9)" stroke="#5b9cf5" stroke-width="0.5" rx="4"/>
+  <text x="483" y="183" fill="#5b9cf5" font-size="10" text-anchor="middle" font-family="Inter, monospace">审查结果</text>
+  <rect x="396" y="260" width="70" height="18" fill="rgba(13,17,23,0.9)" stroke="#4dd0e1" stroke-width="0.5" rx="4"/>
+  <text x="431" y="273" fill="#4dd0e1" font-size="10" text-anchor="middle" font-family="Inter, monospace">代码片段</text>
+  <rect x="498" y="260" width="70" height="18" fill="rgba(13,17,23,0.9)" stroke="#9c7cff" stroke-width="0.5" rx="4"/>
+  <text x="533" y="273" fill="#9c7cff" font-size="10" text-anchor="middle" font-family="Inter, monospace">测试报告</text>
+
+  <!-- ===== Agent Node 1 - Code Reviewer ===== -->
+  <rect x="290" y="145" width="140" height="88" fill="rgba(33,40,59,0.9)" stroke="#5b9cf5" stroke-width="1.5" rx="8" filter="url(#glowStrong)"/>
+  <!-- Node glow border effect -->
+  <rect x="290" y="145" width="140" height="88" fill="none" stroke="#5b9cf5" stroke-width="0.5" rx="8" opacity="0.3"/>
+  <!-- Icon circle -->
+  <circle cx="312" cy="168" r="12" fill="#1a2332" stroke="#9c7cff" stroke-width="1.2"/>
+  <text x="312" y="172" fill="#9c7cff" font-size="11" text-anchor="middle" font-weight="700">A</text>
+  <!-- Title -->
+  <text x="328" y="172" fill="#e6edf3" font-size="13" font-weight="600">代码审查员</text>
+  <!-- Status dot -->
+  <circle cx="418" cy="158" r="4" fill="#3fb950" filter="url(#glow)"/>
+  <!-- Description -->
+  <text x="304" y="196" fill="#8b949e" font-size="12">代码分析 &#183; 安全检测</text>
+  <!-- Action buttons -->
+  <rect x="300" y="210" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="318" y="223" fill="#8b949e" font-size="10" text-anchor="middle">配置</text>
+  <rect x="340" y="210" width="36" height="18" fill="url(#btnPrimaryGrad)" rx="4"/>
+  <text x="358" y="223" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="600">启动</text>
+  <rect x="380" y="210" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="398" y="223" fill="#8b949e" font-size="10" text-anchor="middle">删除</text>
+
+  <!-- ===== Agent Node 2 - Test Engineer ===== -->
+  <rect x="530" y="145" width="140" height="88" fill="rgba(33,40,59,0.9)" stroke="#4dd0e1" stroke-width="1.5" rx="8" filter="url(#glowCyan)"/>
+  <rect x="530" y="145" width="140" height="88" fill="none" stroke="#4dd0e1" stroke-width="0.5" rx="8" opacity="0.3"/>
+  <circle cx="552" cy="168" r="12" fill="#1a2332" stroke="#4dd0e1" stroke-width="1.2"/>
+  <text x="552" y="172" fill="#4dd0e1" font-size="11" text-anchor="middle" font-weight="700">A</text>
+  <text x="568" y="172" fill="#e6edf3" font-size="13" font-weight="600">测试工程师</text>
+  <circle cx="658" cy="158" r="4" fill="#d29922"/>
+  <text x="544" y="196" fill="#8b949e" font-size="12">单元测试 &#183; 集成测试</text>
+  <rect x="540" y="210" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="558" y="223" fill="#8b949e" font-size="10" text-anchor="middle">配置</text>
+  <rect x="580" y="210" width="36" height="18" fill="url(#btnPrimaryGrad)" rx="4"/>
+  <text x="598" y="223" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="600">暂停</text>
+  <rect x="620" y="210" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="638" y="223" fill="#8b949e" font-size="10" text-anchor="middle">删除</text>
+
+  <!-- ===== Agent Node 3 - Doc Generator ===== -->
+  <rect x="410" y="320" width="140" height="88" fill="rgba(33,40,59,0.9)" stroke="#9c7cff" stroke-width="1.5" rx="8" filter="url(#glowPurple)"/>
+  <rect x="410" y="320" width="140" height="88" fill="none" stroke="#9c7cff" stroke-width="0.5" rx="8" opacity="0.3"/>
+  <circle cx="432" cy="343" r="12" fill="#1a2332" stroke="#66d9a0" stroke-width="1.2"/>
+  <text x="432" y="347" fill="#66d9a0" font-size="11" text-anchor="middle" font-weight="700">A</text>
+  <text x="448" y="347" fill="#e6edf3" font-size="13" font-weight="600">文档生成器</text>
+  <circle cx="538" cy="333" r="4" fill="#3fb950" filter="url(#glow)"/>
+  <text x="424" y="371" fill="#8b949e" font-size="12">文档编写 &#183; 格式转换</text>
+  <rect x="420" y="385" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="438" y="398" fill="#8b949e" font-size="10" text-anchor="middle">配置</text>
+  <rect x="460" y="385" width="36" height="18" fill="url(#btnPrimaryGrad)" rx="4"/>
+  <text x="478" y="398" fill="#ffffff" font-size="10" text-anchor="middle" font-weight="600">启动</text>
+  <rect x="500" y="385" width="36" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="518" y="398" fill="#8b949e" font-size="10" text-anchor="middle">删除</text>
+
+  <!-- Canvas watermark / hint -->
+  <text x="556" y="510" fill="#484f58" font-size="12" text-anchor="middle">拖拽 Agent 至画布 &#183; 滚轮缩放 &#183; 框选批量操作</text>
+
+  <!-- Mini-map indicator (bottom-right of canvas) -->
+  <rect x="786" y="570" width="60" height="50" fill="rgba(13,17,23,0.8)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <rect x="792" y="576" width="48" height="38" fill="rgba(33,40,59,0.5)" stroke="#2d3548" stroke-width="0.5" rx="2"/>
+  <rect x="800" y="582" width="14" height="8" fill="#5b9cf5" opacity="0.4" rx="1"/>
+  <rect x="818" y="582" width="14" height="8" fill="#4dd0e1" opacity="0.4" rx="1"/>
+  <rect x="808" y="596" width="14" height="8" fill="#9c7cff" opacity="0.4" rx="1"/>
+
+  <!-- ===== Input Area (bottom of canvas) ===== -->
+  <rect x="256" y="640" width="600" height="108" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <rect x="266" y="650" width="580" height="52" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <text x="278" y="680" fill="#484f58" font-size="14">输入指令，下发任务给所有 Agent...</text>
+  <!-- Blinking cursor -->
+  <rect x="278" y="670" width="1.5" height="16" fill="#5b9cf5" opacity="0.7"/>
+
+  <!-- Input toolbar -->
+  <rect x="266" y="710" width="44" height="24" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="288" y="726" fill="#8b949e" font-size="11" text-anchor="middle">附件</text>
+  <rect x="316" y="710" width="44" height="24" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="338" y="726" fill="#8b949e" font-size="11" text-anchor="middle">清空</text>
+  <rect x="366" y="710" width="72" height="24" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="376" y="726" fill="#8b949e" font-size="12">Claude</text>
+  <text x="422" y="726" fill="#6e7681" font-size="10">&#9662;</text>
+  <rect x="444" y="710" width="72" height="24" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="454" y="726" fill="#8b949e" font-size="12">GLM4.5</text>
+  <text x="500" y="726" fill="#6e7681" font-size="10">&#9662;</text>
+  <rect x="522" y="710" width="60" height="24" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="532" y="726" fill="#8b949e" font-size="12">High</text>
+  <text x="568" y="726" fill="#6e7681" font-size="10">&#9662;</text>
+  <!-- Send button -->
+  <rect x="766" y="708" width="80" height="28" fill="url(#btnPrimaryGrad)" rx="4" filter="url(#glow)"/>
+  <text x="806" y="727" fill="#ffffff" font-size="14" text-anchor="middle" font-weight="600">发送</text>
+
+  <!-- ================================================================== -->
+  <!-- RIGHT INFO PANEL                                                   -->
+  <!-- ================================================================== -->
+  <rect x="872" y="58" width="318" height="700" fill="rgba(22,27,34,0.85)" stroke="#2d3548" stroke-width="1" rx="12" filter="url(#shadowDeep)"/>
+
+  <!-- Panel header -->
+  <text x="886" y="84" fill="#e6edf3" font-size="14" font-weight="600">信息面板</text>
+  <rect x="1140" y="68" width="40" height="22" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="1160" y="83" fill="#8b949e" font-size="11" text-anchor="middle">收起</text>
+
+  <!-- Panel Tabs -->
+  <rect x="880" y="94" width="52" height="24" fill="rgba(91,156,245,0.12)" stroke="#5b9cf5" stroke-width="1" rx="4"/>
+  <text x="906" y="110" fill="#5b9cf5" font-size="12" text-anchor="middle" font-weight="600">配置</text>
+  <rect x="938" y="94" width="52" height="24" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="964" y="110" fill="#6e7681" font-size="12" text-anchor="middle">Agent</text>
+  <rect x="996" y="94" width="44" height="24" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="1018" y="110" fill="#6e7681" font-size="12" text-anchor="middle">日志</text>
+  <rect x="1046" y="94" width="44" height="24" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="1068" y="110" fill="#6e7681" font-size="12" text-anchor="middle">历史</text>
+  <rect x="1096" y="94" width="44" height="24" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="1118" y="110" fill="#6e7681" font-size="12" text-anchor="middle">素材</text>
+
+  <!-- ===== Session Config Section ===== -->
+  <rect x="880" y="126" width="302" height="140" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="892" y="146" fill="#e6edf3" font-size="13" font-weight="600">会话基础配置</text>
+
+  <text x="892" y="168" fill="#8b949e" font-size="12">会话名称</text>
+  <rect x="968" y="156" width="206" height="20" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <text x="978" y="170" fill="#e6edf3" font-size="12">智能客服优化方案</text>
+
+  <text x="892" y="196" fill="#8b949e" font-size="12">描述</text>
+  <rect x="968" y="184" width="206" height="28" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <text x="978" y="202" fill="#484f58" font-size="12">输入会话描述...</text>
+
+  <text x="892" y="228" fill="#8b949e" font-size="12">协作权限</text>
+  <rect x="968" y="216" width="100" height="20" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="978" y="230" fill="#8b949e" font-size="12">可编辑</text>
+  <text x="1058" y="230" fill="#6e7681" font-size="10">&#9662;</text>
+
+  <!-- Toggle: auto-save -->
+  <text x="1120" y="146" fill="#8b949e" font-size="11">自动保存</text>
+  <rect x="1170" y="135" width="30" height="16" fill="#5b9cf5" rx="8"/>
+  <circle cx="1192" cy="143" r="6" fill="#ffffff"/>
+
+  <!-- ===== Global Model Params Section ===== -->
+  <rect x="880" y="276" width="302" height="140" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="892" y="296" fill="#e6edf3" font-size="13" font-weight="600">全局模型参数</text>
+
+  <text x="892" y="320" fill="#8b949e" font-size="12">温度</text>
+  <rect x="968" y="308" width="40" height="20" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <text x="978" y="322" fill="#5b9cf5" font-size="12" font-family="Inter, monospace">0.7</text>
+  <!-- Slider track -->
+  <rect x="1016" y="316" width="160" height="4" fill="#2d3548" rx="2"/>
+  <rect x="1016" y="316" width="100" height="4" fill="#5b9cf5" rx="2"/>
+  <circle cx="1116" cy="318" r="6" fill="#5b9cf5" stroke="#0d1117" stroke-width="2"/>
+
+  <text x="892" y="348" fill="#8b949e" font-size="12">最大上下文</text>
+  <rect x="968" y="336" width="80" height="20" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="6"/>
+  <text x="978" y="350" fill="#e6edf3" font-size="12" font-family="Inter, monospace">4096</text>
+
+  <text x="892" y="376" fill="#8b949e" font-size="12">输出格式</text>
+  <rect x="968" y="364" width="80" height="20" fill="#0d1117" stroke="#2d3548" stroke-width="1" rx="4"/>
+  <text x="978" y="378" fill="#8b949e" font-size="12">文本</text>
+  <text x="1038" y="378" fill="#6e7681" font-size="10">&#9662;</text>
+
+  <!-- ===== Permissions Section ===== -->
+  <rect x="880" y="426" width="302" height="150" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="892" y="446" fill="#e6edf3" font-size="13" font-weight="600">权限管理</text>
+
+  <!-- User row 1 -->
+  <rect x="892" y="456" width="278" height="24" fill="rgba(91,156,245,0.08)" stroke="#5b9cf5" stroke-width="0.5" rx="4"/>
+  <circle cx="906" cy="468" r="8" fill="#1a2332" stroke="#5b9cf5" stroke-width="1"/>
+  <text x="906" y="472" fill="#5b9cf5" font-size="9" text-anchor="middle" font-weight="700">Z</text>
+  <text x="920" y="472" fill="#e6edf3" font-size="12">张三</text>
+  <rect x="1040" y="460" width="50" height="16" fill="rgba(91,156,245,0.15)" stroke="#5b9cf5" stroke-width="0.5" rx="4"/>
+  <text x="1065" y="472" fill="#5b9cf5" font-size="10" text-anchor="middle">所有者</text>
+
+  <!-- User row 2 -->
+  <rect x="892" y="484" width="278" height="24" fill="rgba(33,40,59,0.5)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="906" cy="496" r="8" fill="#1a2332" stroke="#4dd0e1" stroke-width="1"/>
+  <text x="906" y="500" fill="#4dd0e1" font-size="9" text-anchor="middle" font-weight="700">L</text>
+  <text x="920" y="500" fill="#e6edf3" font-size="12">李四</text>
+  <rect x="1040" y="488" width="50" height="16" fill="rgba(77,208,225,0.1)" stroke="#4dd0e1" stroke-width="0.5" rx="4"/>
+  <text x="1065" y="500" fill="#4dd0e1" font-size="10" text-anchor="middle">可编辑</text>
+
+  <!-- User row 3 -->
+  <rect x="892" y="512" width="278" height="24" fill="rgba(33,40,59,0.5)" stroke="#2d3548" stroke-width="0.5" rx="4"/>
+  <circle cx="906" cy="524" r="8" fill="#1a2332" stroke="#9c7cff" stroke-width="1"/>
+  <text x="906" y="528" fill="#9c7cff" font-size="9" text-anchor="middle" font-weight="700">W</text>
+  <text x="920" y="528" fill="#e6edf3" font-size="12">王五</text>
+  <rect x="1040" y="516" width="50" height="16" fill="rgba(156,124,255,0.1)" stroke="#9c7cff" stroke-width="0.5" rx="4"/>
+  <text x="1065" y="528" fill="#9c7cff" font-size="10" text-anchor="middle">只读</text>
+
+  <!-- Add collaborator button -->
+  <rect x="892" y="544" width="278" height="24" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4" stroke-dasharray="4,2"/>
+  <text x="1031" y="560" fill="#5b9cf5" font-size="12" text-anchor="middle">+ 添加协作者</text>
+
+  <!-- ===== Runtime Info Section ===== -->
+  <rect x="880" y="586" width="302" height="128" fill="rgba(33,40,59,0.6)" stroke="#2d3548" stroke-width="1" rx="8"/>
+  <text x="892" y="606" fill="#e6edf3" font-size="13" font-weight="600">运行时信息</text>
+
+  <!-- Token usage bar -->
+  <text x="892" y="626" fill="#8b949e" font-size="12">Token 用量</text>
+  <rect x="968" y="614" width="200" height="8" fill="#2d3548" rx="4"/>
+  <rect x="968" y="614" width="120" height="8" fill="#5b9cf5" rx="4"/>
+  <text x="1172" y="624" fill="#5b9cf5" font-size="11" font-family="Inter, monospace">60%</text>
+
+  <!-- API calls -->
+  <text x="892" y="650" fill="#8b949e" font-size="12">API 调用</text>
+  <text x="968" y="650" fill="#e6edf3" font-size="12" font-family="Inter, monospace">1,247</text>
+
+  <!-- Cost -->
+  <text x="892" y="674" fill="#8b949e" font-size="12">预估费用</text>
+  <text x="968" y="674" fill="#66d9a0" font-size="12" font-family="Inter, monospace">$3.42</text>
+
+  <!-- Uptime -->
+  <text x="892" y="698" fill="#8b949e" font-size="12">运行时长</text>
+  <text x="968" y="698" fill="#e6edf3" font-size="12" font-family="Inter, monospace">02:34:18</text>
+
+  <!-- ================================================================== -->
+  <!-- BOTTOM STATUS BAR                                                  -->
+  <!-- ================================================================== -->
+  <rect x="10" y="762" width="1180" height="28" fill="rgba(22,27,34,0.92)" stroke="#2d3548" stroke-width="1" rx="12"/>
+
+  <!-- Status indicator -->
+  <circle cx="26" cy="778" r="4" fill="#3fb950"/>
+  <text x="36" y="782" fill="#8b949e" font-size="12">状态: 空闲</text>
+
+  <!-- Token count -->
+  <text x="130" y="782" fill="#6e7681" font-size="12" font-family="Inter, monospace">Token: 2,340</text>
+
+  <!-- API calls -->
+  <text x="250" y="782" fill="#6e7681" font-size="12" font-family="Inter, monospace">调用: 15</text>
+
+  <!-- Connection status -->
+  <circle cx="350" cy="778" r="3" fill="#3fb950"/>
+  <text x="358" y="782" fill="#6e7681" font-size="11">已连接</text>
+
+  <!-- Zoom controls (right side) -->
+  <rect x="928" y="768" width="32" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="944" y="781" fill="#8b949e" font-size="12" text-anchor="middle">+</text>
+  <rect x="964" y="768" width="44" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="986" y="781" fill="#8b949e" font-size="11" text-anchor="middle" font-family="Inter, monospace">100%</text>
+  <rect x="1012" y="768" width="32" height="18" fill="#2d3548" stroke="#3d4a5c" stroke-width="1" rx="4"/>
+  <text x="1028" y="781" fill="#8b949e" font-size="12" text-anchor="middle">-</text>
+
+  <!-- Auto-save status -->
+  <circle cx="1130" cy="778" r="3" fill="#3fb950"/>
+  <text x="1138" y="782" fill="#6e7681" font-size="11">已自动保存</text>
+
+  <!-- Version -->
+  <text x="1160" y="782" fill="#484f58" font-size="10" font-family="Inter, monospace">v0.1.0</text>
+</svg>

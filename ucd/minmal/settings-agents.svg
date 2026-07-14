@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" font-family="Arial, Helvetica, &quot;PingFang SC&quot;, sans-serif">
+  <!-- Background -->
+  <rect width="1200" height="820" fill="#FFFFFF" />
+  <!-- ============================== TOP NAV BAR ============================== -->
+  <rect x="0" y="0" width="1200" height="48" fill="#FFFFFF" />
+  <!-- Blue highlight line -->
+  <rect x="0" y="0" width="1200" height="1" fill="#FFFFFF" />
+  <rect x="0" y="47" width="1200" height="1" fill="#FFFFFF" />
+  <!-- Logo -->
+  <text x="20" y="30" fill="#2563EB" font-size="16" font-weight="bold">VaneHub AI</text>
+  <!-- Breadcrumb in nav -->
+  <text x="160" y="30" fill="#111827" font-size="12">设置</text>
+  <text x="192" y="30" fill="#111827" font-size="12">/</text>
+  <text x="202" y="30" fill="#111827" font-size="12" font-weight="bold">Agents</text>
+  <!-- Search -->
+  <rect x="820" y="11" width="260" height="28" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="838" y="30" fill="#111827" font-size="11">搜索 Agent...</text>
+  <circle cx="1062" cy="25" r="8" fill="none" stroke="#111827" stroke-width="1.5" />
+  <line x1="1068" y1="31" x2="1073" y2="36" stroke="#111827" stroke-width="1.5" fill="none" />
+  <!-- Return button -->
+  <rect x="1100" y="11" width="80" height="28" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="1140" y="30" fill="#111827" font-size="11" text-anchor="middle">返回</text>
+  <!-- ============================== LEFT SIDEBAR ============================== -->
+  <rect x="0" y="48" width="220" height="726" fill="#FFFFFF" stroke-width="0" />
+  <rect x="219" y="48" width="1" height="726" fill="#FFFFFF" />
+  <!-- Section title -->
+  <text x="20" y="78" fill="#111827" font-size="11" font-weight="bold">系统设置</text>
+  <rect x="16" y="88" width="188" height="1" fill="#FFFFFF" />
+  <!-- Nav items -->
+  <!-- 基础配置 -->
+  <rect x="0" y="98" width="220" height="36" fill="none" />
+  <text x="44" y="121" fill="#111827" font-size="12">基础配置</text>
+  <circle cx="30" cy="116" r="3" fill="#FFFFFF" />
+  <!-- 供应商管理 -->
+  <rect x="0" y="138" width="220" height="36" fill="none" />
+  <text x="44" y="161" fill="#111827" font-size="12">供应商管理</text>
+  <circle cx="30" cy="156" r="3" fill="#FFFFFF" />
+  <!-- SDK 依赖 -->
+  <rect x="0" y="178" width="220" height="36" fill="none" />
+  <text x="44" y="201" fill="#111827" font-size="12">SDK 依赖</text>
+  <circle cx="30" cy="196" r="3" fill="#FFFFFF" />
+  <!-- MCP 服务器 -->
+  <rect x="0" y="218" width="220" height="36" fill="none" />
+  <text x="44" y="241" fill="#111827" font-size="12">MCP 服务器</text>
+  <circle cx="30" cy="236" r="3" fill="#FFFFFF" />
+  <!-- Agents - ACTIVE -->
+  <rect x="0" y="258" width="220" height="36" fill="#FFFFFF" />
+  <rect x="0" y="258" width="3" height="36" fill="#2563EB" />
+  <text x="44" y="281" fill="#2563EB" font-size="12" font-weight="bold">Agents</text>
+  <circle cx="30" cy="276" r="3" fill="#2563EB" />
+  <!-- Skills -->
+  <rect x="0" y="298" width="220" height="36" fill="none" />
+  <text x="44" y="321" fill="#111827" font-size="12">Skills</text>
+  <circle cx="30" cy="316" r="3" fill="#FFFFFF" />
+  <!-- Sidebar bottom info -->
+  <rect x="16" y="738" width="188" height="1" fill="#FFFFFF" />
+  <text x="20" y="758" fill="#111827" font-size="11">VaneHub AI v0.1.0</text>
+  <!-- ============================== RIGHT CONTENT AREA ============================== -->
+  <!-- Breadcrumb -->
+  <text x="240" y="76" fill="#111827" font-size="11">设置</text>
+  <text x="268" y="76" fill="#111827" font-size="11">/</text>
+  <text x="278" y="76" fill="#111827" font-size="11" font-weight="bold">Agents</text>
+  <!-- ============================== FILTER TABS ============================== -->
+  <!-- 全部 (4) - active -->
+  <rect x="240" y="90" width="88" height="28" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5" rx="4" />
+  <text x="284" y="109" fill="#2563EB" font-size="11" text-anchor="middle" font-weight="bold">全部 (4)</text>
+  <!-- 已启用 (3) -->
+  <rect x="336" y="90" width="88" height="28" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="380" y="109" fill="#111827" font-size="11" text-anchor="middle">已启用 (3)</text>
+  <!-- 已禁用 (1) -->
+  <rect x="432" y="90" width="88" height="28" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="476" y="109" fill="#111827" font-size="11" text-anchor="middle">已禁用 (1)</text>
+  <!-- 导入Agent button -->
+  <rect x="940" y="90" width="100" height="28" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="990" y="109" fill="#111827" font-size="11" text-anchor="middle">导入 Agent</text>
+  <!-- 创建Agent primary button -->
+  <rect x="1050" y="90" width="110" height="28" fill="#2563EB" rx="4" />
+  <text x="1105" y="109" fill="#111827" font-size="11" text-anchor="middle" font-weight="bold">创建 Agent</text>
+  <!-- ============================== AGENT CARD 1: 代码审查员 ============================== -->
+  <rect x="240" y="130" width="454" height="160" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <!-- Header blue band -->
+  <rect x="240" y="130" width="454" height="36" fill="#FFFFFF" rx="4" />
+  <rect x="240" y="154" width="454" height="12" fill="#FFFFFF" />
+  <rect x="240" y="160" width="454" height="1" fill="#FFFFFF" />
+  <!-- Icon circle with letter A -->
+  <circle cx="268" cy="148" r="14" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5" />
+  <text x="268" y="153" fill="#2563EB" font-size="12" text-anchor="middle" font-weight="bold">A</text>
+  <!-- Name -->
+  <text x="290" y="153" fill="#111827" font-size="12" font-weight="bold">代码审查员</text>
+  <!-- Status -->
+  <circle cx="654" cy="148" r="4" fill="#2563EB" />
+  <text x="648" y="153" fill="#2563EB" font-size="11" text-anchor="end">运行中</text>
+  <!-- Tags -->
+  <rect x="256" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="286" y="183" fill="#2563EB" font-size="11" text-anchor="middle">代码分析</text>
+  <rect x="322" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="352" y="183" fill="#2563EB" font-size="11" text-anchor="middle">安全检测</text>
+  <rect x="388" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="418" y="183" fill="#2563EB" font-size="11" text-anchor="middle">最佳实践</text>
+  <!-- Config info -->
+  <text x="256" y="206" fill="#111827" font-size="11">模型: GLM-4.5</text>
+  <text x="378" y="206" fill="#111827" font-size="11">温度: 0.3</text>
+  <text x="468" y="206" fill="#111827" font-size="11">MCP: 2</text>
+  <text x="538" y="206" fill="#111827" font-size="11">Skills: 3</text>
+  <!-- Buttons -->
+  <rect x="256" y="220" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="281" y="235" fill="#111827" font-size="11" text-anchor="middle">配置</text>
+  <rect x="312" y="220" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="337" y="235" fill="#111827" font-size="11" text-anchor="middle">复制</text>
+  <rect x="368" y="220" width="50" height="22" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="393" y="235" fill="#2563EB" font-size="11" text-anchor="middle">删除</text>
+  <!-- Toggle ON -->
+  <text x="580" y="235" fill="#111827" font-size="11">启用</text>
+  <rect x="618" y="222" width="36" height="20" fill="#2563EB" rx="4" />
+  <circle cx="646" cy="232" r="7" fill="#FFFFFF" />
+  <!-- ============================== AGENT CARD 2: 测试工程师 ============================== -->
+  <rect x="706" y="130" width="454" height="160" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <!-- Header green band -->
+  <rect x="706" y="130" width="454" height="36" fill="#FFFFFF" rx="4" />
+  <rect x="706" y="154" width="454" height="12" fill="#FFFFFF" />
+  <rect x="706" y="160" width="454" height="1" fill="#FFFFFF" />
+  <!-- Icon circle with letter T -->
+  <circle cx="734" cy="148" r="14" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5" />
+  <text x="734" y="153" fill="#2563EB" font-size="12" text-anchor="middle" font-weight="bold">T</text>
+  <!-- Name -->
+  <text x="756" y="153" fill="#111827" font-size="12" font-weight="bold">测试工程师</text>
+  <!-- Status - yellow/idle -->
+  <circle cx="1120" cy="148" r="4" fill="#2563EB" />
+  <text x="1114" y="153" fill="#2563EB" font-size="11" text-anchor="end">空闲</text>
+  <!-- Tags -->
+  <rect x="722" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="752" y="183" fill="#2563EB" font-size="11" text-anchor="middle">单元测试</text>
+  <rect x="788" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="818" y="183" fill="#2563EB" font-size="11" text-anchor="middle">集成测试</text>
+  <rect x="854" y="170" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="884" y="183" fill="#2563EB" font-size="11" text-anchor="middle">E2E测试</text>
+  <!-- Config info -->
+  <text x="722" y="206" fill="#111827" font-size="11">模型: Claude-3.5</text>
+  <text x="848" y="206" fill="#111827" font-size="11">温度: 0.5</text>
+  <text x="938" y="206" fill="#111827" font-size="11">MCP: 1</text>
+  <text x="1008" y="206" fill="#111827" font-size="11">Skills: 2</text>
+  <!-- Buttons -->
+  <rect x="722" y="220" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="747" y="235" fill="#111827" font-size="11" text-anchor="middle">配置</text>
+  <rect x="778" y="220" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="803" y="235" fill="#111827" font-size="11" text-anchor="middle">复制</text>
+  <rect x="834" y="220" width="50" height="22" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="859" y="235" fill="#2563EB" font-size="11" text-anchor="middle">删除</text>
+  <!-- Toggle ON -->
+  <text x="1046" y="235" fill="#111827" font-size="11">启用</text>
+  <rect x="1084" y="222" width="36" height="20" fill="#2563EB" rx="4" />
+  <circle cx="1112" cy="232" r="7" fill="#FFFFFF" />
+  <!-- ============================== AGENT CARD 3: 文档生成器 ============================== -->
+  <rect x="240" y="300" width="454" height="160" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <!-- Header yellow band -->
+  <rect x="240" y="300" width="454" height="36" fill="#FFFFFF" rx="4" />
+  <rect x="240" y="324" width="454" height="12" fill="#FFFFFF" />
+  <rect x="240" y="330" width="454" height="1" fill="#FFFFFF" />
+  <!-- Icon circle with letter D -->
+  <circle cx="268" cy="318" r="14" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5" />
+  <text x="268" y="323" fill="#2563EB" font-size="12" text-anchor="middle" font-weight="bold">D</text>
+  <!-- Name -->
+  <text x="290" y="323" fill="#111827" font-size="12" font-weight="bold">文档生成器</text>
+  <!-- Status - green/running -->
+  <circle cx="654" cy="318" r="4" fill="#2563EB" />
+  <text x="648" y="323" fill="#2563EB" font-size="11" text-anchor="end">运行中</text>
+  <!-- Tags -->
+  <rect x="256" y="340" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="286" y="353" fill="#2563EB" font-size="11" text-anchor="middle">API文档</text>
+  <rect x="322" y="340" width="60" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="352" y="353" fill="#2563EB" font-size="11" text-anchor="middle">README</text>
+  <rect x="388" y="340" width="66" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="421" y="353" fill="#2563EB" font-size="11" text-anchor="middle">规格文档</text>
+  <!-- Config info -->
+  <text x="256" y="376" fill="#111827" font-size="11">模型: GLM-4.5</text>
+  <text x="378" y="376" fill="#111827" font-size="11">温度: 0.7</text>
+  <text x="468" y="376" fill="#111827" font-size="11">MCP: 1</text>
+  <text x="538" y="376" fill="#111827" font-size="11">Skills: 2</text>
+  <!-- Buttons -->
+  <rect x="256" y="390" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="281" y="405" fill="#111827" font-size="11" text-anchor="middle">配置</text>
+  <rect x="312" y="390" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="337" y="405" fill="#111827" font-size="11" text-anchor="middle">复制</text>
+  <rect x="368" y="390" width="50" height="22" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="393" y="405" fill="#2563EB" font-size="11" text-anchor="middle">删除</text>
+  <!-- Toggle ON -->
+  <text x="580" y="405" fill="#111827" font-size="11">启用</text>
+  <rect x="618" y="392" width="36" height="20" fill="#2563EB" rx="4" />
+  <circle cx="646" cy="402" r="7" fill="#FFFFFF" />
+  <!-- ============================== AGENT CARD 4: 数据分析师 (已禁用, opacity 0.7) ============================== -->
+  <rect x="706" y="300" width="454" height="160" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <!-- Header gray band -->
+  <rect x="706" y="300" width="454" height="36" fill="#FFFFFF" rx="4" />
+  <rect x="706" y="324" width="454" height="12" fill="#FFFFFF" />
+  <rect x="706" y="330" width="454" height="1" fill="#FFFFFF" />
+  <!-- Icon circle with letter S -->
+  <circle cx="734" cy="318" r="14" fill="#FFFFFF" stroke="#2563EB" stroke-width="1.5" />
+  <text x="734" y="323" fill="#2563EB" font-size="12" text-anchor="middle" font-weight="bold">S</text>
+  <!-- Name -->
+  <text x="756" y="323" fill="#111827" font-size="12" font-weight="bold">数据分析师</text>
+  <!-- Status - gray/disabled -->
+  <circle cx="1120" cy="318" r="4" fill="#FFFFFF" />
+  <text x="1114" y="323" fill="#111827" font-size="11" text-anchor="end">已禁用</text>
+  <!-- Tags - muted style -->
+  <rect x="722" y="340" width="60" height="18" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="752" y="353" fill="#111827" font-size="11" text-anchor="middle">数据分析</text>
+  <rect x="788" y="340" width="54" height="18" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="815" y="353" fill="#111827" font-size="11" text-anchor="middle">可视化</text>
+  <!-- Config info -->
+  <text x="722" y="376" fill="#111827" font-size="11">模型: GPT-4o</text>
+  <text x="848" y="376" fill="#111827" font-size="11">温度: 0.5</text>
+  <text x="938" y="376" fill="#111827" font-size="11">MCP: 0</text>
+  <text x="1008" y="376" fill="#111827" font-size="11">Skills: 1</text>
+  <!-- Buttons -->
+  <rect x="722" y="390" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="747" y="405" fill="#111827" font-size="11" text-anchor="middle">配置</text>
+  <rect x="778" y="390" width="50" height="22" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="803" y="405" fill="#111827" font-size="11" text-anchor="middle">复制</text>
+  <rect x="834" y="390" width="50" height="22" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="859" y="405" fill="#2563EB" font-size="11" text-anchor="middle">删除</text>
+  <!-- Toggle OFF -->
+  <text x="1046" y="405" fill="#111827" font-size="11">启用</text>
+  <rect x="1084" y="392" width="36" height="20" fill="#FFFFFF" rx="4" />
+  <circle cx="1096" cy="402" r="7" fill="#FFFFFF" />
+  <!-- ============================== AGENT CONFIG DETAIL PANEL ============================== -->
+  <rect x="240" y="474" width="920" height="256" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <!-- Title -->
+  <text x="260" y="500" fill="#111827" font-size="12" font-weight="bold">Agent 配置详情</text>
+  <text x="382" y="500" fill="#111827" font-size="12">—</text>
+  <text x="400" y="500" fill="#2563EB" font-size="12">代码审查员</text>
+  <rect x="260" y="510" width="880" height="1" fill="#FFFFFF" />
+  <!-- Row 1: Agent ID, 创建时间, 最后运行 -->
+  <text x="260" y="534" fill="#111827" font-size="11">Agent ID</text>
+  <text x="340" y="534" fill="#111827" font-size="11">agent-code-reviewer-001</text>
+  <text x="540" y="534" fill="#111827" font-size="11">创建时间</text>
+  <text x="620" y="534" fill="#111827" font-size="11">2026-07-10 09:30</text>
+  <text x="770" y="534" fill="#111827" font-size="11">最后运行</text>
+  <text x="850" y="534" fill="#111827" font-size="11">2026-07-14 14:22</text>
+  <!-- Row 2: System Prompt -->
+  <text x="260" y="558" fill="#111827" font-size="11">System Prompt</text>
+  <rect x="370" y="546" width="770" height="40" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="382" y="562" fill="#111827" font-size="11">你是一个专业的代码审查员。请审查提交的代码变更，关注代码质量、安全漏洞、性能问题</text>
+  <text x="382" y="576" fill="#111827" font-size="11">和最佳实践合规性。给出具体的改进建议，并标注严重程度。</text>
+  <!-- Row 3: 关联MCP服务器 + 关联Skills -->
+  <text x="260" y="604" fill="#111827" font-size="11">关联MCP服务器</text>
+  <rect x="380" y="592" width="100" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="430" y="605" fill="#2563EB" font-size="11" text-anchor="middle">CodeHub MCP</text>
+  <rect x="488" y="592" width="100" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="538" y="605" fill="#2563EB" font-size="11" text-anchor="middle">文件系统MCP</text>
+  <text x="620" y="604" fill="#111827" font-size="11">关联Skills</text>
+  <rect x="700" y="592" width="72" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="736" y="605" fill="#2563EB" font-size="11" text-anchor="middle">代码审查</text>
+  <rect x="780" y="592" width="72" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="816" y="605" fill="#2563EB" font-size="11" text-anchor="middle">安全扫描</text>
+  <rect x="860" y="592" width="72" height="18" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5" rx="4" />
+  <text x="896" y="605" fill="#2563EB" font-size="11" text-anchor="middle">质量评分</text>
+  <!-- Row 4: 运行参数 -->
+  <text x="260" y="636" fill="#111827" font-size="11">最大并发数</text>
+  <rect x="350" y="624" width="70" height="20" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="362" y="638" fill="#111827" font-size="11">3</text>
+  <text x="440" y="636" fill="#111827" font-size="11">超时时间</text>
+  <rect x="520" y="624" width="80" height="20" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="532" y="638" fill="#111827" font-size="11">120秒</text>
+  <text x="620" y="636" fill="#111827" font-size="11">重试次数</text>
+  <rect x="700" y="624" width="70" height="20" fill="#FFFFFF" stroke="#111827" stroke-width="1.5" rx="4" />
+  <text x="712" y="638" fill="#111827" font-size="11">2次</text>
+  <!-- Row 5: 统计 -->
+  <rect x="260" y="654" width="880" height="1" fill="#FFFFFF" />
+  <text x="260" y="678" fill="#111827" font-size="11">累计运行</text>
+  <text x="336" y="678" fill="#111827" font-size="11" font-weight="bold">47次</text>
+  <text x="390" y="678" fill="#111827" font-size="11">成功率</text>
+  <text x="450" y="678" fill="#2563EB" font-size="11" font-weight="bold">95.7%</text>
+  <text x="510" y="678" fill="#111827" font-size="11">平均耗时</text>
+  <text x="586" y="678" fill="#111827" font-size="11" font-weight="bold">8.3秒</text>
+  <text x="640" y="678" fill="#111827" font-size="11">Token消耗</text>
+  <text x="722" y="678" fill="#111827" font-size="11" font-weight="bold">128,450</text>
+  <!-- ============================== BOTTOM STATUS BAR ============================== -->
+  <rect x="0" y="738" width="1200" height="1" fill="#FFFFFF" />
+  <rect x="0" y="739" width="1200" height="28" fill="#FFFFFF" />
+  <!-- Status indicators -->
+  <circle cx="16" cy="755" r="4" fill="#2563EB" />
+  <text x="26" y="759" fill="#111827" font-size="11">3/4 Agents已启用</text>
+  <text x="170" y="759" fill="#111827" font-size="11">2个运行中</text>
+  <!-- Version -->
+  <text x="1140" y="759" fill="#111827" font-size="11">VaneHub AI v0.1.0</text>
+  <!-- ============================== DECORATIVE GLOW ACCENTS ============================== -->
+  <!-- Subtle glow behind active card -->
+  <rect x="240" y="130" width="454" height="160" fill="none" stroke="#2563EB" stroke-width="1.5" rx="4" />
+</svg>

@@ -16,6 +16,75 @@
   --primary-foreground: 0 0% 100%;
   --destructive: 0 72% 44%;
   --destructive-foreground: 0 0% 100%;
+  --panel: 0 0% 100%;
+  --panel-foreground: 220 18% 12%;
+  --panel-muted: 210 24% 96%;
+  --panel-border: 214 18% 86%;
+  --nav-active: 198 78% 36%;
+  --nav-active-soft: 198 78% 36% / 0.12;
+  --success: 152 64% 38%;
+  --success-soft: 152 64% 38% / 0.12;
+  --warning: 35 92% 48%;
+  --warning-soft: 35 92% 48% / 0.14;
+  --danger: 0 72% 50%;
+  --danger-soft: 0 72% 50% / 0.12;
+  --shadow-color: 220 18% 12% / 0.08;
+}
+
+:root[data-theme="futuristic"] {
+  --background: 216 28% 7%;
+  --foreground: 210 28% 91%;
+  --muted: 216 24% 11%;
+  --muted-foreground: 215 10% 62%;
+  --accent: 217 22% 24%;
+  --accent-foreground: 210 28% 91%;
+  --border: 218 18% 24%;
+  --input: 218 18% 24%;
+  --ring: 215 88% 66%;
+  --primary: 215 88% 66%;
+  --primary-foreground: 216 28% 7%;
+  --destructive: 3 91% 65%;
+  --destructive-foreground: 0 0% 100%;
+  --panel: 216 24% 11%;
+  --panel-foreground: 210 28% 91%;
+  --panel-muted: 217 22% 15%;
+  --panel-border: 218 18% 24%;
+  --nav-active: 215 88% 66%;
+  --nav-active-soft: 215 88% 66% / 0.14;
+  --success: 144 61% 52%;
+  --success-soft: 144 61% 52% / 0.14;
+  --warning: 39 88% 62%;
+  --warning-soft: 39 88% 62% / 0.14;
+  --danger: 3 91% 65%;
+  --danger-soft: 3 91% 65% / 0.14;
+  --shadow-color: 0 0% 0% / 0.32;
+}
+
+:root[data-theme="minimal"] {
+  --background: 0 0% 100%;
+  --foreground: 221 39% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 221 20% 36%;
+  --accent: 221 83% 53%;
+  --accent-foreground: 221 39% 11%;
+  --border: 221 39% 11% / 0.26;
+  --input: 221 39% 11% / 0.26;
+  --ring: 221 83% 53%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 0 0% 100%;
+  --panel: 0 0% 100%;
+  --panel-foreground: 221 39% 11%;
+  --panel-muted: 220 14% 96%;
+  --panel-border: 221 39% 11% / 0.32;
+  --nav-active: 221 83% 53%;
+  --nav-active-soft: 221 83% 53% / 0.12;
+  --success: 142 60% 34%;
+  --success-soft: 142 60% 34% / 0.12;
+  --warning: 32 95% 44%;
+  --warning-soft: 32 95% 44% / 0.12;
+  --danger: 0 72% 44%;
+  --danger-soft: 0 72% 44% / 0.1;
+  --shadow-color: 221 39% 11% / 0.04;
 }
 
 * {
@@ -24,9 +93,49 @@
 
 body {
   margin: 0;
-  min-width: 960px;
+  min-width: 360px;
   min-height: 100vh;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: hsl(var(--background));
+}
+
+.ucd-panel {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel));
+  color: hsl(var(--panel-foreground));
+  box-shadow: 0 12px 28px hsl(var(--shadow-color));
+}
+
+.ucd-muted-panel {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel-muted));
+}
+
+.ucd-input {
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.ucd-input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.ucd-status-success {
+  border-color: hsl(var(--success) / 0.45);
+  background: hsl(var(--success-soft));
+  color: hsl(var(--success));
+}
+
+.ucd-status-warning {
+  border-color: hsl(var(--warning) / 0.45);
+  background: hsl(var(--warning-soft));
+  color: hsl(var(--warning));
+}
+
+.ucd-status-danger {
+  border-color: hsl(var(--danger) / 0.45);
+  background: hsl(var(--danger-soft));
+  color: hsl(var(--danger));
 }
