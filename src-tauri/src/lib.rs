@@ -7,6 +7,7 @@ use tauri::State;
 use thiserror::Error;
 
 mod mcp;
+mod sdk;
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -105,6 +106,7 @@ struct AgentRegistryEntry {
     id: String,
     display_name: String,
     provider: String,
+    managed_sdk_dependency_id: Option<String>,
     launch: LaunchMetadata,
     supported_interaction_modes: Vec<InteractionMode>,
     availability_state: AvailabilityState,
@@ -178,7 +180,8 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
             launch_kind TEXT NOT NULL,
             launch_command TEXT,
             launch_url TEXT,
-            executable_name TEXT
+            executable_name TEXT,
+            managed_sdk_dependency_id TEXT
         );
 
         CREATE TABLE IF NOT EXISTS agent_modes (
@@ -232,6 +235,8 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "#,
     )?;
 
+    let _ = conn.execute("ALTER TABLE agents ADD COLUMN managed_sdk_dependency_id TEXT", []);
+
     conn.execute(
         "INSERT OR IGNORE INTO workflow_state (id, lifecycle_state, intent) VALUES (1, ?1, ?2)",
         params![SessionLifecycleState::Idle.as_str(), "Current development workflow"],
@@ -253,6 +258,7 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
         Option<&'static str>,
         Option<&'static str>,
         Option<&'static str>,
+        Option<&'static str>,
         Vec<&'static str>,
         Vec<&'static str>,
     );
@@ -266,6 +272,7 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
             Some("claude"),
             None,
             Some("claude"),
+            Some("claude-sdk"),
             vec!["cli", "native-desktop"],
             vec!["coding", "cli", "agent"],
         ),
@@ -277,6 +284,7 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
             Some("opencode"),
             None,
             Some("opencode"),
+            None,
             vec!["cli"],
             vec!["coding", "cli", "open-source"],
         ),
@@ -288,6 +296,7 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
             Some("codex"),
             None,
             Some("codex"),
+            Some("codex-sdk"),
             vec!["cli", "native-desktop"],
             vec!["coding", "cli", "agent"],
         ),
@@ -299,16 +308,21 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
             Some("gemini"),
             None,
             Some("gemini"),
+            None,
             vec!["cli", "browser"],
             vec!["coding", "cli", "browser"],
         ),
     ];
 
-    for (id, display_name, provider, kind, command, url, executable, modes, tags) in agents {
+    for (id, display_name, provider, kind, command, url, executable, sdk_dependency, modes, tags) in agents {
         conn.execute(
-            "INSERT OR IGNORE INTO agents (id, display_name, provider, launch_kind, launch_command, launch_url, executable_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, display_name, provider, kind, command, url, executable],
+            "INSERT OR IGNORE INTO agents (id, display_name, provider, launch_kind, launch_command, launch_url, executable_name, managed_sdk_dependency_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, display_name, provider, kind, command, url, executable, sdk_dependency],
+        )?;
+        conn.execute(
+            "UPDATE agents SET managed_sdk_dependency_id = ?1 WHERE id = ?2 AND managed_sdk_dependency_id IS NULL",
+            params![sdk_dependency, id],
         )?;
 
         for mode in modes {
@@ -366,7 +380,7 @@ fn parse_lifecycle_state(value: &str) -> SessionLifecycleState {
 fn load_agent(conn: &Connection, agent_id: &str) -> Result<AgentRegistryEntry, AppError> {
     let row = conn
         .query_row(
-            "SELECT id, display_name, provider, launch_kind, launch_command, launch_url, executable_name
+            "SELECT id, display_name, provider, launch_kind, launch_command, launch_url, executable_name, managed_sdk_dependency_id
              FROM agents WHERE id = ?1",
             params![agent_id],
             |row| {
@@ -378,6 +392,7 @@ fn load_agent(conn: &Connection, agent_id: &str) -> Result<AgentRegistryEntry, A
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, Option<String>>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
                 ))
             },
         )
@@ -386,12 +401,13 @@ fn load_agent(conn: &Connection, agent_id: &str) -> Result<AgentRegistryEntry, A
 
     let modes = load_modes(conn, &row.0)?;
     let tags = load_tags(conn, &row.0)?;
-    let (availability_state, unavailable_reason) = availability_for(row.6.as_deref());
+    let (availability_state, unavailable_reason) = availability_for(row.6.as_deref(), row.7.as_deref());
 
     Ok(AgentRegistryEntry {
         id: row.0,
         display_name: row.1,
         provider: row.2,
+        managed_sdk_dependency_id: row.7,
         launch: LaunchMetadata {
             kind: row.3,
             command: row.4,
@@ -425,7 +441,22 @@ fn load_tags(conn: &Connection, agent_id: &str) -> Result<Vec<String>, AppError>
     Ok(tags)
 }
 
-fn availability_for(executable_name: Option<&str>) -> (AvailabilityState, Option<String>) {
+fn availability_for(executable_name: Option<&str>, managed_sdk_dependency_id: Option<&str>) -> (AvailabilityState, Option<String>) {
+    if let Some(sdk_id) = managed_sdk_dependency_id {
+        let Some(parsed_sdk_id) = sdk::models::SdkId::parse(sdk_id) else {
+            return (
+                AvailabilityState::Unavailable,
+                Some(format!("Managed SDK dependency '{sdk_id}' is not recognized.")),
+            );
+        };
+        if !sdk::service::is_installed(parsed_sdk_id) {
+            return (
+                AvailabilityState::Unavailable,
+                Some(format!("Managed SDK dependency '{sdk_id}' is not installed.")),
+            );
+        }
+    }
+
     match executable_name {
         Some(name) if command_exists(name) => (AvailabilityState::Available, None),
         Some(name) => (
@@ -722,7 +753,17 @@ pub fn run() {
             mcp::commands::test_mcp_connection,
             mcp::commands::get_mcp_server_status,
             mcp::commands::import_mcp_servers,
-            mcp::commands::export_mcp_servers
+            mcp::commands::export_mcp_servers,
+            sdk::commands::list_sdk_definitions,
+            sdk::commands::list_sdk_statuses,
+            sdk::commands::check_sdk_environment,
+            sdk::commands::get_sdk_versions,
+            sdk::commands::check_sdk_updates,
+            sdk::commands::install_sdk_dependency,
+            sdk::commands::update_sdk_dependency,
+            sdk::commands::rollback_sdk_dependency,
+            sdk::commands::uninstall_sdk_dependency,
+            sdk::commands::get_sdk_operation_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -786,5 +827,16 @@ mod tests {
 
         assert!(check_browser_readiness_inner(&gemini).ready);
         assert!(!check_browser_readiness_inner(&opencode).ready);
+    }
+
+    #[test]
+    fn managed_sdk_dependency_marks_agent_unavailable_without_launch() {
+        let (state, reason) = availability_for(None, Some("claude-sdk"));
+
+        assert!(matches!(state, AvailabilityState::Unavailable));
+        assert_eq!(
+            reason.as_deref(),
+            Some("Managed SDK dependency 'claude-sdk' is not installed.")
+        );
     }
 }

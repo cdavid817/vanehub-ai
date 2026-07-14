@@ -15,6 +15,7 @@ export interface AgentRegistryEntry {
   id: string;
   displayName: string;
   provider: string;
+  managedSdkDependencyId?: string | null;
   launch: LaunchMetadata;
   supportedInteractionModes: InteractionMode[];
   availabilityState: AvailabilityState;
