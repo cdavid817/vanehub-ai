@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 use thiserror::Error;
 
+mod command_safety;
 mod mcp;
 mod sdk;
+mod tasks;
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -40,6 +42,37 @@ impl Serialize for AppError {
     {
         serializer.serialize_str(&self.to_string())
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum NativeLogLevel {
+    Error,
+    Info,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeLogEvent<'a> {
+    level: NativeLogLevel,
+    category: &'a str,
+    message: &'a str,
+}
+
+fn record_native_log(level: NativeLogLevel, category: &str, message: &str) {
+    let event = NativeLogEvent {
+        level,
+        category,
+        message,
+    };
+    match serde_json::to_string(&event) {
+        Ok(line) => eprintln!("{line}"),
+        Err(_) => eprintln!("[{category}] {message}"),
+    }
+}
+
+fn record_native_error(category: &str, error: &AppError) {
+    record_native_log(NativeLogLevel::Error, category, &error.to_string());
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +167,7 @@ struct ReadinessStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LaunchResult {
+    operation_id: Option<String>,
     workflow: WorkflowState,
     message: String,
 }
@@ -153,12 +187,10 @@ struct RegistryStore {
 }
 
 impl RegistryStore {
-    fn new() -> Result<Self, AppError> {
-        let mut root = std::env::current_dir().map_err(|err| AppError::Storage(err.to_string()))?;
-        root.push(".vanehub");
-        std::fs::create_dir_all(&root).map_err(|err| AppError::Storage(err.to_string()))?;
+    fn new(data_dir: PathBuf) -> Result<Self, AppError> {
+        std::fs::create_dir_all(&data_dir).map_err(|err| AppError::Storage(err.to_string()))?;
         Ok(Self {
-            db_path: root.join("vanehub.sqlite"),
+            db_path: data_dir.join("vanehub.sqlite"),
         })
     }
 
@@ -171,6 +203,52 @@ impl RegistryStore {
 }
 
 fn migrate(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+        "#,
+    )?;
+
+    apply_migration(conn, 1, "initial-schema", apply_initial_schema)?;
+    apply_migration(conn, 2, "agent-managed-sdk-dependency", apply_agent_sdk_dependency_migration)?;
+
+    Ok(())
+}
+
+fn apply_migration(
+    conn: &Connection,
+    version: i64,
+    name: &str,
+    migration: fn(&Connection) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    let applied = conn
+        .query_row(
+            "SELECT 1 FROM schema_migrations WHERE version = ?1",
+            params![version],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if applied {
+        return Ok(());
+    }
+
+    if let Err(error) = migration(conn) {
+        record_native_error("migration", &error);
+        return Err(error);
+    }
+    conn.execute(
+        "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+        params![version, name],
+    )?;
+    Ok(())
+}
+
+fn apply_initial_schema(conn: &Connection) -> Result<(), AppError> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS agents (
@@ -235,8 +313,6 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "#,
     )?;
 
-    let _ = conn.execute("ALTER TABLE agents ADD COLUMN managed_sdk_dependency_id TEXT", []);
-
     conn.execute(
         "INSERT OR IGNORE INTO workflow_state (id, lifecycle_state, intent) VALUES (1, ?1, ?2)",
         params![SessionLifecycleState::Idle.as_str(), "Current development workflow"],
@@ -247,6 +323,24 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     Ok(())
+}
+
+fn apply_agent_sdk_dependency_migration(conn: &Connection) -> Result<(), AppError> {
+    if !table_has_column(conn, "agents", "managed_sdk_dependency_id")? {
+        conn.execute("ALTER TABLE agents ADD COLUMN managed_sdk_dependency_id TEXT", [])?;
+    }
+    Ok(())
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, AppError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        if row? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn seed_agents(conn: &Connection) -> Result<(), AppError> {
@@ -603,13 +697,21 @@ fn check_browser_readiness(
 }
 
 #[tauri::command]
-fn launch_active_workflow(state: State<'_, Mutex<RegistryStore>>) -> Result<LaunchResult, AppError> {
+fn launch_active_workflow(
+    state: State<'_, Mutex<RegistryStore>>,
+    registry: State<'_, tasks::registry::TaskRegistry>,
+) -> Result<LaunchResult, AppError> {
     let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     let workflow = get_workflow_state_from_conn(&conn)?;
     let agent_id = workflow.active_agent_id.clone().ok_or(AppError::NoActiveAgent)?;
     let mode = workflow.active_interaction_mode.clone().ok_or(AppError::NoActiveAgent)?;
     let agent = load_agent(&conn, &agent_id)?;
+    let task = registry.start(
+        tasks::models::OperationKind::Agent,
+        Some(agent_id.clone()),
+        Some(format!("Launching {}", agent.display_name)),
+    )?;
 
     set_lifecycle(&conn, SessionLifecycleState::Starting)?;
 
@@ -618,9 +720,11 @@ fn launch_active_workflow(state: State<'_, Mutex<RegistryStore>>) -> Result<Laun
             let readiness = check_browser_readiness_inner(&agent);
             if !readiness.ready {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
-                return Err(AppError::LaunchFailed(
+                let error = AppError::LaunchFailed(
                     readiness.reason.unwrap_or_else(|| "Browser mode is not ready.".to_string()),
-                ));
+                );
+                let _ = registry.fail(&task.id, error.to_string());
+                return Err(error);
             }
             set_session_message(&conn, "browser", "Browser workflow routed to Playwright adapter.")?;
             "Browser workflow routed to Playwright adapter.".to_string()
@@ -628,24 +732,37 @@ fn launch_active_workflow(state: State<'_, Mutex<RegistryStore>>) -> Result<Laun
         InteractionMode::NativeDesktop => {
             if !native_desktop_supported() {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
-                return Err(AppError::UnsupportedInteractionMode(
+                let error = AppError::UnsupportedInteractionMode(
                     "native-desktop is not supported on this platform".to_string(),
-                ));
+                );
+                let _ = registry.fail(&task.id, error.to_string());
+                return Err(error);
             }
-            launch_command_if_present(&agent)?;
+            if let Err(error) = launch_command_if_present(&agent) {
+                set_lifecycle(&conn, SessionLifecycleState::Failed)?;
+                let _ = registry.fail(&task.id, error.to_string());
+                return Err(error);
+            }
             set_session_message(&conn, "native-desktop", "Native desktop workflow launch routed through Tauri adapter.")?;
             "Native desktop workflow launch routed through Tauri adapter.".to_string()
         }
         InteractionMode::Cli => {
-            launch_command_if_present(&agent)?;
+            if let Err(error) = launch_command_if_present(&agent) {
+                set_lifecycle(&conn, SessionLifecycleState::Failed)?;
+                let _ = registry.fail(&task.id, error.to_string());
+                return Err(error);
+            }
             set_session_message(&conn, "cli", "CLI workflow launch routed through Tauri adapter.")?;
             "CLI workflow launch routed through Tauri adapter.".to_string()
         }
     };
 
     set_lifecycle(&conn, SessionLifecycleState::Running)?;
+    let _ = registry.append_log(&task.id, message.clone());
+    let _ = registry.complete(&task.id, None);
 
     Ok(LaunchResult {
+        operation_id: Some(task.id),
         workflow: get_workflow_state_from_conn(&conn)?,
         message,
     })
@@ -677,13 +794,19 @@ fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError>
         return Err(AppError::LaunchFailed(format!("Command '{command}' was not found on PATH.")));
     }
 
-    Command::new(command)
+    command_safety::audit_command("command.launch", command, &[]);
+    let mut process = command_safety::std_command(command)?;
+    process
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map(|_| ())
-        .map_err(|err| AppError::LaunchFailed(err.to_string()))
+        .map_err(|err| {
+            let error = AppError::LaunchFailed(err.to_string());
+            record_native_error("command.launch", &error);
+            error
+        })
 }
 
 #[tauri::command]
@@ -733,10 +856,18 @@ fn get_workflow_state_from_conn(conn: &Connection) -> Result<WorkflowState, AppE
 }
 
 pub fn run() {
-    let store = RegistryStore::new().expect("failed to initialize registry store");
-
     tauri::Builder::default()
-        .manage(Mutex::new(store))
+        .setup(|app| {
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            let store = RegistryStore::new(data_dir)
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            app.manage(Mutex::new(store));
+            app.manage(tasks::registry::TaskRegistry::default());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_agents,
             get_agent_by_id,
@@ -763,7 +894,9 @@ pub fn run() {
             sdk::commands::update_sdk_dependency,
             sdk::commands::rollback_sdk_dependency,
             sdk::commands::uninstall_sdk_dependency,
-            sdk::commands::get_sdk_operation_logs
+            sdk::commands::get_sdk_operation_logs,
+            tasks::commands::list_operations,
+            tasks::commands::get_operation_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -778,6 +911,64 @@ mod tests {
         migrate(&conn).expect("migrate");
         seed_agents(&conn).expect("seed");
         conn
+    }
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("vanehub-ai-{name}-{unique}"))
+    }
+
+    #[test]
+    fn registry_store_uses_supplied_app_data_directory() {
+        let root = unique_temp_dir("store");
+        let store = RegistryStore::new(root.clone()).expect("store");
+
+        assert_eq!(store.db_path, root.join("vanehub.sqlite"));
+        assert!(root.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migration_records_applied_versions() {
+        let conn = Connection::open_in_memory().expect("sqlite");
+        migrate(&conn).expect("migrate");
+
+        let versions = conn
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .expect("prepare")
+            .query_map([], |row| row.get::<_, i64>(0))
+            .expect("query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("versions");
+
+        assert_eq!(versions, vec![1, 2]);
+    }
+
+    #[test]
+    fn migration_upgrades_existing_agents_table() {
+        let conn = Connection::open_in_memory().expect("sqlite");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE agents (
+                id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                launch_kind TEXT NOT NULL,
+                launch_command TEXT,
+                launch_url TEXT,
+                executable_name TEXT
+            );
+            "#,
+        )
+        .expect("legacy agents table");
+
+        migrate(&conn).expect("migrate");
+
+        assert!(table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("column check"));
     }
 
     #[test]

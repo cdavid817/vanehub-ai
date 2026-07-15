@@ -122,6 +122,7 @@ pub struct SdkOperationRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SdkOperationResult {
     pub success: bool,
+    pub operation_id: Option<String>,
     pub sdk_id: SdkId,
     pub operation: SdkOperationType,
     pub installed_version: Option<String>,

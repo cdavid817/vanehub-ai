@@ -128,6 +128,7 @@ pub struct McpServerStatus {
 #[serde(rename_all = "camelCase")]
 pub struct McpTestResult {
     pub success: bool,
+    pub operation_id: Option<String>,
     pub tools: Vec<McpToolInfo>,
     pub error: Option<String>,
     pub duration_ms: Option<u64>,

@@ -1,6 +1,8 @@
 use crate::mcp::connection;
 use crate::mcp::models::*;
 use crate::mcp::service;
+use crate::tasks::models::OperationKind;
+use crate::tasks::registry::TaskRegistry;
 use crate::{AppError, RegistryStore};
 use std::sync::Mutex;
 use tauri::State;
@@ -59,6 +61,7 @@ pub fn toggle_mcp_server(
 #[tauri::command]
 pub async fn test_mcp_connection(
     state: State<'_, Mutex<RegistryStore>>,
+    registry: State<'_, TaskRegistry>,
     name: String,
 ) -> Result<McpTestResult, AppError> {
     let config = {
@@ -67,12 +70,30 @@ pub async fn test_mcp_connection(
         service::get_server_from_db(&conn, &name)?
     };
 
-    let result = connection::test_connection(&config).await;
+    let task = registry.start(
+        OperationKind::Mcp,
+        Some(name.clone()),
+        Some(format!("Testing MCP server {name}")),
+    )?;
+    let mut result = connection::test_connection(&config).await;
+    result.operation_id = Some(task.id.clone());
 
     {
         let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
         let conn = store.connection()?;
         service::record_test_result(&conn, &name, &result)?;
+    }
+
+    if result.success {
+        let _ = registry.append_log(&task.id, format!("MCP test passed for {name}"));
+        let _ = registry.complete(&task.id, None);
+    } else {
+        let error = result
+            .error
+            .clone()
+            .unwrap_or_else(|| "MCP test failed".to_string());
+        let _ = registry.append_log(&task.id, error.clone());
+        let _ = registry.fail(&task.id, error);
     }
 
     Ok(result)

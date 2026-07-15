@@ -1,4 +1,5 @@
 import type { McpService } from "./mcp-service";
+import { unsupportedRuntimeError } from "./service-error";
 import type {
   McpImportExport,
   McpImportResult,
@@ -112,7 +113,7 @@ export const webMcpClient: McpService = {
   },
 
   async callTool() {
-    throw new Error("MCP tool calling is reserved for a later VaneHub release.");
+    throw unsupportedRuntimeError("MCP tool calling is reserved for a later VaneHub release.");
   },
 
   async importServers(data: McpImportExport, scope: McpScope): Promise<McpImportResult> {

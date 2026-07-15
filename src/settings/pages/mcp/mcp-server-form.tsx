@@ -2,28 +2,10 @@ import { Save, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "../../../components/ui/button";
 import type { McpScope, McpServerConfig, McpTransportType } from "../../../types/mcp";
+import { type McpServerFormErrors, validateMcpServerForm } from "./mcp-server-validation";
 
 function jsonText(value: Record<string, string> | null | undefined) {
   return JSON.stringify(value ?? {}, null, 2);
-}
-
-function parseRecord(value: string, label: string): Record<string, string> {
-  const parsed: unknown = value.trim() ? JSON.parse(value) : {};
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`${label} 必须是 JSON object`);
-  }
-  return Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, item]) => [key, String(item)]));
-}
-
-function parseArgs(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith("[")) {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (!Array.isArray(parsed)) throw new Error("args JSON 必须是数组");
-    return parsed.map(String);
-  }
-  return trimmed.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
 export function McpServerForm({
@@ -47,27 +29,36 @@ export function McpServerForm({
   const [description, setDescription] = useState(server?.description ?? "");
   const [active, setActive] = useState(server?.active ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<McpServerFormErrors>({});
   const [saving, setSaving] = useState(false);
 
   const title = useMemo(() => (editingName ? "编辑 MCP 服务器" : "添加 MCP 服务器"), [editingName]);
 
   async function handleSubmit() {
     setError(null);
+    setFieldErrors({});
+    const result = validateMcpServerForm({
+      name,
+      transportType,
+      scope,
+      command,
+      args,
+      env,
+      url,
+      headers,
+      description,
+      active,
+    });
+
+    if (!result.success) {
+      setFieldErrors(result.errors);
+      setError(result.errors.form ?? "请修正表单中的错误");
+      return;
+    }
+
     setSaving(true);
     try {
-      const next: McpServerConfig = {
-        name: name.trim(),
-        transportType,
-        command: transportType === "stdio" ? command.trim() : null,
-        args: transportType === "stdio" ? parseArgs(args) : null,
-        env: transportType === "stdio" ? parseRecord(env, "env") : null,
-        url: transportType !== "stdio" ? url.trim() : null,
-        headers: transportType !== "stdio" ? parseRecord(headers, "headers") : null,
-        description: description.trim() || null,
-        active,
-        scope,
-      };
-      await onSave(next);
+      await onSave(result.config);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -89,6 +80,7 @@ export function McpServerForm({
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">名称</span>
             <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
+            {fieldErrors.name ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.name}</span> : null}
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">Scope</span>
@@ -121,14 +113,17 @@ export function McpServerForm({
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Command</span>
               <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={command} onChange={(event) => setCommand(event.target.value)} />
+              {fieldErrors.command ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.command}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Args</span>
               <textarea className="ucd-input min-h-24 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={args} onChange={(event) => setArgs(event.target.value)} />
+              {fieldErrors.args ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.args}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Env JSON</span>
               <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
+              {fieldErrors.env ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.env}</span> : null}
             </label>
           </div>
         ) : (
@@ -136,10 +131,12 @@ export function McpServerForm({
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">URL</span>
               <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={url} onChange={(event) => setUrl(event.target.value)} />
+              {fieldErrors.url ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.url}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">Headers JSON</span>
               <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
+              {fieldErrors.headers ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.headers}</span> : null}
             </label>
           </div>
         )}

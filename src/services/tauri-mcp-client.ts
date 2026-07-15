@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { McpService } from "./mcp-service";
+import { unsupportedRuntimeError } from "./service-error";
 import type {
   McpImportExport,
   McpImportResult,
@@ -40,7 +41,7 @@ export const tauriMcpClient: McpService = {
   },
 
   callTool() {
-    return Promise.reject(new Error("MCP tool calling is reserved for a later VaneHub release."));
+    return Promise.reject(unsupportedRuntimeError("MCP tool calling is reserved for a later VaneHub release."));
   },
 
   importServers(data: McpImportExport, scope: McpScope) {

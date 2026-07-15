@@ -1,4 +1,5 @@
 import { Download, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { sdkService } from "../../services/runtime-sdk-client";
@@ -16,6 +17,13 @@ import type {
 import { PageHeader, SectionPanel, StatCard, StatusPill, TagList } from "./page-parts";
 
 type SelectedVersions = Partial<Record<SdkId, string>>;
+type SdkOverview = {
+  statuses: SdkStatusMap;
+  versions: SdkVersionMap;
+  environment: SdkEnvironmentStatus;
+};
+
+const sdkOverviewQueryKey = ["sdk", "overview"] as const;
 
 const statusText: Record<SdkStatus["status"], string> = {
   installed: "已安装",
@@ -26,51 +34,103 @@ const statusText: Record<SdkStatus["status"], string> = {
 };
 
 export function SdkPage({ searchTerm }: { searchTerm: string }) {
-  const [statuses, setStatuses] = useState<SdkStatusMap | null>(null);
-  const [versions, setVersions] = useState<SdkVersionMap>({} as SdkVersionMap);
-  const [environment, setEnvironment] = useState<SdkEnvironmentStatus | null>(null);
+  const queryClient = useQueryClient();
   const [selectedVersions, setSelectedVersions] = useState<SelectedVersions>({});
-  const [activeOperation, setActiveOperation] = useState<SdkId | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [logs, setLogs] = useState<SdkOperationLog[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    setError(null);
-    setRefreshing(true);
-    try {
+  const sdkOverviewQuery = useQuery({
+    queryKey: sdkOverviewQueryKey,
+    queryFn: async (): Promise<SdkOverview> => {
       const [definitions, nextStatuses] = await Promise.all([
         sdkService.listDefinitions(),
         sdkService.listStatuses(),
       ]);
-      const nextVersions = fallbackVersionsFromDefinitions(definitions);
-      setStatuses(nextStatuses);
-      setVersions(nextVersions);
-      setSelectedVersions((current) => {
-        const next = { ...current };
-        for (const [id, status] of Object.entries(nextStatuses) as [SdkId, SdkStatus][]) {
-          const versionInfo = nextVersions[id];
-          const options = buildSdkVersionOptions({
-            availableVersions: versionInfo?.versions,
-            fallbackVersions: versionInfo?.fallbackVersions,
-            installedVersion: status.installedVersion,
-          });
-          if (!next[id] || !options.includes(next[id] ?? "")) {
-            next[id] = status.installedVersion ?? versionInfo?.latestVersion ?? options[0] ?? "";
-          }
-        }
-        return next;
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }
+      const environment = await sdkService.checkEnvironment();
+
+      return {
+        statuses: nextStatuses,
+        versions: fallbackVersionsFromDefinitions(definitions),
+        environment,
+      };
+    },
+  });
+
+  const statuses = sdkOverviewQuery.data?.statuses ?? null;
+  const versions = sdkOverviewQuery.data?.versions ?? ({} as SdkVersionMap);
+  const environment = sdkOverviewQuery.data?.environment ?? null;
 
   useEffect(() => {
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
+    if (!statuses) return;
+
+    setSelectedVersions((current) => {
+      const next = { ...current };
+      for (const [id, status] of Object.entries(statuses) as [SdkId, SdkStatus][]) {
+        const versionInfo = versions[id];
+        const options = buildSdkVersionOptions({
+          availableVersions: versionInfo?.versions,
+          fallbackVersions: versionInfo?.fallbackVersions,
+          installedVersion: status.installedVersion,
+        });
+        if (!next[id] || !options.includes(next[id] ?? "")) {
+          next[id] = status.installedVersion ?? versionInfo?.latestVersion ?? options[0] ?? "";
+        }
+      }
+      return next;
+    });
+  }, [statuses, versions]);
+
+  const checkUpdatesMutation = useMutation({
+    mutationFn: () => sdkService.checkUpdates(),
+    onSuccess: (updates) => {
+      queryClient.setQueryData<SdkOverview>(sdkOverviewQueryKey, (current) => {
+        if (!current) return current;
+        const nextStatuses = { ...current.statuses };
+        for (const [id, update] of Object.entries(updates) as [SdkId, (typeof updates)[SdkId]][]) {
+          nextStatuses[id] = {
+            ...nextStatuses[id],
+            latestVersion: update.latestVersion,
+            hasUpdate: update.hasUpdate,
+            errorMessage: update.errorMessage,
+            lastChecked: new Date().toISOString(),
+          };
+        }
+        return { ...current, statuses: nextStatuses };
+      });
+      setNotice("SDK 更新状态已刷新");
+    },
+  });
+
+  const runOperationMutation = useMutation({
+    mutationFn: async ({ sdk, requestedVersion }: { sdk: SdkStatus; requestedVersion?: string }) => {
+      const installed = sdk.status === "installed";
+      const action = getSdkVersionAction({
+        installed,
+        installedVersion: sdk.installedVersion,
+        requestedVersion,
+      });
+      if (action === "install") return sdkService.install({ sdkId: sdk.id, version: requestedVersion });
+      if (action === "update") return sdkService.update({ sdkId: sdk.id, version: requestedVersion });
+      return sdkService.rollback({ sdkId: sdk.id, version: requestedVersion });
+    },
+    onSuccess: (result) => handleOperationResult(result),
+  });
+
+  const uninstallMutation = useMutation({
+    mutationFn: (sdk: SdkStatus) => sdkService.uninstall(sdk.id),
+    onSuccess: (result) => handleOperationResult(result),
+  });
+
+  const activeOperation = runOperationMutation.isPending
+    ? runOperationMutation.variables?.sdk.id ?? null
+    : uninstallMutation.isPending
+      ? uninstallMutation.variables?.id ?? null
+      : null;
+  const refreshing = sdkOverviewQuery.isFetching;
+  const checkingUpdates = checkUpdatesMutation.isPending;
+  const queryError = sdkOverviewQuery.error instanceof Error ? sdkOverviewQuery.error.message : sdkOverviewQuery.error ? String(sdkOverviewQuery.error) : null;
+  const visibleError = error ?? queryError;
 
   const sdkList = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -90,29 +150,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
 
   async function checkUpdates() {
     setError(null);
-    setCheckingUpdates(true);
-    try {
-      const updates = await sdkService.checkUpdates();
-      setStatuses((current) => {
-        if (!current) return current;
-        const next = { ...current };
-        for (const [id, update] of Object.entries(updates) as [SdkId, (typeof updates)[SdkId]][]) {
-          next[id] = {
-            ...next[id],
-            latestVersion: update.latestVersion,
-            hasUpdate: update.hasUpdate,
-            errorMessage: update.errorMessage,
-            lastChecked: new Date().toISOString(),
-          };
-        }
-        return next;
-      });
-      setNotice("SDK 更新状态已刷新");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCheckingUpdates(false);
-    }
+    await checkUpdatesMutation.mutateAsync().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function runOperation(sdk: SdkStatus) {
@@ -126,33 +164,16 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
     if (action === "current") return;
     setError(null);
     setNotice(null);
-    setActiveOperation(sdk.id);
     setLogs([]);
-    try {
-      const result =
-        action === "install"
-          ? await sdkService.install({ sdkId: sdk.id, version: requestedVersion })
-          : action === "update"
-            ? await sdkService.update({ sdkId: sdk.id, version: requestedVersion })
-            : await sdkService.rollback({ sdkId: sdk.id, version: requestedVersion });
-      handleOperationResult(result);
-    } finally {
-      setActiveOperation(null);
-    }
+    await runOperationMutation.mutateAsync({ sdk, requestedVersion }).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function uninstall(sdk: SdkStatus) {
     if (!window.confirm(`卸载 ${sdk.displayName}？`)) return;
     setError(null);
     setNotice(null);
-    setActiveOperation(sdk.id);
     setLogs([]);
-    try {
-      const result = await sdkService.uninstall(sdk.id);
-      handleOperationResult(result);
-    } finally {
-      setActiveOperation(null);
-    }
+    await uninstallMutation.mutateAsync(sdk).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   function handleOperationResult(result: SdkOperationResult) {
@@ -162,7 +183,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       return;
     }
     setNotice("SDK 操作已完成");
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    void queryClient.invalidateQueries({ queryKey: sdkOverviewQueryKey });
   }
 
   function actionLabel(sdk: SdkStatus) {
@@ -273,7 +294,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       <PageHeader
         actions={
           <>
-            <Button disabled={refreshing} variant="outline" onClick={() => void refresh()}>
+            <Button disabled={refreshing} variant="outline" onClick={() => void sdkOverviewQuery.refetch()}>
               <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
               {refreshing ? "刷新中" : "刷新"}
             </Button>
@@ -297,7 +318,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       {environment?.available === false ? (
         <div className="rounded-md border p-3 text-sm ucd-status-warning">{environment.error ?? "Node.js 或 npm 不可用"}</div>
       ) : null}
-      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
+      {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
       <SectionPanel title="SDK 列表" description="安装目录固定为 ~/.vanehub/dependencies/">

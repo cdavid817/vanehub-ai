@@ -476,6 +476,7 @@ mod tests {
             "first-name",
             &McpTestResult {
                 success: true,
+                operation_id: None,
                 tools: vec![McpToolInfo {
                     name: "search".to_string(),
                     description: None,

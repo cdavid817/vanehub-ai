@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CheckCircle2, CircleAlert, Laptop, Play, RefreshCw, Search, Terminal } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { agentService } from "../../services/runtime-agent-client";
 import type { AgentRegistryEntry, InteractionMode, SessionDetails, WorkflowState } from "../../types/agent";
 import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
+
+type AgentsOverview = {
+  agents: AgentRegistryEntry[];
+  workflow: WorkflowState;
+  sessionDetails: SessionDetails;
+};
+
+const agentsOverviewQueryKey = (capabilityFilter: string) => ["agents", "overview", capabilityFilter] as const;
 
 const modeLabels: Record<InteractionMode, string> = {
   browser: "Browser",
@@ -29,32 +38,65 @@ function defaultMode(agent: AgentRegistryEntry): InteractionMode {
 }
 
 export function AgentsPage({ searchTerm }: { searchTerm: string }) {
-  const [agents, setAgents] = useState<AgentRegistryEntry[]>([]);
-  const [workflow, setWorkflow] = useState<WorkflowState | null>(null);
+  const queryClient = useQueryClient();
   const [capabilityFilter, setCapabilityFilter] = useState("");
+  const [appliedCapabilityFilter, setAppliedCapabilityFilter] = useState("");
   const [selectedMode, setSelectedMode] = useState<InteractionMode>("cli");
-  const [sessionDetails, setSessionDetails] = useState<SessionDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function refresh() {
+  const agentsOverviewQuery = useQuery({
+    queryKey: agentsOverviewQueryKey(appliedCapabilityFilter),
+    queryFn: async (): Promise<AgentsOverview> => {
     const [agentList, workflowState] = await Promise.all([
-      agentService.listAgents(capabilityFilter.trim() || undefined),
+      agentService.listAgents(appliedCapabilityFilter || undefined),
       agentService.getWorkflowState(),
     ]);
-    setAgents(agentList);
-    setWorkflow(workflowState);
-    setSessionDetails(await agentService.getSessionDetails());
-    if (workflowState.activeInteractionMode) {
-      setSelectedMode(workflowState.activeInteractionMode);
-    } else if (agentList[0]) {
-      setSelectedMode(defaultMode(agentList[0]));
-    }
-  }
+      return {
+        agents: agentList,
+        workflow: workflowState,
+        sessionDetails: await agentService.getSessionDetails(),
+      };
+    },
+  });
+
+  const agents = agentsOverviewQuery.data?.agents ?? [];
+  const workflow = agentsOverviewQuery.data?.workflow ?? null;
+  const sessionDetails = agentsOverviewQuery.data?.sessionDetails ?? null;
+  const queryError = agentsOverviewQuery.error instanceof Error ? agentsOverviewQuery.error.message : agentsOverviewQuery.error ? String(agentsOverviewQuery.error) : null;
+  const visibleError = error ?? queryError;
 
   useEffect(() => {
-    void refresh();
-  }, []);
+    if (workflow?.activeInteractionMode) {
+      setSelectedMode(workflow.activeInteractionMode);
+    } else if (agents[0]) {
+      setSelectedMode(defaultMode(agents[0]));
+    }
+  }, [agents, workflow?.activeInteractionMode]);
+
+  const selectAgentMutation = useMutation({
+    mutationFn: ({ agent, mode }: { agent: AgentRegistryEntry; mode: InteractionMode }) => agentService.selectAgent(agent.id, mode),
+    onSuccess: async (_workflow, { agent, mode }) => {
+      setNotice(`${agent.displayName} selected for ${modeLabels[mode]} mode.`);
+      await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
+    },
+  });
+
+  const launchWorkflowMutation = useMutation({
+    mutationFn: async () => {
+      if (workflow?.activeAgentId && workflow.activeInteractionMode === "browser") {
+        const readiness = await agentService.checkBrowserReadiness(workflow.activeAgentId);
+        if (!readiness.ready) {
+          throw new Error(readiness.reason ?? "Browser mode is not ready.");
+        }
+      }
+      return agentService.launchActiveWorkflow();
+    },
+    onSuccess: async (result) => {
+      setNotice(result.message);
+      await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
+    },
+  });
 
   const filteredAgents = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -79,36 +121,33 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
       setError(`${agent.displayName} supports ${agent.supportedInteractionModes.map((item) => modeLabels[item]).join(", ")}.`);
       return;
     }
-    const next = await agentService.selectAgent(agent.id, mode);
-    setWorkflow(next);
     setSelectedMode(mode);
-    setNotice(`${agent.displayName} selected for ${modeLabels[mode]} mode.`);
-    setSessionDetails(await agentService.getSessionDetails());
+    await selectAgentMutation.mutateAsync({ agent, mode }).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function handleLaunch() {
     setError(null);
     setNotice(null);
-    if (workflow?.activeAgentId && workflow.activeInteractionMode === "browser") {
-      const readiness = await agentService.checkBrowserReadiness(workflow.activeAgentId);
-      if (!readiness.ready) {
-        setError(readiness.reason ?? "Browser mode is not ready.");
-        return;
-      }
+    await launchWorkflowMutation.mutateAsync().catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }
+
+  function applyCapabilityFilter() {
+    const next = capabilityFilter.trim();
+    setError(null);
+    if (next === appliedCapabilityFilter) {
+      void agentsOverviewQuery.refetch();
+    } else {
+      setAppliedCapabilityFilter(next);
     }
-    const result = await agentService.launchActiveWorkflow();
-    setWorkflow(result.workflow);
-    setNotice(result.message);
-    setSessionDetails(await agentService.getSessionDetails());
   }
 
   return (
     <div className="space-y-4">
       <PageHeader
         actions={
-          <Button variant="outline" onClick={() => void refresh()}>
+          <Button disabled={agentsOverviewQuery.isFetching} variant="outline" onClick={() => void agentsOverviewQuery.refetch()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            刷新
+            {agentsOverviewQuery.isFetching ? "刷新中" : "刷新"}
           </Button>
         }
         description="管理可用 AI Coding Agent、交互模式和当前工作流"
@@ -123,12 +162,12 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                 value={capabilityFilter}
                 onChange={(event) => setCapabilityFilter(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") void refresh();
+                  if (event.key === "Enter") applyCapabilityFilter();
                 }}
                 className="ucd-input h-9 min-w-56 flex-1 rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder="Filter capability tag"
               />
-              <Button variant="outline" onClick={() => void refresh()}>
+              <Button variant="outline" onClick={applyCapabilityFilter}>
                 Apply
               </Button>
             </div>
@@ -204,16 +243,16 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
             </div>
           </dl>
 
-          {error ? (
+          {visibleError ? (
             <div className="mt-5 flex gap-2 rounded-md border p-3 text-sm ucd-status-warning">
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{error}</span>
+              <span>{visibleError}</span>
             </div>
           ) : null}
 
           {notice ? <div className="mt-5 rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
-          <Button className="mt-5 w-full" disabled={!activeAgent} onClick={() => void handleLaunch()}>
+          <Button className="mt-5 w-full" disabled={!activeAgent || launchWorkflowMutation.isPending} onClick={() => void handleLaunch()}>
             <Play className="h-4 w-4" aria-hidden="true" />
             Launch
           </Button>

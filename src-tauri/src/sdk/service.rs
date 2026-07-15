@@ -1,3 +1,4 @@
+use crate::command_safety;
 use crate::sdk::models::*;
 use crate::AppError;
 use serde_json::Value;
@@ -380,7 +381,13 @@ fn install_definition(
     push(format!("Installing {}", package_specs.join(" ")));
 
     let npm = environment.npm_path.unwrap_or_else(|| if cfg!(target_os = "windows") { "npm.cmd".to_string() } else { "npm".to_string() });
-    let mut command = Command::new(npm);
+    let mut command = match command_safety::std_command(&npm) {
+        Ok(command) => command,
+        Err(error) => {
+            return operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs)
+        }
+    };
+    command_safety::audit_command("sdk.npm.install", &npm, &["install".to_string(), "--prefix".to_string(), sdk_dir.to_string_lossy().to_string()]);
     command
         .arg("install")
         .arg("--include=optional")
@@ -434,8 +441,11 @@ fn run_npm_capture(args: &[&str], _timeout_seconds: u64) -> Result<String, AppEr
         ));
     }
     let npm = environment.npm_path.unwrap_or_else(|| "npm".to_string());
-    let output = command_output_with_timeout(Command::new(npm).args(args), Duration::from_secs(_timeout_seconds))
-        .map_err(|error| AppError::LaunchFailed(error))?;
+    let mut command = command_safety::std_command(&npm)?;
+    command_safety::audit_command("sdk.npm.capture", &npm, &args.iter().map(|value| value.to_string()).collect::<Vec<_>>());
+    command.args(args);
+    let output = command_output_with_timeout(&mut command, Duration::from_secs(_timeout_seconds))
+        .map_err(AppError::LaunchFailed)?;
     if !output.success {
         return Err(AppError::Validation(output.stderr));
     }
@@ -444,14 +454,13 @@ fn run_npm_capture(args: &[&str], _timeout_seconds: u64) -> Result<String, AppEr
 
 fn find_command(command_name: &str) -> Option<String> {
     let output = if cfg!(target_os = "windows") {
-        command_output_with_timeout(Command::new("where").arg(command_name), Duration::from_secs(2)).ok()?
+        let mut command = command_safety::std_command("where").ok()?;
+        command.arg(command_name);
+        command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?
     } else {
-        command_output_with_timeout(
-            Command::new("sh")
-            .arg("-lc")
-            .arg(format!("command -v {command_name}")),
-            Duration::from_secs(2),
-        ).ok()?
+        let mut command = command_safety::std_command("sh").ok()?;
+        command.arg("-lc").arg(format!("command -v {command_name}"));
+        command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?
     };
     if !output.success {
         return None;
@@ -466,7 +475,9 @@ fn find_command(command_name: &str) -> Option<String> {
 }
 
 fn command_version(command_path: &str, arg: &str) -> Option<String> {
-    let output = command_output_with_timeout(Command::new(command_path).arg(arg), Duration::from_secs(2)).ok()?;
+    let mut command = command_safety::std_command(command_path).ok()?;
+    command.arg(arg);
+    let output = command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?;
     if !output.success {
         return None;
     }
@@ -614,6 +625,7 @@ fn operation_success(
 ) -> SdkOperationResult {
     SdkOperationResult {
         success: true,
+        operation_id: None,
         sdk_id,
         operation,
         installed_version,
@@ -632,6 +644,7 @@ fn operation_failure(
 ) -> SdkOperationResult {
     SdkOperationResult {
         success: false,
+        operation_id: None,
         sdk_id,
         operation,
         installed_version: None,

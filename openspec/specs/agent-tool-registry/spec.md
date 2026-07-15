@@ -46,3 +46,14 @@ The system SHALL be able to use managed SDK dependency status as a readiness sig
 #### Scenario: SDK readiness check does not launch
 - **WHEN** the system checks whether a managed SDK dependency is installed for agent availability
 - **THEN** the system SHALL NOT launch an interactive agent session
+
+### Requirement: Generated agent registry contracts
+Agent registry entry models used by the Rust/Tauri layer and frontend service layer SHALL participate in the shared contract generation or verification workflow.
+
+#### Scenario: Agent model changes
+- **WHEN** the backend agent registry entry shape changes
+- **THEN** the matching TypeScript model used by frontend services SHALL be updated or verified by the contract workflow
+
+#### Scenario: Stable ids preserved in contracts
+- **WHEN** agent registry contracts are generated or verified
+- **THEN** the contract SHALL preserve stable kebab-case agent ids as the canonical reference field

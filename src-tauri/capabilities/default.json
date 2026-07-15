@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default VaneHub AI desktop capability. Local privileged operations are exposed through declared Tauri commands and frontend service adapters.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

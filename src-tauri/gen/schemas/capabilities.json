@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Default VaneHub AI desktop capability. Local privileged operations are exposed through declared Tauri commands and frontend service adapters.","local":true,"windows":["main"],"permissions":["core:default"]}}

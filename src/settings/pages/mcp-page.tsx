@@ -1,5 +1,6 @@
 import { Boxes, Plus, RefreshCw, Upload } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
 import type { McpImportExport, McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
@@ -10,28 +11,79 @@ import { McpServerForm } from "./mcp/mcp-server-form";
 
 type StatusMap = Record<string, McpServerStatus>;
 
+const mcpServersQueryKey = ["mcp", "servers"] as const;
+
+async function loadMcpServersAndStatuses() {
+  const servers = await mcpService.listServers();
+  const entries = await Promise.all(
+    servers.map(async (server) => [server.name, await mcpService.getServerStatus(server.name)] as const),
+  );
+
+  return {
+    servers,
+    statuses: Object.fromEntries(entries) as StatusMap,
+  };
+}
+
 export function McpPage({ searchTerm }: { searchTerm: string }) {
-  const [servers, setServers] = useState<McpServerConfig[]>([]);
-  const [statuses, setStatuses] = useState<StatusMap>({});
-  const [testingName, setTestingName] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [editingServer, setEditingServer] = useState<McpServerConfig | null | undefined>();
   const [showImportExport, setShowImportExport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    setError(null);
-    const nextServers = await mcpService.listServers();
-    setServers(nextServers);
-    const entries = await Promise.all(
-      nextServers.map(async (server) => [server.name, await mcpService.getServerStatus(server.name)] as const),
-    );
-    setStatuses(Object.fromEntries(entries));
-  }
+  const serversQuery = useQuery({
+    queryKey: mcpServersQueryKey,
+    queryFn: loadMcpServersAndStatuses,
+  });
 
-  useEffect(() => {
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
+  const saveServerMutation = useMutation({
+    mutationFn: async (server: McpServerConfig) => {
+      if (editingServer?.name) {
+        await mcpService.updateServer(editingServer.name, server);
+      } else {
+        await mcpService.addServer(server);
+      }
+    },
+    onSuccess: async () => {
+      setEditingServer(undefined);
+      setNotice("MCP 服务器已保存");
+      await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
+    },
+  });
+
+  const toggleServerMutation = useMutation({
+    mutationFn: (server: McpServerConfig) => mcpService.toggleServer(server.name, !server.active),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
+  });
+
+  const deleteServerMutation = useMutation({
+    mutationFn: (server: McpServerConfig) => mcpService.removeServer(server.name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
+  });
+
+  const testServerMutation = useMutation({
+    mutationFn: async (server: McpServerConfig) => ({
+      server,
+      result: await mcpService.testConnection(server.name),
+    }),
+    onSuccess: async ({ server, result }) => {
+      setNotice(result.success ? `${server.name} 测试通过，发现 ${result.tools.length} 个工具` : `${server.name} 测试失败`);
+      if (!result.success && result.error) setError(result.error);
+      await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
+    },
+  });
+
+  const importServersMutation = useMutation({
+    mutationFn: ({ data, scope }: { data: McpImportExport; scope: McpScope }) => mcpService.importServers(data, scope),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
+  });
+
+  const servers = serversQuery.data?.servers ?? [];
+  const statuses = serversQuery.data?.statuses ?? {};
+  const testingName = testServerMutation.isPending ? testServerMutation.variables?.name ?? null : null;
+  const queryError = serversQuery.error instanceof Error ? serversQuery.error.message : serversQuery.error ? String(serversQuery.error) : null;
+  const visibleError = error ?? queryError;
 
   const visibleServers = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -53,47 +105,29 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   );
 
   async function saveServer(server: McpServerConfig) {
-    if (editingServer?.name) {
-      await mcpService.updateServer(editingServer.name, server);
-    } else {
-      await mcpService.addServer(server);
-    }
-    setEditingServer(undefined);
-    setNotice("MCP 服务器已保存");
-    await refresh();
+    setError(null);
+    await saveServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function testServer(server: McpServerConfig) {
     setError(null);
     setNotice(null);
-    setTestingName(server.name);
-    try {
-      const result: McpTestResult = await mcpService.testConnection(server.name);
-      const status = await mcpService.getServerStatus(server.name);
-      setStatuses((current) => ({ ...current, [server.name]: status }));
-      setNotice(result.success ? `${server.name} 测试通过，发现 ${result.tools.length} 个工具` : `${server.name} 测试失败`);
-      if (!result.success && result.error) setError(result.error);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setTestingName(null);
-    }
+    await testServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function toggleServer(server: McpServerConfig) {
-    await mcpService.toggleServer(server.name, !server.active);
-    await refresh();
+    setError(null);
+    await toggleServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function deleteServer(server: McpServerConfig) {
     if (!window.confirm(`删除 MCP 服务器 ${server.name}？`)) return;
-    await mcpService.removeServer(server.name);
-    await refresh();
+    setError(null);
+    await deleteServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function importServers(data: McpImportExport, scope: McpScope) {
-    const result = await mcpService.importServers(data, scope);
-    await refresh();
+    const result = await importServersMutation.mutateAsync({ data, scope });
     return `导入 ${result.imported.length} 个，跳过 ${result.skipped.length} 个`;
   }
 
@@ -129,9 +163,9 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
       <PageHeader
         actions={
           <>
-            <Button variant="outline" onClick={() => void refresh()}>
+            <Button disabled={serversQuery.isFetching} variant="outline" onClick={() => void serversQuery.refetch()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              刷新
+              {serversQuery.isFetching ? "刷新中" : "刷新"}
             </Button>
             <Button variant="outline" onClick={() => setShowImportExport(true)}>
               <Upload className="h-4 w-4" aria-hidden="true" />
@@ -153,10 +187,14 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
         <StatCard label="工具总数" value={String(totalTools)} hint={averageDuration ? `平均 ${averageDuration}ms` : "尚未测试"} />
       </div>
 
-      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
+      {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
-      {visibleServers.length ? (
+      {serversQuery.isLoading ? (
+        <SectionPanel title="MCP 服务器">
+          <div className="py-8 text-center text-sm text-muted-foreground">MCP 服务器加载中</div>
+        </SectionPanel>
+      ) : visibleServers.length ? (
         <>
           {renderGroup("用户配置", userServers)}
           {renderGroup("项目配置", projectServers)}

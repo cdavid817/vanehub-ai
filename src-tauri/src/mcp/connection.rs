@@ -1,3 +1,4 @@
+use crate::command_safety;
 use crate::mcp::models::{McpServerConfig, McpTestResult, McpToolInfo, McpTransportType};
 use crate::AppError;
 use http::{HeaderName, HeaderValue};
@@ -21,18 +22,21 @@ pub async fn test_connection(config: &McpServerConfig) -> McpTestResult {
     match result {
         Ok(Ok(tools)) => McpTestResult {
             success: true,
+            operation_id: None,
             tools,
             error: None,
             duration_ms,
         },
         Ok(Err(error)) => McpTestResult {
             success: false,
+            operation_id: None,
             tools: Vec::new(),
             error: Some(error.to_string()),
             duration_ms,
         },
         Err(_) => McpTestResult {
             success: false,
+            operation_id: None,
             tools: Vec::new(),
             error: Some("MCP connection timed out after 15 seconds.".to_string()),
             duration_ms,
@@ -59,8 +63,10 @@ async fn test_stdio(config: &McpServerConfig) -> Result<Vec<McpToolInfo>, AppErr
     let args = config.args.clone().unwrap_or_default();
     let env = config.env.clone().unwrap_or_default();
 
+    command_safety::audit_command("mcp.stdio.test", command, &args);
+    let process = command_safety::tokio_command(command)?;
     let transport =
-        TokioChildProcess::new(tokio::process::Command::new(command).configure(|cmd| {
+        TokioChildProcess::new(process.configure(|cmd| {
             cmd.args(args);
             cmd.envs(env);
         }))
