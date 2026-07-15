@@ -30,6 +30,19 @@ export interface WorkflowState {
   intent: string;
 }
 
+export interface Session {
+  id: string;
+  title: string;
+  agentId: string;
+  interactionMode: InteractionMode;
+  lifecycleState: SessionLifecycleState;
+  folder: string | null;
+  pinned: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ReadinessStatus {
   ready: boolean;
   reason?: string;

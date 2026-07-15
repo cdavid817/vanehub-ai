@@ -28,4 +28,39 @@ describe("webAgentClient", () => {
     expect(launch.workflow.lifecycleState).toBe("running");
     expect(details.adapter).toBe("browser");
   });
+
+  it("manages sessions with Web runtime behavior", async () => {
+    const first = await webAgentClient.createSession({
+      agentId: "gemini-cli",
+      interactionMode: "browser",
+    });
+    const second = await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Codex work",
+    });
+
+    expect(first.title).toBe("新会话");
+    expect(second.title).toBe("Codex work");
+
+    await webAgentClient.pinSession(first.id);
+    const sessions = await webAgentClient.listSessions();
+    expect(sessions[0]?.id).toBe(first.id);
+
+    const active = await webAgentClient.switchSession(second.id);
+    expect(active.id).toBe(second.id);
+    expect((await webAgentClient.getActiveSession())?.id).toBe(second.id);
+
+    await webAgentClient.archiveSession(second.id);
+    expect(await webAgentClient.getActiveSession()).toBeNull();
+    expect((await webAgentClient.listSessions()).some((session) => session.id === second.id)).toBe(false);
+    expect((await webAgentClient.listArchivedSessions()).some((session) => session.id === second.id)).toBe(true);
+    await expect(webAgentClient.switchSession(second.id)).rejects.toThrow("archived");
+
+    const restored = await webAgentClient.unarchiveSession(second.id);
+    expect(restored.archived).toBe(false);
+
+    await webAgentClient.deleteSession(second.id);
+    expect((await webAgentClient.listSessions()).some((session) => session.id === second.id)).toBe(false);
+  });
 });

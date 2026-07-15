@@ -1,4 +1,5 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -23,6 +24,8 @@ enum AppError {
     UnsupportedInteractionMode(String),
     #[error("no active agent selected")]
     NoActiveAgent,
+    #[error("session not found: {0}")]
+    SessionNotFound(String),
     #[error("launch failed: {0}")]
     LaunchFailed(String),
     #[error("MCP server not found: {0}")]
@@ -182,6 +185,21 @@ struct SessionDetails {
     details: std::collections::BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Session {
+    id: String,
+    title: String,
+    agent_id: String,
+    interaction_mode: InteractionMode,
+    lifecycle_state: SessionLifecycleState,
+    folder: Option<String>,
+    pinned: bool,
+    archived: bool,
+    created_at: String,
+    updated_at: String,
+}
+
 struct RegistryStore {
     db_path: PathBuf,
 }
@@ -215,6 +233,7 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
 
     apply_migration(conn, 1, "initial-schema", apply_initial_schema)?;
     apply_migration(conn, 2, "agent-managed-sdk-dependency", apply_agent_sdk_dependency_migration)?;
+    apply_migration(conn, 3, "session-management", apply_session_management_migration)?;
 
     Ok(())
 }
@@ -329,6 +348,32 @@ fn apply_agent_sdk_dependency_migration(conn: &Connection) -> Result<(), AppErro
     if !table_has_column(conn, "agents", "managed_sdk_dependency_id")? {
         conn.execute("ALTER TABLE agents ADD COLUMN managed_sdk_dependency_id TEXT", [])?;
     }
+    Ok(())
+}
+
+fn apply_session_management_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            interaction_mode TEXT NOT NULL,
+            lifecycle_state TEXT NOT NULL,
+            folder TEXT,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            archived INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (agent_id) REFERENCES agents(id)
+        );
+        "#,
+    )?;
+
+    if !table_has_column(conn, "workflow_state", "active_session_id")? {
+        conn.execute("ALTER TABLE workflow_state ADD COLUMN active_session_id TEXT", [])?;
+    }
+
     Ok(())
 }
 
@@ -469,6 +514,77 @@ fn parse_lifecycle_state(value: &str) -> SessionLifecycleState {
         "stopped" => SessionLifecycleState::Stopped,
         _ => SessionLifecycleState::Idle,
     }
+}
+
+fn current_timestamp() -> String {
+    Utc::now().to_rfc3339()
+}
+
+fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
+    let interaction_mode = row.get::<_, String>(3)?;
+    let lifecycle_state = row.get::<_, String>(4)?;
+    Ok(Session {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        agent_id: row.get(2)?,
+        interaction_mode: parse_mode(&interaction_mode)
+            .map_err(|error| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error)))?,
+        lifecycle_state: parse_lifecycle_state(&lifecycle_state),
+        folder: row.get(5)?,
+        pinned: row.get::<_, i64>(6)? != 0,
+        archived: row.get::<_, i64>(7)? != 0,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
+
+fn session_select_sql() -> &'static str {
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at FROM sessions"
+}
+
+fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
+    conn.query_row(
+        &format!("{} WHERE id = ?1", session_select_sql()),
+        params![session_id],
+        load_session_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))
+}
+
+fn update_active_workflow_for_session(conn: &Connection, session: &Session) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE workflow_state
+         SET active_session_id = ?1,
+             active_agent_id = ?2,
+             active_interaction_mode = ?3,
+             lifecycle_state = ?4
+         WHERE id = 1",
+        params![
+            session.id,
+            session.agent_id,
+            session.interaction_mode.as_str(),
+            session.lifecycle_state.as_str()
+        ],
+    )?;
+    Ok(())
+}
+
+fn clear_active_session_if_matches(conn: &Connection, session_id: &str) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE workflow_state SET active_session_id = NULL WHERE id = 1 AND active_session_id = ?1",
+        params![session_id],
+    )?;
+    Ok(())
+}
+
+fn update_session_flag(conn: &Connection, session_id: &str, column: &str, value: bool) -> Result<Session, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        &format!("UPDATE sessions SET {column} = ?1, updated_at = ?2 WHERE id = ?3"),
+        params![if value { 1 } else { 0 }, now, session_id],
+    )?;
+    load_session(conn, session_id)
 }
 
 fn load_agent(conn: &Connection, agent_id: &str) -> Result<AgentRegistryEntry, AppError> {
@@ -810,6 +926,193 @@ fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError>
 }
 
 #[tauri::command]
+fn create_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    agent_id: String,
+    interaction_mode: InteractionMode,
+    title: Option<String>,
+    folder: Option<String>,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let agent = load_agent(&conn, &agent_id)?;
+    if !agent
+        .supported_interaction_modes
+        .iter()
+        .any(|mode| mode.as_str() == interaction_mode.as_str())
+    {
+        return Err(AppError::UnsupportedInteractionMode(interaction_mode.as_str().to_string()));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = current_timestamp();
+    let session_title = title
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "新会话".to_string());
+    conn.execute(
+        "INSERT INTO sessions
+         (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?8)",
+        params![
+            id,
+            session_title,
+            agent_id,
+            interaction_mode.as_str(),
+            SessionLifecycleState::Idle.as_str(),
+            folder,
+            now,
+            now
+        ],
+    )?;
+
+    let session = load_session(&conn, &id)?;
+    update_active_workflow_for_session(&conn, &session)?;
+    Ok(session)
+}
+
+#[tauri::command]
+fn list_sessions(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<Session>, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let mut stmt = conn.prepare(&format!(
+        "{} WHERE archived = 0 ORDER BY pinned DESC, updated_at DESC",
+        session_select_sql()
+    ))?;
+    let rows = stmt.query_map([], load_session_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::Database)
+}
+
+#[tauri::command]
+fn list_archived_sessions(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<Session>, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let mut stmt = conn.prepare(&format!(
+        "{} WHERE archived = 1 ORDER BY pinned DESC, updated_at DESC",
+        session_select_sql()
+    ))?;
+    let rows = stmt.query_map([], load_session_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::Database)
+}
+
+#[tauri::command]
+fn get_active_session(state: State<'_, Mutex<RegistryStore>>) -> Result<Option<Session>, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let active_session_id = conn.query_row(
+        "SELECT active_session_id FROM workflow_state WHERE id = 1",
+        [],
+        |row| row.get::<_, Option<String>>(0),
+    )?;
+    let Some(session_id) = active_session_id else {
+        return Ok(None);
+    };
+    let session = conn
+        .query_row(
+            &format!("{} WHERE id = ?1 AND archived = 0", session_select_sql()),
+            params![session_id],
+            load_session_from_row,
+        )
+        .optional()?;
+    if session.is_none() {
+        clear_active_session_if_matches(&conn, &session_id)?;
+    }
+    Ok(session)
+}
+
+#[tauri::command]
+fn switch_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let session = load_session(&conn, &session_id)?;
+    if session.archived {
+        return Err(AppError::Validation(format!(
+            "Cannot switch to archived session: {session_id}"
+        )));
+    }
+    update_active_workflow_for_session(&conn, &session)?;
+    Ok(session)
+}
+
+#[tauri::command]
+fn rename_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    title: String,
+) -> Result<Session, AppError> {
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return Err(AppError::Validation("Session title cannot be empty.".to_string()));
+    }
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
+        params![title, now, session_id],
+    )?;
+    load_session(&conn, &session_id)
+}
+
+#[tauri::command]
+fn pin_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    update_session_flag(&conn, &session_id, "pinned", true)
+}
+
+#[tauri::command]
+fn unpin_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    update_session_flag(&conn, &session_id, "pinned", false)
+}
+
+#[tauri::command]
+fn archive_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let session = update_session_flag(&conn, &session_id, "archived", true)?;
+    clear_active_session_if_matches(&conn, &session_id)?;
+    Ok(session)
+}
+
+#[tauri::command]
+fn unarchive_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<Session, AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    update_session_flag(&conn, &session_id, "archived", false)
+}
+
+#[tauri::command]
+fn delete_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<(), AppError> {
+    let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    load_session(&conn, &session_id)?;
+    conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+    clear_active_session_if_matches(&conn, &session_id)?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_session_details(state: State<'_, Mutex<RegistryStore>>) -> Result<SessionDetails, AppError> {
     let store = state.lock().map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
@@ -876,6 +1179,17 @@ pub fn run() {
             check_browser_readiness,
             launch_active_workflow,
             get_session_details,
+            create_session,
+            list_sessions,
+            list_archived_sessions,
+            get_active_session,
+            switch_session,
+            rename_session,
+            pin_session,
+            unpin_session,
+            archive_session,
+            unarchive_session,
+            delete_session,
             mcp::commands::list_mcp_servers,
             mcp::commands::add_mcp_server,
             mcp::commands::update_mcp_server,
@@ -945,7 +1259,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2]);
+        assert_eq!(versions, vec![1, 2, 3]);
     }
 
     #[test]
@@ -969,6 +1283,48 @@ mod tests {
         migrate(&conn).expect("migrate");
 
         assert!(table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("column check"));
+    }
+
+    #[test]
+    fn migration_adds_session_storage() {
+        let conn = test_conn();
+
+        assert!(table_has_column(&conn, "workflow_state", "active_session_id").expect("column check"));
+        assert!(table_has_column(&conn, "sessions", "updated_at").expect("column check"));
+    }
+
+    #[test]
+    fn archive_and_delete_clear_active_session() {
+        let conn = test_conn();
+        let now = current_timestamp();
+        conn.execute(
+            "INSERT INTO sessions
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, 0, ?6, ?7)",
+            params![
+                "session-1",
+                "新会话",
+                "gemini-cli",
+                "browser",
+                "idle",
+                now,
+                now
+            ],
+        )
+        .expect("insert session");
+        let session = load_session(&conn, "session-1").expect("session");
+        update_active_workflow_for_session(&conn, &session).expect("active session");
+
+        clear_active_session_if_matches(&conn, "session-1").expect("clear active session");
+
+        let active_session_id = conn
+            .query_row(
+                "SELECT active_session_id FROM workflow_state WHERE id = 1",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .expect("active session id");
+        assert_eq!(active_session_id, None);
     }
 
     #[test]

@@ -1,20 +1,30 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Bot, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3, Code2, FileText, Folder, GitBranch, HelpCircle, PanelRightClose, PanelRightOpen, Paperclip, Plus, Send, Settings, Sparkles, TerminalSquare, Trash2, type LucideIcon } from "lucide-react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, Bot, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3, Code2, FileText, Folder, GitBranch, HelpCircle, PanelRightClose, PanelRightOpen, Paperclip, Pin, Plus, RotateCcw, Send, Settings, Sparkles, TerminalSquare, Trash2, type LucideIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
+import { agentService } from "../services/runtime-agent-client";
 import { emptyWorkspaceSnapshot } from "../services/mock-workspace-data";
 import { workspaceService } from "../services/runtime-workspace-client";
 import { getNextThemeId, getThemeDefinition } from "../theme/theme-registry";
 import { useTheme } from "../theme/theme-provider";
-import type { WorkspaceChatMessage, WorkspaceConversation } from "../types/workspace";
+import type { Session } from "../types/agent";
+import type { WorkspaceChatMessage } from "../types/workspace";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 
-type SidebarMode = "activity" | "group";
+type SidebarMode = "activity" | "group" | "archived";
 type ActivityKey = "needs-input" | "pending-verification" | "in-progress" | "inactive";
 type AgentKey = "codex" | "claude-code" | "opencode" | "gemini" | "unknown";
 type InfoTab = "agent" | "files" | "changes";
+type ContextPanelMode = "menu" | "rename" | "delete";
+type ContextPanelState = {
+  session: Session;
+  mode: ContextPanelMode;
+  draftTitle: string;
+  x: number;
+  y: number;
+};
 
 const activityGroups: Array<{ key: ActivityKey; label: string }> = [
   { key: "needs-input", label: "需要输入" }, { key: "pending-verification", label: "待验证" }, { key: "in-progress", label: "进行中" }, { key: "inactive", label: "非活跃" },
@@ -30,42 +40,69 @@ const agentMeta: Record<AgentKey, { label: string; Icon: LucideIcon; tone: strin
 
 const infoTabs: Array<{ key: InfoTab; label: string }> = [{ key: "agent", label: "Agent Info" }, { key: "files", label: "Files" }, { key: "changes", label: "Changes" }];
 
-function getActivityKey(conversation: WorkspaceConversation): ActivityKey {
-  if (conversation.archived) return "inactive";
-  if (conversation.active) return "needs-input";
-  return conversation.status.includes("验证") ? "pending-verification" : "in-progress";
+function getActivityKeyForSession(session: Session): ActivityKey {
+  if (session.archived || session.lifecycleState === "idle" || session.lifecycleState === "stopped") return "inactive";
+  if (session.lifecycleState === "failed") return "needs-input";
+  if (session.lifecycleState === "starting") return "pending-verification";
+  return "in-progress";
 }
 
-function getConversationFolder(conversation: WorkspaceConversation) {
-  if (conversation.title.includes("代码") || conversation.title.includes("数据")) return "工程项目";
-  return conversation.title.includes("文档") || conversation.title.includes("营销") ? "内容项目" : "当前工作区";
+function getSessionFolder(session: Session) {
+  return session.folder ?? "当前工作区";
 }
 
-function getAgentKey(conversation: WorkspaceConversation): AgentKey {
-  if (conversation.title.includes("代码")) return "codex";
-  if (conversation.title.includes("客服")) return "claude-code";
-  if (conversation.title.includes("数据")) return "gemini";
-  return conversation.title.includes("文档") || conversation.title.includes("营销") ? "opencode" : "unknown";
+function getAgentKeyForSession(session: Session): AgentKey {
+  if (session.agentId.includes("codex")) return "codex";
+  if (session.agentId.includes("claude")) return "claude-code";
+  if (session.agentId.includes("opencode")) return "opencode";
+  if (session.agentId.includes("gemini")) return "gemini";
+  return "unknown";
 }
 
-function ConversationCard({ conversation }: { conversation: WorkspaceConversation }) {
-  const meta = agentMeta[getAgentKey(conversation)];
+function formatSessionDate(session: Session) {
+  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(session.updatedAt));
+}
+
+function formatLifecycle(session: Session) {
+  const labels: Record<Session["lifecycleState"], string> = {
+    failed: "需要输入",
+    idle: "空闲",
+    running: "进行中",
+    starting: "启动中",
+    stopped: "已停止",
+  };
+  return session.archived ? "已归档" : labels[session.lifecycleState];
+}
+
+function ConversationCard({
+  active,
+  onContextMenu,
+  onSelect,
+  session,
+}: {
+  active: boolean;
+  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
+  onSelect: () => void;
+  session: Session;
+}) {
+  const meta = agentMeta[getAgentKeyForSession(session)];
   const Icon = meta.Icon;
 
   return (
-    <button className={cn("relative w-full rounded-lg border border-border p-2.5 text-left transition-colors hover:bg-muted", conversation.active && "bg-[hsl(var(--nav-active-soft))]")} type="button">
-      {conversation.active ? <span className="absolute left-0 top-2 h-10 w-0.5 rounded bg-primary" /> : null}
+    <button className={cn("relative w-full rounded-lg border border-border p-2.5 text-left transition-colors hover:bg-muted", active && "bg-[hsl(var(--nav-active-soft))]")} onClick={onSelect} onContextMenu={onContextMenu} type="button">
+      {active ? <span className="absolute left-0 top-2 h-10 w-0.5 rounded bg-primary" /> : null}
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", meta.tone)} title={meta.label}>
           <Icon className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
-        <span className={cn("truncate text-sm font-medium", conversation.archived && "text-muted-foreground")}>{conversation.title}</span>
+        <span className={cn("truncate text-sm font-medium", session.archived && "text-muted-foreground")}>{session.title}</span>
+        {session.pinned ? <Pin className="ml-auto h-3.5 w-3.5 text-primary" aria-hidden="true" /> : null}
       </div>
       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-        <span className={cn("h-2 w-2 rounded-full", conversation.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
-        <span>{conversation.status}</span>
-        <span className="font-mono">{conversation.agents}</span>
-        <span className="ml-auto font-mono">{conversation.date}</span>
+        <span className={cn("h-2 w-2 rounded-full", session.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
+        <span>{formatLifecycle(session)}</span>
+        <span className="font-mono">{meta.label}</span>
+        <span className="ml-auto font-mono">{formatSessionDate(session)}</span>
       </div>
     </button>
   );
@@ -92,7 +129,9 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["当前工作区", "工程项目", "内容项目"]));
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
+  const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const { theme, setTheme } = useTheme();
+  const queryClient = useQueryClient();
   const nextTheme = getNextThemeId(theme);
   const nextThemeDefinition = getThemeDefinition(nextTheme);
 
@@ -101,23 +140,80 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     queryFn: () => workspaceService.getWorkspaceSnapshot(),
   });
   const workspace = workspaceQuery.data ?? emptyWorkspaceSnapshot;
+  const agentsQuery = useQuery({
+    queryKey: ["agents"],
+    queryFn: () => agentService.listAgents(),
+  });
+  const sessionsQuery = useQuery({
+    queryKey: ["sessions"],
+    queryFn: () => agentService.listSessions(),
+  });
+  const archivedSessionsQuery = useQuery({
+    queryKey: ["sessions", "archived"],
+    queryFn: () => agentService.listArchivedSessions(),
+  });
+  const activeSessionQuery = useQuery({
+    queryKey: ["sessions", "active"],
+    queryFn: () => agentService.getActiveSession(),
+  });
+  const sessions = sessionsQuery.data ?? [];
+  const archivedSessions = archivedSessionsQuery.data ?? [];
+  const activeSessionId = activeSessionQuery.data?.id ?? null;
+
+  function invalidateSessions() {
+    void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    void queryClient.invalidateQueries({ queryKey: ["workflow"] });
+  }
+
+  const createSessionMutation = useMutation({
+    mutationFn: async () => {
+      const activeAgent = agentsQuery.data?.[0];
+      if (!activeAgent) throw new Error("No agents are available.");
+      return agentService.createSession({
+        agentId: activeAgent.id,
+        interactionMode: activeAgent.supportedInteractionModes[0] ?? "cli",
+      });
+    },
+    onSuccess: invalidateSessions,
+  });
+  const switchSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => agentService.switchSession(sessionId),
+    onSuccess: invalidateSessions,
+  });
+  const renameSessionMutation = useMutation({
+    mutationFn: ({ sessionId, title }: { sessionId: string; title: string }) => agentService.renameSession(sessionId, title),
+    onSuccess: invalidateSessions,
+  });
+  const pinSessionMutation = useMutation({
+    mutationFn: (session: Session) => (session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id)),
+    onSuccess: invalidateSessions,
+  });
+  const archiveSessionMutation = useMutation({
+    mutationFn: (session: Session) => (session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id)),
+    onSuccess: invalidateSessions,
+  });
+  const deleteSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => agentService.deleteSession(sessionId),
+    onSuccess: invalidateSessions,
+  });
 
   const activityBuckets = useMemo(
     () =>
       activityGroups.map((group) => ({
         ...group,
-        conversations: workspace.conversations.filter((conversation) => getActivityKey(conversation) === group.key),
+        sessions: sessions.filter((session) => !session.pinned && getActivityKeyForSession(session) === group.key),
       })),
-    [workspace.conversations],
+    [sessions],
   );
   const folderBuckets = useMemo(() => {
-    const groups = new Map<string, WorkspaceConversation[]>();
-    workspace.conversations.forEach((conversation) => {
-      const folder = getConversationFolder(conversation);
-      groups.set(folder, [...(groups.get(folder) ?? []), conversation]);
+    const groups = new Map<string, Session[]>();
+    sessions.filter((session) => !session.pinned).forEach((session) => {
+      const folder = getSessionFolder(session);
+      groups.set(folder, [...(groups.get(folder) ?? []), session]);
     });
-    return Array.from(groups.entries()).map(([folder, conversations]) => ({ folder, conversations }));
-  }, [workspace.conversations]);
+    return Array.from(groups.entries()).map(([folder, groupedSessions]) => ({ folder, sessions: groupedSessions }));
+  }, [sessions]);
+  const pinnedSessions = useMemo(() => sessions.filter((session) => session.pinned), [sessions]);
   const progressStats = { complete: 6, running: 3, pending: 4 };
   const infoFiles = ["src/main-layout/main-layout.tsx", "openspec/changes/improve-main-layout-ui/tasks.md", "openspec/changes/improve-main-layout-ui/design.md"];
   const changeItems = ["侧边栏工具入口迁移", "信息面板折叠与 keep-alive", "主内容弹性布局"];
@@ -133,6 +229,114 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     });
   }
 
+  function openContextMenu(event: MouseEvent<HTMLButtonElement>, session: Session) {
+    event.preventDefault();
+    const menuWidth = 160;
+    const menuHeight = 148;
+    const gap = 8;
+    const x = Math.min(event.clientX + gap, window.innerWidth - menuWidth - gap);
+    const y = Math.min(event.clientY + gap, window.innerHeight - menuHeight - gap);
+    setContextPanel({
+      session,
+      mode: "menu",
+      draftTitle: session.title,
+      x: Math.max(gap, x),
+      y: Math.max(gap, y),
+    });
+  }
+
+  function submitRename() {
+    if (!contextPanel) return;
+    const nextTitle = contextPanel.draftTitle.trim();
+    if (!nextTitle || nextTitle === contextPanel.session.title) {
+      setContextPanel(null);
+      return;
+    }
+    renameSessionMutation.mutate({ sessionId: contextPanel.session.id, title: nextTitle });
+    setContextPanel(null);
+  }
+
+  function confirmDelete() {
+    if (!contextPanel) return;
+    deleteSessionMutation.mutate(contextPanel.session.id);
+    setContextPanel(null);
+  }
+
+  function renderContextMenu() {
+    if (!contextPanel || contextPanel.mode !== "menu") return null;
+    const session = contextPanel.session;
+    return (
+      <div className="fixed z-50 grid w-40 gap-1 rounded-md border border-border bg-background p-1 text-sm shadow-lg" style={{ left: contextPanel.x, top: contextPanel.y }}>
+        <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "rename" })} type="button">重命名</button>
+        <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { pinSessionMutation.mutate(session); setContextPanel(null); }} type="button">
+          {session.pinned ? "取消置顶" : "置顶"}
+        </button>
+        <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { archiveSessionMutation.mutate(session); setContextPanel(null); }} type="button">
+          {session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />恢复</> : "归档"}
+        </button>
+        <button className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "delete" })} type="button">删除</button>
+      </div>
+    );
+  }
+
+  function renderCenteredDialog() {
+    if (!contextPanel || contextPanel.mode === "menu") return null;
+    if (contextPanel.mode === "rename") {
+      return (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
+          <form className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl" onSubmit={(event) => { event.preventDefault(); submitRename(); }}>
+            <div>
+              <h3 className="text-sm font-semibold">重命名会话</h3>
+              <p className="mt-1 text-xs text-muted-foreground">修改当前会话在侧边栏中的显示名称。</p>
+            </div>
+            <label className="grid gap-1">
+              <span className="text-xs text-muted-foreground">会话名称</span>
+              <input
+                autoFocus
+                className="ucd-input h-9 rounded px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onChange={(event) => setContextPanel({ ...contextPanel, draftTitle: event.target.value })}
+                value={contextPanel.draftTitle}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">取消</button>
+              <button className="h-8 rounded bg-primary text-xs text-primary-foreground disabled:opacity-50" disabled={!contextPanel.draftTitle.trim()} type="submit">确认</button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
+        <div className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl">
+          <div>
+            <h3 className="text-sm font-semibold">删除会话</h3>
+            <p className="mt-1 break-words text-xs text-muted-foreground">“{contextPanel.session.title}” 删除后不可恢复。</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">取消</button>
+            <button className="h-8 rounded bg-destructive text-xs text-destructive-foreground" onClick={confirmDelete} type="button">删除</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSessionCard(session: Session) {
+    return (
+      <ConversationCard
+        active={activeSessionId === session.id}
+        key={session.id}
+        onContextMenu={(event) => openContextMenu(event, session)}
+        onSelect={() => {
+          setContextPanel(null);
+          if (!session.archived) switchSessionMutation.mutate(session.id);
+        }}
+        session={session}
+      />
+    );
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="pointer-events-none fixed inset-0 opacity-[0.035] [background-image:linear-gradient(hsl(var(--primary))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary))_1px,transparent_1px)] [background-size:100px_100px]" />
@@ -144,32 +348,43 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
             infoPanelCollapsed ? "grid-cols-[220px_minmax(0,1fr)_0px]" : "grid-cols-[220px_minmax(0,1fr)_300px]",
           )}
         >
-          <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3">
+          <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3" onContextMenu={(event) => event.preventDefault()}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">会话列表</h2>
-              <Button className="h-7 px-2 text-xs"><Plus className="h-3.5 w-3.5" aria-hidden="true" />新建</Button>
+              <Button className="h-7 px-2 text-xs" disabled={createSessionMutation.isPending || !agentsQuery.data?.length} onClick={() => createSessionMutation.mutate()}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />新建
+              </Button>
             </div>
-            <div className="mb-3 grid grid-cols-2 gap-1 rounded border border-border bg-[hsl(var(--panel-muted))] p-1">
-                {[["activity", "活动"], ["group", "分组"]].map(([key, label]) => (
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded border border-border bg-[hsl(var(--panel-muted))] p-1">
+                {[["activity", "活动"], ["group", "分组"], ["archived", `归档 ${archivedSessions.length}`]].map(([key, label]) => (
                 <button className={cn("h-7 rounded text-xs", sidebarMode === key ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} key={key} onClick={() => setSidebarMode(key as SidebarMode)} type="button">
                   {label}
                 </button>
               ))}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              {sidebarMode !== "archived" && pinnedSessions.length > 0 ? (
+                <section className="mb-3 grid gap-2 border-b border-border pb-3">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1"><Pin className="h-3.5 w-3.5" aria-hidden="true" />置顶</span>
+                    <span className="rounded-full border border-border px-1.5 font-mono">{pinnedSessions.length}</span>
+                  </div>
+                  {pinnedSessions.map(renderSessionCard)}
+                </section>
+              ) : null}
               {sidebarMode === "activity" ? (
                 <div className="grid gap-3">
                   {activityBuckets.map((group) => (
                     <section className="grid gap-2" key={group.key}>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
                         <span>{group.label}</span>
-                        <span className="rounded-full border border-border px-1.5 font-mono">{group.conversations.length}</span>
+                        <span className="rounded-full border border-border px-1.5 font-mono">{group.sessions.length}</span>
                       </div>
-                      {group.conversations.map((conversation) => <ConversationCard conversation={conversation} key={conversation.title} />)}
+                      {group.sessions.map(renderSessionCard)}
                     </section>
                   ))}
                 </div>
-              ) : (
+              ) : sidebarMode === "group" ? (
                 <div className="grid gap-2">
                   {folderBuckets.map((group) => {
                     const expanded = expandedFolders.has(group.folder);
@@ -179,12 +394,21 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                           <Folder className="h-3.5 w-3.5 text-primary" />
                           <span className="truncate">{group.folder}</span>
-                          <span className="ml-auto font-mono text-muted-foreground">{group.conversations.length}</span>
+                          <span className="ml-auto font-mono text-muted-foreground">{group.sessions.length}</span>
                         </button>
-                        {expanded ? group.conversations.map((conversation) => <ConversationCard conversation={conversation} key={conversation.title} />) : null}
+                        {expanded ? group.sessions.map(renderSessionCard) : null}
                       </section>
                     );
                   })}
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1"><Archive className="h-3.5 w-3.5" aria-hidden="true" />已归档</span>
+                    <span className="rounded-full border border-border px-1.5 font-mono">{archivedSessions.length}</span>
+                  </div>
+                  {archivedSessions.map(renderSessionCard)}
+                  {archivedSessions.length === 0 ? <p className="rounded border border-border p-3 text-xs text-muted-foreground">暂无归档会话</p> : null}
                 </div>
               )}
             </div>
@@ -295,6 +519,8 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
         </div>
         <StatusBar />
       </div>
+      {renderContextMenu()}
+      {renderCenteredDialog()}
     </main>
   );
 }
