@@ -8,7 +8,7 @@ interface SettingsSidebarProps {
 
 export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarProps) {
   return (
-    <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-2 lg:min-h-[calc(100vh-76px)]">
+    <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-2">
       <div className="px-3 py-4">
         <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">系统设置</div>
       </div>

@@ -14,15 +14,15 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <SettingsTopBar activePage={activePage} onReturn={onReturn} onSearchTermChange={setSearchTerm} searchTerm={searchTerm} />
-      <div className="grid gap-4 p-2 lg:grid-cols-[230px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 p-2 lg:grid-cols-[230px_minmax(0,1fr)]">
         <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
-        <section className="min-w-0">
+        <section className="min-h-0 min-w-0 overflow-hidden">
           {settingsPages.map((page) => {
             const Page = page.component;
             return (
-              <div hidden={page.id !== activePageId} key={page.id}>
+              <div className="h-full overflow-y-auto pr-1" hidden={page.id !== activePageId} key={page.id}>
                 <Page searchTerm={page.id === activePageId ? searchTerm : ""} />
               </div>
             );
