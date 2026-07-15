@@ -20,7 +20,10 @@ pub fn definitions() -> Vec<SdkDefinition> {
 pub fn list_statuses() -> Result<SdkStatusMap, AppError> {
     let mut statuses = BTreeMap::new();
     for definition in catalog() {
-        let latest_version = definition.fallback_versions.first().map(|value| value.to_string());
+        let latest_version = definition
+            .fallback_versions
+            .first()
+            .map(|value| value.to_string());
         let status = status_for_definition(definition, latest_version)?;
         statuses.insert(definition.id, status);
     }
@@ -29,11 +32,19 @@ pub fn list_statuses() -> Result<SdkStatusMap, AppError> {
 
 pub fn check_environment() -> SdkEnvironmentStatus {
     let node = find_command("node");
-    let npm = find_command(if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" })
-        .or_else(|| find_command("npm"));
+    let npm = find_command(if cfg!(target_os = "windows") {
+        "npm.cmd"
+    } else {
+        "npm"
+    })
+    .or_else(|| find_command("npm"));
 
-    let node_version = node.as_deref().and_then(|path| command_version(path, "--version"));
-    let npm_version = npm.as_deref().and_then(|path| command_version(path, "--version"));
+    let node_version = node
+        .as_deref()
+        .and_then(|path| command_version(path, "--version"));
+    let npm_version = npm
+        .as_deref()
+        .and_then(|path| command_version(path, "--version"));
     let available = node_version.is_some() && npm_version.is_some();
 
     SdkEnvironmentStatus {
@@ -64,7 +75,10 @@ pub fn get_versions(sdk_id: Option<SdkId>) -> SdkVersionMap {
 pub fn check_updates(sdk_id: Option<SdkId>) -> Result<SdkUpdateMap, AppError> {
     let mut updates = BTreeMap::new();
     for definition in catalog() {
-        if sdk_id.map(|target| target != definition.id).unwrap_or(false) {
+        if sdk_id
+            .map(|target| target != definition.id)
+            .unwrap_or(false)
+        {
             continue;
         }
         let installed_version = installed_version(definition.id, definition.npm_package);
@@ -72,7 +86,10 @@ pub fn check_updates(sdk_id: Option<SdkId>) -> Result<SdkUpdateMap, AppError> {
         let (latest_version, error_message) = match latest {
             Ok(version) => (Some(version), None),
             Err(error) => (
-                definition.fallback_versions.first().map(|value| value.to_string()),
+                definition
+                    .fallback_versions
+                    .first()
+                    .map(|value| value.to_string()),
                 Some(error.to_string()),
             ),
         };
@@ -96,7 +113,13 @@ pub fn check_updates(sdk_id: Option<SdkId>) -> Result<SdkUpdateMap, AppError> {
 
 pub fn install(request: SdkOperationRequest, operation: SdkOperationType) -> SdkOperationResult {
     let Some(definition) = definition_by_id(request.sdk_id) else {
-        return operation_failure(request.sdk_id, operation, "Unknown SDK id", None, Vec::new());
+        return operation_failure(
+            request.sdk_id,
+            operation,
+            "Unknown SDK id",
+            None,
+            Vec::new(),
+        );
     };
     install_definition(definition, request.version.as_deref(), operation)
 }
@@ -173,7 +196,9 @@ fn catalog() -> Vec<CatalogDefinition> {
 }
 
 fn definition_by_id(sdk_id: SdkId) -> Option<CatalogDefinition> {
-    catalog().into_iter().find(|definition| definition.id == sdk_id)
+    catalog()
+        .into_iter()
+        .find(|definition| definition.id == sdk_id)
 }
 
 fn definition_to_model(definition: CatalogDefinition) -> SdkDefinition {
@@ -215,7 +240,9 @@ fn sdk_dir(sdk_id: SdkId) -> PathBuf {
 fn package_dir(sdk_id: SdkId, npm_package: &str) -> PathBuf {
     npm_package
         .split('/')
-        .fold(sdk_dir(sdk_id).join("node_modules"), |path, part| path.join(part))
+        .fold(sdk_dir(sdk_id).join("node_modules"), |path, part| {
+            path.join(part)
+        })
 }
 
 fn ensure_child_of_dependencies(path: &Path) -> Result<(), AppError> {
@@ -281,7 +308,10 @@ fn installed_version(sdk_id: SdkId, npm_package: &str) -> Option<String> {
     let package_json = package_dir(sdk_id, npm_package).join("package.json");
     let raw = fs::read_to_string(package_json).ok()?;
     let value: Value = serde_json::from_str(&raw).ok()?;
-    value.get("version")?.as_str().map(|value| value.to_string())
+    value
+        .get("version")?
+        .as_str()
+        .map(|value| value.to_string())
 }
 
 fn version_info(definition: CatalogDefinition) -> SdkVersionInfo {
@@ -329,7 +359,8 @@ fn get_available_versions(sdk_id: SdkId) -> Result<Vec<String>, AppError> {
     let definition = definition_by_id(sdk_id)
         .ok_or_else(|| AppError::Validation("Unknown SDK id".to_string()))?;
     let raw = run_npm_capture(&["view", definition.npm_package, "versions", "--json"], 30)?;
-    let value: Value = serde_json::from_str(&raw).map_err(|error| AppError::Validation(error.to_string()))?;
+    let value: Value =
+        serde_json::from_str(&raw).map_err(|error| AppError::Validation(error.to_string()))?;
     let Some(array) = value.as_array() else {
         return Ok(Vec::new());
     };
@@ -356,7 +387,10 @@ fn install_definition(
         return operation_failure(
             definition.id,
             operation,
-            environment.error.as_deref().unwrap_or("Node.js or npm is unavailable"),
+            environment
+                .error
+                .as_deref()
+                .unwrap_or("Node.js or npm is unavailable"),
             requested_version.map(|value| value.to_string()),
             logs,
         );
@@ -367,27 +401,71 @@ fn install_definition(
         .unwrap_or_else(|| definition.default_version.to_string());
     let sdk_dir = sdk_dir(definition.id);
     if let Err(error) = ensure_child_of_dependencies(&sdk_dir) {
-        return operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs);
+        return operation_failure(
+            definition.id,
+            operation,
+            &error.to_string(),
+            Some(normalized_version),
+            logs,
+        );
     }
     if let Err(error) = fs::create_dir_all(&sdk_dir) {
-        return operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs);
+        return operation_failure(
+            definition.id,
+            operation,
+            &error.to_string(),
+            Some(normalized_version),
+            logs,
+        );
     }
     if let Err(error) = create_package_json(&sdk_dir, definition) {
-        return operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs);
+        return operation_failure(
+            definition.id,
+            operation,
+            &error.to_string(),
+            Some(normalized_version),
+            logs,
+        );
     }
 
     let package_specs = package_specs(definition, &normalized_version);
-    push(format!("Using npm: {}", environment.npm_path.clone().unwrap_or_else(|| "npm".to_string())));
+    push(format!(
+        "Using npm: {}",
+        environment
+            .npm_path
+            .clone()
+            .unwrap_or_else(|| "npm".to_string())
+    ));
     push(format!("Installing {}", package_specs.join(" ")));
 
-    let npm = environment.npm_path.unwrap_or_else(|| if cfg!(target_os = "windows") { "npm.cmd".to_string() } else { "npm".to_string() });
+    let npm = environment.npm_path.unwrap_or_else(|| {
+        if cfg!(target_os = "windows") {
+            "npm.cmd".to_string()
+        } else {
+            "npm".to_string()
+        }
+    });
     let mut command = match command_safety::std_command(&npm) {
         Ok(command) => command,
         Err(error) => {
-            return operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs)
+            return operation_failure(
+                definition.id,
+                operation,
+                &error.to_string(),
+                Some(normalized_version),
+                logs,
+            )
         }
     };
-    command_safety::audit_command("sdk.npm.install", &npm, &["install".to_string(), "--prefix".to_string(), sdk_dir.to_string_lossy().to_string()]);
+    command_safety::audit_command(
+        "sdk.npm.install",
+        &npm,
+        &[
+            "install".to_string(),
+            "--prefix".to_string(),
+            sdk_dir.to_string_lossy().to_string(),
+        ],
+    );
     command
         .arg("install")
         .arg("--include=optional")
@@ -417,7 +495,13 @@ fn install_definition(
                     let _ = fs::write(sdk_dir.join(INSTALLED_MARKER), &installed);
                     let _ = update_manifest(definition.id, &installed);
                     push(format!("Installed version: {installed}"));
-                    operation_success(definition.id, operation, Some(installed), Some(normalized_version), logs)
+                    operation_success(
+                        definition.id,
+                        operation,
+                        Some(installed),
+                        Some(normalized_version),
+                        logs,
+                    )
                 }
                 Ok(status) => operation_failure(
                     definition.id,
@@ -426,10 +510,22 @@ fn install_definition(
                     Some(normalized_version),
                     logs,
                 ),
-                Err(error) => operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs),
+                Err(error) => operation_failure(
+                    definition.id,
+                    operation,
+                    &error.to_string(),
+                    Some(normalized_version),
+                    logs,
+                ),
             }
         }
-        Err(error) => operation_failure(definition.id, operation, &error.to_string(), Some(normalized_version), logs),
+        Err(error) => operation_failure(
+            definition.id,
+            operation,
+            &error.to_string(),
+            Some(normalized_version),
+            logs,
+        ),
     }
 }
 
@@ -437,12 +533,21 @@ fn run_npm_capture(args: &[&str], _timeout_seconds: u64) -> Result<String, AppEr
     let environment = check_environment();
     if !environment.available {
         return Err(AppError::Validation(
-            environment.error.unwrap_or_else(|| "Node.js or npm is unavailable".to_string()),
+            environment
+                .error
+                .unwrap_or_else(|| "Node.js or npm is unavailable".to_string()),
         ));
     }
     let npm = environment.npm_path.unwrap_or_else(|| "npm".to_string());
     let mut command = command_safety::std_command(&npm)?;
-    command_safety::audit_command("sdk.npm.capture", &npm, &args.iter().map(|value| value.to_string()).collect::<Vec<_>>());
+    command_safety::audit_command(
+        "sdk.npm.capture",
+        &npm,
+        &args
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>(),
+    );
     command.args(args);
     let output = command_output_with_timeout(&mut command, Duration::from_secs(_timeout_seconds))
         .map_err(AppError::LaunchFailed)?;
@@ -490,7 +595,10 @@ struct CapturedOutput {
     stderr: String,
 }
 
-fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Result<CapturedOutput, String> {
+fn command_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<CapturedOutput, String> {
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -500,7 +608,9 @@ fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Resu
     loop {
         match child.try_wait() {
             Ok(Some(_status)) => {
-                let output = child.wait_with_output().map_err(|error| error.to_string())?;
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
                 return Ok(CapturedOutput {
                     success: output.status.success(),
                     stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -509,7 +619,9 @@ fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Resu
             }
             Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
-                let output = child.wait_with_output().map_err(|error| error.to_string())?;
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
                 return Ok(CapturedOutput {
                     success: false,
                     stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -569,20 +681,29 @@ fn read_manifest(path: &Path) -> serde_json::Map<String, Value> {
 fn write_manifest(path: &Path, manifest: &serde_json::Map<String, Value>) -> Result<(), AppError> {
     fs::write(
         path,
-        serde_json::to_string_pretty(manifest).map_err(|error| AppError::Validation(error.to_string()))?,
+        serde_json::to_string_pretty(manifest)
+            .map_err(|error| AppError::Validation(error.to_string()))?,
     )
     .map_err(|error| AppError::Storage(error.to_string()))
 }
 
 fn package_specs(definition: CatalogDefinition, version: &str) -> Vec<String> {
     let mut packages = vec![format!("{}@{}", definition.npm_package, version)];
-    packages.extend(definition.companion_packages.iter().map(|package| package.to_string()));
+    packages.extend(
+        definition
+            .companion_packages
+            .iter()
+            .map(|package| package.to_string()),
+    );
     packages
 }
 
 pub fn normalize_requested_version(version: &str) -> Option<String> {
     let trimmed = version.trim();
-    let trimmed = trimmed.strip_prefix('v').or_else(|| trimmed.strip_prefix('V')).unwrap_or(trimmed);
+    let trimmed = trimmed
+        .strip_prefix('v')
+        .or_else(|| trimmed.strip_prefix('V'))
+        .unwrap_or(trimmed);
     if is_semver_like(trimmed) {
         Some(trimmed.to_string())
     } else {
@@ -594,10 +715,22 @@ fn is_semver_like(version: &str) -> bool {
     let mut parts = version.splitn(2, '-');
     let core = parts.next().unwrap_or_default();
     let core_parts = core.split('.').collect::<Vec<_>>();
-    if core_parts.len() != 3 || !core_parts.iter().all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit())) {
+    if core_parts.len() != 3
+        || !core_parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
         return false;
     }
-    parts.next().map(|suffix| !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')).unwrap_or(true)
+    parts
+        .next()
+        .map(|suffix| {
+            !suffix.is_empty()
+                && suffix
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
+        })
+        .unwrap_or(true)
 }
 
 pub fn compare_versions(left: &str, right: &str) -> i32 {
@@ -607,8 +740,14 @@ pub fn compare_versions(left: &str, right: &str) -> i32 {
     let right_parts = right.split(['.', '-']).collect::<Vec<_>>();
     let length = left_parts.len().max(right_parts.len());
     for index in 0..length {
-        let left_value = left_parts.get(index).and_then(|value| value.parse::<i32>().ok()).unwrap_or(0);
-        let right_value = right_parts.get(index).and_then(|value| value.parse::<i32>().ok()).unwrap_or(0);
+        let left_value = left_parts
+            .get(index)
+            .and_then(|value| value.parse::<i32>().ok())
+            .unwrap_or(0);
+        let right_value = right_parts
+            .get(index)
+            .and_then(|value| value.parse::<i32>().ok())
+            .unwrap_or(0);
         if left_value != right_value {
             return left_value - right_value;
         }
@@ -682,8 +821,14 @@ mod tests {
 
     #[test]
     fn validates_requested_versions() {
-        assert_eq!(normalize_requested_version(" v0.2.81 "), Some("0.2.81".to_string()));
-        assert_eq!(normalize_requested_version("1.2.3-beta.1"), Some("1.2.3-beta.1".to_string()));
+        assert_eq!(
+            normalize_requested_version(" v0.2.81 "),
+            Some("0.2.81".to_string())
+        );
+        assert_eq!(
+            normalize_requested_version("1.2.3-beta.1"),
+            Some("1.2.3-beta.1".to_string())
+        );
         assert_eq!(normalize_requested_version("latest"), None);
         assert_eq!(normalize_requested_version(">=1.0.0"), None);
         assert_eq!(normalize_requested_version("1.0.0 && rm -rf /"), None);

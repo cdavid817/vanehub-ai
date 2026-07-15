@@ -4,7 +4,9 @@ use std::process::Command;
 pub fn validate_executable(executable: &str) -> Result<(), AppError> {
     let trimmed = executable.trim();
     if trimmed.is_empty() {
-        return Err(AppError::Validation("command executable cannot be empty".to_string()));
+        return Err(AppError::Validation(
+            "command executable cannot be empty".to_string(),
+        ));
     }
     if trimmed.chars().any(char::is_control) {
         return Err(AppError::Validation(

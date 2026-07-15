@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { webAgentClient } from "./web-agent-client";
+import type { ChatStreamEvent } from "../types/chat";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("webAgentClient", () => {
   it("lists agents and filters by capability tag", async () => {
@@ -62,5 +67,74 @@ describe("webAgentClient", () => {
 
     await webAgentClient.deleteSession(second.id);
     expect((await webAgentClient.listSessions()).some((session) => session.id === second.id)).toBe(false);
+  });
+
+  it("stores messages and emits mock streaming events", async () => {
+    vi.useFakeTimers();
+    const session = await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Streaming test",
+    });
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    const assistant = await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "hello agent",
+      config: {
+        agentId: session.agentId,
+        interactionMode: session.interactionMode,
+        permissionMode: "default",
+        streaming: true,
+        thinking: true,
+        longContext: false,
+      },
+    });
+
+    expect(assistant.role).toBe("assistant");
+    expect(assistant.status).toBe("streaming");
+    expect(await webAgentClient.listMessages({ sessionId: session.id })).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+    const completedAssistant = messages.find((message) => message.id === assistant.id);
+
+    expect(events.some((event) => event.type === "token")).toBe(true);
+    expect(events.some((event) => event.type === "completed")).toBe(true);
+    expect(completedAssistant?.status).toBe("completed");
+    expect(completedAssistant?.content).toContain("Mock codex-cli response");
+    unsubscribe();
+  });
+
+  it("cancels active mock generation and preserves partial content", async () => {
+    vi.useFakeTimers();
+    const session = await webAgentClient.createSession({
+      agentId: "gemini-cli",
+      interactionMode: "browser",
+      title: "Cancel test",
+    });
+    const assistant = await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "stop soon",
+      config: {
+        agentId: session.agentId,
+        interactionMode: session.interactionMode,
+        permissionMode: "default",
+        streaming: true,
+        thinking: false,
+        longContext: false,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(420);
+    await webAgentClient.stopGeneration(session.id);
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+    const cancelledAssistant = messages.find((message) => message.id === assistant.id);
+
+    expect(cancelledAssistant?.status).toBe("cancelled");
+    expect(cancelledAssistant?.content.length).toBeGreaterThan(0);
   });
 });

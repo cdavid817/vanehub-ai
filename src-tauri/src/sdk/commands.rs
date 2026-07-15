@@ -55,9 +55,12 @@ pub fn rollback_sdk_dependency(
     registry: State<'_, TaskRegistry>,
     request: SdkOperationRequest,
 ) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(&registry, request.sdk_id, SdkOperationType::Rollback, || {
-        service::install(request, SdkOperationType::Rollback)
-    })
+    run_sdk_operation(
+        &registry,
+        request.sdk_id,
+        SdkOperationType::Rollback,
+        || service::install(request, SdkOperationType::Rollback),
+    )
 }
 
 #[tauri::command]
@@ -65,7 +68,9 @@ pub fn uninstall_sdk_dependency(
     registry: State<'_, TaskRegistry>,
     sdk_id: SdkId,
 ) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(&registry, sdk_id, SdkOperationType::Uninstall, || service::uninstall(sdk_id))
+    run_sdk_operation(&registry, sdk_id, SdkOperationType::Uninstall, || {
+        service::uninstall(sdk_id)
+    })
 }
 
 #[tauri::command]

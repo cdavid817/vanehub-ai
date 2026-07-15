@@ -20,7 +20,11 @@ impl TaskRegistry {
         message: Option<String>,
     ) -> Result<OperationTask, AppError> {
         let now = now_string();
-        let id = format!("op-{}-{}", now, self.counter.fetch_add(1, Ordering::Relaxed) + 1);
+        let id = format!(
+            "op-{}-{}",
+            now,
+            self.counter.fetch_add(1, Ordering::Relaxed) + 1
+        );
         let task = OperationTask {
             id: id.clone(),
             kind,
@@ -50,7 +54,11 @@ impl TaskRegistry {
         })
     }
 
-    pub fn complete(&self, operation_id: &str, result: Option<Value>) -> Result<OperationTask, AppError> {
+    pub fn complete(
+        &self,
+        operation_id: &str,
+        result: Option<Value>,
+    ) -> Result<OperationTask, AppError> {
         self.update(operation_id, |task| {
             task.status = OperationStatus::Succeeded;
             task.result = result;
@@ -84,8 +92,15 @@ impl TaskRegistry {
             .collect())
     }
 
-    fn update(&self, operation_id: &str, update: impl FnOnce(&mut OperationTask)) -> Result<OperationTask, AppError> {
-        let mut tasks = self.tasks.lock().map_err(|err| AppError::Storage(err.to_string()))?;
+    fn update(
+        &self,
+        operation_id: &str,
+        update: impl FnOnce(&mut OperationTask),
+    ) -> Result<OperationTask, AppError> {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
         let task = tasks
             .get_mut(operation_id)
             .ok_or_else(|| AppError::Validation(format!("operation not found: {operation_id}")))?;
@@ -110,12 +125,18 @@ mod tests {
     fn task_registry_records_lifecycle() {
         let registry = TaskRegistry::default();
         let task = registry
-            .start(OperationKind::Sdk, Some("claude-sdk".to_string()), Some("Installing".to_string()))
+            .start(
+                OperationKind::Sdk,
+                Some("claude-sdk".to_string()),
+                Some("Installing".to_string()),
+            )
             .expect("start");
 
         assert!(matches!(task.status, OperationStatus::Running));
 
-        let task = registry.append_log(&task.id, "npm install".to_string()).expect("log");
+        let task = registry
+            .append_log(&task.id, "npm install".to_string())
+            .expect("log");
         assert_eq!(task.logs.len(), 1);
 
         let task = registry.complete(&task.id, None).expect("complete");

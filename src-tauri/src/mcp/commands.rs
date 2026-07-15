@@ -11,7 +11,9 @@ use tauri::State;
 pub fn list_mcp_servers(
     state: State<'_, Mutex<RegistryStore>>,
 ) -> Result<Vec<McpServerConfig>, AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::list_servers(&conn)
 }
@@ -21,7 +23,9 @@ pub fn add_mcp_server(
     state: State<'_, Mutex<RegistryStore>>,
     config: McpServerConfig,
 ) -> Result<(), AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::add_server(&conn, config)
 }
@@ -32,7 +36,9 @@ pub fn update_mcp_server(
     name: String,
     config: PartialMcpServerConfig,
 ) -> Result<(), AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::update_server(&conn, &name, config)
 }
@@ -42,7 +48,9 @@ pub fn remove_mcp_server(
     state: State<'_, Mutex<RegistryStore>>,
     name: String,
 ) -> Result<(), AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::remove_server(&conn, &name)
 }
@@ -53,7 +61,9 @@ pub fn toggle_mcp_server(
     name: String,
     active: bool,
 ) -> Result<(), AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::toggle_server(&conn, &name, active)
 }
@@ -65,7 +75,9 @@ pub async fn test_mcp_connection(
     name: String,
 ) -> Result<McpTestResult, AppError> {
     let config = {
-        let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+        let store = state
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
         let conn = store.connection()?;
         service::get_server_from_db(&conn, &name)?
     };
@@ -79,7 +91,9 @@ pub async fn test_mcp_connection(
     result.operation_id = Some(task.id.clone());
 
     {
-        let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+        let store = state
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
         let conn = store.connection()?;
         service::record_test_result(&conn, &name, &result)?;
     }
@@ -104,7 +118,9 @@ pub fn get_mcp_server_status(
     state: State<'_, Mutex<RegistryStore>>,
     name: String,
 ) -> Result<McpServerStatus, AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::get_server_status(&conn, &name)
 }
@@ -115,7 +131,9 @@ pub fn import_mcp_servers(
     data: McpImportExport,
     scope: McpScope,
 ) -> Result<McpImportResult, AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::import_servers(&conn, data, scope)
 }
@@ -125,7 +143,9 @@ pub fn export_mcp_servers(
     state: State<'_, Mutex<RegistryStore>>,
     names: Vec<String>,
 ) -> Result<McpImportExport, AppError> {
-    let store = state.lock().map_err(|error| AppError::Storage(error.to_string()))?;
+    let store = state
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::export_servers(&conn, names)
 }

@@ -1,15 +1,16 @@
-import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, Bot, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3, Code2, FileText, Folder, GitBranch, HelpCircle, PanelRightClose, PanelRightOpen, Paperclip, Pin, Plus, RotateCcw, Send, Settings, Sparkles, TerminalSquare, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Bot, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3, Code2, FileText, Folder, GitBranch, HelpCircle, PanelRightClose, PanelRightOpen, Pin, Plus, RotateCcw, Settings, Sparkles, TerminalSquare, type LucideIcon } from "lucide-react";
+import { ChatInputBox } from "../components/chat/ChatInputBox";
+import { useChatConfig } from "../components/chat/hooks/useChatConfig";
+import { MessageList } from "../components/chat/MessageList";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
-import { emptyWorkspaceSnapshot } from "../services/mock-workspace-data";
-import { workspaceService } from "../services/runtime-workspace-client";
 import { getNextThemeId, getThemeDefinition } from "../theme/theme-registry";
 import { useTheme } from "../theme/theme-provider";
 import type { Session } from "../types/agent";
-import type { WorkspaceChatMessage } from "../types/workspace";
+import type { ChatConfig, ChatMessage as ChatMessageModel, ChatStreamEvent } from "../types/chat";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 
@@ -108,20 +109,38 @@ function ConversationCard({
   );
 }
 
-function ChatMessage({ message, own }: { message: WorkspaceChatMessage; own: boolean }) {
-  return (
-    <div className={cn("max-w-[78%] rounded-lg border border-border p-3 text-sm", own ? "ml-auto bg-primary text-primary-foreground" : "bg-[hsl(var(--panel))]")}>
-      <div className={cn("mb-1 flex items-center justify-between gap-3 text-xs", own ? "text-primary-foreground/80" : "text-muted-foreground")}>
-        <span>{message.role}</span>
-        <span>{message.time}</span>
-      </div>
-      <p className="leading-6">{message.content}</p>
-    </div>
-  );
-}
-
 function KeepAlivePane({ active, children }: { active: boolean; children: ReactNode }) {
   return <div className={cn("h-full", active ? "block" : "hidden")}>{children}</div>;
+}
+
+function applyChatEvent(messages: ChatMessageModel[], event: ChatStreamEvent) {
+  return messages.map((message) => {
+    if (message.id !== event.messageId) return message;
+    const timestamp = new Date().toISOString();
+    if (event.type === "token") {
+      return { ...message, content: `${message.content}${event.contentDelta}`, updatedAt: timestamp };
+    }
+    if (event.type === "thinking") {
+      return {
+        ...message,
+        thinkingContent: `${message.thinkingContent ?? ""}${event.contentDelta}`,
+        updatedAt: timestamp,
+      };
+    }
+    if (event.type === "tool_use") {
+      return { ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt: timestamp };
+    }
+    if (event.type === "completed") {
+      return { ...message, status: "completed" as const, tokenUsage: event.tokenUsage, updatedAt: timestamp };
+    }
+    if (event.type === "failed") {
+      return { ...message, status: "failed" as const, error: event.error, updatedAt: timestamp };
+    }
+    if (event.type === "cancelled") {
+      return { ...message, status: "cancelled" as const, updatedAt: timestamp };
+    }
+    return message;
+  });
 }
 
 export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -130,16 +149,13 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
+  const [chatDraft, setChatDraft] = useState("");
+  const [messageLimit, setMessageLimit] = useState(50);
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
   const nextTheme = getNextThemeId(theme);
   const nextThemeDefinition = getThemeDefinition(nextTheme);
 
-  const workspaceQuery = useQuery({
-    queryKey: ["workspace", "snapshot"],
-    queryFn: () => workspaceService.getWorkspaceSnapshot(),
-  });
-  const workspace = workspaceQuery.data ?? emptyWorkspaceSnapshot;
   const agentsQuery = useQuery({
     queryKey: ["agents"],
     queryFn: () => agentService.listAgents(),
@@ -157,12 +173,31 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     queryFn: () => agentService.getActiveSession(),
   });
   const sessions = sessionsQuery.data ?? [];
+  const agents = agentsQuery.data ?? [];
   const archivedSessions = archivedSessionsQuery.data ?? [];
-  const activeSessionId = activeSessionQuery.data?.id ?? null;
+  const activeSession = activeSessionQuery.data ?? null;
+  const activeSessionId = activeSession?.id ?? null;
+  const messagesQueryKey = ["messages", activeSessionId, messageLimit] as const;
+  const messagesQuery = useQuery({
+    enabled: Boolean(activeSessionId),
+    queryKey: messagesQueryKey,
+    queryFn: () => {
+      if (!activeSessionId) return Promise.resolve([]);
+      return agentService.listMessages({ sessionId: activeSessionId, limit: messageLimit });
+    },
+  });
+  const chatMessages = messagesQuery.data ?? [];
+  const isStreaming = chatMessages.some((message) => message.status === "streaming");
+  const chatConfig = useChatConfig({ activeSession, agents });
 
   function invalidateSessions() {
     void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     void queryClient.invalidateQueries({ queryKey: ["workflow"] });
+  }
+
+  function invalidateActiveMessages() {
+    if (!activeSessionId) return;
+    void queryClient.invalidateQueries({ queryKey: ["messages", activeSessionId] });
   }
 
   const createSessionMutation = useMutation({
@@ -196,6 +231,14 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     mutationFn: (sessionId: string) => agentService.deleteSession(sessionId),
     onSuccess: invalidateSessions,
   });
+  const sendMessageMutation = useMutation({
+    mutationFn: (input: { content: string; config: ChatConfig; sessionId: string }) =>
+      agentService.sendMessage(input),
+    onSuccess: invalidateActiveMessages,
+  });
+  const stopGenerationMutation = useMutation({
+    mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId),
+  });
 
   const activityBuckets = useMemo(
     () =>
@@ -219,6 +262,28 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const changeItems = ["侧边栏工具入口迁移", "信息面板折叠与 keep-alive", "主内容弹性布局"];
   const progressTotal = progressStats.complete + progressStats.running + progressStats.pending;
   const progressPercent = Math.round((progressStats.complete / progressTotal) * 100);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let cleanup: (() => void) | null = null;
+    let cancelled = false;
+    void agentService.subscribeMessageEvents(activeSessionId, (event) => {
+      queryClient.setQueryData<ChatMessageModel[]>(["messages", activeSessionId, messageLimit], (currentMessages) =>
+        applyChatEvent(currentMessages ?? [], event),
+      );
+    }).then((unsubscribe) => {
+      if (cancelled) unsubscribe();
+      else cleanup = unsubscribe;
+    });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [activeSessionId, messageLimit, queryClient]);
+
+  useEffect(() => {
+    setMessageLimit(50);
+  }, [activeSessionId]);
 
   function toggleFolder(folder: string) {
     setExpandedFolders((current) => {
@@ -260,6 +325,26 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     if (!contextPanel) return;
     deleteSessionMutation.mutate(contextPanel.session.id);
     setContextPanel(null);
+  }
+
+  function submitChatMessage() {
+    if (!activeSession || !chatDraft.trim() || isStreaming) return;
+    const content = chatDraft.trim();
+    setChatDraft("");
+    sendMessageMutation.mutate({
+      sessionId: activeSession.id,
+      content,
+      config: {
+        ...chatConfig.config,
+        agentId: chatConfig.config.agentId || activeSession.agentId,
+        interactionMode: activeSession.interactionMode,
+      },
+    });
+  }
+
+  function stopChatGeneration() {
+    if (!activeSessionId || !isStreaming) return;
+    stopGenerationMutation.mutate(activeSessionId);
   }
 
   function renderContextMenu() {
@@ -429,31 +514,53 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">聊天模式</h2>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>状态: 空闲</span>
-                <span>Token: 2,340</span>
-                <span>调用: 15</span>
+                <span>状态: {isStreaming ? "生成中" : "空闲"}</span>
+                <span>消息: {chatMessages.length}</span>
+                <span>{activeSession ? formatLifecycle(activeSession) : "未选择会话"}</span>
               </div>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
               <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-                <div><h3 className="text-sm font-semibold">智能客服优化方案</h3><p className="mt-1 text-xs text-muted-foreground">3 Agents 正在协作 · 最近更新 14:27</p></div>
-                <span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">进行中</span>
-              </div>
-              <div className="grid flex-1 content-start gap-3 overflow-y-auto p-4">
-                {workspace.chatMessages.map((message, index) => <ChatMessage key={`${message.role}-${message.time}`} message={message} own={index === 0} />)}
-              </div>
-            </div>
-            <div className="mt-3 shrink-0 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-              <textarea className="ucd-input h-16 w-full resize-none rounded-md px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" placeholder="输入指令，下发任务给所有 Agent..." />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button variant="outline"><Paperclip className="h-4 w-4" aria-hidden="true" />附件</Button>
-                <Button variant="outline"><Trash2 className="h-4 w-4" aria-hidden="true" />清空</Button>
-                <div className="ml-auto flex flex-wrap gap-2">
-                  <Button variant="outline">Claude</Button>
-                  <Button variant="outline">High</Button>
-                  <Button><Send className="h-4 w-4" aria-hidden="true" />发送</Button>
+                <div>
+                  <h3 className="text-sm font-semibold">{activeSession?.title ?? "未选择会话"}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {activeSession ? `${activeSession.agentId} · ${activeSession.interactionMode}` : "新建或选择一个会话后开始聊天"}
+                  </p>
                 </div>
+                <span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">
+                  {isStreaming ? "生成中" : "就绪"}
+                </span>
               </div>
+              <MessageList
+                hasActiveSession={Boolean(activeSession)}
+                hasMore={chatMessages.length >= messageLimit}
+                messages={chatMessages}
+                onLoadEarlier={() => setMessageLimit((current) => current + 50)}
+              />
+            </div>
+            <div className="mt-3">
+              <ChatInputBox
+                agents={chatConfig.availableAgents.length > 0 ? chatConfig.availableAgents : agents}
+                availableModes={chatConfig.availableModes.map((mode) => mode.id)}
+                availableModels={chatConfig.availableModels}
+                availableReasoning={chatConfig.availableReasoning}
+                config={chatConfig.config}
+                disabled={!activeSession || sendMessageMutation.isPending}
+                isStreaming={isStreaming}
+                onChange={setChatDraft}
+                onClear={() => setChatDraft("")}
+                onConfigAgentChange={chatConfig.changeAgent}
+                onConfigLongContextChange={chatConfig.setLongContext}
+                onConfigModeChange={chatConfig.setPermissionMode}
+                onConfigModelChange={chatConfig.changeModel}
+                onConfigProviderChange={chatConfig.changeProvider}
+                onConfigReasoningChange={chatConfig.setReasoningDepth}
+                onConfigStreamingChange={chatConfig.setStreaming}
+                onConfigThinkingChange={chatConfig.setThinking}
+                onStop={stopChatGeneration}
+                onSubmit={submitChatMessage}
+                value={chatDraft}
+              />
             </div>
           </section>
 

@@ -30,7 +30,8 @@ pub fn list_servers(conn: &Connection) -> Result<Vec<McpServerConfig>, AppError>
         "#,
     )?;
     let rows = stmt.query_map(params![project_path], row_to_config)?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::Database)
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::Database)
 }
 
 pub fn add_server(conn: &Connection, mut config: McpServerConfig) -> Result<(), AppError> {
@@ -215,7 +216,11 @@ pub fn record_test_result(
         "#,
         params![
             if result.success { "connected" } else { "error" },
-            if result.success { Some(now_string()) } else { None },
+            if result.success {
+                Some(now_string())
+            } else {
+                None
+            },
             result.error,
             to_json(&Some(result.tools.clone()))?,
             result.duration_ms.map(|value| value as i64),
@@ -297,7 +302,8 @@ fn row_to_config(row: &rusqlite::Row<'_>) -> rusqlite::Result<McpServerConfig> {
         command: row.get(2)?,
         args: from_json_opt(row.get::<_, Option<String>>(3)?.as_deref())
             .map_err(json_to_sql_error)?,
-        env: from_json_opt(row.get::<_, Option<String>>(4)?.as_deref()).map_err(json_to_sql_error)?,
+        env: from_json_opt(row.get::<_, Option<String>>(4)?.as_deref())
+            .map_err(json_to_sql_error)?,
         url: row.get(5)?,
         headers: from_json_opt(row.get::<_, Option<String>>(6)?.as_deref())
             .map_err(json_to_sql_error)?,
@@ -324,7 +330,9 @@ fn validate_config(config: &McpServerConfig) -> Result<(), AppError> {
         }
         McpTransportType::Sse | McpTransportType::StreamableHttp => {
             if config.url.as_deref().unwrap_or("").trim().is_empty() {
-                return Err(AppError::Validation("URL MCP server requires url".to_string()));
+                return Err(AppError::Validation(
+                    "URL MCP server requires url".to_string(),
+                ));
             }
         }
     }
@@ -497,7 +505,10 @@ mod tests {
         )
         .expect("rename");
         let status = get_server_status(&conn, "second-name").expect("status");
-        assert!(matches!(status.connection_status, McpConnectionStatus::Connected));
+        assert!(matches!(
+            status.connection_status,
+            McpConnectionStatus::Connected
+        ));
         assert_eq!(status.tools.len(), 1);
     }
 

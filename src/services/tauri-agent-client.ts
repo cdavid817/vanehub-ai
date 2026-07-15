@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { AgentService } from "./agent-service";
 import type {
   AgentRegistryEntry,
@@ -9,6 +10,7 @@ import type {
   SessionDetails,
   WorkflowState,
 } from "../types/agent";
+import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -86,5 +88,34 @@ export const tauriAgentClient: AgentService = {
 
   unarchiveSession(sessionId: string) {
     return invoke<Session>("unarchive_session", { sessionId });
+  },
+
+  sendMessage(input) {
+    return invoke<ChatMessage>("send_message", {
+      sessionId: input.sessionId,
+      content: input.content,
+      config: input.config,
+    });
+  },
+
+  listMessages(input) {
+    return invoke<ChatMessage[]>("list_messages", {
+      sessionId: input.sessionId,
+      limit: input.limit ?? null,
+      beforeId: input.beforeId ?? null,
+    });
+  },
+
+  async stopGeneration(sessionId: string) {
+    await invoke<void>("stop_generation", { sessionId });
+  },
+
+  async subscribeMessageEvents(sessionId, handler) {
+    const unlisten = await listen<ChatStreamEvent>("chat:event", (event) => {
+      if (event.payload.sessionId === sessionId) {
+        handler(event.payload);
+      }
+    });
+    return unlisten;
   },
 };

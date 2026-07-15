@@ -3,11 +3,11 @@ use crate::mcp::models::{McpServerConfig, McpTestResult, McpToolInfo, McpTranspo
 use crate::AppError;
 use http::{HeaderName, HeaderValue};
 use rmcp::{
-    ServiceExt,
     transport::{
-        ConfigureCommandExt, StreamableHttpClientTransport, TokioChildProcess,
-        streamable_http_client::StreamableHttpClientTransportConfig,
+        streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
+        StreamableHttpClientTransport, TokioChildProcess,
     },
+    ServiceExt,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -65,12 +65,11 @@ async fn test_stdio(config: &McpServerConfig) -> Result<Vec<McpToolInfo>, AppErr
 
     command_safety::audit_command("mcp.stdio.test", command, &args);
     let process = command_safety::tokio_command(command)?;
-    let transport =
-        TokioChildProcess::new(process.configure(|cmd| {
-            cmd.args(args);
-            cmd.envs(env);
-        }))
-        .map_err(|error| AppError::McpConnection(error.to_string()))?;
+    let transport = TokioChildProcess::new(process.configure(|cmd| {
+        cmd.args(args);
+        cmd.envs(env);
+    }))
+    .map_err(|error| AppError::McpConnection(error.to_string()))?;
 
     let client = ().serve(transport).await.map_err(mcp_error)?;
     let tools = client.peer().list_all_tools().await.map_err(mcp_error)?;
@@ -87,10 +86,12 @@ async fn test_url_transport(config: &McpServerConfig) -> Result<Vec<McpToolInfo>
         .ok_or_else(|| AppError::Validation("URL MCP server requires url".to_string()))?;
     let mut headers = HashMap::new();
     for (name, value) in config.headers.clone().unwrap_or_default() {
-        let header_name = HeaderName::from_bytes(name.as_bytes())
-            .map_err(|error| AppError::Validation(format!("invalid header name '{name}': {error}")))?;
-        let header_value = HeaderValue::from_str(&value)
-            .map_err(|error| AppError::Validation(format!("invalid header value for '{name}': {error}")))?;
+        let header_name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+            AppError::Validation(format!("invalid header name '{name}': {error}"))
+        })?;
+        let header_value = HeaderValue::from_str(&value).map_err(|error| {
+            AppError::Validation(format!("invalid header value for '{name}': {error}"))
+        })?;
         headers.insert(header_name, header_value);
     }
 
@@ -110,7 +111,9 @@ fn map_tools(tools: Vec<rmcp::model::Tool>) -> Vec<McpToolInfo> {
         .map(|tool| McpToolInfo {
             name: tool.name.into_owned(),
             description: tool.description.map(|description| description.into_owned()),
-            input_schema: Some(serde_json::Value::Object(tool.input_schema.as_ref().clone())),
+            input_schema: Some(serde_json::Value::Object(
+                tool.input_schema.as_ref().clone(),
+            )),
         })
         .collect()
 }

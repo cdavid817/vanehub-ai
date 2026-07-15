@@ -7,6 +7,7 @@ import type {
   SessionDetails,
   WorkflowState,
 } from "../types/agent";
+import type { ChatMessage, ChatStreamEvent, SendMessageInput } from "../types/chat";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
@@ -32,4 +33,11 @@ export interface AgentService {
   unpinSession(sessionId: string): Promise<Session>;
   archiveSession(sessionId: string): Promise<Session>;
   unarchiveSession(sessionId: string): Promise<Session>;
+  sendMessage(input: SendMessageInput): Promise<ChatMessage>;
+  listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
+  stopGeneration(sessionId: string): Promise<void>;
+  subscribeMessageEvents(
+    sessionId: string,
+    handler: (event: ChatStreamEvent) => void,
+  ): Promise<() => void>;
 }
