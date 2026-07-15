@@ -14,7 +14,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)
 [![Package Desktop Apps](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml)
-[![License](https://img.shields.io/badge/license-not%20declared-lightgrey.svg)](#license)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 ## 项目简介
 
@@ -28,6 +28,8 @@ VaneHub AI 是一个基于 Tauri 的桌面应用，使用 React UI 协调 Claude
 - 在同一 `AgentService` 合约下封装 Browser、Native Desktop、CLI 交互模式路由。
 - UCD 风格设置中心，包含 Basic、Providers、SDK、MCP、Agents、Skills 页面。
 - 可切换的 `futuristic` / `minimal` 视觉风格，并持久化到前端本地存储。
+- 三栏工作台布局，支持活动 / 分组会话导航、聊天优先主内容区和可折叠 keep-alive 信息面板。
+- 工作台面板和各设置页面支持独立内部滚动，导航布局在内容滚动时保持稳定。
 - 面向 Windows、macOS、Linux 的本地和 GitHub Actions Tauri 打包脚本。
 
 ## 架构与技术栈
@@ -112,7 +114,7 @@ Tauri backend 会在当前工作目录下创建 `.vanehub/vanehub.sqlite` 保存
 
 ```text
 src/
-  main-layout/          主工作台 UI
+  main-layout/          主工作台 UI，包含会话侧边栏、聊天工作区和详情面板
   settings/             设置中心 shell 与页面
   services/             AgentService 边界与 runtime adapter
   theme/                Theme registry 与 provider
@@ -126,7 +128,7 @@ openspec/
 .github/workflows/
   package.yml           桌面打包 workflow
 ucd/
-  futuristic/, minmal/  UCD 参考资产
+  futuristic/, minimal/ UCD 参考资产
 ```
 
 ## Todolist / Roadmap
@@ -148,6 +150,8 @@ ucd/
 - [x] Basic Configuration、Provider Management、SDK Dependencies、MCP Servers、Agents、Skills 页面。
 - [x] Agents 页面通过 `AgentService` 集成，避免 React 组件直接调用 Tauri。
 - [x] 可切换并本地持久化的 `futuristic` / `minimal` 主题。
+- [x] 主工作台支持活动 / 分组会话导航、聊天优先内容区、固定输入框和可折叠详情面板。
+- [x] 工作台面板和设置页面内容支持独立内部滚动。
 
 ### 打包与验证
 
@@ -158,7 +162,6 @@ ucd/
 
 ### 计划中 / 待确认
 
-- [ ] 确认项目 License，并添加 `LICENSE` 文件。
 - [ ] 添加 `CONTRIBUTING.md`，说明 branch、test 和 review 规则。
 - [ ] 决定 release build 是否保持 unsigned，或加入 Windows signing 与 macOS notarization。
 - [ ] 根据需要将 Providers、SDK、MCP、Skills 页面的 frontend-local demo data 替换为真实 service boundary。
@@ -190,4 +193,4 @@ openspec validate --specs --strict
 
 ## License
 
-仓库中未发现 `LICENSE` 文件或 license 字段。公开发布或再分发前需要先确认项目许可证。
+本项目采用 Apache License 2.0 许可。完整许可证文本见 [LICENSE](LICENSE)。

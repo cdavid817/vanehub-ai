@@ -14,7 +14,7 @@ Desktop-first workspace for managing and switching between AI coding agents.
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)
 [![Package Desktop Apps](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml)
-[![License](https://img.shields.io/badge/license-not%20declared-lightgrey.svg)](#license)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 ## Overview
 
@@ -28,6 +28,8 @@ Core capabilities currently present in the repository:
 - Browser, native desktop, and CLI interaction-mode routing behind the same `AgentService` contract.
 - UCD-aligned settings center with Basic, Providers, SDK, MCP, Agents, and Skills pages.
 - Switchable `futuristic` and `minimal` visual styles persisted in frontend-local storage.
+- Three-panel workspace layout with activity/grouped sessions, chat-first main content, and collapsible keep-alive details.
+- Independent scrolling for workspace panels and each settings page so navigation stays stable while content scrolls.
 - Local and GitHub Actions Tauri packaging scripts for Windows, macOS, and Linux targets.
 
 ## Architecture and Stack
@@ -112,7 +114,7 @@ Runtime state is created locally by the Tauri backend under `.vanehub/vanehub.sq
 
 ```text
 src/
-  main-layout/          Main workspace UI
+  main-layout/          Main workspace UI with session sidebar, chat workspace, and detail panel
   settings/             Settings shell and pages
   services/             AgentService boundary and runtime adapters
   theme/                Theme registry and provider
@@ -126,7 +128,7 @@ openspec/
 .github/workflows/
   package.yml           Desktop packaging workflow
 ucd/
-  futuristic/, minmal/  UCD reference assets
+  futuristic/, minimal/ UCD reference assets
 ```
 
 ## Roadmap
@@ -148,6 +150,8 @@ Issue data was not available in the local environment because the GitHub CLI is 
 - [x] Basic Configuration, Provider Management, SDK Dependencies, MCP Servers, Agents, and Skills pages.
 - [x] Agents page integration through `AgentService` without direct React-to-Tauri calls.
 - [x] Switchable `futuristic` and `minimal` themes with local persistence.
+- [x] Main workspace with activity/grouped session navigation, chat-first content area, fixed composer, and collapsible detail panel.
+- [x] Independent internal scrolling for workspace panels and settings page content.
 
 ### Packaging and Validation
 
@@ -158,7 +162,6 @@ Issue data was not available in the local environment because the GitHub CLI is 
 
 ### Planned / Needs Confirmation
 
-- [ ] Confirm project license and add a `LICENSE` file.
 - [ ] Add `CONTRIBUTING.md` with branch, test, and review expectations.
 - [ ] Decide whether release builds should remain unsigned or add Windows signing and macOS notarization.
 - [ ] Replace frontend-local demo data for Providers, SDK, MCP, and Skills pages with real service boundaries where needed.
@@ -190,4 +193,4 @@ Until then, keep changes scoped, run the relevant validation commands above, and
 
 ## License
 
-No `LICENSE` file or license field was found in the repository. The license needs to be confirmed before redistribution or public release.
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full license text.
