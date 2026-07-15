@@ -10,6 +10,10 @@
 
 用于管理和切换 AI Coding Agent 的桌面优先工作台。
 
+> 这是最好的时代，这是最坏的时代；这是 AI 的时代，这是 bug 的时代。
+
+> **特别提醒：** 本项目全部代码由 AI 生成，禁止手工古法编程；人类仅作为方案思考者与输出验证者。
+
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)

@@ -10,6 +10,10 @@
 
 AI Coding Agent を管理し、切り替えるためのデスクトップ優先ワークスペース。
 
+> それは最良の時代であり、最悪の時代でもある。それは AI の時代であり、bug の時代でもある。
+
+> **特別な注意:** このプロジェクトのコードはすべて AI によって生成されます。手作業による古典的なプログラミングは禁止され、人間は方針を考える者、そして出力を検証する者に限られます。
+
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)
