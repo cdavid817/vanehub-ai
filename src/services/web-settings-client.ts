@@ -40,4 +40,12 @@ export const webSettingsClient: SettingsService = {
       reason: "Node.js information is only available in the desktop runtime.",
     };
   },
+
+  async openLogDirectory(): Promise<void> {
+    throw new Error("Opening the local log directory is only available in the desktop runtime.");
+  },
+
+  async reportClientLogEvent(): Promise<void> {
+    return;
+  },
 };

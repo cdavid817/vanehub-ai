@@ -1,7 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
 mod command_safety;
+mod logging;
 mod mcp;
 mod sdk;
 mod skills;
@@ -76,6 +77,18 @@ fn record_native_log(level: NativeLogLevel, category: &str, message: &str) {
         Ok(line) => eprintln!("{line}"),
         Err(_) => eprintln!("[{category}] {message}"),
     }
+    let mut context = BTreeMap::new();
+    context.insert("source".to_string(), "native".to_string());
+    let _ = logging::write_message(
+        &fallback_log_dir(),
+        match level {
+            NativeLogLevel::Error => logging::LogLevel::Error,
+            NativeLogLevel::Info => logging::LogLevel::Info,
+        },
+        category,
+        message,
+        context,
+    );
 }
 
 fn record_native_error(category: &str, error: &AppError) {
@@ -265,6 +278,8 @@ struct AppSettings {
     font_size: String,
     theme: String,
     default_folder_path: String,
+    log_directory: String,
+    logging_policy: logging::LoggingPolicy,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1371,12 +1386,35 @@ fn current_timestamp() -> String {
     Utc::now().to_rfc3339()
 }
 
+fn fallback_log_dir() -> PathBuf {
+    let root = std::env::var_os("VANEHUB_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .map(PathBuf::from)
+                .map(|home| home.join(".vanehub"))
+        })
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    logging::default_log_dir(&root)
+}
+
+fn default_log_directory_for_conn(conn: &Connection) -> String {
+    conn.path()
+        .and_then(|path| PathBuf::from(path).parent().map(logging::default_log_dir))
+        .unwrap_or_else(fallback_log_dir)
+        .to_string_lossy()
+        .to_string()
+}
+
 fn default_app_settings() -> AppSettings {
     AppSettings {
         application_language: "zh-CN".to_string(),
         font_size: "14px".to_string(),
         theme: "futuristic".to_string(),
         default_folder_path: String::new(),
+        log_directory: fallback_log_dir().to_string_lossy().to_string(),
+        logging_policy: logging::policy(true),
     }
 }
 
@@ -1386,6 +1424,7 @@ fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
         "fontSize" => matches!(value, "12px" | "14px" | "16px" | "18px"),
         "theme" => matches!(value, "futuristic" | "minimal"),
         "defaultFolderPath" => true,
+        "logDirectory" => !value.trim().is_empty(),
         _ => false,
     };
     if valid {
@@ -1408,7 +1447,8 @@ fn load_setting_value(conn: &Connection, key: &str) -> Result<Option<String>, Ap
 }
 
 fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
-    let defaults = default_app_settings();
+    let mut defaults = default_app_settings();
+    defaults.log_directory = default_log_directory_for_conn(conn);
     let application_language = load_setting_value(conn, "applicationLanguage")?
         .filter(|value| validate_setting_value("applicationLanguage", value).is_ok())
         .unwrap_or(defaults.application_language);
@@ -1421,12 +1461,17 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
     let default_folder_path = load_setting_value(conn, "defaultFolderPath")?
         .filter(|value| validate_setting_value("defaultFolderPath", value).is_ok())
         .unwrap_or(defaults.default_folder_path);
+    let log_directory = load_setting_value(conn, "logDirectory")?
+        .filter(|value| validate_setting_value("logDirectory", value).is_ok())
+        .unwrap_or(defaults.log_directory);
 
     Ok(AppSettings {
         application_language,
         font_size,
         theme,
         default_folder_path,
+        log_directory,
+        logging_policy: logging::policy(true),
     })
 }
 
@@ -1436,6 +1481,9 @@ fn save_setting_to_conn(
     value: &str,
 ) -> Result<AppSettings, AppError> {
     validate_setting_value(key, value)?;
+    if key == "logDirectory" {
+        logging::validate_log_dir(&PathBuf::from(value))?;
+    }
     let now = current_timestamp();
     conn.execute(
         r#"
@@ -1856,29 +1904,48 @@ fn install_cli_version(
 
 fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
     let registry = app.state::<tasks::registry::TaskRegistry>();
-    let _ = registry.append_log(&operation_id, "Starting CLI detection refresh.".to_string());
+    append_cli_log(
+        &app,
+        &registry,
+        &operation_id,
+        None,
+        "Starting CLI detection refresh.",
+        logging::LogLevel::Info,
+    );
     let mut statuses = Vec::new();
     for definition in CLI_TOOL_DEFINITIONS {
-        let _ = registry.append_log(
+        append_cli_log(
+            &app,
+            &registry,
             &operation_id,
-            format!(
+            Some(definition.agent_id),
+            &format!(
                 "Checking {} ({})",
                 definition.display_name, definition.executable_name
             ),
+            logging::LogLevel::Info,
         );
         let status = detect_cli_tool(definition, &operation_id);
         if let Some(error) = status.last_error.as_deref() {
-            let _ = registry.append_log(
+            append_cli_log(
+                &app,
+                &registry,
                 &operation_id,
-                format!(
+                Some(definition.agent_id),
+                &format!(
                     "{} completed with warnings: {error}",
                     definition.display_name
                 ),
+                logging::LogLevel::Warn,
             );
         } else {
-            let _ = registry.append_log(
+            append_cli_log(
+                &app,
+                &registry,
                 &operation_id,
-                format!("{} detection succeeded.", definition.display_name),
+                Some(definition.agent_id),
+                &format!("{} detection succeeded.", definition.display_name),
+                logging::LogLevel::Info,
             );
         }
         statuses.push(status);
@@ -1898,17 +1965,27 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
 
     match persist_result {
         Ok(()) => {
-            let _ =
-                registry.append_log(&operation_id, "CLI detection refresh finished.".to_string());
+            append_cli_log(
+                &app,
+                &registry,
+                &operation_id,
+                None,
+                "CLI detection refresh finished.",
+                logging::LogLevel::Info,
+            );
             let result = serde_json::json!({
                 "agentIds": statuses.iter().map(|status| status.agent_id.clone()).collect::<Vec<_>>()
             });
             let _ = registry.complete(&operation_id, Some(result));
         }
         Err(error) => {
-            let _ = registry.append_log(
+            append_cli_log(
+                &app,
+                &registry,
                 &operation_id,
-                format!("Failed to persist CLI detection results: {error}"),
+                None,
+                &format!("Failed to persist CLI detection results: {error}"),
+                logging::LogLevel::Error,
             );
             let _ = registry.fail(&operation_id, error.to_string());
         }
@@ -1925,12 +2002,16 @@ fn run_cli_package_operation(
     let package_spec = format!("{}@{}", definition.package_name, target_version);
     let args = ["install", "-g", package_spec.as_str()];
     let audit_args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
-    let _ = registry.append_log(
+    append_cli_log(
+        &app,
+        &registry,
         &operation_id,
-        format!(
+        Some(definition.agent_id),
+        &format!(
             "Running npm install for {} version {}.",
             definition.display_name, target_version
         ),
+        logging::LogLevel::Info,
     );
 
     let mut command = match command_safety::std_command(npm_executable()) {
@@ -1946,10 +2027,14 @@ fn run_cli_package_operation(
 
     match command_output_with_timeout(&mut command, Duration::from_secs(300)) {
         Ok(output) if output.success => {
-            append_command_logs(&registry, &operation_id, &output);
-            let _ = registry.append_log(
+            append_command_logs(&app, &registry, &operation_id, Some(definition.agent_id), &output);
+            append_cli_log(
+                &app,
+                &registry,
                 &operation_id,
-                format!("npm install completed for {}.", definition.display_name),
+                Some(definition.agent_id),
+                &format!("npm install completed for {}.", definition.display_name),
+                logging::LogLevel::Info,
             );
             let status = detect_cli_tool(definition, &operation_id);
             let persist_result = (|| -> Result<(), AppError> {
@@ -1974,7 +2059,7 @@ fn run_cli_package_operation(
             }
         }
         Ok(output) => {
-            append_command_logs(&registry, &operation_id, &output);
+            append_command_logs(&app, &registry, &operation_id, Some(definition.agent_id), &output);
             let error =
                 first_output_line(&output).unwrap_or_else(|| "npm install failed".to_string());
             persist_cli_operation_error(&app, definition, &operation_id, &error);
@@ -1988,8 +2073,10 @@ fn run_cli_package_operation(
 }
 
 fn append_command_logs(
+    app: &AppHandle,
     registry: &tasks::registry::TaskRegistry,
     operation_id: &str,
+    agent_id: Option<&str>,
     output: &CapturedCommandOutput,
 ) {
     for line in output
@@ -1998,7 +2085,7 @@ fn append_command_logs(
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        let _ = registry.append_log(operation_id, line.to_string());
+        append_cli_log(app, registry, operation_id, agent_id, line, logging::LogLevel::Info);
     }
     for line in output
         .stderr
@@ -2006,7 +2093,40 @@ fn append_command_logs(
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        let _ = registry.append_log(operation_id, line.to_string());
+        append_cli_log(app, registry, operation_id, agent_id, line, logging::LogLevel::Warn);
+    }
+}
+
+fn append_cli_log(
+    app: &AppHandle,
+    registry: &tasks::registry::TaskRegistry,
+    operation_id: &str,
+    agent_id: Option<&str>,
+    line: &str,
+    level: logging::LogLevel,
+) {
+    let _ = registry.append_log(operation_id, line.to_string());
+    let result = (|| -> Result<(), AppError> {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        let mut context = BTreeMap::new();
+        context.insert("operationId".to_string(), operation_id.to_string());
+        if let Some(agent_id) = agent_id {
+            context.insert("agentId".to_string(), agent_id.to_string());
+        }
+        logging::write_message(
+            &active_log_dir_from_conn(&conn)?,
+            level,
+            "cli.operation",
+            line,
+            context,
+        )
+    })();
+    if let Err(error) = result {
+        record_native_error("cli.log", &error);
     }
 }
 
@@ -2076,6 +2196,31 @@ fn save_setting(
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     save_setting_to_conn(&conn, &input.key, &input.value)
+}
+
+fn active_log_dir_from_conn(conn: &Connection) -> Result<PathBuf, AppError> {
+    Ok(PathBuf::from(get_settings_from_conn(conn)?.log_directory))
+}
+
+#[tauri::command]
+fn open_log_directory(state: State<'_, Mutex<RegistryStore>>) -> Result<(), AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    logging::open_directory(&active_log_dir_from_conn(&conn)?)
+}
+
+#[tauri::command]
+fn report_client_log_event(
+    state: State<'_, Mutex<RegistryStore>>,
+    event: logging::ClientLogEvent,
+) -> Result<(), AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    logging::write_client_event(&active_log_dir_from_conn(&conn)?, event)
 }
 
 #[tauri::command]
@@ -2309,6 +2454,17 @@ fn launch_active_workflow(
 
     set_lifecycle(&conn, SessionLifecycleState::Running)?;
     let _ = registry.append_log(&task.id, message.clone());
+    let mut context = BTreeMap::new();
+    context.insert("operationId".to_string(), task.id.clone());
+    context.insert("agentId".to_string(), agent_id);
+    context.insert("interactionMode".to_string(), mode.as_str().to_string());
+    let _ = logging::write_message(
+        &active_log_dir_from_conn(&conn)?,
+        logging::LogLevel::Info,
+        "agent.launch",
+        &message,
+        context,
+    );
     let _ = registry.complete(&task.id, None);
 
     Ok(LaunchResult {
@@ -2765,6 +2921,7 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
             let store = RegistryStore::new(data_dir)
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             app.manage(Mutex::new(store));
@@ -2819,6 +2976,8 @@ pub fn run() {
             stop_generation,
             get_settings,
             save_setting,
+            open_log_directory,
+            report_client_log_event,
             get_node_info,
             mcp::commands::list_mcp_servers,
             mcp::commands::add_mcp_server,

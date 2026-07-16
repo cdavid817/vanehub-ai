@@ -17,4 +17,12 @@ export const tauriSettingsClient: SettingsService = {
   async getNodeInfo() {
     return invoke<NodeInfo>("get_node_info");
   },
+
+  async openLogDirectory() {
+    await invoke<void>("open_log_directory");
+  },
+
+  async reportClientLogEvent(event) {
+    await invoke<void>("report_client_log_event", { event });
+  },
 };

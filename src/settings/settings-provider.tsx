@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "../services/settings-service";
-import type { AppSettingKey, AppSettings, NodeInfo } from "../types/settings";
+import type { AppSettingKey, AppSettings, ClientLogEvent, NodeInfo } from "../types/settings";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -13,6 +13,8 @@ interface SettingsContextValue {
   saveSetting: <K extends AppSettingKey>(key: K, value: AppSettings[K]) => Promise<void>;
   resetSettings: () => Promise<void>;
   refreshNodeInfo: () => Promise<void>;
+  openLogDirectory: () => Promise<void>;
+  reportClientLogEvent: (event: ClientLogEvent) => Promise<void>;
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
@@ -91,14 +93,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const resetSettings = useCallback(async () => {
-    for (const key of Object.keys(defaultAppSettings) as AppSettingKey[]) {
+    const resettableKeys: AppSettingKey[] = ["applicationLanguage", "fontSize", "theme", "defaultFolderPath", "logDirectory"];
+    for (const key of resettableKeys) {
       await saveSetting(key, defaultAppSettings[key]);
     }
   }, [saveSetting]);
 
+  const openLogDirectory = useCallback(async () => {
+    await settingsService.openLogDirectory();
+  }, []);
+
+  const reportClientLogEvent = useCallback(async (event: ClientLogEvent) => {
+    await settingsService.reportClientLogEvent(event);
+  }, []);
+
   const value = useMemo(
-    () => ({ settings, nodeInfo, loading, savingKey, error, saveSetting, resetSettings, refreshNodeInfo }),
-    [error, loading, nodeInfo, refreshNodeInfo, resetSettings, saveSetting, savingKey, settings],
+    () => ({
+      settings,
+      nodeInfo,
+      loading,
+      savingKey,
+      error,
+      saveSetting,
+      resetSettings,
+      refreshNodeInfo,
+      openLogDirectory,
+      reportClientLogEvent,
+    }),
+    [error, loading, nodeInfo, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
