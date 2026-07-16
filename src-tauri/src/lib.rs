@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
@@ -150,6 +152,75 @@ struct AgentRegistryEntry {
     unavailable_reason: Option<String>,
     capability_tags: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliToolStatus {
+    agent_id: String,
+    display_name: String,
+    provider: String,
+    executable_name: String,
+    package_name: String,
+    installed: Option<bool>,
+    current_version: Option<String>,
+    latest_version: Option<String>,
+    available_versions: Vec<String>,
+    detected_path: Option<String>,
+    install_command: String,
+    last_checked_at: Option<String>,
+    last_error: Option<String>,
+    last_operation_id: Option<String>,
+    version_check_status: CliVersionCheckStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum CliVersionCheckStatus {
+    Unsupported,
+    NotDetected,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CliToolDefinition {
+    agent_id: &'static str,
+    display_name: &'static str,
+    provider: &'static str,
+    executable_name: &'static str,
+    package_name: &'static str,
+}
+
+const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
+    CliToolDefinition {
+        agent_id: "claude-code",
+        display_name: "Anthropic Claude Code CLI",
+        provider: "Anthropic",
+        executable_name: "claude",
+        package_name: "@anthropic-ai/claude-code",
+    },
+    CliToolDefinition {
+        agent_id: "codex-cli",
+        display_name: "OpenAI Codex CLI",
+        provider: "OpenAI",
+        executable_name: "codex",
+        package_name: "@openai/codex",
+    },
+    CliToolDefinition {
+        agent_id: "gemini-cli",
+        display_name: "Google Gemini CLI",
+        provider: "Google",
+        executable_name: "gemini",
+        package_name: "@google/gemini-cli",
+    },
+    CliToolDefinition {
+        agent_id: "opencode",
+        display_name: "OpenCode CLI",
+        provider: "OpenCode",
+        executable_name: "opencode",
+        package_name: "opencode-ai",
+    },
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -549,7 +620,28 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
     )?;
     apply_migration(conn, 4, "chat-messages", apply_chat_messages_migration)?;
     apply_migration(conn, 5, "app-settings", apply_app_settings_migration)?;
+    apply_migration(conn, 6, "cli-tool-status", apply_cli_tool_status_migration)?;
 
+    Ok(())
+}
+
+fn apply_cli_tool_status_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS cli_tool_status (
+            agent_id TEXT PRIMARY KEY,
+            installed INTEGER,
+            current_version TEXT,
+            latest_version TEXT,
+            available_versions TEXT NOT NULL DEFAULT '[]',
+            detected_path TEXT,
+            last_checked_at TEXT,
+            last_error TEXT,
+            last_operation_id TEXT,
+            version_check_status TEXT NOT NULL DEFAULT 'not-detected'
+        );
+        "#,
+    )?;
     Ok(())
 }
 
@@ -848,6 +940,396 @@ fn seed_agents(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+fn cli_tool_definition(agent_id: &str) -> Option<CliToolDefinition> {
+    CLI_TOOL_DEFINITIONS
+        .iter()
+        .copied()
+        .find(|definition| definition.agent_id == agent_id)
+}
+
+fn npm_executable() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "npm.cmd"
+    } else {
+        "npm"
+    }
+}
+
+fn install_command_for(definition: CliToolDefinition) -> String {
+    format!("npm install -g {}@latest", definition.package_name)
+}
+
+fn status_from_row(
+    definition: CliToolDefinition,
+    row: Option<(
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    )>,
+) -> CliToolStatus {
+    if let Some((
+        installed,
+        current_version,
+        latest_version,
+        available_versions,
+        detected_path,
+        last_checked_at,
+        last_error,
+        last_operation_id,
+        version_check_status,
+    )) = row
+    {
+        return CliToolStatus {
+            agent_id: definition.agent_id.to_string(),
+            display_name: definition.display_name.to_string(),
+            provider: definition.provider.to_string(),
+            executable_name: definition.executable_name.to_string(),
+            package_name: definition.package_name.to_string(),
+            installed: installed.map(|value| value != 0),
+            current_version,
+            latest_version,
+            available_versions: serde_json::from_str::<Vec<String>>(&available_versions)
+                .unwrap_or_default(),
+            detected_path,
+            install_command: install_command_for(definition),
+            last_checked_at,
+            last_error,
+            last_operation_id,
+            version_check_status: parse_cli_version_check_status(&version_check_status),
+        };
+    }
+
+    CliToolStatus {
+        agent_id: definition.agent_id.to_string(),
+        display_name: definition.display_name.to_string(),
+        provider: definition.provider.to_string(),
+        executable_name: definition.executable_name.to_string(),
+        package_name: definition.package_name.to_string(),
+        installed: None,
+        current_version: None,
+        latest_version: None,
+        available_versions: Vec::new(),
+        detected_path: None,
+        install_command: install_command_for(definition),
+        last_checked_at: None,
+        last_error: None,
+        last_operation_id: None,
+        version_check_status: CliVersionCheckStatus::NotDetected,
+    }
+}
+
+fn parse_cli_version_check_status(value: &str) -> CliVersionCheckStatus {
+    match value {
+        "succeeded" => CliVersionCheckStatus::Succeeded,
+        "failed" => CliVersionCheckStatus::Failed,
+        "unsupported" => CliVersionCheckStatus::Unsupported,
+        _ => CliVersionCheckStatus::NotDetected,
+    }
+}
+
+fn cli_version_check_status_str(value: &CliVersionCheckStatus) -> &'static str {
+    match value {
+        CliVersionCheckStatus::Unsupported => "unsupported",
+        CliVersionCheckStatus::NotDetected => "not-detected",
+        CliVersionCheckStatus::Succeeded => "succeeded",
+        CliVersionCheckStatus::Failed => "failed",
+    }
+}
+
+fn load_cli_tool_statuses(conn: &Connection) -> Result<Vec<CliToolStatus>, AppError> {
+    CLI_TOOL_DEFINITIONS
+        .iter()
+        .copied()
+        .map(|definition| load_cli_tool_status(conn, definition))
+        .collect()
+}
+
+fn should_start_initial_cli_refresh(conn: &Connection) -> Result<bool, AppError> {
+    let count = conn.query_row("SELECT COUNT(*) FROM cli_tool_status", [], |row| {
+        row.get::<_, i64>(0)
+    })?;
+    Ok(count == 0)
+}
+
+fn load_cli_tool_status(
+    conn: &Connection,
+    definition: CliToolDefinition,
+) -> Result<CliToolStatus, AppError> {
+    let row = conn
+        .query_row(
+            "SELECT installed, current_version, latest_version, available_versions, detected_path,
+                    last_checked_at, last_error, last_operation_id, version_check_status
+             FROM cli_tool_status WHERE agent_id = ?1",
+            params![definition.agent_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<i64>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            },
+        )
+        .optional()?;
+    Ok(status_from_row(definition, row))
+}
+
+fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(), AppError> {
+    let available_versions = serde_json::to_string(&status.available_versions)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    conn.execute(
+        "INSERT INTO cli_tool_status (
+            agent_id, installed, current_version, latest_version, available_versions, detected_path,
+            last_checked_at, last_error, last_operation_id, version_check_status
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(agent_id) DO UPDATE SET
+            installed = excluded.installed,
+            current_version = excluded.current_version,
+            latest_version = excluded.latest_version,
+            available_versions = excluded.available_versions,
+            detected_path = excluded.detected_path,
+            last_checked_at = excluded.last_checked_at,
+            last_error = excluded.last_error,
+            last_operation_id = excluded.last_operation_id,
+            version_check_status = excluded.version_check_status",
+        params![
+            status.agent_id,
+            status.installed.map(|value| if value { 1 } else { 0 }),
+            status.current_version,
+            status.latest_version,
+            available_versions,
+            status.detected_path,
+            status.last_checked_at,
+            status.last_error,
+            status.last_operation_id,
+            cli_version_check_status_str(&status.version_check_status),
+        ],
+    )?;
+    Ok(())
+}
+
+fn resolve_command_path(command_name: &str) -> Option<String> {
+    let helper = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
+    let mut command = command_safety::std_command(helper).ok()?;
+    command.arg(command_name);
+    let output = command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?;
+    if !output.success {
+        return None;
+    }
+    output
+        .stdout
+        .lines()
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+}
+
+fn first_output_line(output: &CapturedCommandOutput) -> Option<String> {
+    output
+        .stdout
+        .lines()
+        .chain(output.stderr.lines())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.to_string())
+}
+
+fn detect_cli_tool(definition: CliToolDefinition, operation_id: &str) -> CliToolStatus {
+    let now = current_timestamp();
+    let detected_path = resolve_command_path(definition.executable_name);
+    let mut current_version = None;
+    let mut latest_version = None;
+    let mut available_versions = Vec::new();
+    let mut errors = Vec::new();
+
+    if let Some(path) = detected_path.as_deref() {
+        let mut command = match command_safety::std_command(path) {
+            Ok(command) => command,
+            Err(error) => {
+                errors.push(error.to_string());
+                return CliToolStatus {
+                    agent_id: definition.agent_id.to_string(),
+                    display_name: definition.display_name.to_string(),
+                    provider: definition.provider.to_string(),
+                    executable_name: definition.executable_name.to_string(),
+                    package_name: definition.package_name.to_string(),
+                    installed: Some(true),
+                    current_version,
+                    latest_version,
+                    available_versions,
+                    detected_path: detected_path.clone(),
+                    install_command: install_command_for(definition),
+                    last_checked_at: Some(now),
+                    last_error: Some(errors.join("; ")),
+                    last_operation_id: Some(operation_id.to_string()),
+                    version_check_status: CliVersionCheckStatus::Failed,
+                };
+            }
+        };
+        command.arg("--version");
+        match command_output_with_timeout(&mut command, Duration::from_secs(3)) {
+            Ok(output) if output.success => current_version = first_output_line(&output),
+            Ok(output) => errors
+                .push(first_output_line(&output).unwrap_or_else(|| {
+                    format!("{} --version failed.", definition.executable_name)
+                })),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    match npm_view_package(definition.package_name, &["version"]) {
+        Ok(version) => latest_version = Some(version),
+        Err(error) => errors.push(error.to_string()),
+    }
+
+    match npm_view_package(definition.package_name, &["versions", "--json"]) {
+        Ok(raw) => available_versions = stable_versions_from_npm_json(&raw, 20),
+        Err(error) => errors.push(error.to_string()),
+    }
+
+    let installed = detected_path.is_some();
+    CliToolStatus {
+        agent_id: definition.agent_id.to_string(),
+        display_name: definition.display_name.to_string(),
+        provider: definition.provider.to_string(),
+        executable_name: definition.executable_name.to_string(),
+        package_name: definition.package_name.to_string(),
+        installed: Some(installed),
+        current_version,
+        latest_version,
+        available_versions,
+        detected_path,
+        install_command: install_command_for(definition),
+        last_checked_at: Some(now),
+        last_error: if errors.is_empty() {
+            None
+        } else {
+            Some(errors.join("; "))
+        },
+        last_operation_id: Some(operation_id.to_string()),
+        version_check_status: if errors.is_empty() {
+            CliVersionCheckStatus::Succeeded
+        } else {
+            CliVersionCheckStatus::Failed
+        },
+    }
+}
+
+fn npm_view_package(package_name: &str, view_args: &[&str]) -> Result<String, AppError> {
+    let mut command = command_safety::std_command(npm_executable())?;
+    let mut args = vec!["view", package_name];
+    args.extend_from_slice(view_args);
+    let audit_args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    command_safety::audit_command("cli.npm.view", npm_executable(), &audit_args);
+    command.args(args);
+    let output = command_output_with_timeout(&mut command, Duration::from_secs(10))
+        .map_err(AppError::LaunchFailed)?;
+    if !output.success {
+        return Err(AppError::Validation(
+            first_output_line(&output).unwrap_or_else(|| "npm view failed".to_string()),
+        ));
+    }
+    Ok(output.stdout.trim().to_string())
+}
+
+fn stable_versions_from_npm_json(raw: &str, limit: usize) -> Vec<String> {
+    let Ok(versions) = serde_json::from_str::<Vec<String>>(raw) else {
+        return Vec::new();
+    };
+    versions
+        .into_iter()
+        .filter(|version| is_stable_version(version))
+        .rev()
+        .take(limit)
+        .collect()
+}
+
+fn is_stable_version(version: &str) -> bool {
+    !version.contains('-')
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+#[cfg(test)]
+fn version_parts(version: &str) -> Option<Vec<u64>> {
+    let trimmed = version.trim().trim_start_matches('v');
+    if trimmed.contains('-') {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for part in trimmed.split('.') {
+        let numeric = part.parse::<u64>().ok()?;
+        parts.push(numeric);
+    }
+    Some(parts)
+}
+
+#[cfg(test)]
+fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    let mut left_parts = version_parts(left)?;
+    let mut right_parts = version_parts(right)?;
+    let max_len = left_parts.len().max(right_parts.len());
+    left_parts.resize(max_len, 0);
+    right_parts.resize(max_len, 0);
+    Some(left_parts.cmp(&right_parts))
+}
+
+struct CapturedCommandOutput {
+    success: bool,
+    stdout: String,
+    stderr: String,
+}
+
+fn command_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<CapturedCommandOutput, String> {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|error| error.to_string())?;
+                return Ok(CapturedCommandOutput {
+                    success: output.status.success(),
+                    stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                });
+            }
+            Ok(None) if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("command timed out".to_string());
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+}
+
 fn command_exists(command_name: &str) -> bool {
     let output = if cfg!(target_os = "windows") {
         Command::new("where").arg(command_name).output()
@@ -945,7 +1427,11 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
     })
 }
 
-fn save_setting_to_conn(conn: &Connection, key: &str, value: &str) -> Result<AppSettings, AppError> {
+fn save_setting_to_conn(
+    conn: &Connection,
+    key: &str,
+    value: &str,
+) -> Result<AppSettings, AppError> {
     validate_setting_value(key, value)?;
     let now = current_timestamp();
     conn.execute(
@@ -1295,6 +1781,252 @@ fn availability_for(
             Some(format!("Command '{name}' was not found on PATH.")),
         ),
         None => (AvailabilityState::Unknown, None),
+    }
+}
+
+#[tauri::command]
+fn list_cli_tools(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<CliToolStatus>, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    load_cli_tool_statuses(&conn)
+}
+
+#[tauri::command]
+fn refresh_cli_detections(
+    app: AppHandle,
+    registry: State<'_, tasks::registry::TaskRegistry>,
+) -> Result<tasks::models::OperationTask, AppError> {
+    start_cli_refresh_operation(app, &registry, "Refreshing CLI detections")
+}
+
+fn start_cli_refresh_operation(
+    app: AppHandle,
+    registry: &tasks::registry::TaskRegistry,
+    message: &str,
+) -> Result<tasks::models::OperationTask, AppError> {
+    let operation = registry.start(
+        tasks::models::OperationKind::Agent,
+        None,
+        Some(message.to_string()),
+    )?;
+    let operation_id = operation.id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_cli_refresh_operation(app, operation_id);
+    });
+
+    Ok(operation)
+}
+
+#[tauri::command]
+fn install_cli_version(
+    app: AppHandle,
+    registry: State<'_, tasks::registry::TaskRegistry>,
+    agent_id: String,
+    target_version: String,
+) -> Result<tasks::models::OperationTask, AppError> {
+    let definition = cli_tool_definition(&agent_id)
+        .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
+    if !is_stable_version(&target_version) {
+        return Err(AppError::Validation(format!(
+            "target version must be a stable semantic version: {target_version}"
+        )));
+    }
+    let operation = registry.start(
+        tasks::models::OperationKind::Agent,
+        Some(agent_id.clone()),
+        Some(format!(
+            "Installing {} version {}",
+            definition.display_name, target_version
+        )),
+    )?;
+    let operation_id = operation.id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_cli_package_operation(app, operation_id, definition, target_version);
+    });
+
+    Ok(operation)
+}
+
+fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
+    let registry = app.state::<tasks::registry::TaskRegistry>();
+    let _ = registry.append_log(&operation_id, "Starting CLI detection refresh.".to_string());
+    let mut statuses = Vec::new();
+    for definition in CLI_TOOL_DEFINITIONS {
+        let _ = registry.append_log(
+            &operation_id,
+            format!(
+                "Checking {} ({})",
+                definition.display_name, definition.executable_name
+            ),
+        );
+        let status = detect_cli_tool(definition, &operation_id);
+        if let Some(error) = status.last_error.as_deref() {
+            let _ = registry.append_log(
+                &operation_id,
+                format!(
+                    "{} completed with warnings: {error}",
+                    definition.display_name
+                ),
+            );
+        } else {
+            let _ = registry.append_log(
+                &operation_id,
+                format!("{} detection succeeded.", definition.display_name),
+            );
+        }
+        statuses.push(status);
+    }
+
+    let persist_result = (|| -> Result<(), AppError> {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        for status in &statuses {
+            save_cli_tool_status(&conn, status)?;
+        }
+        Ok(())
+    })();
+
+    match persist_result {
+        Ok(()) => {
+            let _ =
+                registry.append_log(&operation_id, "CLI detection refresh finished.".to_string());
+            let result = serde_json::json!({
+                "agentIds": statuses.iter().map(|status| status.agent_id.clone()).collect::<Vec<_>>()
+            });
+            let _ = registry.complete(&operation_id, Some(result));
+        }
+        Err(error) => {
+            let _ = registry.append_log(
+                &operation_id,
+                format!("Failed to persist CLI detection results: {error}"),
+            );
+            let _ = registry.fail(&operation_id, error.to_string());
+        }
+    }
+}
+
+fn run_cli_package_operation(
+    app: AppHandle,
+    operation_id: String,
+    definition: CliToolDefinition,
+    target_version: String,
+) {
+    let registry = app.state::<tasks::registry::TaskRegistry>();
+    let package_spec = format!("{}@{}", definition.package_name, target_version);
+    let args = ["install", "-g", package_spec.as_str()];
+    let audit_args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    let _ = registry.append_log(
+        &operation_id,
+        format!(
+            "Running npm install for {} version {}.",
+            definition.display_name, target_version
+        ),
+    );
+
+    let mut command = match command_safety::std_command(npm_executable()) {
+        Ok(command) => command,
+        Err(error) => {
+            persist_cli_operation_error(&app, definition, &operation_id, &error.to_string());
+            let _ = registry.fail(&operation_id, error.to_string());
+            return;
+        }
+    };
+    command_safety::audit_command("cli.npm.install", npm_executable(), &audit_args);
+    command.args(args);
+
+    match command_output_with_timeout(&mut command, Duration::from_secs(300)) {
+        Ok(output) if output.success => {
+            append_command_logs(&registry, &operation_id, &output);
+            let _ = registry.append_log(
+                &operation_id,
+                format!("npm install completed for {}.", definition.display_name),
+            );
+            let status = detect_cli_tool(definition, &operation_id);
+            let persist_result = (|| -> Result<(), AppError> {
+                let store = app.state::<Mutex<RegistryStore>>();
+                let store = store
+                    .lock()
+                    .map_err(|err| AppError::Storage(err.to_string()))?;
+                let conn = store.connection()?;
+                save_cli_tool_status(&conn, &status)
+            })();
+            match persist_result {
+                Ok(()) => {
+                    let result = serde_json::json!({
+                        "agentId": definition.agent_id,
+                        "targetVersion": target_version,
+                    });
+                    let _ = registry.complete(&operation_id, Some(result));
+                }
+                Err(error) => {
+                    let _ = registry.fail(&operation_id, error.to_string());
+                }
+            }
+        }
+        Ok(output) => {
+            append_command_logs(&registry, &operation_id, &output);
+            let error =
+                first_output_line(&output).unwrap_or_else(|| "npm install failed".to_string());
+            persist_cli_operation_error(&app, definition, &operation_id, &error);
+            let _ = registry.fail(&operation_id, error);
+        }
+        Err(error) => {
+            persist_cli_operation_error(&app, definition, &operation_id, &error);
+            let _ = registry.fail(&operation_id, error);
+        }
+    }
+}
+
+fn append_command_logs(
+    registry: &tasks::registry::TaskRegistry,
+    operation_id: &str,
+    output: &CapturedCommandOutput,
+) {
+    for line in output
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let _ = registry.append_log(operation_id, line.to_string());
+    }
+    for line in output
+        .stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let _ = registry.append_log(operation_id, line.to_string());
+    }
+}
+
+fn persist_cli_operation_error(
+    app: &AppHandle,
+    definition: CliToolDefinition,
+    operation_id: &str,
+    error: &str,
+) {
+    let result = (|| -> Result<(), AppError> {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        let mut status = load_cli_tool_status(&conn, definition)?;
+        status.last_operation_id = Some(operation_id.to_string());
+        status.last_error = Some(error.to_string());
+        status.version_check_status = CliVersionCheckStatus::Failed;
+        save_cli_tool_status(&conn, &status)
+    })();
+    if let Err(error) = result {
+        record_native_error("cli.persist", &error);
     }
 }
 
@@ -2035,10 +2767,33 @@ pub fn run() {
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            let should_refresh = {
+                let store = app.state::<Mutex<RegistryStore>>();
+                let store = store.lock().map_err(|err| {
+                    Box::new(AppError::Storage(err.to_string())) as Box<dyn std::error::Error>
+                })?;
+                let conn = store
+                    .connection()
+                    .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+                should_start_initial_cli_refresh(&conn)
+                    .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?
+            };
+            if should_refresh {
+                let registry = app.state::<tasks::registry::TaskRegistry>();
+                start_cli_refresh_operation(
+                    app.handle().clone(),
+                    &registry,
+                    "Initial CLI detection refresh",
+                )
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_agents,
+            list_cli_tools,
+            refresh_cli_detections,
+            install_cli_version,
             get_agent_by_id,
             get_workflow_state,
             select_agent,
@@ -2131,7 +2886,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -2455,5 +3210,99 @@ mod tests {
             reason.as_deref(),
             Some("Managed SDK dependency 'claude-sdk' is not installed.")
         );
+    }
+
+    #[test]
+    fn cli_catalog_preserves_fixed_order_and_metadata() {
+        let ids = CLI_TOOL_DEFINITIONS
+            .iter()
+            .map(|definition| definition.agent_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            ids,
+            vec!["claude-code", "codex-cli", "gemini-cli", "opencode"]
+        );
+        assert_eq!(
+            cli_tool_definition("codex-cli")
+                .expect("codex definition")
+                .package_name,
+            "@openai/codex"
+        );
+        assert!(cli_tool_definition("unknown").is_none());
+    }
+
+    #[test]
+    fn stable_versions_filter_excludes_prerelease_and_limits() {
+        let raw = serde_json::to_string(&vec![
+            "1.0.0",
+            "1.1.0-beta.1",
+            "1.1.0",
+            "2.0.0-rc.1",
+            "2.0.0",
+        ])
+        .expect("json");
+
+        assert_eq!(
+            stable_versions_from_npm_json(&raw, 2),
+            vec!["2.0.0".to_string(), "1.1.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn cli_cached_status_reads_without_detection_result() {
+        let conn = test_conn();
+        let statuses = load_cli_tool_statuses(&conn).expect("statuses");
+
+        assert_eq!(statuses.len(), 4);
+        assert_eq!(statuses[0].agent_id, "claude-code");
+        assert_eq!(statuses[0].installed, None);
+        assert!(matches!(
+            statuses[0].version_check_status,
+            CliVersionCheckStatus::NotDetected
+        ));
+        assert!(should_start_initial_cli_refresh(&conn).expect("initial refresh needed"));
+    }
+
+    #[test]
+    fn cli_cached_status_round_trips() {
+        let conn = test_conn();
+        let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
+        status.installed = Some(true);
+        status.current_version = Some("1.2.3".to_string());
+        status.latest_version = Some("1.3.0".to_string());
+        status.available_versions = vec!["1.3.0".to_string(), "1.2.3".to_string()];
+        status.detected_path = Some("C:\\Users\\dev\\codex.cmd".to_string());
+        status.last_checked_at = Some("123".to_string());
+        status.version_check_status = CliVersionCheckStatus::Succeeded;
+
+        save_cli_tool_status(&conn, &status).expect("save");
+        let loaded = load_cli_tool_status(&conn, CLI_TOOL_DEFINITIONS[1]).expect("load");
+
+        assert!(!should_start_initial_cli_refresh(&conn).expect("initial refresh not needed"));
+        assert_eq!(loaded.installed, Some(true));
+        assert_eq!(loaded.current_version.as_deref(), Some("1.2.3"));
+        assert_eq!(loaded.available_versions, vec!["1.3.0", "1.2.3"]);
+        assert_eq!(
+            loaded.detected_path.as_deref(),
+            Some("C:\\Users\\dev\\codex.cmd")
+        );
+    }
+
+    #[test]
+    fn version_comparison_handles_upgrade_and_downgrade() {
+        assert_eq!(
+            compare_versions("1.3.0", "1.2.9"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_versions("1.2.0", "1.2"),
+            Some(std::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            compare_versions("1.1.9", "1.2.0"),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(compare_versions("1.2.0-beta.1", "1.2.0"), None);
     }
 }

@@ -1,7 +1,8 @@
 import type { AgentService } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
-import type { InteractionMode, Session, SessionDetails, WorkflowState } from "../types/agent";
+import type { CliToolStatus, InteractionMode, Session, SessionDetails, WorkflowState } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { OperationTask } from "../types/operation";
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
@@ -11,6 +12,77 @@ let sessions: Session[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+
+const webCliTools: CliToolStatus[] = [
+  {
+    agentId: "claude-code",
+    displayName: "Anthropic Claude Code CLI",
+    provider: "Anthropic",
+    executableName: "claude",
+    packageName: "@anthropic-ai/claude-code",
+    installed: null,
+    currentVersion: null,
+    latestVersion: null,
+    availableVersions: [],
+    detectedPath: null,
+    installCommand: "npm install -g @anthropic-ai/claude-code@latest",
+    lastCheckedAt: null,
+    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastOperationId: null,
+    versionCheckStatus: "unsupported",
+  },
+  {
+    agentId: "codex-cli",
+    displayName: "OpenAI Codex CLI",
+    provider: "OpenAI",
+    executableName: "codex",
+    packageName: "@openai/codex",
+    installed: null,
+    currentVersion: null,
+    latestVersion: null,
+    availableVersions: [],
+    detectedPath: null,
+    installCommand: "npm install -g @openai/codex@latest",
+    lastCheckedAt: null,
+    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastOperationId: null,
+    versionCheckStatus: "unsupported",
+  },
+  {
+    agentId: "gemini-cli",
+    displayName: "Google Gemini CLI",
+    provider: "Google",
+    executableName: "gemini",
+    packageName: "@google/gemini-cli",
+    installed: null,
+    currentVersion: null,
+    latestVersion: null,
+    availableVersions: [],
+    detectedPath: null,
+    installCommand: "npm install -g @google/gemini-cli@latest",
+    lastCheckedAt: null,
+    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastOperationId: null,
+    versionCheckStatus: "unsupported",
+  },
+  {
+    agentId: "opencode",
+    displayName: "OpenCode CLI",
+    provider: "OpenCode",
+    executableName: "opencode",
+    packageName: "opencode-ai",
+    installed: null,
+    currentVersion: null,
+    latestVersion: null,
+    availableVersions: [],
+    detectedPath: null,
+    installCommand: "npm install -g opencode-ai@latest",
+    lastCheckedAt: null,
+    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastOperationId: null,
+    versionCheckStatus: "unsupported",
+  },
+];
 
 function nowIso() {
   return new Date().toISOString();
@@ -120,6 +192,54 @@ export const webAgentClient: AgentService = {
     return capabilityTag
       ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
       : mockAgents;
+  },
+
+  async listCliTools() {
+    return webCliTools.map((tool) => ({ ...tool, availableVersions: [...tool.availableVersions] }));
+  },
+
+  async refreshCliDetections(): Promise<OperationTask> {
+    const timestamp = nowIso();
+    return {
+      id: `web-cli-refresh-${timestamp}`,
+      kind: "agent",
+      status: "failed",
+      relatedEntityId: null,
+      message: "Local CLI detection is only available in the desktop runtime.",
+      logs: [
+        {
+          operationId: `web-cli-refresh-${timestamp}`,
+          line: "Local CLI detection is only available in the desktop runtime.",
+          timestamp,
+        },
+      ],
+      result: null,
+      error: "Local CLI detection is only available in the desktop runtime.",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  },
+
+  async installCliVersion(): Promise<OperationTask> {
+    const timestamp = nowIso();
+    return {
+      id: `web-cli-install-${timestamp}`,
+      kind: "agent",
+      status: "failed",
+      relatedEntityId: null,
+      message: "CLI package operations are only available in the desktop runtime.",
+      logs: [
+        {
+          operationId: `web-cli-install-${timestamp}`,
+          line: "CLI package operations are only available in the desktop runtime.",
+          timestamp,
+        },
+      ],
+      result: null,
+      error: "CLI package operations are only available in the desktop runtime.",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
   },
 
   async getAgentById(agentId) {

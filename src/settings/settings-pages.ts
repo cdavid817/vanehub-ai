@@ -2,9 +2,9 @@ import {
   Bot,
   Boxes,
   Code2,
-  Database,
   Puzzle,
   Settings,
+  Terminal,
   type LucideIcon,
 } from "lucide-react";
 import { AgentsPage } from "./pages/agents-page";
@@ -43,8 +43,8 @@ export const settingsPages: SettingsPageDefinition[] = [
     id: "providers",
     labelKey: "settings.pages.providers",
     crumbKey: "settings.pages.providers",
-    icon: Database,
-    badge: 3,
+    icon: Terminal,
+    badge: 4,
     searchPlaceholderKey: "settings.search.providers",
     component: ProvidersPage,
   },

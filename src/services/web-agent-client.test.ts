@@ -15,6 +15,15 @@ describe("webAgentClient", () => {
     expect(browserAgents.every((agent) => agent.capabilityTags.includes("browser"))).toBe(true);
   });
 
+  it("does not fake local CLI installation status in Web runtime", async () => {
+    const cliTools = await webAgentClient.listCliTools();
+
+    expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+    expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
+    expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
+    await expect(webAgentClient.refreshCliDetections()).resolves.toMatchObject({ status: "failed" });
+  });
+
   it("selects compatible agents and rejects unsupported interaction modes", async () => {
     await expect(webAgentClient.selectAgent("opencode", "browser")).rejects.toThrow("does not support");
 

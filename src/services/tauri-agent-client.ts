@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { AgentService } from "./agent-service";
 import type {
   AgentRegistryEntry,
+  CliPackageOperationInput,
+  CliToolStatus,
   InteractionMode,
   LaunchResult,
   ReadinessStatus,
@@ -11,10 +13,26 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { OperationTask } from "../types/operation";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
     return invoke<AgentRegistryEntry[]>("list_agents", { capabilityTag: capabilityTag ?? null });
+  },
+
+  listCliTools() {
+    return invoke<CliToolStatus[]>("list_cli_tools");
+  },
+
+  refreshCliDetections() {
+    return invoke<OperationTask>("refresh_cli_detections");
+  },
+
+  installCliVersion(input: CliPackageOperationInput) {
+    return invoke<OperationTask>("install_cli_version", {
+      agentId: input.agentId,
+      targetVersion: input.targetVersion,
+    });
   },
 
   getAgentById(agentId) {

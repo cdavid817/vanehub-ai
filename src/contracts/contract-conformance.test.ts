@@ -29,6 +29,9 @@ type AgentAssertions = [
   Assert<Equal<AgentContracts.ReadinessStatus, AgentTypes.ReadinessStatus>>,
   Assert<Equal<AgentContracts.LaunchResult, AgentTypes.LaunchResult>>,
   Assert<Equal<AgentContracts.SessionDetails, AgentTypes.SessionDetails>>,
+  Assert<Equal<AgentContracts.CliVersionCheckStatus, AgentTypes.CliVersionCheckStatus>>,
+  Assert<Equal<AgentContracts.CliToolStatus, AgentTypes.CliToolStatus>>,
+  Assert<Equal<AgentContracts.CliPackageOperationInput, AgentTypes.CliPackageOperationInput>>,
 ];
 
 type McpAssertions = [

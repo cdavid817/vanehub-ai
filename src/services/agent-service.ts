@@ -1,5 +1,7 @@
 import type {
   AgentRegistryEntry,
+  CliPackageOperationInput,
+  CliToolStatus,
   InteractionMode,
   LaunchResult,
   ReadinessStatus,
@@ -8,9 +10,13 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent, SendMessageInput } from "../types/chat";
+import type { OperationTask } from "../types/operation";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
+  listCliTools(): Promise<CliToolStatus[]>;
+  refreshCliDetections(): Promise<OperationTask>;
+  installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
   getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;
   selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;

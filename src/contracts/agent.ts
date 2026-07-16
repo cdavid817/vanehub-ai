@@ -49,3 +49,28 @@ export interface SessionDetails {
   adapter: "browser" | "native-desktop" | "cli" | "none";
   details: Record<string, string>;
 }
+
+export type CliVersionCheckStatus = "unsupported" | "not-detected" | "succeeded" | "failed";
+
+export interface CliToolStatus {
+  agentId: string;
+  displayName: string;
+  provider: string;
+  executableName: string;
+  packageName: string;
+  installed: boolean | null;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  availableVersions: string[];
+  detectedPath: string | null;
+  installCommand: string;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  lastOperationId: string | null;
+  versionCheckStatus: CliVersionCheckStatus;
+}
+
+export interface CliPackageOperationInput {
+  agentId: string;
+  targetVersion: string;
+}
