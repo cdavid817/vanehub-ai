@@ -47,6 +47,7 @@ describe("webAgentClient", () => {
     const first = await webAgentClient.createSession({
       agentId: "gemini-cli",
       interactionMode: "browser",
+      projectPath: "D:\\example\\mobile-app",
     });
     const second = await webAgentClient.createSession({
       agentId: "codex-cli",
@@ -54,7 +55,10 @@ describe("webAgentClient", () => {
       title: "Codex work",
     });
 
-    expect(first.title).toBe("New Session");
+    expect(first.title).toBe("新会话");
+    expect(first.folder).toBe("D:\\example\\mobile-app");
+    expect(first.projectPath).toBe("D:\\example\\mobile-app");
+    expect(first.worktreePath).toBeNull();
     expect(second.title).toBe("Codex work");
 
     await webAgentClient.pinSession(first.id);
@@ -76,6 +80,67 @@ describe("webAgentClient", () => {
 
     await webAgentClient.deleteSession(second.id);
     expect((await webAgentClient.listSessions()).some((session) => session.id === second.id)).toBe(false);
+  });
+
+  it("tracks known projects and mock Git inspection", async () => {
+    const inspection = await webAgentClient.inspectProject("D:\\example\\git-app");
+    expect(inspection.isGit).toBe(true);
+
+    await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      projectPath: inspection.path,
+    });
+    const projects = await webAgentClient.listKnownProjects();
+
+    expect(projects[0]).toMatchObject({
+      path: "D:\\example\\git-app",
+      displayName: "git-app",
+      isGit: true,
+    });
+  });
+
+  it("creates mock worktree sessions with sibling path and branch metadata", async () => {
+    const session = await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      projectPath: "D:\\code\\app",
+      worktree: { enabled: true, name: "feature-a" },
+    });
+
+    expect(session.folder).toBe("D:\\code\\app-feature-a");
+    expect(session.projectPath).toBe("D:\\code\\app");
+    expect(session.worktreePath).toBe("D:\\code\\app-feature-a");
+    expect(session.worktreeName).toBe("feature-a");
+    expect(session.worktreeBranch).toBe("vanehub/feature-a");
+  });
+
+  it("rejects invalid or unavailable mock worktree requests", async () => {
+    await expect(
+      webAgentClient.createSession({
+        agentId: "codex-cli",
+        interactionMode: "cli",
+        projectPath: "D:\\code\\app",
+        worktree: { enabled: true, name: "..\\bad" },
+      }),
+    ).rejects.toThrow("Invalid worktree name");
+
+    const session = await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      projectPath: "D:\\code\\non-git",
+    });
+    expect(session.folder).toBe("D:\\code\\non-git");
+    expect(session.worktreePath).toBeNull();
+
+    await expect(
+      webAgentClient.createSession({
+        agentId: "codex-cli",
+        interactionMode: "cli",
+        projectPath: "D:\\code\\non-git",
+        worktree: { enabled: true, name: "feature-a" },
+      }),
+    ).rejects.toThrow("Git worktree unavailable");
   });
 
   it("stores messages and emits mock streaming events", async () => {
@@ -105,6 +170,7 @@ describe("webAgentClient", () => {
 
     expect(assistant.role).toBe("assistant");
     expect(assistant.status).toBe("streaming");
+    expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("running");
     expect(await webAgentClient.listMessages({ sessionId: session.id })).toHaveLength(2);
 
     await vi.advanceTimersByTimeAsync(3_000);
@@ -115,6 +181,7 @@ describe("webAgentClient", () => {
     expect(events.some((event) => event.type === "completed")).toBe(true);
     expect(completedAssistant?.status).toBe("completed");
     expect(completedAssistant?.content).toContain("Mock codex-cli response");
+    expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("idle");
     unsubscribe();
   });
 
@@ -145,6 +212,37 @@ describe("webAgentClient", () => {
 
     expect(cancelledAssistant?.status).toBe("cancelled");
     expect(cancelledAssistant?.content.length).toBeGreaterThan(0);
+    expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("stopped");
+  });
+
+  it("archives a running mock session by cancelling active generation first", async () => {
+    vi.useFakeTimers();
+    const session = await webAgentClient.createSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Archive running",
+    });
+    const assistant = await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "archive while running",
+      config: {
+        agentId: session.agentId,
+        interactionMode: session.interactionMode,
+        permissionMode: "default",
+        streaming: true,
+        thinking: false,
+        longContext: false,
+      },
+    });
+
+    const archived = await webAgentClient.archiveSession(session.id);
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+    const cancelledAssistant = messages.find((message) => message.id === assistant.id);
+
+    expect(archived.archived).toBe(true);
+    expect(archived.lifecycleState).toBe("stopped");
+    expect(cancelledAssistant?.status).toBe("cancelled");
+    expect(await webAgentClient.getActiveSession()).toBeNull();
   });
 
   it("manages mock Skills, mount paths, drift, and built-in restore", async () => {

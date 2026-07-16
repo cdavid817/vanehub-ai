@@ -2,7 +2,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
@@ -307,10 +307,50 @@ struct Session {
     interaction_mode: InteractionMode,
     lifecycle_state: SessionLifecycleState,
     folder: Option<String>,
+    project_path: Option<String>,
+    worktree_path: Option<String>,
+    worktree_name: Option<String>,
+    worktree_branch: Option<String>,
     pinned: bool,
     archived: bool,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct KnownProject {
+    path: String,
+    display_name: String,
+    is_git: bool,
+    last_opened_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ProjectInspection {
+    path: String,
+    display_name: String,
+    is_git: bool,
+    git_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateSessionInput {
+    agent_id: String,
+    interaction_mode: InteractionMode,
+    title: Option<String>,
+    folder: Option<String>,
+    project_path: Option<String>,
+    worktree: Option<CreateWorktreeInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateWorktreeInput {
+    enabled: bool,
+    name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -639,7 +679,37 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
     apply_migration(conn, 5, "app-settings", apply_app_settings_migration)?;
     apply_migration(conn, 6, "cli-tool-status", apply_cli_tool_status_migration)?;
     apply_migration(conn, 7, "skill-management", skills::service::apply_schema)?;
+    apply_migration(
+        conn,
+        8,
+        "project-worktree-management",
+        apply_project_worktree_migration,
+    )?;
 
+    Ok(())
+}
+
+fn apply_project_worktree_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS known_projects (
+            path TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            is_git INTEGER NOT NULL DEFAULT 0,
+            last_opened_at TEXT NOT NULL
+        );
+        "#,
+    )?;
+    for column in [
+        "project_path",
+        "worktree_path",
+        "worktree_name",
+        "worktree_branch",
+    ] {
+        if !table_has_column(conn, "sessions", column)? {
+            conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"), [])?;
+        }
+    }
     Ok(())
 }
 
@@ -1309,6 +1379,7 @@ fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     Some(left_parts.cmp(&right_parts))
 }
 
+#[derive(Debug)]
 struct CapturedCommandOutput {
     success: bool,
     stdout: String,
@@ -1552,15 +1623,19 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         })?,
         lifecycle_state: parse_lifecycle_state(&lifecycle_state),
         folder: row.get(5)?,
-        pinned: row.get::<_, i64>(6)? != 0,
-        archived: row.get::<_, i64>(7)? != 0,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        project_path: row.get(6)?,
+        worktree_path: row.get(7)?,
+        worktree_name: row.get(8)?,
+        worktree_branch: row.get(9)?,
+        pinned: row.get::<_, i64>(10)? != 0,
+        archived: row.get::<_, i64>(11)? != 0,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -1571,6 +1646,200 @@ fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError
     )
     .optional()?
     .ok_or_else(|| AppError::SessionNotFound(session_id.to_string()))
+}
+
+fn display_name_for_path(path: &Path) -> String {
+    if let Some(value) = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+    {
+        value.to_string()
+    } else {
+        path.to_string_lossy().to_string()
+    }
+}
+
+fn canonical_project_path(path: &str) -> Result<PathBuf, AppError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Project path is required.".to_string()));
+    }
+    let path = PathBuf::from(trimmed);
+    std::fs::canonicalize(&path).map_err(|error| {
+        record_native_log(
+            NativeLogLevel::Error,
+            "project.inspect",
+            &format!("Project path unavailable: {trimmed}: {error}"),
+        );
+        AppError::Validation("Project unavailable".to_string())
+    })
+}
+
+fn run_git_capture(args: &[&str]) -> Result<std::process::Output, AppError> {
+    let audit_args = args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+    command_safety::audit_command("git.project", "git", &audit_args);
+    command_safety::std_command("git")?
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| {
+            record_native_log(
+                NativeLogLevel::Error,
+                "git.project",
+                &format!("Git command unavailable: {error}"),
+            );
+            AppError::Validation("Git unavailable".to_string())
+        })
+}
+
+fn output_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
+fn inspect_project_inner(path: &str) -> Result<ProjectInspection, AppError> {
+    let canonical = canonical_project_path(path)?;
+    let canonical_string = canonical.to_string_lossy().to_string();
+    let output = run_git_capture(&[
+        "-C",
+        &canonical_string,
+        "rev-parse",
+        "--show-toplevel",
+    ]);
+    let git_root = match output {
+        Ok(output) if output.status.success() => {
+            let root = output_text(&output.stdout);
+            if root.is_empty() {
+                None
+            } else {
+                Some(root)
+            }
+        }
+        Ok(output) => {
+            record_native_log(
+                NativeLogLevel::Info,
+                "git.project",
+                &format!(
+                    "Git inspection reported non-repository. stdout={} stderr={}",
+                    output_text(&output.stdout),
+                    output_text(&output.stderr)
+                ),
+            );
+            None
+        }
+        Err(AppError::Validation(message)) if message == "Git unavailable" => None,
+        Err(error) => return Err(error),
+    };
+
+    Ok(ProjectInspection {
+        path: canonical_string,
+        display_name: display_name_for_path(&canonical),
+        is_git: git_root.is_some(),
+        git_root,
+    })
+}
+
+fn upsert_known_project(conn: &Connection, inspection: &ProjectInspection) -> Result<(), AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        r#"
+        INSERT INTO known_projects (path, display_name, is_git, last_opened_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(path) DO UPDATE SET
+            display_name = excluded.display_name,
+            is_git = excluded.is_git,
+            last_opened_at = excluded.last_opened_at
+        "#,
+        params![
+            inspection.path,
+            inspection.display_name,
+            if inspection.is_git { 1 } else { 0 },
+            now
+        ],
+    )?;
+    Ok(())
+}
+
+fn load_known_project_from_row(row: &Row<'_>) -> Result<KnownProject, rusqlite::Error> {
+    Ok(KnownProject {
+        path: row.get(0)?,
+        display_name: row.get(1)?,
+        is_git: row.get::<_, i64>(2)? != 0,
+        last_opened_at: row.get(3)?,
+    })
+}
+
+fn validate_worktree_name(name: &str) -> Result<String, AppError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains("..")
+        || trimmed.chars().any(char::is_control)
+    {
+        return Err(AppError::Validation("Invalid worktree name".to_string()));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn is_path_inside(child: &Path, parent: &Path) -> bool {
+    child.starts_with(parent) && child != parent
+}
+
+fn resolve_worktree_target(project_path: &Path, worktree_name: &str) -> Result<PathBuf, AppError> {
+    let parent = project_path
+        .parent()
+        .ok_or_else(|| AppError::Validation("Project parent unavailable".to_string()))?;
+    let project_name = project_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::Validation("Project name unavailable".to_string()))?;
+    let target = parent.join(format!("{project_name}-{worktree_name}"));
+    if target.exists() {
+        return Err(AppError::Validation("Git worktree target exists".to_string()));
+    }
+    if is_path_inside(&target, project_path) {
+        return Err(AppError::Validation("Invalid worktree target".to_string()));
+    }
+    Ok(target)
+}
+
+fn create_git_worktree(
+    project_path: &Path,
+    worktree_name: &str,
+) -> Result<(String, String), AppError> {
+    let safe_name = validate_worktree_name(worktree_name)?;
+    let target = resolve_worktree_target(project_path, &safe_name)?;
+    let project = project_path.to_string_lossy().to_string();
+    let target_string = target.to_string_lossy().to_string();
+    let branch = format!("vanehub/{safe_name}");
+    let output = run_git_capture(&[
+        "-C",
+        &project,
+        "worktree",
+        "add",
+        &target_string,
+        "-b",
+        &branch,
+    ])?;
+    if !output.status.success() {
+        record_native_log(
+            NativeLogLevel::Error,
+            "git.worktree",
+            &format!(
+                "Git worktree failed. stdout={} stderr={}",
+                output_text(&output.stdout),
+                output_text(&output.stderr)
+            ),
+        );
+        return Err(AppError::Validation("Git worktree failed".to_string()));
+    }
+    record_native_log(
+        NativeLogLevel::Info,
+        "git.worktree",
+        &format!("Created worktree at {target_string} on {branch}"),
+    );
+    Ok((target_string, branch))
 }
 
 fn load_chat_message_from_row(row: &Row<'_>) -> Result<ChatMessage, rusqlite::Error> {
@@ -1683,6 +1952,22 @@ fn complete_assistant_message(
     load_chat_message(conn, message_id)
 }
 
+fn fail_assistant_message(
+    conn: &Connection,
+    message_id: &str,
+    content: &str,
+    error: &str,
+) -> Result<ChatMessage, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE messages
+         SET status = 'failed', content = ?1, metadata = ?2, updated_at = ?3
+         WHERE id = ?4",
+        params![content, error, now, message_id],
+    )?;
+    load_chat_message(conn, message_id)
+}
+
 fn cancel_streaming_messages(conn: &Connection, session_id: &str) -> Result<(), AppError> {
     let now = current_timestamp();
     conn.execute(
@@ -1690,6 +1975,23 @@ fn cancel_streaming_messages(conn: &Connection, session_id: &str) -> Result<(), 
         params![now, session_id],
     )?;
     Ok(())
+}
+
+fn update_session_lifecycle(
+    conn: &Connection,
+    session_id: &str,
+    lifecycle: SessionLifecycleState,
+) -> Result<Session, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE sessions SET lifecycle_state = ?1, updated_at = ?2 WHERE id = ?3",
+        params![lifecycle.as_str(), now, session_id],
+    )?;
+    conn.execute(
+        "UPDATE workflow_state SET lifecycle_state = ?1 WHERE active_session_id = ?2",
+        params![lifecycle.as_str(), session_id],
+    )?;
+    load_session(conn, session_id)
 }
 
 fn update_active_workflow_for_session(
@@ -2202,6 +2504,90 @@ fn active_log_dir_from_conn(conn: &Connection) -> Result<PathBuf, AppError> {
     Ok(PathBuf::from(get_settings_from_conn(conn)?.log_directory))
 }
 
+fn write_session_runtime_log(
+    conn: &Connection,
+    level: logging::LogLevel,
+    session_id: &str,
+    agent_id: &str,
+    message: &str,
+) -> Result<(), AppError> {
+    let mut context = BTreeMap::new();
+    context.insert("sessionId".to_string(), session_id.to_string());
+    context.insert("agentId".to_string(), agent_id.to_string());
+    logging::write_message(
+        &active_log_dir_from_conn(conn)?,
+        level,
+        "session.runtime",
+        message,
+        context,
+    )
+}
+
+fn concise_cli_unavailable_error(agent: &AgentRegistryEntry) -> String {
+    format!("{} CLI unavailable", agent.display_name)
+}
+
+fn concise_cli_failed_error(agent: &AgentRegistryEntry) -> String {
+    format!("{} command failed", agent.display_name)
+}
+
+fn concise_cli_error(agent: &AgentRegistryEntry, detail: &str) -> String {
+    if detail.contains("could not be resolved") || detail.contains("unsupported") {
+        concise_cli_unavailable_error(agent)
+    } else {
+        concise_cli_failed_error(agent)
+    }
+}
+
+fn resolve_agent_cli_executable(
+    conn: &Connection,
+    agent: &AgentRegistryEntry,
+) -> Result<String, String> {
+    let Some(definition) = cli_tool_definition(&agent.id) else {
+        return Err(format!("{} is not supported by the generic CLI adapter.", agent.display_name));
+    };
+    let cached_status = load_cli_tool_status(conn, definition).map_err(|error| error.to_string())?;
+    if let Some(path) = cached_status.detected_path.filter(|path| !path.trim().is_empty()) {
+        return Ok(path);
+    }
+    resolve_command_path(definition.executable_name).ok_or_else(|| {
+        format!(
+            "{} executable '{}' could not be resolved.",
+            agent.display_name, definition.executable_name
+        )
+    })
+}
+
+fn execute_generic_cli_agent(
+    conn: &Connection,
+    session_id: &str,
+    agent: &AgentRegistryEntry,
+    prompt: &str,
+) -> Result<CapturedCommandOutput, String> {
+    if agent.launch.kind != "cli" {
+        return Err(format!(
+            "{} launch kind '{}' is unsupported for chat runtime.",
+            agent.display_name, agent.launch.kind
+        ));
+    }
+    let executable = resolve_agent_cli_executable(conn, agent)?;
+    let mut command = command_safety::std_command(&executable).map_err(|error| error.to_string())?;
+    command.arg(prompt);
+    command_safety::audit_command(
+        "session.runtime.cli",
+        &executable,
+        &["[prompt redacted]".to_string()],
+    );
+    let _ = write_session_runtime_log(
+        conn,
+        logging::LogLevel::Info,
+        session_id,
+        &agent.id,
+        &format!("executing {}", agent.display_name),
+    );
+    command_output_with_timeout(&mut command, Duration::from_secs(60))
+}
+
 #[tauri::command]
 fn open_log_directory(state: State<'_, Mutex<RegistryStore>>) -> Result<(), AppError> {
     let store = state
@@ -2521,45 +2907,109 @@ fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError>
 }
 
 #[tauri::command]
+fn list_known_projects(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<KnownProject>, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let mut stmt = conn.prepare(
+        "SELECT path, display_name, is_git, last_opened_at FROM known_projects ORDER BY last_opened_at DESC",
+    )?;
+    let rows = stmt.query_map([], load_known_project_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+fn inspect_project(path: String) -> Result<ProjectInspection, AppError> {
+    inspect_project_inner(&path)
+}
+
+#[tauri::command]
+fn select_project_directory() -> Result<Option<String>, AppError> {
+    let cwd = std::env::current_dir().map_err(|error| AppError::Storage(error.to_string()))?;
+    Ok(Some(cwd.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 fn create_session(
     state: State<'_, Mutex<RegistryStore>>,
-    agent_id: String,
-    interaction_mode: InteractionMode,
-    title: Option<String>,
-    folder: Option<String>,
+    input: CreateSessionInput,
 ) -> Result<Session, AppError> {
     let store = state
         .lock()
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
-    let agent = load_agent(&conn, &agent_id)?;
+    let agent = load_agent(&conn, &input.agent_id)?;
     if !agent
         .supported_interaction_modes
         .iter()
-        .any(|mode| mode.as_str() == interaction_mode.as_str())
+        .any(|mode| mode.as_str() == input.interaction_mode.as_str())
     {
         return Err(AppError::UnsupportedInteractionMode(
-            interaction_mode.as_str().to_string(),
+            input.interaction_mode.as_str().to_string(),
         ));
+    }
+
+    let selected_project = input
+        .project_path
+        .as_deref()
+        .or(input.folder.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let inspection = selected_project
+        .map(inspect_project_inner)
+        .transpose()?;
+    if let Some(inspection) = &inspection {
+        upsert_known_project(&conn, inspection)?;
+    }
+
+    let mut effective_folder = inspection
+        .as_ref()
+        .map(|project| project.path.clone())
+        .or(input.folder.clone());
+    let mut worktree_path = None;
+    let mut worktree_name = None;
+    let mut worktree_branch = None;
+    if let Some(request) = &input.worktree {
+        if request.enabled {
+            let inspection = inspection
+                .as_ref()
+                .ok_or_else(|| AppError::Validation("Project unavailable".to_string()))?;
+            if !inspection.is_git {
+                return Err(AppError::Validation("Git worktree unavailable".to_string()));
+            }
+            let name = validate_worktree_name(request.name.as_deref().unwrap_or(""))?;
+            let (created_path, branch) = create_git_worktree(Path::new(&inspection.path), &name)?;
+            effective_folder = Some(created_path.clone());
+            worktree_path = Some(created_path);
+            worktree_name = Some(name);
+            worktree_branch = Some(branch);
+        }
     }
 
     let id = uuid::Uuid::new_v4().to_string();
     let now = current_timestamp();
-    let session_title = title
+    let session_title = input
+        .title
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "新会话".to_string());
     conn.execute(
         "INSERT INTO sessions
-         (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?8)",
+         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?12)",
         params![
             id,
             session_title,
-            agent_id,
-            interaction_mode.as_str(),
+            input.agent_id,
+            input.interaction_mode.as_str(),
             SessionLifecycleState::Idle.as_str(),
-            folder,
+            effective_folder,
+            inspection.as_ref().map(|project| project.path.clone()),
+            worktree_path,
+            worktree_name,
+            worktree_branch,
             now,
             now
         ],
@@ -2698,13 +3148,16 @@ fn unpin_session(
 
 #[tauri::command]
 fn archive_session(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
+    runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
 ) -> Result<Session, AppError> {
     let store = state
         .lock()
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
+    stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(session)
@@ -2724,7 +3177,9 @@ fn unarchive_session(
 
 #[tauri::command]
 fn delete_session(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
+    runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
 ) -> Result<(), AppError> {
     let store = state
@@ -2732,6 +3187,7 @@ fn delete_session(
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     load_session(&conn, &session_id)?;
+    stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(())
@@ -2744,7 +3200,7 @@ fn send_message(
     runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
     content: String,
-    config: ChatConfig,
+    _config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
     let trimmed_content = content.trim().to_string();
     if trimmed_content.is_empty() {
@@ -2752,16 +3208,23 @@ fn send_message(
             "Message content cannot be empty.".to_string(),
         ));
     }
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    load_session(&conn, &session_id)?;
-    let selected_agent = load_agent(&conn, &config.agent_id)?;
+    let conn = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        store.connection()?
+    };
+    let session = load_session(&conn, &session_id)?;
+    if session.archived {
+        return Err(AppError::Validation(format!(
+            "Cannot send a message to archived session: {session_id}"
+        )));
+    }
+    let selected_agent = load_agent(&conn, &session.agent_id)?;
 
-    let _user_message =
-        insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
+    insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
     let assistant_message = insert_chat_message(&conn, &session_id, "assistant", "streaming", "")?;
+    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Starting)?;
     runtime.start(session_id.clone(), assistant_message.id.clone(), None)?;
     let _ = app.emit(
         "chat:event",
@@ -2770,28 +3233,164 @@ fn send_message(
             message_id: assistant_message.id.clone(),
         },
     );
+    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Running)?;
 
-    let response = format!(
-        "Desktop preview response from {}: received \"{}\". Real Agent CLI streaming will attach behind the same message contract.",
-        selected_agent.display_name, trimmed_content
-    );
-    let token_usage = TokenUsage {
-        input: trimmed_content.chars().count() as i64,
-        output: response.chars().count() as i64,
+    let output = execute_generic_cli_agent(&conn, &session_id, &selected_agent, &trimmed_content);
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => {
+            let concise_error = concise_cli_error(&selected_agent, &error);
+            let _ = write_session_runtime_log(
+                &conn,
+                logging::LogLevel::Error,
+                &session_id,
+                &selected_agent.id,
+                &error,
+            );
+            let failed = fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
+            update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
+            runtime.complete(&session_id)?;
+            let _ = app.emit(
+                "chat:event",
+                ChatStreamEvent::Failed {
+                    session_id,
+                    message_id: assistant_message.id,
+                    error: concise_error,
+                },
+            );
+            return Ok(failed);
+        }
     };
+
+    if !output.stdout.is_empty() {
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Info,
+            &session_id,
+            &selected_agent.id,
+            &output.stdout,
+        );
+    }
+    if !output.stderr.is_empty() {
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Warn,
+            &session_id,
+            &selected_agent.id,
+            &output.stderr,
+        );
+    }
+
+    if !output.success {
+        let concise_error = concise_cli_failed_error(&selected_agent);
+        let detail = first_output_line(&output).unwrap_or_else(|| concise_error.clone());
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Error,
+            &session_id,
+            &selected_agent.id,
+            &detail,
+        );
+        let failed = fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
+        update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
+        runtime.complete(&session_id)?;
+        let _ = app.emit(
+            "chat:event",
+            ChatStreamEvent::Failed {
+                session_id,
+                message_id: assistant_message.id,
+                error: concise_error,
+            },
+        );
+        return Ok(failed);
+    }
+
     let parser = parser_for_agent(&selected_agent.id);
-    if let ParsedAgentEvent::Token(content_delta) = parser.parse_line(&response) {
+    let mut response = String::new();
+    let mut terminal_error = None;
+    for line in output.stdout.lines() {
+        match parser.parse_line(line) {
+            ParsedAgentEvent::Token(delta) => {
+                let content_delta = if response.is_empty() {
+                    delta
+                } else {
+                    format!("\n{delta}")
+                };
+                response.push_str(&content_delta);
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Token {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message.id.clone(),
+                        content_delta,
+                    },
+                );
+            }
+            ParsedAgentEvent::Thinking(content_delta) => {
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Thinking {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message.id.clone(),
+                        content_delta,
+                    },
+                );
+            }
+            ParsedAgentEvent::ToolUse(tool_use) => {
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::ToolUse {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message.id.clone(),
+                        tool_use,
+                    },
+                );
+            }
+            ParsedAgentEvent::Failed(error) => terminal_error = Some(error),
+            ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
+        }
+    }
+
+    if let Some(error) = terminal_error {
+        let concise_error = concise_cli_failed_error(&selected_agent);
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Error,
+            &session_id,
+            &selected_agent.id,
+            &error,
+        );
+        let failed = fail_assistant_message(&conn, &assistant_message.id, &response, &concise_error)?;
+        update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
+        runtime.complete(&session_id)?;
+        let _ = app.emit(
+            "chat:event",
+            ChatStreamEvent::Failed {
+                session_id,
+                message_id: assistant_message.id,
+                error: concise_error,
+            },
+        );
+        return Ok(failed);
+    }
+
+    if response.is_empty() {
+        response = "Command completed with no output.".to_string();
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Token {
                 session_id: session_id.clone(),
                 message_id: assistant_message.id.clone(),
-                content_delta,
+                content_delta: response.clone(),
             },
         );
     }
-    let completed =
-        complete_assistant_message(&conn, &assistant_message.id, &response, &token_usage)?;
+    let token_usage = TokenUsage {
+        input: trimmed_content.chars().count() as i64,
+        output: response.chars().count() as i64,
+    };
+    let completed = complete_assistant_message(&conn, &assistant_message.id, &response, &token_usage)?;
+    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle)?;
     runtime.complete(&session_id)?;
     let _ = app.emit(
         "chat:event",
@@ -2818,35 +3417,41 @@ fn list_messages(
     list_chat_messages(&conn, &session_id, limit, before_id.as_deref())
 }
 
-#[tauri::command]
-fn stop_generation(
-    app: AppHandle,
-    state: State<'_, Mutex<RegistryStore>>,
-    runtime: State<'_, ChatRuntimeManager>,
-    session_id: String,
-) -> Result<(), AppError> {
-    let stop_outcome = runtime.stop(&session_id)?;
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    load_session(&conn, &session_id)?;
+fn stop_generation_for_session(
+    app: &AppHandle,
+    conn: &Connection,
+    runtime: &ChatRuntimeManager,
+    session_id: &str,
+) -> Result<StopGenerationOutcome, AppError> {
+    load_session(conn, session_id)?;
+    let stop_outcome = runtime.stop(session_id)?;
     let streaming_ids = {
         let mut stmt =
             conn.prepare("SELECT id FROM messages WHERE session_id = ?1 AND status = 'streaming'")?;
-        let rows = stmt.query_map(params![session_id.as_str()], |row| row.get::<_, String>(0))?;
+        let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
-    cancel_streaming_messages(&conn, &session_id)?;
+    if matches!(stop_outcome, StopGenerationOutcome::NoActiveGeneration) && streaming_ids.is_empty() {
+        return Ok(stop_outcome);
+    }
+    cancel_streaming_messages(conn, session_id)?;
+    update_session_lifecycle(conn, session_id, SessionLifecycleState::Stopped)?;
+    let _ = write_session_runtime_log(
+        conn,
+        logging::LogLevel::Warn,
+        session_id,
+        &load_session(conn, session_id)?.agent_id,
+        "session generation cancelled",
+    );
     if let StopGenerationOutcome::SoftCancelled { message_id }
-    | StopGenerationOutcome::ProcessKilled { message_id } = stop_outcome
+    | StopGenerationOutcome::ProcessKilled { message_id } = &stop_outcome
     {
-        if !streaming_ids.iter().any(|id| id == &message_id) {
+        if !streaming_ids.iter().any(|id| id == message_id) {
             let _ = app.emit(
                 "chat:event",
                 ChatStreamEvent::Cancelled {
-                    session_id: session_id.clone(),
-                    message_id,
+                    session_id: session_id.to_string(),
+                    message_id: message_id.clone(),
                 },
             );
         }
@@ -2855,11 +3460,26 @@ fn stop_generation(
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Cancelled {
-                session_id: session_id.clone(),
+                session_id: session_id.to_string(),
                 message_id,
             },
         );
     }
+    Ok(stop_outcome)
+}
+
+#[tauri::command]
+fn stop_generation(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    runtime: State<'_, ChatRuntimeManager>,
+    session_id: String,
+) -> Result<(), AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     Ok(())
 }
 
@@ -2916,6 +3536,7 @@ fn get_workflow_state_from_conn(conn: &Connection) -> Result<WorkflowState, AppE
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -2960,6 +3581,9 @@ pub fn run() {
             check_browser_readiness,
             launch_active_workflow,
             get_session_details,
+            list_known_projects,
+            inspect_project,
+            select_project_directory,
             create_session,
             list_sessions,
             list_archived_sessions,
@@ -3062,7 +3686,123 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn project_worktree_migration_adds_tables_and_columns() {
+        let conn = test_conn();
+
+        assert!(table_has_column(&conn, "sessions", "project_path").expect("project column"));
+        assert!(table_has_column(&conn, "sessions", "worktree_path").expect("worktree column"));
+        conn.execute(
+            "INSERT INTO known_projects (path, display_name, is_git, last_opened_at) VALUES (?1, ?2, ?3, ?4)",
+            params!["D:\\code\\app", "app", 1, current_timestamp()],
+        )
+        .expect("insert project");
+    }
+
+    #[test]
+    fn known_project_upsert_orders_by_last_opened() {
+        let conn = test_conn();
+        let first = ProjectInspection {
+            path: "D:\\code\\first".to_string(),
+            display_name: "first".to_string(),
+            is_git: true,
+            git_root: Some("D:\\code\\first".to_string()),
+        };
+        let second = ProjectInspection {
+            path: "D:\\code\\second".to_string(),
+            display_name: "second".to_string(),
+            is_git: false,
+            git_root: None,
+        };
+
+        upsert_known_project(&conn, &first).expect("first");
+        upsert_known_project(&conn, &second).expect("second");
+        let projects = {
+            let mut stmt = conn
+                .prepare("SELECT path, display_name, is_git, last_opened_at FROM known_projects ORDER BY last_opened_at DESC, path DESC")
+                .expect("prepare");
+            stmt.query_map([], load_known_project_from_row)
+                .expect("query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("projects")
+        };
+
+        assert_eq!(projects.len(), 2);
+        assert!(projects.iter().any(|project| project.path == first.path));
+        assert!(projects.iter().any(|project| project.path == second.path));
+    }
+
+    #[test]
+    fn inspect_project_reports_non_git_for_plain_temp_dir() {
+        let root = unique_temp_dir("plain-project");
+        std::fs::create_dir_all(&root).expect("create temp");
+
+        let inspection = inspect_project_inner(root.to_str().expect("utf8 path")).expect("inspect");
+
+        assert_eq!(inspection.path, std::fs::canonicalize(&root).expect("canonical").to_string_lossy());
+        assert!(!inspection.is_git);
+        assert_eq!(inspection.git_root, None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn worktree_name_validation_rejects_unsafe_values() {
+        assert_eq!(validate_worktree_name("feature-a").expect("valid"), "feature-a");
+        assert!(validate_worktree_name("").is_err());
+        assert!(validate_worktree_name("../bad").is_err());
+        assert!(validate_worktree_name("bad\\name").is_err());
+    }
+
+    #[test]
+    fn worktree_target_uses_sibling_and_rejects_existing_path() {
+        let parent = unique_temp_dir("worktree-parent");
+        let project = parent.join("app");
+        let existing = parent.join("app-feature-a");
+        std::fs::create_dir_all(&project).expect("project");
+
+        let target = resolve_worktree_target(&project, "feature-a").expect("target");
+        assert_eq!(target, existing);
+
+        std::fs::create_dir_all(&existing).expect("existing");
+        assert!(resolve_worktree_target(&project, "feature-a").is_err());
+        let _ = std::fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn session_metadata_persists_project_and_worktree_fields() {
+        let conn = test_conn();
+        let now = current_timestamp();
+        conn.execute(
+            "INSERT INTO sessions
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?12)",
+            params![
+                "session-worktree",
+                "Worktree",
+                "codex-cli",
+                "cli",
+                "idle",
+                "D:\\code\\app-feature-a",
+                "D:\\code\\app",
+                "D:\\code\\app-feature-a",
+                "feature-a",
+                "vanehub/feature-a",
+                now,
+                now
+            ],
+        )
+        .expect("insert session");
+
+        let session = load_session(&conn, "session-worktree").expect("session");
+
+        assert_eq!(session.folder.as_deref(), Some("D:\\code\\app-feature-a"));
+        assert_eq!(session.project_path.as_deref(), Some("D:\\code\\app"));
+        assert_eq!(session.worktree_path.as_deref(), Some("D:\\code\\app-feature-a"));
+        assert_eq!(session.worktree_name.as_deref(), Some("feature-a"));
+        assert_eq!(session.worktree_branch.as_deref(), Some("vanehub/feature-a"));
     }
 
     #[test]
@@ -3286,6 +4026,60 @@ mod tests {
             manager.stop("session-1").expect("second stop"),
             StopGenerationOutcome::NoActiveGeneration
         );
+    }
+
+    #[test]
+    fn session_lifecycle_update_syncs_active_workflow() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+        let session = load_session(&conn, "session-1").expect("session");
+        update_active_workflow_for_session(&conn, &session).expect("active session");
+
+        let updated =
+            update_session_lifecycle(&conn, "session-1", SessionLifecycleState::Running)
+                .expect("update lifecycle");
+        let workflow = get_workflow_state_from_conn(&conn).expect("workflow");
+
+        assert!(matches!(
+            updated.lifecycle_state,
+            SessionLifecycleState::Running
+        ));
+        assert!(matches!(
+            workflow.lifecycle_state,
+            SessionLifecycleState::Running
+        ));
+    }
+
+    #[test]
+    fn assistant_failure_message_keeps_concise_error() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+        let assistant = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("assistant");
+
+        let failed = fail_assistant_message(
+            &conn,
+            &assistant.id,
+            "",
+            "Codex CLI unavailable",
+        )
+        .expect("fail assistant");
+
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.error.as_deref(), Some("Codex CLI unavailable"));
+        assert!(failed.content.is_empty());
+    }
+
+    #[test]
+    fn generic_cli_adapter_rejects_unsupported_agent() {
+        let conn = test_conn();
+        let mut agent = load_agent(&conn, "codex-cli").expect("agent");
+        agent.id = "unknown-agent".to_string();
+
+        let error = execute_generic_cli_agent(&conn, "session-1", &agent, "hello")
+            .expect_err("unsupported agent");
+
+        assert!(error.contains("not supported"));
     }
 
     #[test]

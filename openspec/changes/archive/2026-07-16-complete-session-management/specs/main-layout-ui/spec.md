@@ -1,22 +1,4 @@
-# main-layout-ui Specification
-
-## Purpose
-Defines the workspace shell layout, sidebar session organization, main content sizing, collapsible information panel behavior, keep-alive panel tabs, and internal scrolling rules shared by the Tauri desktop frontend and browser Web runtime.
-## Requirements
-### Requirement: Three-panel workspace proportions
-The workspace shell SHALL render sidebar, main content, and information panel as a unified three-panel layout with aligned heights.
-
-#### Scenario: Render expanded panel layout
-- **WHEN** the information panel is expanded
-- **THEN** the workspace shell SHALL use panel proportions of 220px / 1fr / 300px
-
-#### Scenario: Render collapsed panel layout
-- **WHEN** the information panel is collapsed
-- **THEN** the workspace shell SHALL use panel proportions of 220px / 1fr / 0px and the main content SHALL expand into the released space
-
-#### Scenario: Align panel bottoms
-- **WHEN** the workspace shell renders between the top bar and status bar
-- **THEN** the sidebar, main content, and information panel SHALL use the same available height and align at the bottom edge
+## MODIFIED Requirements
 
 ### Requirement: Sidebar session organization
 The sidebar SHALL support service-backed session navigation without the six bottom tool shortcuts and SHALL provide activity, folder, pinned, archived session organization, and dialog-based session creation.
@@ -81,66 +63,7 @@ The sidebar SHALL support service-backed session navigation without the six bott
 - **WHEN** the session list content exceeds the sidebar height
 - **THEN** the session list SHALL scroll inside the sidebar without scrolling the whole workspace shell
 
-### Requirement: Flexible main content area
-The main content panel SHALL render a chat-first workspace area that resizes with the available workspace area while keeping the bottom composer usable and connected to the active session message list.
-
-#### Scenario: Chat transcript flexes with panel height
-- **WHEN** the workspace panel height changes
-- **THEN** the chat transcript area SHALL flex to fill the remaining main content space without a fixed minimum height forcing overflow
-
-#### Scenario: Chat transcript scrolls internally
-- **WHEN** chat message content exceeds the available transcript height
-- **THEN** the transcript SHALL scroll inside the main content panel without scrolling the whole workspace shell
-
-#### Scenario: Composer remains fixed
-- **WHEN** the main content panel becomes shorter
-- **THEN** the bottom composer SHALL retain its usable size and SHALL remain within the main content panel bounds
-
-#### Scenario: Main content expands after panel collapse
-- **WHEN** the information panel is collapsed
-- **THEN** the main content panel SHALL smoothly expand to occupy the space released by the information panel
-
-#### Scenario: Message list renders for active session
-- **WHEN** an active session is selected
-- **THEN** the main content panel SHALL render the message list for that active session above the composer
-
-#### Scenario: Composer sends to active session
-- **WHEN** the user submits the bottom composer
-- **THEN** the submitted chat message SHALL target the active session
-
-### Requirement: Collapsible information panel
-The information panel SHALL support smooth collapse and expand behavior while preserving mounted internal state.
-
-#### Scenario: Collapse information panel
-- **WHEN** the user clicks the information panel collapse control
-- **THEN** the information panel SHALL collapse and the center panel SHALL expand using a 200ms CSS transition
-
-#### Scenario: Show edge expand control
-- **WHEN** the information panel is collapsed
-- **THEN** the workspace SHALL show an expand control on the right edge that restores the panel when clicked
-
-#### Scenario: Preserve panel component state
-- **WHEN** the information panel is collapsed and later expanded
-- **THEN** the panel SHALL preserve mounted component state including selected tab and form input values
-
-#### Scenario: Scroll long panel content internally
-- **WHEN** the active information panel content exceeds the panel height
-- **THEN** the content area SHALL scroll inside the information panel without scrolling the whole workspace shell
-
-### Requirement: Information panel tabs
-The information panel SHALL provide keep-alive tabs for Agent Info, Files, and Changes.
-
-#### Scenario: Render three tabs
-- **WHEN** the information panel is rendered
-- **THEN** the panel SHALL show exactly three tabs named Agent Info, Files, and Changes
-
-#### Scenario: Switch tabs without unmounting content
-- **WHEN** the user switches between information panel tabs
-- **THEN** all tab contents SHALL remain mounted while only the selected tab content is visible
-
-#### Scenario: Show agent progress summary
-- **WHEN** the Agent Info tab is visible
-- **THEN** the tab SHALL show an independent progress bar with overall completion percentage and completed, in-progress, and pending task counts
+## ADDED Requirements
 
 ### Requirement: Create-session dialog
 The main layout UI SHALL provide a create-session dialog with Agent, project folder, project history, and optional Git worktree controls.

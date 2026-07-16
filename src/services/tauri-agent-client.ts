@@ -1,12 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentService } from "./agent-service";
 import type {
   AgentRegistryEntry,
   CliPackageOperationInput,
   CliToolStatus,
   InteractionMode,
+  KnownProject,
   LaunchResult,
+  ProjectInspection,
   ReadinessStatus,
   Session,
   SessionDetails,
@@ -84,12 +87,22 @@ export const tauriAgentClient: AgentService = {
     return invoke<Session | null>("get_active_session");
   },
 
+  listKnownProjects() {
+    return invoke<KnownProject[]>("list_known_projects");
+  },
+
+  inspectProject(path: string) {
+    return invoke<ProjectInspection>("inspect_project", { path });
+  },
+
+  async selectProjectDirectory() {
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === "string" ? selected : null;
+  },
+
   createSession(input) {
     return invoke<Session>("create_session", {
-      agentId: input.agentId,
-      interactionMode: input.interactionMode,
-      title: input.title ?? null,
-      folder: input.folder ?? null,
+      input,
     });
   },
 

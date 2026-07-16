@@ -37,10 +37,40 @@ export interface Session {
   interactionMode: InteractionMode;
   lifecycleState: SessionLifecycleState;
   folder: string | null;
+  projectPath: string | null;
+  worktreePath: string | null;
+  worktreeName: string | null;
+  worktreeBranch: string | null;
   pinned: boolean;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnownProject {
+  path: string;
+  displayName: string;
+  isGit: boolean;
+  lastOpenedAt: string;
+}
+
+export interface ProjectInspection {
+  path: string;
+  displayName: string;
+  isGit: boolean;
+  gitRoot: string | null;
+}
+
+export interface CreateSessionInput {
+  agentId: string;
+  interactionMode: InteractionMode;
+  title?: string;
+  folder?: string | null;
+  projectPath?: string | null;
+  worktree?: {
+    enabled: boolean;
+    name?: string;
+  } | null;
 }
 
 export interface ReadinessStatus {

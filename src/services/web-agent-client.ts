@@ -1,6 +1,15 @@
 import type { AgentService } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
-import type { CliToolStatus, InteractionMode, Session, SessionDetails, WorkflowState } from "../types/agent";
+import type {
+  CliToolStatus,
+  CreateSessionInput,
+  InteractionMode,
+  KnownProject,
+  ProjectInspection,
+  Session,
+  SessionDetails,
+  WorkflowState,
+} from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
@@ -22,6 +31,7 @@ let nextSessionId = 1;
 let nextMessageId = 1;
 let activeSessionId: string | null = null;
 let sessions: Session[] = [];
+let knownProjects: KnownProject[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
@@ -187,6 +197,60 @@ const webCliTools: CliToolStatus[] = [
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function pathSegments(path: string) {
+  return path.split(/[\\/]/).filter(Boolean);
+}
+
+function displayNameForPath(path: string) {
+  return pathSegments(path).at(-1) ?? path;
+}
+
+function parentPath(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separatorIndex = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"));
+  return separatorIndex <= 0 ? normalized : normalized.slice(0, separatorIndex);
+}
+
+function joinSiblingPath(projectPath: string, worktreeName: string) {
+  const separator = projectPath.includes("\\") ? "\\" : "/";
+  return `${parentPath(projectPath)}${separator}${displayNameForPath(projectPath)}-${worktreeName}`;
+}
+
+function validateWorktreeName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..") || /[\u0000-\u001f]/.test(trimmed)) {
+    throw new Error("Invalid worktree name");
+  }
+  return trimmed;
+}
+
+function inspectMockProject(path: string): ProjectInspection {
+  const trimmedPath = path.trim();
+  const isGit = !/(^|[\\/])(non-git|scratch|plain)([\\/]|$)/i.test(trimmedPath);
+  return {
+    path: trimmedPath,
+    displayName: displayNameForPath(trimmedPath),
+    isGit,
+    gitRoot: isGit ? trimmedPath : null,
+  };
+}
+
+function upsertKnownProject(inspection: ProjectInspection) {
+  const timestamp = nowIso();
+  const project: KnownProject = {
+    path: inspection.path,
+    displayName: inspection.displayName,
+    isGit: inspection.isGit,
+    lastOpenedAt: timestamp,
+  };
+  knownProjects = [project, ...knownProjects.filter((candidate) => candidate.path !== project.path)];
+  return project;
+}
+
+function resolveProjectPath(input: CreateSessionInput) {
+  return input.projectPath?.trim() || input.folder?.trim() || null;
 }
 
 function skillScopeMatches(skill: Skill, input: SkillScopeInput) {
@@ -355,18 +419,32 @@ function clearActiveStream(sessionId: string) {
   activeStreams.delete(sessionId);
 }
 
+function cancelActiveStream(sessionId: string) {
+  const activeStream = activeStreams.get(sessionId);
+  if (!activeStream) return false;
+  activeStream.timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
+  activeStreams.delete(sessionId);
+  publishChatEvent({ type: "cancelled", sessionId, messageId: activeStream.messageId });
+  return true;
+}
+
 function updateSession(sessionId: string, updates: Partial<Session>) {
   const timestamp = nowIso();
-  let updated: Session | null = null;
-  sessions = sessions.map((session) => {
-    if (session.id !== sessionId) return session;
-    updated = { ...session, ...updates, updatedAt: timestamp };
-    return updated;
-  });
-  if (!updated) {
+  const sessionIndex = sessions.findIndex((session) => session.id === sessionId);
+  if (sessionIndex === -1) {
     throw new Error(`Session not found: ${sessionId}`);
   }
-  return updated;
+  const updatedSession: Session = { ...sessions[sessionIndex], ...updates, updatedAt: timestamp };
+  sessions = sessions.map((session, index) => (index === sessionIndex ? updatedSession : session));
+  if (activeSessionId === sessionId) {
+    workflowState = {
+      ...workflowState,
+      activeAgentId: updatedSession.agentId,
+      activeInteractionMode: updatedSession.interactionMode,
+      lifecycleState: updatedSession.lifecycleState,
+    };
+  }
+  return updatedSession;
 }
 
 export const webAgentClient: AgentService = {
@@ -499,6 +577,21 @@ export const webAgentClient: AgentService = {
     return sessions.find((session) => session.id === activeSessionId) ?? null;
   },
 
+  async listKnownProjects() {
+    return knownProjects.map((project) => ({ ...project }));
+  },
+
+  async inspectProject(path: string) {
+    if (!path.trim()) {
+      throw new Error("Project path is required");
+    }
+    return inspectMockProject(path);
+  },
+
+  async selectProjectDirectory() {
+    return "D:\\\\example-workspace";
+  },
+
   async createSession(input) {
     const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
     if (!agent) {
@@ -507,14 +600,36 @@ export const webAgentClient: AgentService = {
     if (!agent.supportedInteractionModes.includes(input.interactionMode)) {
       throw new Error(`${agent.displayName} does not support ${input.interactionMode}.`);
     }
+    const projectPath = resolveProjectPath(input);
+    const inspection = projectPath ? inspectMockProject(projectPath) : null;
+    if (inspection) {
+      upsertKnownProject(inspection);
+    }
+    let effectiveFolder = projectPath;
+    let worktreePath: string | null = null;
+    let worktreeName: string | null = null;
+    let worktreeBranch: string | null = null;
+    if (input.worktree?.enabled) {
+      if (!inspection?.isGit) {
+        throw new Error("Git worktree unavailable");
+      }
+      worktreeName = validateWorktreeName(input.worktree.name ?? "");
+      worktreePath = joinSiblingPath(inspection.path, worktreeName);
+      worktreeBranch = `vanehub/${worktreeName}`;
+      effectiveFolder = worktreePath;
+    }
     const timestamp = nowIso();
     const session: Session = {
       id: `web-session-${nextSessionId}`,
-      title: input.title?.trim() || "New Session",
+      title: input.title?.trim() || "新会话",
       agentId: input.agentId,
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
-      folder: input.folder ?? null,
+      folder: effectiveFolder,
+      projectPath,
+      worktreePath,
+      worktreeName,
+      worktreeBranch,
       pinned: false,
       archived: false,
       createdAt: timestamp,
@@ -534,7 +649,7 @@ export const webAgentClient: AgentService = {
 
   async deleteSession(sessionId: string) {
     findSession(sessionId);
-    clearActiveStream(sessionId);
+    cancelActiveStream(sessionId);
     messagesBySession.delete(sessionId);
     subscribersBySession.delete(sessionId);
     sessions = sessions.filter((session) => session.id !== sessionId);
@@ -575,7 +690,8 @@ export const webAgentClient: AgentService = {
   },
 
   async archiveSession(sessionId: string) {
-    const session = updateSession(sessionId, { archived: true });
+    const cancelled = cancelActiveStream(sessionId);
+    const session = updateSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
     if (activeSessionId === sessionId) {
       activeSessionId = null;
     }
@@ -662,11 +778,8 @@ export const webAgentClient: AgentService = {
 
   async stopGeneration(sessionId: string) {
     findSession(sessionId);
-    const activeStream = activeStreams.get(sessionId);
-    if (!activeStream) return;
-    clearActiveStream(sessionId);
-    publishChatEvent({ type: "cancelled", sessionId, messageId: activeStream.messageId });
-    updateSession(sessionId, { lifecycleState: "idle" });
+    if (!cancelActiveStream(sessionId)) return;
+    updateSession(sessionId, { lifecycleState: "stopped" });
   },
 
   async subscribeMessageEvents(sessionId, handler) {

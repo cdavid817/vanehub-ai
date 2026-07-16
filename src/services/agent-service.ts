@@ -2,8 +2,11 @@ import type {
   AgentRegistryEntry,
   CliPackageOperationInput,
   CliToolStatus,
+  CreateSessionInput,
   InteractionMode,
+  KnownProject,
   LaunchResult,
+  ProjectInspection,
   ReadinessStatus,
   Session,
   SessionDetails,
@@ -39,12 +42,10 @@ export interface AgentService {
   listSessions(): Promise<Session[]>;
   listArchivedSessions(): Promise<Session[]>;
   getActiveSession(): Promise<Session | null>;
-  createSession(input: {
-    agentId: string;
-    interactionMode: InteractionMode;
-    title?: string;
-    folder?: string | null;
-  }): Promise<Session>;
+  listKnownProjects(): Promise<KnownProject[]>;
+  inspectProject(path: string): Promise<ProjectInspection>;
+  selectProjectDirectory(): Promise<string | null>;
+  createSession(input: CreateSessionInput): Promise<Session>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
   renameSession(sessionId: string, title: string): Promise<Session>;

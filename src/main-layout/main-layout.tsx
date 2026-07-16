@@ -10,6 +10,7 @@ import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { ChatConfig, ChatMessage as ChatMessageModel, ChatStreamEvent } from "../types/chat";
+import { CreateSessionDialog } from "./create-session-dialog";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 
@@ -154,6 +155,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
+  const [createSessionOpen, setCreateSessionOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
   const [messageLimit, setMessageLimit] = useState(50);
   const queryClient = useQueryClient();
@@ -197,22 +199,16 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     void queryClient.invalidateQueries({ queryKey: ["workflow"] });
   }
 
+  function invalidateSessionRuntime() {
+    invalidateSessions();
+    invalidateActiveMessages();
+  }
+
   function invalidateActiveMessages() {
     if (!activeSessionId) return;
     void queryClient.invalidateQueries({ queryKey: ["messages", activeSessionId] });
   }
 
-  const createSessionMutation = useMutation({
-    mutationFn: async () => {
-      const activeAgent = agentsQuery.data?.[0];
-      if (!activeAgent) throw new Error("No agents are available.");
-      return agentService.createSession({
-        agentId: activeAgent.id,
-        interactionMode: activeAgent.supportedInteractionModes[0] ?? "cli",
-      });
-    },
-    onSuccess: invalidateSessions,
-  });
   const switchSessionMutation = useMutation({
     mutationFn: (sessionId: string) => agentService.switchSession(sessionId),
     onSuccess: invalidateSessions,
@@ -236,10 +232,11 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const sendMessageMutation = useMutation({
     mutationFn: (input: { content: string; config: ChatConfig; sessionId: string }) =>
       agentService.sendMessage(input),
-    onSuccess: invalidateActiveMessages,
+    onSuccess: invalidateSessionRuntime,
   });
   const stopGenerationMutation = useMutation({
     mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId),
+    onSuccess: invalidateSessionRuntime,
   });
 
   const activityBuckets = useMemo(
@@ -273,6 +270,9 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       queryClient.setQueryData<ChatMessageModel[]>(["messages", activeSessionId, messageLimit], (currentMessages) =>
         applyChatEvent(currentMessages ?? [], event),
       );
+      if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
+        invalidateSessions();
+      }
     }).then((unsubscribe) => {
       if (cancelled) unsubscribe();
       else cleanup = unsubscribe;
@@ -347,6 +347,12 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   function stopChatGeneration() {
     if (!activeSessionId || !isStreaming) return;
     stopGenerationMutation.mutate(activeSessionId);
+  }
+
+  function handleSessionCreated(session: Session) {
+    setCreateSessionOpen(false);
+    queryClient.setQueryData(["sessions", "active"], session);
+    invalidateSessions();
   }
 
   function renderContextMenu() {
@@ -439,7 +445,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
           <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3" onContextMenu={(event) => event.preventDefault()}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
-              <Button className="h-7 px-2 text-xs" disabled={createSessionMutation.isPending || !agentsQuery.data?.length} onClick={() => createSessionMutation.mutate()}>
+              <Button className="h-7 px-2 text-xs" disabled={!agentsQuery.data?.length} onClick={() => setCreateSessionOpen(true)}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />{t("layout.new")}
               </Button>
             </div>
@@ -598,8 +604,16 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                     <section className="ucd-muted-panel rounded-lg p-3">
                       <h3 className="mb-3 text-sm font-semibold">{t("layout.sessionConfig")}</h3>
                       <div className="grid gap-3 text-sm">
-                        <label className="grid gap-1"><span className="text-muted-foreground">{t("layout.sessionName")}</span><input className="ucd-input h-8 rounded px-2" defaultValue="Customer support optimization" /></label>
-                        <label className="grid gap-1"><span className="text-muted-foreground">{t("layout.description")}</span><input className="ucd-input h-8 rounded px-2" placeholder={t("layout.descriptionPlaceholder")} /></label>
+                        <div className="grid gap-1">
+                          <span className="text-muted-foreground">{t("layout.sessionName")}</span>
+                          <span className="min-h-8 truncate rounded border border-border bg-background px-2 py-1.5">{activeSession?.title ?? t("layout.noSession")}</span>
+                        </div>
+                        <div className="grid gap-1">
+                          <span className="text-muted-foreground">{t("layout.description")}</span>
+                          <span className="min-h-8 truncate rounded border border-border bg-background px-2 py-1.5">
+                            {activeSession ? `${activeSession.agentId} · ${activeSession.interactionMode}` : t("layout.startChat")}
+                          </span>
+                        </div>
                         <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("layout.autoSave")}</span><span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">{t("layout.enabled")}</span></div>
                       </div>
                     </section>
@@ -628,6 +642,12 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       </div>
       {renderContextMenu()}
       {renderCenteredDialog()}
+      <CreateSessionDialog
+        agents={agents}
+        onClose={() => setCreateSessionOpen(false)}
+        onCreated={handleSessionCreated}
+        open={createSessionOpen}
+      />
     </main>
   );
 }
