@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Send, Sparkles, Square } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../types/chat";
 import { Button } from "../ui/button";
@@ -48,6 +49,7 @@ export function ButtonArea({
   onSubmit: () => void;
   onThinkingChange: (value: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const [openDropdown, setOpenDropdown] = useState<OpenDropdown>(null);
   const open = (id: OpenDropdown) => setOpenDropdown((current) => (current === id ? null : id));
   const close = () => setOpenDropdown(null);
@@ -103,19 +105,19 @@ export function ButtonArea({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <Button disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title="增强 Prompt" type="button" variant="outline">
+        <Button disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title={t("chat.enhanceTitle")} type="button" variant="outline">
           <Sparkles className="h-4 w-4" aria-hidden="true" />
-          增强
+          {t("chat.enhance")}
         </Button>
         {isStreaming ? (
-          <Button onClick={onStop} title="停止生成" type="button" variant="outline">
+          <Button onClick={onStop} title={t("chat.stopTitle")} type="button" variant="outline">
             <Square className="h-4 w-4" aria-hidden="true" />
-            停止
+            {t("chat.stop")}
           </Button>
         ) : (
-          <Button disabled={!canSubmit} onClick={onSubmit} title="发送" type="button">
+          <Button disabled={!canSubmit} onClick={onSubmit} title={t("chat.sendTitle")} type="button">
             <Send className="h-4 w-4" aria-hidden="true" />
-            发送
+            {t("chat.send")}
           </Button>
         )}
       </div>

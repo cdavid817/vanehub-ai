@@ -3,7 +3,7 @@ import type { McpScope, McpServerConfig, McpTransportType } from "../../../types
 
 const mcpServerFormSchema = z
   .object({
-    name: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "名称必须是 kebab-case 小写字母、数字和连字符"),
+    name: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Name must be kebab-case lowercase letters, numbers, and hyphens"),
     transportType: z.enum(["stdio", "sse", "streamable_http"]),
     scope: z.enum(["user", "project"]),
     command: z.string(),
@@ -18,7 +18,7 @@ const mcpServerFormSchema = z
     if (value.transportType === "stdio" && !value.command.trim()) {
       ctx.addIssue({
         code: "custom",
-        message: "stdio MCP 服务器需要 Command",
+        message: "stdio MCP server requires Command",
         path: ["command"],
       });
     }
@@ -26,7 +26,7 @@ const mcpServerFormSchema = z
     if (value.transportType !== "stdio" && !value.url.trim()) {
       ctx.addIssue({
         code: "custom",
-        message: "URL MCP 服务器需要 URL",
+        message: "URL MCP server requires URL",
         path: ["url"],
       });
     }
@@ -51,7 +51,7 @@ function parseRecord(value: string, label: keyof McpServerFormValues): { value?:
   try {
     const parsed: unknown = value.trim() ? JSON.parse(value) : {};
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { error: { [label]: "必须是 JSON object" } };
+      return { error: { [label]: "Must be a JSON object" } };
     }
     return {
       value: Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, item]) => [key, String(item)])),
@@ -67,7 +67,7 @@ function parseArgs(value: string): { value?: string[]; error?: McpServerFormErro
   if (trimmed.startsWith("[")) {
     try {
       const parsed: unknown = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) return { error: { args: "args JSON 必须是数组" } };
+      if (!Array.isArray(parsed)) return { error: { args: "args JSON must be an array" } };
       return { value: parsed.map(String) };
     } catch (err) {
       return { error: { args: err instanceof Error ? err.message : String(err) } };

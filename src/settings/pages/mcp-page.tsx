@@ -47,7 +47,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     },
     onSuccess: async () => {
       setEditingServer(undefined);
-      setNotice("MCP 服务器已保存");
+      setNotice("MCP server saved");
       await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
     },
   });
@@ -68,7 +68,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
       result: await mcpService.testConnection(server.name),
     }),
     onSuccess: async ({ server, result }) => {
-      setNotice(result.success ? `${server.name} 测试通过，发现 ${result.tools.length} 个工具` : `${server.name} 测试失败`);
+      setNotice(result.success ? `${server.name} test passed with ${result.tools.length} tools` : `${server.name} test failed`);
       if (!result.success && result.error) setError(result.error);
       await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
     },
@@ -121,14 +121,14 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   }
 
   async function deleteServer(server: McpServerConfig) {
-    if (!window.confirm(`删除 MCP 服务器 ${server.name}？`)) return;
+    if (!window.confirm(`Delete MCP server ${server.name}?`)) return;
     setError(null);
     await deleteServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function importServers(data: McpImportExport, scope: McpScope) {
     const result = await importServersMutation.mutateAsync({ data, scope });
-    return `导入 ${result.imported.length} 个，跳过 ${result.skipped.length} 个`;
+    return `Imported ${result.imported.length}, skipped ${result.skipped.length}`;
   }
 
   async function exportServers(names: string[]) {
@@ -165,47 +165,47 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
           <>
             <Button disabled={serversQuery.isFetching} variant="outline" onClick={() => void serversQuery.refetch()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {serversQuery.isFetching ? "刷新中" : "刷新"}
+              {serversQuery.isFetching ? "Refreshing" : "Refresh"}
             </Button>
             <Button variant="outline" onClick={() => setShowImportExport(true)}>
               <Upload className="h-4 w-4" aria-hidden="true" />
-              导入/导出
+              Import/Export
             </Button>
             <Button onClick={() => setEditingServer(null)}>
               <Plus className="h-4 w-4" aria-hidden="true" />
-              添加 MCP
+              Add MCP
             </Button>
           </>
         }
-        description="管理 MCP 服务器配置、连接测试和工具发现结果"
-        title="MCP 服务器"
+        description="Manage MCP server configuration, connection tests, and discovered tools"
+        title="MCP Servers"
       />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="服务器" value={String(servers.length)} hint="用户与当前项目可见" />
-        <StatCard label="最近通过" value={String(connectedCount)} hint="来自缓存测试状态" />
-        <StatCard label="工具总数" value={String(totalTools)} hint={averageDuration ? `平均 ${averageDuration}ms` : "尚未测试"} />
+        <StatCard label="Servers" value={String(servers.length)} hint="Visible in user and project scopes" />
+        <StatCard label="Recently Passed" value={String(connectedCount)} hint="From cached test status" />
+        <StatCard label="Total Tools" value={String(totalTools)} hint={averageDuration ? `Average ${averageDuration}ms` : "Not tested"} />
       </div>
 
       {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
       {serversQuery.isLoading ? (
-        <SectionPanel title="MCP 服务器">
-          <div className="py-8 text-center text-sm text-muted-foreground">MCP 服务器加载中</div>
+        <SectionPanel title="MCP Servers">
+          <div className="py-8 text-center text-sm text-muted-foreground">Loading MCP servers</div>
         </SectionPanel>
       ) : visibleServers.length ? (
         <>
-          {renderGroup("用户配置", userServers)}
-          {renderGroup("项目配置", projectServers)}
+          {renderGroup("User Configuration", userServers)}
+          {renderGroup("Project Configuration", projectServers)}
         </>
       ) : (
-        <SectionPanel title="MCP 服务器">
+        <SectionPanel title="MCP Servers">
           <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Boxes className="h-8 w-8" aria-hidden="true" />
-            <div>当前没有可见的 MCP 服务器</div>
+            <div>No visible MCP servers</div>
             <button className="text-primary underline-offset-4 hover:underline" onClick={() => setEditingServer(null)} type="button">
-              添加第一个 MCP 服务器
+              Add the first MCP server
             </button>
           </div>
         </SectionPanel>

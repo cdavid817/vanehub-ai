@@ -186,6 +186,31 @@ struct SessionDetails {
     details: std::collections::BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct AppSettings {
+    application_language: String,
+    font_size: String,
+    theme: String,
+    default_folder_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveSettingInput {
+    key: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct NodeInfo {
+    available: bool,
+    path: Option<String>,
+    version: Option<String>,
+    reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Session {
@@ -523,7 +548,22 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         apply_session_management_migration,
     )?;
     apply_migration(conn, 4, "chat-messages", apply_chat_messages_migration)?;
+    apply_migration(conn, 5, "app-settings", apply_app_settings_migration)?;
 
+    Ok(())
+}
+
+fn apply_app_settings_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    )?;
     Ok(())
 }
 
@@ -844,6 +884,119 @@ fn parse_lifecycle_state(value: &str) -> SessionLifecycleState {
 
 fn current_timestamp() -> String {
     Utc::now().to_rfc3339()
+}
+
+fn default_app_settings() -> AppSettings {
+    AppSettings {
+        application_language: "zh-CN".to_string(),
+        font_size: "14px".to_string(),
+        theme: "futuristic".to_string(),
+        default_folder_path: String::new(),
+    }
+}
+
+fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
+    let valid = match key {
+        "applicationLanguage" => matches!(value, "zh-CN" | "en"),
+        "fontSize" => matches!(value, "12px" | "14px" | "16px" | "18px"),
+        "theme" => matches!(value, "futuristic" | "minimal"),
+        "defaultFolderPath" => true,
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(AppError::Validation(format!(
+            "Invalid setting value for key '{key}'."
+        )))
+    }
+}
+
+fn load_setting_value(conn: &Connection, key: &str) -> Result<Option<String>, AppError> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?)
+}
+
+fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
+    let defaults = default_app_settings();
+    let application_language = load_setting_value(conn, "applicationLanguage")?
+        .filter(|value| validate_setting_value("applicationLanguage", value).is_ok())
+        .unwrap_or(defaults.application_language);
+    let font_size = load_setting_value(conn, "fontSize")?
+        .filter(|value| validate_setting_value("fontSize", value).is_ok())
+        .unwrap_or(defaults.font_size);
+    let theme = load_setting_value(conn, "theme")?
+        .filter(|value| validate_setting_value("theme", value).is_ok())
+        .unwrap_or(defaults.theme);
+    let default_folder_path = load_setting_value(conn, "defaultFolderPath")?
+        .filter(|value| validate_setting_value("defaultFolderPath", value).is_ok())
+        .unwrap_or(defaults.default_folder_path);
+
+    Ok(AppSettings {
+        application_language,
+        font_size,
+        theme,
+        default_folder_path,
+    })
+}
+
+fn save_setting_to_conn(conn: &Connection, key: &str, value: &str) -> Result<AppSettings, AppError> {
+    validate_setting_value(key, value)?;
+    let now = current_timestamp();
+    conn.execute(
+        r#"
+        INSERT INTO settings (key, value, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?3)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        "#,
+        params![key, value, now],
+    )?;
+    get_settings_from_conn(conn)
+}
+
+fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn resolve_node_info() -> NodeInfo {
+    let version = command_output("node", &["--version"]);
+    let path = if cfg!(windows) {
+        command_output("where", &["node"])
+    } else {
+        command_output("which", &["node"])
+    }
+    .and_then(|output| output.lines().next().map(str::trim).map(str::to_string))
+    .filter(|value| !value.is_empty());
+
+    match (path, version) {
+        (Some(path), Some(version)) => NodeInfo {
+            available: true,
+            path: Some(path),
+            version: Some(version),
+            reason: None,
+        },
+        (path, version) => NodeInfo {
+            available: false,
+            path,
+            version,
+            reason: Some("Node.js executable or version could not be resolved.".to_string()),
+        },
+    }
 }
 
 fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
@@ -1167,6 +1320,32 @@ fn set_session_message(conn: &Connection, adapter: &str, message: &str) -> Resul
         params![adapter, message],
     )?;
     Ok(())
+}
+
+#[tauri::command]
+fn get_settings(state: State<'_, Mutex<RegistryStore>>) -> Result<AppSettings, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    get_settings_from_conn(&conn)
+}
+
+#[tauri::command]
+fn save_setting(
+    state: State<'_, Mutex<RegistryStore>>,
+    input: SaveSettingInput,
+) -> Result<AppSettings, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    save_setting_to_conn(&conn, &input.key, &input.value)
+}
+
+#[tauri::command]
+fn get_node_info() -> NodeInfo {
+    resolve_node_info()
 }
 
 #[tauri::command]
@@ -1880,6 +2059,9 @@ pub fn run() {
             send_message,
             list_messages,
             stop_generation,
+            get_settings,
+            save_setting,
+            get_node_info,
             mcp::commands::list_mcp_servers,
             mcp::commands::add_mcp_server,
             mcp::commands::update_mcp_server,
@@ -1949,7 +2131,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5]);
     }
 
     #[test]
@@ -1987,6 +2169,31 @@ mod tests {
         assert!(table_has_column(&conn, "sessions", "updated_at").expect("column check"));
         assert!(table_has_column(&conn, "messages", "status").expect("column check"));
         assert!(table_has_column(&conn, "messages", "session_id").expect("column check"));
+        assert!(table_has_column(&conn, "settings", "value").expect("column check"));
+    }
+
+    #[test]
+    fn settings_repository_merges_defaults_and_saved_values() {
+        let conn = test_conn();
+
+        let defaults = get_settings_from_conn(&conn).expect("default settings");
+        assert_eq!(defaults.application_language, "zh-CN");
+        assert_eq!(defaults.font_size, "14px");
+        assert_eq!(defaults.theme, "futuristic");
+
+        let saved = save_setting_to_conn(&conn, "fontSize", "18px").expect("save setting");
+
+        assert_eq!(saved.font_size, "18px");
+        assert_eq!(saved.application_language, "zh-CN");
+    }
+
+    #[test]
+    fn settings_repository_rejects_invalid_values() {
+        let conn = test_conn();
+
+        let result = save_setting_to_conn(&conn, "fontSize", "20px");
+
+        assert!(matches!(result, Err(AppError::Validation(_))));
     }
 
     fn insert_test_session(conn: &Connection, session_id: &str) {

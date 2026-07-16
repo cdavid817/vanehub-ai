@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the native runtime foundation for app-owned storage, migrations, structured diagnostics, long-running tasks, command safety, and Tauri desktop security.
-
 ## Requirements
 ### Requirement: App-owned storage paths
 The native runtime SHALL store application data in VaneHub-owned user data directories resolved through runtime-safe path APIs rather than relying on the process current working directory.
@@ -69,3 +68,30 @@ The Tauri desktop runtime SHALL define explicit security settings for content se
 #### Scenario: Privileged operation
 - **WHEN** the frontend requests a privileged local operation
 - **THEN** the native runtime SHALL route that request through a declared Tauri command and service adapter rather than exposing unrestricted native APIs to React components
+
+### Requirement: SQLite-backed common settings
+The native runtime SHALL persist common application settings in app-owned SQLite storage using a versioned migration.
+
+#### Scenario: Create settings table
+- **WHEN** the native runtime initializes an empty or older application database
+- **THEN** it SHALL apply a migration that creates a key-value settings table before serving settings commands
+
+#### Scenario: Load settings command
+- **WHEN** the frontend requests common settings in the Tauri desktop runtime
+- **THEN** the native runtime SHALL return persisted settings merged with valid default values
+
+#### Scenario: Save setting command
+- **WHEN** the frontend saves one common setting in the Tauri desktop runtime
+- **THEN** the native runtime SHALL validate and upsert that setting in the SQLite settings table
+
+### Requirement: Native Node.js environment inspection
+The native runtime SHALL expose Node.js executable path and version information through a declared Tauri command.
+
+#### Scenario: Resolve Node.js information
+- **WHEN** the frontend requests Node.js environment information
+- **THEN** the native runtime SHALL attempt to resolve the Node.js executable path and version without starting an interactive session
+
+#### Scenario: Return unavailable Node.js information
+- **WHEN** Node.js cannot be resolved
+- **THEN** the native runtime SHALL return a user-displayable unavailable result rather than failing settings page rendering
+

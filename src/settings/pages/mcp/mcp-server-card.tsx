@@ -11,11 +11,11 @@ const transportLabels = {
 };
 
 function statusLabel(status?: McpServerStatus) {
-  if (!status) return "未测试";
-  if (status.connectionStatus === "disabled") return "已禁用";
-  if (status.connectionStatus === "connected") return "测试通过";
-  if (status.connectionStatus === "error") return "测试失败";
-  return "未测试";
+  if (!status) return "Not tested";
+  if (status.connectionStatus === "disabled") return "Disabled";
+  if (status.connectionStatus === "connected") return "Test passed";
+  if (status.connectionStatus === "error") return "Test failed";
+  return "Not tested";
 }
 
 export function McpServerCard({
@@ -46,14 +46,14 @@ export function McpServerCard({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
             <Badge tone="muted">{transportLabels[server.transportType]}</Badge>
-            <Badge tone={server.scope === "project" ? "warning" : "muted"}>{server.scope === "project" ? "项目配置" : "用户配置"}</Badge>
+            <Badge tone={server.scope === "project" ? "warning" : "muted"}>{server.scope === "project" ? "Project" : "User"}</Badge>
             <span>{statusLabel(status)}</span>
           </div>
         </div>
         <button
           className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
           onClick={() => onToggle(server)}
-          title={server.active ? "禁用" : "启用"}
+          title={server.active ? "Disable" : "Enable"}
           type="button"
         >
           <Power className="h-4 w-4" aria-hidden="true" />
@@ -62,7 +62,7 @@ export function McpServerCard({
 
       {server.description ? <p className="mb-3 text-xs text-muted-foreground">{server.description}</p> : null}
       <div className="mb-3 min-h-8 rounded border border-border bg-muted p-2 text-[11px] text-muted-foreground">
-        <span className="break-all">{endpoint || "未配置连接参数"}</span>
+        <span className="break-all">{endpoint || "Connection parameters are not configured"}</span>
       </div>
 
       <McpTestResultPanel status={status} />
@@ -70,15 +70,15 @@ export function McpServerCard({
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         <Button variant="outline" onClick={() => onTest(server)} disabled={testing}>
           <PlayCircle className="h-4 w-4" aria-hidden="true" />
-          {testing ? "测试中" : "测试"}
+          {testing ? "Testing" : "Test"}
         </Button>
         <Button variant="outline" onClick={() => onEdit(server)}>
           <Edit3 className="h-4 w-4" aria-hidden="true" />
-          编辑
+          Edit
         </Button>
         <Button variant="ghost" onClick={() => onDelete(server)}>
           <Trash2 className="h-4 w-4" aria-hidden="true" />
-          删除
+          Delete
         </Button>
       </div>
     </section>

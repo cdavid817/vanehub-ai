@@ -28,7 +28,7 @@ export function ModeSelect({
   const current = PERMISSION_MODES.find((mode) => mode.id === value) ?? PERMISSION_MODES[0];
   return (
     <div className="relative">
-      <SelectorButton icon={modeIcons[current.id]} label={current.label} onClick={onOpen} open={open} title={`模式: ${current.label}`} />
+      <SelectorButton icon={modeIcons[current.id]} label={current.label} onClick={onOpen} open={open} title={`Mode: ${current.label}`} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}

@@ -22,66 +22,66 @@ export interface SettingsPageContext {
 
 export interface SettingsPageDefinition {
   id: SettingsPageId;
-  label: string;
-  crumb: string;
+  labelKey: string;
+  crumbKey: string;
   icon: LucideIcon;
   badge?: number;
-  searchPlaceholder: string;
+  searchPlaceholderKey: string;
   component: (props: SettingsPageContext) => JSX.Element;
 }
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
     id: "basic",
-    label: "基础配置",
-    crumb: "基础配置",
+    labelKey: "settings.pages.basic",
+    crumbKey: "settings.pages.basic",
     icon: Settings,
-    searchPlaceholder: "搜索设置项...",
+    searchPlaceholderKey: "settings.search.basic",
     component: BasicSettingsPage,
   },
   {
     id: "providers",
-    label: "供应商管理",
-    crumb: "供应商管理",
+    labelKey: "settings.pages.providers",
+    crumbKey: "settings.pages.providers",
     icon: Database,
     badge: 3,
-    searchPlaceholder: "搜索供应商...",
+    searchPlaceholderKey: "settings.search.providers",
     component: ProvidersPage,
   },
   {
     id: "sdk",
-    label: "SDK 依赖",
-    crumb: "SDK 依赖",
+    labelKey: "settings.pages.sdk",
+    crumbKey: "settings.pages.sdk",
     icon: Code2,
     badge: 5,
-    searchPlaceholder: "搜索 SDK...",
+    searchPlaceholderKey: "settings.search.sdk",
     component: SdkPage,
   },
   {
     id: "mcp",
-    label: "MCP 服务器",
-    crumb: "MCP 服务器",
+    labelKey: "settings.pages.mcp",
+    crumbKey: "settings.pages.mcp",
     icon: Boxes,
     badge: 3,
-    searchPlaceholder: "搜索 MCP...",
+    searchPlaceholderKey: "settings.search.mcp",
     component: McpPage,
   },
   {
     id: "agents",
-    label: "Agents",
-    crumb: "Agents",
+    labelKey: "settings.pages.agents",
+    crumbKey: "settings.pages.agents",
     icon: Bot,
     badge: 4,
-    searchPlaceholder: "搜索 Agent...",
+    searchPlaceholderKey: "settings.search.agents",
     component: AgentsPage,
   },
   {
     id: "skills",
-    label: "Skills",
-    crumb: "Skills",
+    labelKey: "settings.pages.skills",
+    crumbKey: "settings.pages.skills",
     icon: Puzzle,
     badge: 8,
-    searchPlaceholder: "搜索 Skill...",
+    searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
   },
 ];

@@ -1,15 +1,16 @@
 import { AlertTriangle, Bot, CheckCircle2, CircleStop, UserRound } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
 
-function statusLabel(message: ChatMessage) {
-  if (message.status === "streaming") return message.content ? "生成中" : "等待中";
-  if (message.status === "failed") return "失败";
-  if (message.status === "cancelled") return "已停止";
-  return "完成";
+function statusLabel(message: ChatMessage, t: (key: string) => string) {
+  if (message.status === "streaming") return message.content ? t("chat.status.streaming") : t("chat.status.waiting");
+  if (message.status === "failed") return t("chat.status.failed");
+  if (message.status === "cancelled") return t("chat.status.cancelled");
+  return t("chat.status.completed");
 }
 
 function formatTime(value: string) {
@@ -20,6 +21,7 @@ function formatTime(value: string) {
 }
 
 export function MessageItem({ message }: { message: ChatMessage }) {
+  const { t } = useTranslation();
   const isUser = message.role === "user";
   const Icon = isUser ? UserRound : Bot;
   return (
@@ -38,13 +40,13 @@ export function MessageItem({ message }: { message: ChatMessage }) {
         )}
       >
         <div className={cn("mb-2 flex items-center gap-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
-          <span>{isUser ? "你" : message.role === "assistant" ? "Agent" : message.role}</span>
+          <span>{isUser ? t("chat.you") : message.role === "assistant" ? "Agent" : message.role}</span>
           <span className="font-mono">{formatTime(message.updatedAt)}</span>
           <span className="ml-auto inline-flex items-center gap-1">
             {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {message.status === "cancelled" ? <CircleStop className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {message.status === "completed" ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-            {statusLabel(message)}
+            {statusLabel(message, t)}
           </span>
         </div>
         {message.content ? (

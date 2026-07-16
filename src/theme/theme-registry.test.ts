@@ -14,7 +14,7 @@ describe("theme registry", () => {
   });
 
   it("derives display names and next theme from the registry", () => {
-    expect(getThemeDefinition("futuristic").displayName).toBe("科技风");
+    expect(getThemeDefinition("futuristic").displayName).toBe("Futuristic");
     expect(getNextThemeId("futuristic")).toBe("minimal");
     expect(getNextThemeId("minimal")).toBe("futuristic");
   });

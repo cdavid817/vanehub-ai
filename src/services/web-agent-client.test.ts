@@ -45,7 +45,7 @@ describe("webAgentClient", () => {
       title: "Codex work",
     });
 
-    expect(first.title).toBe("新会话");
+    expect(first.title).toBe("New Session");
     expect(second.title).toBe("Codex work");
 
     await webAgentClient.pinSession(first.id);

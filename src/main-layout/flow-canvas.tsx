@@ -15,9 +15,9 @@ function AgentNode({ node }: { node: WorkspaceAgentNode }) {
       </div>
       <p className="mt-3 text-xs text-muted-foreground">{node.description}</p>
       <div className="mt-3 flex gap-1">
-        <button className="h-6 rounded border border-border px-2 text-xs text-muted-foreground" type="button">配置</button>
-        <button className="h-6 rounded bg-primary px-2 text-xs text-primary-foreground" type="button">启动</button>
-        <button className="h-6 rounded border border-border px-2 text-xs text-muted-foreground" type="button">删除</button>
+        <button className="h-6 rounded border border-border px-2 text-xs text-muted-foreground" type="button">Configure</button>
+        <button className="h-6 rounded bg-primary px-2 text-xs text-primary-foreground" type="button">Start</button>
+        <button className="h-6 rounded border border-border px-2 text-xs text-muted-foreground" type="button">Delete</button>
       </div>
     </div>
   );
@@ -46,7 +46,7 @@ export function FlowCanvas({
             onClick={() => setCanvasMode("chat")}
             type="button"
           >
-            对话聊天
+            Chat
           </button>
           <button
             className={cn(
@@ -58,13 +58,13 @@ export function FlowCanvas({
             onClick={() => setCanvasMode("flow")}
             type="button"
           >
-            流程图模式
+            Flow Mode
           </button>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>状态: 空闲</span>
+          <span>Status: Idle</span>
           <span>Token: 2,340</span>
-          <span>调用: 15</span>
+          <span>Calls: 15</span>
         </div>
       </div>
 
@@ -87,7 +87,7 @@ export function FlowCanvas({
             ))}
 
             <div className="absolute bottom-24 left-1/2 -translate-x-1/2 text-xs text-muted-foreground">
-              拖拽 Agent 至画布 · 滚轮缩放 · 框选批量操作
+              Drag agents to canvas · Wheel to zoom · Box select for batch actions
             </div>
             <div className="absolute bottom-4 right-4 rounded border border-border bg-background/80 p-2 text-xs text-muted-foreground">
               <div className="mb-1 h-10 w-14 rounded border border-border bg-[hsl(var(--panel-muted))]" />
@@ -98,10 +98,10 @@ export function FlowCanvas({
           <div className="flex h-full min-h-[530px] flex-col gap-3 p-4">
             <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
               <div>
-                <h3 className="text-sm font-semibold">智能客服优化方案</h3>
-                <p className="mt-1 text-xs text-muted-foreground">3 Agents 正在协作 · 最近更新 14:27</p>
+                <h3 className="text-sm font-semibold">Customer Support Optimization</h3>
+                <p className="mt-1 text-xs text-muted-foreground">3 agents collaborating · Updated 14:27</p>
               </div>
-              <span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">进行中</span>
+              <span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">Running</span>
             </div>
             <div className="grid flex-1 content-start gap-3 overflow-auto pr-1">
               {chatMessages.map((message, index) => (
@@ -127,16 +127,16 @@ export function FlowCanvas({
       <div className="mt-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
         <textarea
           className="ucd-input min-h-16 w-full resize-none rounded-md px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          placeholder="输入指令，下发任务给所有 Agent..."
+          placeholder="Enter instructions for all agents..."
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button variant="outline"><Paperclip className="h-4 w-4" aria-hidden="true" />附件</Button>
-          <Button variant="outline"><Trash2 className="h-4 w-4" aria-hidden="true" />清空</Button>
+          <Button variant="outline"><Paperclip className="h-4 w-4" aria-hidden="true" />Attach</Button>
+          <Button variant="outline"><Trash2 className="h-4 w-4" aria-hidden="true" />Clear</Button>
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="outline">Claude</Button>
             <Button variant="outline">GLM4.5</Button>
             <Button variant="outline">High</Button>
-            <Button><Send className="h-4 w-4" aria-hidden="true" />发送</Button>
+            <Button><Send className="h-4 w-4" aria-hidden="true" />Send</Button>
           </div>
         </div>
       </div>

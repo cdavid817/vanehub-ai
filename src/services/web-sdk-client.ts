@@ -19,7 +19,7 @@ const definitions: SdkDefinition[] = [
     npmPackage: "@anthropic-ai/claude-agent-sdk",
     companionPackages: ["@anthropic-ai/sdk", "@anthropic-ai/bedrock-sdk"],
     fallbackVersions: ["0.2.88", "0.2.81", "0.2.58"],
-    description: "Claude AI 功能所需，包含 Agent SDK 和 Bedrock 支持。",
+    description: "Required for Claude AI features, including Agent SDK and Bedrock support.",
     relatedProviders: ["anthropic", "bedrock"],
   },
   {
@@ -28,7 +28,7 @@ const definitions: SdkDefinition[] = [
     npmPackage: "@openai/codex-sdk",
     companionPackages: [],
     fallbackVersions: ["0.117.0", "0.116.0", "0.115.0"],
-    description: "Codex AI 功能所需。",
+    description: "Required for Codex AI features.",
     relatedProviders: ["openai"],
   },
 ];

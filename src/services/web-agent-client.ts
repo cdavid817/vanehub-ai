@@ -208,7 +208,7 @@ export const webAgentClient: AgentService = {
     const timestamp = nowIso();
     const session: Session = {
       id: `web-session-${nextSessionId}`,
-      title: input.title?.trim() || "新会话",
+      title: input.title?.trim() || "New Session",
       agentId: input.agentId,
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
@@ -309,7 +309,7 @@ export const webAgentClient: AgentService = {
     setSessionMessages(input.sessionId, [...getSessionMessages(input.sessionId), userMessage, assistantMessage]);
     updateSession(input.sessionId, { lifecycleState: "running" });
 
-    const responseText = `Mock ${session.agentId} response: 我已收到“${userMessage.content}”，这里是 Web 模式的流式预览。`;
+    const responseText = `Mock ${session.agentId} response: I received "${userMessage.content}". This is a streaming preview in Web mode.`;
     const tokens = responseText.match(/.{1,6}/g) ?? [responseText];
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
     const startTimeoutId = setTimeout(() => {

@@ -25,7 +25,7 @@ export function ProviderSelect({
   const label = PROVIDER_LABELS[value] ?? value;
   return (
     <div className="relative">
-      <SelectorButton compact icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={`供应商: ${label}`} />
+      <SelectorButton compact icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={`Provider: ${label}`} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}

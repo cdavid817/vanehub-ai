@@ -1,6 +1,9 @@
 import { Bell, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export function TopBar() {
+  const { t } = useTranslation();
+
   return (
     <header className="ucd-panel mx-2 mt-2 flex min-h-12 items-center justify-between gap-3 rounded-xl px-4 py-2">
       <div className="flex min-w-0 items-center gap-3">
@@ -20,7 +23,7 @@ export function TopBar() {
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             className="ucd-input h-8 w-full rounded-md px-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            placeholder="搜索 Agent、对话、任务..."
+            placeholder={t("layout.searchPlaceholder")}
           />
         </div>
       </div>

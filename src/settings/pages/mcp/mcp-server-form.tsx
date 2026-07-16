@@ -32,7 +32,7 @@ export function McpServerForm({
   const [fieldErrors, setFieldErrors] = useState<McpServerFormErrors>({});
   const [saving, setSaving] = useState(false);
 
-  const title = useMemo(() => (editingName ? "编辑 MCP 服务器" : "添加 MCP 服务器"), [editingName]);
+  const title = useMemo(() => (editingName ? "Edit MCP Server" : "Add MCP Server"), [editingName]);
 
   async function handleSubmit() {
     setError(null);
@@ -52,7 +52,7 @@ export function McpServerForm({
 
     if (!result.success) {
       setFieldErrors(result.errors);
-      setError(result.errors.form ?? "请修正表单中的错误");
+      setError(result.errors.form ?? "Fix the errors in the form");
       return;
     }
 
@@ -71,22 +71,22 @@ export function McpServerForm({
       <section className="ucd-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg p-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title="关闭">
+          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title="Close">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         <div className="grid gap-3 text-sm md:grid-cols-2">
           <label className="grid gap-1">
-            <span className="text-xs text-muted-foreground">名称</span>
+            <span className="text-xs text-muted-foreground">Name</span>
             <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
             {fieldErrors.name ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.name}</span> : null}
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">Scope</span>
             <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
-              <option value="user">用户配置</option>
-              <option value="project">项目配置</option>
+              <option value="user">User configuration</option>
+              <option value="project">Project configuration</option>
             </select>
           </label>
           <label className="grid gap-1">
@@ -99,12 +99,12 @@ export function McpServerForm({
           </label>
           <label className="flex items-center gap-2 pt-5 text-sm">
             <input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" />
-            启用
+            Enabled
           </label>
         </div>
 
         <label className="mt-3 grid gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">描述</span>
+          <span className="text-xs text-muted-foreground">Description</span>
           <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={description} onChange={(event) => setDescription(event.target.value)} />
         </label>
 
@@ -144,10 +144,10 @@ export function McpServerForm({
         {error ? <div className="mt-3 rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="outline" onClick={onCancel}>取消</Button>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button onClick={() => void handleSubmit()} disabled={saving}>
             <Save className="h-4 w-4" aria-hidden="true" />
-            {saving ? "保存中" : "保存"}
+            {saving ? "Saving" : "Save"}
           </Button>
         </div>
       </section>

@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { defaultThemeId, normalizeThemeId, themeStorageKey, ucdThemes, type UcdThemeId } from "./theme-registry";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { useSettings } from "../settings/settings-provider";
+import { ucdThemes, type UcdThemeId } from "./theme-registry";
 
 interface ThemeContextValue {
   theme: UcdThemeId;
@@ -9,26 +10,18 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function readStoredTheme(): UcdThemeId {
-  if (typeof window === "undefined") return defaultThemeId;
-  return normalizeThemeId(window.localStorage.getItem(themeStorageKey));
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<UcdThemeId>(readStoredTheme);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem(themeStorageKey, theme);
-  }, [theme]);
+  const { settings, saveSetting } = useSettings();
 
   const value = useMemo(
     () => ({
-      theme,
-      setTheme: setThemeState,
+      theme: settings.theme,
+      setTheme: (theme: UcdThemeId) => {
+        void saveSetting("theme", theme);
+      },
       themes: ucdThemes,
     }),
-    [theme],
+    [saveSetting, settings.theme],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

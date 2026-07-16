@@ -1,8 +1,7 @@
 import { ChevronDown, Layers, Plus, Shield, SlidersHorizontal, Users, Wrench, Zap } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
-import { getNextThemeId, getThemeDefinition } from "../theme/theme-registry";
-import { useTheme } from "../theme/theme-provider";
 import type { WorkspaceConversation, WorkspaceTool, WorkspaceToolIconMap } from "../types/workspace";
 
 const workspaceToolIcons: WorkspaceToolIconMap = {
@@ -23,23 +22,20 @@ export function ConversationSidebar({
   onOpenSettings: () => void;
   tools: WorkspaceTool[];
 }) {
-  const { theme, setTheme } = useTheme();
-  const nextTheme = getNextThemeId(theme);
-  const currentTheme = getThemeDefinition(theme);
-  const nextThemeDefinition = getThemeDefinition(nextTheme);
+  const { t } = useTranslation();
 
   return (
     <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">会话列表</h2>
+        <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
         <Button className="h-7 px-2 text-xs">
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          新建
+          {t("layout.new")}
         </Button>
       </div>
 
       <div className="mb-3 flex gap-1">
-        {["全部", "收藏", "归档"].map((item, index) => (
+        {[t("layout.all"), t("layout.favorite"), t("layout.archive")].map((item, index) => (
           <button
             className={cn(
               "h-7 rounded border border-border px-3 text-xs",
@@ -78,7 +74,7 @@ export function ConversationSidebar({
       </div>
 
       <div className="mt-auto border-t border-border pt-3">
-        <h3 className="mb-2 text-xs font-semibold">工具</h3>
+        <h3 className="mb-2 text-xs font-semibold">{t("layout.tools")}</h3>
         <div className="grid gap-1.5">
           {tools.map((tool) => {
             const Icon = workspaceToolIcons[tool.iconName];
@@ -90,20 +86,12 @@ export function ConversationSidebar({
             );
           })}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-1.5">
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
           <button className="h-7 rounded border border-border text-xs hover:bg-muted" onClick={onOpenSettings} type="button">
-            设置
-          </button>
-          <button
-            className="h-7 rounded border border-border text-xs hover:bg-muted"
-            onClick={() => setTheme(nextTheme)}
-            title={`当前${currentTheme.displayName}，点击切换为${nextThemeDefinition.displayName}`}
-            type="button"
-          >
-            {currentTheme.displayName}
+            {t("layout.settings")}
           </button>
           <button className="h-7 rounded border border-border text-xs hover:bg-muted" type="button">
-            帮助
+            {t("layout.help")}
           </button>
         </div>
       </div>

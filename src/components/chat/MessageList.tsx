@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ChatMessage } from "../../types/chat";
 import { MessageItem } from "./MessageItem";
 import { ScrollControl } from "./ScrollControl";
@@ -19,6 +20,7 @@ export function MessageList({
   messages: ChatMessage[];
   onLoadEarlier: () => void;
 }) {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -45,7 +47,7 @@ export function MessageList({
       >
         {hasMore ? (
           <button className="mx-auto h-8 rounded border border-border px-3 text-xs text-muted-foreground hover:bg-muted" onClick={onLoadEarlier} type="button">
-            加载更早消息
+            {t("chat.loadEarlier")}
           </button>
         ) : null}
         {messages.map((message) => (

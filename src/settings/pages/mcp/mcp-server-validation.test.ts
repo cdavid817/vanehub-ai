@@ -39,7 +39,7 @@ describe("MCP server form validation", () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.errors.url).toContain("需要 URL");
+      expect(result.errors.url).toContain("requires URL");
     }
   });
 

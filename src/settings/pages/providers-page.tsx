@@ -12,11 +12,11 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
         actions={
           <Button>
             <Plus className="h-4 w-4" aria-hidden="true" />
-            添加供应商
+            Add Provider
           </Button>
         }
-        description="多模型供应商配置、连接状态与路由策略"
-        title="供应商管理"
+        description="Multi-model provider configuration, connection status, and routing policy"
+        title="Provider Management"
       />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -36,24 +36,24 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
                   <dd className="font-medium">{provider.key}</dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">端点</dt>
+                  <dt className="text-muted-foreground">Endpoint</dt>
                   <dd className="break-all font-medium">{provider.endpoint}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span>平均延迟: {provider.latency}</span>
-                  <span>成功率: {provider.successRate}</span>
+                  <span>Average latency: {provider.latency}</span>
+                  <span>Success rate: {provider.successRate}</span>
                 </div>
               </dl>
             </section>
           ))}
         </div>
-        <SectionPanel title="路由策略" description="多供应商环境下的模型路由与故障处理策略">
+        <SectionPanel title="Routing Policy" description="Model routing and failover policy for multiple providers">
           <div className="grid gap-3 text-sm">
             {[
-              ["默认供应商", "智谱 AI"],
-              ["负载均衡", "轮询"],
-              ["故障转移", "已启用"],
-              ["超时时间", "30 秒"],
+              ["Default provider", "Zhipu AI"],
+              ["Load balancing", "Round robin"],
+              ["Failover", "Enabled"],
+              ["Timeout", "30 seconds"],
             ].map(([label, value]) => (
               <div className="flex justify-between gap-3 rounded border border-border p-3" key={label}>
                 <span className="text-muted-foreground">{label}</span>

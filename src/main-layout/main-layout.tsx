@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, Bot, BrainCircuit, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Clock3, Code2, FileText, Folder, GitBranch, HelpCircle, PanelRightClose, PanelRightOpen, Pin, Plus, RotateCcw, Settings, Sparkles, TerminalSquare, type LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { ChatInputBox } from "../components/chat/ChatInputBox";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { MessageList } from "../components/chat/MessageList";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
-import { getNextThemeId, getThemeDefinition } from "../theme/theme-registry";
-import { useTheme } from "../theme/theme-provider";
 import type { Session } from "../types/agent";
 import type { ChatConfig, ChatMessage as ChatMessageModel, ChatStreamEvent } from "../types/chat";
 import { StatusBar } from "./status-bar";
@@ -27,8 +26,11 @@ type ContextPanelState = {
   y: number;
 };
 
-const activityGroups: Array<{ key: ActivityKey; label: string }> = [
-  { key: "needs-input", label: "需要输入" }, { key: "pending-verification", label: "待验证" }, { key: "in-progress", label: "进行中" }, { key: "inactive", label: "非活跃" },
+const activityGroups: Array<{ key: ActivityKey; labelKey: string }> = [
+  { key: "needs-input", labelKey: "layout.needsInput" },
+  { key: "pending-verification", labelKey: "layout.pendingVerification" },
+  { key: "in-progress", labelKey: "layout.running" },
+  { key: "inactive", labelKey: "layout.inactive" },
 ];
 
 const agentMeta: Record<AgentKey, { label: string; Icon: LucideIcon; tone: string }> = {
@@ -48,8 +50,8 @@ function getActivityKeyForSession(session: Session): ActivityKey {
   return "in-progress";
 }
 
-function getSessionFolder(session: Session) {
-  return session.folder ?? "当前工作区";
+function getSessionFolder(session: Session, fallback: string) {
+  return session.folder ?? fallback;
 }
 
 function getAgentKeyForSession(session: Session): AgentKey {
@@ -64,24 +66,26 @@ function formatSessionDate(session: Session) {
   return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(session.updatedAt));
 }
 
-function formatLifecycle(session: Session) {
+function formatLifecycle(session: Session, t: (key: string) => string) {
   const labels: Record<Session["lifecycleState"], string> = {
-    failed: "需要输入",
-    idle: "空闲",
-    running: "进行中",
-    starting: "启动中",
-    stopped: "已停止",
+    failed: t("layout.needsInput"),
+    idle: t("layout.idle"),
+    running: t("layout.running"),
+    starting: t("layout.pendingVerification"),
+    stopped: t("layout.stopped"),
   };
-  return session.archived ? "已归档" : labels[session.lifecycleState];
+  return session.archived ? t("layout.archived") : labels[session.lifecycleState];
 }
 
 function ConversationCard({
   active,
+  lifecycleLabel,
   onContextMenu,
   onSelect,
   session,
 }: {
   active: boolean;
+  lifecycleLabel: string;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
   onSelect: () => void;
   session: Session;
@@ -101,7 +105,7 @@ function ConversationCard({
       </div>
       <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
         <span className={cn("h-2 w-2 rounded-full", session.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
-        <span>{formatLifecycle(session)}</span>
+        <span>{lifecycleLabel}</span>
         <span className="font-mono">{meta.label}</span>
         <span className="ml-auto font-mono">{formatSessionDate(session)}</span>
       </div>
@@ -144,17 +148,15 @@ function applyChatEvent(messages: ChatMessageModel[], event: ChatStreamEvent) {
 }
 
 export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { t } = useTranslation();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("activity");
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["当前工作区", "工程项目", "内容项目"]));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["Current Workspace", "Engineering", "Content"]));
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [chatDraft, setChatDraft] = useState("");
   const [messageLimit, setMessageLimit] = useState(50);
-  const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
-  const nextTheme = getNextThemeId(theme);
-  const nextThemeDefinition = getThemeDefinition(nextTheme);
 
   const agentsQuery = useQuery({
     queryKey: ["agents"],
@@ -251,15 +253,15 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const folderBuckets = useMemo(() => {
     const groups = new Map<string, Session[]>();
     sessions.filter((session) => !session.pinned).forEach((session) => {
-      const folder = getSessionFolder(session);
+      const folder = getSessionFolder(session, t("layout.currentWorkspace"));
       groups.set(folder, [...(groups.get(folder) ?? []), session]);
     });
     return Array.from(groups.entries()).map(([folder, groupedSessions]) => ({ folder, sessions: groupedSessions }));
-  }, [sessions]);
+  }, [sessions, t]);
   const pinnedSessions = useMemo(() => sessions.filter((session) => session.pinned), [sessions]);
   const progressStats = { complete: 6, running: 3, pending: 4 };
   const infoFiles = ["src/main-layout/main-layout.tsx", "openspec/changes/improve-main-layout-ui/tasks.md", "openspec/changes/improve-main-layout-ui/design.md"];
-  const changeItems = ["侧边栏工具入口迁移", "信息面板折叠与 keep-alive", "主内容弹性布局"];
+  const changeItems = ["Sidebar tool entry migration", "Info panel collapse and keep-alive", "Flexible main content layout"];
   const progressTotal = progressStats.complete + progressStats.running + progressStats.pending;
   const progressPercent = Math.round((progressStats.complete / progressTotal) * 100);
 
@@ -352,14 +354,14 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     const session = contextPanel.session;
     return (
       <div className="fixed z-50 grid w-40 gap-1 rounded-md border border-border bg-background p-1 text-sm shadow-lg" style={{ left: contextPanel.x, top: contextPanel.y }}>
-        <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "rename" })} type="button">重命名</button>
+        <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "rename" })} type="button">{t("layout.rename")}</button>
         <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { pinSessionMutation.mutate(session); setContextPanel(null); }} type="button">
-          {session.pinned ? "取消置顶" : "置顶"}
+          {session.pinned ? t("layout.unpin") : t("layout.pinned")}
         </button>
         <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { archiveSessionMutation.mutate(session); setContextPanel(null); }} type="button">
-          {session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />恢复</> : "归档"}
+          {session.archived ? <><RotateCcw className="mr-1 inline h-3.5 w-3.5" />{t("layout.restore")}</> : t("layout.archive")}
         </button>
-        <button className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "delete" })} type="button">删除</button>
+        <button className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "delete" })} type="button">{t("layout.delete")}</button>
       </div>
     );
   }
@@ -371,11 +373,11 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
         <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
           <form className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl" onSubmit={(event) => { event.preventDefault(); submitRename(); }}>
             <div>
-              <h3 className="text-sm font-semibold">重命名会话</h3>
-              <p className="mt-1 text-xs text-muted-foreground">修改当前会话在侧边栏中的显示名称。</p>
+              <h3 className="text-sm font-semibold">{t("layout.renameSession")}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{t("layout.renameDescription")}</p>
             </div>
             <label className="grid gap-1">
-              <span className="text-xs text-muted-foreground">会话名称</span>
+              <span className="text-xs text-muted-foreground">{t("layout.sessionName")}</span>
               <input
                 autoFocus
                 className="ucd-input h-9 rounded px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -384,8 +386,8 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
               />
             </label>
             <div className="grid grid-cols-2 gap-2">
-              <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">取消</button>
-              <button className="h-8 rounded bg-primary text-xs text-primary-foreground disabled:opacity-50" disabled={!contextPanel.draftTitle.trim()} type="submit">确认</button>
+              <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">{t("layout.cancel")}</button>
+              <button className="h-8 rounded bg-primary text-xs text-primary-foreground disabled:opacity-50" disabled={!contextPanel.draftTitle.trim()} type="submit">{t("layout.confirm")}</button>
             </div>
           </form>
         </div>
@@ -395,12 +397,12 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
         <div className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl">
           <div>
-            <h3 className="text-sm font-semibold">删除会话</h3>
-            <p className="mt-1 break-words text-xs text-muted-foreground">“{contextPanel.session.title}” 删除后不可恢复。</p>
+            <h3 className="text-sm font-semibold">{t("layout.deleteSession")}</h3>
+            <p className="mt-1 break-words text-xs text-muted-foreground">"{contextPanel.session.title}" {t("layout.deleteDescription")}</p>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">取消</button>
-            <button className="h-8 rounded bg-destructive text-xs text-destructive-foreground" onClick={confirmDelete} type="button">删除</button>
+            <button className="h-8 rounded border border-border text-xs hover:bg-muted" onClick={() => setContextPanel(null)} type="button">{t("layout.cancel")}</button>
+            <button className="h-8 rounded bg-destructive text-xs text-destructive-foreground" onClick={confirmDelete} type="button">{t("layout.delete")}</button>
           </div>
         </div>
       </div>
@@ -412,6 +414,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       <ConversationCard
         active={activeSessionId === session.id}
         key={session.id}
+        lifecycleLabel={formatLifecycle(session, t)}
         onContextMenu={(event) => openContextMenu(event, session)}
         onSelect={() => {
           setContextPanel(null);
@@ -435,13 +438,13 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
         >
           <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3" onContextMenu={(event) => event.preventDefault()}>
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">会话列表</h2>
+              <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
               <Button className="h-7 px-2 text-xs" disabled={createSessionMutation.isPending || !agentsQuery.data?.length} onClick={() => createSessionMutation.mutate()}>
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />新建
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />{t("layout.new")}
               </Button>
             </div>
             <div className="mb-3 grid grid-cols-3 gap-1 rounded border border-border bg-[hsl(var(--panel-muted))] p-1">
-                {[["activity", "活动"], ["group", "分组"], ["archived", `归档 ${archivedSessions.length}`]].map(([key, label]) => (
+                {[["activity", t("layout.activity")], ["group", t("layout.group")], ["archived", `${t("layout.archive")} ${archivedSessions.length}`]].map(([key, label]) => (
                 <button className={cn("h-7 rounded text-xs", sidebarMode === key ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} key={key} onClick={() => setSidebarMode(key as SidebarMode)} type="button">
                   {label}
                 </button>
@@ -451,7 +454,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
               {sidebarMode !== "archived" && pinnedSessions.length > 0 ? (
                 <section className="mb-3 grid gap-2 border-b border-border pb-3">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><Pin className="h-3.5 w-3.5" aria-hidden="true" />置顶</span>
+                    <span className="inline-flex items-center gap-1"><Pin className="h-3.5 w-3.5" aria-hidden="true" />{t("layout.pinned")}</span>
                     <span className="rounded-full border border-border px-1.5 font-mono">{pinnedSessions.length}</span>
                   </div>
                   {pinnedSessions.map(renderSessionCard)}
@@ -462,7 +465,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                   {activityBuckets.map((group) => (
                     <section className="grid gap-2" key={group.key}>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{group.label}</span>
+                        <span>{t(group.labelKey)}</span>
                         <span className="rounded-full border border-border px-1.5 font-mono">{group.sessions.length}</span>
                       </div>
                       {group.sessions.map(renderSessionCard)}
@@ -489,46 +492,43 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
               ) : (
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><Archive className="h-3.5 w-3.5" aria-hidden="true" />已归档</span>
+                    <span className="inline-flex items-center gap-1"><Archive className="h-3.5 w-3.5" aria-hidden="true" />{t("layout.archived")}</span>
                     <span className="rounded-full border border-border px-1.5 font-mono">{archivedSessions.length}</span>
                   </div>
                   {archivedSessions.map(renderSessionCard)}
-                  {archivedSessions.length === 0 ? <p className="rounded border border-border p-3 text-xs text-muted-foreground">暂无归档会话</p> : null}
+                  {archivedSessions.length === 0 ? <p className="rounded border border-border p-3 text-xs text-muted-foreground">{t("layout.noArchived")}</p> : null}
                 </div>
               )}
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-1.5 border-t border-border pt-3">
+            <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3">
               <button className="h-7 rounded border border-border text-xs hover:bg-muted" onClick={onOpenSettings} type="button">
-                <Settings className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />设置
-              </button>
-              <button className="h-7 rounded border border-border text-xs hover:bg-muted" onClick={() => setTheme(nextTheme)} type="button">
-                {nextThemeDefinition.displayName}
+                <Settings className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{t("layout.settings")}
               </button>
               <button className="h-7 rounded border border-border text-xs hover:bg-muted" type="button">
-                <HelpCircle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />帮助
+                <HelpCircle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{t("layout.help")}
               </button>
             </div>
           </aside>
 
           <section className="ucd-panel flex min-h-0 min-w-0 flex-col rounded-xl p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">聊天模式</h2>
+              <h2 className="text-sm font-semibold">{t("layout.chatMode")}</h2>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span>状态: {isStreaming ? "生成中" : "空闲"}</span>
-                <span>消息: {chatMessages.length}</span>
-                <span>{activeSession ? formatLifecycle(activeSession) : "未选择会话"}</span>
+                <span>{t("layout.status")}: {isStreaming ? t("layout.generating") : t("layout.idle")}</span>
+                <span>{t("layout.messages")}: {chatMessages.length}</span>
+                <span>{activeSession ? formatLifecycle(activeSession, t) : t("layout.noSession")}</span>
               </div>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
               <div className="flex items-center justify-between gap-3 border-b border-border p-4">
                 <div>
-                  <h3 className="text-sm font-semibold">{activeSession?.title ?? "未选择会话"}</h3>
+                  <h3 className="text-sm font-semibold">{activeSession?.title ?? t("layout.noSession")}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {activeSession ? `${activeSession.agentId} · ${activeSession.interactionMode}` : "新建或选择一个会话后开始聊天"}
+                    {activeSession ? `${activeSession.agentId} · ${activeSession.interactionMode}` : t("layout.startChat")}
                   </p>
                 </div>
                 <span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">
-                  {isStreaming ? "生成中" : "就绪"}
+                  {isStreaming ? t("layout.generating") : t("layout.ready")}
                 </span>
               </div>
               <MessageList
@@ -567,10 +567,10 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
           <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-xl transition-[opacity,transform] duration-200", infoPanelCollapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
             <div className="flex h-full min-h-0 flex-col p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold">信息面板</h2>
+                <h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2>
                 <Button className="h-7 px-2 text-xs" onClick={() => setInfoPanelCollapsed(true)} variant="outline">
                   <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
-                  收起
+                  {t("layout.collapse")}
                 </Button>
               </div>
               <div className="mb-3 grid grid-cols-3 gap-1">
@@ -585,22 +585,22 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                   <div className="grid gap-4">
                     <section className="ucd-muted-panel rounded-lg p-3">
                       <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold">任务进度</h3>
+                        <h3 className="text-sm font-semibold">{t("layout.taskProgress")}</h3>
                         <strong className="text-sm text-primary">{progressPercent}%</strong>
                       </div>
                       <div className="h-2 rounded bg-muted"><div className="h-2 w-[46%] rounded bg-primary" /></div>
                       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                        <div className="rounded border border-border p-2"><CheckCircle2 className="mx-auto mb-1 h-4 w-4 text-[hsl(var(--success))]" />{progressStats.complete}<br />已完成</div>
-                        <div className="rounded border border-border p-2"><CircleDot className="mx-auto mb-1 h-4 w-4 text-primary" />{progressStats.running}<br />进行中</div>
-                        <div className="rounded border border-border p-2"><Clock3 className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />{progressStats.pending}<br />待处理</div>
+                        <div className="rounded border border-border p-2"><CheckCircle2 className="mx-auto mb-1 h-4 w-4 text-[hsl(var(--success))]" />{progressStats.complete}<br />{t("layout.completed")}</div>
+                        <div className="rounded border border-border p-2"><CircleDot className="mx-auto mb-1 h-4 w-4 text-primary" />{progressStats.running}<br />{t("layout.running")}</div>
+                        <div className="rounded border border-border p-2"><Clock3 className="mx-auto mb-1 h-4 w-4 text-muted-foreground" />{progressStats.pending}<br />{t("layout.pending")}</div>
                       </div>
                     </section>
                     <section className="ucd-muted-panel rounded-lg p-3">
-                      <h3 className="mb-3 text-sm font-semibold">会话基础配置</h3>
+                      <h3 className="mb-3 text-sm font-semibold">{t("layout.sessionConfig")}</h3>
                       <div className="grid gap-3 text-sm">
-                        <label className="grid gap-1"><span className="text-muted-foreground">会话名称</span><input className="ucd-input h-8 rounded px-2" defaultValue="智能客服优化方案" /></label>
-                        <label className="grid gap-1"><span className="text-muted-foreground">描述</span><input className="ucd-input h-8 rounded px-2" placeholder="输入会话描述..." /></label>
-                        <div className="flex justify-between gap-3"><span className="text-muted-foreground">自动保存</span><span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">已启用</span></div>
+                        <label className="grid gap-1"><span className="text-muted-foreground">{t("layout.sessionName")}</span><input className="ucd-input h-8 rounded px-2" defaultValue="Customer support optimization" /></label>
+                        <label className="grid gap-1"><span className="text-muted-foreground">{t("layout.description")}</span><input className="ucd-input h-8 rounded px-2" placeholder={t("layout.descriptionPlaceholder")} /></label>
+                        <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("layout.autoSave")}</span><span className="rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">{t("layout.enabled")}</span></div>
                       </div>
                     </section>
                   </div>
@@ -619,7 +619,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
             </div>
           </aside>
           {infoPanelCollapsed ? (
-            <Button className="absolute right-2 top-1/2 h-9 w-9 -translate-y-1/2 px-0" onClick={() => setInfoPanelCollapsed(false)} size="icon" title="展开信息面板" variant="outline">
+            <Button className="absolute right-2 top-1/2 h-9 w-9 -translate-y-1/2 px-0" onClick={() => setInfoPanelCollapsed(false)} size="icon" title={t("layout.expandInfo")} variant="outline">
               <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : null}

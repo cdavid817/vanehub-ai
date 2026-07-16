@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
@@ -47,6 +48,7 @@ export function ChatInputBox({
   onSubmit: () => void;
   value: string;
 }) {
+  const { t } = useTranslation();
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
 
@@ -70,7 +72,7 @@ export function ChatInputBox({
             event.preventDefault();
             if (canSubmit) onSubmit();
           }}
-          placeholder={disabled ? "请选择会话后发送消息" : "输入指令，下发任务给当前 Agent..."}
+          placeholder={disabled ? t("chat.placeholderDisabled") : t("chat.placeholder")}
           ref={textAreaRef}
           value={value}
         />
@@ -79,7 +81,7 @@ export function ChatInputBox({
             className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted"
             disabled={disabled || isStreaming}
             onClick={onClear}
-            title="清空"
+            title={t("chat.clear")}
             type="button"
           >
             <X className="h-4 w-4" aria-hidden="true" />

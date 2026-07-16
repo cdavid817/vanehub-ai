@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the workspace shell layout, sidebar session organization, main content sizing, collapsible information panel behavior, keep-alive panel tabs, and internal scrolling rules shared by the Tauri desktop frontend and browser Web runtime.
-
 ## Requirements
 ### Requirement: Three-panel workspace proportions
 The workspace shell SHALL render sidebar, main content, and information panel as a unified three-panel layout with aligned heights.
@@ -24,7 +23,7 @@ The sidebar SHALL support service-backed session navigation without the six bott
 
 #### Scenario: Preserve sidebar utility row
 - **WHEN** the workspace sidebar is rendered
-- **THEN** the sidebar SHALL keep bottom Settings, visual style switching, and Help controls while omitting the six previous tool shortcuts
+- **THEN** the sidebar SHALL keep bottom Settings and Help controls while omitting the six previous tool shortcuts and any visual style switching control
 
 #### Scenario: Show agent marker on session cards
 - **WHEN** a session card is rendered
@@ -138,3 +137,4 @@ The information panel SHALL provide keep-alive tabs for Agent Info, Files, and C
 #### Scenario: Show agent progress summary
 - **WHEN** the Agent Info tab is visible
 - **THEN** the tab SHALL show an independent progress bar with overall completion percentage and completed, in-progress, and pending task counts
+

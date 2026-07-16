@@ -20,7 +20,7 @@ export function McpTestResultPanel({
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 font-medium">
           {success ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <CircleAlert className="h-4 w-4" aria-hidden="true" />}
-          {success ? "最近测试通过" : error ? "最近测试失败" : "尚未测试"}
+          {success ? "Recent test passed" : error ? "Recent test failed" : "Not tested"}
         </div>
         {duration ? <span>{duration}ms</span> : null}
       </div>
@@ -36,7 +36,7 @@ export function McpTestResultPanel({
               </div>
             </div>
           ))}
-          {tools.length > 5 ? <div className="opacity-80">另有 {tools.length - 5} 个工具</div> : null}
+          {tools.length > 5 ? <div className="opacity-80">{tools.length - 5} more tools</div> : null}
         </div>
       ) : null}
     </div>

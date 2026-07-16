@@ -147,16 +147,16 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
         actions={
           <Button disabled={agentsOverviewQuery.isFetching} variant="outline" onClick={() => void agentsOverviewQuery.refetch()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            {agentsOverviewQuery.isFetching ? "刷新中" : "刷新"}
+            {agentsOverviewQuery.isFetching ? "Refreshing" : "Refresh"}
           </Button>
         }
-        description="管理可用 AI Coding Agent、交互模式和当前工作流"
+        description="Manage available AI coding agents, interaction modes, and the current workflow"
         title="Agents"
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-4">
-          <SectionPanel title="Agent 过滤" description="按 capability tag 过滤注册 Agent">
+          <SectionPanel title="Agent Filter" description="Filter registered Agents by capability tag">
             <div className="flex flex-wrap gap-2">
               <input
                 value={capabilityFilter}
@@ -210,10 +210,10 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                 </div>
 
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <StatusPill status={workflow?.activeAgentId === agent.id ? "运行中" : "空闲"} />
+                  <StatusPill status={workflow?.activeAgentId === agent.id ? "Running" : "Idle"} />
                   <Button variant="outline" onClick={() => void handleSelect(agent, selectedMode)}>
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    配置
+                    Configure
                   </Button>
                 </div>
               </section>
@@ -221,7 +221,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
           </div>
         </div>
 
-        <SectionPanel title="Agent 配置详情" description="当前工作流与会话状态">
+        <SectionPanel title="Agent Configuration Details" description="Current workflow and session status">
           <dl className="grid gap-4 text-sm">
             <div>
               <dt className="text-xs uppercase text-muted-foreground">Active Agent</dt>

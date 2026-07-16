@@ -1,91 +1,147 @@
-import { RotateCcw, Save } from "lucide-react";
+import { RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { useSettings } from "../settings-provider";
+import { ucdThemes } from "../../theme/theme-registry";
+import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "../../types/settings";
 import { PageHeader, SectionPanel } from "./page-parts";
 
+function SelectField<T extends string>({
+  disabled,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  disabled?: boolean;
+  label: string;
+  onChange: (value: T) => void;
+  options: Array<{ label: string; value: T }>;
+  value: T;
+}) {
+  return (
+    <label className="grid gap-1 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <select
+        className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as T)}
+        value={value}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function BasicSettingsPage() {
+  const { t } = useTranslation();
+  const { error, loading, nodeInfo, resetSettings, saveSetting, savingKey, settings } = useSettings();
+  const [folderDraft, setFolderDraft] = useState(settings.defaultFolderPath);
+  const busy = loading || savingKey !== null;
+
+  useEffect(() => {
+    setFolderDraft(settings.defaultFolderPath);
+  }, [settings.defaultFolderPath]);
+
   return (
     <div className="space-y-4">
       <PageHeader
         actions={
-          <>
-            <Button variant="outline">
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              重置默认
-            </Button>
-            <Button>
-              <Save className="h-4 w-4" aria-hidden="true" />
-              保存
-            </Button>
-          </>
+          <Button disabled={busy} onClick={() => void resetSettings()} variant="outline">
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            {t("basic.reset")}
+          </Button>
         }
-        description="应用程序的基础参数与行为配置"
-        title="通用设置"
+        description={t("basic.description")}
+        title={t("basic.title")}
       />
 
+      {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
+      {loading ? <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">{t("basic.loading")}</div> : null}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-4">
-          <SectionPanel title="应用设置" description="基础偏好与启动行为">
-            <div className="grid gap-4 md:grid-cols-2">
-              {[
-                ["应用名称", "VaneHub AI"],
-                ["应用语言", "简体中文"],
-                ["字体大小", "14px"],
-                ["日志级别", "INFO"],
-              ].map(([label, value]) => (
-                <label className="grid gap-1 text-sm" key={label}>
-                  <span className="text-muted-foreground">{label}</span>
-                  <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" defaultValue={value} />
-                </label>
-              ))}
-            </div>
-            <div className="mt-4 grid gap-3">
-              {["自动保存 - 每 30 秒自动保存会话", "启动恢复 - 启动时恢复上次会话状态", "自动检查更新 - 每日检查新版本", "匿名使用统计 - 帮助改进产品"].map((item) => (
-                <label className="flex items-center justify-between gap-3 rounded-md border border-border p-3 text-sm" key={item}>
-                  <span>{item}</span>
-                  <input defaultChecked className="h-4 w-4 accent-[hsl(var(--primary))]" type="checkbox" />
-                </label>
-              ))}
-            </div>
-          </SectionPanel>
-
-          <SectionPanel title="模型参数" description="全局默认模型推理参数，可在会话级别覆盖">
-            <div className="grid gap-4 md:grid-cols-3">
-              {[
-                ["默认模型", "GLM-4.5"],
-                ["备用模型", "Claude-3.5"],
-                ["温度", "0.7"],
-                ["最大输出 Token", "4096"],
-                ["上下文窗口", "8192"],
-                ["Top P", "0.9"],
-              ].map(([label, value]) => (
-                <label className="grid gap-1 text-sm" key={label}>
-                  <span className="text-muted-foreground">{label}</span>
-                  <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" defaultValue={value} />
-                </label>
-              ))}
-            </div>
-          </SectionPanel>
-        </div>
-
-        <SectionPanel title="数据与存储" description="数据存储路径与缓存管理">
-          <div className="grid gap-4 text-sm">
-            <div>
-              <div className="text-muted-foreground">数据目录</div>
-              <div className="mt-1 break-all font-medium">C:\Users\c00606997\.vanehub-ai\data</div>
-            </div>
-            <div className="ucd-muted-panel rounded p-3">
-              <div className="flex justify-between gap-3">
-                <span>缓存大小</span>
-                <strong>256 MB</strong>
-              </div>
-              <div className="mt-3 h-2 rounded bg-muted">
-                <div className="h-2 w-1/4 rounded bg-primary" />
-              </div>
-              <div className="mt-2 text-xs text-muted-foreground">256 MB / 1 GB</div>
-            </div>
-            <Button variant="outline">清理缓存</Button>
+        <SectionPanel title={t("basic.appSettings")} description={t("basic.appSettingsDesc")}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <SelectField<AppLanguage>
+              disabled={busy}
+              label={t("basic.language")}
+              onChange={(value) => void saveSetting("applicationLanguage", value)}
+              options={appLanguages.map((language) => ({
+                label: language === "zh-CN" ? t("basic.language.zh") : t("basic.language.en"),
+                value: language,
+              }))}
+              value={settings.applicationLanguage}
+            />
+            <SelectField<AppFontSize>
+              disabled={busy}
+              label={t("basic.fontSize")}
+              onChange={(value) => void saveSetting("fontSize", value)}
+              options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
+              value={settings.fontSize}
+            />
+            <SelectField
+              disabled={busy}
+              label={t("basic.theme")}
+              onChange={(value) => void saveSetting("theme", value)}
+              options={ucdThemes.map((theme) => ({
+                label: theme.id === "futuristic" ? t("basic.theme.futuristic") : t("basic.theme.minimal"),
+                value: theme.id,
+              }))}
+              value={settings.theme}
+            />
+            <label className="grid gap-1 text-sm">
+              <span className="text-muted-foreground">{t("basic.defaultFolder")}</span>
+              <input
+                className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={busy}
+                onBlur={() => {
+                  if (folderDraft !== settings.defaultFolderPath) {
+                    void saveSetting("defaultFolderPath", folderDraft);
+                  }
+                }}
+                onChange={(event) => setFolderDraft(event.target.value)}
+                placeholder={t("basic.defaultFolderPlaceholder")}
+                value={folderDraft}
+              />
+            </label>
           </div>
         </SectionPanel>
+
+        <div className="grid gap-4">
+          <SectionPanel title={t("basic.node")} description={t("basic.nodeDesc")}>
+            <div className="grid gap-4 text-sm">
+              <div>
+                <div className="text-muted-foreground">{t("basic.nodePath")}</div>
+                <div className="mt-1 break-all font-medium">
+                  {nodeInfo?.path ?? t("basic.nodeUnavailable")}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("basic.nodeVersion")}</div>
+                <div className="mt-1 font-medium">{nodeInfo?.version ?? t("basic.nodeUnavailable")}</div>
+              </div>
+              {!nodeInfo?.available ? (
+                <div className="rounded border p-3 text-xs ucd-status-warning">
+                  {nodeInfo?.reason ?? t("basic.nodeUnavailableReason")}
+                </div>
+              ) : null}
+            </div>
+          </SectionPanel>
+
+          <SectionPanel title={t("basic.storage")} description={t("basic.storageDesc")}>
+            <ul className="grid gap-2 text-sm text-muted-foreground">
+              <li>{t("basic.desktopStorage")}</li>
+              <li>{t("basic.webStorage")}</li>
+              <li>{t("basic.themeEntry")}</li>
+            </ul>
+          </SectionPanel>
+        </div>
       </div>
     </div>
   );

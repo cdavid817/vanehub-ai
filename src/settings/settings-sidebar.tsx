@@ -1,5 +1,6 @@
 import { Button } from "../components/ui/button";
 import { settingsPages, type SettingsPageId } from "./settings-pages";
+import { useTranslation } from "react-i18next";
 
 interface SettingsSidebarProps {
   activePageId: SettingsPageId;
@@ -7,10 +8,12 @@ interface SettingsSidebarProps {
 }
 
 export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarProps) {
+  const { t } = useTranslation();
+
   return (
     <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-2">
       <div className="px-3 py-4">
-        <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">系统设置</div>
+        <div className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{t("app.settings.system")}</div>
       </div>
       <nav className="grid gap-1 border-t border-border pt-2">
         {settingsPages.map((page) => {
@@ -27,7 +30,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
             >
               {active ? <span className="absolute left-0 h-6 w-0.5 rounded bg-primary" /> : null}
               <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{page.label}</span>
+              <span className="min-w-0 flex-1 truncate">{t(page.labelKey)}</span>
               {page.badge ? (
                 <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[hsl(var(--nav-active-soft))] px-1.5 text-xs text-primary">
                   {page.badge}
@@ -42,7 +45,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
         <span>VaneHub AI v0.1.0</span>
         <span>Build 2026-07-14</span>
         <Button className="mt-2 justify-start" size="default" variant="outline">
-          导出当前配置
+          {t("app.settings.export")}
         </Button>
       </div>
     </aside>

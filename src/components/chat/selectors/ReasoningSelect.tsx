@@ -27,7 +27,7 @@ export function ReasoningSelect({
   if (availableReasoning.length === 0) return null;
   return (
     <div className="relative">
-      <SelectorButton icon={<Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />} label={labels[value]} onClick={onOpen} open={open} title={`思考深度: ${labels[value]}`} />
+      <SelectorButton icon={<Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />} label={labels[value]} onClick={onOpen} open={open} title={`Reasoning depth: ${labels[value]}`} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}
@@ -35,7 +35,7 @@ export function ReasoningSelect({
           options={availableReasoning.map((depth) => ({
             value: depth,
             label: labels[depth],
-            description: depth === "max" ? "最深推理" : "控制响应前的推理投入",
+            description: depth === "max" ? "Deepest reasoning" : "Control reasoning effort before the response",
             icon: <Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />,
           }))}
           value={value}

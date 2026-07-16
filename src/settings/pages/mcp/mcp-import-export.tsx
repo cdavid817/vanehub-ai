@@ -48,7 +48,7 @@ export function McpImportExportModal({
     try {
       const data = await onExport(selected);
       setOutput(JSON.stringify(data, null, 2));
-      setMessage(`已导出 ${Object.keys(data.mcpServers).length} 个服务器`);
+      setMessage(`Exported ${Object.keys(data.mcpServers).length} servers`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -56,7 +56,7 @@ export function McpImportExportModal({
 
   async function copyOutput() {
     await navigator.clipboard.writeText(output);
-    setMessage("已复制到剪贴板");
+    setMessage("Copied to clipboard");
   }
 
   return (
@@ -66,14 +66,14 @@ export function McpImportExportModal({
           <div className="flex gap-2">
             <Button variant={mode === "import" ? "default" : "outline"} onClick={() => setMode("import")}>
               <Upload className="h-4 w-4" aria-hidden="true" />
-              导入
+              Import
             </Button>
             <Button variant={mode === "export" ? "default" : "outline"} onClick={() => setMode("export")}>
               <Download className="h-4 w-4" aria-hidden="true" />
-              导出
+              Export
             </Button>
           </div>
-          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title="关闭">
+          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title="Close">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
@@ -81,17 +81,17 @@ export function McpImportExportModal({
         {mode === "import" ? (
           <div className="grid gap-3">
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">导入 scope</span>
+              <span className="text-xs text-muted-foreground">Import scope</span>
               <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
-                <option value="user">用户配置</option>
-                <option value="project">项目配置</option>
+                <option value="user">User configuration</option>
+                <option value="project">Project configuration</option>
               </select>
             </label>
             <textarea className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={input} onChange={(event) => setInput(event.target.value)} />
-            {importNames.length ? <div className="text-xs text-muted-foreground">预览：{importNames.join(", ")}</div> : null}
+            {importNames.length ? <div className="text-xs text-muted-foreground">Preview: {importNames.join(", ")}</div> : null}
             <Button onClick={() => void handleImport()}>
               <Upload className="h-4 w-4" aria-hidden="true" />
-              确认导入
+              Confirm Import
             </Button>
           </div>
         ) : (
@@ -114,12 +114,12 @@ export function McpImportExportModal({
             </div>
             <Button onClick={() => void handleExport()}>
               <Download className="h-4 w-4" aria-hidden="true" />
-              生成 JSON
+              Generate JSON
             </Button>
             <textarea readOnly className="ucd-input min-h-64 rounded p-3 font-mono text-xs outline-none" value={output} />
             <Button variant="outline" onClick={() => void copyOutput()} disabled={!output}>
               <Clipboard className="h-4 w-4" aria-hidden="true" />
-              复制
+              Copy
             </Button>
           </div>
         )}
