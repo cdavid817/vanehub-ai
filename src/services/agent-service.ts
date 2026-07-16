@@ -11,6 +11,19 @@ import type {
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent, SendMessageInput } from "../types/chat";
 import type { OperationTask } from "../types/operation";
+import type {
+  Skill,
+  SkillAgentMountPath,
+  SkillDriftReport,
+  SkillImportInput,
+  SkillListResult,
+  SkillMountMigrationReport,
+  SkillMutationInput,
+  SkillPreview,
+  SkillScopeInput,
+  SkillSyncResult,
+  SkillUpdateInput,
+} from "../types/skill";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
@@ -46,4 +59,18 @@ export interface AgentService {
     sessionId: string,
     handler: (event: ChatStreamEvent) => void,
   ): Promise<() => void>;
+  listSkills(input: SkillScopeInput): Promise<SkillListResult>;
+  listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
+  updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
+  createSkill(input: SkillMutationInput): Promise<Skill>;
+  updateSkill(skillId: string, input: SkillUpdateInput): Promise<Skill>;
+  deleteSkill(skillId: string, input: SkillScopeInput): Promise<void>;
+  restoreBuiltinSkill(skillId: string): Promise<Skill>;
+  setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean): Promise<Skill>;
+  setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]): Promise<Skill>;
+  previewSkill(skillId: string, input: SkillScopeInput): Promise<SkillPreview>;
+  importSkill(input: SkillImportInput): Promise<Skill>;
+  detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;
+  syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
+  selectWorkspaceDirectory(): Promise<string | null>;
 }

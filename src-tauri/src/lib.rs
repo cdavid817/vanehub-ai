@@ -13,6 +13,7 @@ use thiserror::Error;
 mod command_safety;
 mod mcp;
 mod sdk;
+mod skills;
 mod tasks;
 
 #[derive(Debug, Error)]
@@ -590,6 +591,7 @@ impl RegistryStore {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&conn)?;
         seed_agents(&conn)?;
+        skills::service::seed_builtin_skills(&conn)?;
         Ok(conn)
     }
 }
@@ -621,6 +623,7 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
     apply_migration(conn, 4, "chat-messages", apply_chat_messages_migration)?;
     apply_migration(conn, 5, "app-settings", apply_app_settings_migration)?;
     apply_migration(conn, 6, "cli-tool-status", apply_cli_tool_status_migration)?;
+    apply_migration(conn, 7, "skill-management", skills::service::apply_schema)?;
 
     Ok(())
 }
@@ -2836,6 +2839,20 @@ pub fn run() {
             sdk::commands::rollback_sdk_dependency,
             sdk::commands::uninstall_sdk_dependency,
             sdk::commands::get_sdk_operation_logs,
+            skills::commands::list_skills,
+            skills::commands::list_skill_mount_paths,
+            skills::commands::update_skill_mount_path,
+            skills::commands::create_skill,
+            skills::commands::update_skill,
+            skills::commands::delete_skill,
+            skills::commands::restore_builtin_skill,
+            skills::commands::set_skill_enabled,
+            skills::commands::set_skill_agent_bindings,
+            skills::commands::preview_skill,
+            skills::commands::import_skill,
+            skills::commands::detect_skill_drift,
+            skills::commands::sync_skill_drift,
+            skills::commands::select_workspace_directory,
             tasks::commands::list_operations,
             tasks::commands::get_operation_status
         ])
@@ -2886,7 +2903,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7]);
     }
 
     #[test]

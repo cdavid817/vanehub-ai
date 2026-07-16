@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import type * as AgentContracts from "./agent";
 import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
+import type * as SkillContracts from "./skill";
 import type * as OperationContracts from "./operation";
 import type * as AgentTypes from "../types/agent";
 import type * as McpTypes from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
+import type * as SkillTypes from "../types/skill";
 import type * as OperationTypes from "../types/operation";
 
 type Equal<Left, Right> =
@@ -73,10 +75,33 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
 ];
 
+type SkillAssertions = [
+  Assert<Equal<SkillContracts.SkillScope, SkillTypes.SkillScope>>,
+  Assert<Equal<SkillContracts.SkillSource, SkillTypes.SkillSource>>,
+  Assert<Equal<SkillContracts.SkillScopeInput, SkillTypes.SkillScopeInput>>,
+  Assert<Equal<SkillContracts.SkillMetadata, SkillTypes.SkillMetadata>>,
+  Assert<Equal<SkillContracts.SkillAgentBinding, SkillTypes.SkillAgentBinding>>,
+  Assert<Equal<SkillContracts.Skill, SkillTypes.Skill>>,
+  Assert<Equal<SkillContracts.SkillStats, SkillTypes.SkillStats>>,
+  Assert<Equal<SkillContracts.SkillListResult, SkillTypes.SkillListResult>>,
+  Assert<Equal<SkillContracts.SkillAgentMountPath, SkillTypes.SkillAgentMountPath>>,
+  Assert<Equal<SkillContracts.SkillMutationInput, SkillTypes.SkillMutationInput>>,
+  Assert<Equal<SkillContracts.SkillUpdateInput, SkillTypes.SkillUpdateInput>>,
+  Assert<Equal<SkillContracts.SkillImportInput, SkillTypes.SkillImportInput>>,
+  Assert<Equal<SkillContracts.SkillPreview, SkillTypes.SkillPreview>>,
+  Assert<Equal<SkillContracts.SkillDriftIssueType, SkillTypes.SkillDriftIssueType>>,
+  Assert<Equal<SkillContracts.SkillDriftIssue, SkillTypes.SkillDriftIssue>>,
+  Assert<Equal<SkillContracts.SkillDriftReport, SkillTypes.SkillDriftReport>>,
+  Assert<Equal<SkillContracts.SkillBackupEntry, SkillTypes.SkillBackupEntry>>,
+  Assert<Equal<SkillContracts.SkillSyncResult, SkillTypes.SkillSyncResult>>,
+  Assert<Equal<SkillContracts.SkillMountMigrationReport, SkillTypes.SkillMountMigrationReport>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as SkillAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

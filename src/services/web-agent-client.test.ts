@@ -146,4 +146,39 @@ describe("webAgentClient", () => {
     expect(cancelledAssistant?.status).toBe("cancelled");
     expect(cancelledAssistant?.content.length).toBeGreaterThan(0);
   });
+
+  it("manages mock Skills, mount paths, drift, and built-in restore", async () => {
+    const initial = await webAgentClient.listSkills({ scope: "global" });
+    expect(initial.skills.some((skill) => skill.id === "tdd-discipline")).toBe(true);
+
+    const migration = await webAgentClient.updateSkillMountPath("codex-cli", ".codex/custom-skills");
+    expect(migration.agentId).toBe("codex-cli");
+    expect(migration.newMountPath).toBe(".codex/custom-skills");
+
+    const created = await webAgentClient.createSkill({
+      scope: "workspace",
+      workspacePath: "D:\\example",
+      id: "workspace-helper",
+      metadata: {
+        id: "workspace-helper",
+        name: "Workspace Helper",
+        description: "Workspace-local test Skill.",
+        category: "testing",
+        version: "1.0.0",
+        triggers: ["workspace"],
+      },
+      body: "Body",
+      enabled: true,
+      boundAgentIds: ["codex-cli"],
+      source: "user",
+    });
+    expect(created.bindings[0]?.mountPath).toBe(".codex/custom-skills");
+
+    await webAgentClient.deleteSkill("code-review", { scope: "global" });
+    const drift = await webAgentClient.detectSkillDrift({ scope: "global" });
+    expect(drift.issues.some((issue) => issue.type === "deleted-builtin")).toBe(true);
+
+    const sync = await webAgentClient.syncSkillDrift({ scope: "global" });
+    expect(sync.restored).toContain("code-review");
+  });
 });

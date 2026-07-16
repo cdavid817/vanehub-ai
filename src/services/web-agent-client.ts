@@ -3,6 +3,19 @@ import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import type { CliToolStatus, InteractionMode, Session, SessionDetails, WorkflowState } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
+import type {
+  Skill,
+  SkillAgentMountPath,
+  SkillDriftReport,
+  SkillImportInput,
+  SkillListResult,
+  SkillMountMigrationReport,
+  SkillMutationInput,
+  SkillPreview,
+  SkillScopeInput,
+  SkillSyncResult,
+  SkillUpdateInput,
+} from "../types/skill";
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
@@ -12,6 +25,94 @@ let sessions: Session[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+
+const builtinSkillSeeds = [
+  {
+    id: "tdd-discipline",
+    name: "TDD 开发纪律助手",
+    description: "引导开发过程遵循测试先行、红绿重构和回归验证纪律。",
+    category: "development",
+    triggers: ["TDD", "测试先行", "红绿重构"],
+  },
+  {
+    id: "code-review",
+    name: "代码审查助手",
+    description: "从缺陷、回归风险、可维护性和测试缺口角度审查代码变更。",
+    category: "review",
+    triggers: ["代码审查", "review"],
+  },
+  {
+    id: "code-security-scan",
+    name: "代码安全扫描",
+    description: "检查常见安全风险、敏感信息泄漏、命令注入和不安全文件操作。",
+    category: "security",
+    triggers: ["安全扫描", "security"],
+  },
+  {
+    id: "api-doc-generation",
+    name: "API 文档自动生成",
+    description: "根据接口、类型和示例生成结构化 API 文档。",
+    category: "documentation",
+    triggers: ["API 文档", "api docs"],
+  },
+  {
+    id: "unit-test-generation",
+    name: "单元测试自动生成",
+    description: "为核心函数、边界条件和回归场景生成单元测试。",
+    category: "testing",
+    triggers: ["单元测试", "unit test"],
+  },
+  {
+    id: "readme-generation",
+    name: "README 文档生成",
+    description: "生成或改进项目 README，包括安装、使用、开发和验证说明。",
+    category: "documentation",
+    triggers: ["README", "项目说明"],
+  },
+];
+
+let webSkillMountPaths: SkillAgentMountPath[] = mockAgents.map((agent) => ({
+  agentId: agent.id,
+  mountPath:
+    agent.id === "claude-code"
+      ? ".claude/skills"
+      : agent.id === "codex-cli"
+        ? ".codex/skills"
+        : agent.id === "gemini-cli"
+          ? ".gemini/skills"
+          : agent.id === "opencode"
+            ? ".opencode/skills"
+            : ".vanehub/skills",
+  isDefault: true,
+}));
+
+let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
+  const timestamp = nowIso();
+  return {
+    id: seed.id,
+    scope: "global",
+    workspacePath: null,
+    source: "builtin",
+    enabled: true,
+    skillDir: `~/.vanehub/skills/${seed.id}`,
+    skillMdPath: `~/.vanehub/skills/${seed.id}/SKILL.md`,
+    contentHash: `web-${seed.id}`,
+    metadata: {
+      id: seed.id,
+      name: seed.name,
+      description: seed.description,
+      category: seed.category,
+      version: "1.0.0",
+      triggers: seed.triggers,
+    },
+    boundAgentIds: ["claude-code", "codex-cli"],
+    bindings: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+});
+
+const deletedBuiltinSkillIds = new Set<string>();
 
 const webCliTools: CliToolStatus[] = [
   {
@@ -86,6 +187,87 @@ const webCliTools: CliToolStatus[] = [
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function skillScopeMatches(skill: Skill, input: SkillScopeInput) {
+  return (
+    skill.scope === input.scope &&
+    (input.scope === "global" || skill.workspacePath === (input.workspacePath?.trim() || null))
+  );
+}
+
+function mountPathForAgent(agentId: string) {
+  return webSkillMountPaths.find((path) => path.agentId === agentId)?.mountPath ?? ".vanehub/skills";
+}
+
+function hydrateSkillBindings(skill: Skill): Skill {
+  const bindings = skill.boundAgentIds.map((agentId) => {
+    const mountPath = mountPathForAgent(agentId);
+    const root = skill.scope === "global" ? "~" : (skill.workspacePath ?? ".");
+    return {
+      agentId,
+      mountPath,
+      mountedPath: `${root}/${mountPath}/${skill.id}`,
+      mounted: skill.enabled,
+    };
+  });
+  return { ...skill, bindings };
+}
+
+function buildSkillContent(skill: Skill) {
+  const triggers = skill.metadata.triggers.map((trigger) => `  - ${trigger}`).join("\n");
+  return `---\nid: ${skill.metadata.id}\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\ncategory: ${skill.metadata.category}\nversion: ${skill.metadata.version}\ntriggers:\n${triggers}\n---\n\n# ${skill.metadata.name}\n\nWeb mock SKILL.md content for ${skill.id}.\n`;
+}
+
+function skillStats(skills: Skill[]) {
+  return {
+    total: skills.length,
+    enabled: skills.filter((skill) => skill.enabled).length,
+    mounted: skills.filter((skill) => skill.enabled && skill.boundAgentIds.length > 0).length,
+  };
+}
+
+function findWebSkill(skillId: string, input: SkillScopeInput) {
+  const skill = webSkills.find((candidate) => candidate.id === skillId && skillScopeMatches(candidate, input));
+  if (!skill) {
+    throw new Error(`Skill not found: ${skillId}`);
+  }
+  return skill;
+}
+
+function upsertWebSkill(skill: Skill) {
+  const index = webSkills.findIndex(
+    (candidate) =>
+      candidate.id === skill.id &&
+      candidate.scope === skill.scope &&
+      candidate.workspacePath === skill.workspacePath,
+  );
+  if (index === -1) {
+    webSkills = [...webSkills, skill];
+    return skill;
+  }
+  webSkills = webSkills.map((candidate, candidateIndex) => (candidateIndex === index ? skill : candidate));
+  return skill;
+}
+
+function mutationToSkill(input: SkillMutationInput): Skill {
+  const timestamp = nowIso();
+  const root = input.scope === "global" ? "~/.vanehub/skills" : `${input.workspacePath}/.vanehub/skills`;
+  return {
+    id: input.id,
+    scope: input.scope,
+    workspacePath: input.scope === "workspace" ? (input.workspacePath ?? null) : null,
+    source: input.source ?? "user",
+    enabled: input.enabled,
+    skillDir: `${root}/${input.id}`,
+    skillMdPath: `${root}/${input.id}/SKILL.md`,
+    contentHash: `web-${input.id}-${timestamp}`,
+    metadata: input.metadata,
+    boundAgentIds: [...input.boundAgentIds],
+    bindings: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
 }
 
 function sortSessions(items: Session[]) {
@@ -498,5 +680,177 @@ export const webAgentClient: AgentService = {
         subscribersBySession.delete(sessionId);
       }
     };
+  },
+
+  async listSkills(input): Promise<SkillListResult> {
+    const skills = webSkills.filter((skill) => skillScopeMatches(skill, input)).map(hydrateSkillBindings);
+    return { skills, stats: skillStats(skills) };
+  },
+
+  async listSkillMountPaths() {
+    return webSkillMountPaths.map((path) => ({ ...path }));
+  },
+
+  async updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport> {
+    const existing = webSkillMountPaths.find((path) => path.agentId === agentId);
+    const oldMountPath = existing?.mountPath ?? mountPathForAgent(agentId);
+    webSkillMountPaths = webSkillMountPaths.map((path) =>
+      path.agentId === agentId ? { agentId, mountPath, isDefault: false } : path,
+    );
+    if (!existing) {
+      webSkillMountPaths = [...webSkillMountPaths, { agentId, mountPath, isDefault: false }];
+    }
+    const migrated = webSkills
+      .filter((skill) => skill.boundAgentIds.includes(agentId) && skill.enabled)
+      .map((skill) => skill.id);
+    return {
+      agentId,
+      oldMountPath,
+      newMountPath: mountPath,
+      migrated,
+      removed: migrated.map((skillId) => `${oldMountPath}/${skillId}`),
+      overwritten: [],
+      backedUp: [],
+      failed: [],
+    };
+  },
+
+  async createSkill(input) {
+    const skill = mutationToSkill(input);
+    return hydrateSkillBindings(upsertWebSkill(skill));
+  },
+
+  async updateSkill(skillId, input: SkillUpdateInput) {
+    if (input.metadata.id !== skillId) {
+      throw new Error("Skill id cannot be changed.");
+    }
+    const current = findWebSkill(skillId, input);
+    const updated: Skill = {
+      ...current,
+      metadata: input.metadata,
+      enabled: input.enabled,
+      boundAgentIds: [...input.boundAgentIds],
+      contentHash: `web-${skillId}-${nowIso()}`,
+      updatedAt: nowIso(),
+    };
+    return hydrateSkillBindings(upsertWebSkill(updated));
+  },
+
+  async deleteSkill(skillId, input) {
+    const current = findWebSkill(skillId, input);
+    if (current.source === "builtin") {
+      deletedBuiltinSkillIds.add(skillId);
+    }
+    webSkills = webSkills.filter((skill) => !(skill.id === skillId && skillScopeMatches(skill, input)));
+  },
+
+  async restoreBuiltinSkill(skillId) {
+    const seed = builtinSkillSeeds.find((candidate) => candidate.id === skillId);
+    if (!seed) {
+      throw new Error(`Unknown built-in Skill: ${skillId}`);
+    }
+    deletedBuiltinSkillIds.delete(skillId);
+    const restored = mutationToSkill({
+      id: seed.id,
+      scope: "global",
+      workspacePath: null,
+      metadata: {
+        id: seed.id,
+        name: seed.name,
+        description: seed.description,
+        category: seed.category,
+        version: "1.0.0",
+        triggers: seed.triggers,
+      },
+      body: `Web mock restored content for ${seed.id}.`,
+      enabled: true,
+      boundAgentIds: [],
+      source: "builtin",
+    });
+    return hydrateSkillBindings(upsertWebSkill(restored));
+  },
+
+  async setSkillEnabled(skillId, input, enabled) {
+    const current = findWebSkill(skillId, input);
+    const updated = { ...current, enabled, updatedAt: nowIso() };
+    return hydrateSkillBindings(upsertWebSkill(updated));
+  },
+
+  async setSkillAgentBindings(skillId, input, agentIds) {
+    const current = findWebSkill(skillId, input);
+    const updated = { ...current, boundAgentIds: [...agentIds], updatedAt: nowIso() };
+    return hydrateSkillBindings(upsertWebSkill(updated));
+  },
+
+  async previewSkill(skillId, input): Promise<SkillPreview> {
+    const skill = hydrateSkillBindings(findWebSkill(skillId, input));
+    return {
+      id: skill.id,
+      scope: skill.scope,
+      workspacePath: skill.workspacePath,
+      path: skill.skillMdPath,
+      content: buildSkillContent(skill),
+    };
+  },
+
+  async importSkill(input: SkillImportInput) {
+    const id = input.sourcePath.split(/[\\/]/).filter(Boolean).pop() ?? `imported-${Date.now()}`;
+    return this.createSkill({
+      id,
+      scope: input.scope,
+      workspacePath: input.workspacePath,
+      metadata: {
+        id,
+        name: id,
+        description: "Imported Skill from Web mock adapter.",
+        category: "imported",
+        version: "1.0.0",
+        triggers: [],
+      },
+      body: "Imported Skill mock body.",
+      enabled: input.enabled,
+      boundAgentIds: input.boundAgentIds,
+      source: "imported",
+    });
+  },
+
+  async detectSkillDrift(input): Promise<SkillDriftReport> {
+    const issues = [...deletedBuiltinSkillIds].map((skillId) => ({
+      skillId,
+      type: "deleted-builtin" as const,
+      agentId: null,
+      path: null,
+      message: "Built-in Skill is deleted and can be restored.",
+    }));
+    return {
+      scope: input.scope,
+      workspacePath: input.scope === "workspace" ? (input.workspacePath ?? null) : null,
+      issues,
+      driftHash: `web-${issues.length}`,
+    };
+  },
+
+  async syncSkillDrift(input): Promise<SkillSyncResult> {
+    const report = await this.detectSkillDrift(input);
+    const restored: string[] = [];
+    for (const issue of report.issues) {
+      if (issue.type === "deleted-builtin") {
+        await this.restoreBuiltinSkill(issue.skillId);
+        restored.push(issue.skillId);
+      }
+    }
+    return {
+      mounted: [],
+      unmounted: [],
+      overwritten: [],
+      backedUp: [],
+      restored,
+      failed: [],
+      resolvedFrom: report,
+    };
+  },
+
+  async selectWorkspaceDirectory() {
+    return "D:\\\\example-workspace";
   },
 };

@@ -14,6 +14,19 @@ import type {
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
+import type {
+  Skill,
+  SkillAgentMountPath,
+  SkillDriftReport,
+  SkillImportInput,
+  SkillListResult,
+  SkillMountMigrationReport,
+  SkillMutationInput,
+  SkillPreview,
+  SkillScopeInput,
+  SkillSyncResult,
+  SkillUpdateInput,
+} from "../types/skill";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -135,5 +148,61 @@ export const tauriAgentClient: AgentService = {
       }
     });
     return unlisten;
+  },
+
+  listSkills(input: SkillScopeInput) {
+    return invoke<SkillListResult>("list_skills", { input });
+  },
+
+  listSkillMountPaths() {
+    return invoke<SkillAgentMountPath[]>("list_skill_mount_paths");
+  },
+
+  updateSkillMountPath(agentId: string, mountPath: string) {
+    return invoke<SkillMountMigrationReport>("update_skill_mount_path", { agentId, mountPath });
+  },
+
+  createSkill(input: SkillMutationInput) {
+    return invoke<Skill>("create_skill", { input });
+  },
+
+  updateSkill(skillId: string, input: SkillUpdateInput) {
+    return invoke<Skill>("update_skill", { skillId, input });
+  },
+
+  async deleteSkill(skillId: string, input: SkillScopeInput) {
+    await invoke<void>("delete_skill", { skillId, input });
+  },
+
+  restoreBuiltinSkill(skillId: string) {
+    return invoke<Skill>("restore_builtin_skill", { skillId });
+  },
+
+  setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean) {
+    return invoke<Skill>("set_skill_enabled", { skillId, input, enabled });
+  },
+
+  setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]) {
+    return invoke<Skill>("set_skill_agent_bindings", { skillId, input, agentIds });
+  },
+
+  previewSkill(skillId: string, input: SkillScopeInput) {
+    return invoke<SkillPreview>("preview_skill", { skillId, input });
+  },
+
+  importSkill(input: SkillImportInput) {
+    return invoke<Skill>("import_skill", { input });
+  },
+
+  detectSkillDrift(input: SkillScopeInput) {
+    return invoke<SkillDriftReport>("detect_skill_drift", { input });
+  },
+
+  syncSkillDrift(input: SkillScopeInput) {
+    return invoke<SkillSyncResult>("sync_skill_drift", { input });
+  },
+
+  selectWorkspaceDirectory() {
+    return invoke<string | null>("select_workspace_directory");
   },
 };

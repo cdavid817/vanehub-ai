@@ -1,69 +1,212 @@
-import { Plus, Upload } from "lucide-react";
+import { Plus, RotateCcw, Upload } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
-import { skills } from "../data/settings-demo-data";
-import { PageHeader, SectionPanel, StatCard, TagList } from "./page-parts";
+import { agentService } from "../../services/runtime-agent-client";
+import type { Skill, SkillMetadata, SkillScope, SkillScopeInput, SkillSource } from "../../types/skill";
+import { PageHeader } from "./page-parts";
+import { SkillAgentMountPathsPanel } from "./skills/skill-agent-mount-paths-panel";
+import { SkillCardList } from "./skills/skill-card-list";
+import { SkillDialogs, type SkillDialogState } from "./skills/skill-dialogs";
+import { SkillDriftBanner } from "./skills/skill-drift-banner";
+import { SkillFilterToolbar } from "./skills/skill-filter-toolbar";
+import { SkillScopeTabs } from "./skills/skill-scope-tabs";
+import { SkillStatsCards } from "./skills/skill-stats-cards";
 
 export function SkillsPage({ searchTerm }: { searchTerm: string }) {
-  const visible = skills.filter((skill) => skill.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  const active = visible[0] ?? skills[0];
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [scope, setScope] = useState<SkillScope>("global");
+  const [workspacePath, setWorkspacePath] = useState("");
+  const [category, setCategory] = useState("__all__");
+  const [query, setQuery] = useState(searchTerm);
+  const [mountDrafts, setMountDrafts] = useState<Record<string, string>>({});
+  const [dialog, setDialog] = useState<SkillDialogState>({ mode: null, skill: null, preview: null });
+
+  const scopeInput = useMemo<SkillScopeInput>(
+    () => ({ scope, workspacePath: scope === "workspace" ? workspacePath : null }),
+    [scope, workspacePath],
+  );
+  const scopeReady = scope === "global" || workspacePath.trim().length > 0;
+
+  const agentsQuery = useQuery({ queryKey: ["agents", "skills"], queryFn: () => agentService.listAgents() });
+  const mountPathsQuery = useQuery({ queryKey: ["skill-mount-paths"], queryFn: () => agentService.listSkillMountPaths() });
+  const skillsQuery = useQuery({
+    enabled: scopeReady,
+    queryKey: ["skills", scopeInput],
+    queryFn: () => agentService.listSkills(scopeInput),
+  });
+  const driftQuery = useQuery({
+    enabled: scopeReady,
+    queryKey: ["skill-drift", scopeInput],
+    queryFn: () => agentService.detectSkillDrift(scopeInput),
+  });
+
+  const invalidate = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["skills"] }),
+      queryClient.invalidateQueries({ queryKey: ["skill-drift"] }),
+      queryClient.invalidateQueries({ queryKey: ["skill-mount-paths"] }),
+    ]);
+  };
+
+  const mountMutation = useMutation({
+    mutationFn: ({ agentId, mountPath }: { agentId: string; mountPath: string }) =>
+      agentService.updateSkillMountPath(agentId, mountPath),
+    onSuccess: () => void invalidate(),
+  });
+  const enabledMutation = useMutation({
+    mutationFn: ({ skill, enabled }: { skill: Skill; enabled: boolean }) =>
+      agentService.setSkillEnabled(skill.id, scopeInput, enabled),
+    onSuccess: () => void invalidate(),
+  });
+  const bindingMutation = useMutation({
+    mutationFn: ({ skill, agentIds }: { skill: Skill; agentIds: string[] }) =>
+      agentService.setSkillAgentBindings(skill.id, scopeInput, agentIds),
+    onSuccess: () => void invalidate(),
+  });
+  const createMutation = useMutation({
+    mutationFn: ({ metadata, body, source }: { metadata: SkillMetadata; body: string; source: SkillSource }) =>
+      agentService.createSkill({
+        id: metadata.id,
+        metadata,
+        body,
+        source,
+        enabled: true,
+        boundAgentIds: [],
+        ...scopeInput,
+      }),
+    onSuccess: () => {
+      setDialog({ mode: null, skill: null, preview: null });
+      void invalidate();
+    },
+  });
+  const updateMutation = useMutation({
+    mutationFn: ({ skill, metadata, body }: { skill: Skill; metadata: SkillMetadata; body: string }) =>
+      agentService.updateSkill(skill.id, { metadata, body, enabled: skill.enabled, boundAgentIds: skill.boundAgentIds, ...scopeInput }),
+    onSuccess: () => {
+      setDialog({ mode: null, skill: null, preview: null });
+      void invalidate();
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (skill: Skill) => agentService.deleteSkill(skill.id, scopeInput),
+    onSuccess: () => void invalidate(),
+  });
+  const importMutation = useMutation({
+    mutationFn: (sourcePath: string) => agentService.importSkill({ sourcePath, enabled: true, boundAgentIds: [], ...scopeInput }),
+    onSuccess: () => {
+      setDialog({ mode: null, skill: null, preview: null });
+      void invalidate();
+    },
+  });
+  const restoreMutation = useMutation({
+    mutationFn: (skillId: string) => agentService.restoreBuiltinSkill(skillId),
+    onSuccess: () => {
+      setDialog({ mode: null, skill: null, preview: null });
+      void invalidate();
+    },
+  });
+  const previewMutation = useMutation({
+    mutationFn: (skill: Skill) => agentService.previewSkill(skill.id, scopeInput),
+    onSuccess: (preview) => setDialog({ mode: null, skill: null, preview }),
+  });
+  const syncMutation = useMutation({
+    mutationFn: () => agentService.syncSkillDrift(scopeInput),
+    onSuccess: () => void invalidate(),
+  });
+
+  const skills = skillsQuery.data?.skills ?? [];
+  const stats = skillsQuery.data?.stats ?? { total: 0, enabled: 0, mounted: 0 };
+  const categories = useMemo(() => ["__all__", ...Array.from(new Set(skills.map((skill) => skill.metadata.category)))], [skills]);
+  const visibleSkills = useMemo(() => {
+    const needle = `${query} ${searchTerm}`.trim().toLowerCase();
+    return skills.filter((skill) => {
+      if (category !== "__all__" && skill.metadata.category !== category) return false;
+      if (!needle) return true;
+      return `${skill.id} ${skill.metadata.name} ${skill.metadata.description} ${skill.metadata.category} ${skill.metadata.triggers.join(" ")} ${skill.source}`
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [category, query, searchTerm, skills]);
+
+  async function browseWorkspace() {
+    const selected = await agentService.selectWorkspaceDirectory();
+    if (selected) setWorkspacePath(selected);
+  }
+
+  function toggleAgent(skill: Skill, agentId: string, checked: boolean) {
+    const agentIds = checked
+      ? Array.from(new Set([...skill.boundAgentIds, agentId]))
+      : skill.boundAgentIds.filter((id) => id !== agentId);
+    bindingMutation.mutate({ skill, agentIds });
+  }
 
   return (
     <div className="space-y-4">
       <PageHeader
         actions={
           <>
-            <Button variant="outline">
-              <Upload className="h-4 w-4" aria-hidden="true" />
-              Import Skill
+            <Button onClick={() => setDialog({ mode: "restore", skill: null, preview: null })} variant="outline">
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              {t("skills.restoreBuiltIn")}
             </Button>
-            <Button>
+            <Button onClick={() => setDialog({ mode: "import", skill: null, preview: null })} variant="outline">
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              {t("skills.importSkill")}
+            </Button>
+            <Button onClick={() => setDialog({ mode: "create", skill: null, preview: null })}>
               <Plus className="h-4 w-4" aria-hidden="true" />
-              Create Skill
+              {t("skills.createSkill")}
             </Button>
           </>
         }
-        description="Manage reusable capabilities, trigger commands, and Agent bindings"
-        title="Skills"
+        description={t("skills.description")}
+        title={t("skills.title")}
       />
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatCard label="All" value="8" hint="Registered Skills" />
-        <StatCard label="Enabled" value="6" hint="Available to Agents" />
-        <StatCard label="Disabled" value="2" hint="Excluded from routing" />
-        <StatCard label="Average Success" value="91%" hint="Recent run statistics" />
+
+      <SkillScopeTabs scope={scope} workspacePath={workspacePath} onScopeChange={setScope} onWorkspacePathChange={setWorkspacePath} onBrowse={() => void browseWorkspace()} />
+      <SkillStatsCards stats={stats} />
+      <SkillAgentMountPathsPanel
+        agents={agentsQuery.data ?? []}
+        mountPaths={mountPathsQuery.data ?? []}
+        drafts={mountDrafts}
+        migration={mountMutation.data ?? null}
+        savingAgentId={mountMutation.variables?.agentId ?? null}
+        onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))}
+        onSave={(agentId) => {
+          const mountPath = mountDrafts[agentId] ?? mountPathsQuery.data?.find((path) => path.agentId === agentId)?.mountPath ?? "";
+          mountMutation.mutate({ agentId, mountPath });
+        }}
+      />
+      <SkillFilterToolbar categories={categories} category={category} query={query} onCategoryChange={setCategory} onQueryChange={setQuery} />
+      <SkillDriftBanner drift={driftQuery.data ?? null} syncResult={syncMutation.data ?? null} syncing={syncMutation.isPending} onSync={() => syncMutation.mutate()} />
+      {!scopeReady ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.selectWorkspace")}</div> : null}
+      {skillsQuery.isLoading ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.loading")}</div> : null}
+      <SkillCardList
+        agents={agentsQuery.data ?? []}
+        busySkillId={enabledMutation.variables?.skill.id ?? bindingMutation.variables?.skill.id ?? null}
+        skills={visibleSkills}
+        onDelete={(skill) => deleteMutation.mutate(skill)}
+        onEdit={(skill) => setDialog({ mode: "edit", skill, preview: null })}
+        onPreview={(skill) => previewMutation.mutate(skill)}
+        onToggleAgent={toggleAgent}
+        onToggleEnabled={(skill, enabled) => enabledMutation.mutate({ skill, enabled })}
+      />
+      <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
+        {t("skills.showing", { visible: visibleSkills.length, total: skills.length, scope: t(`skills.scope.${scope}`) })}
       </div>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {visible.map((skill) => (
-            <section className="ucd-panel rounded-lg p-4" key={skill.id}>
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold">{skill.name}</h3>
-                  <p className="text-sm text-muted-foreground">Trigger: {skill.trigger}</p>
-                </div>
-                <span className="rounded-sm bg-[hsl(var(--nav-active-soft))] px-2 py-1 text-xs font-medium text-primary">
-                  {skill.category}
-                </span>
-              </div>
-              <div className="text-sm text-muted-foreground">Agent: {skill.agent}</div>
-              <div className="mt-4 flex justify-between gap-3 text-sm">
-                <span>{skill.runs} runs</span>
-                <strong>{skill.success}</strong>
-              </div>
-            </section>
-          ))}
-        </div>
-        <SectionPanel title="Skill Details" description="Metadata for the selected Skill">
-          <dl className="grid gap-3 text-sm">
-            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Skill ID</dt><dd className="font-medium">{active.id}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Version</dt><dd className="font-medium">1.2.0</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Author</dt><dd className="font-medium">VaneHub Team</dd></div>
-            <div>
-              <dt className="mb-2 text-muted-foreground">Tags</dt>
-              <TagList tags={[active.category, "Automation", "Workflow"]} />
-            </div>
-          </dl>
-        </SectionPanel>
-      </div>
+      <SkillDialogs
+        scope={scope}
+        state={dialog}
+        workspacePath={scope === "workspace" ? workspacePath : null}
+        onClose={() => setDialog({ mode: null, skill: null, preview: null })}
+        onCreate={(metadata, body, source) => createMutation.mutate({ metadata, body, source })}
+        onImport={(sourcePath) => importMutation.mutate(sourcePath)}
+        onRestore={(skillId) => restoreMutation.mutate(skillId)}
+        onUpdate={(skill, metadata, body) => updateMutation.mutate({ skill, metadata, body })}
+      />
     </div>
   );
 }
