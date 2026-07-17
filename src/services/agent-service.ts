@@ -12,7 +12,7 @@ import type {
   SessionDetails,
   WorkflowState,
 } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent, SendMessageInput } from "../types/chat";
+import type { ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   Skill,
@@ -55,6 +55,7 @@ export interface AgentService {
   unarchiveSession(sessionId: string): Promise<Session>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
+  getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   stopGeneration(sessionId: string): Promise<void>;
   subscribeMessageEvents(
     sessionId: string,

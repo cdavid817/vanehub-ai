@@ -43,6 +43,18 @@ export interface TokenUsage {
   output: number;
 }
 
+export type UsageStatisticsRange = "today" | "last7Days" | "last30Days" | "all";
+
+export interface UsageStatistics {
+  range: UsageStatisticsRange;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  countedMessages: number;
+  countedSessions: number;
+  generatedAt: string;
+}
+
 export interface ChatMessage {
   id: string;
   sessionId: string;

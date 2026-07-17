@@ -15,7 +15,7 @@ import type {
   SessionDetails,
   WorkflowState,
 } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatMessage, ChatStreamEvent, UsageStatistics } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   Skill,
@@ -147,6 +147,12 @@ export const tauriAgentClient: AgentService = {
       sessionId: input.sessionId,
       limit: input.limit ?? null,
       beforeId: input.beforeId ?? null,
+    });
+  },
+
+  getUsageStatistics(input) {
+    return invoke<UsageStatistics>("get_usage_statistics", {
+      range: input.range,
     });
   },
 

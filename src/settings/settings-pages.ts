@@ -1,5 +1,6 @@
 import {
   Bot,
+  BarChart3,
   Boxes,
   Code2,
   Info,
@@ -15,8 +16,9 @@ import { McpPage } from "./pages/mcp-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
+import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
-export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "about";
+export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "usage" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -85,6 +87,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
+  },
+  {
+    id: "usage",
+    labelKey: "settings.pages.usage",
+    crumbKey: "settings.pages.usage",
+    icon: BarChart3,
+    searchPlaceholderKey: "settings.search.usage",
+    component: UsageStatisticsPage,
   },
   {
     id: "about",

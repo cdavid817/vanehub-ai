@@ -194,3 +194,19 @@ The project standards SHALL require future frontend and adapter changes to treat
 #### Scenario: Add new time-consuming frontend behavior
 - **WHEN** a developer adds a frontend workflow that triggers potentially long-running work
 - **THEN** the workflow SHALL expose loading or running state, preserve relevant already loaded data where possible, and route the work through the service and runtime adapter boundary
+
+### Requirement: Usage statistics frontend service boundary
+The frontend SHALL expose usage statistics through a service interface and runtime adapters rather than direct runtime calls from React components.
+
+#### Scenario: Desktop usage statistics adapter
+- **WHEN** the frontend runs inside the Tauri desktop runtime and usage statistics are requested
+- **THEN** the Tauri adapter SHALL call a declared Tauri command through the Agent service boundary
+
+#### Scenario: Web usage statistics adapter
+- **WHEN** the frontend runs outside the Tauri desktop runtime and usage statistics are requested
+- **THEN** the Web adapter SHALL provide compatible mock aggregation without importing or invoking Tauri APIs
+
+#### Scenario: Usage page service consumption
+- **WHEN** the Usage Statistics settings page loads or changes time range
+- **THEN** React components SHALL request usage data through the Agent service and shared data-fetching foundation
+

@@ -12,6 +12,7 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import { createWebMockOperation } from "./web-operation-client";
 import type {
@@ -354,6 +355,47 @@ function sortSessions(items: Session[]) {
     if (left.archived !== right.archived) return left.archived ? 1 : -1;
     return right.updatedAt.localeCompare(left.updatedAt);
   });
+}
+
+function usageRangeStart(range: UsageStatisticsRange, now = new Date()) {
+  if (range === "all") return null;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (range === "last7Days") {
+    start.setDate(start.getDate() - 6);
+  } else if (range === "last30Days") {
+    start.setDate(start.getDate() - 29);
+  }
+  return start;
+}
+
+function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
+  const start = usageRangeStart(range);
+  const countedSessionIds = new Set<string>();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let countedMessages = 0;
+
+  for (const [sessionId, messages] of messagesBySession.entries()) {
+    for (const message of messages) {
+      if (message.role !== "assistant" || !message.tokenUsage) continue;
+      if (start && new Date(message.createdAt) < start) continue;
+      inputTokens += message.tokenUsage.input;
+      outputTokens += message.tokenUsage.output;
+      countedMessages += 1;
+      countedSessionIds.add(sessionId);
+    }
+  }
+
+  return {
+    range,
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    countedMessages,
+    countedSessions: countedSessionIds.size,
+    generatedAt: nowIso(),
+  };
 }
 
 function findSession(sessionId: string) {
@@ -785,6 +827,10 @@ export const webAgentClient: AgentService = {
       : messages.length;
     const boundedEndIndex = endIndex === -1 ? messages.length : endIndex;
     return messages.slice(Math.max(0, boundedEndIndex - limit), boundedEndIndex);
+  },
+
+  async getUsageStatistics(input) {
+    return aggregateWebUsageStatistics(input.range);
   },
 
   async stopGeneration(sessionId: string) {

@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -386,6 +386,27 @@ struct ToolUseBlock {
 struct TokenUsage {
     input: i64,
     output: i64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+enum UsageStatisticsRange {
+    Today,
+    Last7Days,
+    Last30Days,
+    All,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageStatistics {
+    range: UsageStatisticsRange,
+    total_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    counted_messages: i64,
+    counted_sessions: i64,
+    generated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2464,6 +2485,67 @@ fn list_chat_messages(
     Ok(messages)
 }
 
+fn usage_range_start(range: UsageStatisticsRange) -> Option<String> {
+    let now = Utc::now();
+    let start = match range {
+        UsageStatisticsRange::All => return None,
+        UsageStatisticsRange::Today => now.date_naive().and_hms_opt(0, 0, 0)?,
+        UsageStatisticsRange::Last7Days => (now - ChronoDuration::days(6))
+            .date_naive()
+            .and_hms_opt(0, 0, 0)?,
+        UsageStatisticsRange::Last30Days => (now - ChronoDuration::days(29))
+            .date_naive()
+            .and_hms_opt(0, 0, 0)?,
+    };
+    Some(start.and_utc().to_rfc3339())
+}
+
+fn aggregate_usage_statistics(
+    conn: &Connection,
+    range: UsageStatisticsRange,
+) -> Result<UsageStatistics, AppError> {
+    let start = usage_range_start(range);
+    let (input_tokens, output_tokens, counted_messages, counted_sessions): (i64, i64, i64, i64) =
+        if let Some(start) = start {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(token_input), 0),
+                    COALESCE(SUM(token_output), 0),
+                    COUNT(*),
+                    COUNT(DISTINCT session_id)
+                 FROM messages
+                 WHERE role = 'assistant'
+                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)
+                   AND created_at >= ?1",
+                params![start],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?
+        } else {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(token_input), 0),
+                    COALESCE(SUM(token_output), 0),
+                    COUNT(*),
+                    COUNT(DISTINCT session_id)
+                 FROM messages
+                 WHERE role = 'assistant'
+                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?
+        };
+
+    Ok(UsageStatistics {
+        range,
+        total_tokens: input_tokens + output_tokens,
+        input_tokens,
+        output_tokens,
+        counted_messages,
+        counted_sessions,
+        generated_at: current_timestamp(),
+    })
+}
+
 fn complete_assistant_message(
     conn: &Connection,
     message_id: &str,
@@ -4334,6 +4416,18 @@ fn list_messages(
     list_chat_messages(&conn, &session_id, limit, before_id.as_deref())
 }
 
+#[tauri::command]
+fn get_usage_statistics(
+    state: State<'_, Mutex<RegistryStore>>,
+    range: UsageStatisticsRange,
+) -> Result<UsageStatistics, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    aggregate_usage_statistics(&conn, range)
+}
+
 fn stop_generation_for_session(
     app: &AppHandle,
     conn: &Connection,
@@ -4515,6 +4609,7 @@ pub fn run() {
             delete_session,
             send_message,
             list_messages,
+            get_usage_statistics,
             stop_generation,
             get_settings,
             save_setting,
@@ -4917,6 +5012,108 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![first.id.as_str()]
         );
+    }
+
+    #[test]
+    fn usage_statistics_aggregates_all_time_message_usage() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+        insert_test_session(&conn, "session-2");
+
+        let first = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("first assistant");
+        let second = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("second assistant");
+        let third = insert_chat_message(&conn, "session-2", "assistant", "streaming", "")
+            .expect("third assistant");
+        insert_chat_message(&conn, "session-2", "user", "completed", "not counted")
+            .expect("user message");
+
+        complete_assistant_message(
+            &conn,
+            &first.id,
+            "first",
+            &TokenUsage {
+                input: 10,
+                output: 20,
+            },
+        )
+        .expect("complete first");
+        complete_assistant_message(
+            &conn,
+            &second.id,
+            "second",
+            &TokenUsage {
+                input: 5,
+                output: 7,
+            },
+        )
+        .expect("complete second");
+        complete_assistant_message(
+            &conn,
+            &third.id,
+            "third",
+            &TokenUsage {
+                input: 0,
+                output: 0,
+            },
+        )
+        .expect("complete third");
+
+        let stats =
+            aggregate_usage_statistics(&conn, UsageStatisticsRange::All).expect("usage stats");
+
+        assert_eq!(stats.input_tokens, 15);
+        assert_eq!(stats.output_tokens, 27);
+        assert_eq!(stats.total_tokens, 42);
+        assert_eq!(stats.counted_messages, 2);
+        assert_eq!(stats.counted_sessions, 1);
+    }
+
+    #[test]
+    fn usage_statistics_filters_by_range_start() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+
+        let old_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("old assistant");
+        let recent_message =
+            insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+                .expect("recent assistant");
+        complete_assistant_message(
+            &conn,
+            &old_message.id,
+            "old",
+            &TokenUsage {
+                input: 100,
+                output: 100,
+            },
+        )
+        .expect("complete old");
+        complete_assistant_message(
+            &conn,
+            &recent_message.id,
+            "recent",
+            &TokenUsage {
+                input: 8,
+                output: 13,
+            },
+        )
+        .expect("complete recent");
+
+        let old_timestamp = (Utc::now() - ChronoDuration::days(40)).to_rfc3339();
+        conn.execute(
+            "UPDATE messages SET created_at = ?1 WHERE id = ?2",
+            params![old_timestamp, old_message.id],
+        )
+        .expect("age old message");
+
+        let stats = aggregate_usage_statistics(&conn, UsageStatisticsRange::Last30Days)
+            .expect("range stats");
+
+        assert_eq!(stats.input_tokens, 8);
+        assert_eq!(stats.output_tokens, 13);
+        assert_eq!(stats.counted_messages, 1);
     }
 
     #[test]

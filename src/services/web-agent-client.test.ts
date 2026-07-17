@@ -201,6 +201,38 @@ describe("webAgentClient", () => {
     unsubscribe();
   });
 
+  it("aggregates mock usage statistics from completed assistant messages", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Usage stats",
+    });
+    const before = await webAgentClient.getUsageStatistics({ range: "all" });
+    const content = "usage statistics please";
+    await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content,
+      config: {
+        agentId: session.agentId,
+        interactionMode: session.interactionMode,
+        permissionMode: "default",
+        streaming: true,
+        thinking: false,
+        longContext: false,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    const after = await webAgentClient.getUsageStatistics({ range: "all" });
+
+    expect(after.inputTokens - before.inputTokens).toBe(content.length);
+    expect(after.outputTokens).toBeGreaterThan(before.outputTokens);
+    expect(after.totalTokens).toBe(after.inputTokens + after.outputTokens);
+    expect(after.countedMessages).toBe(before.countedMessages + 1);
+    expect(after.countedSessions).toBeGreaterThanOrEqual(before.countedSessions);
+  });
+
   it("cancels active mock generation and preserves partial content", async () => {
     vi.useFakeTimers();
     const session = await createMockSession({
