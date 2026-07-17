@@ -20,6 +20,8 @@ const checkedFiles = [
   "src/components/chat/selectors/ModelSelect.tsx",
   "src/components/chat/selectors/ProviderSelect.tsx",
   "src/components/chat/selectors/ReasoningSelect.tsx",
+  "src/floating-assistant/floating-assistant-app.tsx",
+  "src/settings/pages/floating-assistant-settings-section.tsx",
 ];
 
 const disallowedLiteralPatterns = [

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { MainLayout } from "./main-layout/main-layout";
 import { SettingsShell } from "./settings/settings-shell";
 import { SettingsProvider } from "./settings/settings-provider";
@@ -8,6 +8,8 @@ import { ThemeProvider } from "./theme/theme-provider";
 import { useTranslation } from "react-i18next";
 import { settingsService } from "./services/runtime-settings-client";
 import { NotificationProvider } from "./notifications/notification-provider";
+import { floatingAssistantService } from "./services/runtime-floating-assistant-client";
+import { useEffect } from "react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,8 +36,39 @@ function RouteErrorFallback({ error }: { error: unknown }) {
 
 function WorkspaceRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  return <MainLayout onOpenSettings={() => navigate("/settings")} />;
+  return <MainLayout onOpenSettings={() => navigate("/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
+}
+
+function AppRoutes() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    let cleanup: (() => void) | undefined;
+    void floatingAssistantService.subscribeEvents((event) => {
+      if (event.kind !== "main-action") return;
+      if (event.action === "new-session") navigate("/workspace?createSession=1");
+      else if (event.action === "current-session") navigate("/workspace");
+      else navigate("/settings");
+    }).then((unsubscribe) => {
+      if (active) cleanup = unsubscribe;
+      else unsubscribe();
+    });
+    return () => {
+      active = false;
+      cleanup?.();
+    };
+  }, [navigate]);
+
+  return (
+    <Routes>
+      <Route element={<WorkspaceRoute />} path="/workspace" />
+      <Route element={<SettingsRoute />} path="/settings" />
+      <Route element={<Navigate replace to="/workspace" />} path="*" />
+    </Routes>
+  );
 }
 
 function SettingsRoute() {
@@ -66,11 +99,7 @@ export function App() {
                 });
               }}
               >
-                <Routes>
-                  <Route element={<WorkspaceRoute />} path="/workspace" />
-                  <Route element={<SettingsRoute />} path="/settings" />
-                  <Route element={<Navigate replace to="/workspace" />} path="*" />
-                </Routes>
+                <AppRoutes />
               </ErrorBoundary>
             </BrowserRouter>
           </QueryClientProvider>

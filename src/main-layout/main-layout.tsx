@@ -10,7 +10,8 @@ import { cn } from "../lib/utils";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
-import type { ChatConfig, ChatMessage as ChatMessageModel, ChatStreamEvent } from "../types/chat";
+import type { ChatConfig } from "../types/chat";
+import { useActiveSessionQuery, useSessionMessageEvents } from "../hooks/use-active-session-chat";
 import { CreateSessionDialog } from "./create-session-dialog";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
@@ -125,37 +126,7 @@ function KeepAlivePane({ active, children }: { active: boolean; children: ReactN
   return <div className={cn("h-full", active ? "block" : "hidden")}>{children}</div>;
 }
 
-function applyChatEvent(messages: ChatMessageModel[], event: ChatStreamEvent) {
-  return messages.map((message) => {
-    if (message.id !== event.messageId) return message;
-    const timestamp = new Date().toISOString();
-    if (event.type === "token") {
-      return { ...message, content: `${message.content}${event.contentDelta}`, updatedAt: timestamp };
-    }
-    if (event.type === "thinking") {
-      return {
-        ...message,
-        thinkingContent: `${message.thinkingContent ?? ""}${event.contentDelta}`,
-        updatedAt: timestamp,
-      };
-    }
-    if (event.type === "tool_use") {
-      return { ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt: timestamp };
-    }
-    if (event.type === "completed") {
-      return { ...message, status: "completed" as const, tokenUsage: event.tokenUsage, updatedAt: timestamp };
-    }
-    if (event.type === "failed") {
-      return { ...message, status: "failed" as const, error: event.error, updatedAt: timestamp };
-    }
-    if (event.type === "cancelled") {
-      return { ...message, status: "cancelled" as const, updatedAt: timestamp };
-    }
-    return message;
-  });
-}
-
-export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function MainLayout({ onOpenSettings, openCreateSession = false }: { onOpenSettings: () => void; openCreateSession?: boolean }) {
   const { i18n, t } = useTranslation();
   const { notify } = useNotifications();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("activity");
@@ -163,7 +134,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [createSessionOpen, setCreateSessionOpen] = useState(false);
+  const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [chatDraft, setChatDraft] = useState("");
   const [messageLimit, setMessageLimit] = useState(50);
   const queryClient = useQueryClient();
@@ -180,16 +151,13 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     queryKey: ["sessions", "archived"],
     queryFn: () => agentService.listArchivedSessions(),
   });
-  const activeSessionQuery = useQuery({
-    queryKey: ["sessions", "active"],
-    queryFn: () => agentService.getActiveSession(),
-  });
+  const activeSessionQuery = useActiveSessionQuery();
   const sessions = sessionsQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
   const archivedSessions = archivedSessionsQuery.data ?? [];
   const activeSession = activeSessionQuery.data ?? null;
   const activeSessionId = activeSession?.id ?? null;
-  const messagesQueryKey = ["messages", activeSessionId, messageLimit] as const;
+  const messagesQueryKey = useMemo(() => ["messages", activeSessionId, messageLimit] as const, [activeSessionId, messageLimit]);
   const messagesQuery = useQuery({
     enabled: Boolean(activeSessionId),
     queryKey: messagesQueryKey,
@@ -270,30 +238,19 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const progressTotal = progressStats.complete + progressStats.running + progressStats.pending;
   const progressPercent = Math.round((progressStats.complete / progressTotal) * 100);
 
-  useEffect(() => {
-    if (!activeSessionId) return;
-    let cleanup: (() => void) | null = null;
-    let cancelled = false;
-    void agentService.subscribeMessageEvents(activeSessionId, (event) => {
-      queryClient.setQueryData<ChatMessageModel[]>(["messages", activeSessionId, messageLimit], (currentMessages) =>
-        applyChatEvent(currentMessages ?? [], event),
-      );
-      if (event.type === "completed" || event.type === "failed" || event.type === "cancelled") {
-        invalidateSessions();
-      }
-    }).then((unsubscribe) => {
-      if (cancelled) unsubscribe();
-      else cleanup = unsubscribe;
-    });
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
-  }, [activeSessionId, messageLimit, queryClient]);
+  useSessionMessageEvents({
+    sessionId: activeSessionId,
+    queryKey: messagesQueryKey,
+    onTerminal: invalidateSessions,
+  });
 
   useEffect(() => {
     setMessageLimit(50);
   }, [activeSessionId]);
+
+  useEffect(() => {
+    if (openCreateSession) setCreateSessionOpen(true);
+  }, [openCreateSession]);
 
   function toggleFolder(folder: string) {
     setExpandedFolders((current) => {

@@ -14,10 +14,12 @@ use thiserror::Error;
 mod cli_parameters;
 mod command_safety;
 mod extensions;
+mod floating_assistant;
 mod logging;
 mod mcp;
 mod network_proxy;
 mod sdk;
+mod session_configuration;
 mod skills;
 mod tasks;
 mod usage;
@@ -102,7 +104,7 @@ fn record_native_error(category: &str, error: &AppError) {
     record_native_log(NativeLogLevel::Error, category, &error.to_string());
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 enum InteractionMode {
     Browser,
@@ -298,6 +300,13 @@ struct SaveSettingInput {
     value: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsStateEvent {
+    kind: &'static str,
+    key: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct NodeInfo {
@@ -363,7 +372,7 @@ struct CreateWorktreeInput {
     name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ChatConfig {
     agent_id: String,
@@ -453,6 +462,23 @@ enum ChatStreamEvent {
         session_id: String,
         message_id: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStateEvent {
+    kind: String,
+    session_id: Option<String>,
+}
+
+fn emit_session_state_event(app: &AppHandle, kind: &str, session_id: Option<&str>) {
+    let _ = app.emit(
+        "session:event",
+        SessionStateEvent {
+            kind: kind.to_string(),
+            session_id: session_id.map(str::to_string),
+        },
+    );
 }
 
 #[derive(Debug, PartialEq)]
@@ -978,27 +1004,71 @@ struct ChatRuntimeManager {
     active: Mutex<HashMap<String, ActiveGeneration>>,
 }
 
+struct GenerationReservation<'a> {
+    runtime: &'a ChatRuntimeManager,
+    session_id: String,
+    attached: bool,
+}
+
+impl Drop for GenerationReservation<'_> {
+    fn drop(&mut self) {
+        if !self.attached {
+            let _ = self.runtime.complete(&self.session_id);
+        }
+    }
+}
+
 impl ChatRuntimeManager {
-    fn start(
-        &self,
-        session_id: String,
-        message_id: String,
-        process: Option<Child>,
-    ) -> Result<(), AppError> {
+    fn reserve(&self, session_id: String) -> Result<GenerationReservation<'_>, AppError> {
         let mut active = self
             .active
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
+        if active.contains_key(&session_id) {
+            return Err(AppError::Validation(format!(
+                "A generation is already active for session {session_id}."
+            )));
+        }
         active.insert(
-            session_id,
+            session_id.clone(),
             ActiveGeneration {
-                message_id,
-                process,
+                message_id: String::new(),
+                process: None,
             },
         );
+        Ok(GenerationReservation {
+            runtime: self,
+            session_id,
+            attached: false,
+        })
+    }
+}
+
+impl GenerationReservation<'_> {
+    fn attach(mut self, message_id: String, mut process: Option<Child>) -> Result<(), AppError> {
+        let mut active = self
+            .runtime
+            .active
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let Some(generation) = active.get_mut(&self.session_id) else {
+            if let Some(child) = process.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(AppError::Validation(format!(
+                "Generation for session {} was cancelled before startup completed.",
+                self.session_id
+            )));
+        };
+        generation.message_id = message_id;
+        generation.process = process;
+        self.attached = true;
         Ok(())
     }
+}
 
+impl ChatRuntimeManager {
     fn complete(&self, session_id: &str) -> Result<(), AppError> {
         let mut active = self
             .active
@@ -1116,6 +1186,18 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         12,
         "cli-parameter-settings",
         cli_parameters::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        13,
+        "session-chat-configuration",
+        session_configuration::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        14,
+        "floating-assistant-configuration",
+        floating_assistant::apply_schema,
     )?;
 
     Ok(())
@@ -3366,14 +3448,26 @@ fn get_settings(state: State<'_, Mutex<RegistryStore>>) -> Result<AppSettings, A
 
 #[tauri::command]
 fn save_setting(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     input: SaveSettingInput,
 ) -> Result<AppSettings, AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    save_setting_to_conn(&conn, &input.key, &input.value)
+    let settings = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_setting_to_conn(&conn, &input.key, &input.value)?
+    };
+    app.emit(
+        "settings:event",
+        SettingsStateEvent {
+            kind: "settings-changed",
+            key: input.key,
+        },
+    )
+    .map_err(|err| AppError::Storage(err.to_string()))?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -4242,6 +4336,7 @@ fn create_session(
 
         match result {
             Ok(session) => {
+                emit_session_state_event(&app, "active-session-changed", Some(&session.id));
                 let _ =
                     registry.append_log(&operation_id, format!("Created session {}", session.id));
                 let _ = registry.complete(&operation_id, serde_json::to_value(&session).ok());
@@ -4396,7 +4491,36 @@ fn get_active_session(state: State<'_, Mutex<RegistryStore>>) -> Result<Option<S
 }
 
 #[tauri::command]
+fn get_session_chat_config(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    session_configuration::load_from_conn(&conn, &session_id)
+}
+
+#[tauri::command]
+fn save_session_chat_config(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    config: ChatConfig,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let saved = session_configuration::save_to_conn(&conn, &session_id, &config)?;
+    emit_session_state_event(&app, "configuration-changed", Some(&session_id));
+    Ok(saved)
+}
+
+#[tauri::command]
 fn switch_session(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     session_id: String,
 ) -> Result<Session, AppError> {
@@ -4411,6 +4535,7 @@ fn switch_session(
         )));
     }
     update_active_workflow_for_session(&conn, &session)?;
+    emit_session_state_event(&app, "active-session-changed", Some(&session.id));
     Ok(session)
 }
 
@@ -4476,6 +4601,7 @@ fn archive_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(session)
 }
 
@@ -4506,6 +4632,7 @@ fn delete_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(())
 }
 
@@ -4536,7 +4663,9 @@ fn send_message(
             "Cannot send a message to archived session: {session_id}"
         )));
     }
+    let config = session_configuration::validate_for_session(&conn, &session_id, &config)?;
     let selected_agent = load_agent(&conn, &session.agent_id)?;
+    let reservation = runtime.reserve(session_id.clone())?;
 
     insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
     let assistant_message = insert_chat_message(&conn, &session_id, "assistant", "streaming", "")?;
@@ -4580,11 +4709,7 @@ fn send_message(
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
-    runtime.start(
-        session_id.clone(),
-        assistant_message.id.clone(),
-        Some(spawned.child),
-    )?;
+    reservation.attach(assistant_message.id.clone(), Some(spawned.child))?;
     let background_app = app.clone();
     let background_session_id = session_id.clone();
     let background_agent = selected_agent.clone();
@@ -4765,6 +4890,13 @@ pub fn run() {
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
             app.manage(extensions::commands::ExtensionRuntimeManager::default());
+            if let Err(error) = floating_assistant::initialize(app.handle()) {
+                record_native_log(
+                    NativeLogLevel::Error,
+                    "floating-assistant.initialize",
+                    &error.to_string(),
+                );
+            }
             let should_refresh = {
                 let store = app.state::<Mutex<RegistryStore>>();
                 let store = store.lock().map_err(|err| {
@@ -4787,6 +4919,47 @@ pub fn run() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let enabled = floating_assistant::should_hide_main_on_close(app);
+                let floating = app.get_webview_window(floating_assistant::FLOATING_ASSISTANT_LABEL);
+                if floating_assistant::should_intercept_main_close(enabled, floating.is_some()) {
+                    if let Some(floating) = floating {
+                        match floating.show() {
+                            Ok(()) => {
+                                api.prevent_close();
+                                if let Err(error) = window.hide() {
+                                    record_native_log(
+                                        NativeLogLevel::Error,
+                                        "floating-assistant.hide-main",
+                                        &error.to_string(),
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                record_native_log(
+                                    NativeLogLevel::Error,
+                                    "floating-assistant.hide-main",
+                                    &format!(
+                                        "floating show failed; allowing normal close: {error}"
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                } else if enabled {
+                    record_native_log(
+                        NativeLogLevel::Error,
+                        "floating-assistant.hide-main",
+                        "floating window missing; allowing normal application close",
+                    );
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_agents,
             list_cli_tools,
@@ -4808,6 +4981,8 @@ pub fn run() {
             list_sessions,
             list_archived_sessions,
             get_active_session,
+            get_session_chat_config,
+            save_session_chat_config,
             switch_session,
             rename_session,
             pin_session,
@@ -4821,6 +4996,15 @@ pub fn run() {
             stop_generation,
             get_settings,
             save_setting,
+            floating_assistant::get_floating_assistant_runtime_info,
+            floating_assistant::get_floating_assistant_config,
+            floating_assistant::set_floating_assistant_enabled,
+            floating_assistant::set_floating_assistant_surface,
+            floating_assistant::start_floating_assistant_drag,
+            floating_assistant::save_floating_assistant_anchor,
+            floating_assistant::persist_floating_assistant_position,
+            floating_assistant::show_main_window,
+            floating_assistant::exit_application,
             test_network_proxy,
             scan_network_proxies,
             open_log_directory,
@@ -4879,7 +5063,7 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    fn test_conn() -> Connection {
+    pub(crate) fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         seed_agents(&conn).expect("seed");
@@ -4932,7 +5116,10 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(
+            versions,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        );
     }
 
     #[test]
@@ -5152,7 +5339,7 @@ mod tests {
         assert!(save_setting_to_conn(&conn, "networkProxyBypass", "localhost\nbad").is_err());
     }
 
-    fn insert_test_session(conn: &Connection, session_id: &str) {
+    pub(crate) fn insert_test_session(conn: &Connection, session_id: &str) {
         let now = current_timestamp();
         conn.execute(
             "INSERT INTO sessions
@@ -5734,8 +5921,10 @@ mod tests {
     fn runtime_manager_tracks_and_soft_cancels_generation() {
         let manager = ChatRuntimeManager::default();
         manager
-            .start("session-1".to_string(), "message-1".to_string(), None)
-            .expect("start");
+            .reserve("session-1".to_string())
+            .expect("reserve")
+            .attach("message-1".to_string(), None)
+            .expect("attach");
 
         let outcome = manager.stop("session-1").expect("stop");
 
@@ -5749,6 +5938,19 @@ mod tests {
             manager.stop("session-1").expect("second stop"),
             StopGenerationOutcome::NoActiveGeneration
         );
+    }
+
+    #[test]
+    fn runtime_manager_rejects_concurrent_generation_for_same_session() {
+        let manager = ChatRuntimeManager::default();
+        let reservation = manager
+            .reserve("session-1".to_string())
+            .expect("first reserve");
+        let duplicate = manager.reserve("session-1".to_string());
+        assert!(matches!(duplicate, Err(AppError::Validation(_))));
+        reservation
+            .attach("message-1".to_string(), None)
+            .expect("attach");
     }
 
     #[test]
