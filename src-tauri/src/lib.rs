@@ -1,12 +1,15 @@
 use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -194,6 +197,11 @@ struct CliToolStatus {
     last_error: Option<String>,
     last_operation_id: Option<String>,
     version_check_status: CliVersionCheckStatus,
+    environment_type: CliEnvironmentType,
+    installations: Vec<CliInstallation>,
+    active_installation_path: Option<String>,
+    conflict_state: CliConflictState,
+    lifecycle_eligibility: CliLifecycleEligibility,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +211,75 @@ enum CliVersionCheckStatus {
     NotDetected,
     Succeeded,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum CliEnvironmentType {
+    Windows,
+    Macos,
+    Linux,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliInstallSource {
+    Npm,
+    Winget,
+    Desktop,
+    Homebrew,
+    Volta,
+    Bun,
+    Vendor,
+    System,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliConflictState {
+    None,
+    Multiple,
+    VersionMismatch,
+    RunnableMismatch,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliLifecycleEligibility {
+    Npm,
+    Manual,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CliInstallation {
+    path: String,
+    version: Option<String>,
+    runnable: bool,
+    error: Option<String>,
+    source: CliInstallSource,
+    environment_type: CliEnvironmentType,
+    is_active: bool,
+}
+
+#[derive(Default)]
+struct CliMutationGuard {
+    active: AtomicBool,
+}
+
+impl CliMutationGuard {
+    fn try_acquire(&self) -> bool {
+        self.active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn release(&self) {
+        self.active.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1240,6 +1317,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "local-extension-management",
         extensions::service::apply_schema,
     )?;
+    apply_migration(
+        conn,
+        16,
+        "cli-local-environment-details",
+        apply_cli_environment_details_migration,
+    )?;
 
     Ok(())
 }
@@ -1298,6 +1381,28 @@ fn apply_cli_tool_status_migration(conn: &Connection) -> Result<(), AppError> {
         );
         "#,
     )?;
+    Ok(())
+}
+
+fn apply_cli_environment_details_migration(conn: &Connection) -> Result<(), AppError> {
+    let columns = [
+        ("environment_type", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("installations", "TEXT NOT NULL DEFAULT '[]'"),
+        ("active_installation_path", "TEXT"),
+        ("conflict_state", "TEXT NOT NULL DEFAULT 'none'"),
+        (
+            "lifecycle_eligibility",
+            "TEXT NOT NULL DEFAULT 'unavailable'",
+        ),
+    ];
+    for (column, definition) in columns {
+        if !table_has_column(conn, "cli_tool_status", column)? {
+            conn.execute(
+                &format!("ALTER TABLE cli_tool_status ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -1685,49 +1790,65 @@ fn cli_package_failure_context(
     context
 }
 
+struct PersistedCliStatusRow {
+    installed: Option<i64>,
+    current_version: Option<String>,
+    latest_version: Option<String>,
+    available_versions: String,
+    detected_path: Option<String>,
+    last_checked_at: Option<String>,
+    last_error: Option<String>,
+    last_operation_id: Option<String>,
+    version_check_status: String,
+    environment_type: String,
+    installations: String,
+    active_installation_path: Option<String>,
+    conflict_state: String,
+    lifecycle_eligibility: String,
+}
+
+fn current_cli_environment_type() -> CliEnvironmentType {
+    if cfg!(target_os = "windows") {
+        CliEnvironmentType::Windows
+    } else if cfg!(target_os = "macos") {
+        CliEnvironmentType::Macos
+    } else if cfg!(target_os = "linux") {
+        CliEnvironmentType::Linux
+    } else {
+        CliEnvironmentType::Unknown
+    }
+}
+
 fn status_from_row(
     definition: CliToolDefinition,
-    row: Option<(
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-    )>,
+    row: Option<PersistedCliStatusRow>,
 ) -> CliToolStatus {
-    if let Some((
-        installed,
-        current_version,
-        latest_version,
-        available_versions,
-        detected_path,
-        last_checked_at,
-        last_error,
-        last_operation_id,
-        version_check_status,
-    )) = row
-    {
+    if let Some(row) = row {
         return CliToolStatus {
             agent_id: definition.agent_id.to_string(),
             display_name: definition.display_name.to_string(),
             provider: definition.provider.to_string(),
             executable_name: definition.executable_name.to_string(),
             package_name: definition.package_name.to_string(),
-            installed: installed.map(|value| value != 0),
-            current_version,
-            latest_version,
-            available_versions: serde_json::from_str::<Vec<String>>(&available_versions)
+            installed: row.installed.map(|value| value != 0),
+            current_version: row.current_version,
+            latest_version: row.latest_version,
+            available_versions: serde_json::from_str::<Vec<String>>(&row.available_versions)
                 .unwrap_or_default(),
-            detected_path,
+            detected_path: row.detected_path,
             install_command: install_command_for(definition),
-            last_checked_at,
-            last_error,
-            last_operation_id,
-            version_check_status: parse_cli_version_check_status(&version_check_status),
+            last_checked_at: row.last_checked_at,
+            last_error: row.last_error,
+            last_operation_id: row.last_operation_id,
+            version_check_status: parse_cli_version_check_status(&row.version_check_status),
+            environment_type: parse_cli_environment_type(&row.environment_type),
+            installations: serde_json::from_str::<Vec<CliInstallation>>(&row.installations)
+                .unwrap_or_default(),
+            active_installation_path: row.active_installation_path,
+            conflict_state: parse_cli_conflict_state(&row.conflict_state),
+            lifecycle_eligibility: parse_cli_lifecycle_eligibility(
+                &row.lifecycle_eligibility,
+            ),
         };
     }
 
@@ -1747,6 +1868,11 @@ fn status_from_row(
         last_error: None,
         last_operation_id: None,
         version_check_status: CliVersionCheckStatus::NotDetected,
+        environment_type: current_cli_environment_type(),
+        installations: Vec::new(),
+        active_installation_path: None,
+        conflict_state: CliConflictState::None,
+        lifecycle_eligibility: CliLifecycleEligibility::Unavailable,
     }
 }
 
@@ -1765,6 +1891,58 @@ fn cli_version_check_status_str(value: &CliVersionCheckStatus) -> &'static str {
         CliVersionCheckStatus::NotDetected => "not-detected",
         CliVersionCheckStatus::Succeeded => "succeeded",
         CliVersionCheckStatus::Failed => "failed",
+    }
+}
+
+fn parse_cli_environment_type(value: &str) -> CliEnvironmentType {
+    match value {
+        "windows" => CliEnvironmentType::Windows,
+        "macos" => CliEnvironmentType::Macos,
+        "linux" => CliEnvironmentType::Linux,
+        _ => CliEnvironmentType::Unknown,
+    }
+}
+
+fn cli_environment_type_str(value: CliEnvironmentType) -> &'static str {
+    match value {
+        CliEnvironmentType::Windows => "windows",
+        CliEnvironmentType::Macos => "macos",
+        CliEnvironmentType::Linux => "linux",
+        CliEnvironmentType::Unknown => "unknown",
+    }
+}
+
+fn parse_cli_conflict_state(value: &str) -> CliConflictState {
+    match value {
+        "multiple" => CliConflictState::Multiple,
+        "version-mismatch" => CliConflictState::VersionMismatch,
+        "runnable-mismatch" => CliConflictState::RunnableMismatch,
+        _ => CliConflictState::None,
+    }
+}
+
+fn cli_conflict_state_str(value: CliConflictState) -> &'static str {
+    match value {
+        CliConflictState::None => "none",
+        CliConflictState::Multiple => "multiple",
+        CliConflictState::VersionMismatch => "version-mismatch",
+        CliConflictState::RunnableMismatch => "runnable-mismatch",
+    }
+}
+
+fn parse_cli_lifecycle_eligibility(value: &str) -> CliLifecycleEligibility {
+    match value {
+        "npm" => CliLifecycleEligibility::Npm,
+        "manual" => CliLifecycleEligibility::Manual,
+        _ => CliLifecycleEligibility::Unavailable,
+    }
+}
+
+fn cli_lifecycle_eligibility_str(value: CliLifecycleEligibility) -> &'static str {
+    match value {
+        CliLifecycleEligibility::Npm => "npm",
+        CliLifecycleEligibility::Manual => "manual",
+        CliLifecycleEligibility::Unavailable => "unavailable",
     }
 }
 
@@ -1790,21 +1968,28 @@ fn load_cli_tool_status(
     let row = conn
         .query_row(
             "SELECT installed, current_version, latest_version, available_versions, detected_path,
-                    last_checked_at, last_error, last_operation_id, version_check_status
+                    last_checked_at, last_error, last_operation_id, version_check_status,
+                    environment_type, installations, active_installation_path, conflict_state,
+                    lifecycle_eligibility
              FROM cli_tool_status WHERE agent_id = ?1",
             params![definition.agent_id],
             |row| {
-                Ok((
-                    row.get::<_, Option<i64>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
+                Ok(PersistedCliStatusRow {
+                    installed: row.get(0)?,
+                    current_version: row.get(1)?,
+                    latest_version: row.get(2)?,
+                    available_versions: row.get(3)?,
+                    detected_path: row.get(4)?,
+                    last_checked_at: row.get(5)?,
+                    last_error: row.get(6)?,
+                    last_operation_id: row.get(7)?,
+                    version_check_status: row.get(8)?,
+                    environment_type: row.get(9)?,
+                    installations: row.get(10)?,
+                    active_installation_path: row.get(11)?,
+                    conflict_state: row.get(12)?,
+                    lifecycle_eligibility: row.get(13)?,
+                })
             },
         )
         .optional()?;
@@ -1814,11 +1999,15 @@ fn load_cli_tool_status(
 fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(), AppError> {
     let available_versions = serde_json::to_string(&status.available_versions)
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let installations = serde_json::to_string(&status.installations)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     conn.execute(
         "INSERT INTO cli_tool_status (
             agent_id, installed, current_version, latest_version, available_versions, detected_path,
-            last_checked_at, last_error, last_operation_id, version_check_status
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            last_checked_at, last_error, last_operation_id, version_check_status,
+            environment_type, installations, active_installation_path, conflict_state,
+            lifecycle_eligibility
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
         ON CONFLICT(agent_id) DO UPDATE SET
             installed = excluded.installed,
             current_version = excluded.current_version,
@@ -1828,7 +2017,12 @@ fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(),
             last_checked_at = excluded.last_checked_at,
             last_error = excluded.last_error,
             last_operation_id = excluded.last_operation_id,
-            version_check_status = excluded.version_check_status",
+            version_check_status = excluded.version_check_status,
+            environment_type = excluded.environment_type,
+            installations = excluded.installations,
+            active_installation_path = excluded.active_installation_path,
+            conflict_state = excluded.conflict_state,
+            lifecycle_eligibility = excluded.lifecycle_eligibility",
         params![
             status.agent_id,
             status.installed.map(|value| if value { 1 } else { 0 }),
@@ -1840,30 +2034,198 @@ fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(),
             status.last_error,
             status.last_operation_id,
             cli_version_check_status_str(&status.version_check_status),
+            cli_environment_type_str(status.environment_type),
+            installations,
+            status.active_installation_path,
+            cli_conflict_state_str(status.conflict_state),
+            cli_lifecycle_eligibility_str(status.lifecycle_eligibility),
         ],
     )?;
     Ok(())
 }
 
-fn resolve_command_path(command_name: &str) -> Option<String> {
+fn resolve_command_paths(command_name: &str) -> Vec<String> {
     let helper = if cfg!(target_os = "windows") {
         "where"
     } else {
         "which"
     };
-    let mut command = command_safety::std_command(helper).ok()?;
+    let Ok(mut command) = command_safety::std_command(helper) else {
+        return Vec::new();
+    };
+    if !cfg!(target_os = "windows") {
+        command.arg("-a");
+    }
     command.arg(command_name);
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?;
+    let Ok(output) = command_output_with_timeout(&mut command, Duration::from_secs(2)) else {
+        return Vec::new();
+    };
     if !output.success {
-        return None;
+        return Vec::new();
     }
     output
         .stdout
         .lines()
-        .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+        .collect()
+}
+
+fn resolve_command_path(command_name: &str) -> Option<String> {
+    resolve_command_paths(command_name).into_iter().next()
+}
+
+fn known_cli_candidate_paths(definition: CliToolDefinition) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(app_data) = std::env::var_os("APPDATA") {
+            let base = PathBuf::from(app_data).join("npm");
+            candidates.push(base.join(format!("{}.cmd", definition.executable_name)));
+            candidates.push(base.join(format!("{}.exe", definition.executable_name)));
+        }
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let base = PathBuf::from(local_app_data);
+            candidates.push(
+                base.join("Programs")
+                    .join("OpenAI")
+                    .join("Codex")
+                    .join("bin")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
+            candidates.push(
+                base.join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            for relative in [
+                ".local/bin",
+                ".npm-global/bin",
+                ".volta/bin",
+                ".bun/bin",
+            ] {
+                candidates.push(home.join(relative).join(definition.executable_name));
+            }
+        }
+        for base in ["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
+            candidates.push(PathBuf::from(base).join(definition.executable_name));
+        }
+    }
+    candidates
+}
+
+fn cli_candidate_key(path: &Path) -> String {
+    let normalized = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut key_path = normalized.clone();
+    #[cfg(target_os = "windows")]
+    {
+        let extension = normalized
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if extension == "cmd" || extension == "ps1" || extension.is_empty() {
+            key_path.set_extension("");
+        }
+    }
+    let key = key_path.to_string_lossy().replace('\\', "/");
+    if cfg!(target_os = "windows") {
+        key.to_ascii_lowercase()
+    } else {
+        key.to_string()
+    }
+}
+
+fn enumerate_cli_candidates(definition: CliToolDefinition) -> Vec<PathBuf> {
+    let mut paths = resolve_command_paths(definition.executable_name)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    paths.extend(known_cli_candidate_paths(definition));
+    let mut seen = HashSet::new();
+    paths
+        .into_iter()
+        .filter(|path| path.is_file())
+        .filter(|path| seen.insert(cli_candidate_key(path)))
+        .take(24)
+        .collect()
+}
+
+fn classify_cli_install_source(path: &Path) -> CliInstallSource {
+    let value = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let parent = path.parent();
+    let npm_sibling = parent
+        .map(|parent| parent.join(if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" }))
+        .is_some_and(|candidate| candidate.is_file());
+    if value.contains("/microsoft/winget/packages/") || value.contains("/microsoft/winget/links/") {
+        CliInstallSource::Winget
+    } else if value.contains("/programs/openai/codex/") {
+        CliInstallSource::Desktop
+    } else if value.contains("/appdata/roaming/npm/")
+        || value.contains("/.npm/")
+        || value.contains("/node_modules/")
+        || npm_sibling
+    {
+        CliInstallSource::Npm
+    } else if value.contains("/homebrew/") || value.contains("/cellar/") {
+        CliInstallSource::Homebrew
+    } else if value.contains("/.volta/") {
+        CliInstallSource::Volta
+    } else if value.contains("/.bun/") {
+        CliInstallSource::Bun
+    } else if value.contains("/.local/bin/") || value.contains("/.claude/") {
+        CliInstallSource::Vendor
+    } else if value.starts_with("/usr/bin/") || value.starts_with("/usr/local/bin/") {
+        CliInstallSource::System
+    } else {
+        CliInstallSource::Unknown
+    }
+}
+
+fn derive_cli_conflict_state(installations: &[CliInstallation]) -> CliConflictState {
+    if installations.len() <= 1 {
+        return CliConflictState::None;
+    }
+    let has_runnable = installations.iter().any(|installation| installation.runnable);
+    let has_broken = installations.iter().any(|installation| !installation.runnable);
+    if has_runnable && has_broken {
+        return CliConflictState::RunnableMismatch;
+    }
+    let versions = installations
+        .iter()
+        .filter_map(|installation| installation.version.as_deref())
+        .collect::<HashSet<_>>();
+    if versions.len() > 1 {
+        CliConflictState::VersionMismatch
+    } else {
+        CliConflictState::Multiple
+    }
+}
+
+fn derive_cli_lifecycle_eligibility(
+    installed: bool,
+    active: Option<&CliInstallation>,
+) -> CliLifecycleEligibility {
+    if !installed {
+        return CliLifecycleEligibility::Npm;
+    }
+    match active {
+        Some(installation)
+            if installation.runnable && installation.source == CliInstallSource::Npm =>
+        {
+            CliLifecycleEligibility::Npm
+        }
+        Some(_) => CliLifecycleEligibility::Manual,
+        None => CliLifecycleEligibility::Unavailable,
+    }
 }
 
 fn first_output_line(output: &CapturedCommandOutput) -> Option<String> {
@@ -1883,14 +2245,19 @@ fn detect_cli_tool(
     operation_id: &str,
 ) -> CliToolStatus {
     let now = current_timestamp();
-    let detected_path = resolve_command_path(definition.executable_name);
-    let mut current_version = None;
+    let environment_type = current_cli_environment_type();
+    let candidates = enumerate_cli_candidates(definition);
+    let mut installations = Vec::new();
     let mut latest_version = None;
     let mut available_versions = Vec::new();
     let mut errors = Vec::new();
 
-    if let Some(path) = detected_path.as_deref() {
-        let mut command = match command_safety::std_command(path) {
+    for (index, path) in candidates.iter().enumerate() {
+        let path_string = path.to_string_lossy().to_string();
+        let source = classify_cli_install_source(path);
+        let mut version = None;
+        let mut installation_error = None;
+        let mut command = match command_safety::std_command(&path_string) {
             Ok(command) => command,
             Err(error) => {
                 let reason = error.to_string();
@@ -1903,29 +2270,22 @@ fn detect_cli_tool(
                     &reason,
                     None,
                 );
-                errors.push(reason);
-                return CliToolStatus {
-                    agent_id: definition.agent_id.to_string(),
-                    display_name: definition.display_name.to_string(),
-                    provider: definition.provider.to_string(),
-                    executable_name: definition.executable_name.to_string(),
-                    package_name: definition.package_name.to_string(),
-                    installed: Some(true),
-                    current_version,
-                    latest_version,
-                    available_versions,
-                    detected_path: detected_path.clone(),
-                    install_command: install_command_for(definition),
-                    last_checked_at: Some(now),
-                    last_error: Some(errors.join("; ")),
-                    last_operation_id: Some(operation_id.to_string()),
-                    version_check_status: CliVersionCheckStatus::Failed,
-                };
+                errors.push(reason.clone());
+                installations.push(CliInstallation {
+                    path: path_string,
+                    version: None,
+                    runnable: false,
+                    error: Some(reason),
+                    source,
+                    environment_type,
+                    is_active: index == 0,
+                });
+                continue;
             }
         };
         command.arg("--version");
         match command_output_with_timeout(&mut command, Duration::from_secs(3)) {
-            Ok(output) if output.success => current_version = first_output_line(&output),
+            Ok(output) if output.success => version = first_output_line(&output),
             Ok(output) => {
                 let reason = first_output_line(&output)
                     .unwrap_or_else(|| format!("{} --version failed.", definition.executable_name));
@@ -1938,7 +2298,8 @@ fn detect_cli_tool(
                     &reason,
                     Some(&output),
                 );
-                errors.push(reason);
+                errors.push(reason.clone());
+                installation_error = Some(reason);
             }
             Err(error) => {
                 log_cli_detection_failure(
@@ -1950,9 +2311,19 @@ fn detect_cli_tool(
                     &error,
                     None,
                 );
-                errors.push(error);
+                errors.push(error.clone());
+                installation_error = Some(error);
             }
         }
+        installations.push(CliInstallation {
+            path: path_string,
+            version,
+            runnable: installation_error.is_none(),
+            error: installation_error,
+            source,
+            environment_type,
+            is_active: index == 0,
+        });
     }
 
     match npm_view_package(definition.package_name, &["version"]) {
@@ -1989,7 +2360,12 @@ fn detect_cli_tool(
         }
     }
 
-    let installed = detected_path.is_some();
+    let installed = !installations.is_empty();
+    let active = installations.iter().find(|installation| installation.is_active);
+    let detected_path = active.map(|installation| installation.path.clone());
+    let current_version = active.and_then(|installation| installation.version.clone());
+    let conflict_state = derive_cli_conflict_state(&installations);
+    let lifecycle_eligibility = derive_cli_lifecycle_eligibility(installed, active);
     CliToolStatus {
         agent_id: definition.agent_id.to_string(),
         display_name: definition.display_name.to_string(),
@@ -2000,7 +2376,7 @@ fn detect_cli_tool(
         current_version,
         latest_version,
         available_versions,
-        detected_path,
+        detected_path: detected_path.clone(),
         install_command: install_command_for(definition),
         last_checked_at: Some(now),
         last_error: if errors.is_empty() {
@@ -2014,6 +2390,11 @@ fn detect_cli_tool(
         } else {
             CliVersionCheckStatus::Failed
         },
+        environment_type,
+        installations,
+        active_installation_path: detected_path,
+        conflict_state,
+        lifecycle_eligibility,
     }
 }
 
@@ -3111,24 +3492,31 @@ fn list_cli_tools(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<CliToolS
 fn refresh_cli_detections(
     app: AppHandle,
     registry: State<'_, tasks::registry::TaskRegistry>,
+    agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
-    start_cli_refresh_operation(app, &registry, "Refreshing CLI detections")
+    start_cli_refresh_operation(app, &registry, "Refreshing CLI detections", agent_id)
 }
 
 fn start_cli_refresh_operation(
     app: AppHandle,
     registry: &tasks::registry::TaskRegistry,
     message: &str,
+    agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
+    if let Some(agent_id) = agent_id.as_deref() {
+        cli_tool_definition(agent_id).ok_or_else(|| {
+            AppError::Validation(format!("unsupported CLI agent id: {agent_id}"))
+        })?;
+    }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
-        None,
+        agent_id.clone(),
         Some(message.to_string()),
     )?;
     let operation_id = operation.id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        run_cli_refresh_operation(app, operation_id);
+        run_cli_refresh_operation(app, operation_id, agent_id);
     });
 
     Ok(operation)
@@ -3138,8 +3526,10 @@ fn start_cli_refresh_operation(
 fn install_cli_version(
     app: AppHandle,
     registry: State<'_, tasks::registry::TaskRegistry>,
+    mutation_guard: State<'_, CliMutationGuard>,
     agent_id: String,
     target_version: String,
+    confirmed_active_path: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
     let definition = cli_tool_definition(&agent_id)
         .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
@@ -3148,6 +3538,25 @@ fn install_cli_version(
             "target version must be a stable semantic version: {target_version}"
         )));
     }
+    let status = {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        load_cli_tool_status(&conn, definition)?
+    };
+    let fresh_candidates = enumerate_cli_candidates(definition);
+    validate_cli_package_eligibility(
+        &status,
+        &fresh_candidates,
+        confirmed_active_path.as_deref(),
+    )?;
+    if !mutation_guard.try_acquire() {
+        return Err(AppError::Validation(
+            "another CLI package operation is already running".to_string(),
+        ));
+    }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
         Some(agent_id.clone()),
@@ -3155,7 +3564,14 @@ fn install_cli_version(
             "Installing {} version {}",
             definition.display_name, target_version
         )),
-    )?;
+    );
+    let operation = match operation {
+        Ok(operation) => operation,
+        Err(error) => {
+            mutation_guard.release();
+            return Err(error);
+        }
+    };
     let operation_id = operation.id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -3165,7 +3581,41 @@ fn install_cli_version(
     Ok(operation)
 }
 
-fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
+fn validate_cli_package_eligibility(
+    status: &CliToolStatus,
+    fresh_candidates: &[PathBuf],
+    confirmed_active_path: Option<&str>,
+) -> Result<(), AppError> {
+    if !matches!(status.lifecycle_eligibility, CliLifecycleEligibility::Npm) {
+        return Err(AppError::Validation(
+            "the active CLI installation must be updated by its source-native installer"
+                .to_string(),
+        ));
+    }
+    if let Some(active_path) = fresh_candidates.first() {
+        if classify_cli_install_source(active_path) != CliInstallSource::Npm {
+            return Err(AppError::Validation(
+                "the active CLI path changed and is not npm-managed".to_string(),
+            ));
+        }
+    }
+    if fresh_candidates.len() > 1 {
+        let active_path = fresh_candidates
+            .first()
+            .map(|path| path.to_string_lossy().to_string())
+            .ok_or_else(|| {
+            AppError::Validation("the active CLI installation could not be resolved".to_string())
+        })?;
+        if confirmed_active_path != Some(active_path.as_str()) {
+            return Err(AppError::Validation(
+                "multiple CLI installations require confirmation of the active path".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn run_cli_refresh_operation(app: AppHandle, operation_id: String, agent_id: Option<String>) {
     let registry = app.state::<tasks::registry::TaskRegistry>();
     append_cli_log(
         &app,
@@ -3176,7 +3626,10 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
         logging::LogLevel::Info,
     );
     let mut statuses = Vec::new();
-    for definition in CLI_TOOL_DEFINITIONS {
+    for definition in CLI_TOOL_DEFINITIONS
+        .into_iter()
+        .filter(|definition| agent_id.as_deref().is_none_or(|id| id == definition.agent_id))
+    {
         append_cli_log(
             &app,
             &registry,
@@ -3256,6 +3709,21 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
 }
 
 fn run_cli_package_operation(
+    app: AppHandle,
+    operation_id: String,
+    definition: CliToolDefinition,
+    target_version: String,
+) {
+    run_cli_package_operation_inner(
+        app.clone(),
+        operation_id,
+        definition,
+        target_version,
+    );
+    app.state::<CliMutationGuard>().release();
+}
+
+fn run_cli_package_operation_inner(
     app: AppHandle,
     operation_id: String,
     definition: CliToolDefinition,
@@ -5237,6 +5705,7 @@ pub fn run() {
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            app.manage(CliMutationGuard::default());
             app.manage(extensions::commands::ExtensionRuntimeManager::default());
             let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
                 app: app.handle().clone(),
@@ -5278,6 +5747,7 @@ pub fn run() {
                     app.handle().clone(),
                     &registry,
                     "Initial CLI detection refresh",
+                    None,
                 )
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             }
@@ -5484,7 +5954,7 @@ mod tests {
 
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
         );
     }
 
@@ -6443,6 +6913,18 @@ mod tests {
         status.latest_version = Some("1.3.0".to_string());
         status.available_versions = vec!["1.3.0".to_string(), "1.2.3".to_string()];
         status.detected_path = Some("C:\\Users\\dev\\codex.cmd".to_string());
+        status.environment_type = CliEnvironmentType::Windows;
+        status.installations = vec![CliInstallation {
+            path: "C:\\Users\\dev\\codex.cmd".to_string(),
+            version: Some("1.2.3".to_string()),
+            runnable: true,
+            error: None,
+            source: CliInstallSource::Npm,
+            environment_type: CliEnvironmentType::Windows,
+            is_active: true,
+        }];
+        status.active_installation_path = status.detected_path.clone();
+        status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
         status.last_checked_at = Some("123".to_string());
         status.version_check_status = CliVersionCheckStatus::Succeeded;
 
@@ -6457,6 +6939,166 @@ mod tests {
             loaded.detected_path.as_deref(),
             Some("C:\\Users\\dev\\codex.cmd")
         );
+        assert_eq!(loaded.installations, status.installations);
+        assert_eq!(loaded.lifecycle_eligibility, CliLifecycleEligibility::Npm);
+    }
+
+    fn test_installation(
+        path: &str,
+        version: Option<&str>,
+        runnable: bool,
+        source: CliInstallSource,
+        is_active: bool,
+    ) -> CliInstallation {
+        CliInstallation {
+            path: path.to_string(),
+            version: version.map(str::to_string),
+            runnable,
+            error: (!runnable).then(|| "version probe failed".to_string()),
+            source,
+            environment_type: CliEnvironmentType::Windows,
+            is_active,
+        }
+    }
+
+    #[test]
+    fn cli_install_source_classification_is_conservative() {
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
+            CliInstallSource::Npm
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode\\claude.exe"
+            )),
+            CliInstallSource::Winget
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe"
+            )),
+            CliInstallSource::Desktop
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new("C:\\Tools\\custom\\codex.exe")),
+            CliInstallSource::Unknown
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cli_candidate_dedup_collapses_windows_command_wrappers() {
+        assert_eq!(
+            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new("c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1")),
+        );
+        assert_ne!(
+            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new("C:\\Tools\\codex.cmd")),
+        );
+    }
+
+    #[test]
+    fn cli_active_installation_is_the_first_candidate() {
+        let installations = [
+            test_installation("first", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("second", Some("2.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        let active = installations
+            .iter()
+            .find(|installation| installation.is_active)
+            .expect("active installation");
+
+        assert_eq!(active.path, "first");
+    }
+
+    #[test]
+    fn cli_conflict_derivation_distinguishes_versions_and_health() {
+        let same = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", Some("1.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(derive_cli_conflict_state(&same), CliConflictState::Multiple);
+
+        let versions = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", Some("2.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(
+            derive_cli_conflict_state(&versions),
+            CliConflictState::VersionMismatch
+        );
+
+        let health = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", None, false, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(
+            derive_cli_conflict_state(&health),
+            CliConflictState::RunnableMismatch
+        );
+    }
+
+    #[test]
+    fn cli_lifecycle_requires_runnable_npm_active_installation() {
+        let npm = test_installation("npm", Some("1.0.0"), true, CliInstallSource::Npm, true);
+        let desktop = test_installation(
+            "desktop",
+            Some("1.0.0"),
+            true,
+            CliInstallSource::Desktop,
+            true,
+        );
+        let broken = test_installation("npm", None, false, CliInstallSource::Npm, true);
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(false, None),
+            CliLifecycleEligibility::Npm
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&npm)),
+            CliLifecycleEligibility::Npm
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&desktop)),
+            CliLifecycleEligibility::Manual
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&broken)),
+            CliLifecycleEligibility::Manual
+        );
+    }
+
+    #[test]
+    fn cli_package_validation_rechecks_source_and_confirmation() {
+        let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
+        status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
+        let npm = PathBuf::from("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd");
+        assert!(validate_cli_package_eligibility(&status, std::slice::from_ref(&npm), None).is_ok());
+
+        let desktop = PathBuf::from(
+            "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
+        );
+        assert!(validate_cli_package_eligibility(&status, &[desktop], None).is_err());
+
+        let second = PathBuf::from("C:\\Tools\\nodejs\\codex.cmd");
+        assert!(validate_cli_package_eligibility(&status, &[npm.clone(), second.clone()], None).is_err());
+        assert!(validate_cli_package_eligibility(
+            &status,
+            &[npm.clone(), second],
+            Some(npm.to_string_lossy().as_ref()),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn cli_mutation_guard_serializes_package_writes() {
+        let guard = CliMutationGuard::default();
+        assert!(guard.try_acquire());
+        assert!(!guard.try_acquire());
+        guard.release();
+        assert!(guard.try_acquire());
     }
 
     #[test]

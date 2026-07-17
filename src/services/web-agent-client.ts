@@ -234,6 +234,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "codex-cli",
@@ -251,6 +256,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "gemini-cli",
@@ -268,6 +278,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "opencode",
@@ -285,6 +300,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
 ];
 
@@ -600,21 +620,22 @@ export const webAgentClient: AgentService = {
     return webCliTools.map((tool) => ({
       ...tool,
       availableVersions: [...tool.availableVersions],
+      installations: tool.installations.map((installation) => ({ ...installation })),
       lastError: webLocalCliDetectionMessage(),
     }));
   },
 
-  async refreshCliDetections(): Promise<OperationTask> {
+  async refreshCliDetections(agentId?: string): Promise<OperationTask> {
     const timestamp = nowIso();
     const message = webLocalCliDetectionMessage();
     const operationId = `web-cli-refresh-${timestamp}`;
     return createWebMockOperation({
       id: operationId,
-      relatedEntityId: null,
+      relatedEntityId: agentId ?? null,
       message,
       terminalStatus: "failed",
       error: message,
-      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
+      result: { agentIds: agentId ? [agentId] : webCliTools.map((tool) => tool.agentId) },
     });
   },
 

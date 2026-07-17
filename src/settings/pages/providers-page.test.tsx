@@ -22,6 +22,19 @@ const cliTool: CliToolStatus = {
   lastError: null,
   lastOperationId: "op-1",
   versionCheckStatus: "succeeded",
+  environmentType: "windows",
+  installations: [{
+    path: "C:\\Users\\dev\\claude.cmd",
+    version: "1.2.0",
+    runnable: true,
+    error: null,
+    source: "npm",
+    environmentType: "windows",
+    isActive: true,
+  }],
+  activeInstallationPath: "C:\\Users\\dev\\claude.cmd",
+  conflictState: "none",
+  lifecycleEligibility: "npm",
 };
 
 const operation: OperationTask = {
@@ -55,6 +68,8 @@ describe("ProvidersPage CLI management rendering", () => {
     expect(html).toContain("C:\\Users\\dev\\claude.cmd");
     expect(html).toContain("最近操作");
     expect(html).toContain("已成功");
+    expect(html).toContain("当前生效路径");
+    expect(html).toContain("Windows");
   });
 
   it("derives refresh button loading state from mutation or operation status", () => {

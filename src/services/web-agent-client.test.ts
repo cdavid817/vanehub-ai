@@ -33,8 +33,9 @@ describe("webAgentClient", () => {
     expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
     expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
     expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
-    const operation = await webAgentClient.refreshCliDetections();
-    expect(operation).toMatchObject({ status: "queued" });
+    expect(cliTools.every((tool) => tool.installations.length === 0 && tool.lifecycleEligibility === "unavailable")).toBe(true);
+    const operation = await webAgentClient.refreshCliDetections("codex-cli");
+    expect(operation).toMatchObject({ status: "queued", relatedEntityId: "codex-cli" });
 
     await vi.advanceTimersByTimeAsync(950);
     await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({ status: "failed" });

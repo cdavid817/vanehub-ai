@@ -39,6 +39,7 @@ export type SettingsPageId =
 
 export interface SettingsPageContext {
   searchTerm: string;
+  onNavigate: (pageId: SettingsPageId) => void;
 }
 
 export interface SettingsPageDefinition {
