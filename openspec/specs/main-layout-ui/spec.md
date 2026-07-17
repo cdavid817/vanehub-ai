@@ -82,10 +82,10 @@ The sidebar SHALL support service-backed session navigation without the six bott
 - **THEN** the session list SHALL scroll inside the sidebar without scrolling the whole workspace shell
 
 ### Requirement: Flexible main content area
-The main content panel SHALL render a session-tab workspace that keeps Chat as the default workflow, resizes with the available workspace area, and keeps the bottom composer usable and connected to the active session message list only while Chat is active.
+The main content panel SHALL render a chat-first workspace area that resizes with the available workspace area while keeping the bottom composer usable and connected to the active session message list.
 
 #### Scenario: Chat transcript flexes with panel height
-- **WHEN** the workspace panel height changes while Chat is active
+- **WHEN** the workspace panel height changes
 - **THEN** the chat transcript area SHALL flex to fill the remaining main content space without a fixed minimum height forcing overflow
 
 #### Scenario: Chat transcript scrolls internally
@@ -93,28 +93,20 @@ The main content panel SHALL render a session-tab workspace that keeps Chat as t
 - **THEN** the transcript SHALL scroll inside the main content panel without scrolling the whole workspace shell
 
 #### Scenario: Composer remains fixed
-- **WHEN** the main content panel becomes shorter while Chat is active
+- **WHEN** the main content panel becomes shorter
 - **THEN** the bottom composer SHALL retain its usable size and SHALL remain within the main content panel bounds
-
-#### Scenario: Hide composer outside Chat
-- **WHEN** the active session workspace tab is not Chat
-- **THEN** the bottom composer SHALL NOT be visible and the active tab content SHALL use the released space
 
 #### Scenario: Main content expands after panel collapse
 - **WHEN** the information panel is collapsed
 - **THEN** the main content panel SHALL smoothly expand to occupy the space released by the information panel
 
 #### Scenario: Message list renders for active session
-- **WHEN** an active session is selected and Chat is active
+- **WHEN** an active session is selected
 - **THEN** the main content panel SHALL render the message list for that active session above the composer
 
 #### Scenario: Composer sends to active session
 - **WHEN** the user submits the bottom composer
 - **THEN** the submitted chat message SHALL target the active session
-
-#### Scenario: Preserve compact right-panel context
-- **WHEN** the main session workspace renders full Files or Changes content
-- **THEN** the right information panel SHALL retain its compact Agent Info, Files, and Changes overview tabs
 
 ### Requirement: Collapsible information panel
 The information panel SHALL support smooth collapse and expand behavior while preserving mounted internal state.
@@ -233,21 +225,28 @@ The workspace shell SHALL render sidebar, status bar, information panel, session
 - **WHEN** the workspace shell displays Agent ids, interaction mode ids, project paths, worktree names, branch names, or command-like values
 - **THEN** those values MAY remain literal while surrounding labels and helper text use the active locale
 
-### Requirement: Interactive top-bar notification center
-The main layout SHALL connect the existing top-bar notification control to the unified notification state and SHALL provide a compact recent-notification popover.
+### Requirement: IM session source identification
+The workspace session navigation SHALL identify sessions created from IM bindings without exposing external identity values.
 
-#### Scenario: Unread notifications exist
-- **WHEN** at least one retained notification is unread
-- **THEN** the Bell control exposes a visible unread indicator and an accessible unread count
+#### Scenario: Render IM-owned session
+- **WHEN** a session has IM source metadata
+- **THEN** its session card SHALL show a compact localized source indicator for Feishu, Telegram, DingTalk, WeCom, or personal WeChat alongside the existing Agent identity
 
-#### Scenario: User opens the notification center
-- **WHEN** the user activates the Bell control
-- **THEN** an anchored popover presents recent notifications, read state, timestamps, and available management controls without navigating away from the workspace
+#### Scenario: Protect external identifiers
+- **WHEN** the session card or session details render an IM-owned session
+- **THEN** they SHALL NOT display the raw external chat id, external user id, credentials, or authorization tokens
 
-#### Scenario: Notification center is empty
-- **WHEN** the user opens the center with no retained notifications
-- **THEN** the popover presents a localized empty state and does not show unavailable management actions
+#### Scenario: Render in both styles
+- **WHEN** an IM session indicator renders in `futuristic` or `minimal`
+- **THEN** it SHALL use semantic tokens and stable dimensions without resizing, overlapping, or obscuring existing session actions
 
-#### Scenario: User dismisses the popover
-- **WHEN** the user presses Escape, activates the Bell control again, or clicks outside the popover
-- **THEN** the notification center closes and focus behavior remains usable
+### Requirement: IM session actions remain consistent
+IM-owned sessions SHALL use the existing session selection, rename, pin, archive, restore, and delete interactions.
+
+#### Scenario: Select IM-owned session
+- **WHEN** the user selects an IM-owned session card
+- **THEN** the workspace SHALL display its persisted transcript through the existing Agent service
+
+#### Scenario: Delete IM-owned session
+- **WHEN** the user confirms deletion of an IM-owned session
+- **THEN** the existing deletion interaction SHALL complete and the UI SHALL not require a platform-specific deletion flow

@@ -10,6 +10,37 @@ import { SessionSidebar } from "./session-sidebar";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
+import { cn } from "../lib/utils";
+
+export function ConversationCard({
+  active,
+  lifecycleLabel,
+  onContextMenu,
+  onSelect,
+  session,
+  sourceLabel,
+}: {
+  active: boolean;
+  lifecycleLabel: string;
+  language: string;
+  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
+  onSelect: () => void;
+  session: Session;
+  sourceLabel?: string;
+}) {
+  return (
+    <button
+      className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")}
+      onClick={onSelect}
+      onContextMenu={onContextMenu}
+      type="button"
+    >
+      <span className="truncate text-sm font-medium">{session.title}</span>
+      <span className="ml-2 text-xs text-muted-foreground">{lifecycleLabel}</span>
+      {sourceLabel ? <span className="ml-2 text-xs text-foreground">{sourceLabel}</span> : null}
+    </button>
+  );
+}
 
 export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const model = useMainLayoutModel();

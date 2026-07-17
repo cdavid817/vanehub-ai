@@ -2,25 +2,16 @@ import { describe, expect, it } from "vitest";
 import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
-  it("registers CLI Parameters immediately after CLI Management", () => {
-    const providersIndex = settingsPages.findIndex((page) => page.id === "providers");
-    expect(settingsPages[providersIndex + 1]).toMatchObject({
-      id: "cli-parameters",
-      labelKey: "settings.pages.cliParameters",
-      searchPlaceholderKey: "settings.search.cliParameters",
-    });
-  });
+  it("registers IM before Usage Statistics and About", () => {
+    const imIndex = settingsPages.findIndex((page) => page.id === "im");
+    const usageIndex = settingsPages.findIndex((page) => page.id === "usage");
 
-  it("registers Extension Capabilities after SDK Dependencies", () => {
-    const sdkIndex = settingsPages.findIndex((page) => page.id === "sdk");
-    const extensionIndex = settingsPages.findIndex((page) => page.id === "extensions");
-    const mcpIndex = settingsPages.findIndex((page) => page.id === "mcp");
-
-    expect(extensionIndex).toBe(sdkIndex + 1);
-    expect(mcpIndex).toBe(extensionIndex + 1);
-    expect(settingsPages[extensionIndex]).toMatchObject({
-      labelKey: "settings.pages.extensions",
-      searchPlaceholderKey: "settings.search.extensions",
+    expect(imIndex).toBeGreaterThan(-1);
+    expect(imIndex).toBe(usageIndex - 1);
+    expect(settingsPages[imIndex]).toMatchObject({
+      labelKey: "settings.pages.im",
+      searchPlaceholderKey: "settings.search.im",
+      badge: 5,
     });
   });
 

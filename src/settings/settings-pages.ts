@@ -4,10 +4,9 @@ import {
   Boxes,
   Code2,
   Info,
-  Cpu,
+  MessagesSquare,
   Puzzle,
   Settings,
-  SlidersHorizontal,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
@@ -15,24 +14,13 @@ import { AgentsPage } from "./pages/agents-page";
 import { AboutPage } from "./pages/about-page";
 import { BasicSettingsPage } from "./pages/basic-settings-page";
 import { McpPage } from "./pages/mcp-page";
+import { ImPage } from "./pages/im-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
-import { CliParametersPage } from "./pages/cli-parameters-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
-import { ExtensionsPage } from "./pages/extensions-page";
 
-export type SettingsPageId =
-  | "basic"
-  | "providers"
-  | "cli-parameters"
-  | "sdk"
-  | "extensions"
-  | "mcp"
-  | "agents"
-  | "skills"
-  | "usage"
-  | "about";
+export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "im" | "usage" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -67,15 +55,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     component: ProvidersPage,
   },
   {
-    id: "cli-parameters",
-    labelKey: "settings.pages.cliParameters",
-    crumbKey: "settings.pages.cliParameters",
-    icon: SlidersHorizontal,
-    badge: 4,
-    searchPlaceholderKey: "settings.search.cliParameters",
-    component: CliParametersPage,
-  },
-  {
     id: "sdk",
     labelKey: "settings.pages.sdk",
     crumbKey: "settings.pages.sdk",
@@ -83,15 +62,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 5,
     searchPlaceholderKey: "settings.search.sdk",
     component: SdkPage,
-  },
-  {
-    id: "extensions",
-    labelKey: "settings.pages.extensions",
-    crumbKey: "settings.pages.extensions",
-    icon: Cpu,
-    badge: 3,
-    searchPlaceholderKey: "settings.search.extensions",
-    component: ExtensionsPage,
   },
   {
     id: "mcp",
@@ -119,6 +89,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
+  },
+  {
+    id: "im",
+    labelKey: "settings.pages.im",
+    crumbKey: "settings.pages.im",
+    icon: MessagesSquare,
+    badge: 5,
+    searchPlaceholderKey: "settings.search.im",
+    component: ImPage,
   },
   {
     id: "usage",

@@ -12,17 +12,17 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
   const { t } = useTranslation();
 
   return (
-    <aside className="ucd-panel flex max-h-64 min-h-0 flex-col rounded-lg p-2 lg:max-h-none">
-      <div className="px-3 py-3">
+    <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-2 max-lg:block max-lg:overflow-hidden">
+      <div className="px-3 py-3 max-lg:hidden">
         <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{t("app.settings.system")}</div>
       </div>
-      <nav className="grid min-h-0 flex-1 gap-1 overflow-y-auto border-t border-border pt-2">
+      <nav className="grid gap-1 border-t border-border pt-2 max-lg:flex max-lg:overflow-x-auto max-lg:border-t-0 max-lg:pt-0">
         {settingsPages.map((page) => {
           const Icon = page.icon;
           const active = page.id === activePageId;
           return (
             <button
-              className={`relative flex h-10 min-w-0 items-center gap-2 rounded-md px-3 text-left text-sm transition-colors ${
+              className={`relative flex h-10 min-w-0 items-center gap-2 rounded-md px-3 text-left text-sm transition-colors max-lg:shrink-0 ${
                 active ? "bg-[hsl(var(--nav-active-soft))] font-semibold text-primary shadow-sm" : "text-foreground hover:bg-muted"
               }`}
               key={page.id}
@@ -44,7 +44,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
         })}
       </nav>
 
-      <div className="mt-auto grid gap-2 border-t border-border px-3 py-4 text-xs text-muted-foreground">
+      <div className="mt-auto grid gap-2 border-t border-border px-3 py-4 text-xs text-muted-foreground max-lg:hidden">
         <span>VaneHub AI v0.1.0</span>
         <span>Build 2026-07-14</span>
         <Button className="mt-2 justify-start" size="sm" title={t("app.settings.export")} variant="outline">

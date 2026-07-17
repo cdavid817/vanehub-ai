@@ -1,31 +1,26 @@
-use chrono::Utc;
+use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
-mod cli_parameters;
 mod command_safety;
-mod commands;
-mod extensions;
+mod desktop_lifecycle;
+mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
 mod sdk;
-mod session_tabs;
-mod shell;
 mod skills;
 mod tasks;
-mod usage;
-
-use usage::{UsageStatistics, UsageStatisticsRange};
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -324,10 +319,40 @@ struct Session {
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
     runtime_session_id: Option<String>,
+    source: SessionSourceMetadata,
     pinned: bool,
     archived: bool,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct SessionSourceMetadata {
+    kind: String,
+    connector: Option<im::models::ConnectorKind>,
+}
+
+impl SessionSourceMetadata {
+    fn desktop() -> Self {
+        Self {
+            kind: "desktop".to_string(),
+            connector: None,
+        }
+    }
+
+    fn im(connector: im::models::ConnectorKind) -> Self {
+        Self {
+            kind: "im".to_string(),
+            connector: Some(connector),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionActivation {
+    Activate,
+    PreserveActive,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -371,7 +396,6 @@ struct CreateWorktreeInput {
 struct ChatConfig {
     agent_id: String,
     interaction_mode: InteractionMode,
-    permission_mode: String,
     provider_id: Option<String>,
     model_id: Option<String>,
     reasoning_depth: Option<String>,
@@ -395,6 +419,27 @@ struct ToolUseBlock {
 struct TokenUsage {
     input: i64,
     output: i64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+enum UsageStatisticsRange {
+    Today,
+    Last7Days,
+    Last30Days,
+    All,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageStatistics {
+    range: UsageStatisticsRange,
+    total_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    counted_messages: i64,
+    counted_sessions: i64,
+    generated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -464,41 +509,9 @@ enum ParsedAgentEvent {
     Thinking(String),
     ToolUse(ToolUseBlock),
     SessionId(String),
-    Usage(usage::UsageEvent),
-    UsageMalformed,
-    Batch(Vec<ParsedAgentEvent>),
     Completed,
     Failed(String),
     Empty,
-}
-
-const MALFORMED_USAGE_LOG_MESSAGE: &str =
-    "Agent CLI emitted an unrecognized usage payload; a character estimate may be used.";
-
-impl ParsedAgentEvent {
-    fn with_usage(primary: Self, usage_event: Option<usage::UsageEvent>, malformed: bool) -> Self {
-        let mut events = Vec::new();
-        if primary != Self::Empty {
-            events.push(primary);
-        }
-        if let Some(event) = usage_event {
-            events.push(Self::Usage(event));
-        } else if malformed {
-            events.push(Self::UsageMalformed);
-        }
-        match events.len() {
-            0 => Self::Empty,
-            1 => events.pop().unwrap_or(Self::Empty),
-            _ => Self::Batch(events),
-        }
-    }
-
-    fn into_events(self) -> Vec<Self> {
-        match self {
-            Self::Batch(events) => events,
-            event => vec![event],
-        }
-    }
 }
 
 trait AgentOutputParser {
@@ -509,9 +522,7 @@ fn parser_for_agent(agent_id: &str) -> Box<dyn AgentOutputParser> {
     if agent_id == "claude-code" {
         Box::new(ClaudeCodeParser)
     } else if matches!(agent_id, "codex-cli" | "gemini-cli" | "opencode") {
-        Box::new(StructuredJsonParser {
-            agent_id: agent_id.to_string(),
-        })
+        Box::new(StructuredJsonParser)
     } else {
         Box::new(GenericLineParser)
     }
@@ -535,12 +546,10 @@ fn build_cli_invocation_spec(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
-    managed_args: &[String],
 ) -> Result<CliInvocationSpec, String> {
     let mut args = Vec::new();
     let prompt_delivery = match agent.id.as_str() {
         "claude-code" => {
-            args.extend_from_slice(managed_args);
             args.extend([
                 "-p".to_string(),
                 "--output-format".to_string(),
@@ -554,27 +563,14 @@ fn build_cli_invocation_spec(
             PromptDelivery::Stdin
         }
         "codex-cli" => {
-            args.extend(
-                managed_args
-                    .iter()
-                    .filter(|argument| argument.as_str() != "--ephemeral")
-                    .cloned(),
-            );
             args.push("exec".to_string());
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["resume".to_string(), session_id.to_string()]);
-            }
-            if managed_args
-                .iter()
-                .any(|argument| argument == "--ephemeral")
-            {
-                args.push("--ephemeral".to_string());
             }
             args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
             PromptDelivery::Stdin
         }
         "gemini-cli" => {
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--resume".to_string(), session_id.to_string()]);
             }
@@ -583,12 +579,12 @@ fn build_cli_invocation_spec(
                 prompt.to_string(),
                 "-o".to_string(),
                 "stream-json".to_string(),
+                "-y".to_string(),
             ]);
             PromptDelivery::Argument
         }
         "opencode" => {
             args.push("run".to_string());
-            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--session".to_string(), session_id.to_string()]);
             }
@@ -611,106 +607,6 @@ fn build_cli_invocation_spec(
         args,
         prompt_delivery,
     })
-}
-
-fn mapped_chat_model(agent_id: &str, model_id: &str) -> Option<&'static str> {
-    match (agent_id, model_id) {
-        ("claude-code", "claude-opus-4-8") => Some("opus"),
-        ("claude-code", "claude-sonnet-5" | "claude-sonnet-4-6") => Some("sonnet"),
-        ("claude-code", "claude-haiku-4-5") => Some("haiku"),
-        ("codex-cli", "gpt-5-5") => Some("gpt-5.5"),
-        ("codex-cli", "gpt-5-4") => Some("gpt-5.4"),
-        ("codex-cli", "gpt-5-2-codex") => Some("gpt-5.2-codex"),
-        ("codex-cli", "gpt-5-1-codex-max") => Some("gpt-5.1-codex-max"),
-        ("gemini-cli", "gemini-2-5-pro") => Some("gemini-2.5-pro"),
-        ("gemini-cli", "gemini-2-5-flash") => Some("gemini-2.5-flash"),
-        _ => None,
-    }
-}
-
-fn effective_cli_selections(
-    conn: &Connection,
-    agent_id: &str,
-    config: &ChatConfig,
-) -> Result<BTreeMap<String, serde_json::Value>, AppError> {
-    let mut selections = cli_parameters::load_selections(conn, agent_id)?;
-    if let Some(model) = config
-        .model_id
-        .as_deref()
-        .and_then(|model_id| mapped_chat_model(agent_id, model_id))
-    {
-        selections.insert(
-            "model".to_string(),
-            serde_json::Value::String(model.to_string()),
-        );
-    }
-    if let Some(reasoning_depth) = config.reasoning_depth.as_deref() {
-        match agent_id {
-            "claude-code" => {
-                selections.insert(
-                    "effort".to_string(),
-                    serde_json::Value::String(reasoning_depth.to_string()),
-                );
-            }
-            "codex-cli" => {
-                let effort = if reasoning_depth == "max" {
-                    "xhigh"
-                } else {
-                    reasoning_depth
-                };
-                selections.insert(
-                    "reasoningEffort".to_string(),
-                    serde_json::Value::String(effort.to_string()),
-                );
-            }
-            _ => {}
-        }
-    }
-    match (agent_id, config.permission_mode.as_str()) {
-        ("claude-code", "plan") => {
-            selections.insert("permissionMode".to_string(), serde_json::json!("plan"));
-        }
-        ("claude-code", "agent" | "auto") => {
-            selections.insert(
-                "permissionMode".to_string(),
-                serde_json::json!("acceptEdits"),
-            );
-        }
-        ("codex-cli", "plan") => {
-            selections.insert("sandbox".to_string(), serde_json::json!("read-only"));
-            selections.insert(
-                "approvalPolicy".to_string(),
-                serde_json::json!("on-request"),
-            );
-        }
-        ("codex-cli", "agent" | "auto") => {
-            selections.insert("sandbox".to_string(), serde_json::json!("workspace-write"));
-            selections.insert(
-                "approvalPolicy".to_string(),
-                serde_json::json!("on-request"),
-            );
-        }
-        ("gemini-cli", "plan") => {
-            selections.insert("approvalMode".to_string(), serde_json::json!("plan"));
-        }
-        ("gemini-cli", "agent" | "auto") => {
-            selections.insert("approvalMode".to_string(), serde_json::json!("auto_edit"));
-        }
-        ("opencode", "plan") => {
-            selections.insert("agent".to_string(), serde_json::json!("plan"));
-        }
-        ("opencode", "agent") => {
-            selections.insert("agent".to_string(), serde_json::json!("build"));
-        }
-        ("opencode", "auto") => {
-            selections.insert("autoApprove".to_string(), serde_json::json!(true));
-        }
-        _ => {}
-    }
-    if agent_id == "opencode" {
-        selections.insert("thinking".to_string(), serde_json::json!(config.thinking));
-    }
-    cli_parameters::normalize_selections(agent_id, &selections)
 }
 
 struct GenericLineParser;
@@ -742,9 +638,7 @@ impl AgentOutputParser for ClaudeCodeParser {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
 
-        let usage_event = usage::parse_usage_event("claude-code", &value);
-        let malformed = usage_event.is_none() && usage::looks_like_usage(&value);
-        let primary = match event_type {
+        match event_type {
             "system" | "session_init" => value
                 .get("session_id")
                 .or_else(|| value.get("sessionId"))
@@ -809,14 +703,11 @@ impl AgentOutputParser for ClaudeCodeParser {
                 ParsedAgentEvent::Failed(message.to_string())
             }
             _ => GenericLineParser.parse_line(line),
-        };
-        ParsedAgentEvent::with_usage(primary, usage_event, malformed)
+        }
     }
 }
 
-struct StructuredJsonParser {
-    agent_id: String,
-}
+struct StructuredJsonParser;
 
 impl StructuredJsonParser {
     fn text_value(value: &serde_json::Value) -> Option<String> {
@@ -891,40 +782,34 @@ impl AgentOutputParser for StructuredJsonParser {
             .or_else(|| value.get("event"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
-        let usage_event = usage::parse_usage_event(&self.agent_id, &value);
-        let malformed = usage_event.is_none() && usage::looks_like_usage(&value);
-        let attach =
-            |primary| ParsedAgentEvent::with_usage(primary, usage_event.clone(), malformed);
 
         if matches!(
             event_type,
             "error" | "failed" | "failure" | "turn.failed" | "run_error"
         ) {
-            return attach(ParsedAgentEvent::Failed(
+            return ParsedAgentEvent::Failed(
                 Self::error_value(&value)
                     .unwrap_or_else(|| "Agent CLI reported an error.".to_string()),
-            ));
+            );
         }
         if matches!(
             event_type,
             "result" | "done" | "complete" | "completed" | "turn.completed"
         ) {
-            return attach(ParsedAgentEvent::Completed);
+            return ParsedAgentEvent::Completed;
         }
         if let Some(session_id) = Self::session_id(&value) {
             if matches!(
                 event_type,
                 "session" | "session_init" | "session_configured" | "start" | "started"
             ) {
-                return attach(ParsedAgentEvent::SessionId(session_id));
+                return ParsedAgentEvent::SessionId(session_id);
             }
         }
         if matches!(event_type, "thinking" | "thinking_delta" | "reasoning") {
-            return attach(
-                Self::thinking_value(&value)
-                    .map(ParsedAgentEvent::Thinking)
-                    .unwrap_or(ParsedAgentEvent::Empty),
-            );
+            return Self::thinking_value(&value)
+                .map(ParsedAgentEvent::Thinking)
+                .unwrap_or(ParsedAgentEvent::Empty);
         }
         if matches!(event_type, "tool_use" | "tool" | "tool_call" | "tool.start") {
             let tool = ToolUseBlock {
@@ -954,13 +839,11 @@ impl AgentOutputParser for StructuredJsonParser {
                     .unwrap_or("running")
                     .to_string(),
             };
-            return attach(ParsedAgentEvent::ToolUse(tool));
+            return ParsedAgentEvent::ToolUse(tool);
         }
-        attach(
-            Self::text_value(&value)
-                .map(ParsedAgentEvent::Token)
-                .unwrap_or(ParsedAgentEvent::Empty),
-        )
+        Self::text_value(&value)
+            .map(ParsedAgentEvent::Token)
+            .unwrap_or(ParsedAgentEvent::Empty)
     }
 }
 
@@ -979,6 +862,14 @@ enum StopGenerationOutcome {
 #[derive(Default)]
 struct ChatRuntimeManager {
     active: Mutex<HashMap<String, ActiveGeneration>>,
+    completions: Mutex<HashMap<String, mpsc::Sender<ChatTerminalResult>>>,
+}
+
+#[derive(Debug, Clone)]
+enum ChatTerminalResult {
+    Completed(ChatMessage),
+    Failed(String),
+    Cancelled,
 }
 
 impl ChatRuntimeManager {
@@ -1009,6 +900,33 @@ impl ChatRuntimeManager {
             .map_err(|err| AppError::Storage(err.to_string()))?;
         active.remove(session_id);
         Ok(())
+    }
+
+    fn subscribe(&self, message_id: &str) -> Result<mpsc::Receiver<ChatTerminalResult>, AppError> {
+        let (sender, receiver) = mpsc::channel();
+        self.completions
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?
+            .insert(message_id.to_string(), sender);
+        Ok(receiver)
+    }
+
+    fn finish(
+        &self,
+        message_id: &str,
+        result: ChatTerminalResult,
+    ) -> Result<bool, AppError> {
+        let sender = self
+            .completions
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?
+            .remove(message_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(result);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn take_process(&self, session_id: &str) -> Result<Option<Child>, AppError> {
@@ -1107,18 +1025,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "session-runtime-metadata",
         apply_session_runtime_metadata_migration,
     )?;
+    apply_migration(conn, 10, "im-connectors", im::storage::apply_schema)?;
     apply_migration(
         conn,
-        10,
-        "local-extension-management",
-        extensions::service::apply_schema,
-    )?;
-    apply_migration(conn, 11, "usage-monitoring", usage::apply_schema)?;
-    apply_migration(
-        conn,
-        12,
-        "cli-parameter-settings",
-        cli_parameters::apply_schema,
+        11,
+        "im-session-source",
+        im::storage::apply_session_source_schema,
     )?;
 
     Ok(())
@@ -2337,15 +2249,22 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         worktree_name: row.get(8)?,
         worktree_branch: row.get(9)?,
         runtime_session_id: row.get(10)?,
-        pinned: row.get::<_, i64>(11)? != 0,
-        archived: row.get::<_, i64>(12)? != 0,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        source: SessionSourceMetadata {
+            kind: row.get(11)?,
+            connector: row
+                .get::<_, Option<String>>(12)?
+                .as_deref()
+                .and_then(im::models::ConnectorKind::parse),
+        },
+        pinned: row.get::<_, i64>(13)? != 0,
+        archived: row.get::<_, i64>(14)? != 0,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -2646,6 +2565,67 @@ fn list_chat_messages(
     };
     messages.reverse();
     Ok(messages)
+}
+
+fn usage_range_start(range: UsageStatisticsRange) -> Option<String> {
+    let now = Utc::now();
+    let start = match range {
+        UsageStatisticsRange::All => return None,
+        UsageStatisticsRange::Today => now.date_naive().and_hms_opt(0, 0, 0)?,
+        UsageStatisticsRange::Last7Days => (now - ChronoDuration::days(6))
+            .date_naive()
+            .and_hms_opt(0, 0, 0)?,
+        UsageStatisticsRange::Last30Days => (now - ChronoDuration::days(29))
+            .date_naive()
+            .and_hms_opt(0, 0, 0)?,
+    };
+    Some(start.and_utc().to_rfc3339())
+}
+
+fn aggregate_usage_statistics(
+    conn: &Connection,
+    range: UsageStatisticsRange,
+) -> Result<UsageStatistics, AppError> {
+    let start = usage_range_start(range);
+    let (input_tokens, output_tokens, counted_messages, counted_sessions): (i64, i64, i64, i64) =
+        if let Some(start) = start {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(token_input), 0),
+                    COALESCE(SUM(token_output), 0),
+                    COUNT(*),
+                    COUNT(DISTINCT session_id)
+                 FROM messages
+                 WHERE role = 'assistant'
+                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)
+                   AND created_at >= ?1",
+                params![start],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?
+        } else {
+            conn.query_row(
+                "SELECT
+                    COALESCE(SUM(token_input), 0),
+                    COALESCE(SUM(token_output), 0),
+                    COUNT(*),
+                    COUNT(DISTINCT session_id)
+                 FROM messages
+                 WHERE role = 'assistant'
+                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )?
+        };
+
+    Ok(UsageStatistics {
+        range,
+        total_tokens: input_tokens + output_tokens,
+        input_tokens,
+        output_tokens,
+        counted_messages,
+        counted_sessions,
+        generated_at: current_timestamp(),
+    })
 }
 
 fn complete_assistant_message(
@@ -3499,7 +3479,6 @@ fn spawn_cli_generation(
     session: &Session,
     agent: &AgentRegistryEntry,
     prompt: &str,
-    config: &ChatConfig,
 ) -> Result<SpawnedCliGeneration, String> {
     if agent.launch.kind != "cli" {
         return Err(format!(
@@ -3508,20 +3487,11 @@ fn spawn_cli_generation(
         ));
     }
     let executable = resolve_agent_cli_executable(conn, agent)?;
-    let selections =
-        effective_cli_selections(conn, &agent.id, config).map_err(|error| error.to_string())?;
-    let managed_args = cli_parameters::preview_args(
-        &agent.id,
-        &selections,
-        cli_parameters::CliParameterLaunchScope::Chat,
-    )
-    .map_err(|error| error.to_string())?;
     let spec = build_cli_invocation_spec(
         agent,
         executable,
         prompt,
         session.runtime_session_id.as_deref(),
-        &managed_args,
     )?;
     let mut command =
         command_safety::std_command(&spec.executable).map_err(|error| error.to_string())?;
@@ -3623,85 +3593,70 @@ fn run_cli_generation_stream(
         Ok(conn) => conn,
         Err(error) => {
             record_native_error("session.runtime.cli", &error);
+            let runtime = app.state::<ChatRuntimeManager>();
+            let _ = runtime.finish(
+                &assistant_message_id,
+                ChatTerminalResult::Failed("Agent runtime storage failed.".to_string()),
+            );
             return;
         }
     };
     let reader = BufReader::new(stdout);
     let mut response = String::new();
     let mut terminal_error: Option<String> = None;
-    let mut usage_accumulator = usage::UsageAccumulator::default();
-    let mut malformed_usage_logged = false;
 
     for line in reader.lines() {
         let Ok(line) = line else {
             terminal_error = Some("Failed to read Agent CLI output.".to_string());
             break;
         };
-        for parsed_event in parser.parse_line(&line).into_events() {
-            match parsed_event {
-                ParsedAgentEvent::Token(delta) => {
-                    let content_delta = if response.is_empty() {
-                        delta
-                    } else {
-                        format!("\n{delta}")
-                    };
-                    response.push_str(&content_delta);
-                    let _ = append_assistant_content(&conn, &assistant_message_id, &content_delta);
-                    let _ = app.emit(
-                        "chat:event",
-                        ChatStreamEvent::Token {
-                            session_id: session_id.clone(),
-                            message_id: assistant_message_id.clone(),
-                            content_delta,
-                        },
-                    );
-                }
-                ParsedAgentEvent::Thinking(content_delta) => {
-                    let _ = append_assistant_thinking(&conn, &assistant_message_id, &content_delta);
-                    let _ = app.emit(
-                        "chat:event",
-                        ChatStreamEvent::Thinking {
-                            session_id: session_id.clone(),
-                            message_id: assistant_message_id.clone(),
-                            content_delta,
-                        },
-                    );
-                }
-                ParsedAgentEvent::ToolUse(tool_use) => {
-                    let _ =
-                        append_assistant_tool_use(&conn, &assistant_message_id, tool_use.clone());
-                    let _ = app.emit(
-                        "chat:event",
-                        ChatStreamEvent::ToolUse {
-                            session_id: session_id.clone(),
-                            message_id: assistant_message_id.clone(),
-                            tool_use,
-                        },
-                    );
-                }
-                ParsedAgentEvent::SessionId(runtime_session_id) => {
-                    let _ =
-                        update_session_runtime_session_id(&conn, &session_id, &runtime_session_id);
-                }
-                ParsedAgentEvent::Usage(event) => usage_accumulator.observe(event),
-                ParsedAgentEvent::UsageMalformed => {
-                    if !malformed_usage_logged {
-                        malformed_usage_logged = true;
-                        let _ = write_session_runtime_log(
-                            &conn,
-                            logging::LogLevel::Warn,
-                            &session_id,
-                            &agent.id,
-                            MALFORMED_USAGE_LOG_MESSAGE,
-                        );
-                    }
-                }
-                ParsedAgentEvent::Failed(error) => {
-                    terminal_error = Some(error);
-                }
-                ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
-                ParsedAgentEvent::Batch(_) => {}
+        match parser.parse_line(&line) {
+            ParsedAgentEvent::Token(delta) => {
+                let content_delta = if response.is_empty() {
+                    delta
+                } else {
+                    format!("\n{delta}")
+                };
+                response.push_str(&content_delta);
+                let _ = append_assistant_content(&conn, &assistant_message_id, &content_delta);
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Token {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        content_delta,
+                    },
+                );
             }
+            ParsedAgentEvent::Thinking(content_delta) => {
+                let _ = append_assistant_thinking(&conn, &assistant_message_id, &content_delta);
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Thinking {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        content_delta,
+                    },
+                );
+            }
+            ParsedAgentEvent::ToolUse(tool_use) => {
+                let _ = append_assistant_tool_use(&conn, &assistant_message_id, tool_use.clone());
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::ToolUse {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        tool_use,
+                    },
+                );
+            }
+            ParsedAgentEvent::SessionId(runtime_session_id) => {
+                let _ = update_session_runtime_session_id(&conn, &session_id, &runtime_session_id);
+            }
+            ParsedAgentEvent::Failed(error) => {
+                terminal_error = Some(error);
+            }
+            ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
         }
     }
 
@@ -3729,21 +3684,14 @@ fn run_cli_generation_stream(
         Ok(message) => message,
         Err(error) => {
             record_native_error("session.runtime.cli", &error);
+            let _ = runtime.finish(
+                &assistant_message_id,
+                ChatTerminalResult::Failed("Agent result could not be loaded.".to_string()),
+            );
             return;
         }
     };
-    let reported_usage = usage_accumulator.finish();
     if current_message.status == "cancelled" {
-        if let Some(reported) = reported_usage.as_ref() {
-            let _ = usage::upsert_reported_usage(
-                &conn,
-                &assistant_message_id,
-                &session_id,
-                &agent.id,
-                reported,
-                &current_message.created_at,
-            );
-        }
         return;
     }
 
@@ -3756,18 +3704,12 @@ fn run_cli_generation_stream(
             &agent.id,
             &error,
         );
-        if let Some(reported) = reported_usage.as_ref() {
-            let _ = usage::upsert_reported_usage(
-                &conn,
-                &assistant_message_id,
-                &session_id,
-                &agent.id,
-                reported,
-                &current_message.created_at,
-            );
-        }
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Failed(concise_error.clone()),
+        );
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Failed {
@@ -3793,18 +3735,12 @@ fn run_cli_generation_stream(
             &agent.id,
             &detail,
         );
-        if let Some(reported) = reported_usage.as_ref() {
-            let _ = usage::upsert_reported_usage(
-                &conn,
-                &assistant_message_id,
-                &session_id,
-                &agent.id,
-                reported,
-                &current_message.created_at,
-            );
-        }
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Failed(concise_error.clone()),
+        );
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Failed {
@@ -3816,40 +3752,18 @@ fn run_cli_generation_stream(
         return;
     }
 
-    let output_characters = response.chars().count() as i64;
-    let token_usage = if let Some(reported) = reported_usage.as_ref() {
-        let _ = usage::upsert_reported_usage(
-            &conn,
-            &assistant_message_id,
-            &session_id,
-            &agent.id,
-            reported,
-            &current_message.created_at,
-        );
-        TokenUsage {
-            input: reported.input_tokens
-                + reported.cache_read_tokens
-                + reported.cache_creation_tokens,
-            output: reported.output_tokens,
-        }
-    } else {
-        let _ = usage::upsert_estimated_usage(
-            &conn,
-            &assistant_message_id,
-            &session_id,
-            &agent.id,
-            prompt_len as i64,
-            output_characters,
-            "runtime-character-count",
-            &current_message.created_at,
-        );
-        TokenUsage {
-            input: prompt_len as i64,
-            output: output_characters,
-        }
+    let token_usage = TokenUsage {
+        input: prompt_len as i64,
+        output: response.chars().count() as i64,
     };
-    let _ = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
+    let completed = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
     let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
+    if let Ok(message) = completed {
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Completed(message),
+        );
+    }
     let _ = app.emit(
         "chat:event",
         ChatStreamEvent::Completed {
@@ -4083,7 +3997,7 @@ fn launch_active_workflow(
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
             }
-            if let Err(error) = launch_command_if_present(&conn, &agent) {
+            if let Err(error) = launch_command_if_present(&agent) {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
@@ -4096,7 +4010,7 @@ fn launch_active_workflow(
             "Native desktop workflow launch routed through Tauri adapter.".to_string()
         }
         InteractionMode::Cli => {
-            if let Err(error) = launch_command_if_present(&conn, &agent) {
+            if let Err(error) = launch_command_if_present(&agent) {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
@@ -4152,10 +4066,7 @@ fn check_browser_readiness_inner(agent: &AgentRegistryEntry) -> ReadinessStatus 
     }
 }
 
-fn launch_command_if_present(
-    conn: &Connection,
-    agent: &AgentRegistryEntry,
-) -> Result<(), AppError> {
+fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError> {
     let Some(command) = agent.launch.command.as_deref() else {
         return Ok(());
     };
@@ -4166,20 +4077,9 @@ fn launch_command_if_present(
         )));
     }
 
-    let managed_args = if cli_parameters::MANAGED_CLI_AGENT_IDS.contains(&agent.id.as_str()) {
-        let selections = cli_parameters::load_selections(conn, &agent.id)?;
-        cli_parameters::preview_args(
-            &agent.id,
-            &selections,
-            cli_parameters::CliParameterLaunchScope::Interactive,
-        )?
-    } else {
-        Vec::new()
-    };
-    command_safety::audit_command("command.launch", command, &managed_args);
+    command_safety::audit_command("command.launch", command, &[]);
     let mut process = command_safety::std_command(command)?;
     process
-        .args(&managed_args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -4261,6 +4161,20 @@ fn create_session(
 }
 
 fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<Session, AppError> {
+    create_session_internal(
+        conn,
+        input,
+        SessionActivation::Activate,
+        SessionSourceMetadata::desktop(),
+    )
+}
+
+fn create_session_internal(
+    conn: &Connection,
+    input: CreateSessionInput,
+    activation: SessionActivation,
+    source: SessionSourceMetadata,
+) -> Result<Session, AppError> {
     let agent = load_agent(conn, &input.agent_id)?;
     if !agent
         .supported_interaction_modes
@@ -4316,8 +4230,8 @@ fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<
         .unwrap_or_else(|| "新会话".to_string());
     conn.execute(
         "INSERT INTO sessions
-         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?12)",
+         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, source_kind, source_connector, pinned, archived, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0, ?13, ?14)",
         params![
             id,
             session_title,
@@ -4329,13 +4243,17 @@ fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<
             worktree_path,
             worktree_name,
             worktree_branch,
+            source.kind,
+            source.connector.map(im::models::ConnectorKind::as_str),
             now,
             now
         ],
     )?;
 
     let session = load_session(conn, &id)?;
-    update_active_workflow_for_session(conn, &session)?;
+    if activation == SessionActivation::Activate {
+        update_active_workflow_for_session(conn, &session)?;
+    }
     Ok(session)
 }
 
@@ -4470,7 +4388,6 @@ fn archive_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
-    shell_manager: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<Session, AppError> {
     let store = state
@@ -4478,7 +4395,6 @@ fn archive_session(
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
-    shell_manager.kill_for_session(&app, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(session)
@@ -4501,7 +4417,6 @@ fn delete_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
-    shell_manager: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<(), AppError> {
     let store = state
@@ -4510,7 +4425,6 @@ fn delete_session(
     let conn = store.connection()?;
     load_session(&conn, &session_id)?;
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
-    shell_manager.kill_for_session(&app, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(())
@@ -4523,77 +4437,113 @@ fn send_message(
     runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
     content: String,
-    config: ChatConfig,
+    _config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
-    let trimmed_content = content.trim().to_string();
-    if trimmed_content.is_empty() {
-        return Err(AppError::Validation(
-            "Message content cannot be empty.".to_string(),
-        ));
-    }
     let (conn, db_path) = {
         let store = state
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
         (store.connection()?, store.db_path.clone())
     };
-    let session = load_session(&conn, &session_id)?;
+    Ok(submit_chat_message(
+        &app,
+        &conn,
+        db_path,
+        &runtime,
+        &session_id,
+        &content,
+        false,
+    )?
+    .message)
+}
+
+struct ChatSubmission {
+    message: ChatMessage,
+    completion: Option<mpsc::Receiver<ChatTerminalResult>>,
+}
+
+fn submit_chat_message(
+    app: &AppHandle,
+    conn: &Connection,
+    db_path: PathBuf,
+    runtime: &ChatRuntimeManager,
+    session_id: &str,
+    content: &str,
+    subscribe_to_completion: bool,
+) -> Result<ChatSubmission, AppError> {
+    let trimmed_content = content.trim().to_string();
+    if trimmed_content.is_empty() {
+        return Err(AppError::Validation(
+            "Message content cannot be empty.".to_string(),
+        ));
+    }
+    let session = load_session(conn, session_id)?;
     if session.archived {
         return Err(AppError::Validation(format!(
             "Cannot send a message to archived session: {session_id}"
         )));
     }
-    let selected_agent = load_agent(&conn, &session.agent_id)?;
+    let selected_agent = load_agent(conn, &session.agent_id)?;
 
-    insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
-    let assistant_message = insert_chat_message(&conn, &session_id, "assistant", "streaming", "")?;
-    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Starting)?;
+    insert_chat_message(conn, session_id, "user", "completed", &trimmed_content)?;
+    let assistant_message = insert_chat_message(conn, session_id, "assistant", "streaming", "")?;
+    let completion = if subscribe_to_completion {
+        Some(runtime.subscribe(&assistant_message.id)?)
+    } else {
+        None
+    };
+    update_session_lifecycle(conn, session_id, SessionLifecycleState::Starting)?;
     let _ = app.emit(
         "chat:event",
         ChatStreamEvent::Started {
-            session_id: session_id.clone(),
+            session_id: session_id.to_string(),
             message_id: assistant_message.id.clone(),
         },
     );
-    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Running)?;
+    update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
-    let spawned =
-        match spawn_cli_generation(&conn, &session, &selected_agent, &trimmed_content, &config) {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                let concise_error = concise_cli_error(&selected_agent, &error);
-                let _ = write_session_runtime_log(
-                    &conn,
-                    logging::LogLevel::Error,
-                    &session_id,
-                    &selected_agent.id,
-                    &error,
-                );
-                let failed =
-                    fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
-                update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
-                runtime.complete(&session_id)?;
-                let _ = app.emit(
-                    "chat:event",
-                    ChatStreamEvent::Failed {
-                        session_id,
-                        message_id: assistant_message.id,
-                        error: concise_error,
-                    },
-                );
-                return Ok(failed);
-            }
-        };
+    let spawned = match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content) {
+        Ok(spawned) => spawned,
+        Err(error) => {
+            let concise_error = concise_cli_error(&selected_agent, &error);
+            let _ = write_session_runtime_log(
+                conn,
+                logging::LogLevel::Error,
+                session_id,
+                &selected_agent.id,
+                &error,
+            );
+            let failed = fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+            update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+            runtime.complete(session_id)?;
+            let _ = runtime.finish(
+                &assistant_message.id,
+                ChatTerminalResult::Failed(concise_error.clone()),
+            );
+            let _ = app.emit(
+                "chat:event",
+                ChatStreamEvent::Failed {
+                    session_id: session_id.to_string(),
+                    message_id: assistant_message.id.clone(),
+                    error: concise_error,
+                },
+            );
+            return Ok(ChatSubmission {
+                message: failed,
+                completion,
+            });
+        }
+    };
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
     runtime.start(
-        session_id.clone(),
+        session_id.to_string(),
         assistant_message.id.clone(),
         Some(spawned.child),
     )?;
     let background_app = app.clone();
-    let background_session_id = session_id.clone();
+    let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
     let background_message_id = assistant_message.id.clone();
     let prompt_len = trimmed_content.chars().count();
@@ -4610,7 +4560,10 @@ fn send_message(
         );
     });
 
-    Ok(assistant_message)
+    Ok(ChatSubmission {
+        message: assistant_message,
+        completion,
+    })
 }
 
 #[tauri::command]
@@ -4636,7 +4589,7 @@ fn get_usage_statistics(
         .lock()
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
-    usage::aggregate_usage_statistics(&conn, range)
+    aggregate_usage_statistics(&conn, range)
 }
 
 fn stop_generation_for_session(
@@ -4669,6 +4622,7 @@ fn stop_generation_for_session(
     if let StopGenerationOutcome::SoftCancelled { message_id }
     | StopGenerationOutcome::ProcessKilled { message_id } = &stop_outcome
     {
+        let _ = runtime.finish(message_id, ChatTerminalResult::Cancelled);
         if !streaming_ids.iter().any(|id| id == message_id) {
             let _ = app.emit(
                 "chat:event",
@@ -4680,6 +4634,7 @@ fn stop_generation_for_session(
         }
     }
     for message_id in streaming_ids {
+        let _ = runtime.finish(&message_id, ChatTerminalResult::Cancelled);
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Cancelled {
@@ -4757,6 +4712,238 @@ fn get_workflow_state_from_conn(conn: &Connection) -> Result<WorkflowState, AppE
     })
 }
 
+struct VaneHubInboundAgent {
+    app: AppHandle,
+}
+
+#[async_trait::async_trait]
+impl im::runtime::InboundAgent for VaneHubInboundAgent {
+    async fn claim(
+        &self,
+        inbound: &im::models::NormalizedInbound,
+    ) -> Result<bool, im::runtime::ConnectorRuntimeError> {
+        let app = self.app.clone();
+        let connector = inbound.connector;
+        let event_id = inbound.event_id.clone();
+        tauri::async_runtime::spawn_blocking(move || claim_im_inbound(&app, connector, &event_id))
+            .await
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("dedup-task-join-failed"))?
+    }
+
+    async fn handle(
+        &self,
+        inbound: im::models::NormalizedInbound,
+    ) -> Result<im::runtime::InboundOutcome, im::runtime::ConnectorRuntimeError> {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn_blocking(move || handle_im_inbound(&app, inbound))
+            .await
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("agent-task-join-failed"))?
+    }
+
+    fn diagnostic(&self, event: im::runtime::ConnectorDiagnostic) {
+        let state = self.app.state::<Mutex<RegistryStore>>();
+        let Ok(store) = state.lock() else {
+            return;
+        };
+        let Ok(conn) = store.connection() else {
+            return;
+        };
+        let Ok(log_dir) = active_log_dir_from_conn(&conn) else {
+            return;
+        };
+        let level = match event.level {
+            im::runtime::DiagnosticLevel::Debug => logging::LogLevel::Debug,
+            im::runtime::DiagnosticLevel::Info => logging::LogLevel::Info,
+            im::runtime::DiagnosticLevel::Warn => logging::LogLevel::Warn,
+            im::runtime::DiagnosticLevel::Error => logging::LogLevel::Error,
+        };
+        let mut context = BTreeMap::new();
+        context.insert("connector".to_string(), event.connector.as_str().to_string());
+        context.insert("operation".to_string(), event.operation.to_string());
+        context.insert("safeCode".to_string(), event.safe_code);
+        context.insert("retryCount".to_string(), event.retry_count.to_string());
+        if let Some(value) = event.internal_session_id {
+            context.insert("internalSessionId".to_string(), value);
+        }
+        if let Some(value) = event.internal_message_id {
+            context.insert("internalMessageId".to_string(), value);
+        }
+        if let Some(value) = event.platform_status_code {
+            context.insert("platformStatusCode".to_string(), value);
+        }
+        if let Some(value) = event.retry_classification {
+            context.insert("retryClassification".to_string(), value);
+        }
+        let _ = logging::write_message(
+            &log_dir,
+            level,
+            "im.connector",
+            "IM connector lifecycle or delivery event",
+            context,
+        );
+    }
+
+    fn busy_message(&self) -> String {
+        let state = self.app.state::<Mutex<RegistryStore>>();
+        let Ok(store) = state.lock() else {
+            return "Too many pending messages. Please try again later.".to_string();
+        };
+        let language = store
+            .connection()
+            .ok()
+            .and_then(|conn| get_settings_from_conn(&conn).ok())
+            .map(|settings| settings.application_language)
+            .unwrap_or_else(|| "en".to_string());
+        if language.to_ascii_lowercase().starts_with("zh") {
+            "待处理消息过多，请稍后重试。".to_string()
+        } else {
+            "Too many pending messages. Please try again later.".to_string()
+        }
+    }
+}
+
+fn claim_im_inbound(
+    app: &AppHandle,
+    connector: im::models::ConnectorKind,
+    event_id: &str,
+) -> Result<bool, im::runtime::ConnectorRuntimeError> {
+    let state = app.state::<Mutex<RegistryStore>>();
+    let store = state
+        .lock()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-lock-failed"))?;
+    let conn = store
+        .connection()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-open-failed"))?;
+    let repository = im::storage::ImRepository::new(&conn);
+    let claimed = repository
+        .claim_event(connector, event_id)
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("dedup-write-failed"))?;
+    if claimed {
+        let cutoff = (Utc::now() - ChronoDuration::days(7)).to_rfc3339();
+        let _ = repository.cleanup_dedup_before(&cutoff);
+    }
+    Ok(claimed)
+}
+
+fn handle_im_inbound(
+    app: &AppHandle,
+    inbound: im::models::NormalizedInbound,
+) -> Result<im::runtime::InboundOutcome, im::runtime::ConnectorRuntimeError> {
+    let (conn, db_path) = {
+        let state = app.state::<Mutex<RegistryStore>>();
+        let store = state
+            .lock()
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-lock-failed"))?;
+        let connection = store
+            .connection()
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-open-failed"))?;
+        (connection, store.db_path.clone())
+    };
+    let repository = im::storage::ImRepository::new(&conn);
+
+    let routing = repository.routing().map_err(|_| {
+        im::runtime::ConnectorRuntimeError::new("routing-read-failed")
+    })?;
+    let routing = routing.ok_or_else(|| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "routing-not-configured",
+            "IM routing is not configured in VaneHub settings.",
+        )
+    })?;
+    let agent = load_agent(&conn, &routing.agent_id).map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "default-agent-unavailable",
+            "The configured default Agent is unavailable.",
+        )
+    })?;
+    let interaction_mode = agent
+        .supported_interaction_modes
+        .iter()
+        .find(|mode| matches!(mode, InteractionMode::Cli))
+        .cloned()
+        .ok_or_else(|| {
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "default-agent-no-cli",
+                "The configured default Agent does not support CLI chat.",
+            )
+        })?;
+
+    let session_id = match repository
+        .bound_session(inbound.connector, &inbound.chat_id)
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("binding-read-failed"))?
+    {
+        Some(session_id) => session_id,
+        None => {
+            let session = create_session_internal(
+                &conn,
+                CreateSessionInput {
+                    agent_id: routing.agent_id,
+                    interaction_mode,
+                    title: Some(format!("{} IM", inbound.connector.as_str())),
+                    folder: None,
+                    project_path: Some(routing.project_path),
+                    worktree: None,
+                },
+                SessionActivation::PreserveActive,
+                SessionSourceMetadata::im(inbound.connector),
+            )
+            .map_err(|_| {
+                im::runtime::ConnectorRuntimeError::user_visible(
+                    "session-create-failed",
+                    "VaneHub could not create a session for this chat.",
+                )
+            })?;
+            repository
+                .bind_chat(inbound.connector, &inbound.chat_id, &session.id)
+                .map_err(|_| im::runtime::ConnectorRuntimeError::new("binding-write-failed"))?;
+            session.id
+        }
+    };
+
+    let runtime = app.state::<ChatRuntimeManager>();
+    let mut submission = submit_chat_message(
+        app,
+        &conn,
+        db_path,
+        &runtime,
+        &session_id,
+        &inbound.text,
+        true,
+    )
+    .map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-start-failed",
+            "The Agent could not start this request.",
+        )
+    })?;
+    let completion = submission.completion.take().ok_or_else(|| {
+        im::runtime::ConnectorRuntimeError::new("completion-subscription-missing")
+    })?;
+    match completion.recv_timeout(Duration::from_secs(30 * 60)) {
+        Ok(ChatTerminalResult::Completed(message)) => Ok(im::runtime::InboundOutcome::Reply {
+            text: message.content,
+            session_id,
+            message_id: message.id,
+        }),
+        Ok(ChatTerminalResult::Failed(_)) => Err(
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "agent-generation-failed",
+                "The Agent could not complete this request.",
+            ),
+        ),
+        Ok(ChatTerminalResult::Cancelled) => Err(
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "agent-generation-cancelled",
+                "The Agent request was cancelled.",
+            ),
+        ),
+        Err(_) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-timeout",
+            "The Agent did not finish before the IM response timeout.",
+        )),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -4768,11 +4955,32 @@ pub fn run() {
             std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
             let store = RegistryStore::new(data_dir)
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            let im_db_path = store.db_path.clone();
+            let tray_language = store
+                .connection()
+                .ok()
+                .and_then(|conn| get_settings_from_conn(&conn).ok())
+                .map(|settings| settings.application_language)
+                .unwrap_or_else(|| "zh-CN".to_string());
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
-            app.manage(shell::ShellManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
-            app.manage(extensions::commands::ExtensionRuntimeManager::default());
+            let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
+                app: app.handle().clone(),
+            }));
+            app.manage(im_runtime.clone());
+            app.manage(im::commands::WeChatAuthorizationState::default());
+            if let Err(code) = desktop_lifecycle::initialize(app, &tray_language) {
+                let mut context = BTreeMap::new();
+                context.insert("safeCode".to_string(), code);
+                let _ = logging::write_message(
+                    &fallback_log_dir(),
+                    logging::LogLevel::Warn,
+                    "desktop.lifecycle",
+                    "System tray initialization failed; normal window close behavior remains active",
+                    context,
+                );
+            }
             let should_refresh = {
                 let store = app.state::<Mutex<RegistryStore>>();
                 let store = store.lock().map_err(|err| {
@@ -4793,16 +5001,18 @@ pub fn run() {
                 )
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             }
+            tauri::async_runtime::spawn(im::commands::start_saved_connectors(
+                im_runtime,
+                im_db_path,
+            ));
             Ok(())
         })
+        .on_window_event(desktop_lifecycle::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             list_agents,
             list_cli_tools,
             refresh_cli_detections,
             install_cli_version,
-            cli_parameters::list_cli_parameter_profiles,
-            cli_parameters::save_cli_parameter_profile,
-            cli_parameters::reset_cli_parameter_profile,
             get_agent_by_id,
             get_workflow_state,
             select_agent,
@@ -4827,24 +5037,24 @@ pub fn run() {
             list_messages,
             get_usage_statistics,
             stop_generation,
-            commands::session_tabs::list_session_directory::list_session_directory,
-            commands::session_tabs::read_session_file::read_session_file,
-            commands::session_tabs::list_session_documents::list_session_documents,
-            commands::session_tabs::get_session_git_status::get_session_git_status,
-            commands::session_tabs::get_session_git_diff::get_session_git_diff,
-            commands::session_tabs::list_session_logs::list_session_logs,
-            commands::session_tabs::export_session_logs::export_session_logs,
-            commands::shell::shell_create::shell_create,
-            commands::shell::shell_input::shell_input,
-            commands::shell::shell_cd::shell_cd,
-            commands::shell::shell_resize::shell_resize,
-            commands::shell::shell_kill::shell_kill,
             get_settings,
             save_setting,
             test_network_proxy,
             scan_network_proxies,
             open_log_directory,
             report_client_log_event,
+            im::commands::list_im_connectors,
+            im::commands::get_im_routing,
+            im::commands::save_im_routing,
+            im::commands::save_im_connector,
+            im::commands::set_im_connector_enabled,
+            im::commands::restart_im_connector,
+            im::commands::test_im_connector,
+            im::commands::clear_im_connector,
+            im::commands::reset_im_bindings,
+            im::commands::begin_wechat_authorization,
+            im::commands::poll_wechat_authorization,
+            im::commands::cancel_wechat_authorization,
             get_node_info,
             mcp::commands::list_mcp_servers,
             mcp::commands::add_mcp_server,
@@ -4880,16 +5090,7 @@ pub fn run() {
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
             tasks::commands::list_operations,
-            tasks::commands::get_operation_status,
-            extensions::commands::get_extension_overview,
-            extensions::commands::refresh_extension_health,
-            extensions::commands::get_extension_install_preview,
-            extensions::commands::install_extension,
-            extensions::commands::uninstall_extension,
-            extensions::commands::set_extension_enabled,
-            extensions::commands::start_extension,
-            extensions::commands::stop_extension,
-            extensions::commands::test_extension
+            tasks::commands::get_operation_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -4904,20 +5105,6 @@ mod tests {
         migrate(&conn).expect("migrate");
         seed_agents(&conn).expect("seed");
         conn
-    }
-
-    fn test_chat_config(agent_id: &str) -> ChatConfig {
-        ChatConfig {
-            agent_id: agent_id.to_string(),
-            interaction_mode: InteractionMode::Cli,
-            permission_mode: "default".to_string(),
-            provider_id: None,
-            model_id: None,
-            reasoning_depth: None,
-            streaming: true,
-            thinking: false,
-            long_context: false,
-        }
     }
 
     fn unique_temp_dir(name: &str) -> PathBuf {
@@ -4952,7 +5139,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     }
 
     #[test]
@@ -5122,6 +5309,76 @@ mod tests {
         assert!(table_has_column(&conn, "messages", "session_id").expect("column check"));
         assert!(table_has_column(&conn, "settings", "value").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "runtime_session_id").expect("column check"));
+        assert!(table_has_column(&conn, "sessions", "source_kind").expect("source column"));
+        assert!(
+            table_has_column(&conn, "sessions", "source_connector")
+                .expect("connector source column")
+        );
+    }
+
+    #[test]
+    fn im_session_creation_preserves_active_desktop_session() {
+        let conn = test_conn();
+        let input = |title: &str| CreateSessionInput {
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: InteractionMode::Cli,
+            title: Some(title.to_string()),
+            folder: None,
+            project_path: None,
+            worktree: None,
+        };
+        let desktop = create_session_internal(
+            &conn,
+            input("Desktop"),
+            SessionActivation::Activate,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("desktop session");
+        let im_session = create_session_internal(
+            &conn,
+            input("Telegram"),
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::im(im::models::ConnectorKind::Telegram),
+        )
+        .expect("IM session");
+
+        let active_id: Option<String> = conn
+            .query_row(
+                "SELECT active_session_id FROM workflow_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active session");
+        assert_eq!(active_id.as_deref(), Some(desktop.id.as_str()));
+        assert_eq!(im_session.source.kind, "im");
+        assert_eq!(
+            im_session.source.connector,
+            Some(im::models::ConnectorKind::Telegram)
+        );
+    }
+
+    #[test]
+    fn chat_completion_subscription_is_exactly_once() {
+        let runtime = ChatRuntimeManager::default();
+        let receiver = runtime.subscribe("message-1").expect("subscribe");
+
+        assert!(runtime
+            .finish(
+                "message-1",
+                ChatTerminalResult::Failed("first failure".to_string())
+            )
+            .expect("first finish"));
+        assert!(!runtime
+            .finish(
+                "message-1",
+                ChatTerminalResult::Failed("second failure".to_string())
+            )
+            .expect("second finish"));
+        assert!(matches!(
+            receiver.recv().expect("terminal result"),
+            ChatTerminalResult::Failed(error) if error == "first failure"
+        ));
+        assert!(receiver.try_recv().is_err());
     }
 
     #[test]
@@ -5266,7 +5523,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_statistics_aggregates_all_time_normalized_usage() {
+    fn usage_statistics_aggregates_all_time_message_usage() {
         let conn = test_conn();
         insert_test_session(&conn, "session-1");
         insert_test_session(&conn, "session-2");
@@ -5311,36 +5568,13 @@ mod tests {
         )
         .expect("complete third");
 
-        usage::upsert_estimated_usage(
-            &conn,
-            &first.id,
-            "session-1",
-            "claude-code",
-            10,
-            20,
-            "fixture",
-            &first.created_at,
-        )
-        .expect("first usage");
-        usage::upsert_estimated_usage(
-            &conn,
-            &second.id,
-            "session-1",
-            "claude-code",
-            5,
-            7,
-            "fixture",
-            &second.created_at,
-        )
-        .expect("second usage");
+        let stats =
+            aggregate_usage_statistics(&conn, UsageStatisticsRange::All).expect("usage stats");
 
-        let stats = usage::aggregate_usage_statistics(&conn, UsageStatisticsRange::All)
-            .expect("usage stats");
-
-        assert_eq!(stats.estimated.input_characters, 15);
-        assert_eq!(stats.estimated.output_characters, 27);
-        assert_eq!(stats.estimated.total_characters, 42);
-        assert_eq!(stats.coverage.estimated_responses, 2);
+        assert_eq!(stats.input_tokens, 15);
+        assert_eq!(stats.output_tokens, 27);
+        assert_eq!(stats.total_tokens, 42);
+        assert_eq!(stats.counted_messages, 2);
         assert_eq!(stats.counted_sessions, 1);
     }
 
@@ -5351,8 +5585,9 @@ mod tests {
 
         let old_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
             .expect("old assistant");
-        let recent_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
-            .expect("recent assistant");
+        let recent_message =
+            insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+                .expect("recent assistant");
         complete_assistant_message(
             &conn,
             &old_message.id,
@@ -5374,41 +5609,19 @@ mod tests {
         )
         .expect("complete recent");
 
-        usage::upsert_estimated_usage(
-            &conn,
-            &old_message.id,
-            "session-1",
-            "claude-code",
-            100,
-            100,
-            "fixture",
-            &old_message.created_at,
-        )
-        .expect("old usage");
-        usage::upsert_estimated_usage(
-            &conn,
-            &recent_message.id,
-            "session-1",
-            "claude-code",
-            8,
-            13,
-            "fixture",
-            &recent_message.created_at,
-        )
-        .expect("recent usage");
-        let old_timestamp = (Utc::now() - chrono::Duration::days(40)).to_rfc3339();
+        let old_timestamp = (Utc::now() - ChronoDuration::days(40)).to_rfc3339();
         conn.execute(
-            "UPDATE usage_records SET occurred_at = ?1 WHERE message_id = ?2",
+            "UPDATE messages SET created_at = ?1 WHERE id = ?2",
             params![old_timestamp, old_message.id],
         )
         .expect("age old message");
 
-        let stats = usage::aggregate_usage_statistics(&conn, UsageStatisticsRange::Last30Days)
+        let stats = aggregate_usage_statistics(&conn, UsageStatisticsRange::Last30Days)
             .expect("range stats");
 
-        assert_eq!(stats.estimated.input_characters, 8);
-        assert_eq!(stats.estimated.output_characters, 13);
-        assert_eq!(stats.coverage.estimated_responses, 1);
+        assert_eq!(stats.input_tokens, 8);
+        assert_eq!(stats.output_tokens, 13);
+        assert_eq!(stats.counted_messages, 1);
     }
 
     #[test]
@@ -5460,23 +5673,21 @@ mod tests {
 
     #[test]
     fn structured_parser_reads_session_text_and_tools() {
-        let parser = StructuredJsonParser {
-            agent_id: "codex-cli".to_string(),
-        };
         assert_eq!(
-            parser.parse_line(r#"{"type":"session_init","session_id":"provider-session-1"}"#),
+            StructuredJsonParser
+                .parse_line(r#"{"type":"session_init","session_id":"provider-session-1"}"#),
             ParsedAgentEvent::SessionId("provider-session-1".to_string())
         );
         assert_eq!(
-            parser.parse_line(r#"{"type":"message","text":"hello"}"#),
+            StructuredJsonParser.parse_line(r#"{"type":"message","text":"hello"}"#),
             ParsedAgentEvent::Token("hello".to_string())
         );
         assert_eq!(
-            parser.parse_line(r#"{"type":"reasoning","reasoning":"checking"}"#),
+            StructuredJsonParser.parse_line(r#"{"type":"reasoning","reasoning":"checking"}"#),
             ParsedAgentEvent::Thinking("checking".to_string())
         );
         assert_eq!(
-            parser.parse_line(r#"{"type":"tool_call","id":"t1","name":"read"}"#),
+            StructuredJsonParser.parse_line(r#"{"type":"tool_call","id":"t1","name":"read"}"#),
             ParsedAgentEvent::ToolUse(ToolUseBlock {
                 id: "t1".to_string(),
                 name: "read".to_string(),
@@ -5485,16 +5696,6 @@ mod tests {
                 status: "running".to_string(),
             })
         );
-    }
-
-    #[test]
-    fn malformed_usage_diagnostic_does_not_carry_cli_payload() {
-        let raw = r#"{"type":"assistant","private":"private prompt","usage":{"input_tokens":"sk-secret"}}"#;
-        let parsed = ClaudeCodeParser.parse_line(raw);
-
-        assert_eq!(parsed, ParsedAgentEvent::UsageMalformed);
-        assert!(!MALFORMED_USAGE_LOG_MESSAGE.contains("private prompt"));
-        assert!(!MALFORMED_USAGE_LOG_MESSAGE.contains("sk-secret"));
     }
 
     #[test]
@@ -5510,231 +5711,38 @@ mod tests {
             "claude".to_string(),
             "hello",
             Some("claude-session"),
-            &[],
         )
         .expect("claude spec");
         assert_eq!(claude_spec.prompt_delivery, PromptDelivery::Stdin);
         assert!(claude_spec.args.iter().any(|arg| arg == "--resume"));
         assert!(!claude_spec.args.iter().any(|arg| arg == "hello"));
 
-        let codex_spec = build_cli_invocation_spec(
-            &codex,
-            "codex".to_string(),
-            "hello",
-            Some("codex-session"),
-            &[],
-        )
-        .expect("codex spec");
+        let codex_spec =
+            build_cli_invocation_spec(&codex, "codex".to_string(), "hello", Some("codex-session"))
+                .expect("codex spec");
         assert_eq!(codex_spec.prompt_delivery, PromptDelivery::Stdin);
         assert_eq!(
             codex_spec.args,
             vec!["exec", "resume", "codex-session", "--json", "--", "-"]
         );
 
-        let gemini_spec =
-            build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None, &[])
-                .expect("gemini spec");
+        let gemini_spec = build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None)
+            .expect("gemini spec");
         assert_eq!(gemini_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(gemini_spec
             .args
             .windows(2)
             .any(|pair| pair == ["-p", "hello"]));
 
-        let opencode_spec = build_cli_invocation_spec(
-            &opencode,
-            "opencode".to_string(),
-            "hello",
-            Some("open-1"),
-            &[],
-        )
-        .expect("opencode spec");
+        let opencode_spec =
+            build_cli_invocation_spec(&opencode, "opencode".to_string(), "hello", Some("open-1"))
+                .expect("opencode spec");
         assert_eq!(opencode_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(opencode_spec
             .args
             .windows(2)
             .any(|pair| pair == ["--session", "open-1"]));
         assert_eq!(opencode_spec.args.last().map(String::as_str), Some("hello"));
-    }
-
-    #[test]
-    fn provider_command_builders_preserve_fresh_and_resume_shapes_with_default_profiles() {
-        let conn = test_conn();
-        for agent_id in cli_parameters::MANAGED_CLI_AGENT_IDS {
-            let agent = load_agent(&conn, agent_id).expect("agent");
-            let selections = cli_parameters::load_selections(&conn, agent_id).expect("profile");
-            let args = cli_parameters::preview_args(
-                agent_id,
-                &selections,
-                cli_parameters::CliParameterLaunchScope::Chat,
-            )
-            .expect("args");
-            let fresh =
-                build_cli_invocation_spec(&agent, agent_id.to_string(), "prompt", None, &args)
-                    .expect("fresh");
-            let resumed = build_cli_invocation_spec(
-                &agent,
-                agent_id.to_string(),
-                "prompt",
-                Some("provider-session"),
-                &args,
-            )
-            .expect("resumed");
-            assert!(!fresh
-                .args
-                .iter()
-                .any(|argument| argument == "provider-session"));
-            assert!(resumed
-                .args
-                .iter()
-                .any(|argument| argument == "provider-session"));
-            match agent_id {
-                "claude-code" => assert!(fresh.args.contains(&"stream-json".to_string())),
-                "codex-cli" => assert!(fresh.args.contains(&"exec".to_string())),
-                "gemini-cli" => {
-                    assert!(fresh.args.contains(&"--approval-mode".to_string()));
-                    assert!(fresh.args.contains(&"stream-json".to_string()));
-                }
-                "opencode" => assert!(fresh.args.contains(&"run".to_string())),
-                _ => unreachable!(),
-            }
-        }
-    }
-
-    #[test]
-    fn provider_command_builders_place_managed_arguments_without_overriding_runtime_tokens() {
-        let conn = test_conn();
-        let codex = load_agent(&conn, "codex-cli").expect("codex");
-        let spec = build_cli_invocation_spec(
-            &codex,
-            "codex".to_string(),
-            "secret prompt",
-            Some("session-1"),
-            &[
-                "--model".to_string(),
-                "gpt-5.4".to_string(),
-                "--ephemeral".to_string(),
-            ],
-        )
-        .expect("spec");
-        assert_eq!(
-            spec.args,
-            vec![
-                "--model",
-                "gpt-5.4",
-                "exec",
-                "resume",
-                "session-1",
-                "--ephemeral",
-                "--json",
-                "--",
-                "-",
-            ]
-        );
-        assert!(!spec.args.iter().any(|argument| argument == "secret prompt"));
-    }
-
-    #[test]
-    fn chat_config_overrides_persisted_profile_without_mutating_it() {
-        let conn = test_conn();
-        conn.execute(
-            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES (?1, ?2, 1, ?3, ?4)",
-            params!["codex-cli", "sandbox", "\"read-only\"", current_timestamp()],
-        )
-        .expect("persist profile");
-        let config = ChatConfig {
-            permission_mode: "agent".to_string(),
-            provider_id: Some("openai".to_string()),
-            model_id: Some("gpt-5-4".to_string()),
-            reasoning_depth: Some("max".to_string()),
-            ..test_chat_config("codex-cli")
-        };
-        let effective = effective_cli_selections(&conn, "codex-cli", &config).expect("effective");
-        assert_eq!(effective["model"], "gpt-5.4");
-        assert_eq!(effective["reasoningEffort"], "xhigh");
-        assert_eq!(effective["sandbox"], "workspace-write");
-        assert_eq!(effective["approvalPolicy"], "on-request");
-        assert_eq!(
-            cli_parameters::load_selections(&conn, "codex-cli").expect("persisted")["sandbox"],
-            "read-only"
-        );
-    }
-
-    #[test]
-    fn chat_config_maps_supported_values_and_omits_unknown_models() {
-        let conn = test_conn();
-        let claude = effective_cli_selections(
-            &conn,
-            "claude-code",
-            &ChatConfig {
-                permission_mode: "plan".to_string(),
-                model_id: Some("claude-opus-4-8".to_string()),
-                reasoning_depth: Some("high".to_string()),
-                ..test_chat_config("claude-code")
-            },
-        )
-        .expect("claude");
-        assert_eq!(claude["model"], "opus");
-        assert_eq!(claude["effort"], "high");
-        assert_eq!(claude["permissionMode"], "plan");
-
-        let gemini = effective_cli_selections(
-            &conn,
-            "gemini-cli",
-            &ChatConfig {
-                permission_mode: "plan".to_string(),
-                model_id: Some("gemini-2-5-pro".to_string()),
-                ..test_chat_config("gemini-cli")
-            },
-        )
-        .expect("gemini");
-        assert_eq!(gemini["model"], "gemini-2.5-pro");
-        assert_eq!(gemini["approvalMode"], "plan");
-
-        let opencode = effective_cli_selections(
-            &conn,
-            "opencode",
-            &ChatConfig {
-                permission_mode: "auto".to_string(),
-                thinking: true,
-                ..test_chat_config("opencode")
-            },
-        )
-        .expect("opencode");
-        assert_eq!(opencode["autoApprove"], true);
-        assert_eq!(opencode["thinking"], true);
-
-        let unknown = effective_cli_selections(
-            &conn,
-            "claude-code",
-            &ChatConfig {
-                model_id: Some("unrecognized-model".to_string()),
-                ..test_chat_config("claude-code")
-            },
-        )
-        .expect("unknown model");
-        assert_eq!(unknown["model"], "default");
-    }
-
-    #[test]
-    fn selection_snapshots_change_only_for_the_next_process() {
-        let conn = test_conn();
-        conn.execute(
-            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES ('claude-code', 'effort', 1, '\"low\"', ?1)",
-            params![current_timestamp()],
-        )
-        .expect("initial profile");
-        let first =
-            effective_cli_selections(&conn, "claude-code", &test_chat_config("claude-code"))
-                .expect("first process");
-        conn.execute(
-            "UPDATE cli_parameter_settings SET value_json = '\"high\"', updated_at = ?1 WHERE agent_id = 'claude-code' AND parameter_id = 'effort'",
-            params![current_timestamp()],
-        )
-        .expect("updated profile");
-        let next = effective_cli_selections(&conn, "claude-code", &test_chat_config("claude-code"))
-            .expect("next process");
-        assert_eq!(first["effort"], "low");
-        assert_eq!(next["effort"], "high");
     }
 
     #[test]
@@ -6054,18 +6062,6 @@ mod tests {
             CliVersionCheckStatus::NotDetected
         ));
         assert!(should_start_initial_cli_refresh(&conn).expect("initial refresh needed"));
-
-        conn.execute(
-            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES ('claude-code', 'chrome', 1, 'true', ?1)",
-            params![current_timestamp()],
-        )
-        .expect("interactive parameter");
-        let after_profile_change = load_cli_tool_statuses(&conn).expect("statuses after profile");
-        assert_eq!(after_profile_change[0].installed, statuses[0].installed);
-        assert_eq!(
-            cli_version_check_status_str(&after_profile_change[0].version_check_status),
-            cli_version_check_status_str(&statuses[0].version_check_status)
-        );
     }
 
     #[test]

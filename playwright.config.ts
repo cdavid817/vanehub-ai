@@ -1,29 +1,20 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const managedPort = process.env.PLAYWRIGHT_TEST_PORT;
-const baseURL = managedPort
-  ? `http://127.0.0.1:${managedPort}`
-  : process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:1420";
-
 export default defineConfig({
   testDir: "./tests/e2e",
-  workers: 1,
   timeout: 30_000,
   expect: {
     timeout: 5_000,
   },
   use: {
-    baseURL,
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5174",
     trace: "on-first-retry",
   },
-  webServer: managedPort
-    ? {
-        command: `npm run dev -- --host 127.0.0.1 --port ${managedPort} --strictPort`,
-        reuseExistingServer: false,
-        timeout: 120_000,
-        url: baseURL,
-      }
-    : undefined,
+  webServer: {
+    command: "npm run dev",
+    url: "http://127.0.0.1:5174",
+    reuseExistingServer: true,
+  },
   projects: [
     {
       name: "chromium",

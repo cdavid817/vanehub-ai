@@ -1,0 +1,8 @@
+{
+  "message_id": "wx-fixture-001",
+  "conversation_id": "conversation_fixture",
+  "conversation_type": "direct",
+  "sender_id": "sender_fixture",
+  "text": "status please",
+  "context_token": "fixture-context-redacted"
+}

@@ -12,6 +12,7 @@ import type {
   SessionDetails,
   WorkflowState,
   ManagedCliAgentId,
+  ImSessionConnector,
 } from "../types/agent";
 import { managedCliAgentIds } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
@@ -78,6 +79,31 @@ let knownProjects: KnownProject[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+
+export function seedWebImSessionForTest(connector: ImSessionConnector): Session {
+  const timestamp = nowIso();
+  const session: Session = {
+    id: `web-im-session-${nextSessionId++}`,
+    title: `IM ${connector}`,
+    agentId: "codex-cli",
+    interactionMode: "cli",
+    lifecycleState: "idle",
+    folder: "D:\\example\\im-project",
+    projectPath: "D:\\example\\im-project",
+    worktreePath: null,
+    worktreeName: null,
+    worktreeBranch: null,
+    runtimeSessionId: null,
+    source: { kind: "im", connector },
+    pinned: false,
+    archived: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  sessions = [session, ...sessions];
+  activeSessionId = session.id;
+  return session;
+}
 
 const builtinSkillSeeds = [
   {

@@ -100,30 +100,42 @@ The desktop runtime SHALL store provider runtime session metadata when a CLI rep
 - **THEN** the desktop runtime SHALL continue the current generation without failing solely due to missing resume metadata
 - **AND** it SHALL record the missing metadata condition in diagnostics when useful
 
-### Requirement: Session runtime captures normalized CLI usage
-The desktop session runtime SHALL extract and normalize valid usage reported by supported Agent CLI events while keeping each generation's accounting isolated by session and assistant message id.
+### Requirement: Non-activating IM session creation
+The native session runtime SHALL support creating an IM-owned session without changing the desktop workflow's active session.
 
-#### Scenario: Capture supported reported usage
-- **WHEN** Claude Code, Codex CLI, Gemini CLI, or OpenCode emits valid usage during a VaneHub-managed generation
-- **THEN** the runtime SHALL normalize available fresh-input, output, cache-read, and cache-creation token categories for that generation
-- **AND** it SHALL retain optional provider/model identity when reported by the CLI
+#### Scenario: Create session for external chat
+- **WHEN** the IM router creates a session for a new external-chat binding
+- **THEN** the session SHALL be persisted with the configured Agent, CLI interaction mode, project path, IM source type, and source connector id
+- **AND** `workflow_state.active_session_id` SHALL remain unchanged
 
-#### Scenario: Handle repeated or cumulative usage events
-- **WHEN** a CLI emits repeated terminal observations or cumulative counters
-- **THEN** the runtime SHALL derive one non-negative response-level usage observation without double counting
-- **AND** accounting for another active session SHALL remain unchanged
+### Requirement: IM session continuity
+IM-owned sessions SHALL preserve the same provider runtime-session continuity as desktop-created sessions.
 
-#### Scenario: Complete without reported usage
-- **WHEN** a generation completes successfully without a valid reported usage observation
-- **THEN** the runtime SHALL create a character-count estimate labeled as estimated rather than reported tokens
-- **AND** missing reported usage alone SHALL NOT fail the generation
+#### Scenario: Reuse IM-owned session
+- **WHEN** a later external message targets an existing IM binding
+- **THEN** the Agent invocation SHALL reuse the bound session and its persisted provider runtime-session id when supported
 
-#### Scenario: Record reported usage before unsuccessful termination
-- **WHEN** a generation fails or is cancelled after the CLI has emitted valid reported usage
-- **THEN** the runtime SHALL retain that reported usage because consumption may already have occurred
-- **AND** it SHALL NOT fabricate estimated usage for an unsuccessful generation with no reported usage
+### Requirement: Shared message execution service
+Desktop and IM message submission SHALL use one internal native execution service.
 
-#### Scenario: Diagnose malformed usage safely
-- **WHEN** a supported CLI emits an unrecognized or malformed usage shape
-- **THEN** the runtime MAY write a rate-limited `debug` or `warn` diagnostic through unified logging with session and Agent context
-- **AND** it SHALL NOT persist raw prompts, responses, complete CLI events, credentials, or unredacted sensitive values in the diagnostic
+#### Scenario: Desktop submits message after refactor
+- **WHEN** the frontend submits a desktop chat message through the existing Agent service
+- **THEN** existing message persistence, streaming events, lifecycle state, CLI parsing, token accounting, and error behavior SHALL remain available
+
+#### Scenario: Native IM router submits message
+- **WHEN** the IM router submits a message directly to the internal service
+- **THEN** it SHALL not require a frontend window, React event listener, or native-to-native Tauri command invocation
+
+### Requirement: IM completion notification
+The native chat runtime SHALL expose an internal terminal completion signal for IM-originated assistant messages.
+
+#### Scenario: Assistant completes
+- **WHEN** an IM-originated assistant message reaches completed, failed, or cancelled state
+- **THEN** the waiting IM job SHALL receive exactly one terminal result associated with the session and assistant message
+
+### Requirement: Deleted IM session recovery
+Deleting an IM-owned session SHALL not leave a permanently unusable external-chat binding.
+
+#### Scenario: User deletes IM session
+- **WHEN** an IM-owned session is deleted from the existing session UI
+- **THEN** its binding SHALL be removed or recognized as stale so the next external message can create a replacement session

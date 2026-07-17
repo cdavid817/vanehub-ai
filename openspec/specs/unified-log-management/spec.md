@@ -170,55 +170,35 @@ Desktop CLI chat runtime diagnostics SHALL be persisted through the unified logg
 - **THEN** the chat UI SHALL show concise user-facing errors instead of raw stderr dumps
 - **AND** successfully streamed assistant text SHALL remain visible in the message list
 
-### Requirement: Unified local-extension operation logging
-Native local-extension installation, lifecycle, health, and self-test operations SHALL write diagnostic and operation events through the unified logging service while retaining task output for page display.
+### Requirement: IM connector diagnostics use unified logging
+All persistent IM connector diagnostics SHALL use the unified logging service with connector and lifecycle context.
 
-#### Scenario: Record extension operation output
-- **WHEN** an extension operation produces progress, warnings, or failures
-- **THEN** the system SHALL retain displayable output on its operation task and SHALL persist corresponding `debug`, `info`, `warn`, or `error` events through the unified logger
+#### Scenario: Persist connector lifecycle event
+- **WHEN** a connector starts, stops, reconnects, changes authorization state, or encounters a platform error
+- **THEN** the native runtime SHALL write a unified log entry with level, connector id, operation, safe status, retry context, and a concise redacted message
 
-#### Scenario: Redact extension log data
-- **WHEN** extension output contains proxy credentials, tokens, URLs with credentials, usernames, or sensitive managed paths
-- **THEN** the native logging boundary SHALL redact sensitive values before persistence
+#### Scenario: Preserve settings feedback
+- **WHEN** a connector operation produces diagnostic logs
+- **THEN** the settings page SHALL still receive a concise service result without reading a feature-local log file
 
-#### Scenario: Avoid feature-local logs
-- **WHEN** a local extension is installed, started, stopped, tested, or uninstalled
-- **THEN** the implementation SHALL NOT create an extension-specific persistent log file outside the unified log directory
+### Requirement: IM-specific sensitive data redaction
+The unified logging service SHALL redact connector credentials, authorization artifacts, external identities, and message content before persistence.
 
-### Requirement: Session diagnostics query
-The system SHALL expose redacted session-scoped diagnostics from the active unified log through the frontend service boundary without creating a second SQLite log store.
+#### Scenario: Redact IM diagnostic
+- **WHEN** an IM diagnostic contains a token, secret, bearer value, QR payload, authorization code, external chat id, external user id, inbound message, prompt, Agent response, or raw protocol frame
+- **THEN** the persisted entry SHALL omit or replace the sensitive value before it is appended to disk
 
-#### Scenario: Query logs for a session
-- **WHEN** the frontend requests logs for a valid session id
-- **THEN** the desktop runtime SHALL read the active unified log and return only redacted entries whose structured context contains that session id
+#### Scenario: Log command or request metadata
+- **WHEN** the runtime records an IM HTTP, WebSocket, Stream, or polling operation
+- **THEN** it SHALL record only safe endpoint classification, status, timing, and redacted error context rather than raw headers or bodies
 
-#### Scenario: Filter session logs
-- **WHEN** the request includes log levels or search text
-- **THEN** the desktop runtime SHALL apply the level filter and case-insensitive search before returning a bounded result page
+### Requirement: IM skip and delivery diagnostics
+The runtime SHALL record safe diagnostics for ignored inbound events and failed outbound delivery without persisting user content.
 
-#### Scenario: Ignore malformed log lines safely
-- **WHEN** the unified log contains a malformed entry
-- **THEN** the desktop runtime SHALL skip that entry without returning its raw content to the frontend
+#### Scenario: Ignore unsupported event
+- **WHEN** the connector ignores a group or unsupported-content event
+- **THEN** it SHALL emit at most a redacted debug diagnostic with connector id and safe reason classification
 
-#### Scenario: Query logs in Web runtime
-- **WHEN** the Web/mock adapter receives a session log query
-- **THEN** it SHALL return deterministic redacted mock entries and SHALL NOT read a local file
-
-### Requirement: Session diagnostics export
-The system SHALL allow desktop users to export filtered, already-redacted session diagnostics through a declared backend operation.
-
-#### Scenario: Export filtered session logs
-- **WHEN** a desktop user chooses a destination and confirms a session log export
-- **THEN** the native runtime SHALL write only the matching redacted entries to that destination and return a concise success result
-
-#### Scenario: Cancel session log export
-- **WHEN** the user cancels destination selection
-- **THEN** the system SHALL leave existing files unchanged and report the cancellation without an error
-
-#### Scenario: Prevent arbitrary source export
-- **WHEN** the frontend requests a session log export
-- **THEN** the frontend SHALL provide filter criteria rather than an arbitrary native source path
-
-#### Scenario: Export unavailable in Web runtime
-- **WHEN** the user requests local session log export in Web/mock mode
-- **THEN** the service SHALL report that local export is unavailable and SHALL NOT claim that a file was written
+#### Scenario: Final delivery fails
+- **WHEN** a connector cannot deliver a completed Agent response
+- **THEN** it SHALL persist a redacted error with connector id, internal session/message ids, retry classification, and platform status code when safe
