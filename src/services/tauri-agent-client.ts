@@ -44,14 +44,15 @@ export const tauriAgentClient: AgentService = {
     return invoke<CliToolStatus[]>("list_cli_tools");
   },
 
-  refreshCliDetections() {
-    return invoke<OperationTask>("refresh_cli_detections");
+  refreshCliDetections(agentId) {
+    return invoke<OperationTask>("refresh_cli_detections", { agentId: agentId ?? null });
   },
 
   installCliVersion(input: CliPackageOperationInput) {
     return invoke<OperationTask>("install_cli_version", {
       agentId: input.agentId,
       targetVersion: input.targetVersion,
+      confirmedActivePath: input.confirmedActivePath ?? null,
     });
   },
 

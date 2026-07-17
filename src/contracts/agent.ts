@@ -95,6 +95,20 @@ export interface SessionDetails {
 }
 
 export type CliVersionCheckStatus = "unsupported" | "not-detected" | "succeeded" | "failed";
+export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
+export type CliInstallSource = "npm" | "winget" | "desktop" | "homebrew" | "volta" | "bun" | "vendor" | "system" | "unknown";
+export type CliConflictState = "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
+export type CliLifecycleEligibility = "npm" | "manual" | "unavailable";
+
+export interface CliInstallation {
+  path: string;
+  version: string | null;
+  runnable: boolean;
+  error: string | null;
+  source: CliInstallSource;
+  environmentType: CliEnvironmentType;
+  isActive: boolean;
+}
 
 export interface CliToolStatus {
   agentId: string;
@@ -112,11 +126,17 @@ export interface CliToolStatus {
   lastError: string | null;
   lastOperationId: string | null;
   versionCheckStatus: CliVersionCheckStatus;
+  environmentType: CliEnvironmentType;
+  installations: CliInstallation[];
+  activeInstallationPath: string | null;
+  conflictState: CliConflictState;
+  lifecycleEligibility: CliLifecycleEligibility;
 }
 
 export interface CliPackageOperationInput {
   agentId: string;
   targetVersion: string;
+  confirmedActivePath?: string | null;
 }
 
 export const managedCliAgentIds = ["claude-code", "codex-cli", "gemini-cli", "opencode"] as const;

@@ -49,7 +49,7 @@ import type {
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   listCliTools(): Promise<CliToolStatus[]>;
-  refreshCliDetections(): Promise<OperationTask>;
+  refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
   listCliParameterProfiles(): Promise<CliParameterProfile[]>;
   saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
