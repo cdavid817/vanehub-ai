@@ -1,4 +1,4 @@
-export type OperationKind = "sdk" | "mcp" | "agent" | "workspace";
+export type OperationKind = "sdk" | "mcp" | "agent" | "workspace" | "extension";
 
 export type OperationStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 

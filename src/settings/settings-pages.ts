@@ -4,6 +4,7 @@ import {
   Boxes,
   Code2,
   Info,
+  Cpu,
   Puzzle,
   Settings,
   Terminal,
@@ -17,8 +18,9 @@ import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
+import { ExtensionsPage } from "./pages/extensions-page";
 
-export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "usage" | "about";
+export type SettingsPageId = "basic" | "providers" | "sdk" | "extensions" | "mcp" | "agents" | "skills" | "usage" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -60,6 +62,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 5,
     searchPlaceholderKey: "settings.search.sdk",
     component: SdkPage,
+  },
+  {
+    id: "extensions",
+    labelKey: "settings.pages.extensions",
+    crumbKey: "settings.pages.extensions",
+    icon: Cpu,
+    badge: 3,
+    searchPlaceholderKey: "settings.search.extensions",
+    component: ExtensionsPage,
   },
   {
     id: "mcp",
