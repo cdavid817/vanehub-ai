@@ -26,17 +26,16 @@ Desktop-first workspace for managing and switching between AI coding agents.
 
 VaneHub AI is a Tauri desktop application with a React UI for coordinating AI coding agents such as Claude Code, OpenCode, Codex CLI, and Gemini CLI. It keeps agent metadata, availability, interaction modes, workflow state, and session details behind a shared service boundary so the same UI can run in the desktop runtime or in a browser preview.
 
-Core capabilities currently present in the repository:
+## What is implemented
 
-- Registered agent catalog with stable IDs, providers, launch metadata, capability tags, and supported interaction modes.
-- Agent availability checks for local CLI/native tools before selection or launch.
-- Active agent and interaction mode switching through a React settings page.
-- Browser, native desktop, and CLI interaction-mode routing behind the same `AgentService` contract.
-- UCD-aligned settings center with Basic, Providers, SDK, MCP, Agents, and Skills pages.
-- Switchable `futuristic` and `minimal` visual styles persisted in frontend-local storage.
-- Three-panel workspace layout with activity/grouped sessions, chat-first main content, and collapsible keep-alive details.
-- Independent scrolling for workspace panels and each settings page so navigation stays stable while content scrolls.
-- Local and GitHub Actions Tauri packaging scripts for Windows, macOS, and Linux targets.
+- **Multi-agent CLI management:** detects Claude Code, Codex CLI, Gemini CLI, and OpenCode installations; shows versions and conflicts; and supports safe npm-managed install, update, and removal flows.
+- **Agent sessions and chat:** creates, switches, pins, archives, restores, and deletes sessions; persists session state in SQLite; and routes CLI chat execution, streaming output, cancellation, and failures through the native runtime.
+- **Developer workspace:** combines chat with terminal/shell, files, documents, Git status and diffs, logs, reports, and configurable workspace tabs for the active session.
+- **Tool and integration settings:** manages SDK dependencies, provider/model configuration, CLI parameters, MCP servers (including connection tests and import/export), scoped skills, and local extensions.
+- **Desktop and communication features:** provides a background-capable floating assistant, desktop notifications, scheduled-task entry points, IM connector configuration and routing, and network-proxy settings.
+- **Operations and observability:** includes usage statistics, a unified redacted log pipeline, long-running-operation feedback, and in-app notifications.
+- **Consistent UI/runtime architecture:** keeps React behind service contracts that have web/mock and Tauri implementations, with `futuristic` and `minimal` visual styles and English/Simplified Chinese UI resources.
+- **Packaging:** includes local and GitHub Actions Tauri packaging for Windows, macOS, and Linux targets.
 
 ## Architecture and Stack
 
@@ -139,39 +138,22 @@ ucd/
 
 ## Roadmap
 
-Issue data was not available in the local environment because the GitHub CLI is not installed. The checklist below is based on committed code, OpenSpec specs, archived task lists, and repository configuration. Please confirm priorities for planned work.
+### Delivered
 
-### Implemented Core Features
+- [x] Tauri + React desktop application, SQLite-backed state, and service-contract web/mock and native adapters.
+- [x] CLI environment discovery and lifecycle management for Claude Code, Codex CLI, Gemini CLI, and OpenCode.
+- [x] Session lifecycle management, CLI chat runtime, streaming/cancellation, and a multi-tab developer workspace.
+- [x] Settings for agents, providers, SDKs, CLI parameters, MCP, skills, extensions, usage, proxy, IM connectors, and the floating assistant.
+- [x] Unified redacted logging, notifications, desktop background lifecycle, and cross-platform packaging workflows.
 
-- [x] Tauri + React + TypeScript desktop application scaffold.
-- [x] SQLite-backed agent registry and persisted workflow state.
-- [x] Initial agent entries for Claude Code, OpenCode, Codex CLI, and Gemini CLI.
-- [x] Agent listing, stable ID lookup, capability filtering, and availability status.
-- [x] Active agent selection with compatible interaction-mode validation.
-- [x] Browser, native desktop, and CLI interaction-mode lifecycle routing.
+### Next steps
 
-### Settings and UI
-
-- [x] UCD-aligned settings center shell.
-- [x] Basic Configuration, Provider Management, SDK Dependencies, MCP Servers, Agents, and Skills pages.
-- [x] Agents page integration through `AgentService` without direct React-to-Tauri calls.
-- [x] Switchable `futuristic` and `minimal` themes with local persistence.
-- [x] Main workspace with activity/grouped session navigation, chat-first content area, fixed composer, and collapsible detail panel.
-- [x] Independent internal scrolling for workspace panels and settings page content.
-
-### Packaging and Validation
-
-- [x] Local package scripts for host and architecture-specific Tauri builds.
-- [x] GitHub Actions packaging matrix for Windows, macOS, and Linux on x64 and ARM64 targets.
-- [x] Frontend unit tests and Rust tests for registry/service behavior.
-- [x] OpenSpec validation records for completed changes.
-
-### Planned / Needs Confirmation
+No implementation change is currently open in `openspec/changes/`. The following are repository-level follow-ups rather than committed feature promises:
 
 - [ ] Add `CONTRIBUTING.md` with branch, test, and review expectations.
-- [ ] Decide whether release builds should remain unsigned or add Windows signing and macOS notarization.
-- [ ] Replace frontend-local demo data for Providers, SDK, MCP, and Skills pages with real service boundaries where needed.
-- [ ] Confirm roadmap priority from GitHub issues or project planning.
+- [ ] Decide whether release artifacts remain unsigned or gain Windows signing and macOS notarization.
+- [ ] Add Japanese runtime UI resources if Japanese product localization is required; the repository currently ships English and Simplified Chinese UI resources.
+- [ ] Publish and prioritize the next feature proposals through OpenSpec before implementation.
 
 ## Development
 

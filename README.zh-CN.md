@@ -26,17 +26,16 @@
 
 VaneHub AI 是一个基于 Tauri 的桌面应用，使用 React UI 协调 Claude Code、OpenCode、Codex CLI、Gemini CLI 等 AI Coding Agent。项目通过统一的服务边界管理 Agent 元数据、可用性、交互模式、工作流状态和会话详情，因此同一套 UI 可以运行在桌面端，也可以运行在浏览器预览环境中。
 
-仓库中当前可确认的核心能力包括：
+## 已实现功能
 
-- 带稳定 ID、Provider、启动元数据、能力标签和支持交互模式的 Agent 注册目录。
-- 在选择或启动前检查本地 CLI / native 工具可用性。
-- 通过 React 设置页切换当前 Agent 和交互模式。
-- 在同一 `AgentService` 合约下封装 Browser、Native Desktop、CLI 交互模式路由。
-- UCD 风格设置中心，包含 Basic、Providers、SDK、MCP、Agents、Skills 页面。
-- 可切换的 `futuristic` / `minimal` 视觉风格，并持久化到前端本地存储。
-- 三栏工作台布局，支持活动 / 分组会话导航、聊天优先主内容区和可折叠 keep-alive 信息面板。
-- 工作台面板和各设置页面支持独立内部滚动，导航布局在内容滚动时保持稳定。
-- 面向 Windows、macOS、Linux 的本地和 GitHub Actions Tauri 打包脚本。
+- **多 Agent CLI 管理：**检测 Claude Code、Codex CLI、Gemini CLI 和 OpenCode 的安装状态，展示版本和冲突，并为 npm 托管的安装提供安全的安装、更新和卸载流程。
+- **Agent 会话与聊天：**创建、切换、置顶、归档、恢复和删除会话；将会话状态持久化到 SQLite；并由 native runtime 处理 CLI 聊天执行、流式输出、取消和失败状态。
+- **开发工作台：**在当前会话中整合聊天、终端 / shell、文件、文档、Git 状态与 diff、日志、报告及可配置的工作台标签页。
+- **工具与集成设置：**管理 SDK 依赖、Provider / 模型配置、CLI 参数、MCP Server（包含连接测试与导入导出）、带作用域的 Skills 和本地 Extensions。
+- **桌面与通信能力：**提供可在后台运行的浮动助手、桌面通知、计划任务入口、IM Connector 配置与路由，以及网络代理设置。
+- **运行与可观测性：**提供用量统计、统一的脱敏日志管道、长时间操作反馈和应用内通知。
+- **统一的 UI / runtime 架构：**React 通过 service contract 对接 Web/mock 与 Tauri 实现；支持 `futuristic` 和 `minimal` 两种视觉风格，并内置英文与简体中文 UI 资源。
+- **打包：**包含 Windows、macOS、Linux 的本地及 GitHub Actions Tauri 打包流程。
 
 ## 架构与技术栈
 
@@ -137,41 +136,24 @@ ucd/
   futuristic/, minimal/ UCD 参考资产
 ```
 
-## Todolist / Roadmap
+## 路线图
 
-当前环境未安装 GitHub CLI，因此无法读取 GitHub issue 列表。以下清单基于已提交代码、OpenSpec specs、归档任务列表和仓库配置整理。请确认后续计划的优先级。
+### 已交付
 
-### 已实现的核心功能
+- [x] Tauri + React 桌面应用、SQLite 持久化状态，以及 Web/mock 和 native adapter 的 service contract。
+- [x] Claude Code、Codex CLI、Gemini CLI 和 OpenCode 的 CLI 环境检测与生命周期管理。
+- [x] 会话生命周期管理、CLI 聊天 runtime、流式 / 取消处理和多标签开发工作台。
+- [x] Agents、Providers、SDK、CLI 参数、MCP、Skills、Extensions、用量、代理、IM Connector 与浮动助手设置。
+- [x] 统一脱敏日志、通知、桌面后台生命周期和跨平台打包 workflow。
 
-- [x] Tauri + React + TypeScript 桌面应用脚手架。
-- [x] 基于 SQLite 的 Agent registry 和持久化 workflow state。
-- [x] Claude Code、OpenCode、Codex CLI、Gemini CLI 初始 Agent 条目。
-- [x] Agent 列表、稳定 ID 查询、capability 过滤和可用性状态。
-- [x] 当前 Agent 选择和兼容交互模式校验。
-- [x] Browser、Native Desktop、CLI 交互模式生命周期路由。
+### 后续事项
 
-### 设置与 UI
+`openspec/changes/` 当前没有进行中的实现变更。以下是仓库级后续事项，并非已承诺的功能：
 
-- [x] UCD 风格设置中心 shell。
-- [x] Basic Configuration、Provider Management、SDK Dependencies、MCP Servers、Agents、Skills 页面。
-- [x] Agents 页面通过 `AgentService` 集成，避免 React 组件直接调用 Tauri。
-- [x] 可切换并本地持久化的 `futuristic` / `minimal` 主题。
-- [x] 主工作台支持活动 / 分组会话导航、聊天优先内容区、固定输入框和可折叠详情面板。
-- [x] 工作台面板和设置页面内容支持独立内部滚动。
-
-### 打包与验证
-
-- [x] 面向宿主平台和指定架构的本地 Tauri package scripts。
-- [x] GitHub Actions packaging matrix，覆盖 Windows、macOS、Linux 的 x64 和 ARM64 target。
-- [x] 用于 registry / service 行为的 frontend unit tests 和 Rust tests。
-- [x] 已完成变更的 OpenSpec validation 记录。
-
-### 计划中 / 待确认
-
-- [ ] 添加 `CONTRIBUTING.md`，说明 branch、test 和 review 规则。
-- [ ] 决定 release build 是否保持 unsigned，或加入 Windows signing 与 macOS notarization。
-- [ ] 根据需要将 Providers、SDK、MCP、Skills 页面的 frontend-local demo data 替换为真实 service boundary。
-- [ ] 基于 GitHub issues 或项目计划确认 roadmap 优先级。
+- [ ] 添加 `CONTRIBUTING.md`，说明分支、测试和代码评审规范。
+- [ ] 决定 release artifact 是保持未签名，还是加入 Windows 签名和 macOS 公证。
+- [ ] 如需日文产品本地化，补充日文 runtime UI 资源；仓库当前仅内置英文和简体中文 UI 资源。
+- [ ] 通过 OpenSpec 发布并确定下一批功能 proposal 的优先级，再进入实现。
 
 ## 开发
 
