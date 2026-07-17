@@ -1,24 +1,31 @@
 use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+    Arc, Mutex,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
+mod cli_parameters;
 mod command_safety;
 mod desktop_lifecycle;
+mod extensions;
+mod floating_assistant;
 mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
 mod sdk;
+mod session_configuration;
 mod skills;
 mod tasks;
 
@@ -100,7 +107,7 @@ fn record_native_error(category: &str, error: &AppError) {
     record_native_log(NativeLogLevel::Error, category, &error.to_string());
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 enum InteractionMode {
     Browser,
@@ -190,6 +197,11 @@ struct CliToolStatus {
     last_error: Option<String>,
     last_operation_id: Option<String>,
     version_check_status: CliVersionCheckStatus,
+    environment_type: CliEnvironmentType,
+    installations: Vec<CliInstallation>,
+    active_installation_path: Option<String>,
+    conflict_state: CliConflictState,
+    lifecycle_eligibility: CliLifecycleEligibility,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,6 +211,75 @@ enum CliVersionCheckStatus {
     NotDetected,
     Succeeded,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum CliEnvironmentType {
+    Windows,
+    Macos,
+    Linux,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliInstallSource {
+    Npm,
+    Winget,
+    Desktop,
+    Homebrew,
+    Volta,
+    Bun,
+    Vendor,
+    System,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliConflictState {
+    None,
+    Multiple,
+    VersionMismatch,
+    RunnableMismatch,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum CliLifecycleEligibility {
+    Npm,
+    Manual,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CliInstallation {
+    path: String,
+    version: Option<String>,
+    runnable: bool,
+    error: Option<String>,
+    source: CliInstallSource,
+    environment_type: CliEnvironmentType,
+    is_active: bool,
+}
+
+#[derive(Default)]
+struct CliMutationGuard {
+    active: AtomicBool,
+}
+
+impl CliMutationGuard {
+    fn try_acquire(&self) -> bool {
+        self.active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn release(&self) {
+        self.active.store(false, Ordering::Release);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -296,6 +377,13 @@ struct SaveSettingInput {
     value: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsStateEvent {
+    kind: &'static str,
+    key: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct NodeInfo {
@@ -391,11 +479,12 @@ struct CreateWorktreeInput {
     name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ChatConfig {
     agent_id: String,
     interaction_mode: InteractionMode,
+    permission_mode: String,
     provider_id: Option<String>,
     model_id: Option<String>,
     reasoning_depth: Option<String>,
@@ -503,6 +592,23 @@ enum ChatStreamEvent {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStateEvent {
+    kind: String,
+    session_id: Option<String>,
+}
+
+fn emit_session_state_event(app: &AppHandle, kind: &str, session_id: Option<&str>) {
+    let _ = app.emit(
+        "session:event",
+        SessionStateEvent {
+            kind: kind.to_string(),
+            session_id: session_id.map(str::to_string),
+        },
+    );
+}
+
 #[derive(Debug, PartialEq)]
 enum ParsedAgentEvent {
     Token(String),
@@ -546,10 +652,12 @@ fn build_cli_invocation_spec(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
+    managed_args: &[String],
 ) -> Result<CliInvocationSpec, String> {
     let mut args = Vec::new();
     let prompt_delivery = match agent.id.as_str() {
         "claude-code" => {
+            args.extend_from_slice(managed_args);
             args.extend([
                 "-p".to_string(),
                 "--output-format".to_string(),
@@ -563,14 +671,27 @@ fn build_cli_invocation_spec(
             PromptDelivery::Stdin
         }
         "codex-cli" => {
+            args.extend(
+                managed_args
+                    .iter()
+                    .filter(|argument| argument.as_str() != "--ephemeral")
+                    .cloned(),
+            );
             args.push("exec".to_string());
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["resume".to_string(), session_id.to_string()]);
+            }
+            if managed_args
+                .iter()
+                .any(|argument| argument == "--ephemeral")
+            {
+                args.push("--ephemeral".to_string());
             }
             args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
             PromptDelivery::Stdin
         }
         "gemini-cli" => {
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--resume".to_string(), session_id.to_string()]);
             }
@@ -579,12 +700,12 @@ fn build_cli_invocation_spec(
                 prompt.to_string(),
                 "-o".to_string(),
                 "stream-json".to_string(),
-                "-y".to_string(),
             ]);
             PromptDelivery::Argument
         }
         "opencode" => {
             args.push("run".to_string());
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--session".to_string(), session_id.to_string()]);
             }
@@ -607,6 +728,106 @@ fn build_cli_invocation_spec(
         args,
         prompt_delivery,
     })
+}
+
+fn mapped_chat_model(agent_id: &str, model_id: &str) -> Option<&'static str> {
+    match (agent_id, model_id) {
+        ("claude-code", "claude-opus-4-8") => Some("opus"),
+        ("claude-code", "claude-sonnet-5" | "claude-sonnet-4-6") => Some("sonnet"),
+        ("claude-code", "claude-haiku-4-5") => Some("haiku"),
+        ("codex-cli", "gpt-5-5") => Some("gpt-5.5"),
+        ("codex-cli", "gpt-5-4") => Some("gpt-5.4"),
+        ("codex-cli", "gpt-5-2-codex") => Some("gpt-5.2-codex"),
+        ("codex-cli", "gpt-5-1-codex-max") => Some("gpt-5.1-codex-max"),
+        ("gemini-cli", "gemini-2-5-pro") => Some("gemini-2.5-pro"),
+        ("gemini-cli", "gemini-2-5-flash") => Some("gemini-2.5-flash"),
+        _ => None,
+    }
+}
+
+fn effective_cli_selections(
+    conn: &Connection,
+    agent_id: &str,
+    config: &ChatConfig,
+) -> Result<BTreeMap<String, serde_json::Value>, AppError> {
+    let mut selections = cli_parameters::load_selections(conn, agent_id)?;
+    if let Some(model) = config
+        .model_id
+        .as_deref()
+        .and_then(|model_id| mapped_chat_model(agent_id, model_id))
+    {
+        selections.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(reasoning_depth) = config.reasoning_depth.as_deref() {
+        match agent_id {
+            "claude-code" => {
+                selections.insert(
+                    "effort".to_string(),
+                    serde_json::Value::String(reasoning_depth.to_string()),
+                );
+            }
+            "codex-cli" => {
+                let effort = if reasoning_depth == "max" {
+                    "xhigh"
+                } else {
+                    reasoning_depth
+                };
+                selections.insert(
+                    "reasoningEffort".to_string(),
+                    serde_json::Value::String(effort.to_string()),
+                );
+            }
+            _ => {}
+        }
+    }
+    match (agent_id, config.permission_mode.as_str()) {
+        ("claude-code", "plan") => {
+            selections.insert("permissionMode".to_string(), serde_json::json!("plan"));
+        }
+        ("claude-code", "agent" | "auto") => {
+            selections.insert(
+                "permissionMode".to_string(),
+                serde_json::json!("acceptEdits"),
+            );
+        }
+        ("codex-cli", "plan") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("read-only"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("codex-cli", "agent" | "auto") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("workspace-write"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("gemini-cli", "plan") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("plan"));
+        }
+        ("gemini-cli", "agent" | "auto") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("auto_edit"));
+        }
+        ("opencode", "plan") => {
+            selections.insert("agent".to_string(), serde_json::json!("plan"));
+        }
+        ("opencode", "agent") => {
+            selections.insert("agent".to_string(), serde_json::json!("build"));
+        }
+        ("opencode", "auto") => {
+            selections.insert("autoApprove".to_string(), serde_json::json!(true));
+        }
+        _ => {}
+    }
+    if agent_id == "opencode" {
+        selections.insert("thinking".to_string(), serde_json::json!(config.thinking));
+    }
+    cli_parameters::normalize_selections(agent_id, &selections)
 }
 
 struct GenericLineParser;
@@ -872,27 +1093,71 @@ enum ChatTerminalResult {
     Cancelled,
 }
 
+struct GenerationReservation<'a> {
+    runtime: &'a ChatRuntimeManager,
+    session_id: String,
+    attached: bool,
+}
+
+impl Drop for GenerationReservation<'_> {
+    fn drop(&mut self) {
+        if !self.attached {
+            let _ = self.runtime.complete(&self.session_id);
+        }
+    }
+}
+
 impl ChatRuntimeManager {
-    fn start(
-        &self,
-        session_id: String,
-        message_id: String,
-        process: Option<Child>,
-    ) -> Result<(), AppError> {
+    fn reserve(&self, session_id: String) -> Result<GenerationReservation<'_>, AppError> {
         let mut active = self
             .active
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
+        if active.contains_key(&session_id) {
+            return Err(AppError::Validation(format!(
+                "A generation is already active for session {session_id}."
+            )));
+        }
         active.insert(
-            session_id,
+            session_id.clone(),
             ActiveGeneration {
-                message_id,
-                process,
+                message_id: String::new(),
+                process: None,
             },
         );
+        Ok(GenerationReservation {
+            runtime: self,
+            session_id,
+            attached: false,
+        })
+    }
+}
+
+impl GenerationReservation<'_> {
+    fn attach(mut self, message_id: String, mut process: Option<Child>) -> Result<(), AppError> {
+        let mut active = self
+            .runtime
+            .active
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let Some(generation) = active.get_mut(&self.session_id) else {
+            if let Some(child) = process.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(AppError::Validation(format!(
+                "Generation for session {} was cancelled before startup completed.",
+                self.session_id
+            )));
+        };
+        generation.message_id = message_id;
+        generation.process = process;
+        self.attached = true;
         Ok(())
     }
+}
 
+impl ChatRuntimeManager {
     fn complete(&self, session_id: &str) -> Result<(), AppError> {
         let mut active = self
             .active
@@ -911,11 +1176,7 @@ impl ChatRuntimeManager {
         Ok(receiver)
     }
 
-    fn finish(
-        &self,
-        message_id: &str,
-        result: ChatTerminalResult,
-    ) -> Result<bool, AppError> {
+    fn finish(&self, message_id: &str, result: ChatTerminalResult) -> Result<bool, AppError> {
         let sender = self
             .completions
             .lock()
@@ -1032,6 +1293,36 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "im-session-source",
         im::storage::apply_session_source_schema,
     )?;
+    apply_migration(
+        conn,
+        12,
+        "cli-parameter-settings",
+        cli_parameters::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        13,
+        "session-chat-configuration",
+        session_configuration::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        14,
+        "floating-assistant-configuration",
+        floating_assistant::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        15,
+        "local-extension-management",
+        extensions::service::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        16,
+        "cli-local-environment-details",
+        apply_cli_environment_details_migration,
+    )?;
 
     Ok(())
 }
@@ -1090,6 +1381,28 @@ fn apply_cli_tool_status_migration(conn: &Connection) -> Result<(), AppError> {
         );
         "#,
     )?;
+    Ok(())
+}
+
+fn apply_cli_environment_details_migration(conn: &Connection) -> Result<(), AppError> {
+    let columns = [
+        ("environment_type", "TEXT NOT NULL DEFAULT 'unknown'"),
+        ("installations", "TEXT NOT NULL DEFAULT '[]'"),
+        ("active_installation_path", "TEXT"),
+        ("conflict_state", "TEXT NOT NULL DEFAULT 'none'"),
+        (
+            "lifecycle_eligibility",
+            "TEXT NOT NULL DEFAULT 'unavailable'",
+        ),
+    ];
+    for (column, definition) in columns {
+        if !table_has_column(conn, "cli_tool_status", column)? {
+            conn.execute(
+                &format!("ALTER TABLE cli_tool_status ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -1477,49 +1790,65 @@ fn cli_package_failure_context(
     context
 }
 
+struct PersistedCliStatusRow {
+    installed: Option<i64>,
+    current_version: Option<String>,
+    latest_version: Option<String>,
+    available_versions: String,
+    detected_path: Option<String>,
+    last_checked_at: Option<String>,
+    last_error: Option<String>,
+    last_operation_id: Option<String>,
+    version_check_status: String,
+    environment_type: String,
+    installations: String,
+    active_installation_path: Option<String>,
+    conflict_state: String,
+    lifecycle_eligibility: String,
+}
+
+fn current_cli_environment_type() -> CliEnvironmentType {
+    if cfg!(target_os = "windows") {
+        CliEnvironmentType::Windows
+    } else if cfg!(target_os = "macos") {
+        CliEnvironmentType::Macos
+    } else if cfg!(target_os = "linux") {
+        CliEnvironmentType::Linux
+    } else {
+        CliEnvironmentType::Unknown
+    }
+}
+
 fn status_from_row(
     definition: CliToolDefinition,
-    row: Option<(
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-    )>,
+    row: Option<PersistedCliStatusRow>,
 ) -> CliToolStatus {
-    if let Some((
-        installed,
-        current_version,
-        latest_version,
-        available_versions,
-        detected_path,
-        last_checked_at,
-        last_error,
-        last_operation_id,
-        version_check_status,
-    )) = row
-    {
+    if let Some(row) = row {
         return CliToolStatus {
             agent_id: definition.agent_id.to_string(),
             display_name: definition.display_name.to_string(),
             provider: definition.provider.to_string(),
             executable_name: definition.executable_name.to_string(),
             package_name: definition.package_name.to_string(),
-            installed: installed.map(|value| value != 0),
-            current_version,
-            latest_version,
-            available_versions: serde_json::from_str::<Vec<String>>(&available_versions)
+            installed: row.installed.map(|value| value != 0),
+            current_version: row.current_version,
+            latest_version: row.latest_version,
+            available_versions: serde_json::from_str::<Vec<String>>(&row.available_versions)
                 .unwrap_or_default(),
-            detected_path,
+            detected_path: row.detected_path,
             install_command: install_command_for(definition),
-            last_checked_at,
-            last_error,
-            last_operation_id,
-            version_check_status: parse_cli_version_check_status(&version_check_status),
+            last_checked_at: row.last_checked_at,
+            last_error: row.last_error,
+            last_operation_id: row.last_operation_id,
+            version_check_status: parse_cli_version_check_status(&row.version_check_status),
+            environment_type: parse_cli_environment_type(&row.environment_type),
+            installations: serde_json::from_str::<Vec<CliInstallation>>(&row.installations)
+                .unwrap_or_default(),
+            active_installation_path: row.active_installation_path,
+            conflict_state: parse_cli_conflict_state(&row.conflict_state),
+            lifecycle_eligibility: parse_cli_lifecycle_eligibility(
+                &row.lifecycle_eligibility,
+            ),
         };
     }
 
@@ -1539,6 +1868,11 @@ fn status_from_row(
         last_error: None,
         last_operation_id: None,
         version_check_status: CliVersionCheckStatus::NotDetected,
+        environment_type: current_cli_environment_type(),
+        installations: Vec::new(),
+        active_installation_path: None,
+        conflict_state: CliConflictState::None,
+        lifecycle_eligibility: CliLifecycleEligibility::Unavailable,
     }
 }
 
@@ -1557,6 +1891,58 @@ fn cli_version_check_status_str(value: &CliVersionCheckStatus) -> &'static str {
         CliVersionCheckStatus::NotDetected => "not-detected",
         CliVersionCheckStatus::Succeeded => "succeeded",
         CliVersionCheckStatus::Failed => "failed",
+    }
+}
+
+fn parse_cli_environment_type(value: &str) -> CliEnvironmentType {
+    match value {
+        "windows" => CliEnvironmentType::Windows,
+        "macos" => CliEnvironmentType::Macos,
+        "linux" => CliEnvironmentType::Linux,
+        _ => CliEnvironmentType::Unknown,
+    }
+}
+
+fn cli_environment_type_str(value: CliEnvironmentType) -> &'static str {
+    match value {
+        CliEnvironmentType::Windows => "windows",
+        CliEnvironmentType::Macos => "macos",
+        CliEnvironmentType::Linux => "linux",
+        CliEnvironmentType::Unknown => "unknown",
+    }
+}
+
+fn parse_cli_conflict_state(value: &str) -> CliConflictState {
+    match value {
+        "multiple" => CliConflictState::Multiple,
+        "version-mismatch" => CliConflictState::VersionMismatch,
+        "runnable-mismatch" => CliConflictState::RunnableMismatch,
+        _ => CliConflictState::None,
+    }
+}
+
+fn cli_conflict_state_str(value: CliConflictState) -> &'static str {
+    match value {
+        CliConflictState::None => "none",
+        CliConflictState::Multiple => "multiple",
+        CliConflictState::VersionMismatch => "version-mismatch",
+        CliConflictState::RunnableMismatch => "runnable-mismatch",
+    }
+}
+
+fn parse_cli_lifecycle_eligibility(value: &str) -> CliLifecycleEligibility {
+    match value {
+        "npm" => CliLifecycleEligibility::Npm,
+        "manual" => CliLifecycleEligibility::Manual,
+        _ => CliLifecycleEligibility::Unavailable,
+    }
+}
+
+fn cli_lifecycle_eligibility_str(value: CliLifecycleEligibility) -> &'static str {
+    match value {
+        CliLifecycleEligibility::Npm => "npm",
+        CliLifecycleEligibility::Manual => "manual",
+        CliLifecycleEligibility::Unavailable => "unavailable",
     }
 }
 
@@ -1582,21 +1968,28 @@ fn load_cli_tool_status(
     let row = conn
         .query_row(
             "SELECT installed, current_version, latest_version, available_versions, detected_path,
-                    last_checked_at, last_error, last_operation_id, version_check_status
+                    last_checked_at, last_error, last_operation_id, version_check_status,
+                    environment_type, installations, active_installation_path, conflict_state,
+                    lifecycle_eligibility
              FROM cli_tool_status WHERE agent_id = ?1",
             params![definition.agent_id],
             |row| {
-                Ok((
-                    row.get::<_, Option<i64>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
+                Ok(PersistedCliStatusRow {
+                    installed: row.get(0)?,
+                    current_version: row.get(1)?,
+                    latest_version: row.get(2)?,
+                    available_versions: row.get(3)?,
+                    detected_path: row.get(4)?,
+                    last_checked_at: row.get(5)?,
+                    last_error: row.get(6)?,
+                    last_operation_id: row.get(7)?,
+                    version_check_status: row.get(8)?,
+                    environment_type: row.get(9)?,
+                    installations: row.get(10)?,
+                    active_installation_path: row.get(11)?,
+                    conflict_state: row.get(12)?,
+                    lifecycle_eligibility: row.get(13)?,
+                })
             },
         )
         .optional()?;
@@ -1606,11 +1999,15 @@ fn load_cli_tool_status(
 fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(), AppError> {
     let available_versions = serde_json::to_string(&status.available_versions)
         .map_err(|error| AppError::Validation(error.to_string()))?;
+    let installations = serde_json::to_string(&status.installations)
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     conn.execute(
         "INSERT INTO cli_tool_status (
             agent_id, installed, current_version, latest_version, available_versions, detected_path,
-            last_checked_at, last_error, last_operation_id, version_check_status
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            last_checked_at, last_error, last_operation_id, version_check_status,
+            environment_type, installations, active_installation_path, conflict_state,
+            lifecycle_eligibility
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
         ON CONFLICT(agent_id) DO UPDATE SET
             installed = excluded.installed,
             current_version = excluded.current_version,
@@ -1620,7 +2017,12 @@ fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(),
             last_checked_at = excluded.last_checked_at,
             last_error = excluded.last_error,
             last_operation_id = excluded.last_operation_id,
-            version_check_status = excluded.version_check_status",
+            version_check_status = excluded.version_check_status,
+            environment_type = excluded.environment_type,
+            installations = excluded.installations,
+            active_installation_path = excluded.active_installation_path,
+            conflict_state = excluded.conflict_state,
+            lifecycle_eligibility = excluded.lifecycle_eligibility",
         params![
             status.agent_id,
             status.installed.map(|value| if value { 1 } else { 0 }),
@@ -1632,30 +2034,198 @@ fn save_cli_tool_status(conn: &Connection, status: &CliToolStatus) -> Result<(),
             status.last_error,
             status.last_operation_id,
             cli_version_check_status_str(&status.version_check_status),
+            cli_environment_type_str(status.environment_type),
+            installations,
+            status.active_installation_path,
+            cli_conflict_state_str(status.conflict_state),
+            cli_lifecycle_eligibility_str(status.lifecycle_eligibility),
         ],
     )?;
     Ok(())
 }
 
-fn resolve_command_path(command_name: &str) -> Option<String> {
+fn resolve_command_paths(command_name: &str) -> Vec<String> {
     let helper = if cfg!(target_os = "windows") {
         "where"
     } else {
         "which"
     };
-    let mut command = command_safety::std_command(helper).ok()?;
+    let Ok(mut command) = command_safety::std_command(helper) else {
+        return Vec::new();
+    };
+    if !cfg!(target_os = "windows") {
+        command.arg("-a");
+    }
     command.arg(command_name);
-    let output = command_output_with_timeout(&mut command, Duration::from_secs(2)).ok()?;
+    let Ok(output) = command_output_with_timeout(&mut command, Duration::from_secs(2)) else {
+        return Vec::new();
+    };
     if !output.success {
-        return None;
+        return Vec::new();
     }
     output
         .stdout
         .lines()
-        .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string())
+        .collect()
+}
+
+fn resolve_command_path(command_name: &str) -> Option<String> {
+    resolve_command_paths(command_name).into_iter().next()
+}
+
+fn known_cli_candidate_paths(definition: CliToolDefinition) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(app_data) = std::env::var_os("APPDATA") {
+            let base = PathBuf::from(app_data).join("npm");
+            candidates.push(base.join(format!("{}.cmd", definition.executable_name)));
+            candidates.push(base.join(format!("{}.exe", definition.executable_name)));
+        }
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let base = PathBuf::from(local_app_data);
+            candidates.push(
+                base.join("Programs")
+                    .join("OpenAI")
+                    .join("Codex")
+                    .join("bin")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
+            candidates.push(
+                base.join("Microsoft")
+                    .join("WinGet")
+                    .join("Links")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = PathBuf::from(home);
+            for relative in [
+                ".local/bin",
+                ".npm-global/bin",
+                ".volta/bin",
+                ".bun/bin",
+            ] {
+                candidates.push(home.join(relative).join(definition.executable_name));
+            }
+        }
+        for base in ["/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"] {
+            candidates.push(PathBuf::from(base).join(definition.executable_name));
+        }
+    }
+    candidates
+}
+
+fn cli_candidate_key(path: &Path) -> String {
+    let normalized = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut key_path = normalized.clone();
+    #[cfg(target_os = "windows")]
+    {
+        let extension = normalized
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if extension == "cmd" || extension == "ps1" || extension.is_empty() {
+            key_path.set_extension("");
+        }
+    }
+    let key = key_path.to_string_lossy().replace('\\', "/");
+    if cfg!(target_os = "windows") {
+        key.to_ascii_lowercase()
+    } else {
+        key.to_string()
+    }
+}
+
+fn enumerate_cli_candidates(definition: CliToolDefinition) -> Vec<PathBuf> {
+    let mut paths = resolve_command_paths(definition.executable_name)
+        .into_iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    paths.extend(known_cli_candidate_paths(definition));
+    let mut seen = HashSet::new();
+    paths
+        .into_iter()
+        .filter(|path| path.is_file())
+        .filter(|path| seen.insert(cli_candidate_key(path)))
+        .take(24)
+        .collect()
+}
+
+fn classify_cli_install_source(path: &Path) -> CliInstallSource {
+    let value = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let parent = path.parent();
+    let npm_sibling = parent
+        .map(|parent| parent.join(if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" }))
+        .is_some_and(|candidate| candidate.is_file());
+    if value.contains("/microsoft/winget/packages/") || value.contains("/microsoft/winget/links/") {
+        CliInstallSource::Winget
+    } else if value.contains("/programs/openai/codex/") {
+        CliInstallSource::Desktop
+    } else if value.contains("/appdata/roaming/npm/")
+        || value.contains("/.npm/")
+        || value.contains("/node_modules/")
+        || npm_sibling
+    {
+        CliInstallSource::Npm
+    } else if value.contains("/homebrew/") || value.contains("/cellar/") {
+        CliInstallSource::Homebrew
+    } else if value.contains("/.volta/") {
+        CliInstallSource::Volta
+    } else if value.contains("/.bun/") {
+        CliInstallSource::Bun
+    } else if value.contains("/.local/bin/") || value.contains("/.claude/") {
+        CliInstallSource::Vendor
+    } else if value.starts_with("/usr/bin/") || value.starts_with("/usr/local/bin/") {
+        CliInstallSource::System
+    } else {
+        CliInstallSource::Unknown
+    }
+}
+
+fn derive_cli_conflict_state(installations: &[CliInstallation]) -> CliConflictState {
+    if installations.len() <= 1 {
+        return CliConflictState::None;
+    }
+    let has_runnable = installations.iter().any(|installation| installation.runnable);
+    let has_broken = installations.iter().any(|installation| !installation.runnable);
+    if has_runnable && has_broken {
+        return CliConflictState::RunnableMismatch;
+    }
+    let versions = installations
+        .iter()
+        .filter_map(|installation| installation.version.as_deref())
+        .collect::<HashSet<_>>();
+    if versions.len() > 1 {
+        CliConflictState::VersionMismatch
+    } else {
+        CliConflictState::Multiple
+    }
+}
+
+fn derive_cli_lifecycle_eligibility(
+    installed: bool,
+    active: Option<&CliInstallation>,
+) -> CliLifecycleEligibility {
+    if !installed {
+        return CliLifecycleEligibility::Npm;
+    }
+    match active {
+        Some(installation)
+            if installation.runnable && installation.source == CliInstallSource::Npm =>
+        {
+            CliLifecycleEligibility::Npm
+        }
+        Some(_) => CliLifecycleEligibility::Manual,
+        None => CliLifecycleEligibility::Unavailable,
+    }
 }
 
 fn first_output_line(output: &CapturedCommandOutput) -> Option<String> {
@@ -1675,14 +2245,19 @@ fn detect_cli_tool(
     operation_id: &str,
 ) -> CliToolStatus {
     let now = current_timestamp();
-    let detected_path = resolve_command_path(definition.executable_name);
-    let mut current_version = None;
+    let environment_type = current_cli_environment_type();
+    let candidates = enumerate_cli_candidates(definition);
+    let mut installations = Vec::new();
     let mut latest_version = None;
     let mut available_versions = Vec::new();
     let mut errors = Vec::new();
 
-    if let Some(path) = detected_path.as_deref() {
-        let mut command = match command_safety::std_command(path) {
+    for (index, path) in candidates.iter().enumerate() {
+        let path_string = path.to_string_lossy().to_string();
+        let source = classify_cli_install_source(path);
+        let mut version = None;
+        let mut installation_error = None;
+        let mut command = match command_safety::std_command(&path_string) {
             Ok(command) => command,
             Err(error) => {
                 let reason = error.to_string();
@@ -1695,29 +2270,22 @@ fn detect_cli_tool(
                     &reason,
                     None,
                 );
-                errors.push(reason);
-                return CliToolStatus {
-                    agent_id: definition.agent_id.to_string(),
-                    display_name: definition.display_name.to_string(),
-                    provider: definition.provider.to_string(),
-                    executable_name: definition.executable_name.to_string(),
-                    package_name: definition.package_name.to_string(),
-                    installed: Some(true),
-                    current_version,
-                    latest_version,
-                    available_versions,
-                    detected_path: detected_path.clone(),
-                    install_command: install_command_for(definition),
-                    last_checked_at: Some(now),
-                    last_error: Some(errors.join("; ")),
-                    last_operation_id: Some(operation_id.to_string()),
-                    version_check_status: CliVersionCheckStatus::Failed,
-                };
+                errors.push(reason.clone());
+                installations.push(CliInstallation {
+                    path: path_string,
+                    version: None,
+                    runnable: false,
+                    error: Some(reason),
+                    source,
+                    environment_type,
+                    is_active: index == 0,
+                });
+                continue;
             }
         };
         command.arg("--version");
         match command_output_with_timeout(&mut command, Duration::from_secs(3)) {
-            Ok(output) if output.success => current_version = first_output_line(&output),
+            Ok(output) if output.success => version = first_output_line(&output),
             Ok(output) => {
                 let reason = first_output_line(&output)
                     .unwrap_or_else(|| format!("{} --version failed.", definition.executable_name));
@@ -1730,7 +2298,8 @@ fn detect_cli_tool(
                     &reason,
                     Some(&output),
                 );
-                errors.push(reason);
+                errors.push(reason.clone());
+                installation_error = Some(reason);
             }
             Err(error) => {
                 log_cli_detection_failure(
@@ -1742,9 +2311,19 @@ fn detect_cli_tool(
                     &error,
                     None,
                 );
-                errors.push(error);
+                errors.push(error.clone());
+                installation_error = Some(error);
             }
         }
+        installations.push(CliInstallation {
+            path: path_string,
+            version,
+            runnable: installation_error.is_none(),
+            error: installation_error,
+            source,
+            environment_type,
+            is_active: index == 0,
+        });
     }
 
     match npm_view_package(definition.package_name, &["version"]) {
@@ -1781,7 +2360,12 @@ fn detect_cli_tool(
         }
     }
 
-    let installed = detected_path.is_some();
+    let installed = !installations.is_empty();
+    let active = installations.iter().find(|installation| installation.is_active);
+    let detected_path = active.map(|installation| installation.path.clone());
+    let current_version = active.and_then(|installation| installation.version.clone());
+    let conflict_state = derive_cli_conflict_state(&installations);
+    let lifecycle_eligibility = derive_cli_lifecycle_eligibility(installed, active);
     CliToolStatus {
         agent_id: definition.agent_id.to_string(),
         display_name: definition.display_name.to_string(),
@@ -1792,7 +2376,7 @@ fn detect_cli_tool(
         current_version,
         latest_version,
         available_versions,
-        detected_path,
+        detected_path: detected_path.clone(),
         install_command: install_command_for(definition),
         last_checked_at: Some(now),
         last_error: if errors.is_empty() {
@@ -1806,6 +2390,11 @@ fn detect_cli_tool(
         } else {
             CliVersionCheckStatus::Failed
         },
+        environment_type,
+        installations,
+        active_installation_path: detected_path,
+        conflict_state,
+        lifecycle_eligibility,
     }
 }
 
@@ -2903,24 +3492,31 @@ fn list_cli_tools(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<CliToolS
 fn refresh_cli_detections(
     app: AppHandle,
     registry: State<'_, tasks::registry::TaskRegistry>,
+    agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
-    start_cli_refresh_operation(app, &registry, "Refreshing CLI detections")
+    start_cli_refresh_operation(app, &registry, "Refreshing CLI detections", agent_id)
 }
 
 fn start_cli_refresh_operation(
     app: AppHandle,
     registry: &tasks::registry::TaskRegistry,
     message: &str,
+    agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
+    if let Some(agent_id) = agent_id.as_deref() {
+        cli_tool_definition(agent_id).ok_or_else(|| {
+            AppError::Validation(format!("unsupported CLI agent id: {agent_id}"))
+        })?;
+    }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
-        None,
+        agent_id.clone(),
         Some(message.to_string()),
     )?;
     let operation_id = operation.id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        run_cli_refresh_operation(app, operation_id);
+        run_cli_refresh_operation(app, operation_id, agent_id);
     });
 
     Ok(operation)
@@ -2930,8 +3526,10 @@ fn start_cli_refresh_operation(
 fn install_cli_version(
     app: AppHandle,
     registry: State<'_, tasks::registry::TaskRegistry>,
+    mutation_guard: State<'_, CliMutationGuard>,
     agent_id: String,
     target_version: String,
+    confirmed_active_path: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
     let definition = cli_tool_definition(&agent_id)
         .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
@@ -2940,6 +3538,25 @@ fn install_cli_version(
             "target version must be a stable semantic version: {target_version}"
         )));
     }
+    let status = {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        load_cli_tool_status(&conn, definition)?
+    };
+    let fresh_candidates = enumerate_cli_candidates(definition);
+    validate_cli_package_eligibility(
+        &status,
+        &fresh_candidates,
+        confirmed_active_path.as_deref(),
+    )?;
+    if !mutation_guard.try_acquire() {
+        return Err(AppError::Validation(
+            "another CLI package operation is already running".to_string(),
+        ));
+    }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
         Some(agent_id.clone()),
@@ -2947,7 +3564,14 @@ fn install_cli_version(
             "Installing {} version {}",
             definition.display_name, target_version
         )),
-    )?;
+    );
+    let operation = match operation {
+        Ok(operation) => operation,
+        Err(error) => {
+            mutation_guard.release();
+            return Err(error);
+        }
+    };
     let operation_id = operation.id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -2957,7 +3581,41 @@ fn install_cli_version(
     Ok(operation)
 }
 
-fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
+fn validate_cli_package_eligibility(
+    status: &CliToolStatus,
+    fresh_candidates: &[PathBuf],
+    confirmed_active_path: Option<&str>,
+) -> Result<(), AppError> {
+    if !matches!(status.lifecycle_eligibility, CliLifecycleEligibility::Npm) {
+        return Err(AppError::Validation(
+            "the active CLI installation must be updated by its source-native installer"
+                .to_string(),
+        ));
+    }
+    if let Some(active_path) = fresh_candidates.first() {
+        if classify_cli_install_source(active_path) != CliInstallSource::Npm {
+            return Err(AppError::Validation(
+                "the active CLI path changed and is not npm-managed".to_string(),
+            ));
+        }
+    }
+    if fresh_candidates.len() > 1 {
+        let active_path = fresh_candidates
+            .first()
+            .map(|path| path.to_string_lossy().to_string())
+            .ok_or_else(|| {
+            AppError::Validation("the active CLI installation could not be resolved".to_string())
+        })?;
+        if confirmed_active_path != Some(active_path.as_str()) {
+            return Err(AppError::Validation(
+                "multiple CLI installations require confirmation of the active path".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn run_cli_refresh_operation(app: AppHandle, operation_id: String, agent_id: Option<String>) {
     let registry = app.state::<tasks::registry::TaskRegistry>();
     append_cli_log(
         &app,
@@ -2968,7 +3626,10 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
         logging::LogLevel::Info,
     );
     let mut statuses = Vec::new();
-    for definition in CLI_TOOL_DEFINITIONS {
+    for definition in CLI_TOOL_DEFINITIONS
+        .into_iter()
+        .filter(|definition| agent_id.as_deref().is_none_or(|id| id == definition.agent_id))
+    {
         append_cli_log(
             &app,
             &registry,
@@ -3048,6 +3709,21 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
 }
 
 fn run_cli_package_operation(
+    app: AppHandle,
+    operation_id: String,
+    definition: CliToolDefinition,
+    target_version: String,
+) {
+    run_cli_package_operation_inner(
+        app.clone(),
+        operation_id,
+        definition,
+        target_version,
+    );
+    app.state::<CliMutationGuard>().release();
+}
+
+fn run_cli_package_operation_inner(
     app: AppHandle,
     operation_id: String,
     definition: CliToolDefinition,
@@ -3349,14 +4025,26 @@ fn get_settings(state: State<'_, Mutex<RegistryStore>>) -> Result<AppSettings, A
 
 #[tauri::command]
 fn save_setting(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     input: SaveSettingInput,
 ) -> Result<AppSettings, AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    save_setting_to_conn(&conn, &input.key, &input.value)
+    let settings = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_setting_to_conn(&conn, &input.key, &input.value)?
+    };
+    app.emit(
+        "settings:event",
+        SettingsStateEvent {
+            kind: "settings-changed",
+            key: input.key,
+        },
+    )
+    .map_err(|err| AppError::Storage(err.to_string()))?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -3479,6 +4167,7 @@ fn spawn_cli_generation(
     session: &Session,
     agent: &AgentRegistryEntry,
     prompt: &str,
+    config: &ChatConfig,
 ) -> Result<SpawnedCliGeneration, String> {
     if agent.launch.kind != "cli" {
         return Err(format!(
@@ -3487,11 +4176,20 @@ fn spawn_cli_generation(
         ));
     }
     let executable = resolve_agent_cli_executable(conn, agent)?;
+    let selections =
+        effective_cli_selections(conn, &agent.id, config).map_err(|error| error.to_string())?;
+    let managed_args = cli_parameters::preview_args(
+        &agent.id,
+        &selections,
+        cli_parameters::CliParameterLaunchScope::Chat,
+    )
+    .map_err(|error| error.to_string())?;
     let spec = build_cli_invocation_spec(
         agent,
         executable,
         prompt,
         session.runtime_session_id.as_deref(),
+        &managed_args,
     )?;
     let mut command =
         command_safety::std_command(&spec.executable).map_err(|error| error.to_string())?;
@@ -3756,7 +4454,8 @@ fn run_cli_generation_stream(
         input: prompt_len as i64,
         output: response.chars().count() as i64,
     };
-    let completed = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
+    let completed =
+        complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
     let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
     if let Ok(message) = completed {
         let _ = runtime.finish(
@@ -4145,6 +4844,7 @@ fn create_session(
 
         match result {
             Ok(session) => {
+                emit_session_state_event(&app, "active-session-changed", Some(&session.id));
                 let _ =
                     registry.append_log(&operation_id, format!("Created session {}", session.id));
                 let _ = registry.complete(&operation_id, serde_json::to_value(&session).ok());
@@ -4317,7 +5017,36 @@ fn get_active_session(state: State<'_, Mutex<RegistryStore>>) -> Result<Option<S
 }
 
 #[tauri::command]
+fn get_session_chat_config(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    session_configuration::load_from_conn(&conn, &session_id)
+}
+
+#[tauri::command]
+fn save_session_chat_config(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    config: ChatConfig,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let saved = session_configuration::save_to_conn(&conn, &session_id, &config)?;
+    emit_session_state_event(&app, "configuration-changed", Some(&session_id));
+    Ok(saved)
+}
+
+#[tauri::command]
 fn switch_session(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     session_id: String,
 ) -> Result<Session, AppError> {
@@ -4332,6 +5061,7 @@ fn switch_session(
         )));
     }
     update_active_workflow_for_session(&conn, &session)?;
+    emit_session_state_event(&app, "active-session-changed", Some(&session.id));
     Ok(session)
 }
 
@@ -4397,6 +5127,7 @@ fn archive_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(session)
 }
 
@@ -4427,6 +5158,7 @@ fn delete_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(())
 }
 
@@ -4437,7 +5169,7 @@ fn send_message(
     runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
     content: String,
-    _config: ChatConfig,
+    config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
     let (conn, db_path) = {
         let store = state
@@ -4452,6 +5184,7 @@ fn send_message(
         &runtime,
         &session_id,
         &content,
+        &config,
         false,
     )?
     .message)
@@ -4469,6 +5202,7 @@ fn submit_chat_message(
     runtime: &ChatRuntimeManager,
     session_id: &str,
     content: &str,
+    config: &ChatConfig,
     subscribe_to_completion: bool,
 ) -> Result<ChatSubmission, AppError> {
     let trimmed_content = content.trim().to_string();
@@ -4483,7 +5217,9 @@ fn submit_chat_message(
             "Cannot send a message to archived session: {session_id}"
         )));
     }
+    let config = session_configuration::validate_for_session(conn, session_id, config)?;
     let selected_agent = load_agent(conn, &session.agent_id)?;
+    let reservation = runtime.reserve(session_id.to_string())?;
 
     insert_chat_message(conn, session_id, "user", "completed", &trimmed_content)?;
     let assistant_message = insert_chat_message(conn, session_id, "assistant", "streaming", "")?;
@@ -4502,46 +5238,44 @@ fn submit_chat_message(
     );
     update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
-    let spawned = match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content) {
-        Ok(spawned) => spawned,
-        Err(error) => {
-            let concise_error = concise_cli_error(&selected_agent, &error);
-            let _ = write_session_runtime_log(
-                conn,
-                logging::LogLevel::Error,
-                session_id,
-                &selected_agent.id,
-                &error,
-            );
-            let failed = fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
-            update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
-            runtime.complete(session_id)?;
-            let _ = runtime.finish(
-                &assistant_message.id,
-                ChatTerminalResult::Failed(concise_error.clone()),
-            );
-            let _ = app.emit(
-                "chat:event",
-                ChatStreamEvent::Failed {
-                    session_id: session_id.to_string(),
-                    message_id: assistant_message.id.clone(),
-                    error: concise_error,
-                },
-            );
-            return Ok(ChatSubmission {
-                message: failed,
-                completion,
-            });
-        }
-    };
+    let spawned =
+        match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content, &config) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                let concise_error = concise_cli_error(&selected_agent, &error);
+                let _ = write_session_runtime_log(
+                    conn,
+                    logging::LogLevel::Error,
+                    session_id,
+                    &selected_agent.id,
+                    &error,
+                );
+                let failed =
+                    fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+                update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+                runtime.complete(session_id)?;
+                let _ = runtime.finish(
+                    &assistant_message.id,
+                    ChatTerminalResult::Failed(concise_error.clone()),
+                );
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Failed {
+                        session_id: session_id.to_string(),
+                        message_id: assistant_message.id.clone(),
+                        error: concise_error,
+                    },
+                );
+                return Ok(ChatSubmission {
+                    message: failed,
+                    completion,
+                });
+            }
+        };
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
-    runtime.start(
-        session_id.to_string(),
-        assistant_message.id.clone(),
-        Some(spawned.child),
-    )?;
+    reservation.attach(assistant_message.id.clone(), Some(spawned.child))?;
     let background_app = app.clone();
     let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
@@ -4758,7 +5492,10 @@ impl im::runtime::InboundAgent for VaneHubInboundAgent {
             im::runtime::DiagnosticLevel::Error => logging::LogLevel::Error,
         };
         let mut context = BTreeMap::new();
-        context.insert("connector".to_string(), event.connector.as_str().to_string());
+        context.insert(
+            "connector".to_string(),
+            event.connector.as_str().to_string(),
+        );
         context.insert("operation".to_string(), event.operation.to_string());
         context.insert("safeCode".to_string(), event.safe_code);
         context.insert("retryCount".to_string(), event.retry_count.to_string());
@@ -4841,9 +5578,9 @@ fn handle_im_inbound(
     };
     let repository = im::storage::ImRepository::new(&conn);
 
-    let routing = repository.routing().map_err(|_| {
-        im::runtime::ConnectorRuntimeError::new("routing-read-failed")
-    })?;
+    let routing = repository
+        .routing()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("routing-read-failed"))?;
     let routing = routing.ok_or_else(|| {
         im::runtime::ConnectorRuntimeError::user_visible(
             "routing-not-configured",
@@ -4900,6 +5637,12 @@ fn handle_im_inbound(
         }
     };
 
+    let config = session_configuration::load_from_conn(&conn, &session_id).map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "session-config-invalid",
+            "The session chat configuration could not be loaded.",
+        )
+    })?;
     let runtime = app.state::<ChatRuntimeManager>();
     let mut submission = submit_chat_message(
         app,
@@ -4908,6 +5651,7 @@ fn handle_im_inbound(
         &runtime,
         &session_id,
         &inbound.text,
+        &config,
         true,
     )
     .map_err(|_| {
@@ -4925,18 +5669,14 @@ fn handle_im_inbound(
             session_id,
             message_id: message.id,
         }),
-        Ok(ChatTerminalResult::Failed(_)) => Err(
-            im::runtime::ConnectorRuntimeError::user_visible(
-                "agent-generation-failed",
-                "The Agent could not complete this request.",
-            ),
-        ),
-        Ok(ChatTerminalResult::Cancelled) => Err(
-            im::runtime::ConnectorRuntimeError::user_visible(
-                "agent-generation-cancelled",
-                "The Agent request was cancelled.",
-            ),
-        ),
+        Ok(ChatTerminalResult::Failed(_)) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-failed",
+            "The Agent could not complete this request.",
+        )),
+        Ok(ChatTerminalResult::Cancelled) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-cancelled",
+            "The Agent request was cancelled.",
+        )),
         Err(_) => Err(im::runtime::ConnectorRuntimeError::user_visible(
             "agent-generation-timeout",
             "The Agent did not finish before the IM response timeout.",
@@ -4965,6 +5705,8 @@ pub fn run() {
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            app.manage(CliMutationGuard::default());
+            app.manage(extensions::commands::ExtensionRuntimeManager::default());
             let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
                 app: app.handle().clone(),
             }));
@@ -4979,6 +5721,13 @@ pub fn run() {
                     "desktop.lifecycle",
                     "System tray initialization failed; normal window close behavior remains active",
                     context,
+                );
+            }
+            if let Err(error) = floating_assistant::initialize(app.handle()) {
+                record_native_log(
+                    NativeLogLevel::Error,
+                    "floating-assistant.initialize",
+                    &error.to_string(),
                 );
             }
             let should_refresh = {
@@ -4998,6 +5747,7 @@ pub fn run() {
                     app.handle().clone(),
                     &registry,
                     "Initial CLI detection refresh",
+                    None,
                 )
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             }
@@ -5007,12 +5757,55 @@ pub fn run() {
             ));
             Ok(())
         })
-        .on_window_event(desktop_lifecycle::handle_window_event)
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let enabled = floating_assistant::should_hide_main_on_close(app);
+                let floating = app.get_webview_window(floating_assistant::FLOATING_ASSISTANT_LABEL);
+                if floating_assistant::should_intercept_main_close(enabled, floating.is_some()) {
+                    if let Some(floating) = floating {
+                        match floating.show() {
+                            Ok(()) => {
+                                api.prevent_close();
+                                match window.hide() {
+                                    Ok(()) => return,
+                                    Err(error) => record_native_log(
+                                        NativeLogLevel::Error,
+                                        "floating-assistant.hide-main",
+                                        &error.to_string(),
+                                    ),
+                                }
+                            }
+                            Err(error) => {
+                                record_native_log(
+                                    NativeLogLevel::Error,
+                                    "floating-assistant.hide-main",
+                                    &format!("floating show failed; using desktop lifecycle fallback: {error}"),
+                                );
+                            }
+                        }
+                    }
+                } else if enabled {
+                    record_native_log(
+                        NativeLogLevel::Error,
+                        "floating-assistant.hide-main",
+                        "floating window missing; using desktop lifecycle fallback",
+                    );
+                }
+            }
+            desktop_lifecycle::handle_window_event(window, event);
+        })
         .invoke_handler(tauri::generate_handler![
             list_agents,
             list_cli_tools,
             refresh_cli_detections,
             install_cli_version,
+            cli_parameters::list_cli_parameter_profiles,
+            cli_parameters::save_cli_parameter_profile,
+            cli_parameters::reset_cli_parameter_profile,
             get_agent_by_id,
             get_workflow_state,
             select_agent,
@@ -5026,6 +5819,8 @@ pub fn run() {
             list_sessions,
             list_archived_sessions,
             get_active_session,
+            get_session_chat_config,
+            save_session_chat_config,
             switch_session,
             rename_session,
             pin_session,
@@ -5039,6 +5834,15 @@ pub fn run() {
             stop_generation,
             get_settings,
             save_setting,
+            floating_assistant::get_floating_assistant_runtime_info,
+            floating_assistant::get_floating_assistant_config,
+            floating_assistant::set_floating_assistant_enabled,
+            floating_assistant::set_floating_assistant_surface,
+            floating_assistant::start_floating_assistant_drag,
+            floating_assistant::save_floating_assistant_anchor,
+            floating_assistant::persist_floating_assistant_position,
+            floating_assistant::show_main_window,
+            floating_assistant::exit_application,
             test_network_proxy,
             scan_network_proxies,
             open_log_directory,
@@ -5090,7 +5894,16 @@ pub fn run() {
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
             tasks::commands::list_operations,
-            tasks::commands::get_operation_status
+            tasks::commands::get_operation_status,
+            extensions::commands::get_extension_overview,
+            extensions::commands::refresh_extension_health,
+            extensions::commands::get_extension_install_preview,
+            extensions::commands::install_extension,
+            extensions::commands::uninstall_extension,
+            extensions::commands::set_extension_enabled,
+            extensions::commands::start_extension,
+            extensions::commands::stop_extension,
+            extensions::commands::test_extension
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -5100,7 +5913,7 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    fn test_conn() -> Connection {
+    pub(crate) fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         seed_agents(&conn).expect("seed");
@@ -5139,7 +5952,10 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(
+            versions,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        );
     }
 
     #[test]
@@ -5310,10 +6126,8 @@ mod tests {
         assert!(table_has_column(&conn, "settings", "value").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "runtime_session_id").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "source_kind").expect("source column"));
-        assert!(
-            table_has_column(&conn, "sessions", "source_connector")
-                .expect("connector source column")
-        );
+        assert!(table_has_column(&conn, "sessions", "source_connector")
+            .expect("connector source column"));
     }
 
     #[test]
@@ -5429,7 +6243,7 @@ mod tests {
         assert!(save_setting_to_conn(&conn, "networkProxyBypass", "localhost\nbad").is_err());
     }
 
-    fn insert_test_session(conn: &Connection, session_id: &str) {
+    pub(crate) fn insert_test_session(conn: &Connection, session_id: &str) {
         let now = current_timestamp();
         conn.execute(
             "INSERT INTO sessions
@@ -5585,9 +6399,8 @@ mod tests {
 
         let old_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
             .expect("old assistant");
-        let recent_message =
-            insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
-                .expect("recent assistant");
+        let recent_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("recent assistant");
         complete_assistant_message(
             &conn,
             &old_message.id,
@@ -5711,32 +6524,44 @@ mod tests {
             "claude".to_string(),
             "hello",
             Some("claude-session"),
+            &[],
         )
         .expect("claude spec");
         assert_eq!(claude_spec.prompt_delivery, PromptDelivery::Stdin);
         assert!(claude_spec.args.iter().any(|arg| arg == "--resume"));
         assert!(!claude_spec.args.iter().any(|arg| arg == "hello"));
 
-        let codex_spec =
-            build_cli_invocation_spec(&codex, "codex".to_string(), "hello", Some("codex-session"))
-                .expect("codex spec");
+        let codex_spec = build_cli_invocation_spec(
+            &codex,
+            "codex".to_string(),
+            "hello",
+            Some("codex-session"),
+            &[],
+        )
+        .expect("codex spec");
         assert_eq!(codex_spec.prompt_delivery, PromptDelivery::Stdin);
         assert_eq!(
             codex_spec.args,
             vec!["exec", "resume", "codex-session", "--json", "--", "-"]
         );
 
-        let gemini_spec = build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None)
-            .expect("gemini spec");
+        let gemini_spec =
+            build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None, &[])
+                .expect("gemini spec");
         assert_eq!(gemini_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(gemini_spec
             .args
             .windows(2)
             .any(|pair| pair == ["-p", "hello"]));
 
-        let opencode_spec =
-            build_cli_invocation_spec(&opencode, "opencode".to_string(), "hello", Some("open-1"))
-                .expect("opencode spec");
+        let opencode_spec = build_cli_invocation_spec(
+            &opencode,
+            "opencode".to_string(),
+            "hello",
+            Some("open-1"),
+            &[],
+        )
+        .expect("opencode spec");
         assert_eq!(opencode_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(opencode_spec
             .args
@@ -5762,8 +6587,10 @@ mod tests {
     fn runtime_manager_tracks_and_soft_cancels_generation() {
         let manager = ChatRuntimeManager::default();
         manager
-            .start("session-1".to_string(), "message-1".to_string(), None)
-            .expect("start");
+            .reserve("session-1".to_string())
+            .expect("reserve")
+            .attach("message-1".to_string(), None)
+            .expect("attach");
 
         let outcome = manager.stop("session-1").expect("stop");
 
@@ -5777,6 +6604,19 @@ mod tests {
             manager.stop("session-1").expect("second stop"),
             StopGenerationOutcome::NoActiveGeneration
         );
+    }
+
+    #[test]
+    fn runtime_manager_rejects_concurrent_generation_for_same_session() {
+        let manager = ChatRuntimeManager::default();
+        let reservation = manager
+            .reserve("session-1".to_string())
+            .expect("first reserve");
+        let duplicate = manager.reserve("session-1".to_string());
+        assert!(matches!(duplicate, Err(AppError::Validation(_))));
+        reservation
+            .attach("message-1".to_string(), None)
+            .expect("attach");
     }
 
     #[test]
@@ -6073,6 +6913,18 @@ mod tests {
         status.latest_version = Some("1.3.0".to_string());
         status.available_versions = vec!["1.3.0".to_string(), "1.2.3".to_string()];
         status.detected_path = Some("C:\\Users\\dev\\codex.cmd".to_string());
+        status.environment_type = CliEnvironmentType::Windows;
+        status.installations = vec![CliInstallation {
+            path: "C:\\Users\\dev\\codex.cmd".to_string(),
+            version: Some("1.2.3".to_string()),
+            runnable: true,
+            error: None,
+            source: CliInstallSource::Npm,
+            environment_type: CliEnvironmentType::Windows,
+            is_active: true,
+        }];
+        status.active_installation_path = status.detected_path.clone();
+        status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
         status.last_checked_at = Some("123".to_string());
         status.version_check_status = CliVersionCheckStatus::Succeeded;
 
@@ -6087,6 +6939,166 @@ mod tests {
             loaded.detected_path.as_deref(),
             Some("C:\\Users\\dev\\codex.cmd")
         );
+        assert_eq!(loaded.installations, status.installations);
+        assert_eq!(loaded.lifecycle_eligibility, CliLifecycleEligibility::Npm);
+    }
+
+    fn test_installation(
+        path: &str,
+        version: Option<&str>,
+        runnable: bool,
+        source: CliInstallSource,
+        is_active: bool,
+    ) -> CliInstallation {
+        CliInstallation {
+            path: path.to_string(),
+            version: version.map(str::to_string),
+            runnable,
+            error: (!runnable).then(|| "version probe failed".to_string()),
+            source,
+            environment_type: CliEnvironmentType::Windows,
+            is_active,
+        }
+    }
+
+    #[test]
+    fn cli_install_source_classification_is_conservative() {
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
+            CliInstallSource::Npm
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode\\claude.exe"
+            )),
+            CliInstallSource::Winget
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new(
+                "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe"
+            )),
+            CliInstallSource::Desktop
+        );
+        assert_eq!(
+            classify_cli_install_source(Path::new("C:\\Tools\\custom\\codex.exe")),
+            CliInstallSource::Unknown
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cli_candidate_dedup_collapses_windows_command_wrappers() {
+        assert_eq!(
+            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new("c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1")),
+        );
+        assert_ne!(
+            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new("C:\\Tools\\codex.cmd")),
+        );
+    }
+
+    #[test]
+    fn cli_active_installation_is_the_first_candidate() {
+        let installations = [
+            test_installation("first", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("second", Some("2.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        let active = installations
+            .iter()
+            .find(|installation| installation.is_active)
+            .expect("active installation");
+
+        assert_eq!(active.path, "first");
+    }
+
+    #[test]
+    fn cli_conflict_derivation_distinguishes_versions_and_health() {
+        let same = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", Some("1.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(derive_cli_conflict_state(&same), CliConflictState::Multiple);
+
+        let versions = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", Some("2.0.0"), true, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(
+            derive_cli_conflict_state(&versions),
+            CliConflictState::VersionMismatch
+        );
+
+        let health = vec![
+            test_installation("one", Some("1.0.0"), true, CliInstallSource::Npm, true),
+            test_installation("two", None, false, CliInstallSource::Npm, false),
+        ];
+        assert_eq!(
+            derive_cli_conflict_state(&health),
+            CliConflictState::RunnableMismatch
+        );
+    }
+
+    #[test]
+    fn cli_lifecycle_requires_runnable_npm_active_installation() {
+        let npm = test_installation("npm", Some("1.0.0"), true, CliInstallSource::Npm, true);
+        let desktop = test_installation(
+            "desktop",
+            Some("1.0.0"),
+            true,
+            CliInstallSource::Desktop,
+            true,
+        );
+        let broken = test_installation("npm", None, false, CliInstallSource::Npm, true);
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(false, None),
+            CliLifecycleEligibility::Npm
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&npm)),
+            CliLifecycleEligibility::Npm
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&desktop)),
+            CliLifecycleEligibility::Manual
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(true, Some(&broken)),
+            CliLifecycleEligibility::Manual
+        );
+    }
+
+    #[test]
+    fn cli_package_validation_rechecks_source_and_confirmation() {
+        let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
+        status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
+        let npm = PathBuf::from("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd");
+        assert!(validate_cli_package_eligibility(&status, std::slice::from_ref(&npm), None).is_ok());
+
+        let desktop = PathBuf::from(
+            "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
+        );
+        assert!(validate_cli_package_eligibility(&status, &[desktop], None).is_err());
+
+        let second = PathBuf::from("C:\\Tools\\nodejs\\codex.cmd");
+        assert!(validate_cli_package_eligibility(&status, &[npm.clone(), second.clone()], None).is_err());
+        assert!(validate_cli_package_eligibility(
+            &status,
+            &[npm.clone(), second],
+            Some(npm.to_string_lossy().as_ref()),
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn cli_mutation_guard_serializes_package_writes() {
+        let guard = CliMutationGuard::default();
+        assert!(guard.try_acquire());
+        assert!(!guard.try_acquire());
+        guard.release();
+        assert!(guard.try_acquire());
     }
 
     #[test]

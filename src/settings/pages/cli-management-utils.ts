@@ -1,6 +1,6 @@
 import type { CliToolStatus } from "../../types/agent";
 
-export type CliVersionAction = "install" | "upgrade" | "downgrade" | "current" | "unavailable";
+export type CliVersionAction = "install" | "upgrade" | "downgrade" | "current" | "manual" | "unavailable";
 
 function parseVersion(version: string) {
   const normalized = version.trim().replace(/^v/i, "");
@@ -30,6 +30,8 @@ export function compareStableVersions(left: string, right: string) {
 }
 
 export function deriveCliVersionAction(tool: CliToolStatus, targetVersion: string | null): CliVersionAction {
+  if (tool.lifecycleEligibility === "manual") return "manual";
+  if (tool.lifecycleEligibility !== "npm") return "unavailable";
   if (!targetVersion) return "unavailable";
   if (tool.installed !== true || !tool.currentVersion) return "install";
   const comparison = compareStableVersions(targetVersion, tool.currentVersion);

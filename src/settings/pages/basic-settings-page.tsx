@@ -7,6 +7,7 @@ import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "../../types/settings";
 import { NetworkProxySection } from "./network-proxy-section";
 import { PageHeader, SectionPanel } from "./page-parts";
+import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
 
 function SelectField<T extends string>({
   disabled,
@@ -121,6 +122,8 @@ export function BasicSettingsPage() {
               </label>
             </div>
           </SectionPanel>
+
+          <FloatingAssistantSettingsSection />
 
           <NetworkProxySection />
 

@@ -1,9 +1,10 @@
-import type { SettingsService } from "./settings-service";
+import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "./settings-service";
 import { i18n } from "../i18n";
 import type { AppSettings, NodeInfo } from "../types/settings";
 
 const storageKey = "vanehub.appSettings";
+const settingsSubscribers = new Set<(event: SettingsStateEvent) => void>();
 
 function readStoredSettings(): AppSettings {
   if (typeof window === "undefined") return defaultAppSettings;
@@ -30,6 +31,7 @@ export const webSettingsClient: SettingsService = {
     validateSettingValue(input.key, input.value);
     const nextSettings = { ...readStoredSettings(), [input.key]: input.value };
     writeStoredSettings(nextSettings);
+    settingsSubscribers.forEach((handler) => handler({ kind: "settings-changed", key: input.key }));
     return nextSettings;
   },
 
@@ -56,5 +58,10 @@ export const webSettingsClient: SettingsService = {
 
   async reportClientLogEvent(): Promise<void> {
     return;
+  },
+
+  async subscribeSettingsEvents(handler) {
+    settingsSubscribers.add(handler);
+    return () => settingsSubscribers.delete(handler);
   },
 };

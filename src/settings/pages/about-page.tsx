@@ -1,5 +1,6 @@
 import { CheckCircle2, ExternalLink, Github, Info, Monitor, RefreshCw, Rocket, ScrollText, Sparkles, Terminal } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -12,6 +13,7 @@ import {
   type AboutUpdateInfo,
 } from "../../services/about-service";
 import { PageHeader, SectionPanel } from "./page-parts";
+import { agentService } from "../../services/runtime-agent-client";
 
 const supportedAgents = ["Claude Code", "OpenCode", "Codex CLI", "Gemini CLI"];
 const supportedRuntimes = ["Tauri 2 Desktop", "Web / Mock Adapter"];
@@ -33,11 +35,18 @@ function formatCheckedAt(value: string, language: string) {
   }).format(new Date(value));
 }
 
-export function AboutPage() {
+export function AboutPage({ onNavigate }: { onNavigate?: (pageId: "providers") => void }) {
   const { i18n, t } = useTranslation();
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AboutUpdateInfo | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const cliToolsQuery = useQuery({ queryKey: ["cli-tools"], queryFn: () => agentService.listCliTools() });
+  const cliTools = cliToolsQuery.data ?? [];
+  const cliDetectionUnsupported = cliTools.length > 0 && cliTools.every((tool) => tool.versionCheckStatus === "unsupported");
+  const installedCliCount = cliTools.filter((tool) => tool.installed === true).length;
+  const cliAttentionCount = cliTools.filter((tool) =>
+    tool.installed === false || tool.conflictState !== "none" || tool.lifecycleEligibility === "manual",
+  ).length;
 
   async function handleCheckUpdates() {
     setChecking(true);
@@ -148,6 +157,21 @@ export function AboutPage() {
               ) : null}
               {updateError ? <div className="rounded-md border p-3 text-xs ucd-status-warning">{t("about.update.failed", { message: updateError })}</div> : null}
             </div>
+          </SectionPanel>
+
+          <SectionPanel title={t("about.environment.title")} description={t("about.environment.description")}>
+            {cliDetectionUnsupported ? (
+              <div className="rounded-md border p-3 text-xs ucd-status-warning">{t("about.environment.webUnsupported")}</div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <MetadataRow label={t("about.environment.installed")} value={`${installedCliCount} / ${cliTools.length || 4}`} />
+                <MetadataRow label={t("about.environment.attention")} value={String(cliAttentionCount)} />
+              </div>
+            )}
+            <Button className="mt-3 w-full" variant="outline" onClick={() => onNavigate?.("providers")}>
+              <Terminal className="h-4 w-4" aria-hidden="true" />
+              {t("about.environment.openCliManagement")}
+            </Button>
           </SectionPanel>
 
           <SectionPanel title={t("about.runtime.title")} description={t("about.runtime.description")}>

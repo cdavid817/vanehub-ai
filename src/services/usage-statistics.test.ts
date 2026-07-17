@@ -102,7 +102,7 @@ describe("aggregateUsageRecords", () => {
       new Date(parityFixture.now),
     );
 
-    expect(generatedAt).toBe(parityFixture.now);
+    expect(generatedAt).toBe(new Date(parityFixture.now).toISOString());
     expect(result).toEqual(parityFixture.expected);
   });
 });

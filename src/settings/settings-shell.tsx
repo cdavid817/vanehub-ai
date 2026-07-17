@@ -24,7 +24,7 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
             const Page = page.component;
             return (
               <div className="h-full overflow-y-auto pr-1" hidden={page.id !== activePageId} key={page.id}>
-                <Page searchTerm={page.id === activePageId ? searchTerm : ""} />
+                <Page onNavigate={handleSelectPage} searchTerm={page.id === activePageId ? searchTerm : ""} />
               </div>
             );
           })}

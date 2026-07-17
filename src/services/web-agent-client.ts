@@ -1,4 +1,4 @@
-import type { AgentService } from "./agent-service";
+import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import type {
@@ -15,7 +15,7 @@ import type {
   ImSessionConnector,
 } from "../types/agent";
 import { managedCliAgentIds } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import { createWebMockOperation } from "./web-operation-client";
@@ -39,6 +39,7 @@ import {
 } from "./cli-parameter-catalog";
 import { aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
+import { defaultChatConfigForSession, normalizeChatConfigForSession } from "./chat-configuration";
 
 function tr(key: string) {
   return i18n.t(key);
@@ -79,6 +80,29 @@ let knownProjects: KnownProject[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
+const chatConfigStorageKey = "vanehub.session-chat-config.v1";
+let memoryChatConfigs: Record<string, ChatConfig> = {};
+
+function readChatConfigs(): Record<string, ChatConfig> {
+  if (typeof localStorage === "undefined") return memoryChatConfigs;
+  const raw = localStorage.getItem(chatConfigStorageKey);
+  if (!raw) return memoryChatConfigs;
+  try {
+    return JSON.parse(raw) as Record<string, ChatConfig>;
+  } catch {
+    return memoryChatConfigs;
+  }
+}
+
+function writeChatConfigs(configs: Record<string, ChatConfig>) {
+  memoryChatConfigs = configs;
+  if (typeof localStorage !== "undefined") localStorage.setItem(chatConfigStorageKey, JSON.stringify(configs));
+}
+
+function emitSessionEvent(event: SessionStateEvent) {
+  sessionEventSubscribers.forEach((handler) => handler(event));
+}
 
 export function seedWebImSessionForTest(connector: ImSessionConnector): Session {
   const timestamp = nowIso();
@@ -210,6 +234,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "codex-cli",
@@ -227,6 +256,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "gemini-cli",
@@ -244,6 +278,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
   {
     agentId: "opencode",
@@ -261,6 +300,11 @@ const webCliTools: CliToolStatus[] = [
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
   },
 ];
 
@@ -536,12 +580,6 @@ function publishChatEvent(event: ChatStreamEvent) {
   emitChatEvent(event);
 }
 
-function clearActiveStream(sessionId: string) {
-  const activeStream = activeStreams.get(sessionId);
-  activeStream?.timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
-  activeStreams.delete(sessionId);
-}
-
 function cancelActiveStream(sessionId: string) {
   const activeStream = activeStreams.get(sessionId);
   if (!activeStream) return false;
@@ -582,21 +620,22 @@ export const webAgentClient: AgentService = {
     return webCliTools.map((tool) => ({
       ...tool,
       availableVersions: [...tool.availableVersions],
+      installations: tool.installations.map((installation) => ({ ...installation })),
       lastError: webLocalCliDetectionMessage(),
     }));
   },
 
-  async refreshCliDetections(): Promise<OperationTask> {
+  async refreshCliDetections(agentId?: string): Promise<OperationTask> {
     const timestamp = nowIso();
     const message = webLocalCliDetectionMessage();
     const operationId = `web-cli-refresh-${timestamp}`;
     return createWebMockOperation({
       id: operationId,
-      relatedEntityId: null,
+      relatedEntityId: agentId ?? null,
       message,
       terminalStatus: "failed",
       error: message,
-      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
+      result: { agentIds: agentId ? [agentId] : webCliTools.map((tool) => tool.agentId) },
     });
   },
 
@@ -707,6 +746,20 @@ export const webAgentClient: AgentService = {
     return sessions.find((session) => session.id === activeSessionId) ?? null;
   },
 
+  async getSessionChatConfig(sessionId) {
+    const session = findSession(sessionId);
+    const stored = readChatConfigs()[sessionId];
+    return stored ? normalizeChatConfigForSession(session, stored) : defaultChatConfigForSession(session);
+  },
+
+  async saveSessionChatConfig(sessionId, config) {
+    const session = findSession(sessionId);
+    const normalized = normalizeChatConfigForSession(session, config);
+    writeChatConfigs({ ...readChatConfigs(), [sessionId]: normalized });
+    emitSessionEvent({ kind: "configuration-changed", sessionId });
+    return normalized;
+  },
+
   async listKnownProjects() {
     return knownProjects.map((project) => ({ ...project }));
   },
@@ -769,6 +822,7 @@ export const webAgentClient: AgentService = {
     nextSessionId += 1;
     sessions = [session, ...sessions];
     activeSessionId = session.id;
+    emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
     workflowState = {
       ...workflowState,
       activeAgentId: session.agentId,
@@ -791,9 +845,13 @@ export const webAgentClient: AgentService = {
     cancelActiveStream(sessionId);
     messagesBySession.delete(sessionId);
     subscribersBySession.delete(sessionId);
+    const configs = { ...readChatConfigs() };
+    delete configs[sessionId];
+    writeChatConfigs(configs);
     sessions = sessions.filter((session) => session.id !== sessionId);
     if (activeSessionId === sessionId) {
       activeSessionId = null;
+      emitSessionEvent({ kind: "active-session-changed", sessionId: null });
     }
   },
 
@@ -803,6 +861,7 @@ export const webAgentClient: AgentService = {
       throw new Error(`Cannot switch to archived session: ${sessionId}`);
     }
     activeSessionId = session.id;
+    emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
     workflowState = {
       ...workflowState,
       activeAgentId: session.agentId,
@@ -833,6 +892,7 @@ export const webAgentClient: AgentService = {
     const session = updateSession(sessionId, { archived: true, ...(cancelled ? { lifecycleState: "stopped" } : {}) });
     if (activeSessionId === sessionId) {
       activeSessionId = null;
+      emitSessionEvent({ kind: "active-session-changed", sessionId: null });
     }
     return session;
   },
@@ -843,7 +903,10 @@ export const webAgentClient: AgentService = {
 
   async sendMessage(input) {
     const session = findSession(input.sessionId);
-    clearActiveStream(input.sessionId);
+    const config = normalizeChatConfigForSession(session, input.config);
+    if (activeStreams.has(input.sessionId)) {
+      throw new Error("A generation is already active for this session.");
+    }
     const timestamp = nowIso();
     const userMessage: ChatMessage = {
       id: createMessageId(),
@@ -879,7 +942,7 @@ export const webAgentClient: AgentService = {
       }, 240 + index * 90);
       timeoutIds.push(timeoutId);
     });
-    if (input.config.thinking) {
+    if (config.thinking) {
       const thinkingTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "thinking",
@@ -951,6 +1014,11 @@ export const webAgentClient: AgentService = {
         subscribersBySession.delete(sessionId);
       }
     };
+  },
+
+  async subscribeSessionEvents(handler) {
+    sessionEventSubscribers.add(handler);
+    return () => sessionEventSubscribers.delete(handler);
   },
 
   async listSkills(input): Promise<SkillListResult> {

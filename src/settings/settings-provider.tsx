@@ -69,6 +69,31 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshNodeInfo]);
 
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void settingsService
+      .subscribeSettingsEvents(async () => {
+        try {
+          const nextSettings = normalizeAppSettings(await settingsService.getSettings());
+          if (!active) return;
+          setSettings(nextSettings);
+          applySettings(nextSettings);
+          setError(null);
+        } catch (err) {
+          if (active) setError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .then((cleanup) => {
+        if (active) unsubscribe = cleanup;
+        else cleanup();
+      });
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
   const saveSetting = useCallback(
     async <K extends AppSettingKey>(key: K, value: AppSettings[K]) => {
       validateSettingValue(key, value);

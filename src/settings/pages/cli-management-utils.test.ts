@@ -18,6 +18,19 @@ const baseTool: CliToolStatus = {
   lastError: null,
   lastOperationId: null,
   versionCheckStatus: "succeeded",
+  environmentType: "windows",
+  installations: [{
+    path: "C:\\Users\\dev\\codex.cmd",
+    version: "1.2.0",
+    runnable: true,
+    error: null,
+    source: "npm",
+    environmentType: "windows",
+    isActive: true,
+  }],
+  activeInstallationPath: "C:\\Users\\dev\\codex.cmd",
+  conflictState: "none",
+  lifecycleEligibility: "npm",
 };
 
 const cliExamples: Array<Pick<CliToolStatus, "agentId" | "displayName" | "provider" | "executableName" | "packageName">> = [
@@ -74,5 +87,9 @@ describe("CLI management utilities", () => {
       expect(deriveCliVersionAction(tool, "1.3.0")).toBe("upgrade");
       expect(deriveCliVersionAction(tool, "1.1.0")).toBe("downgrade");
     }
+  });
+
+  it("uses manual guidance for source-native active installations", () => {
+    expect(deriveCliVersionAction({ ...baseTool, lifecycleEligibility: "manual" }, "1.3.0")).toBe("manual");
   });
 });

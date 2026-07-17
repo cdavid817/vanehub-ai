@@ -44,19 +44,29 @@ export function ConversationCard({
   );
 }
 
-export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function MainLayout({
+  onOpenSettings,
+  openCreateSession = false,
+}: {
+  onOpenSettings: () => void;
+  openCreateSession?: boolean;
+}) {
   const model = useMainLayoutModel();
   const { t } = useTranslation();
   const { notify } = useNotifications();
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [createSessionOpen, setCreateSessionOpen] = useState(false);
+  const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (sessionSidebarRef.current) sessionSidebarRef.current.inert = sessionSidebarCollapsed;
   }, [sessionSidebarCollapsed]);
+
+  useEffect(() => {
+    if (openCreateSession) setCreateSessionOpen(true);
+  }, [openCreateSession]);
 
   function openContextMenu(event: MouseEvent<HTMLButtonElement>, session: Session) {
     event.preventDefault();

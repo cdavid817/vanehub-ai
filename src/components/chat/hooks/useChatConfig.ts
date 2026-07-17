@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRegistryEntry, Session } from "../../../types/agent";
 import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../../types/chat";
+import { agentService } from "../../../services/runtime-agent-client";
 import { PERMISSION_MODES, PROVIDER_MODELS, REASONING_DEPTHS } from "../models";
 
 function providerIdFromAgent(agent?: AgentRegistryEntry | null) {
@@ -52,16 +53,39 @@ export function useChatConfig({
   const [streaming, setStreaming] = useState(true);
   const [thinking, setThinking] = useState(true);
   const [longContext, setLongContext] = useState(initialModel.supportsLongContext);
+  const loadedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const nextProviderId = providerIdFromAgent(sessionAgent);
     const nextModel = defaultModelForProvider(nextProviderId);
+    loadedSessionRef.current = null;
     setProviderId(nextProviderId);
     setAgentId(activeSession?.agentId ?? sessionAgent?.id ?? "");
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, "high"));
     setLongContext(nextModel.supportsLongContext);
     setPermissionMode(modesForProvider(nextProviderId)[0] ?? "default");
+    if (!activeSession) return () => {
+      cancelled = true;
+    };
+    void agentService.getSessionChatConfig(activeSession.id).then((persisted) => {
+      if (cancelled) return;
+      setProviderId(persisted.providerId ?? nextProviderId);
+      setAgentId(activeSession.agentId);
+      setModelId(persisted.modelId ?? nextModel.id);
+      setPermissionMode(persisted.permissionMode);
+      setReasoningDepth(persisted.reasoningDepth ?? "low");
+      setStreaming(persisted.streaming);
+      setThinking(persisted.thinking);
+      setLongContext(persisted.longContext);
+      loadedSessionRef.current = activeSession.id;
+    }).catch(() => {
+      if (!cancelled) loadedSessionRef.current = activeSession.id;
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [activeSession?.id, activeSession?.agentId, sessionAgent]);
 
   const availableAgents = useMemo(
@@ -125,6 +149,14 @@ export function useChatConfig({
     thinking,
     longContext,
   };
+
+  useEffect(() => {
+    if (!activeSession || loadedSessionRef.current !== activeSession.id) return;
+    const timeoutId = window.setTimeout(() => {
+      void agentService.saveSessionChatConfig(activeSession.id, config).catch(() => undefined);
+    }, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeSession?.id, activeSession?.interactionMode, agentId, longContext, modelId, permissionMode, providerId, reasoningDepth, streaming, thinking]);
 
   return {
     availableAgents,

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SettingsService } from "./settings-service";
+import { listen } from "@tauri-apps/api/event";
+import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { normalizeAppSettings } from "./settings-service";
 import type { AppSettings, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
 
@@ -32,5 +33,9 @@ export const tauriSettingsClient: SettingsService = {
 
   async reportClientLogEvent(event) {
     await invoke<void>("report_client_log_event", { event });
+  },
+
+  async subscribeSettingsEvents(handler) {
+    return listen<SettingsStateEvent>("settings:event", (event) => handler(event.payload));
   },
 };

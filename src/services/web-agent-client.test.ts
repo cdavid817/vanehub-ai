@@ -33,8 +33,9 @@ describe("webAgentClient", () => {
     expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
     expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
     expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
-    const operation = await webAgentClient.refreshCliDetections();
-    expect(operation).toMatchObject({ status: "queued" });
+    expect(cliTools.every((tool) => tool.installations.length === 0 && tool.lifecycleEligibility === "unavailable")).toBe(true);
+    const operation = await webAgentClient.refreshCliDetections("codex-cli");
+    expect(operation).toMatchObject({ status: "queued", relatedEntityId: "codex-cli" });
 
     await vi.advanceTimersByTimeAsync(950);
     await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({ status: "failed" });
@@ -233,6 +234,47 @@ describe("webAgentClient", () => {
     expect(completedAssistant?.content).toContain("Mock codex-cli response");
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("idle");
     unsubscribe();
+  });
+
+  it("persists chat configuration per session and keeps session identity authoritative", async () => {
+    const first = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Config one" });
+    const second = await createMockSession({ agentId: "gemini-cli", interactionMode: "browser", title: "Config two" });
+    const events: string[] = [];
+    const unsubscribe = await webAgentClient.subscribeSessionEvents((event) => events.push(event.kind));
+
+    const saved = await webAgentClient.saveSessionChatConfig(first.id, {
+      agentId: "claude-code",
+      interactionMode: "browser",
+      permissionMode: "agent",
+      providerId: "openai",
+      modelId: "gpt-5-4",
+      reasoningDepth: "medium",
+      streaming: false,
+      thinking: false,
+      longContext: true,
+    });
+
+    expect(saved).toMatchObject({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      modelId: "gpt-5-4",
+      permissionMode: "agent",
+    });
+    expect(await webAgentClient.getSessionChatConfig(first.id)).toEqual(saved);
+    expect((await webAgentClient.getSessionChatConfig(second.id)).agentId).toBe("gemini-cli");
+    expect(events).toContain("configuration-changed");
+    unsubscribe();
+  });
+
+  it("rejects a second generation while the same session is streaming", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Concurrency" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "first", config });
+
+    await expect(webAgentClient.sendMessage({ sessionId: session.id, content: "second", config }))
+      .rejects.toThrow("already active");
+    await webAgentClient.stopGeneration(session.id);
   });
 
   it("aggregates mock usage statistics from completed assistant messages", async () => {
