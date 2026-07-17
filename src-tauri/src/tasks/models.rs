@@ -8,6 +8,7 @@ pub enum OperationKind {
     Mcp,
     Agent,
     Workspace,
+    Extension,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
