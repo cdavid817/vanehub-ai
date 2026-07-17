@@ -1,0 +1,577 @@
+{
+    "schemaVersion":  1,
+    "archives":  [
+                     {
+                         "archivedOn":  "2026-07-13",
+                         "changeName":  "unify-ai-agent-tool-management",
+                         "path":  "openspec/changes/archive/2026-07-13-unify-ai-agent-tool-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-switching",
+                                              "agent-tool-registry",
+                                              "interaction-modes"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-14",
+                         "changeName":  "add-mcp-client-management",
+                         "path":  "openspec/changes/archive/2026-07-14-add-mcp-client-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "mcp-client-management",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-14",
+                         "changeName":  "support-native-package-builds",
+                         "path":  "openspec/changes/archive/2026-07-14-support-native-package-builds/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "native-app-packaging"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-14",
+                         "changeName":  "support-switchable-ucd-settings-ui",
+                         "path":  "openspec/changes/archive/2026-07-14-support-switchable-ucd-settings-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-switching",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "add-session-management",
+                         "path":  "openspec/changes/archive/2026-07-15-add-session-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "session-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "implement-main-chat-experience",
+                         "path":  "openspec/changes/archive/2026-07-15-implement-main-chat-experience/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "main-layout-ui",
+                                              "session-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "improve-architecture-extensibility",
+                         "path":  "openspec/changes/archive/2026-07-15-improve-architecture-extensibility/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-switching",
+                                              "agent-tool-registry",
+                                              "contract-and-task-foundation",
+                                              "frontend-runtime-architecture",
+                                              "interaction-modes",
+                                              "mcp-client-management",
+                                              "native-runtime-architecture",
+                                              "sdk-dependency-management",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "improve-main-layout-ui",
+                         "path":  "openspec/changes/archive/2026-07-15-improve-main-layout-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "replace-main-content-with-chat",
+                         "path":  "openspec/changes/archive/2026-07-15-replace-main-content-with-chat/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-15",
+                         "changeName":  "support-sdk-dependency-management",
+                         "path":  "openspec/changes/archive/2026-07-15-support-sdk-dependency-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-registry",
+                                              "sdk-dependency-management",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-16",
+                         "changeName":  "add-skill-management-settings",
+                         "path":  "openspec/changes/archive/2026-07-16-add-skill-management-settings/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-center-ui",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-16",
+                         "changeName":  "add-unified-log-management",
+                         "path":  "openspec/changes/archive/2026-07-16-add-unified-log-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-registry",
+                                              "app-settings",
+                                              "native-runtime-architecture",
+                                              "sdk-dependency-management",
+                                              "settings-center-ui",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-16",
+                         "changeName":  "complete-general-settings-i18n-font-fix",
+                         "path":  "openspec/changes/archive/2026-07-16-complete-general-settings-i18n-font-fix/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings",
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-16",
+                         "changeName":  "complete-session-management",
+                         "path":  "openspec/changes/archive/2026-07-16-complete-session-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "project-worktree-management",
+                                              "session-management",
+                                              "session-runtime-management",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-16",
+                         "changeName":  "replace-provider-management-with-cli-management",
+                         "path":  "openspec/changes/archive/2026-07-16-replace-provider-management-with-cli-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-registry",
+                                              "native-runtime-architecture",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-about-page",
+                         "path":  "openspec/changes/archive/2026-07-17-add-about-page/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-cli-parameter-management",
+                         "path":  "openspec/changes/archive/2026-07-17-add-cli-parameter-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "cli-parameter-management",
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-desktop-floating-assistant",
+                         "path":  "openspec/changes/archive/2026-07-17-add-desktop-floating-assistant/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-floating-assistant",
+                                              "session-chat-configuration",
+                                              "settings-center-ui",
+                                              "visual-design-system"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-im-connectors",
+                         "path":  "openspec/changes/archive/2026-07-17-add-im-connectors/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-background-lifecycle",
+                                              "frontend-runtime-architecture",
+                                              "im-connector-management",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "session-runtime-management",
+                                              "settings-center-ui",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-local-extension-capabilities",
+                         "path":  "openspec/changes/archive/2026-07-17-add-local-extension-capabilities/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "local-extension-management",
+                                              "settings-center-ui",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-network-proxy-settings",
+                         "path":  "openspec/changes/archive/2026-07-17-add-network-proxy-settings/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-openspec-archive-catalog",
+                         "path":  "openspec/changes/archive/2026-07-17-add-openspec-archive-catalog/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "openspec-archive-governance"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-spec-optimizer",
+                         "path":  "openspec/changes/archive/2026-07-17-add-spec-optimizer/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "spec-optimization"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-unified-notification-framework",
+                         "path":  "openspec/changes/archive/2026-07-17-add-unified-notification-framework/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "notification-system"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "add-usage-statistics-settings",
+                         "path":  "openspec/changes/archive/2026-07-17-add-usage-statistics-settings/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "settings-center-ui",
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "analyze-settings-center-spec-compression",
+                         "path":  "openspec/changes/archive/2026-07-17-analyze-settings-center-spec-compression/",
+                         "artifacts":  [
+                                           "proposal"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "fix-i18n-page-copy",
+                         "path":  "openspec/changes/archive/2026-07-17-fix-i18n-page-copy/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "fix-sdk-page-cli-errors",
+                         "path":  "openspec/changes/archive/2026-07-17-fix-sdk-page-cli-errors/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "sdk-dependency-management",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "govern-openspec-archive-lifecycle",
+                         "path":  "openspec/changes/archive/2026-07-17-govern-openspec-archive-lifecycle/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "openspec-archive-governance"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "implement-cli-chat-runtime-v1",
+                         "path":  "openspec/changes/archive/2026-07-17-implement-cli-chat-runtime-v1/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "session-runtime-management",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "optimize-long-running-operations",
+                         "path":  "openspec/changes/archive/2026-07-17-optimize-long-running-operations/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "optimize-session-workspace-tabs",
+                         "path":  "openspec/changes/archive/2026-07-17-optimize-session-workspace-tabs/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "session-log-viewer",
+                                              "session-project-inspection",
+                                              "session-shell",
+                                              "session-workspace-tabs",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "optimize-ui-polish",
+                         "path":  "openspec/changes/archive/2026-07-17-optimize-ui-polish/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "settings-center-ui",
+                                              "visual-design-system"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "split-settings-center-ui-spec",
+                         "path":  "openspec/changes/archive/2026-07-17-split-settings-center-ui-spec/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "settings-basic-configuration-ui",
+                                              "settings-center-ui",
+                                              "settings-cli-management-ui",
+                                              "settings-extension-management-ui",
+                                              "settings-floating-assistant-ui",
+                                              "settings-im-management-ui",
+                                              "settings-skill-management-ui",
+                                              "settings-usage-statistics-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-17",
+                         "changeName":  "upgrade-usage-statistics-monitoring",
+                         "path":  "openspec/changes/archive/2026-07-17-upgrade-usage-statistics-monitoring/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "session-runtime-management",
+                                              "settings-center-ui",
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
+                         "changeName":  "add-workspace-activity-bar",
+                         "path":  "openspec/changes/archive/2026-07-18-add-workspace-activity-bar/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
+                         "changeName":  "optimize-cli-local-environment-management",
+                         "path":  "openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-registry",
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "settings-center-ui"
+                                          ]
+                     }
+                 ]
+}

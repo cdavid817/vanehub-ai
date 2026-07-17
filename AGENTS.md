@@ -52,13 +52,22 @@ src-tauri/
 ├─ src/db/           # SQLite schema 与迁移脚本
 openspec/
 ├─ changes/          # 未归档的变更提案
+│  └─ archive/       # 已完成变更的历史记录
 ├─ specs/            # 已确认规范(唯一真源)
-└─ archive/          # 已完成变更的历史记录
+└─ project.md         # 项目上下文和详细规范
 ```
 
 ## 变更流程
 
 任何新功能或架构调整,必须先在 `openspec/changes/` 下起一个 proposal,通过 `openspec validate --specs --strict` 校验后再动代码。不要跳过 spec 直接改代码。
+
+## OpenSpec 归档治理
+
+- 已完成变更的唯一在线归档位置是 `openspec/changes/archive/YYYY-MM-DD-<change-name>/`;完整 Markdown 工件必须保留在 Git 中,不可用 zip/tar 替代。
+- 归档前必须完成 tasks,执行 `openspec validate <change-name> --strict`,并在涉及代码时记录实现验证结果。正常流程禁止使用 `--no-validate`;仅无主规范影响的变更可使用 `--skip-specs`。
+- 使用 `openspec archive <change-name>` 后,必须执行 `powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1`,并将主 specs、归档目录和索引一起提交。
+- 查询归档时优先读取 `openspec/changes/archive/archive-index.json`,按 `changeName` 或 `capabilities` 过滤;仅在定位到具体变更后才读取其 Markdown 工件。
+- 每 6 个月审查一次在线归档。迁往冷归档前必须验证目标 Git 仓库、不可变分支或 tag,在 `openspec/archive-cold-migrations.md` 记录可验证引用后,才能移除在线副本。
 
 ## 校验命令(改完必须全部跑通)
 

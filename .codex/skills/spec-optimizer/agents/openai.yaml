@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Optimizer"
+  short_description: "Audit and safely consolidate OpenSpec requirements."
+  default_prompt: "Analyze the repository OpenSpec specs and produce a reviewable optimization report."
