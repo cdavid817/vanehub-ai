@@ -2,19 +2,21 @@ import {
   Bot,
   Boxes,
   Code2,
+  Info,
   Puzzle,
   Settings,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
 import { AgentsPage } from "./pages/agents-page";
+import { AboutPage } from "./pages/about-page";
 import { BasicSettingsPage } from "./pages/basic-settings-page";
 import { McpPage } from "./pages/mcp-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
 
-export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills";
+export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -83,6 +85,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
+  },
+  {
+    id: "about",
+    labelKey: "settings.pages.about",
+    crumbKey: "settings.pages.about",
+    icon: Info,
+    searchPlaceholderKey: "settings.search.about",
+    component: AboutPage,
   },
 ];
 
