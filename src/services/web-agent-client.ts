@@ -37,6 +37,7 @@ import {
   normalizeCliParameterSelections,
 } from "./cli-parameter-catalog";
 import { aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
+import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 
 function tr(key: string) {
   return i18n.t(key);
@@ -544,6 +545,7 @@ function updateSession(sessionId: string, updates: Partial<Session>) {
 }
 
 export const webAgentClient: AgentService = {
+  ...webSessionWorkspaceClient,
   async listAgents(capabilityTag) {
     return capabilityTag
       ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
@@ -862,6 +864,21 @@ export const webAgentClient: AgentService = {
       }, 180);
       timeoutIds.push(thinkingTimeoutId);
     }
+    const toolUseTimeoutId = setTimeout(() => {
+      publishChatEvent({
+        type: "tool_use",
+        sessionId: input.sessionId,
+        messageId: assistantMessage.id,
+        toolUse: {
+          id: `web-tool-${assistantMessage.id}`,
+          name: "read_file",
+          input: { path: "README.md" },
+          output: "Loaded deterministic Web preview content.",
+          status: "completed",
+        },
+      });
+    }, 210);
+    timeoutIds.push(toolUseTimeoutId);
     const completeTimeoutId = setTimeout(() => {
       publishChatEvent({
         type: "completed",

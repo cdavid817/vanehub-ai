@@ -18,6 +18,21 @@ import type {
 import type { ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
+  CreateShellInput,
+  DirectoryListing,
+  DocumentListing,
+  FileContent,
+  GitDiffResult,
+  GitDiffSource,
+  GitStatusResult,
+  ResizeShellInput,
+  SessionLogExportResult,
+  SessionLogPage,
+  SessionLogQuery,
+  ShellEvent,
+  ShellSession,
+} from "../types/session-workspace";
+import type {
   Skill,
   SkillAgentMountPath,
   SkillDriftReport,
@@ -67,6 +82,19 @@ export interface AgentService {
     sessionId: string,
     handler: (event: ChatStreamEvent) => void,
   ): Promise<() => void>;
+  listSessionDirectory(sessionId: string, path?: string): Promise<DirectoryListing>;
+  readSessionFile(sessionId: string, path: string): Promise<FileContent>;
+  listSessionDocuments(sessionId: string): Promise<DocumentListing>;
+  getSessionGitStatus(sessionId: string): Promise<GitStatusResult>;
+  getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
+  listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
+  exportSessionLogs(input: SessionLogQuery): Promise<SessionLogExportResult>;
+  createShell(input: CreateShellInput): Promise<ShellSession>;
+  writeShellInput(shellId: string, content: string): Promise<void>;
+  resetShellDirectory(shellId: string): Promise<void>;
+  resizeShell(input: ResizeShellInput): Promise<void>;
+  killShell(shellId: string): Promise<void>;
+  subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;

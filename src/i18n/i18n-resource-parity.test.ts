@@ -17,6 +17,7 @@ describe("i18n resources", () => {
     expect(i18n.t("createSession.title")).toBe("创建会话");
     expect(i18n.t("notifications.empty")).toBe("暂无未处理通知");
     expect(i18n.t("chat.config.configure")).toBe("配置");
+    expect(i18n.t("sessionTabs.tab.report")).toBe("报告");
 
     await i18n.changeLanguage("en");
     expect(i18n.t("agents.title")).toBe("Agent Management");
@@ -26,5 +27,6 @@ describe("i18n resources", () => {
     expect(i18n.t("createSession.title")).toBe("Create Session");
     expect(i18n.t("notifications.empty")).toBe("You're all caught up");
     expect(i18n.t("chat.config.configure")).toBe("Configure");
+    expect(i18n.t("sessionTabs.tab.report")).toBe("Report");
   });
 });

@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const LOG_FILE_NAME: &str = "vanehub.log";
+pub(crate) const LOG_FILE_NAME: &str = "vanehub.log";
 const ARCHIVE_DIR_NAME: &str = "archive";
 const RETENTION_DAYS: i64 = 30;
 
@@ -30,7 +30,7 @@ pub struct LoggingPolicy {
     pub can_open_directory: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEntry {
     pub timestamp: String,
