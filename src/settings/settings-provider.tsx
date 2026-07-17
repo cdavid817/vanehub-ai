@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "../services/settings-service";
-import type { AppSettingKey, AppSettings, ClientLogEvent, NodeInfo } from "../types/settings";
+import type { AppSettingKey, AppSettings, ClientLogEvent, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -14,6 +14,8 @@ interface SettingsContextValue {
   resetSettings: () => Promise<void>;
   refreshNodeInfo: () => Promise<void>;
   openLogDirectory: () => Promise<void>;
+  testNetworkProxy: (input: { url: string; bypass: string }) => Promise<NetworkProxyTestResult>;
+  scanNetworkProxies: () => Promise<DetectedNetworkProxy[]>;
   reportClientLogEvent: (event: ClientLogEvent) => Promise<void>;
 }
 
@@ -93,7 +95,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const resetSettings = useCallback(async () => {
-    const resettableKeys: AppSettingKey[] = ["applicationLanguage", "fontSize", "theme", "defaultFolderPath", "logDirectory"];
+    const resettableKeys: AppSettingKey[] = [
+      "applicationLanguage",
+      "fontSize",
+      "theme",
+      "defaultFolderPath",
+      "logDirectory",
+      "networkProxyUrl",
+      "networkProxyBypass",
+    ];
     for (const key of resettableKeys) {
       await saveSetting(key, defaultAppSettings[key]);
     }
@@ -101,6 +111,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const openLogDirectory = useCallback(async () => {
     await settingsService.openLogDirectory();
+  }, []);
+
+  const testNetworkProxy = useCallback(async (input: { url: string; bypass: string }) => {
+    return settingsService.testNetworkProxy(input);
+  }, []);
+
+  const scanNetworkProxies = useCallback(async () => {
+    return settingsService.scanNetworkProxies();
   }, []);
 
   const reportClientLogEvent = useCallback(async (event: ClientLogEvent) => {
@@ -118,9 +136,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       resetSettings,
       refreshNodeInfo,
       openLogDirectory,
+      testNetworkProxy,
+      scanNetworkProxies,
       reportClientLogEvent,
     }),
-    [error, loading, nodeInfo, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings],
+    [error, loading, nodeInfo, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, savingKey, settings, testNetworkProxy],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

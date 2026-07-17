@@ -1,4 +1,4 @@
-import { appFontSizes, appLanguages, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type LoggingPolicy, type NodeInfo } from "../types/settings";
+import { appFontSizes, appLanguages, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
@@ -6,6 +6,8 @@ export interface SettingsService {
   saveSetting(input: { key: AppSettingKey; value: AppSettings[AppSettingKey] }): Promise<AppSettings>;
   getNodeInfo(): Promise<NodeInfo>;
   openLogDirectory(): Promise<void>;
+  testNetworkProxy(input: { url: string; bypass: string }): Promise<NetworkProxyTestResult>;
+  scanNetworkProxies(): Promise<DetectedNetworkProxy[]>;
   reportClientLogEvent(event: ClientLogEvent): Promise<void>;
 }
 
@@ -23,6 +25,8 @@ export const defaultAppSettings: AppSettings = {
   theme: defaultThemeId,
   defaultFolderPath: "",
   logDirectory: "",
+  networkProxyUrl: "",
+  networkProxyBypass: "localhost,127.0.0.1,::1",
   loggingPolicy: defaultLoggingPolicy,
 };
 
@@ -52,7 +56,35 @@ function normalizeLoggingPolicy(input: unknown): LoggingPolicy {
 
 type AppSettingsInput = Partial<Record<AppSettingKey | "loggingPolicy", unknown>>;
 
+export function normalizeNetworkProxyBypass(value: string): string {
+  return value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join(",");
+}
+
+function isNetworkProxyUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (trimmed !== value || /[\u0000-\u001f\u007f]/.test(value)) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return ["http:", "https:", "socks5:", "socks5h:"].includes(parsed.protocol) && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isNetworkProxyBypass(value: string): boolean {
+  return !/[\u0000-\u001f\u007f]/.test(value);
+}
+
 export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
+  const networkProxyBypass =
+    typeof input.networkProxyBypass === "string" && isNetworkProxyBypass(input.networkProxyBypass)
+      ? normalizeNetworkProxyBypass(input.networkProxyBypass)
+      : defaultAppSettings.networkProxyBypass;
   return {
     applicationLanguage: isAppLanguage(input.applicationLanguage)
       ? input.applicationLanguage
@@ -62,6 +94,11 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
     defaultFolderPath:
       typeof input.defaultFolderPath === "string" ? input.defaultFolderPath : defaultAppSettings.defaultFolderPath,
     logDirectory: typeof input.logDirectory === "string" ? input.logDirectory : defaultAppSettings.logDirectory,
+    networkProxyUrl:
+      typeof input.networkProxyUrl === "string" && isNetworkProxyUrl(input.networkProxyUrl)
+        ? input.networkProxyUrl
+        : defaultAppSettings.networkProxyUrl,
+    networkProxyBypass,
     loggingPolicy: normalizeLoggingPolicy(input.loggingPolicy),
   };
 }

@@ -18,12 +18,16 @@ pub fn validate_executable(executable: &str) -> Result<(), AppError> {
 
 pub fn std_command(executable: &str) -> Result<Command, AppError> {
     validate_executable(executable)?;
-    Ok(Command::new(executable))
+    let mut command = Command::new(executable);
+    crate::network_proxy::apply_to_std_command(&mut command);
+    Ok(command)
 }
 
 pub fn tokio_command(executable: &str) -> Result<tokio::process::Command, AppError> {
     validate_executable(executable)?;
-    Ok(tokio::process::Command::new(executable))
+    let mut command = tokio::process::Command::new(executable);
+    crate::network_proxy::apply_to_tokio_command(&mut command);
+    Ok(command)
 }
 
 pub fn audit_command(category: &str, executable: &str, args: &[String]) {
@@ -57,5 +61,30 @@ mod tests {
     fn allows_normal_executable_names_and_paths() {
         assert!(validate_executable("node").is_ok());
         assert!(validate_executable("C:\\Program Files\\nodejs\\node.exe").is_ok());
+    }
+
+    #[test]
+    fn injects_network_proxy_environment() {
+        crate::network_proxy::apply("http://127.0.0.1:7890", "localhost,127.0.0.1")
+            .expect("apply proxy");
+        let command = std_command("node").expect("command");
+        let envs = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|v| v.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            envs.get("HTTP_PROXY").and_then(|value| value.as_deref()),
+            Some("http://127.0.0.1:7890")
+        );
+        assert_eq!(
+            envs.get("NO_PROXY").and_then(|value| value.as_deref()),
+            Some("localhost,127.0.0.1")
+        );
+        crate::network_proxy::apply("", crate::network_proxy::DEFAULT_BYPASS).expect("clear proxy");
     }
 }

@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/button";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "../../types/settings";
+import { NetworkProxySection } from "./network-proxy-section";
 import { PageHeader, SectionPanel } from "./page-parts";
 
 function SelectField<T extends string>({
@@ -120,6 +121,8 @@ export function BasicSettingsPage() {
               </label>
             </div>
           </SectionPanel>
+
+          <NetworkProxySection />
 
           <SectionPanel title={t("basic.logs")} description={t("basic.logsDesc")}>
             <div className="grid gap-4">
