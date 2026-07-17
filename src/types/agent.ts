@@ -41,6 +41,7 @@ export interface Session {
   worktreePath: string | null;
   worktreeName: string | null;
   worktreeBranch: string | null;
+  runtimeSessionId: string | null;
   pinned: boolean;
   archived: boolean;
   createdAt: string;
