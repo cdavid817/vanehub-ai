@@ -1,0 +1,102 @@
+{
+  "now": "2026-07-17T04:00:00.000Z",
+  "range": "all",
+  "records": [
+    {
+      "messageId": "reported",
+      "sessionId": "session-1",
+      "agentId": "codex-cli",
+      "accountingKind": "reported",
+      "inputCount": 100,
+      "outputCount": 40,
+      "cacheReadCount": 10,
+      "cacheCreationCount": 5,
+      "occurredAt": "2026-07-17T01:00:00.000Z"
+    },
+    {
+      "messageId": "estimated",
+      "sessionId": "session-2",
+      "agentId": "claude-code",
+      "accountingKind": "estimated",
+      "inputCount": 200,
+      "outputCount": 80,
+      "cacheReadCount": 0,
+      "cacheCreationCount": 0,
+      "occurredAt": "2026-07-17T02:00:00.000Z"
+    }
+  ],
+  "expected": {
+    "range": "all",
+    "reported": {
+      "inputTokens": 100,
+      "outputTokens": 40,
+      "cacheReadTokens": 10,
+      "cacheCreationTokens": 5,
+      "totalTokens": 155
+    },
+    "estimated": {
+      "inputCharacters": 200,
+      "outputCharacters": 80,
+      "totalCharacters": 280
+    },
+    "coverage": {
+      "reportedResponses": 1,
+      "estimatedResponses": 1,
+      "totalResponses": 2,
+      "reportedPercent": 50.0
+    },
+    "countedSessions": 2,
+    "daily": [
+      {
+        "date": "2026-07-17",
+        "reported": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheCreationTokens": 5,
+          "totalTokens": 155
+        },
+        "estimated": {
+          "inputCharacters": 200,
+          "outputCharacters": 80,
+          "totalCharacters": 280
+        },
+        "responseCount": 2
+      }
+    ],
+    "byAgent": [
+      {
+        "agentId": "claude-code",
+        "reported": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "cacheCreationTokens": 0,
+          "totalTokens": 0
+        },
+        "estimated": {
+          "inputCharacters": 200,
+          "outputCharacters": 80,
+          "totalCharacters": 280
+        },
+        "responseCount": 1
+      },
+      {
+        "agentId": "codex-cli",
+        "reported": {
+          "inputTokens": 100,
+          "outputTokens": 40,
+          "cacheReadTokens": 10,
+          "cacheCreationTokens": 5,
+          "totalTokens": 155
+        },
+        "estimated": {
+          "inputCharacters": 0,
+          "outputCharacters": 0,
+          "totalCharacters": 0
+        },
+        "responseCount": 1
+      }
+    ]
+  }
+}

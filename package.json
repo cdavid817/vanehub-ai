@@ -17,6 +17,7 @@
     "package:macos:arm64": "tauri build --target aarch64-apple-darwin",
     "package:linux:x64": "tauri build --target x86_64-unknown-linux-gnu",
     "package:linux:arm64": "tauri build --target aarch64-unknown-linux-gnu",
+    "lint": "tsc --noEmit",
     "test": "vitest run",
     "contracts:check": "vitest run src/contracts/contract-conformance.test.ts"
   },
