@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { SettingsService } from "./settings-service";
 import { normalizeAppSettings } from "./settings-service";
-import type { AppSettings, NodeInfo } from "../types/settings";
+import type { AppSettings, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
 
 export const tauriSettingsClient: SettingsService = {
   async getSettings() {
@@ -20,6 +20,14 @@ export const tauriSettingsClient: SettingsService = {
 
   async openLogDirectory() {
     await invoke<void>("open_log_directory");
+  },
+
+  async testNetworkProxy(input) {
+    return invoke<NetworkProxyTestResult>("test_network_proxy", { input });
+  },
+
+  async scanNetworkProxies() {
+    return invoke<DetectedNetworkProxy[]>("scan_network_proxies");
   },
 
   async reportClientLogEvent(event) {

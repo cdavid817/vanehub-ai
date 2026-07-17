@@ -13,6 +13,8 @@ describe("BasicSettingsPage", () => {
     );
 
     expect(html).toContain("日志管理");
+    expect(html).toContain("网络代理");
+    expect(html).toContain("NO_PROXY");
     expect(html).toContain("30 天");
     expect(html).toContain("error / warn / info / debug");
     expect(html).toContain("disabled");

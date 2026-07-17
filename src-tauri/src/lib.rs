@@ -14,6 +14,7 @@ use thiserror::Error;
 mod command_safety;
 mod logging;
 mod mcp;
+mod network_proxy;
 mod sdk;
 mod skills;
 mod tasks;
@@ -280,6 +281,8 @@ struct AppSettings {
     theme: String,
     default_folder_path: String,
     log_directory: String,
+    network_proxy_url: String,
+    network_proxy_bypass: String,
     logging_policy: logging::LoggingPolicy,
 }
 
@@ -1983,6 +1986,8 @@ fn default_app_settings() -> AppSettings {
         theme: "futuristic".to_string(),
         default_folder_path: String::new(),
         log_directory: fallback_log_dir().to_string_lossy().to_string(),
+        network_proxy_url: String::new(),
+        network_proxy_bypass: network_proxy::DEFAULT_BYPASS.to_string(),
         logging_policy: logging::policy(true),
     }
 }
@@ -1994,6 +1999,8 @@ fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
         "theme" => matches!(value, "futuristic" | "minimal"),
         "defaultFolderPath" => true,
         "logDirectory" => !value.trim().is_empty(),
+        "networkProxyUrl" => network_proxy::normalize_proxy_url(value).is_ok(),
+        "networkProxyBypass" => network_proxy::normalize_bypass(value).is_ok(),
         _ => false,
     };
     if valid {
@@ -2002,6 +2009,15 @@ fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
         Err(AppError::Validation(format!(
             "Invalid setting value for key '{key}'."
         )))
+    }
+}
+
+fn normalize_setting_value(key: &str, value: &str) -> Result<String, AppError> {
+    validate_setting_value(key, value)?;
+    match key {
+        "networkProxyUrl" => network_proxy::normalize_proxy_url(value),
+        "networkProxyBypass" => network_proxy::normalize_bypass(value),
+        _ => Ok(value.to_string()),
     }
 }
 
@@ -2033,6 +2049,13 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
     let log_directory = load_setting_value(conn, "logDirectory")?
         .filter(|value| validate_setting_value("logDirectory", value).is_ok())
         .unwrap_or(defaults.log_directory);
+    let network_proxy_url = load_setting_value(conn, "networkProxyUrl")?
+        .and_then(|value| network_proxy::normalize_proxy_url(&value).ok())
+        .unwrap_or(defaults.network_proxy_url);
+    let network_proxy_bypass = load_setting_value(conn, "networkProxyBypass")?
+        .and_then(|value| network_proxy::normalize_bypass(&value).ok())
+        .unwrap_or(defaults.network_proxy_bypass);
+    network_proxy::apply(&network_proxy_url, &network_proxy_bypass)?;
 
     Ok(AppSettings {
         application_language,
@@ -2040,6 +2063,8 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
         theme,
         default_folder_path,
         log_directory,
+        network_proxy_url,
+        network_proxy_bypass,
         logging_policy: logging::policy(true),
     })
 }
@@ -2049,9 +2074,9 @@ fn save_setting_to_conn(
     key: &str,
     value: &str,
 ) -> Result<AppSettings, AppError> {
-    validate_setting_value(key, value)?;
+    let normalized_value = normalize_setting_value(key, value)?;
     if key == "logDirectory" {
-        logging::validate_log_dir(&PathBuf::from(value))?;
+        logging::validate_log_dir(&PathBuf::from(&normalized_value))?;
     }
     let now = current_timestamp();
     conn.execute(
@@ -2060,9 +2085,11 @@ fn save_setting_to_conn(
         VALUES (?1, ?2, ?3, ?3)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
         "#,
-        params![key, value, now],
+        params![key, normalized_value, now],
     )?;
-    get_settings_from_conn(conn)
+    let settings = get_settings_from_conn(conn)?;
+    network_proxy::apply(&settings.network_proxy_url, &settings.network_proxy_bypass)?;
+    Ok(settings)
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
@@ -3166,6 +3193,18 @@ fn save_setting(
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     save_setting_to_conn(&conn, &input.key, &input.value)
+}
+
+#[tauri::command]
+async fn test_network_proxy(
+    input: network_proxy::TestNetworkProxyInput,
+) -> Result<network_proxy::NetworkProxyTestResult, AppError> {
+    network_proxy::test_proxy(input).await
+}
+
+#[tauri::command]
+async fn scan_network_proxies() -> Vec<network_proxy::DetectedNetworkProxy> {
+    network_proxy::scan_local().await
 }
 
 fn active_log_dir_from_conn(conn: &Connection) -> Result<PathBuf, AppError> {
@@ -4479,6 +4518,8 @@ pub fn run() {
             stop_generation,
             get_settings,
             save_setting,
+            test_network_proxy,
+            scan_network_proxies,
             open_log_directory,
             report_client_log_event,
             get_node_info,
@@ -4745,6 +4786,8 @@ mod tests {
         assert_eq!(defaults.application_language, "zh-CN");
         assert_eq!(defaults.font_size, "14px");
         assert_eq!(defaults.theme, "futuristic");
+        assert_eq!(defaults.network_proxy_url, "");
+        assert_eq!(defaults.network_proxy_bypass, network_proxy::DEFAULT_BYPASS);
 
         let saved = save_setting_to_conn(&conn, "fontSize", "18px").expect("save setting");
 
@@ -4759,6 +4802,28 @@ mod tests {
         let result = save_setting_to_conn(&conn, "fontSize", "20px");
 
         assert!(matches!(result, Err(AppError::Validation(_))));
+    }
+
+    #[test]
+    fn settings_repository_normalizes_network_proxy_values() {
+        let conn = test_conn();
+
+        let saved =
+            save_setting_to_conn(&conn, "networkProxyUrl", "http://user:pass@127.0.0.1:7890")
+                .expect("save proxy url");
+        assert_eq!(saved.network_proxy_url, "http://user:pass@127.0.0.1:7890");
+
+        let saved = save_setting_to_conn(&conn, "networkProxyBypass", " localhost, 127.0.0.1 ::1 ")
+            .expect("save bypass");
+        assert_eq!(saved.network_proxy_bypass, "localhost,127.0.0.1,::1");
+    }
+
+    #[test]
+    fn settings_repository_rejects_invalid_network_proxy_values() {
+        let conn = test_conn();
+
+        assert!(save_setting_to_conn(&conn, "networkProxyUrl", "ftp://127.0.0.1:7890").is_err());
+        assert!(save_setting_to_conn(&conn, "networkProxyBypass", "localhost\nbad").is_err());
     }
 
     fn insert_test_session(conn: &Connection, session_id: &str) {

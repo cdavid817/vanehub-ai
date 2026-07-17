@@ -11,6 +11,18 @@ export type LogLevel = (typeof logLevels)[number];
 
 export type ClientLogEventKind = "error-boundary" | "critical-operation-failure";
 
+export interface NetworkProxyTestResult {
+  success: boolean;
+  latencyMs: number;
+  error: string | null;
+}
+
+export interface DetectedNetworkProxy {
+  url: string;
+  proxyType: string;
+  port: number;
+}
+
 export interface LoggingPolicy {
   retentionDays: number;
   archiveEnabled: boolean;
@@ -19,7 +31,14 @@ export interface LoggingPolicy {
   canOpenDirectory: boolean;
 }
 
-export type AppSettingKey = "applicationLanguage" | "fontSize" | "theme" | "defaultFolderPath" | "logDirectory";
+export type AppSettingKey =
+  | "applicationLanguage"
+  | "fontSize"
+  | "theme"
+  | "defaultFolderPath"
+  | "logDirectory"
+  | "networkProxyUrl"
+  | "networkProxyBypass";
 
 export interface AppSettings {
   applicationLanguage: AppLanguage;
@@ -27,6 +46,8 @@ export interface AppSettings {
   theme: UcdThemeId;
   defaultFolderPath: string;
   logDirectory: string;
+  networkProxyUrl: string;
+  networkProxyBypass: string;
   loggingPolicy: LoggingPolicy;
 }
 

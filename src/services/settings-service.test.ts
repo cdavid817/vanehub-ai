@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { i18n } from "../i18n";
-import { defaultAppSettings, normalizeAppSettings } from "./settings-service";
+import { defaultAppSettings, normalizeAppSettings, normalizeNetworkProxyBypass } from "./settings-service";
 import { webSettingsClient } from "./web-settings-client";
 
 describe("settings-service", () => {
@@ -40,6 +40,27 @@ describe("settings-service", () => {
     expect(settings.loggingPolicy).toEqual(defaultAppSettings.loggingPolicy);
   });
 
+  it("normalizes network proxy settings with defaults", () => {
+    const settings = normalizeAppSettings({
+      networkProxyUrl: "socks5://127.0.0.1:1080",
+      networkProxyBypass: " localhost, 127.0.0.1 ::1 ",
+    });
+
+    expect(settings.networkProxyUrl).toBe("socks5://127.0.0.1:1080");
+    expect(settings.networkProxyBypass).toBe("localhost,127.0.0.1,::1");
+    expect(normalizeNetworkProxyBypass("localhost 127.0.0.1")).toBe("localhost,127.0.0.1");
+  });
+
+  it("falls back for invalid network proxy settings", () => {
+    const settings = normalizeAppSettings({
+      networkProxyUrl: "ftp://127.0.0.1:21",
+      networkProxyBypass: "localhost\nbad",
+    });
+
+    expect(settings.networkProxyUrl).toBe(defaultAppSettings.networkProxyUrl);
+    expect(settings.networkProxyBypass).toBe(defaultAppSettings.networkProxyBypass);
+  });
+
   it("keeps web mock client log events as no-op and blocks opening local directories", async () => {
     await i18n.changeLanguage("en");
 
@@ -53,5 +74,9 @@ describe("settings-service", () => {
     ).resolves.toBeUndefined();
 
     await expect(webSettingsClient.openLogDirectory()).rejects.toThrow("desktop runtime");
+    await expect(webSettingsClient.testNetworkProxy({ url: "http://127.0.0.1:7890", bypass: "" })).rejects.toThrow(
+      "desktop runtime",
+    );
+    await expect(webSettingsClient.scanNetworkProxies()).rejects.toThrow("desktop runtime");
   });
 });

@@ -46,6 +46,14 @@ export const webSettingsClient: SettingsService = {
     throw new Error(i18n.t("web.error.openLogDirectory"));
   },
 
+  async testNetworkProxy(): Promise<never> {
+    throw new Error(i18n.t("web.error.networkProxyDesktopOnly"));
+  },
+
+  async scanNetworkProxies(): Promise<never> {
+    throw new Error(i18n.t("web.error.networkProxyDesktopOnly"));
+  },
+
   async reportClientLogEvent(): Promise<void> {
     return;
   },
