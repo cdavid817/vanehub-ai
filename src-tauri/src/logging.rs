@@ -232,6 +232,16 @@ fn is_sensitive_key(key: &str) -> bool {
     normalized.contains("password")
         || normalized.contains("token")
         || normalized.contains("secret")
+        || normalized.contains("authorization")
+        || normalized.contains("external_chat")
+        || normalized.contains("external_user")
+        || normalized.contains("sender_id")
+        || normalized.contains("message_content")
+        || normalized == "prompt"
+        || normalized == "response"
+        || normalized.contains("protocol_frame")
+        || normalized == "headers"
+        || normalized.contains("qr_payload")
         || normalized.contains("api_key")
         || normalized.contains("apikey")
         || normalized.ends_with("_key")
@@ -272,6 +282,32 @@ mod tests {
         assert!(raw.contains("[REDACTED]"));
         assert!(!raw.contains("secret"));
         assert!(!raw.contains("password=abc"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn redacts_im_identity_content_and_protocol_context() {
+        let dir = temp_dir("im-redaction");
+        let mut context = BTreeMap::new();
+        for key in [
+            "external_chat_id",
+            "sender_id",
+            "message_content",
+            "prompt",
+            "response",
+            "headers",
+            "protocol_frame",
+            "qr_payload",
+        ] {
+            context.insert(key.to_string(), format!("private-{key}"));
+        }
+
+        write_message(&dir, LogLevel::Debug, "im.connector", "safe status", context)
+            .expect("write IM log");
+
+        let raw = fs::read_to_string(dir.join(LOG_FILE_NAME)).expect("read log");
+        assert_eq!(raw.matches("[REDACTED]").count(), 8);
+        assert!(!raw.contains("private-"));
         let _ = fs::remove_dir_all(dir);
     }
 

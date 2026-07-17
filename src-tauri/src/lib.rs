@@ -5,13 +5,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
 mod command_safety;
+mod desktop_lifecycle;
+mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
@@ -316,10 +319,40 @@ struct Session {
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
     runtime_session_id: Option<String>,
+    source: SessionSourceMetadata,
     pinned: bool,
     archived: bool,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct SessionSourceMetadata {
+    kind: String,
+    connector: Option<im::models::ConnectorKind>,
+}
+
+impl SessionSourceMetadata {
+    fn desktop() -> Self {
+        Self {
+            kind: "desktop".to_string(),
+            connector: None,
+        }
+    }
+
+    fn im(connector: im::models::ConnectorKind) -> Self {
+        Self {
+            kind: "im".to_string(),
+            connector: Some(connector),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionActivation {
+    Activate,
+    PreserveActive,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -829,6 +862,14 @@ enum StopGenerationOutcome {
 #[derive(Default)]
 struct ChatRuntimeManager {
     active: Mutex<HashMap<String, ActiveGeneration>>,
+    completions: Mutex<HashMap<String, mpsc::Sender<ChatTerminalResult>>>,
+}
+
+#[derive(Debug, Clone)]
+enum ChatTerminalResult {
+    Completed(ChatMessage),
+    Failed(String),
+    Cancelled,
 }
 
 impl ChatRuntimeManager {
@@ -859,6 +900,33 @@ impl ChatRuntimeManager {
             .map_err(|err| AppError::Storage(err.to_string()))?;
         active.remove(session_id);
         Ok(())
+    }
+
+    fn subscribe(&self, message_id: &str) -> Result<mpsc::Receiver<ChatTerminalResult>, AppError> {
+        let (sender, receiver) = mpsc::channel();
+        self.completions
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?
+            .insert(message_id.to_string(), sender);
+        Ok(receiver)
+    }
+
+    fn finish(
+        &self,
+        message_id: &str,
+        result: ChatTerminalResult,
+    ) -> Result<bool, AppError> {
+        let sender = self
+            .completions
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?
+            .remove(message_id);
+        if let Some(sender) = sender {
+            let _ = sender.send(result);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn take_process(&self, session_id: &str) -> Result<Option<Child>, AppError> {
@@ -956,6 +1024,13 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         9,
         "session-runtime-metadata",
         apply_session_runtime_metadata_migration,
+    )?;
+    apply_migration(conn, 10, "im-connectors", im::storage::apply_schema)?;
+    apply_migration(
+        conn,
+        11,
+        "im-session-source",
+        im::storage::apply_session_source_schema,
     )?;
 
     Ok(())
@@ -2174,15 +2249,22 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         worktree_name: row.get(8)?,
         worktree_branch: row.get(9)?,
         runtime_session_id: row.get(10)?,
-        pinned: row.get::<_, i64>(11)? != 0,
-        archived: row.get::<_, i64>(12)? != 0,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        source: SessionSourceMetadata {
+            kind: row.get(11)?,
+            connector: row
+                .get::<_, Option<String>>(12)?
+                .as_deref()
+                .and_then(im::models::ConnectorKind::parse),
+        },
+        pinned: row.get::<_, i64>(13)? != 0,
+        archived: row.get::<_, i64>(14)? != 0,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -3511,6 +3593,11 @@ fn run_cli_generation_stream(
         Ok(conn) => conn,
         Err(error) => {
             record_native_error("session.runtime.cli", &error);
+            let runtime = app.state::<ChatRuntimeManager>();
+            let _ = runtime.finish(
+                &assistant_message_id,
+                ChatTerminalResult::Failed("Agent runtime storage failed.".to_string()),
+            );
             return;
         }
     };
@@ -3597,6 +3684,10 @@ fn run_cli_generation_stream(
         Ok(message) => message,
         Err(error) => {
             record_native_error("session.runtime.cli", &error);
+            let _ = runtime.finish(
+                &assistant_message_id,
+                ChatTerminalResult::Failed("Agent result could not be loaded.".to_string()),
+            );
             return;
         }
     };
@@ -3615,6 +3706,10 @@ fn run_cli_generation_stream(
         );
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Failed(concise_error.clone()),
+        );
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Failed {
@@ -3642,6 +3737,10 @@ fn run_cli_generation_stream(
         );
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Failed(concise_error.clone()),
+        );
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Failed {
@@ -3657,8 +3756,14 @@ fn run_cli_generation_stream(
         input: prompt_len as i64,
         output: response.chars().count() as i64,
     };
-    let _ = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
+    let completed = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
     let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
+    if let Ok(message) = completed {
+        let _ = runtime.finish(
+            &assistant_message_id,
+            ChatTerminalResult::Completed(message),
+        );
+    }
     let _ = app.emit(
         "chat:event",
         ChatStreamEvent::Completed {
@@ -4056,6 +4161,20 @@ fn create_session(
 }
 
 fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<Session, AppError> {
+    create_session_internal(
+        conn,
+        input,
+        SessionActivation::Activate,
+        SessionSourceMetadata::desktop(),
+    )
+}
+
+fn create_session_internal(
+    conn: &Connection,
+    input: CreateSessionInput,
+    activation: SessionActivation,
+    source: SessionSourceMetadata,
+) -> Result<Session, AppError> {
     let agent = load_agent(conn, &input.agent_id)?;
     if !agent
         .supported_interaction_modes
@@ -4111,8 +4230,8 @@ fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<
         .unwrap_or_else(|| "新会话".to_string());
     conn.execute(
         "INSERT INTO sessions
-         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?12)",
+         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, source_kind, source_connector, pinned, archived, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0, ?13, ?14)",
         params![
             id,
             session_title,
@@ -4124,13 +4243,17 @@ fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<
             worktree_path,
             worktree_name,
             worktree_branch,
+            source.kind,
+            source.connector.map(im::models::ConnectorKind::as_str),
             now,
             now
         ],
     )?;
 
     let session = load_session(conn, &id)?;
-    update_active_workflow_for_session(conn, &session)?;
+    if activation == SessionActivation::Activate {
+        update_active_workflow_for_session(conn, &session)?;
+    }
     Ok(session)
 }
 
@@ -4316,73 +4439,111 @@ fn send_message(
     content: String,
     _config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
-    let trimmed_content = content.trim().to_string();
-    if trimmed_content.is_empty() {
-        return Err(AppError::Validation(
-            "Message content cannot be empty.".to_string(),
-        ));
-    }
     let (conn, db_path) = {
         let store = state
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
         (store.connection()?, store.db_path.clone())
     };
-    let session = load_session(&conn, &session_id)?;
+    Ok(submit_chat_message(
+        &app,
+        &conn,
+        db_path,
+        &runtime,
+        &session_id,
+        &content,
+        false,
+    )?
+    .message)
+}
+
+struct ChatSubmission {
+    message: ChatMessage,
+    completion: Option<mpsc::Receiver<ChatTerminalResult>>,
+}
+
+fn submit_chat_message(
+    app: &AppHandle,
+    conn: &Connection,
+    db_path: PathBuf,
+    runtime: &ChatRuntimeManager,
+    session_id: &str,
+    content: &str,
+    subscribe_to_completion: bool,
+) -> Result<ChatSubmission, AppError> {
+    let trimmed_content = content.trim().to_string();
+    if trimmed_content.is_empty() {
+        return Err(AppError::Validation(
+            "Message content cannot be empty.".to_string(),
+        ));
+    }
+    let session = load_session(conn, session_id)?;
     if session.archived {
         return Err(AppError::Validation(format!(
             "Cannot send a message to archived session: {session_id}"
         )));
     }
-    let selected_agent = load_agent(&conn, &session.agent_id)?;
+    let selected_agent = load_agent(conn, &session.agent_id)?;
 
-    insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
-    let assistant_message = insert_chat_message(&conn, &session_id, "assistant", "streaming", "")?;
-    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Starting)?;
+    insert_chat_message(conn, session_id, "user", "completed", &trimmed_content)?;
+    let assistant_message = insert_chat_message(conn, session_id, "assistant", "streaming", "")?;
+    let completion = if subscribe_to_completion {
+        Some(runtime.subscribe(&assistant_message.id)?)
+    } else {
+        None
+    };
+    update_session_lifecycle(conn, session_id, SessionLifecycleState::Starting)?;
     let _ = app.emit(
         "chat:event",
         ChatStreamEvent::Started {
-            session_id: session_id.clone(),
+            session_id: session_id.to_string(),
             message_id: assistant_message.id.clone(),
         },
     );
-    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Running)?;
+    update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
-    let spawned = match spawn_cli_generation(&conn, &session, &selected_agent, &trimmed_content) {
+    let spawned = match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content) {
         Ok(spawned) => spawned,
         Err(error) => {
             let concise_error = concise_cli_error(&selected_agent, &error);
             let _ = write_session_runtime_log(
-                &conn,
+                conn,
                 logging::LogLevel::Error,
-                &session_id,
+                session_id,
                 &selected_agent.id,
                 &error,
             );
-            let failed = fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
-            update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
-            runtime.complete(&session_id)?;
+            let failed = fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+            update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+            runtime.complete(session_id)?;
+            let _ = runtime.finish(
+                &assistant_message.id,
+                ChatTerminalResult::Failed(concise_error.clone()),
+            );
             let _ = app.emit(
                 "chat:event",
                 ChatStreamEvent::Failed {
-                    session_id,
-                    message_id: assistant_message.id,
+                    session_id: session_id.to_string(),
+                    message_id: assistant_message.id.clone(),
                     error: concise_error,
                 },
             );
-            return Ok(failed);
+            return Ok(ChatSubmission {
+                message: failed,
+                completion,
+            });
         }
     };
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
     runtime.start(
-        session_id.clone(),
+        session_id.to_string(),
         assistant_message.id.clone(),
         Some(spawned.child),
     )?;
     let background_app = app.clone();
-    let background_session_id = session_id.clone();
+    let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
     let background_message_id = assistant_message.id.clone();
     let prompt_len = trimmed_content.chars().count();
@@ -4399,7 +4560,10 @@ fn send_message(
         );
     });
 
-    Ok(assistant_message)
+    Ok(ChatSubmission {
+        message: assistant_message,
+        completion,
+    })
 }
 
 #[tauri::command]
@@ -4458,6 +4622,7 @@ fn stop_generation_for_session(
     if let StopGenerationOutcome::SoftCancelled { message_id }
     | StopGenerationOutcome::ProcessKilled { message_id } = &stop_outcome
     {
+        let _ = runtime.finish(message_id, ChatTerminalResult::Cancelled);
         if !streaming_ids.iter().any(|id| id == message_id) {
             let _ = app.emit(
                 "chat:event",
@@ -4469,6 +4634,7 @@ fn stop_generation_for_session(
         }
     }
     for message_id in streaming_ids {
+        let _ = runtime.finish(&message_id, ChatTerminalResult::Cancelled);
         let _ = app.emit(
             "chat:event",
             ChatStreamEvent::Cancelled {
@@ -4546,6 +4712,238 @@ fn get_workflow_state_from_conn(conn: &Connection) -> Result<WorkflowState, AppE
     })
 }
 
+struct VaneHubInboundAgent {
+    app: AppHandle,
+}
+
+#[async_trait::async_trait]
+impl im::runtime::InboundAgent for VaneHubInboundAgent {
+    async fn claim(
+        &self,
+        inbound: &im::models::NormalizedInbound,
+    ) -> Result<bool, im::runtime::ConnectorRuntimeError> {
+        let app = self.app.clone();
+        let connector = inbound.connector;
+        let event_id = inbound.event_id.clone();
+        tauri::async_runtime::spawn_blocking(move || claim_im_inbound(&app, connector, &event_id))
+            .await
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("dedup-task-join-failed"))?
+    }
+
+    async fn handle(
+        &self,
+        inbound: im::models::NormalizedInbound,
+    ) -> Result<im::runtime::InboundOutcome, im::runtime::ConnectorRuntimeError> {
+        let app = self.app.clone();
+        tauri::async_runtime::spawn_blocking(move || handle_im_inbound(&app, inbound))
+            .await
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("agent-task-join-failed"))?
+    }
+
+    fn diagnostic(&self, event: im::runtime::ConnectorDiagnostic) {
+        let state = self.app.state::<Mutex<RegistryStore>>();
+        let Ok(store) = state.lock() else {
+            return;
+        };
+        let Ok(conn) = store.connection() else {
+            return;
+        };
+        let Ok(log_dir) = active_log_dir_from_conn(&conn) else {
+            return;
+        };
+        let level = match event.level {
+            im::runtime::DiagnosticLevel::Debug => logging::LogLevel::Debug,
+            im::runtime::DiagnosticLevel::Info => logging::LogLevel::Info,
+            im::runtime::DiagnosticLevel::Warn => logging::LogLevel::Warn,
+            im::runtime::DiagnosticLevel::Error => logging::LogLevel::Error,
+        };
+        let mut context = BTreeMap::new();
+        context.insert("connector".to_string(), event.connector.as_str().to_string());
+        context.insert("operation".to_string(), event.operation.to_string());
+        context.insert("safeCode".to_string(), event.safe_code);
+        context.insert("retryCount".to_string(), event.retry_count.to_string());
+        if let Some(value) = event.internal_session_id {
+            context.insert("internalSessionId".to_string(), value);
+        }
+        if let Some(value) = event.internal_message_id {
+            context.insert("internalMessageId".to_string(), value);
+        }
+        if let Some(value) = event.platform_status_code {
+            context.insert("platformStatusCode".to_string(), value);
+        }
+        if let Some(value) = event.retry_classification {
+            context.insert("retryClassification".to_string(), value);
+        }
+        let _ = logging::write_message(
+            &log_dir,
+            level,
+            "im.connector",
+            "IM connector lifecycle or delivery event",
+            context,
+        );
+    }
+
+    fn busy_message(&self) -> String {
+        let state = self.app.state::<Mutex<RegistryStore>>();
+        let Ok(store) = state.lock() else {
+            return "Too many pending messages. Please try again later.".to_string();
+        };
+        let language = store
+            .connection()
+            .ok()
+            .and_then(|conn| get_settings_from_conn(&conn).ok())
+            .map(|settings| settings.application_language)
+            .unwrap_or_else(|| "en".to_string());
+        if language.to_ascii_lowercase().starts_with("zh") {
+            "待处理消息过多，请稍后重试。".to_string()
+        } else {
+            "Too many pending messages. Please try again later.".to_string()
+        }
+    }
+}
+
+fn claim_im_inbound(
+    app: &AppHandle,
+    connector: im::models::ConnectorKind,
+    event_id: &str,
+) -> Result<bool, im::runtime::ConnectorRuntimeError> {
+    let state = app.state::<Mutex<RegistryStore>>();
+    let store = state
+        .lock()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-lock-failed"))?;
+    let conn = store
+        .connection()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-open-failed"))?;
+    let repository = im::storage::ImRepository::new(&conn);
+    let claimed = repository
+        .claim_event(connector, event_id)
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("dedup-write-failed"))?;
+    if claimed {
+        let cutoff = (Utc::now() - ChronoDuration::days(7)).to_rfc3339();
+        let _ = repository.cleanup_dedup_before(&cutoff);
+    }
+    Ok(claimed)
+}
+
+fn handle_im_inbound(
+    app: &AppHandle,
+    inbound: im::models::NormalizedInbound,
+) -> Result<im::runtime::InboundOutcome, im::runtime::ConnectorRuntimeError> {
+    let (conn, db_path) = {
+        let state = app.state::<Mutex<RegistryStore>>();
+        let store = state
+            .lock()
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-lock-failed"))?;
+        let connection = store
+            .connection()
+            .map_err(|_| im::runtime::ConnectorRuntimeError::new("storage-open-failed"))?;
+        (connection, store.db_path.clone())
+    };
+    let repository = im::storage::ImRepository::new(&conn);
+
+    let routing = repository.routing().map_err(|_| {
+        im::runtime::ConnectorRuntimeError::new("routing-read-failed")
+    })?;
+    let routing = routing.ok_or_else(|| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "routing-not-configured",
+            "IM routing is not configured in VaneHub settings.",
+        )
+    })?;
+    let agent = load_agent(&conn, &routing.agent_id).map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "default-agent-unavailable",
+            "The configured default Agent is unavailable.",
+        )
+    })?;
+    let interaction_mode = agent
+        .supported_interaction_modes
+        .iter()
+        .find(|mode| matches!(mode, InteractionMode::Cli))
+        .cloned()
+        .ok_or_else(|| {
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "default-agent-no-cli",
+                "The configured default Agent does not support CLI chat.",
+            )
+        })?;
+
+    let session_id = match repository
+        .bound_session(inbound.connector, &inbound.chat_id)
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("binding-read-failed"))?
+    {
+        Some(session_id) => session_id,
+        None => {
+            let session = create_session_internal(
+                &conn,
+                CreateSessionInput {
+                    agent_id: routing.agent_id,
+                    interaction_mode,
+                    title: Some(format!("{} IM", inbound.connector.as_str())),
+                    folder: None,
+                    project_path: Some(routing.project_path),
+                    worktree: None,
+                },
+                SessionActivation::PreserveActive,
+                SessionSourceMetadata::im(inbound.connector),
+            )
+            .map_err(|_| {
+                im::runtime::ConnectorRuntimeError::user_visible(
+                    "session-create-failed",
+                    "VaneHub could not create a session for this chat.",
+                )
+            })?;
+            repository
+                .bind_chat(inbound.connector, &inbound.chat_id, &session.id)
+                .map_err(|_| im::runtime::ConnectorRuntimeError::new("binding-write-failed"))?;
+            session.id
+        }
+    };
+
+    let runtime = app.state::<ChatRuntimeManager>();
+    let mut submission = submit_chat_message(
+        app,
+        &conn,
+        db_path,
+        &runtime,
+        &session_id,
+        &inbound.text,
+        true,
+    )
+    .map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-start-failed",
+            "The Agent could not start this request.",
+        )
+    })?;
+    let completion = submission.completion.take().ok_or_else(|| {
+        im::runtime::ConnectorRuntimeError::new("completion-subscription-missing")
+    })?;
+    match completion.recv_timeout(Duration::from_secs(30 * 60)) {
+        Ok(ChatTerminalResult::Completed(message)) => Ok(im::runtime::InboundOutcome::Reply {
+            text: message.content,
+            session_id,
+            message_id: message.id,
+        }),
+        Ok(ChatTerminalResult::Failed(_)) => Err(
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "agent-generation-failed",
+                "The Agent could not complete this request.",
+            ),
+        ),
+        Ok(ChatTerminalResult::Cancelled) => Err(
+            im::runtime::ConnectorRuntimeError::user_visible(
+                "agent-generation-cancelled",
+                "The Agent request was cancelled.",
+            ),
+        ),
+        Err(_) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-timeout",
+            "The Agent did not finish before the IM response timeout.",
+        )),
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -4557,9 +4955,32 @@ pub fn run() {
             std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
             let store = RegistryStore::new(data_dir)
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
+            let im_db_path = store.db_path.clone();
+            let tray_language = store
+                .connection()
+                .ok()
+                .and_then(|conn| get_settings_from_conn(&conn).ok())
+                .map(|settings| settings.application_language)
+                .unwrap_or_else(|| "zh-CN".to_string());
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
+                app: app.handle().clone(),
+            }));
+            app.manage(im_runtime.clone());
+            app.manage(im::commands::WeChatAuthorizationState::default());
+            if let Err(code) = desktop_lifecycle::initialize(app, &tray_language) {
+                let mut context = BTreeMap::new();
+                context.insert("safeCode".to_string(), code);
+                let _ = logging::write_message(
+                    &fallback_log_dir(),
+                    logging::LogLevel::Warn,
+                    "desktop.lifecycle",
+                    "System tray initialization failed; normal window close behavior remains active",
+                    context,
+                );
+            }
             let should_refresh = {
                 let store = app.state::<Mutex<RegistryStore>>();
                 let store = store.lock().map_err(|err| {
@@ -4580,8 +5001,13 @@ pub fn run() {
                 )
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             }
+            tauri::async_runtime::spawn(im::commands::start_saved_connectors(
+                im_runtime,
+                im_db_path,
+            ));
             Ok(())
         })
+        .on_window_event(desktop_lifecycle::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             list_agents,
             list_cli_tools,
@@ -4617,6 +5043,18 @@ pub fn run() {
             scan_network_proxies,
             open_log_directory,
             report_client_log_event,
+            im::commands::list_im_connectors,
+            im::commands::get_im_routing,
+            im::commands::save_im_routing,
+            im::commands::save_im_connector,
+            im::commands::set_im_connector_enabled,
+            im::commands::restart_im_connector,
+            im::commands::test_im_connector,
+            im::commands::clear_im_connector,
+            im::commands::reset_im_bindings,
+            im::commands::begin_wechat_authorization,
+            im::commands::poll_wechat_authorization,
+            im::commands::cancel_wechat_authorization,
             get_node_info,
             mcp::commands::list_mcp_servers,
             mcp::commands::add_mcp_server,
@@ -4701,7 +5139,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     }
 
     #[test]
@@ -4871,6 +5309,76 @@ mod tests {
         assert!(table_has_column(&conn, "messages", "session_id").expect("column check"));
         assert!(table_has_column(&conn, "settings", "value").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "runtime_session_id").expect("column check"));
+        assert!(table_has_column(&conn, "sessions", "source_kind").expect("source column"));
+        assert!(
+            table_has_column(&conn, "sessions", "source_connector")
+                .expect("connector source column")
+        );
+    }
+
+    #[test]
+    fn im_session_creation_preserves_active_desktop_session() {
+        let conn = test_conn();
+        let input = |title: &str| CreateSessionInput {
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: InteractionMode::Cli,
+            title: Some(title.to_string()),
+            folder: None,
+            project_path: None,
+            worktree: None,
+        };
+        let desktop = create_session_internal(
+            &conn,
+            input("Desktop"),
+            SessionActivation::Activate,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("desktop session");
+        let im_session = create_session_internal(
+            &conn,
+            input("Telegram"),
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::im(im::models::ConnectorKind::Telegram),
+        )
+        .expect("IM session");
+
+        let active_id: Option<String> = conn
+            .query_row(
+                "SELECT active_session_id FROM workflow_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("active session");
+        assert_eq!(active_id.as_deref(), Some(desktop.id.as_str()));
+        assert_eq!(im_session.source.kind, "im");
+        assert_eq!(
+            im_session.source.connector,
+            Some(im::models::ConnectorKind::Telegram)
+        );
+    }
+
+    #[test]
+    fn chat_completion_subscription_is_exactly_once() {
+        let runtime = ChatRuntimeManager::default();
+        let receiver = runtime.subscribe("message-1").expect("subscribe");
+
+        assert!(runtime
+            .finish(
+                "message-1",
+                ChatTerminalResult::Failed("first failure".to_string())
+            )
+            .expect("first finish"));
+        assert!(!runtime
+            .finish(
+                "message-1",
+                ChatTerminalResult::Failed("second failure".to_string())
+            )
+            .expect("second finish"));
+        assert!(matches!(
+            receiver.recv().expect("terminal result"),
+            ChatTerminalResult::Failed(error) if error == "first failure"
+        ));
+        assert!(receiver.try_recv().is_err());
     }
 
     #[test]

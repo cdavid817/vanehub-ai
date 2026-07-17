@@ -1,0 +1,10 @@
+{
+  "headers": { "req_id": "wc-fixture-001", "cmd": "aibot_msg_callback" },
+  "body": {
+    "chatid": "chat_fixture",
+    "chattype": "single",
+    "from": { "userid": "user_fixture" },
+    "msgtype": "text",
+    "text": { "content": "status please" }
+  }
+}

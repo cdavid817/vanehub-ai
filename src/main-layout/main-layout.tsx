@@ -82,13 +82,14 @@ function formatLifecycle(session: Session, t: (key: string) => string) {
   return session.archived ? t("layout.archived") : labels[session.lifecycleState];
 }
 
-function ConversationCard({
+export function ConversationCard({
   active,
   lifecycleLabel,
   language,
   onContextMenu,
   onSelect,
   session,
+  sourceLabel,
 }: {
   active: boolean;
   lifecycleLabel: string;
@@ -96,6 +97,7 @@ function ConversationCard({
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
   onSelect: () => void;
   session: Session;
+  sourceLabel?: string;
 }) {
   const meta = agentMeta[getAgentKeyForSession(session)];
   const Icon = meta.Icon;
@@ -110,10 +112,11 @@ function ConversationCard({
         <span className={cn("truncate text-sm font-medium", session.archived && "text-muted-foreground")}>{session.title}</span>
         {session.pinned ? <Pin className="ml-auto h-3.5 w-3.5 text-primary" aria-hidden="true" /> : null}
       </div>
-      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="mt-2 flex min-w-0 items-center gap-2 overflow-hidden text-xs text-muted-foreground">
         <span className={cn("h-2 w-2 rounded-full", session.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
         <span>{lifecycleLabel}</span>
-        <span className="font-mono">{meta.label}</span>
+        <span className="shrink-0 font-mono">{meta.label}</span>
+        {sourceLabel ? <span className="h-5 shrink-0 rounded-sm border border-border bg-muted px-1.5 leading-[18px] text-foreground">{sourceLabel}</span> : null}
         <span className="ml-auto font-mono">{formatSessionDate(session, language)}</span>
       </div>
     </button>
@@ -434,6 +437,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
           if (!session.archived) switchSessionMutation.mutate(session.id);
         }}
         session={session}
+        sourceLabel={session.source?.kind === "im" && session.source.connector ? t(`layout.imSource.${session.source.connector}`) : undefined}
       />
     );
   }

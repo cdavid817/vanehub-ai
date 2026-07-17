@@ -4,6 +4,13 @@ export type AvailabilityState = "available" | "unavailable" | "needs-auth" | "un
 
 export type SessionLifecycleState = "idle" | "starting" | "running" | "failed" | "stopped";
 
+export type ImSessionConnector = "feishu" | "telegram" | "dingtalk" | "wecom" | "weixin";
+
+export interface SessionSourceMetadata {
+  kind: "desktop" | "im";
+  connector: ImSessionConnector | null;
+}
+
 export interface LaunchMetadata {
   kind: "cli" | "browser" | "desktop";
   command?: string;
@@ -42,6 +49,7 @@ export interface Session {
   worktreeName: string | null;
   worktreeBranch: string | null;
   runtimeSessionId: string | null;
+  source?: SessionSourceMetadata;
   pinned: boolean;
   archived: boolean;
   createdAt: string;

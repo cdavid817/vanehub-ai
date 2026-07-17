@@ -4,6 +4,7 @@ import {
   Boxes,
   Code2,
   Info,
+  MessagesSquare,
   Puzzle,
   Settings,
   Terminal,
@@ -13,12 +14,13 @@ import { AgentsPage } from "./pages/agents-page";
 import { AboutPage } from "./pages/about-page";
 import { BasicSettingsPage } from "./pages/basic-settings-page";
 import { McpPage } from "./pages/mcp-page";
+import { ImPage } from "./pages/im-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
-export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "usage" | "about";
+export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "im" | "usage" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -87,6 +89,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
+  },
+  {
+    id: "im",
+    labelKey: "settings.pages.im",
+    crumbKey: "settings.pages.im",
+    icon: MessagesSquare,
+    badge: 5,
+    searchPlaceholderKey: "settings.search.im",
+    component: ImPage,
   },
   {
     id: "usage",

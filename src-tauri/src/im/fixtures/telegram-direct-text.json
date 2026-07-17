@@ -1,0 +1,10 @@
+{
+  "update_id": 10001,
+  "message": {
+    "message_id": 201,
+    "from": { "id": 301, "is_bot": false, "first_name": "Fixture" },
+    "chat": { "id": 301, "type": "private" },
+    "date": 1710000000,
+    "text": "status please"
+  }
+}

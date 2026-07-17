@@ -1,9 +1,19 @@
 use crate::AppError;
+use base64::Engine;
 use serde::Serialize;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::process::Command;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream as TokioTcpStream;
+use tokio_rustls::rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use tokio_rustls::TlsConnector;
+use url::Url;
+
+pub trait AsyncIo: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncIo for T {}
+pub type BoxedAsyncIo = Box<dyn AsyncIo>;
 
 pub const DEFAULT_BYPASS: &str = "localhost,127.0.0.1,::1";
 
@@ -66,6 +76,238 @@ pub fn current_state() -> NetworkProxyState {
             url: String::new(),
             bypass: DEFAULT_BYPASS.to_string(),
         })
+}
+
+pub fn http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
+    let state = current_state();
+    let mut builder = reqwest::Client::builder().timeout(timeout);
+    if !state.url.is_empty() {
+        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
+        let proxy = reqwest::Proxy::all(&state.url)
+            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
+            .no_proxy(no_proxy);
+        builder = builder.proxy(proxy);
+    }
+    builder
+        .build()
+        .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
+}
+
+pub async fn websocket_stream(target: &Url) -> Result<BoxedAsyncIo, AppError> {
+    tokio::time::timeout(Duration::from_secs(10), websocket_stream_inner(target))
+        .await
+        .map_err(|_| AppError::LaunchFailed("WebSocket connection timed out".to_string()))?
+}
+
+async fn websocket_stream_inner(target: &Url) -> Result<BoxedAsyncIo, AppError> {
+    let host = target
+        .host_str()
+        .ok_or_else(|| AppError::Validation("WebSocket target has no host".to_string()))?;
+    let port = target
+        .port_or_known_default()
+        .ok_or_else(|| AppError::Validation("WebSocket target has no port".to_string()))?;
+    let state = current_state();
+    if state.url.is_empty() || host_is_bypassed(host, &state.bypass) {
+        return Ok(Box::new(
+            TokioTcpStream::connect((host, port))
+                .await
+                .map_err(|error| {
+                    AppError::LaunchFailed(format!("WebSocket TCP connection failed: {error}"))
+                })?,
+        ));
+    }
+    let proxy = Url::parse(&state.url)
+        .map_err(|_| AppError::Validation("Invalid network proxy URL".to_string()))?;
+    match proxy.scheme() {
+        "http" | "https" => http_connect(&proxy, host, port).await,
+        "socks5" | "socks5h" => socks5_connect(&proxy, host, port).await,
+        _ => Err(AppError::Validation(
+            "Configured proxy scheme is not supported for WebSocket connections".to_string(),
+        )),
+    }
+}
+
+async fn connect_proxy(proxy: &Url) -> Result<BoxedAsyncIo, AppError> {
+    let host = proxy
+        .host_str()
+        .ok_or_else(|| AppError::Validation("Proxy host is missing".to_string()))?;
+    let port = proxy
+        .port_or_known_default()
+        .ok_or_else(|| AppError::Validation("Proxy port is missing".to_string()))?;
+    let stream = TokioTcpStream::connect((host, port))
+        .await
+        .map_err(|error| AppError::LaunchFailed(format!("Proxy connection failed: {error}")))?;
+    if proxy.scheme() != "https" {
+        return Ok(Box::new(stream));
+    }
+
+    let mut roots = RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let server_name = ServerName::try_from(host.to_string())
+        .map_err(|_| AppError::Validation("HTTPS proxy host is invalid".to_string()))?;
+    let stream = TlsConnector::from(std::sync::Arc::new(config))
+        .connect(server_name, stream)
+        .await
+        .map_err(|_| AppError::LaunchFailed("HTTPS proxy TLS handshake failed".to_string()))?;
+    Ok(Box::new(stream))
+}
+
+async fn http_connect(proxy: &Url, host: &str, port: u16) -> Result<BoxedAsyncIo, AppError> {
+    let mut stream = connect_proxy(proxy).await?;
+    let authorization = if proxy.username().is_empty() {
+        String::new()
+    } else {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(format!(
+            "{}:{}",
+            proxy.username(),
+            proxy.password().unwrap_or_default()
+        ));
+        format!("Proxy-Authorization: Basic {encoded}\r\n")
+    };
+    let request = format!(
+        "CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n{authorization}Proxy-Connection: Keep-Alive\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|_| AppError::LaunchFailed("Proxy CONNECT request failed".to_string()))?;
+    let mut response = Vec::new();
+    let mut byte = [0_u8; 1];
+    while response.len() < 16_384 && !response.ends_with(b"\r\n\r\n") {
+        if stream.read_exact(&mut byte).await.is_err() {
+            return Err(AppError::LaunchFailed(
+                "Proxy CONNECT response closed".to_string(),
+            ));
+        }
+        response.push(byte[0]);
+    }
+    let status = String::from_utf8_lossy(&response);
+    if !status
+        .lines()
+        .next()
+        .is_some_and(|line| line.contains(" 200 "))
+    {
+        return Err(AppError::LaunchFailed(
+            "Proxy CONNECT was rejected".to_string(),
+        ));
+    }
+    Ok(stream)
+}
+
+async fn socks5_connect(proxy: &Url, host: &str, port: u16) -> Result<BoxedAsyncIo, AppError> {
+    let mut stream = connect_proxy(proxy).await?;
+    let has_auth = !proxy.username().is_empty();
+    let methods = if has_auth {
+        vec![5, 2, 0, 2]
+    } else {
+        vec![5, 1, 0]
+    };
+    stream
+        .write_all(&methods)
+        .await
+        .map_err(proxy_protocol_error)?;
+    let mut selection = [0_u8; 2];
+    stream
+        .read_exact(&mut selection)
+        .await
+        .map_err(proxy_protocol_error)?;
+    if selection[0] != 5 || selection[1] == 0xff {
+        return Err(AppError::LaunchFailed(
+            "SOCKS5 authentication unavailable".to_string(),
+        ));
+    }
+    if selection[1] == 2 {
+        let username = proxy.username().as_bytes();
+        let password = proxy.password().unwrap_or_default().as_bytes();
+        if username.len() > 255 || password.len() > 255 {
+            return Err(AppError::Validation(
+                "SOCKS5 credentials are too long".to_string(),
+            ));
+        }
+        let mut auth = vec![1, username.len() as u8];
+        auth.extend_from_slice(username);
+        auth.push(password.len() as u8);
+        auth.extend_from_slice(password);
+        stream
+            .write_all(&auth)
+            .await
+            .map_err(proxy_protocol_error)?;
+        let mut result = [0_u8; 2];
+        stream
+            .read_exact(&mut result)
+            .await
+            .map_err(proxy_protocol_error)?;
+        if result[1] != 0 {
+            return Err(AppError::LaunchFailed(
+                "SOCKS5 authentication failed".to_string(),
+            ));
+        }
+    }
+    if host.len() > 255 {
+        return Err(AppError::Validation(
+            "WebSocket host is too long".to_string(),
+        ));
+    }
+    let mut request = vec![5, 1, 0, 3, host.len() as u8];
+    request.extend_from_slice(host.as_bytes());
+    request.extend_from_slice(&port.to_be_bytes());
+    stream
+        .write_all(&request)
+        .await
+        .map_err(proxy_protocol_error)?;
+    let mut header = [0_u8; 4];
+    stream
+        .read_exact(&mut header)
+        .await
+        .map_err(proxy_protocol_error)?;
+    if header[1] != 0 {
+        return Err(AppError::LaunchFailed(format!(
+            "SOCKS5 connection rejected ({})",
+            header[1]
+        )));
+    }
+    let address_len = match header[3] {
+        1 => 4,
+        4 => 16,
+        3 => {
+            let mut length = [0_u8; 1];
+            stream
+                .read_exact(&mut length)
+                .await
+                .map_err(proxy_protocol_error)?;
+            length[0] as usize
+        }
+        _ => {
+            return Err(AppError::LaunchFailed(
+                "SOCKS5 response is invalid".to_string(),
+            ))
+        }
+    };
+    let mut remainder = vec![0_u8; address_len + 2];
+    stream
+        .read_exact(&mut remainder)
+        .await
+        .map_err(proxy_protocol_error)?;
+    Ok(stream)
+}
+
+fn proxy_protocol_error(_: std::io::Error) -> AppError {
+    AppError::LaunchFailed("Proxy protocol exchange failed".to_string())
+}
+
+fn host_is_bypassed(host: &str, bypass: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    bypass.split(',').map(str::trim).any(|entry| {
+        let entry = entry.trim_matches(['[', ']']).to_ascii_lowercase();
+        entry == "*"
+            || entry == host
+            || entry
+                .strip_prefix('.')
+                .is_some_and(|suffix| host.ends_with(suffix))
+    })
 }
 
 pub fn apply(url: &str, bypass: &str) -> Result<(), AppError> {
@@ -287,6 +529,7 @@ mod tests {
     #[test]
     fn rejects_invalid_proxy_scheme() {
         assert!(normalize_proxy_url("ftp://127.0.0.1:7890").is_err());
+        assert!(normalize_proxy_url("https://proxy.example:8443").is_ok());
     }
 
     #[test]
@@ -295,5 +538,12 @@ mod tests {
             mask_proxy_url("http://user:pass@127.0.0.1:7890"),
             "http://127.0.0.1:7890"
         );
+    }
+
+    #[test]
+    fn bypass_matches_exact_hosts_and_domain_suffixes() {
+        assert!(host_is_bypassed("localhost", "localhost,127.0.0.1"));
+        assert!(host_is_bypassed("api.example.com", ".example.com"));
+        assert!(!host_is_bypassed("api.example.com", "example.org"));
     }
 }

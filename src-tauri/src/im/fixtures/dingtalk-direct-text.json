@@ -1,0 +1,10 @@
+{
+  "headers": { "messageId": "dt-fixture-001", "topic": "/v1.0/im/bot/messages/get" },
+  "data": {
+    "conversationId": "cid_fixture",
+    "conversationType": "1",
+    "senderStaffId": "staff_fixture",
+    "text": { "content": "status please" },
+    "sessionWebhook": "https://example.invalid/fixture-webhook"
+  }
+}

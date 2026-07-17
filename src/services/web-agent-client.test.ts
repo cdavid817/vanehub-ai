@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { webAgentClient } from "./web-agent-client";
+import { seedWebImSessionForTest, webAgentClient } from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
 import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
@@ -96,6 +96,24 @@ describe("webAgentClient", () => {
 
     await webAgentClient.deleteSession(second.id);
     expect((await webAgentClient.listSessions()).some((session) => session.id === second.id)).toBe(false);
+  });
+
+  it("keeps IM source metadata through standard session actions", async () => {
+    const session = seedWebImSessionForTest("feishu");
+    expect(session.source).toEqual({ kind: "im", connector: "feishu" });
+    expect(JSON.stringify(session)).not.toContain("externalChat");
+
+    await webAgentClient.renameSession(session.id, "Feishu task");
+    await webAgentClient.pinSession(session.id);
+    expect((await webAgentClient.switchSession(session.id)).source).toEqual(session.source);
+    const archived = await webAgentClient.archiveSession(session.id);
+    expect(archived).toMatchObject({ title: "Feishu task", pinned: true, source: session.source });
+
+    const restored = await webAgentClient.unarchiveSession(session.id);
+    expect(restored.source).toEqual(session.source);
+    await expect(webAgentClient.listMessages({ sessionId: session.id })).resolves.toEqual([]);
+    await webAgentClient.deleteSession(session.id);
+    expect((await webAgentClient.listSessions()).some((item) => item.id === session.id)).toBe(false);
   });
 
   it("tracks known projects and mock Git inspection", async () => {
