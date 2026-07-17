@@ -2,8 +2,9 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -311,6 +312,7 @@ struct Session {
     worktree_path: Option<String>,
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
+    runtime_session_id: Option<String>,
     pinned: bool,
     archived: bool,
     created_at: String,
@@ -449,6 +451,7 @@ enum ParsedAgentEvent {
     Token(String),
     Thinking(String),
     ToolUse(ToolUseBlock),
+    SessionId(String),
     Completed,
     Failed(String),
     Empty,
@@ -461,9 +464,92 @@ trait AgentOutputParser {
 fn parser_for_agent(agent_id: &str) -> Box<dyn AgentOutputParser> {
     if agent_id == "claude-code" {
         Box::new(ClaudeCodeParser)
+    } else if matches!(agent_id, "codex-cli" | "gemini-cli" | "opencode") {
+        Box::new(StructuredJsonParser)
     } else {
         Box::new(GenericLineParser)
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PromptDelivery {
+    Stdin,
+    Argument,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CliInvocationSpec {
+    executable: String,
+    args: Vec<String>,
+    prompt_delivery: PromptDelivery,
+}
+
+fn build_cli_invocation_spec(
+    agent: &AgentRegistryEntry,
+    executable: String,
+    prompt: &str,
+    runtime_session_id: Option<&str>,
+) -> Result<CliInvocationSpec, String> {
+    let mut args = Vec::new();
+    let prompt_delivery = match agent.id.as_str() {
+        "claude-code" => {
+            args.extend([
+                "-p".to_string(),
+                "--output-format".to_string(),
+                "stream-json".to_string(),
+                "--include-partial-messages".to_string(),
+                "--verbose".to_string(),
+            ]);
+            if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["--resume".to_string(), session_id.to_string()]);
+            }
+            PromptDelivery::Stdin
+        }
+        "codex-cli" => {
+            args.push("exec".to_string());
+            if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["resume".to_string(), session_id.to_string()]);
+            }
+            args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
+            PromptDelivery::Stdin
+        }
+        "gemini-cli" => {
+            if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["--resume".to_string(), session_id.to_string()]);
+            }
+            args.extend([
+                "-p".to_string(),
+                prompt.to_string(),
+                "-o".to_string(),
+                "stream-json".to_string(),
+                "-y".to_string(),
+            ]);
+            PromptDelivery::Argument
+        }
+        "opencode" => {
+            args.push("run".to_string());
+            if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
+                args.extend(["--session".to_string(), session_id.to_string()]);
+            }
+            args.extend([
+                "--format".to_string(),
+                "json".to_string(),
+                prompt.to_string(),
+            ]);
+            PromptDelivery::Argument
+        }
+        other => {
+            return Err(format!(
+                "{} is not supported by the CLI chat runtime.",
+                other
+            ));
+        }
+    };
+    Ok(CliInvocationSpec {
+        executable,
+        args,
+        prompt_delivery,
+    })
 }
 
 struct GenericLineParser;
@@ -496,6 +582,12 @@ impl AgentOutputParser for ClaudeCodeParser {
             .unwrap_or_default();
 
         match event_type {
+            "system" | "session_init" => value
+                .get("session_id")
+                .or_else(|| value.get("sessionId"))
+                .and_then(serde_json::Value::as_str)
+                .map(|session_id| ParsedAgentEvent::SessionId(session_id.to_string()))
+                .unwrap_or(ParsedAgentEvent::Empty),
             "assistant" | "assistant_delta" | "content_block_delta" => {
                 let text = value
                     .pointer("/message/content/0/text")
@@ -558,6 +650,146 @@ impl AgentOutputParser for ClaudeCodeParser {
     }
 }
 
+struct StructuredJsonParser;
+
+impl StructuredJsonParser {
+    fn text_value(value: &serde_json::Value) -> Option<String> {
+        [
+            "/delta/text",
+            "/message/content/0/text",
+            "/content/0/text",
+            "/content/text",
+            "/data/text",
+        ]
+        .iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
+        .or_else(|| value.get("text").and_then(serde_json::Value::as_str))
+        .or_else(|| value.get("content").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .filter(|text| !text.is_empty())
+    }
+
+    fn thinking_value(value: &serde_json::Value) -> Option<String> {
+        [
+            "/delta/thinking",
+            "/thinking",
+            "/reasoning",
+            "/data/thinking",
+        ]
+        .iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .filter(|text| !text.is_empty())
+    }
+
+    fn session_id(value: &serde_json::Value) -> Option<String> {
+        [
+            "/session_id",
+            "/sessionId",
+            "/session/id",
+            "/metadata/session_id",
+            "/metadata/sessionId",
+        ]
+        .iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .filter(|text| !text.is_empty())
+    }
+
+    fn error_value(value: &serde_json::Value) -> Option<String> {
+        value
+            .get("message")
+            .or_else(|| value.get("error"))
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| {
+                value
+                    .pointer("/error/message")
+                    .and_then(serde_json::Value::as_str)
+            })
+            .map(str::to_string)
+            .filter(|text| !text.is_empty())
+    }
+}
+
+impl AgentOutputParser for StructuredJsonParser {
+    fn parse_line(&self, line: &str) -> ParsedAgentEvent {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            return ParsedAgentEvent::Empty;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            return ParsedAgentEvent::Token(line.to_string());
+        };
+        let event_type = value
+            .get("type")
+            .or_else(|| value.get("event"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+
+        if matches!(
+            event_type,
+            "error" | "failed" | "failure" | "turn.failed" | "run_error"
+        ) {
+            return ParsedAgentEvent::Failed(
+                Self::error_value(&value)
+                    .unwrap_or_else(|| "Agent CLI reported an error.".to_string()),
+            );
+        }
+        if matches!(
+            event_type,
+            "result" | "done" | "complete" | "completed" | "turn.completed"
+        ) {
+            return ParsedAgentEvent::Completed;
+        }
+        if let Some(session_id) = Self::session_id(&value) {
+            if matches!(
+                event_type,
+                "session" | "session_init" | "session_configured" | "start" | "started"
+            ) {
+                return ParsedAgentEvent::SessionId(session_id);
+            }
+        }
+        if matches!(event_type, "thinking" | "thinking_delta" | "reasoning") {
+            return Self::thinking_value(&value)
+                .map(ParsedAgentEvent::Thinking)
+                .unwrap_or(ParsedAgentEvent::Empty);
+        }
+        if matches!(event_type, "tool_use" | "tool" | "tool_call" | "tool.start") {
+            let tool = ToolUseBlock {
+                id: value
+                    .get("id")
+                    .or_else(|| value.pointer("/tool/id"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("tool")
+                    .to_string(),
+                name: value
+                    .get("name")
+                    .or_else(|| value.pointer("/tool/name"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("tool")
+                    .to_string(),
+                input: value
+                    .get("input")
+                    .or_else(|| value.pointer("/tool/input"))
+                    .cloned(),
+                output: value
+                    .get("output")
+                    .or_else(|| value.pointer("/tool/output"))
+                    .cloned(),
+                status: value
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("running")
+                    .to_string(),
+            };
+            return ParsedAgentEvent::ToolUse(tool);
+        }
+        Self::text_value(&value)
+            .map(ParsedAgentEvent::Token)
+            .unwrap_or(ParsedAgentEvent::Empty)
+    }
+}
+
 struct ActiveGeneration {
     message_id: String,
     process: Option<Child>,
@@ -603,6 +835,16 @@ impl ChatRuntimeManager {
             .map_err(|err| AppError::Storage(err.to_string()))?;
         active.remove(session_id);
         Ok(())
+    }
+
+    fn take_process(&self, session_id: &str) -> Result<Option<Child>, AppError> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        Ok(active
+            .remove(session_id)
+            .and_then(|mut generation| generation.process.take()))
     }
 
     fn stop(&self, session_id: &str) -> Result<StopGenerationOutcome, AppError> {
@@ -685,6 +927,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "project-worktree-management",
         apply_project_worktree_migration,
     )?;
+    apply_migration(
+        conn,
+        9,
+        "session-runtime-metadata",
+        apply_session_runtime_metadata_migration,
+    )?;
 
     Ok(())
 }
@@ -712,6 +960,16 @@ fn apply_project_worktree_migration(conn: &Connection) -> Result<(), AppError> {
                 [],
             )?;
         }
+    }
+    Ok(())
+}
+
+fn apply_session_runtime_metadata_migration(conn: &Connection) -> Result<(), AppError> {
+    if !table_has_column(conn, "sessions", "runtime_session_id")? {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN runtime_session_id TEXT",
+            [],
+        )?;
     }
     Ok(())
 }
@@ -1867,15 +2125,16 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         worktree_path: row.get(7)?,
         worktree_name: row.get(8)?,
         worktree_branch: row.get(9)?,
-        pinned: row.get::<_, i64>(10)? != 0,
-        archived: row.get::<_, i64>(11)? != 0,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        runtime_session_id: row.get(10)?,
+        pinned: row.get::<_, i64>(11)? != 0,
+        archived: row.get::<_, i64>(12)? != 0,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -2194,6 +2453,54 @@ fn complete_assistant_message(
     load_chat_message(conn, message_id)
 }
 
+fn append_assistant_content(
+    conn: &Connection,
+    message_id: &str,
+    content_delta: &str,
+) -> Result<ChatMessage, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE messages
+         SET content = content || ?1, updated_at = ?2
+         WHERE id = ?3",
+        params![content_delta, now, message_id],
+    )?;
+    load_chat_message(conn, message_id)
+}
+
+fn append_assistant_thinking(
+    conn: &Connection,
+    message_id: &str,
+    content_delta: &str,
+) -> Result<ChatMessage, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE messages
+         SET thinking_content = COALESCE(thinking_content, '') || ?1, updated_at = ?2
+         WHERE id = ?3",
+        params![content_delta, now, message_id],
+    )?;
+    load_chat_message(conn, message_id)
+}
+
+fn append_assistant_tool_use(
+    conn: &Connection,
+    message_id: &str,
+    tool_use: ToolUseBlock,
+) -> Result<ChatMessage, AppError> {
+    let mut message = load_chat_message(conn, message_id)?;
+    let mut tools = message.tool_use.take().unwrap_or_default();
+    tools.push(tool_use);
+    let tools_json =
+        serde_json::to_string(&tools).map_err(|error| AppError::Storage(error.to_string()))?;
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE messages SET tool_use = ?1, updated_at = ?2 WHERE id = ?3",
+        params![tools_json, now, message_id],
+    )?;
+    load_chat_message(conn, message_id)
+}
+
 fn fail_assistant_message(
     conn: &Connection,
     message_id: &str,
@@ -2208,6 +2515,19 @@ fn fail_assistant_message(
         params![content, error, now, message_id],
     )?;
     load_chat_message(conn, message_id)
+}
+
+fn update_session_runtime_session_id(
+    conn: &Connection,
+    session_id: &str,
+    runtime_session_id: &str,
+) -> Result<Session, AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE sessions SET runtime_session_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![runtime_session_id, now, session_id],
+    )?;
+    load_session(conn, session_id)
 }
 
 fn cancel_streaming_messages(conn: &Connection, session_id: &str) -> Result<(), AppError> {
@@ -2913,6 +3233,7 @@ fn resolve_agent_cli_executable(
     })
 }
 
+#[cfg(test)]
 fn execute_generic_cli_agent(
     conn: &Connection,
     session_id: &str,
@@ -2942,6 +3263,289 @@ fn execute_generic_cli_agent(
         &format!("executing {}", agent.display_name),
     );
     command_output_with_timeout(&mut command, Duration::from_secs(60))
+}
+
+struct SpawnedCliGeneration {
+    child: Child,
+    stdout: ChildStdout,
+    stderr: Option<ChildStderr>,
+}
+
+fn spawn_cli_generation(
+    conn: &Connection,
+    session: &Session,
+    agent: &AgentRegistryEntry,
+    prompt: &str,
+) -> Result<SpawnedCliGeneration, String> {
+    if agent.launch.kind != "cli" {
+        return Err(format!(
+            "{} launch kind '{}' is unsupported for chat runtime.",
+            agent.display_name, agent.launch.kind
+        ));
+    }
+    let executable = resolve_agent_cli_executable(conn, agent)?;
+    let spec = build_cli_invocation_spec(
+        agent,
+        executable,
+        prompt,
+        session.runtime_session_id.as_deref(),
+    )?;
+    let mut command =
+        command_safety::std_command(&spec.executable).map_err(|error| error.to_string())?;
+    command.args(&spec.args);
+    if let Some(folder) = session
+        .folder
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        command.current_dir(folder);
+    }
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    if matches!(spec.prompt_delivery, PromptDelivery::Stdin) {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
+    command_safety::audit_command(
+        "session.runtime.cli",
+        &spec.executable,
+        &spec
+            .args
+            .iter()
+            .map(|arg| {
+                if arg == prompt {
+                    "[prompt redacted]".to_string()
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect::<Vec<_>>(),
+    );
+    let _ = write_session_runtime_log(
+        conn,
+        logging::LogLevel::Info,
+        &session.id,
+        &agent.id,
+        &format!(
+            "executing {} through provider CLI runtime",
+            agent.display_name
+        ),
+    );
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    if matches!(spec.prompt_delivery, PromptDelivery::Stdin) {
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(error) = stdin
+                .write_all(prompt.as_bytes())
+                .and_then(|_| stdin.write_all(b"\n"))
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.to_string());
+            }
+        }
+    }
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "CLI process stdout unavailable.".to_string())?;
+    let stderr = child.stderr.take();
+    Ok(SpawnedCliGeneration {
+        child,
+        stdout,
+        stderr,
+    })
+}
+
+fn read_stderr_to_string(stderr: Option<ChildStderr>) -> thread::JoinHandle<String> {
+    thread::spawn(move || {
+        let Some(stderr) = stderr else {
+            return String::new();
+        };
+        let mut content = String::new();
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().map_while(Result::ok) {
+            if !content.is_empty() {
+                content.push('\n');
+            }
+            content.push_str(&line);
+        }
+        content
+    })
+}
+
+fn run_cli_generation_stream(
+    app: AppHandle,
+    db_path: PathBuf,
+    session_id: String,
+    agent: AgentRegistryEntry,
+    assistant_message_id: String,
+    stdout: ChildStdout,
+    stderr: Option<ChildStderr>,
+    prompt_len: usize,
+) {
+    let stderr_handle = read_stderr_to_string(stderr);
+    let parser = parser_for_agent(&agent.id);
+    let store = RegistryStore { db_path };
+    let conn = match store.connection() {
+        Ok(conn) => conn,
+        Err(error) => {
+            record_native_error("session.runtime.cli", &error);
+            return;
+        }
+    };
+    let reader = BufReader::new(stdout);
+    let mut response = String::new();
+    let mut terminal_error: Option<String> = None;
+
+    for line in reader.lines() {
+        let Ok(line) = line else {
+            terminal_error = Some("Failed to read Agent CLI output.".to_string());
+            break;
+        };
+        match parser.parse_line(&line) {
+            ParsedAgentEvent::Token(delta) => {
+                let content_delta = if response.is_empty() {
+                    delta
+                } else {
+                    format!("\n{delta}")
+                };
+                response.push_str(&content_delta);
+                let _ = append_assistant_content(&conn, &assistant_message_id, &content_delta);
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Token {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        content_delta,
+                    },
+                );
+            }
+            ParsedAgentEvent::Thinking(content_delta) => {
+                let _ = append_assistant_thinking(&conn, &assistant_message_id, &content_delta);
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Thinking {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        content_delta,
+                    },
+                );
+            }
+            ParsedAgentEvent::ToolUse(tool_use) => {
+                let _ = append_assistant_tool_use(&conn, &assistant_message_id, tool_use.clone());
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::ToolUse {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        tool_use,
+                    },
+                );
+            }
+            ParsedAgentEvent::SessionId(runtime_session_id) => {
+                let _ = update_session_runtime_session_id(&conn, &session_id, &runtime_session_id);
+            }
+            ParsedAgentEvent::Failed(error) => {
+                terminal_error = Some(error);
+            }
+            ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
+        }
+    }
+
+    let runtime = app.state::<ChatRuntimeManager>();
+    let exit_status = match runtime.take_process(&session_id) {
+        Ok(Some(mut child)) => child.wait().ok(),
+        Ok(None) => None,
+        Err(error) => {
+            record_native_error("session.runtime.cli", &error);
+            None
+        }
+    };
+    let stderr_output = stderr_handle.join().unwrap_or_default();
+    if !stderr_output.trim().is_empty() {
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Warn,
+            &session_id,
+            &agent.id,
+            stderr_output.trim(),
+        );
+    }
+
+    let current_message = match load_chat_message(&conn, &assistant_message_id) {
+        Ok(message) => message,
+        Err(error) => {
+            record_native_error("session.runtime.cli", &error);
+            return;
+        }
+    };
+    if current_message.status == "cancelled" {
+        return;
+    }
+
+    if let Some(error) = terminal_error {
+        let concise_error = concise_cli_failed_error(&agent);
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Error,
+            &session_id,
+            &agent.id,
+            &error,
+        );
+        let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
+        let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = app.emit(
+            "chat:event",
+            ChatStreamEvent::Failed {
+                session_id,
+                message_id: assistant_message_id,
+                error: concise_error,
+            },
+        );
+        return;
+    }
+
+    if !exit_status.map(|status| status.success()).unwrap_or(false) {
+        let concise_error = concise_cli_failed_error(&agent);
+        let detail = if stderr_output.trim().is_empty() {
+            concise_error.clone()
+        } else {
+            stderr_output.trim().to_string()
+        };
+        let _ = write_session_runtime_log(
+            &conn,
+            logging::LogLevel::Error,
+            &session_id,
+            &agent.id,
+            &detail,
+        );
+        let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
+        let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
+        let _ = app.emit(
+            "chat:event",
+            ChatStreamEvent::Failed {
+                session_id,
+                message_id: assistant_message_id,
+                error: concise_error,
+            },
+        );
+        return;
+    }
+
+    let token_usage = TokenUsage {
+        input: prompt_len as i64,
+        output: response.chars().count() as i64,
+    };
+    let _ = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
+    let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
+    let _ = app.emit(
+        "chat:event",
+        ChatStreamEvent::Completed {
+            session_id,
+            message_id: assistant_message_id,
+            token_usage: Some(token_usage),
+        },
+    );
 }
 
 #[tauri::command]
@@ -3315,7 +3919,8 @@ fn create_session(
 
         match result {
             Ok(session) => {
-                let _ = registry.append_log(&operation_id, format!("Created session {}", session.id));
+                let _ =
+                    registry.append_log(&operation_id, format!("Created session {}", session.id));
                 let _ = registry.complete(&operation_id, serde_json::to_value(&session).ok());
             }
             Err(error) => {
@@ -3329,10 +3934,7 @@ fn create_session(
     Ok(operation)
 }
 
-fn create_session_inner(
-    conn: &Connection,
-    input: CreateSessionInput,
-) -> Result<Session, AppError> {
+fn create_session_inner(conn: &Connection, input: CreateSessionInput) -> Result<Session, AppError> {
     let agent = load_agent(conn, &input.agent_id)?;
     if !agent
         .supported_interaction_modes
@@ -3599,11 +4201,11 @@ fn send_message(
             "Message content cannot be empty.".to_string(),
         ));
     }
-    let conn = {
+    let (conn, db_path) = {
         let store = state
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
-        store.connection()?
+        (store.connection()?, store.db_path.clone())
     };
     let session = load_session(&conn, &session_id)?;
     if session.archived {
@@ -3616,7 +4218,6 @@ fn send_message(
     insert_chat_message(&conn, &session_id, "user", "completed", &trimmed_content)?;
     let assistant_message = insert_chat_message(&conn, &session_id, "assistant", "streaming", "")?;
     update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Starting)?;
-    runtime.start(session_id.clone(), assistant_message.id.clone(), None)?;
     let _ = app.emit(
         "chat:event",
         ChatStreamEvent::Started {
@@ -3626,9 +4227,8 @@ fn send_message(
     );
     update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Running)?;
 
-    let output = execute_generic_cli_agent(&conn, &session_id, &selected_agent, &trimmed_content);
-    let output = match output {
-        Ok(output) => output,
+    let spawned = match spawn_cli_generation(&conn, &session, &selected_agent, &trimmed_content) {
+        Ok(spawned) => spawned,
         Err(error) => {
             let concise_error = concise_cli_error(&selected_agent, &error);
             let _ = write_session_runtime_log(
@@ -3653,147 +4253,32 @@ fn send_message(
         }
     };
 
-    if !output.stdout.is_empty() {
-        let _ = write_session_runtime_log(
-            &conn,
-            logging::LogLevel::Info,
-            &session_id,
-            &selected_agent.id,
-            &output.stdout,
+    let stdout = spawned.stdout;
+    let stderr = spawned.stderr;
+    runtime.start(
+        session_id.clone(),
+        assistant_message.id.clone(),
+        Some(spawned.child),
+    )?;
+    let background_app = app.clone();
+    let background_session_id = session_id.clone();
+    let background_agent = selected_agent.clone();
+    let background_message_id = assistant_message.id.clone();
+    let prompt_len = trimmed_content.chars().count();
+    thread::spawn(move || {
+        run_cli_generation_stream(
+            background_app,
+            db_path,
+            background_session_id,
+            background_agent,
+            background_message_id,
+            stdout,
+            stderr,
+            prompt_len,
         );
-    }
-    if !output.stderr.is_empty() {
-        let _ = write_session_runtime_log(
-            &conn,
-            logging::LogLevel::Warn,
-            &session_id,
-            &selected_agent.id,
-            &output.stderr,
-        );
-    }
+    });
 
-    if !output.success {
-        let concise_error = concise_cli_failed_error(&selected_agent);
-        let detail = first_output_line(&output).unwrap_or_else(|| concise_error.clone());
-        let _ = write_session_runtime_log(
-            &conn,
-            logging::LogLevel::Error,
-            &session_id,
-            &selected_agent.id,
-            &detail,
-        );
-        let failed = fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
-        update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
-        runtime.complete(&session_id)?;
-        let _ = app.emit(
-            "chat:event",
-            ChatStreamEvent::Failed {
-                session_id,
-                message_id: assistant_message.id,
-                error: concise_error,
-            },
-        );
-        return Ok(failed);
-    }
-
-    let parser = parser_for_agent(&selected_agent.id);
-    let mut response = String::new();
-    let mut terminal_error = None;
-    for line in output.stdout.lines() {
-        match parser.parse_line(line) {
-            ParsedAgentEvent::Token(delta) => {
-                let content_delta = if response.is_empty() {
-                    delta
-                } else {
-                    format!("\n{delta}")
-                };
-                response.push_str(&content_delta);
-                let _ = app.emit(
-                    "chat:event",
-                    ChatStreamEvent::Token {
-                        session_id: session_id.clone(),
-                        message_id: assistant_message.id.clone(),
-                        content_delta,
-                    },
-                );
-            }
-            ParsedAgentEvent::Thinking(content_delta) => {
-                let _ = app.emit(
-                    "chat:event",
-                    ChatStreamEvent::Thinking {
-                        session_id: session_id.clone(),
-                        message_id: assistant_message.id.clone(),
-                        content_delta,
-                    },
-                );
-            }
-            ParsedAgentEvent::ToolUse(tool_use) => {
-                let _ = app.emit(
-                    "chat:event",
-                    ChatStreamEvent::ToolUse {
-                        session_id: session_id.clone(),
-                        message_id: assistant_message.id.clone(),
-                        tool_use,
-                    },
-                );
-            }
-            ParsedAgentEvent::Failed(error) => terminal_error = Some(error),
-            ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
-        }
-    }
-
-    if let Some(error) = terminal_error {
-        let concise_error = concise_cli_failed_error(&selected_agent);
-        let _ = write_session_runtime_log(
-            &conn,
-            logging::LogLevel::Error,
-            &session_id,
-            &selected_agent.id,
-            &error,
-        );
-        let failed =
-            fail_assistant_message(&conn, &assistant_message.id, &response, &concise_error)?;
-        update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
-        runtime.complete(&session_id)?;
-        let _ = app.emit(
-            "chat:event",
-            ChatStreamEvent::Failed {
-                session_id,
-                message_id: assistant_message.id,
-                error: concise_error,
-            },
-        );
-        return Ok(failed);
-    }
-
-    if response.is_empty() {
-        response = "Command completed with no output.".to_string();
-        let _ = app.emit(
-            "chat:event",
-            ChatStreamEvent::Token {
-                session_id: session_id.clone(),
-                message_id: assistant_message.id.clone(),
-                content_delta: response.clone(),
-            },
-        );
-    }
-    let token_usage = TokenUsage {
-        input: trimmed_content.chars().count() as i64,
-        output: response.chars().count() as i64,
-    };
-    let completed =
-        complete_assistant_message(&conn, &assistant_message.id, &response, &token_usage)?;
-    update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle)?;
-    runtime.complete(&session_id)?;
-    let _ = app.emit(
-        "chat:event",
-        ChatStreamEvent::Completed {
-            session_id,
-            message_id: assistant_message.id,
-            token_usage: Some(token_usage),
-        },
-    );
-    Ok(completed)
+    Ok(assistant_message)
 }
 
 #[tauri::command]
@@ -4080,7 +4565,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]
@@ -4249,6 +4734,7 @@ mod tests {
         assert!(table_has_column(&conn, "messages", "status").expect("column check"));
         assert!(table_has_column(&conn, "messages", "session_id").expect("column check"));
         assert!(table_has_column(&conn, "settings", "value").expect("column check"));
+        assert!(table_has_column(&conn, "sessions", "runtime_session_id").expect("column check"));
     }
 
     #[test]
@@ -4413,6 +4899,93 @@ mod tests {
             ClaudeCodeParser.parse_line(r#"{"type":"error","message":"boom"}"#),
             ParsedAgentEvent::Failed("boom".to_string())
         );
+    }
+
+    #[test]
+    fn structured_parser_reads_session_text_and_tools() {
+        assert_eq!(
+            StructuredJsonParser
+                .parse_line(r#"{"type":"session_init","session_id":"provider-session-1"}"#),
+            ParsedAgentEvent::SessionId("provider-session-1".to_string())
+        );
+        assert_eq!(
+            StructuredJsonParser.parse_line(r#"{"type":"message","text":"hello"}"#),
+            ParsedAgentEvent::Token("hello".to_string())
+        );
+        assert_eq!(
+            StructuredJsonParser.parse_line(r#"{"type":"reasoning","reasoning":"checking"}"#),
+            ParsedAgentEvent::Thinking("checking".to_string())
+        );
+        assert_eq!(
+            StructuredJsonParser.parse_line(r#"{"type":"tool_call","id":"t1","name":"read"}"#),
+            ParsedAgentEvent::ToolUse(ToolUseBlock {
+                id: "t1".to_string(),
+                name: "read".to_string(),
+                input: None,
+                output: None,
+                status: "running".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn provider_command_builders_use_expected_shapes() {
+        let conn = test_conn();
+        let claude = load_agent(&conn, "claude-code").expect("claude");
+        let codex = load_agent(&conn, "codex-cli").expect("codex");
+        let gemini = load_agent(&conn, "gemini-cli").expect("gemini");
+        let opencode = load_agent(&conn, "opencode").expect("opencode");
+
+        let claude_spec = build_cli_invocation_spec(
+            &claude,
+            "claude".to_string(),
+            "hello",
+            Some("claude-session"),
+        )
+        .expect("claude spec");
+        assert_eq!(claude_spec.prompt_delivery, PromptDelivery::Stdin);
+        assert!(claude_spec.args.iter().any(|arg| arg == "--resume"));
+        assert!(!claude_spec.args.iter().any(|arg| arg == "hello"));
+
+        let codex_spec =
+            build_cli_invocation_spec(&codex, "codex".to_string(), "hello", Some("codex-session"))
+                .expect("codex spec");
+        assert_eq!(codex_spec.prompt_delivery, PromptDelivery::Stdin);
+        assert_eq!(
+            codex_spec.args,
+            vec!["exec", "resume", "codex-session", "--json", "--", "-"]
+        );
+
+        let gemini_spec = build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None)
+            .expect("gemini spec");
+        assert_eq!(gemini_spec.prompt_delivery, PromptDelivery::Argument);
+        assert!(gemini_spec
+            .args
+            .windows(2)
+            .any(|pair| pair == ["-p", "hello"]));
+
+        let opencode_spec =
+            build_cli_invocation_spec(&opencode, "opencode".to_string(), "hello", Some("open-1"))
+                .expect("opencode spec");
+        assert_eq!(opencode_spec.prompt_delivery, PromptDelivery::Argument);
+        assert!(opencode_spec
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--session", "open-1"]));
+        assert_eq!(opencode_spec.args.last().map(String::as_str), Some("hello"));
+    }
+
+    #[test]
+    fn session_runtime_session_id_round_trips() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+
+        let updated = update_session_runtime_session_id(&conn, "session-1", "provider-123")
+            .expect("update runtime session id");
+
+        assert_eq!(updated.runtime_session_id.as_deref(), Some("provider-123"));
+        let loaded = load_session(&conn, "session-1").expect("load session");
+        assert_eq!(loaded.runtime_session_id.as_deref(), Some("provider-123"));
     }
 
     #[test]

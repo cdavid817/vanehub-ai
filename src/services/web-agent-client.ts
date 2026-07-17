@@ -632,6 +632,7 @@ export const webAgentClient: AgentService = {
       worktreePath,
       worktreeName,
       worktreeBranch,
+      runtimeSessionId: null,
       pinned: false,
       archived: false,
       createdAt: timestamp,
