@@ -1,4 +1,4 @@
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -19,6 +19,9 @@ mod network_proxy;
 mod sdk;
 mod skills;
 mod tasks;
+mod usage;
+
+use usage::{UsageStatistics, UsageStatisticsRange};
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -389,27 +392,6 @@ struct TokenUsage {
     output: i64,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-enum UsageStatisticsRange {
-    Today,
-    Last7Days,
-    Last30Days,
-    All,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UsageStatistics {
-    range: UsageStatisticsRange,
-    total_tokens: i64,
-    input_tokens: i64,
-    output_tokens: i64,
-    counted_messages: i64,
-    counted_sessions: i64,
-    generated_at: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChatMessage {
@@ -477,9 +459,41 @@ enum ParsedAgentEvent {
     Thinking(String),
     ToolUse(ToolUseBlock),
     SessionId(String),
+    Usage(usage::UsageEvent),
+    UsageMalformed,
+    Batch(Vec<ParsedAgentEvent>),
     Completed,
     Failed(String),
     Empty,
+}
+
+const MALFORMED_USAGE_LOG_MESSAGE: &str =
+    "Agent CLI emitted an unrecognized usage payload; a character estimate may be used.";
+
+impl ParsedAgentEvent {
+    fn with_usage(primary: Self, usage_event: Option<usage::UsageEvent>, malformed: bool) -> Self {
+        let mut events = Vec::new();
+        if primary != Self::Empty {
+            events.push(primary);
+        }
+        if let Some(event) = usage_event {
+            events.push(Self::Usage(event));
+        } else if malformed {
+            events.push(Self::UsageMalformed);
+        }
+        match events.len() {
+            0 => Self::Empty,
+            1 => events.pop().unwrap_or(Self::Empty),
+            _ => Self::Batch(events),
+        }
+    }
+
+    fn into_events(self) -> Vec<Self> {
+        match self {
+            Self::Batch(events) => events,
+            event => vec![event],
+        }
+    }
 }
 
 trait AgentOutputParser {
@@ -490,7 +504,9 @@ fn parser_for_agent(agent_id: &str) -> Box<dyn AgentOutputParser> {
     if agent_id == "claude-code" {
         Box::new(ClaudeCodeParser)
     } else if matches!(agent_id, "codex-cli" | "gemini-cli" | "opencode") {
-        Box::new(StructuredJsonParser)
+        Box::new(StructuredJsonParser {
+            agent_id: agent_id.to_string(),
+        })
     } else {
         Box::new(GenericLineParser)
     }
@@ -606,7 +622,9 @@ impl AgentOutputParser for ClaudeCodeParser {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
 
-        match event_type {
+        let usage_event = usage::parse_usage_event("claude-code", &value);
+        let malformed = usage_event.is_none() && usage::looks_like_usage(&value);
+        let primary = match event_type {
             "system" | "session_init" => value
                 .get("session_id")
                 .or_else(|| value.get("sessionId"))
@@ -671,11 +689,14 @@ impl AgentOutputParser for ClaudeCodeParser {
                 ParsedAgentEvent::Failed(message.to_string())
             }
             _ => GenericLineParser.parse_line(line),
-        }
+        };
+        ParsedAgentEvent::with_usage(primary, usage_event, malformed)
     }
 }
 
-struct StructuredJsonParser;
+struct StructuredJsonParser {
+    agent_id: String,
+}
 
 impl StructuredJsonParser {
     fn text_value(value: &serde_json::Value) -> Option<String> {
@@ -750,34 +771,39 @@ impl AgentOutputParser for StructuredJsonParser {
             .or_else(|| value.get("event"))
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
+        let usage_event = usage::parse_usage_event(&self.agent_id, &value);
+        let malformed = usage_event.is_none() && usage::looks_like_usage(&value);
+        let attach = |primary| ParsedAgentEvent::with_usage(primary, usage_event.clone(), malformed);
 
         if matches!(
             event_type,
             "error" | "failed" | "failure" | "turn.failed" | "run_error"
         ) {
-            return ParsedAgentEvent::Failed(
+            return attach(ParsedAgentEvent::Failed(
                 Self::error_value(&value)
                     .unwrap_or_else(|| "Agent CLI reported an error.".to_string()),
-            );
+            ));
         }
         if matches!(
             event_type,
             "result" | "done" | "complete" | "completed" | "turn.completed"
         ) {
-            return ParsedAgentEvent::Completed;
+            return attach(ParsedAgentEvent::Completed);
         }
         if let Some(session_id) = Self::session_id(&value) {
             if matches!(
                 event_type,
                 "session" | "session_init" | "session_configured" | "start" | "started"
             ) {
-                return ParsedAgentEvent::SessionId(session_id);
+                return attach(ParsedAgentEvent::SessionId(session_id));
             }
         }
         if matches!(event_type, "thinking" | "thinking_delta" | "reasoning") {
-            return Self::thinking_value(&value)
-                .map(ParsedAgentEvent::Thinking)
-                .unwrap_or(ParsedAgentEvent::Empty);
+            return attach(
+                Self::thinking_value(&value)
+                    .map(ParsedAgentEvent::Thinking)
+                    .unwrap_or(ParsedAgentEvent::Empty),
+            );
         }
         if matches!(event_type, "tool_use" | "tool" | "tool_call" | "tool.start") {
             let tool = ToolUseBlock {
@@ -807,11 +833,13 @@ impl AgentOutputParser for StructuredJsonParser {
                     .unwrap_or("running")
                     .to_string(),
             };
-            return ParsedAgentEvent::ToolUse(tool);
+            return attach(ParsedAgentEvent::ToolUse(tool));
         }
-        Self::text_value(&value)
-            .map(ParsedAgentEvent::Token)
-            .unwrap_or(ParsedAgentEvent::Empty)
+        attach(
+            Self::text_value(&value)
+                .map(ParsedAgentEvent::Token)
+                .unwrap_or(ParsedAgentEvent::Empty),
+        )
     }
 }
 
@@ -964,6 +992,7 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "local-extension-management",
         extensions::service::apply_schema,
     )?;
+    apply_migration(conn, 11, "usage-monitoring", usage::apply_schema)?;
 
     Ok(())
 }
@@ -2492,67 +2521,6 @@ fn list_chat_messages(
     Ok(messages)
 }
 
-fn usage_range_start(range: UsageStatisticsRange) -> Option<String> {
-    let now = Utc::now();
-    let start = match range {
-        UsageStatisticsRange::All => return None,
-        UsageStatisticsRange::Today => now.date_naive().and_hms_opt(0, 0, 0)?,
-        UsageStatisticsRange::Last7Days => (now - ChronoDuration::days(6))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)?,
-        UsageStatisticsRange::Last30Days => (now - ChronoDuration::days(29))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)?,
-    };
-    Some(start.and_utc().to_rfc3339())
-}
-
-fn aggregate_usage_statistics(
-    conn: &Connection,
-    range: UsageStatisticsRange,
-) -> Result<UsageStatistics, AppError> {
-    let start = usage_range_start(range);
-    let (input_tokens, output_tokens, counted_messages, counted_sessions): (i64, i64, i64, i64) =
-        if let Some(start) = start {
-            conn.query_row(
-                "SELECT
-                    COALESCE(SUM(token_input), 0),
-                    COALESCE(SUM(token_output), 0),
-                    COUNT(*),
-                    COUNT(DISTINCT session_id)
-                 FROM messages
-                 WHERE role = 'assistant'
-                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)
-                   AND created_at >= ?1",
-                params![start],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )?
-        } else {
-            conn.query_row(
-                "SELECT
-                    COALESCE(SUM(token_input), 0),
-                    COALESCE(SUM(token_output), 0),
-                    COUNT(*),
-                    COUNT(DISTINCT session_id)
-                 FROM messages
-                 WHERE role = 'assistant'
-                   AND (COALESCE(token_input, 0) > 0 OR COALESCE(token_output, 0) > 0)",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )?
-        };
-
-    Ok(UsageStatistics {
-        range,
-        total_tokens: input_tokens + output_tokens,
-        input_tokens,
-        output_tokens,
-        counted_messages,
-        counted_sessions,
-        generated_at: current_timestamp(),
-    })
-}
-
 fn complete_assistant_message(
     conn: &Connection,
     message_id: &str,
@@ -3524,13 +3492,16 @@ fn run_cli_generation_stream(
     let reader = BufReader::new(stdout);
     let mut response = String::new();
     let mut terminal_error: Option<String> = None;
+    let mut usage_accumulator = usage::UsageAccumulator::default();
+    let mut malformed_usage_logged = false;
 
     for line in reader.lines() {
         let Ok(line) = line else {
             terminal_error = Some("Failed to read Agent CLI output.".to_string());
             break;
         };
-        match parser.parse_line(&line) {
+        for parsed_event in parser.parse_line(&line).into_events() {
+            match parsed_event {
             ParsedAgentEvent::Token(delta) => {
                 let content_delta = if response.is_empty() {
                     delta
@@ -3573,10 +3544,25 @@ fn run_cli_generation_stream(
             ParsedAgentEvent::SessionId(runtime_session_id) => {
                 let _ = update_session_runtime_session_id(&conn, &session_id, &runtime_session_id);
             }
+            ParsedAgentEvent::Usage(event) => usage_accumulator.observe(event),
+            ParsedAgentEvent::UsageMalformed => {
+                if !malformed_usage_logged {
+                    malformed_usage_logged = true;
+                    let _ = write_session_runtime_log(
+                        &conn,
+                        logging::LogLevel::Warn,
+                        &session_id,
+                        &agent.id,
+                        MALFORMED_USAGE_LOG_MESSAGE,
+                    );
+                }
+            }
             ParsedAgentEvent::Failed(error) => {
                 terminal_error = Some(error);
             }
             ParsedAgentEvent::Completed | ParsedAgentEvent::Empty => {}
+            ParsedAgentEvent::Batch(_) => {}
+            }
         }
     }
 
@@ -3607,7 +3593,18 @@ fn run_cli_generation_stream(
             return;
         }
     };
+    let reported_usage = usage_accumulator.finish();
     if current_message.status == "cancelled" {
+        if let Some(reported) = reported_usage.as_ref() {
+            let _ = usage::upsert_reported_usage(
+                &conn,
+                &assistant_message_id,
+                &session_id,
+                &agent.id,
+                reported,
+                &current_message.created_at,
+            );
+        }
         return;
     }
 
@@ -3620,6 +3617,16 @@ fn run_cli_generation_stream(
             &agent.id,
             &error,
         );
+        if let Some(reported) = reported_usage.as_ref() {
+            let _ = usage::upsert_reported_usage(
+                &conn,
+                &assistant_message_id,
+                &session_id,
+                &agent.id,
+                reported,
+                &current_message.created_at,
+            );
+        }
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
         let _ = app.emit(
@@ -3647,6 +3654,16 @@ fn run_cli_generation_stream(
             &agent.id,
             &detail,
         );
+        if let Some(reported) = reported_usage.as_ref() {
+            let _ = usage::upsert_reported_usage(
+                &conn,
+                &assistant_message_id,
+                &session_id,
+                &agent.id,
+                reported,
+                &current_message.created_at,
+            );
+        }
         let _ = fail_assistant_message(&conn, &assistant_message_id, &response, &concise_error);
         let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed);
         let _ = app.emit(
@@ -3660,9 +3677,37 @@ fn run_cli_generation_stream(
         return;
     }
 
-    let token_usage = TokenUsage {
-        input: prompt_len as i64,
-        output: response.chars().count() as i64,
+    let output_characters = response.chars().count() as i64;
+    let token_usage = if let Some(reported) = reported_usage.as_ref() {
+        let _ = usage::upsert_reported_usage(
+            &conn,
+            &assistant_message_id,
+            &session_id,
+            &agent.id,
+            reported,
+            &current_message.created_at,
+        );
+        TokenUsage {
+            input: reported.input_tokens
+                + reported.cache_read_tokens
+                + reported.cache_creation_tokens,
+            output: reported.output_tokens,
+        }
+    } else {
+        let _ = usage::upsert_estimated_usage(
+            &conn,
+            &assistant_message_id,
+            &session_id,
+            &agent.id,
+            prompt_len as i64,
+            output_characters,
+            "runtime-character-count",
+            &current_message.created_at,
+        );
+        TokenUsage {
+            input: prompt_len as i64,
+            output: output_characters,
+        }
     };
     let _ = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
     let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
@@ -4432,7 +4477,7 @@ fn get_usage_statistics(
         .lock()
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
-    aggregate_usage_statistics(&conn, range)
+    usage::aggregate_usage_statistics(&conn, range)
 }
 
 fn stop_generation_for_session(
@@ -4718,7 +4763,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     }
 
     #[test]
@@ -5032,7 +5077,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_statistics_aggregates_all_time_message_usage() {
+    fn usage_statistics_aggregates_all_time_normalized_usage() {
         let conn = test_conn();
         insert_test_session(&conn, "session-1");
         insert_test_session(&conn, "session-2");
@@ -5077,13 +5122,36 @@ mod tests {
         )
         .expect("complete third");
 
-        let stats =
-            aggregate_usage_statistics(&conn, UsageStatisticsRange::All).expect("usage stats");
+        usage::upsert_estimated_usage(
+            &conn,
+            &first.id,
+            "session-1",
+            "claude-code",
+            10,
+            20,
+            "fixture",
+            &first.created_at,
+        )
+        .expect("first usage");
+        usage::upsert_estimated_usage(
+            &conn,
+            &second.id,
+            "session-1",
+            "claude-code",
+            5,
+            7,
+            "fixture",
+            &second.created_at,
+        )
+        .expect("second usage");
 
-        assert_eq!(stats.input_tokens, 15);
-        assert_eq!(stats.output_tokens, 27);
-        assert_eq!(stats.total_tokens, 42);
-        assert_eq!(stats.counted_messages, 2);
+        let stats = usage::aggregate_usage_statistics(&conn, UsageStatisticsRange::All)
+            .expect("usage stats");
+
+        assert_eq!(stats.estimated.input_characters, 15);
+        assert_eq!(stats.estimated.output_characters, 27);
+        assert_eq!(stats.estimated.total_characters, 42);
+        assert_eq!(stats.coverage.estimated_responses, 2);
         assert_eq!(stats.counted_sessions, 1);
     }
 
@@ -5118,19 +5186,41 @@ mod tests {
         )
         .expect("complete recent");
 
-        let old_timestamp = (Utc::now() - ChronoDuration::days(40)).to_rfc3339();
+        usage::upsert_estimated_usage(
+            &conn,
+            &old_message.id,
+            "session-1",
+            "claude-code",
+            100,
+            100,
+            "fixture",
+            &old_message.created_at,
+        )
+        .expect("old usage");
+        usage::upsert_estimated_usage(
+            &conn,
+            &recent_message.id,
+            "session-1",
+            "claude-code",
+            8,
+            13,
+            "fixture",
+            &recent_message.created_at,
+        )
+        .expect("recent usage");
+        let old_timestamp = (Utc::now() - chrono::Duration::days(40)).to_rfc3339();
         conn.execute(
-            "UPDATE messages SET created_at = ?1 WHERE id = ?2",
+            "UPDATE usage_records SET occurred_at = ?1 WHERE message_id = ?2",
             params![old_timestamp, old_message.id],
         )
         .expect("age old message");
 
-        let stats = aggregate_usage_statistics(&conn, UsageStatisticsRange::Last30Days)
+        let stats = usage::aggregate_usage_statistics(&conn, UsageStatisticsRange::Last30Days)
             .expect("range stats");
 
-        assert_eq!(stats.input_tokens, 8);
-        assert_eq!(stats.output_tokens, 13);
-        assert_eq!(stats.counted_messages, 1);
+        assert_eq!(stats.estimated.input_characters, 8);
+        assert_eq!(stats.estimated.output_characters, 13);
+        assert_eq!(stats.coverage.estimated_responses, 1);
     }
 
     #[test]
@@ -5182,21 +5272,23 @@ mod tests {
 
     #[test]
     fn structured_parser_reads_session_text_and_tools() {
+        let parser = StructuredJsonParser {
+            agent_id: "codex-cli".to_string(),
+        };
         assert_eq!(
-            StructuredJsonParser
-                .parse_line(r#"{"type":"session_init","session_id":"provider-session-1"}"#),
+            parser.parse_line(r#"{"type":"session_init","session_id":"provider-session-1"}"#),
             ParsedAgentEvent::SessionId("provider-session-1".to_string())
         );
         assert_eq!(
-            StructuredJsonParser.parse_line(r#"{"type":"message","text":"hello"}"#),
+            parser.parse_line(r#"{"type":"message","text":"hello"}"#),
             ParsedAgentEvent::Token("hello".to_string())
         );
         assert_eq!(
-            StructuredJsonParser.parse_line(r#"{"type":"reasoning","reasoning":"checking"}"#),
+            parser.parse_line(r#"{"type":"reasoning","reasoning":"checking"}"#),
             ParsedAgentEvent::Thinking("checking".to_string())
         );
         assert_eq!(
-            StructuredJsonParser.parse_line(r#"{"type":"tool_call","id":"t1","name":"read"}"#),
+            parser.parse_line(r#"{"type":"tool_call","id":"t1","name":"read"}"#),
             ParsedAgentEvent::ToolUse(ToolUseBlock {
                 id: "t1".to_string(),
                 name: "read".to_string(),
@@ -5205,6 +5297,16 @@ mod tests {
                 status: "running".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn malformed_usage_diagnostic_does_not_carry_cli_payload() {
+        let raw = r#"{"type":"assistant","private":"private prompt","usage":{"input_tokens":"sk-secret"}}"#;
+        let parsed = ClaudeCodeParser.parse_line(raw);
+
+        assert_eq!(parsed, ParsedAgentEvent::UsageMalformed);
+        assert!(!MALFORMED_USAGE_LOG_MESSAGE.contains("private prompt"));
+        assert!(!MALFORMED_USAGE_LOG_MESSAGE.contains("sk-secret"));
     }
 
     #[test]
