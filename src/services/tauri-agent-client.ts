@@ -18,7 +18,7 @@ import type {
   ManagedCliAgentId,
   WorkflowState,
 } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent, UsageStatistics } from "../types/chat";
+import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   Skill,
@@ -34,6 +34,7 @@ import type {
   SkillUpdateInput,
 } from "../types/skill";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
+import { normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -166,10 +167,11 @@ export const tauriAgentClient: AgentService = {
     });
   },
 
-  getUsageStatistics(input) {
-    return invoke<UsageStatistics>("get_usage_statistics", {
+  async getUsageStatistics(input) {
+    const statistics = await invoke<unknown>("get_usage_statistics", {
       range: input.range,
     });
+    return normalizeTauriUsageStatistics(statistics, input.range);
   },
 
   async stopGeneration(sessionId: string) {

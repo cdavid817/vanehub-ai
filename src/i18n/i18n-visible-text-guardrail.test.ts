@@ -18,6 +18,7 @@ const checkedFiles = [
   "src/settings/pages/im/im-wechat-authorization.tsx",
   "src/main-layout/create-session-dialog.tsx",
   "src/main-layout/main-layout.tsx",
+  "src/main-layout/workspace-activity-bar.tsx",
   "src/components/chat/MessageItem.tsx",
   "src/components/chat/selectors/ConfigSelect.tsx",
   "src/components/chat/selectors/ModeSelect.tsx",

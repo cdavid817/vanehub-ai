@@ -162,14 +162,14 @@ Settings pages that collect configuration input SHALL use shared schema-backed f
 - **THEN** the settings page SHALL show field-level validation errors and SHALL NOT call a backend or runtime adapter for that invalid submission
 
 ### Requirement: Unified tool entry from workspace
-The settings center SHALL remain reachable from the workspace sidebar utility row and SHALL be the unified destination for the six tool shortcuts removed from the workspace sidebar.
+The settings center SHALL remain reachable from the workspace activity bar and SHALL be the unified destination for the six tool shortcuts removed from the workspace session sidebar.
 
-#### Scenario: Open settings from workspace tool entry
-- **WHEN** the user activates the workspace Settings utility button
+#### Scenario: Open settings from workspace activity entry
+- **WHEN** the user activates the workspace Settings activity button
 - **THEN** the system SHALL open the settings center without requiring a runtime-specific backend call
 
 #### Scenario: Preserve settings page behavior
-- **WHEN** the settings center is opened as the unified tool destination
+- **WHEN** the settings center is opened from the workspace activity bar
 - **THEN** the settings center SHALL preserve existing navigation, page mounting, visual style, and service boundary behavior
 
 ### Requirement: Independent settings page scrolling

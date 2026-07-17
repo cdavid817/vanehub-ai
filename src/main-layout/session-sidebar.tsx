@@ -1,5 +1,5 @@
 import { useMemo, useState, type MouseEvent } from "react";
-import { Archive, Bot, BrainCircuit, ChevronDown, ChevronRight, Code2, Folder, HelpCircle, Pin, Plus, Settings, Sparkles, TerminalSquare, type LucideIcon } from "lucide-react";
+import { Archive, Bot, BrainCircuit, ChevronDown, ChevronRight, Code2, Folder, Pin, Plus, Sparkles, TerminalSquare, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -63,10 +63,10 @@ function SessionCard({ active, onContextMenu, onSelect, session }: { active: boo
   );
 }
 
-export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, onContextMenu, onNew, onOpenSettings, onSelect, sessions }: {
+export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, onContextMenu, onNew, onSelect, sessions }: {
   activeSessionId: string | null; agentsAvailable: boolean; archivedSessions: Session[];
   onContextMenu: (event: MouseEvent<HTMLButtonElement>, session: Session) => void;
-  onNew: () => void; onOpenSettings: () => void; onSelect: (session: Session) => void; sessions: Session[];
+  onNew: () => void; onSelect: (session: Session) => void; sessions: Session[];
 }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<SidebarMode>("activity");
@@ -82,10 +82,17 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
     return [...result.entries()];
   }, [sessions, t]);
   const card = (session: Session) => <SessionCard active={activeSessionId === session.id} key={session.id} onContextMenu={(event) => onContextMenu(event, session)} onSelect={() => onSelect(session)} session={session} />;
-  function toggle(folder: string) { setExpanded((current) => { const next = new Set(current); next.has(folder) ? next.delete(folder) : next.add(folder); return next; }); }
+  function toggle(folder: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  }
 
   return (
-    <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-3 max-[640px]:max-h-64" onContextMenu={(event) => event.preventDefault()}>
+    <aside className="ucd-panel flex h-full min-h-0 w-full flex-col rounded-lg p-3 max-[640px]:max-h-64" onContextMenu={(event) => event.preventDefault()}>
       <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t("layout.sessions")}</h2><Button className="h-7 px-2 text-xs" disabled={!agentsAvailable} onClick={onNew}><Plus aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.new")}</Button></div>
       <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">
         {(["activity", "group", "archived"] as const).map((item) => <button className={cn("h-7 rounded text-xs", mode === item ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} key={item} onClick={() => setMode(item)} type="button">{item === "activity" ? t("layout.activity") : item === "group" ? t("layout.group") : `${t("layout.archive")} ${archivedSessions.length}`}</button>)}
@@ -96,7 +103,6 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
         {mode === "group" ? <div className="grid gap-2">{folders.map(([folder, grouped]) => <section className="grid gap-2" key={folder}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(folder)} type="button">{expanded.has(folder) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<Folder className="h-3.5 w-3.5 text-primary" /><span className="truncate">{folder}</span><span className="ml-auto">{grouped.length}</span></button>{expanded.has(folder) ? grouped.map(card) : null}</section>)}</div> : null}
         {mode === "archived" ? <div className="grid gap-2"><div className="flex justify-between text-xs text-muted-foreground"><span><Archive className="mr-1 inline h-3.5 w-3.5" />{t("layout.archived")}</span><span>{archivedSessions.length}</span></div>{archivedSessions.map(card)}{archivedSessions.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noArchived")}</p> : null}</div> : null}
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3"><button className="ucd-list-row h-7 rounded-md text-xs" onClick={onOpenSettings} type="button"><Settings className="mr-1 inline h-3.5 w-3.5" />{t("layout.settings")}</button><button className="ucd-list-row h-7 rounded-md text-xs" type="button"><HelpCircle className="mr-1 inline h-3.5 w-3.5" />{t("layout.help")}</button></div>
     </aside>
   );
 }

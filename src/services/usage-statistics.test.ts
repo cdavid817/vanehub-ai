@@ -96,12 +96,13 @@ describe("aggregateUsageRecords", () => {
   });
 
   it("matches the desktop adapter contract for equivalent normalized fixtures", () => {
-    const { generatedAt: _generatedAt, ...result } = aggregateUsageRecords(
+    const { generatedAt, ...result } = aggregateUsageRecords(
       parityFixture.records as UsageRecord[],
       parityFixture.range as UsageStatisticsRange,
       new Date(parityFixture.now),
     );
 
+    expect(generatedAt).toBe(parityFixture.now);
     expect(result).toEqual(parityFixture.expected);
   });
 });

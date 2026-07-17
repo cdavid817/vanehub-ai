@@ -162,7 +162,7 @@ export function buildCliParameterPreviewFromDefinitions(
       if (value === true) args.push(definition.flag);
     } else if (definition.control === "enum") {
       if (typeof value === "string" && value !== "default") {
-        const renderedValue = definition.id === "reasoningEffort" ? `model_reasoning_effort=\"${value}\"` : value;
+        const renderedValue = definition.id === "reasoningEffort" ? `model_reasoning_effort="${value}"` : value;
         args.push(definition.flag, renderedValue);
       }
     } else if (Array.isArray(value)) {

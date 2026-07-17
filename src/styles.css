@@ -187,17 +187,42 @@ body {
   grid-template-columns: 220px minmax(0, 1fr) 0;
 }
 
+.ucd-workspace-grid[data-session-collapsed="true"] {
+  grid-template-columns: 0 minmax(0, 1fr) 300px;
+}
+
+.ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
+  grid-template-columns: 0 minmax(0, 1fr) 0;
+}
+
+.ucd-activity-bar {
+  border-right: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel) / 0.72);
+  box-shadow: 1px 0 0 hsl(var(--foreground) / 0.02);
+}
+
 @media (max-width: 900px) {
   .ucd-workspace-grid,
   .ucd-workspace-grid[data-info-collapsed="true"] {
     grid-template-columns: 220px minmax(0, 1fr);
   }
+
+  .ucd-workspace-grid[data-session-collapsed="true"],
+  .ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 640px) {
   .ucd-workspace-grid,
-  .ucd-workspace-grid[data-info-collapsed="true"] {
+  .ucd-workspace-grid[data-info-collapsed="true"],
+  .ucd-workspace-grid[data-session-collapsed="true"],
+  .ucd-workspace-grid[data-session-collapsed="true"][data-info-collapsed="true"] {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ucd-workspace-grid[data-session-collapsed="true"] .ucd-session-sidebar-shell {
+    display: none;
   }
 }
 
