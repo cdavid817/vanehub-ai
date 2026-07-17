@@ -9,6 +9,8 @@ import type * as McpTypes from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
 import type * as OperationTypes from "../types/operation";
+import type * as SessionWorkspaceContracts from "./session-workspace";
+import type * as SessionWorkspaceTypes from "../types/session-workspace";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -111,11 +113,25 @@ type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillMountMigrationReport, SkillTypes.SkillMountMigrationReport>>,
 ];
 
+type SessionWorkspaceAssertions = [
+  Assert<Equal<SessionWorkspaceContracts.DirectoryListing, SessionWorkspaceTypes.DirectoryListing>>,
+  Assert<Equal<SessionWorkspaceContracts.DocumentListing, SessionWorkspaceTypes.DocumentListing>>,
+  Assert<Equal<SessionWorkspaceContracts.FileContent, SessionWorkspaceTypes.FileContent>>,
+  Assert<Equal<SessionWorkspaceContracts.GitStatusResult, SessionWorkspaceTypes.GitStatusResult>>,
+  Assert<Equal<SessionWorkspaceContracts.GitDiffResult, SessionWorkspaceTypes.GitDiffResult>>,
+  Assert<Equal<SessionWorkspaceContracts.SessionLogQuery, SessionWorkspaceTypes.SessionLogQuery>>,
+  Assert<Equal<SessionWorkspaceContracts.SessionLogPage, SessionWorkspaceTypes.SessionLogPage>>,
+  Assert<Equal<SessionWorkspaceContracts.SessionLogExportResult, SessionWorkspaceTypes.SessionLogExportResult>>,
+  Assert<Equal<SessionWorkspaceContracts.ShellSession, SessionWorkspaceTypes.ShellSession>>,
+  Assert<Equal<SessionWorkspaceContracts.ShellEvent, SessionWorkspaceTypes.ShellEvent>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
 void (0 as unknown as SkillAssertions);
+void (0 as unknown as SessionWorkspaceAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

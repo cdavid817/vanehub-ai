@@ -33,6 +33,7 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -183,6 +184,8 @@ export const tauriAgentClient: AgentService = {
     });
     return unlisten;
   },
+
+  ...tauriSessionWorkspaceClient,
 
   listSkills(input: SkillScopeInput) {
     return invoke<SkillListResult>("list_skills", { input });

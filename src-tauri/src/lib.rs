@@ -13,11 +13,14 @@ use thiserror::Error;
 
 mod cli_parameters;
 mod command_safety;
+mod commands;
 mod extensions;
 mod logging;
 mod mcp;
 mod network_proxy;
 mod sdk;
+mod session_tabs;
+mod shell;
 mod skills;
 mod tasks;
 mod usage;
@@ -4467,6 +4470,7 @@ fn archive_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
+    shell_manager: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<Session, AppError> {
     let store = state
@@ -4474,6 +4478,7 @@ fn archive_session(
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
+    shell_manager.kill_for_session(&app, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(session)
@@ -4496,6 +4501,7 @@ fn delete_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
+    shell_manager: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<(), AppError> {
     let store = state
@@ -4504,6 +4510,7 @@ fn delete_session(
     let conn = store.connection()?;
     load_session(&conn, &session_id)?;
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
+    shell_manager.kill_for_session(&app, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
     Ok(())
@@ -4763,6 +4770,7 @@ pub fn run() {
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
+            app.manage(shell::ShellManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
             app.manage(extensions::commands::ExtensionRuntimeManager::default());
             let should_refresh = {
@@ -4819,6 +4827,18 @@ pub fn run() {
             list_messages,
             get_usage_statistics,
             stop_generation,
+            commands::session_tabs::list_session_directory::list_session_directory,
+            commands::session_tabs::read_session_file::read_session_file,
+            commands::session_tabs::list_session_documents::list_session_documents,
+            commands::session_tabs::get_session_git_status::get_session_git_status,
+            commands::session_tabs::get_session_git_diff::get_session_git_diff,
+            commands::session_tabs::list_session_logs::list_session_logs,
+            commands::session_tabs::export_session_logs::export_session_logs,
+            commands::shell::shell_create::shell_create,
+            commands::shell::shell_input::shell_input,
+            commands::shell::shell_cd::shell_cd,
+            commands::shell::shell_resize::shell_resize,
+            commands::shell::shell_kill::shell_kill,
             get_settings,
             save_setting,
             test_network_proxy,

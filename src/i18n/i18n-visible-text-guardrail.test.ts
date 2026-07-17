@@ -20,6 +20,15 @@ const checkedFiles = [
   "src/components/chat/selectors/ModelSelect.tsx",
   "src/components/chat/selectors/ProviderSelect.tsx",
   "src/components/chat/selectors/ReasoningSelect.tsx",
+  "src/session-workspace/session-tab-bar.tsx",
+  "src/session-workspace/workspace-state.tsx",
+  "src/session-workspace/files-tab.tsx",
+  "src/session-workspace/documents-tab.tsx",
+  "src/session-workspace/changes-tab.tsx",
+  "src/session-workspace/terminal-tab.tsx",
+  "src/session-workspace/shell-tab.tsx",
+  "src/session-workspace/logs-tab.tsx",
+  "src/session-workspace/report-tab.tsx",
 ];
 
 const disallowedLiteralPatterns = [
