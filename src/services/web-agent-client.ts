@@ -36,6 +36,7 @@ import {
   defaultCliParameterSelections,
   normalizeCliParameterSelections,
 } from "./cli-parameter-catalog";
+import { aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 
 function tr(key: string) {
   return i18n.t(key);
@@ -240,6 +241,37 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function daysAgoIso(days: number) {
+  const value = new Date();
+  value.setDate(value.getDate() - days);
+  return value.toISOString();
+}
+
+const representativeUsageRecords: UsageRecord[] = [
+  {
+    messageId: "web-usage-reported",
+    sessionId: "web-usage-session-codex",
+    agentId: "codex-cli",
+    accountingKind: "reported",
+    inputCount: 100,
+    outputCount: 40,
+    cacheReadCount: 10,
+    cacheCreationCount: 5,
+    occurredAt: daysAgoIso(1),
+  },
+  {
+    messageId: "web-usage-estimated",
+    sessionId: "web-usage-session-claude",
+    agentId: "claude-code",
+    accountingKind: "estimated",
+    inputCount: 1_000,
+    outputCount: 400,
+    cacheReadCount: 0,
+    cacheCreationCount: 0,
+    occurredAt: daysAgoIso(2),
+  },
+];
+
 function pathSegments(path: string) {
   return path.split(/[\\/]/).filter(Boolean);
 }
@@ -383,45 +415,27 @@ function sortSessions(items: Session[]) {
   });
 }
 
-function usageRangeStart(range: UsageStatisticsRange, now = new Date()) {
-  if (range === "all") return null;
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  if (range === "last7Days") {
-    start.setDate(start.getDate() - 6);
-  } else if (range === "last30Days") {
-    start.setDate(start.getDate() - 29);
-  }
-  return start;
-}
-
 function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
-  const start = usageRangeStart(range);
-  const countedSessionIds = new Set<string>();
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let countedMessages = 0;
-
+  const records: UsageRecord[] = [...representativeUsageRecords];
   for (const [sessionId, messages] of messagesBySession.entries()) {
+    const session = sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) continue;
     for (const message of messages) {
       if (message.role !== "assistant" || !message.tokenUsage) continue;
-      if (start && new Date(message.createdAt) < start) continue;
-      inputTokens += message.tokenUsage.input;
-      outputTokens += message.tokenUsage.output;
-      countedMessages += 1;
-      countedSessionIds.add(sessionId);
+      records.push({
+        messageId: message.id,
+        sessionId,
+        agentId: session.agentId,
+        accountingKind: "estimated",
+        inputCount: message.tokenUsage.input,
+        outputCount: message.tokenUsage.output,
+        cacheReadCount: 0,
+        cacheCreationCount: 0,
+        occurredAt: message.createdAt,
+      });
     }
   }
-
-  return {
-    range,
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
-    countedMessages,
-    countedSessions: countedSessionIds.size,
-    generatedAt: nowIso(),
-  };
+  return aggregateUsageRecords(records, range);
 }
 
 function findSession(sessionId: string) {

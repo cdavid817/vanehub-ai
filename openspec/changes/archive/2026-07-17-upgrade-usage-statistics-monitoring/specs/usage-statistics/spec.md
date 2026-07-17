@@ -1,8 +1,5 @@
-# usage-statistics Specification
+## MODIFIED Requirements
 
-## Purpose
-Defines the first-version usage statistics capability for summarizing persisted VaneHub chat message token usage in the settings center, including supported ranges, aggregation semantics, and documented accounting constraints.
-## Requirements
 ### Requirement: Usage statistics summary
 The system SHALL provide separated reported-token and estimated-character usage statistics for VaneHub-managed assistant responses.
 
@@ -45,6 +42,8 @@ The system SHALL document and display that usage statistics cover VaneHub-manage
 - **THEN** it SHALL show localized explanatory text describing reported and estimated sources
 - **AND** it SHALL state that external-terminal history, billing reconciliation, monetary cost estimation, request-detail logs, and provider/model filtering are not included in this version
 
+## ADDED Requirements
+
 ### Requirement: Normalized response usage records
 The system SHALL persist at most one normalized usage record per VaneHub assistant response without storing prompt or response content in that record.
 
@@ -75,4 +74,3 @@ The system SHALL preserve positive legacy message usage as estimated character h
 #### Scenario: Preserve empty legacy rows
 - **WHEN** an existing assistant message has no positive legacy usage value
 - **THEN** the migration SHALL NOT create a synthetic usage record for that message
-

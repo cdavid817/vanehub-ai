@@ -45,13 +45,49 @@ export interface TokenUsage {
 
 export type UsageStatisticsRange = "today" | "last7Days" | "last30Days" | "all";
 
-export interface UsageStatistics {
-  range: UsageStatisticsRange;
-  totalTokens: number;
+export interface ReportedTokenTotals {
   inputTokens: number;
   outputTokens: number;
-  countedMessages: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+}
+
+export interface EstimatedCharacterTotals {
+  inputCharacters: number;
+  outputCharacters: number;
+  totalCharacters: number;
+}
+
+export interface UsageCoverage {
+  reportedResponses: number;
+  estimatedResponses: number;
+  totalResponses: number;
+  reportedPercent: number;
+}
+
+export interface UsageStatisticsPoint {
+  date: string;
+  reported: ReportedTokenTotals;
+  estimated: EstimatedCharacterTotals;
+  responseCount: number;
+}
+
+export interface UsageAgentBreakdown {
+  agentId: string;
+  reported: ReportedTokenTotals;
+  estimated: EstimatedCharacterTotals;
+  responseCount: number;
+}
+
+export interface UsageStatistics {
+  range: UsageStatisticsRange;
+  reported: ReportedTokenTotals;
+  estimated: EstimatedCharacterTotals;
+  coverage: UsageCoverage;
   countedSessions: number;
+  daily: UsageStatisticsPoint[];
+  byAgent: UsageAgentBreakdown[];
   generatedAt: string;
 }
 
