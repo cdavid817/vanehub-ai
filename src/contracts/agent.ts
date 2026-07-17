@@ -118,3 +118,43 @@ export interface CliPackageOperationInput {
   agentId: string;
   targetVersion: string;
 }
+
+export const managedCliAgentIds = ["claude-code", "codex-cli", "gemini-cli", "opencode"] as const;
+export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
+export type CliParameterControl = "enum" | "boolean" | "multi-enum";
+export type CliParameterValue = string | boolean | string[];
+export type CliParameterLaunchScope = "interactive" | "chat";
+export type CliParameterRisk = "normal" | "warning";
+
+export interface CliParameterOption {
+  value: string;
+  labelKey: string;
+  descriptionKey: string;
+}
+
+export interface CliParameterDefinition {
+  id: string;
+  agentId: ManagedCliAgentId;
+  flag: string;
+  control: CliParameterControl;
+  labelKey: string;
+  descriptionKey: string;
+  options: CliParameterOption[];
+  defaultValue: CliParameterValue;
+  launchScopes: CliParameterLaunchScope[];
+  risk: CliParameterRisk;
+}
+
+export type CliParameterSelections = Record<string, CliParameterValue>;
+
+export interface CliParameterProfile {
+  agentId: ManagedCliAgentId;
+  definitions: CliParameterDefinition[];
+  selections: CliParameterSelections;
+  previewArgs: string[];
+}
+
+export interface SaveCliParameterProfileInput {
+  agentId: ManagedCliAgentId;
+  selections: CliParameterSelections;
+}

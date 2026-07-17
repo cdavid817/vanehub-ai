@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
+mod cli_parameters;
 mod command_safety;
 mod logging;
 mod mcp;
@@ -363,6 +364,7 @@ struct CreateWorktreeInput {
 struct ChatConfig {
     agent_id: String,
     interaction_mode: InteractionMode,
+    permission_mode: String,
     provider_id: Option<String>,
     model_id: Option<String>,
     reasoning_depth: Option<String>,
@@ -513,10 +515,12 @@ fn build_cli_invocation_spec(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
+    managed_args: &[String],
 ) -> Result<CliInvocationSpec, String> {
     let mut args = Vec::new();
     let prompt_delivery = match agent.id.as_str() {
         "claude-code" => {
+            args.extend_from_slice(managed_args);
             args.extend([
                 "-p".to_string(),
                 "--output-format".to_string(),
@@ -530,14 +534,27 @@ fn build_cli_invocation_spec(
             PromptDelivery::Stdin
         }
         "codex-cli" => {
+            args.extend(
+                managed_args
+                    .iter()
+                    .filter(|argument| argument.as_str() != "--ephemeral")
+                    .cloned(),
+            );
             args.push("exec".to_string());
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["resume".to_string(), session_id.to_string()]);
+            }
+            if managed_args
+                .iter()
+                .any(|argument| argument == "--ephemeral")
+            {
+                args.push("--ephemeral".to_string());
             }
             args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
             PromptDelivery::Stdin
         }
         "gemini-cli" => {
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--resume".to_string(), session_id.to_string()]);
             }
@@ -546,12 +563,12 @@ fn build_cli_invocation_spec(
                 prompt.to_string(),
                 "-o".to_string(),
                 "stream-json".to_string(),
-                "-y".to_string(),
             ]);
             PromptDelivery::Argument
         }
         "opencode" => {
             args.push("run".to_string());
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--session".to_string(), session_id.to_string()]);
             }
@@ -574,6 +591,106 @@ fn build_cli_invocation_spec(
         args,
         prompt_delivery,
     })
+}
+
+fn mapped_chat_model(agent_id: &str, model_id: &str) -> Option<&'static str> {
+    match (agent_id, model_id) {
+        ("claude-code", "claude-opus-4-8") => Some("opus"),
+        ("claude-code", "claude-sonnet-5" | "claude-sonnet-4-6") => Some("sonnet"),
+        ("claude-code", "claude-haiku-4-5") => Some("haiku"),
+        ("codex-cli", "gpt-5-5") => Some("gpt-5.5"),
+        ("codex-cli", "gpt-5-4") => Some("gpt-5.4"),
+        ("codex-cli", "gpt-5-2-codex") => Some("gpt-5.2-codex"),
+        ("codex-cli", "gpt-5-1-codex-max") => Some("gpt-5.1-codex-max"),
+        ("gemini-cli", "gemini-2-5-pro") => Some("gemini-2.5-pro"),
+        ("gemini-cli", "gemini-2-5-flash") => Some("gemini-2.5-flash"),
+        _ => None,
+    }
+}
+
+fn effective_cli_selections(
+    conn: &Connection,
+    agent_id: &str,
+    config: &ChatConfig,
+) -> Result<BTreeMap<String, serde_json::Value>, AppError> {
+    let mut selections = cli_parameters::load_selections(conn, agent_id)?;
+    if let Some(model) = config
+        .model_id
+        .as_deref()
+        .and_then(|model_id| mapped_chat_model(agent_id, model_id))
+    {
+        selections.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(reasoning_depth) = config.reasoning_depth.as_deref() {
+        match agent_id {
+            "claude-code" => {
+                selections.insert(
+                    "effort".to_string(),
+                    serde_json::Value::String(reasoning_depth.to_string()),
+                );
+            }
+            "codex-cli" => {
+                let effort = if reasoning_depth == "max" {
+                    "xhigh"
+                } else {
+                    reasoning_depth
+                };
+                selections.insert(
+                    "reasoningEffort".to_string(),
+                    serde_json::Value::String(effort.to_string()),
+                );
+            }
+            _ => {}
+        }
+    }
+    match (agent_id, config.permission_mode.as_str()) {
+        ("claude-code", "plan") => {
+            selections.insert("permissionMode".to_string(), serde_json::json!("plan"));
+        }
+        ("claude-code", "agent" | "auto") => {
+            selections.insert(
+                "permissionMode".to_string(),
+                serde_json::json!("acceptEdits"),
+            );
+        }
+        ("codex-cli", "plan") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("read-only"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("codex-cli", "agent" | "auto") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("workspace-write"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("gemini-cli", "plan") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("plan"));
+        }
+        ("gemini-cli", "agent" | "auto") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("auto_edit"));
+        }
+        ("opencode", "plan") => {
+            selections.insert("agent".to_string(), serde_json::json!("plan"));
+        }
+        ("opencode", "agent") => {
+            selections.insert("agent".to_string(), serde_json::json!("build"));
+        }
+        ("opencode", "auto") => {
+            selections.insert("autoApprove".to_string(), serde_json::json!(true));
+        }
+        _ => {}
+    }
+    if agent_id == "opencode" {
+        selections.insert("thinking".to_string(), serde_json::json!(config.thinking));
+    }
+    cli_parameters::normalize_selections(agent_id, &selections)
 }
 
 struct GenericLineParser;
@@ -956,6 +1073,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         9,
         "session-runtime-metadata",
         apply_session_runtime_metadata_migration,
+    )?;
+    apply_migration(
+        conn,
+        10,
+        "cli-parameter-settings",
+        cli_parameters::apply_schema,
     )?;
 
     Ok(())
@@ -3397,6 +3520,7 @@ fn spawn_cli_generation(
     session: &Session,
     agent: &AgentRegistryEntry,
     prompt: &str,
+    config: &ChatConfig,
 ) -> Result<SpawnedCliGeneration, String> {
     if agent.launch.kind != "cli" {
         return Err(format!(
@@ -3405,11 +3529,20 @@ fn spawn_cli_generation(
         ));
     }
     let executable = resolve_agent_cli_executable(conn, agent)?;
+    let selections =
+        effective_cli_selections(conn, &agent.id, config).map_err(|error| error.to_string())?;
+    let managed_args = cli_parameters::preview_args(
+        &agent.id,
+        &selections,
+        cli_parameters::CliParameterLaunchScope::Chat,
+    )
+    .map_err(|error| error.to_string())?;
     let spec = build_cli_invocation_spec(
         agent,
         executable,
         prompt,
         session.runtime_session_id.as_deref(),
+        &managed_args,
     )?;
     let mut command =
         command_safety::std_command(&spec.executable).map_err(|error| error.to_string())?;
@@ -3892,7 +4025,7 @@ fn launch_active_workflow(
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
             }
-            if let Err(error) = launch_command_if_present(&agent) {
+            if let Err(error) = launch_command_if_present(&conn, &agent) {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
@@ -3905,7 +4038,7 @@ fn launch_active_workflow(
             "Native desktop workflow launch routed through Tauri adapter.".to_string()
         }
         InteractionMode::Cli => {
-            if let Err(error) = launch_command_if_present(&agent) {
+            if let Err(error) = launch_command_if_present(&conn, &agent) {
                 set_lifecycle(&conn, SessionLifecycleState::Failed)?;
                 let _ = registry.fail(&task.id, error.to_string());
                 return Err(error);
@@ -3961,7 +4094,10 @@ fn check_browser_readiness_inner(agent: &AgentRegistryEntry) -> ReadinessStatus 
     }
 }
 
-fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError> {
+fn launch_command_if_present(
+    conn: &Connection,
+    agent: &AgentRegistryEntry,
+) -> Result<(), AppError> {
     let Some(command) = agent.launch.command.as_deref() else {
         return Ok(());
     };
@@ -3972,9 +4108,20 @@ fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError>
         )));
     }
 
-    command_safety::audit_command("command.launch", command, &[]);
+    let managed_args = if cli_parameters::MANAGED_CLI_AGENT_IDS.contains(&agent.id.as_str()) {
+        let selections = cli_parameters::load_selections(conn, &agent.id)?;
+        cli_parameters::preview_args(
+            &agent.id,
+            &selections,
+            cli_parameters::CliParameterLaunchScope::Interactive,
+        )?
+    } else {
+        Vec::new()
+    };
+    command_safety::audit_command("command.launch", command, &managed_args);
     let mut process = command_safety::std_command(command)?;
     process
+        .args(&managed_args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -4314,7 +4461,7 @@ fn send_message(
     runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
     content: String,
-    _config: ChatConfig,
+    config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
     let trimmed_content = content.trim().to_string();
     if trimmed_content.is_empty() {
@@ -4348,31 +4495,33 @@ fn send_message(
     );
     update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Running)?;
 
-    let spawned = match spawn_cli_generation(&conn, &session, &selected_agent, &trimmed_content) {
-        Ok(spawned) => spawned,
-        Err(error) => {
-            let concise_error = concise_cli_error(&selected_agent, &error);
-            let _ = write_session_runtime_log(
-                &conn,
-                logging::LogLevel::Error,
-                &session_id,
-                &selected_agent.id,
-                &error,
-            );
-            let failed = fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
-            update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
-            runtime.complete(&session_id)?;
-            let _ = app.emit(
-                "chat:event",
-                ChatStreamEvent::Failed {
-                    session_id,
-                    message_id: assistant_message.id,
-                    error: concise_error,
-                },
-            );
-            return Ok(failed);
-        }
-    };
+    let spawned =
+        match spawn_cli_generation(&conn, &session, &selected_agent, &trimmed_content, &config) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                let concise_error = concise_cli_error(&selected_agent, &error);
+                let _ = write_session_runtime_log(
+                    &conn,
+                    logging::LogLevel::Error,
+                    &session_id,
+                    &selected_agent.id,
+                    &error,
+                );
+                let failed =
+                    fail_assistant_message(&conn, &assistant_message.id, "", &concise_error)?;
+                update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
+                runtime.complete(&session_id)?;
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Failed {
+                        session_id,
+                        message_id: assistant_message.id,
+                        error: concise_error,
+                    },
+                );
+                return Ok(failed);
+            }
+        };
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
@@ -4587,6 +4736,9 @@ pub fn run() {
             list_cli_tools,
             refresh_cli_detections,
             install_cli_version,
+            cli_parameters::list_cli_parameter_profiles,
+            cli_parameters::save_cli_parameter_profile,
+            cli_parameters::reset_cli_parameter_profile,
             get_agent_by_id,
             get_workflow_state,
             select_agent,
@@ -4669,6 +4821,20 @@ mod tests {
         conn
     }
 
+    fn test_chat_config(agent_id: &str) -> ChatConfig {
+        ChatConfig {
+            agent_id: agent_id.to_string(),
+            interaction_mode: InteractionMode::Cli,
+            permission_mode: "default".to_string(),
+            provider_id: None,
+            model_id: None,
+            reasoning_depth: None,
+            streaming: true,
+            thinking: false,
+            long_context: false,
+        }
+    }
+
     fn unique_temp_dir(name: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -4701,7 +4867,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     }
 
     #[test]
@@ -5077,9 +5243,8 @@ mod tests {
 
         let old_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
             .expect("old assistant");
-        let recent_message =
-            insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
-                .expect("recent assistant");
+        let recent_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("recent assistant");
         complete_assistant_message(
             &conn,
             &old_message.id,
@@ -5203,38 +5368,231 @@ mod tests {
             "claude".to_string(),
             "hello",
             Some("claude-session"),
+            &[],
         )
         .expect("claude spec");
         assert_eq!(claude_spec.prompt_delivery, PromptDelivery::Stdin);
         assert!(claude_spec.args.iter().any(|arg| arg == "--resume"));
         assert!(!claude_spec.args.iter().any(|arg| arg == "hello"));
 
-        let codex_spec =
-            build_cli_invocation_spec(&codex, "codex".to_string(), "hello", Some("codex-session"))
-                .expect("codex spec");
+        let codex_spec = build_cli_invocation_spec(
+            &codex,
+            "codex".to_string(),
+            "hello",
+            Some("codex-session"),
+            &[],
+        )
+        .expect("codex spec");
         assert_eq!(codex_spec.prompt_delivery, PromptDelivery::Stdin);
         assert_eq!(
             codex_spec.args,
             vec!["exec", "resume", "codex-session", "--json", "--", "-"]
         );
 
-        let gemini_spec = build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None)
-            .expect("gemini spec");
+        let gemini_spec =
+            build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None, &[])
+                .expect("gemini spec");
         assert_eq!(gemini_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(gemini_spec
             .args
             .windows(2)
             .any(|pair| pair == ["-p", "hello"]));
 
-        let opencode_spec =
-            build_cli_invocation_spec(&opencode, "opencode".to_string(), "hello", Some("open-1"))
-                .expect("opencode spec");
+        let opencode_spec = build_cli_invocation_spec(
+            &opencode,
+            "opencode".to_string(),
+            "hello",
+            Some("open-1"),
+            &[],
+        )
+        .expect("opencode spec");
         assert_eq!(opencode_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(opencode_spec
             .args
             .windows(2)
             .any(|pair| pair == ["--session", "open-1"]));
         assert_eq!(opencode_spec.args.last().map(String::as_str), Some("hello"));
+    }
+
+    #[test]
+    fn provider_command_builders_preserve_fresh_and_resume_shapes_with_default_profiles() {
+        let conn = test_conn();
+        for agent_id in cli_parameters::MANAGED_CLI_AGENT_IDS {
+            let agent = load_agent(&conn, agent_id).expect("agent");
+            let selections = cli_parameters::load_selections(&conn, agent_id).expect("profile");
+            let args = cli_parameters::preview_args(
+                agent_id,
+                &selections,
+                cli_parameters::CliParameterLaunchScope::Chat,
+            )
+            .expect("args");
+            let fresh =
+                build_cli_invocation_spec(&agent, agent_id.to_string(), "prompt", None, &args)
+                    .expect("fresh");
+            let resumed = build_cli_invocation_spec(
+                &agent,
+                agent_id.to_string(),
+                "prompt",
+                Some("provider-session"),
+                &args,
+            )
+            .expect("resumed");
+            assert!(!fresh
+                .args
+                .iter()
+                .any(|argument| argument == "provider-session"));
+            assert!(resumed
+                .args
+                .iter()
+                .any(|argument| argument == "provider-session"));
+            match agent_id {
+                "claude-code" => assert!(fresh.args.contains(&"stream-json".to_string())),
+                "codex-cli" => assert!(fresh.args.contains(&"exec".to_string())),
+                "gemini-cli" => {
+                    assert!(fresh.args.contains(&"--approval-mode".to_string()));
+                    assert!(fresh.args.contains(&"stream-json".to_string()));
+                }
+                "opencode" => assert!(fresh.args.contains(&"run".to_string())),
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[test]
+    fn provider_command_builders_place_managed_arguments_without_overriding_runtime_tokens() {
+        let conn = test_conn();
+        let codex = load_agent(&conn, "codex-cli").expect("codex");
+        let spec = build_cli_invocation_spec(
+            &codex,
+            "codex".to_string(),
+            "secret prompt",
+            Some("session-1"),
+            &[
+                "--model".to_string(),
+                "gpt-5.4".to_string(),
+                "--ephemeral".to_string(),
+            ],
+        )
+        .expect("spec");
+        assert_eq!(
+            spec.args,
+            vec![
+                "--model",
+                "gpt-5.4",
+                "exec",
+                "resume",
+                "session-1",
+                "--ephemeral",
+                "--json",
+                "--",
+                "-",
+            ]
+        );
+        assert!(!spec.args.iter().any(|argument| argument == "secret prompt"));
+    }
+
+    #[test]
+    fn chat_config_overrides_persisted_profile_without_mutating_it() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES (?1, ?2, 1, ?3, ?4)",
+            params!["codex-cli", "sandbox", "\"read-only\"", current_timestamp()],
+        )
+        .expect("persist profile");
+        let config = ChatConfig {
+            permission_mode: "agent".to_string(),
+            provider_id: Some("openai".to_string()),
+            model_id: Some("gpt-5-4".to_string()),
+            reasoning_depth: Some("max".to_string()),
+            ..test_chat_config("codex-cli")
+        };
+        let effective = effective_cli_selections(&conn, "codex-cli", &config).expect("effective");
+        assert_eq!(effective["model"], "gpt-5.4");
+        assert_eq!(effective["reasoningEffort"], "xhigh");
+        assert_eq!(effective["sandbox"], "workspace-write");
+        assert_eq!(effective["approvalPolicy"], "on-request");
+        assert_eq!(
+            cli_parameters::load_selections(&conn, "codex-cli").expect("persisted")["sandbox"],
+            "read-only"
+        );
+    }
+
+    #[test]
+    fn chat_config_maps_supported_values_and_omits_unknown_models() {
+        let conn = test_conn();
+        let claude = effective_cli_selections(
+            &conn,
+            "claude-code",
+            &ChatConfig {
+                permission_mode: "plan".to_string(),
+                model_id: Some("claude-opus-4-8".to_string()),
+                reasoning_depth: Some("high".to_string()),
+                ..test_chat_config("claude-code")
+            },
+        )
+        .expect("claude");
+        assert_eq!(claude["model"], "opus");
+        assert_eq!(claude["effort"], "high");
+        assert_eq!(claude["permissionMode"], "plan");
+
+        let gemini = effective_cli_selections(
+            &conn,
+            "gemini-cli",
+            &ChatConfig {
+                permission_mode: "plan".to_string(),
+                model_id: Some("gemini-2-5-pro".to_string()),
+                ..test_chat_config("gemini-cli")
+            },
+        )
+        .expect("gemini");
+        assert_eq!(gemini["model"], "gemini-2.5-pro");
+        assert_eq!(gemini["approvalMode"], "plan");
+
+        let opencode = effective_cli_selections(
+            &conn,
+            "opencode",
+            &ChatConfig {
+                permission_mode: "auto".to_string(),
+                thinking: true,
+                ..test_chat_config("opencode")
+            },
+        )
+        .expect("opencode");
+        assert_eq!(opencode["autoApprove"], true);
+        assert_eq!(opencode["thinking"], true);
+
+        let unknown = effective_cli_selections(
+            &conn,
+            "claude-code",
+            &ChatConfig {
+                model_id: Some("unrecognized-model".to_string()),
+                ..test_chat_config("claude-code")
+            },
+        )
+        .expect("unknown model");
+        assert_eq!(unknown["model"], "default");
+    }
+
+    #[test]
+    fn selection_snapshots_change_only_for_the_next_process() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES ('claude-code', 'effort', 1, '\"low\"', ?1)",
+            params![current_timestamp()],
+        )
+        .expect("initial profile");
+        let first =
+            effective_cli_selections(&conn, "claude-code", &test_chat_config("claude-code"))
+                .expect("first process");
+        conn.execute(
+            "UPDATE cli_parameter_settings SET value_json = '\"high\"', updated_at = ?1 WHERE agent_id = 'claude-code' AND parameter_id = 'effort'",
+            params![current_timestamp()],
+        )
+        .expect("updated profile");
+        let next = effective_cli_selections(&conn, "claude-code", &test_chat_config("claude-code"))
+            .expect("next process");
+        assert_eq!(first["effort"], "low");
+        assert_eq!(next["effort"], "high");
     }
 
     #[test]
@@ -5554,6 +5912,18 @@ mod tests {
             CliVersionCheckStatus::NotDetected
         ));
         assert!(should_start_initial_cli_refresh(&conn).expect("initial refresh needed"));
+
+        conn.execute(
+            "INSERT INTO cli_parameter_settings (agent_id, parameter_id, enabled, value_json, updated_at) VALUES ('claude-code', 'chrome', 1, 'true', ?1)",
+            params![current_timestamp()],
+        )
+        .expect("interactive parameter");
+        let after_profile_change = load_cli_tool_statuses(&conn).expect("statuses after profile");
+        assert_eq!(after_profile_change[0].installed, statuses[0].installed);
+        assert_eq!(
+            cli_version_check_status_str(&after_profile_change[0].version_check_status),
+            cli_version_check_status_str(&statuses[0].version_check_status)
+        );
     }
 
     #[test]

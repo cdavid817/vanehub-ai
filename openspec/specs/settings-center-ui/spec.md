@@ -15,11 +15,12 @@ The system SHALL render a UCD-aligned settings center as the primary frontend su
 - **THEN** the system SHALL update the active page content and active navigation state without requiring a runtime-specific backend call
 
 ### Requirement: UCD settings pages
-The system SHALL provide settings pages for basic configuration, CLI management, SDK dependencies, MCP servers, agents, skills, and product information.
+The system SHALL provide settings pages for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and product information.
 
 #### Scenario: Display UCD page set
 - **WHEN** the settings center navigation is rendered
-- **THEN** the system SHALL include entries for basic configuration, CLI management, SDK dependencies, MCP servers, agents, skills, and about
+- **THEN** the system SHALL include entries for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and about
+- **AND** the CLI parameter management entry SHALL appear immediately after CLI management
 - **AND** the about entry SHALL be the final settings navigation item
 
 #### Scenario: Display pages without backend services
@@ -35,6 +36,19 @@ The system SHALL provide settings pages for basic configuration, CLI management,
 - **WHEN** a user activates the About page check-update action
 - **THEN** the page SHALL check the latest GitHub release through a frontend service boundary
 - **AND** the page SHALL show a localized checking, up-to-date, update-available, or failed state without blocking settings navigation
+
+### Requirement: Service-backed CLI parameter settings page
+The settings center SHALL render CLI Parameter Management as a service-backed page separate from CLI installation and version management.
+
+#### Scenario: Open CLI parameter page
+- **WHEN** a user opens CLI Parameter Management
+- **THEN** the page SHALL load typed profiles through the frontend agent service
+- **AND** it SHALL preserve the settings shell, independent content scrolling, search behavior, and mounted draft state
+
+#### Scenario: Keep installation management separate
+- **WHEN** the CLI parameter page renders
+- **THEN** it SHALL NOT install, upgrade, downgrade, detect, or remove a CLI package
+- **AND** CLI package operations SHALL remain on the existing CLI Management page
 
 ### Requirement: Switchable UCD visual styles
 The system SHALL support switching between the `futuristic` and `minimal` UCD visual styles through a shared theme mechanism.

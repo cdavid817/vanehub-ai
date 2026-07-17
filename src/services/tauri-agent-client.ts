@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentService } from "./agent-service";
 import type {
   AgentRegistryEntry,
+  CliParameterProfile,
   CliPackageOperationInput,
   CliToolStatus,
   InteractionMode,
@@ -13,6 +14,8 @@ import type {
   ReadinessStatus,
   Session,
   SessionDetails,
+  SaveCliParameterProfileInput,
+  ManagedCliAgentId,
   WorkflowState,
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent, UsageStatistics } from "../types/chat";
@@ -49,6 +52,18 @@ export const tauriAgentClient: AgentService = {
       agentId: input.agentId,
       targetVersion: input.targetVersion,
     });
+  },
+
+  listCliParameterProfiles() {
+    return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
+  },
+
+  saveCliParameterProfile(input: SaveCliParameterProfileInput) {
+    return invoke<CliParameterProfile>("save_cli_parameter_profile", { input });
+  },
+
+  resetCliParameterProfile(agentId: ManagedCliAgentId) {
+    return invoke<CliParameterProfile>("reset_cli_parameter_profile", { agentId });
   },
 
   getAgentById(agentId) {

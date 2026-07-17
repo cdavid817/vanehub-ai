@@ -1,5 +1,8 @@
 import type {
   AgentRegistryEntry,
+  CliParameterProfile,
+  ManagedCliAgentId,
+  SaveCliParameterProfileInput,
   CliPackageOperationInput,
   CliToolStatus,
   CreateSessionInput,
@@ -33,6 +36,9 @@ export interface AgentService {
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
+  listCliParameterProfiles(): Promise<CliParameterProfile[]>;
+  saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
+  resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;
   getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;
   selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;

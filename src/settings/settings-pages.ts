@@ -6,6 +6,7 @@ import {
   Info,
   Puzzle,
   Settings,
+  SlidersHorizontal,
   Terminal,
   type LucideIcon,
 } from "lucide-react";
@@ -16,9 +17,10 @@ import { McpPage } from "./pages/mcp-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
+import { CliParametersPage } from "./pages/cli-parameters-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
-export type SettingsPageId = "basic" | "providers" | "sdk" | "mcp" | "agents" | "skills" | "usage" | "about";
+export type SettingsPageId = "basic" | "providers" | "cli-parameters" | "sdk" | "mcp" | "agents" | "skills" | "usage" | "about";
 
 export interface SettingsPageContext {
   searchTerm: string;
@@ -51,6 +53,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 4,
     searchPlaceholderKey: "settings.search.providers",
     component: ProvidersPage,
+  },
+  {
+    id: "cli-parameters",
+    labelKey: "settings.pages.cliParameters",
+    crumbKey: "settings.pages.cliParameters",
+    icon: SlidersHorizontal,
+    badge: 4,
+    searchPlaceholderKey: "settings.search.cliParameters",
+    component: CliParametersPage,
   },
   {
     id: "sdk",

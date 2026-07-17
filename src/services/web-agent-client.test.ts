@@ -40,6 +40,22 @@ describe("webAgentClient", () => {
     await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({ status: "failed" });
   });
 
+  it("persists and resets structured CLI parameter profiles", async () => {
+    const initial = await webAgentClient.listCliParameterProfiles();
+    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+
+    const saved = await webAgentClient.saveCliParameterProfile({
+      agentId: "codex-cli",
+      selections: { ...initial[1].selections, sandbox: "read-only", ephemeral: true },
+    });
+    expect(saved.previewArgs).toContain("--ephemeral");
+    expect((await webAgentClient.listCliParameterProfiles())[1].selections.sandbox).toBe("read-only");
+
+    const reset = await webAgentClient.resetCliParameterProfile("codex-cli");
+    expect(reset.selections.sandbox).toBe("default");
+    expect(reset.selections.ephemeral).toBe(false);
+  });
+
   it("selects compatible agents and rejects unsupported interaction modes", async () => {
     await expect(webAgentClient.selectAgent("opencode", "browser")).rejects.toThrow("does not support");
 

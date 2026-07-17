@@ -2,6 +2,7 @@ import type { AgentService } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import type {
+  CliParameterSelections,
   CliToolStatus,
   CreateSessionInput,
   InteractionMode,
@@ -10,7 +11,9 @@ import type {
   Session,
   SessionDetails,
   WorkflowState,
+  ManagedCliAgentId,
 } from "../types/agent";
+import { managedCliAgentIds } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
@@ -28,6 +31,11 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import {
+  createCliParameterProfile,
+  defaultCliParameterSelections,
+  normalizeCliParameterSelections,
+} from "./cli-parameter-catalog";
 
 function tr(key: string) {
   return i18n.t(key);
@@ -43,6 +51,24 @@ function webCliPackageOperationsMessage() {
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
+const cliParameterStorageKey = "vanehub.cli-parameter-profiles.v1";
+let memoryCliParameterSelections: Partial<Record<ManagedCliAgentId, CliParameterSelections>> = {};
+
+function readCliParameterSelections(): Partial<Record<ManagedCliAgentId, CliParameterSelections>> {
+  if (typeof localStorage === "undefined") return memoryCliParameterSelections;
+  const raw = localStorage.getItem(cliParameterStorageKey);
+  if (!raw) return memoryCliParameterSelections;
+  try {
+    return JSON.parse(raw) as Partial<Record<ManagedCliAgentId, CliParameterSelections>>;
+  } catch {
+    return memoryCliParameterSelections;
+  }
+}
+
+function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, CliParameterSelections>>) {
+  memoryCliParameterSelections = value;
+  if (typeof localStorage !== "undefined") localStorage.setItem(cliParameterStorageKey, JSON.stringify(value));
+}
 let nextMessageId = 1;
 let activeSessionId: string | null = null;
 let sessions: Session[] = [];
@@ -544,6 +570,24 @@ export const webAgentClient: AgentService = {
       error: message,
       result: { agentId: input.agentId, targetVersion: input.targetVersion },
     });
+  },
+
+  async listCliParameterProfiles() {
+    const stored = readCliParameterSelections();
+    return managedCliAgentIds.map((agentId) => createCliParameterProfile(agentId, stored[agentId]));
+  },
+
+  async saveCliParameterProfile(input) {
+    const selections = normalizeCliParameterSelections(input.agentId, input.selections);
+    writeCliParameterSelections({ ...readCliParameterSelections(), [input.agentId]: selections });
+    return createCliParameterProfile(input.agentId, selections);
+  },
+
+  async resetCliParameterProfile(agentId) {
+    const stored = { ...readCliParameterSelections() };
+    delete stored[agentId];
+    writeCliParameterSelections(stored);
+    return createCliParameterProfile(agentId, defaultCliParameterSelections(agentId));
   },
 
   async getAgentById(agentId) {
