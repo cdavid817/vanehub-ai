@@ -24,10 +24,11 @@ function clampReasoningDepth(model: ModelInfo, depth: ReasoningDepth) {
 }
 
 function modesForProvider(providerId: string) {
+  const modeIds = PERMISSION_MODES.map((mode) => mode.id);
   if (providerId === "openai") {
-    return PERMISSION_MODES.filter((mode) => mode.id !== "plan");
+    return modeIds.filter((mode) => mode !== "plan");
   }
-  return PERMISSION_MODES;
+  return modeIds;
 }
 
 export function useChatConfig({
@@ -60,7 +61,7 @@ export function useChatConfig({
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, "high"));
     setLongContext(nextModel.supportsLongContext);
-    setPermissionMode(modesForProvider(nextProviderId)[0]?.id ?? "default");
+    setPermissionMode(modesForProvider(nextProviderId)[0] ?? "default");
   }, [activeSession?.id, activeSession?.agentId, sessionAgent]);
 
   const availableAgents = useMemo(
@@ -84,8 +85,8 @@ export function useChatConfig({
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
     setLongContext(nextModel.supportsLongContext);
-    if (!nextModes.some((mode) => mode.id === permissionMode)) {
-      setPermissionMode(nextModes[0]?.id ?? "default");
+    if (!nextModes.includes(permissionMode)) {
+      setPermissionMode(nextModes[0] ?? "default");
     }
   }
 
@@ -99,8 +100,8 @@ export function useChatConfig({
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
     setLongContext(nextModel.supportsLongContext);
-    if (!nextModes.some((mode) => mode.id === permissionMode)) {
-      setPermissionMode(nextModes[0]?.id ?? "default");
+    if (!nextModes.includes(permissionMode)) {
+      setPermissionMode(nextModes[0] ?? "default");
     }
   }
 

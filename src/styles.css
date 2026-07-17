@@ -20,6 +20,9 @@
   --panel-foreground: 220 18% 12%;
   --panel-muted: 210 24% 96%;
   --panel-border: 214 18% 86%;
+  --panel-hover: 210 24% 94%;
+  --panel-glass: 0 0% 100% / 0.86;
+  --border-strong: 214 18% 76%;
   --nav-active: 198 78% 36%;
   --nav-active-soft: 198 78% 36% / 0.12;
   --success: 152 64% 38%;
@@ -29,6 +32,11 @@
   --danger: 0 72% 50%;
   --danger-soft: 0 72% 50% / 0.12;
   --shadow-color: 220 18% 12% / 0.08;
+  --shadow-elevated: 220 18% 12% / 0.14;
+  --agent-codex: 199 89% 48%;
+  --agent-claude: 35 92% 52%;
+  --agent-opencode: 154 64% 40%;
+  --agent-gemini: 262 83% 62%;
 }
 
 :root[data-theme="futuristic"] {
@@ -49,6 +57,9 @@
   --panel-foreground: 210 28% 91%;
   --panel-muted: 217 22% 15%;
   --panel-border: 218 18% 24%;
+  --panel-hover: 217 22% 18%;
+  --panel-glass: 216 24% 11% / 0.82;
+  --border-strong: 217 22% 32%;
   --nav-active: 215 88% 66%;
   --nav-active-soft: 215 88% 66% / 0.14;
   --success: 144 61% 52%;
@@ -58,6 +69,11 @@
   --danger: 3 91% 65%;
   --danger-soft: 3 91% 65% / 0.14;
   --shadow-color: 0 0% 0% / 0.32;
+  --shadow-elevated: 0 0% 0% / 0.46;
+  --agent-codex: 199 89% 62%;
+  --agent-claude: 35 92% 62%;
+  --agent-opencode: 154 64% 52%;
+  --agent-gemini: 262 83% 72%;
 }
 
 :root[data-theme="minimal"] {
@@ -76,6 +92,9 @@
   --panel-foreground: 221 39% 11%;
   --panel-muted: 220 14% 96%;
   --panel-border: 221 39% 11% / 0.32;
+  --panel-hover: 220 14% 94%;
+  --panel-glass: 0 0% 100% / 0.92;
+  --border-strong: 221 39% 11% / 0.38;
   --nav-active: 221 83% 53%;
   --nav-active-soft: 221 83% 53% / 0.12;
   --success: 142 60% 34%;
@@ -85,6 +104,11 @@
   --danger: 0 72% 44%;
   --danger-soft: 0 72% 44% / 0.1;
   --shadow-color: 221 39% 11% / 0.04;
+  --shadow-elevated: 221 39% 11% / 0.09;
+  --agent-codex: 199 89% 42%;
+  --agent-claude: 31 90% 44%;
+  --agent-opencode: 154 64% 34%;
+  --agent-gemini: 262 83% 52%;
 }
 
 * {
@@ -98,13 +122,16 @@ body {
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  text-rendering: optimizeLegibility;
 }
 
 .ucd-panel {
   border: 1px solid hsl(var(--panel-border));
-  background: hsl(var(--panel));
+  background: hsl(var(--panel-glass));
   color: hsl(var(--panel-foreground));
-  box-shadow: 0 12px 28px hsl(var(--shadow-color));
+  box-shadow: 0 10px 24px hsl(var(--shadow-color));
+  backdrop-filter: blur(14px);
 }
 
 .ucd-muted-panel {
@@ -112,10 +139,73 @@ body {
   background: hsl(var(--panel-muted));
 }
 
+.ucd-card {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel));
+  color: hsl(var(--panel-foreground));
+  box-shadow: 0 8px 20px hsl(var(--shadow-color));
+}
+
+.ucd-interactive {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.ucd-interactive:hover {
+  background: hsl(var(--panel-hover));
+  border-color: hsl(var(--border-strong));
+}
+
+.ucd-segmented {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel-muted));
+  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.03);
+}
+
+.ucd-list-row {
+  border: 1px solid hsl(var(--panel-border));
+  background: hsl(var(--panel));
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.ucd-list-row:hover {
+  border-color: hsl(var(--border-strong));
+  background: hsl(var(--panel-hover));
+}
+
+.ucd-workspace-grid {
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+}
+
+.ucd-workspace-grid[data-info-collapsed="true"] {
+  grid-template-columns: 220px minmax(0, 1fr) 0;
+}
+
+@media (max-width: 900px) {
+  .ucd-workspace-grid,
+  .ucd-workspace-grid[data-info-collapsed="true"] {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .ucd-workspace-grid,
+  .ucd-workspace-grid[data-info-collapsed="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ucd-input {
   border: 1px solid hsl(var(--input));
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.03);
 }
 
 .ucd-input::placeholder {
@@ -138,4 +228,33 @@ body {
   border-color: hsl(var(--danger) / 0.45);
   background: hsl(var(--danger-soft));
   color: hsl(var(--danger));
+}
+
+.ucd-agent-codex {
+  border-color: hsl(var(--agent-codex) / 0.4);
+  background: hsl(var(--agent-codex) / 0.12);
+  color: hsl(var(--agent-codex));
+}
+
+.ucd-agent-claude {
+  border-color: hsl(var(--agent-claude) / 0.4);
+  background: hsl(var(--agent-claude) / 0.12);
+  color: hsl(var(--agent-claude));
+}
+
+.ucd-agent-opencode {
+  border-color: hsl(var(--agent-opencode) / 0.4);
+  background: hsl(var(--agent-opencode) / 0.12);
+  color: hsl(var(--agent-opencode));
+}
+
+.ucd-agent-gemini {
+  border-color: hsl(var(--agent-gemini) / 0.4);
+  background: hsl(var(--agent-gemini) / 0.12);
+  color: hsl(var(--agent-gemini));
+}
+
+*:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }

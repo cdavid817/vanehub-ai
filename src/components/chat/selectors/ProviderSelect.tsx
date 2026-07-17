@@ -1,4 +1,5 @@
 import { BrainCircuit, Code2, Sparkles, TerminalSquare } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { PROVIDER_LABELS } from "../models";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
 
@@ -22,10 +23,11 @@ export function ProviderSelect({
   open: boolean;
   value: string;
 }) {
+  const { t } = useTranslation();
   const label = PROVIDER_LABELS[value] ?? value;
   return (
     <div className="relative">
-      <SelectorButton compact icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={`Provider: ${label}`} />
+      <SelectorButton compact icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={t("chat.config.providerTitle", { label })} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}

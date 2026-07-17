@@ -1,6 +1,7 @@
-import { Download, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, PackageCheck, RefreshCw, RotateCcw, Trash2, XCircle } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { sdkService } from "../../services/runtime-sdk-client";
 import { buildSdkVersionOptions, getSdkVersionAction, normalizeSdkVersion } from "../../services/sdk-versioning";
@@ -25,15 +26,8 @@ type SdkOverview = {
 
 const sdkOverviewQueryKey = ["sdk", "overview"] as const;
 
-const statusText: Record<SdkStatus["status"], string> = {
-  installed: "Installed",
-  "not-installed": "Not installed",
-  installing: "Installing",
-  uninstalling: "Uninstalling",
-  error: "Error",
-};
-
 export function SdkPage({ searchTerm }: { searchTerm: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedVersions, setSelectedVersions] = useState<SelectedVersions>({});
   const [logs, setLogs] = useState<SdkOperationLog[]>([]);
@@ -98,7 +92,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
         }
         return { ...current, statuses: nextStatuses };
       });
-      setNotice("SDK update status refreshed");
+      setNotice(t("sdk.notice.updatesRefreshed"));
     },
   });
 
@@ -169,7 +163,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
   }
 
   async function uninstall(sdk: SdkStatus) {
-    if (!window.confirm(`Uninstall ${sdk.displayName}?`)) return;
+    if (!window.confirm(t("sdk.confirm.uninstall", { name: sdk.displayName }))) return;
     setError(null);
     setNotice(null);
     setLogs([]);
@@ -179,10 +173,10 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
   function handleOperationResult(result: SdkOperationResult) {
     setLogs(result.logs);
     if (!result.success) {
-      setError(result.error ?? "SDK operation failed");
+      setError(result.error ?? t("sdk.error.operationFailed"));
       return;
     }
-    setNotice("SDK operation completed");
+    setNotice(t("sdk.notice.operationCompleted"));
     void queryClient.invalidateQueries({ queryKey: sdkOverviewQueryKey });
   }
 
@@ -194,10 +188,10 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       requestedVersion,
     });
     const versionLabel = requestedVersion ? ` v${requestedVersion}` : "";
-    if (action === "install") return `Install${versionLabel}`;
-    if (action === "update") return `Update to${versionLabel}`;
-    if (action === "rollback") return `Rollback to${versionLabel}`;
-    return "Current version";
+    if (action === "install") return t("sdk.action.install", { version: versionLabel });
+    if (action === "update") return t("sdk.action.update", { version: versionLabel });
+    if (action === "rollback") return t("sdk.action.rollback", { version: versionLabel });
+    return t("sdk.action.current");
   }
 
   function renderSdkCard(sdk: SdkStatus) {
@@ -223,8 +217,8 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{sdk.displayName}</h3>
-              <StatusPill status={statusText[sdk.status]} />
-              {sdk.hasUpdate ? <StatusPill status="Update available" /> : null}
+              <StatusPill status={t(`sdk.status.${sdk.status === "not-installed" ? "notInstalled" : sdk.status}`)} />
+              {sdk.hasUpdate ? <StatusPill status={t("sdk.status.updateAvailable")} /> : null}
             </div>
             <p className="text-sm text-muted-foreground">{sdk.description}</p>
             <TagList tags={sdk.relatedProviders} />
@@ -237,22 +231,22 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
 
         <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
           <div className="rounded border border-border p-3">
-            Current version
-            <strong className="block">{sdk.installedVersion ? `v${sdk.installedVersion}` : "Not installed"}</strong>
+            {t("sdk.currentVersion")}
+            <strong className="block">{sdk.installedVersion ? `v${sdk.installedVersion}` : t("sdk.status.notInstalled")}</strong>
           </div>
           <div className="rounded border border-border p-3">
-            Latest version
-            <strong className="block">{versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : "Unknown"}</strong>
+            {t("sdk.latestVersion")}
+            <strong className="block">{versionInfo?.latestVersion ? `v${versionInfo.latestVersion}` : t("sdk.source.unknown")}</strong>
           </div>
           <div className="rounded border border-border p-3">
-            Version source
-            <strong className="block">{versionInfo?.source === "fallback" ? "Fallback" : "Remote"}</strong>
+            {t("sdk.versionSource")}
+            <strong className="block">{versionInfo?.source === "fallback" ? t("sdk.source.fallback") : t("sdk.source.remote")}</strong>
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label className="text-sm text-muted-foreground" htmlFor={`sdk-version-${sdk.id}`}>
-            Target version
+            {t("sdk.targetVersion")}
           </label>
           <select
             className="h-9 rounded-md border border-input bg-background px-3 text-sm"
@@ -275,12 +269,12 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
             ) : (
               <Download className="h-4 w-4" aria-hidden="true" />
             )}
-            {operationBusy ? "Running" : actionLabel(sdk)}
+            {operationBusy ? t("sdk.action.running") : actionLabel(sdk)}
           </Button>
           {sdk.status === "installed" ? (
             <Button disabled={busy} onClick={() => void uninstall(sdk)} variant="outline">
               <Trash2 className="h-4 w-4" aria-hidden="true" />
-              Uninstall
+              {t("sdk.action.uninstall")}
             </Button>
           ) : null}
         </div>
@@ -296,39 +290,40 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
           <>
             <Button disabled={refreshing} variant="outline" onClick={() => void sdkOverviewQuery.refetch()}>
               <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
-              {refreshing ? "Refreshing" : "Refresh"}
+              {refreshing ? t("sdk.refreshing") : t("sdk.refresh")}
             </Button>
             <Button disabled={checkingUpdates} onClick={() => void checkUpdates()}>
               <RefreshCw className={checkingUpdates ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
-              {checkingUpdates ? "Checking" : "Check Updates"}
+              {checkingUpdates ? t("sdk.checking") : t("sdk.checkUpdates")}
             </Button>
           </>
         }
-        description="Manage local AI SDK installation, versions, and update status"
-        title="SDK Dependencies"
+        description={t("sdk.description")}
+        icon={PackageCheck}
+        title={t("sdk.title")}
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        <StatCard label="SDK Installed" value={String(installedCount)} hint="VaneHub local dependency directory" />
-        <StatCard label="SDK Updates" value={String(updateCount)} hint="From version checks" />
-        <StatCard label="SDK Missing" value={String(missingCount)} hint="Can be installed by selected version" />
-        <StatCard label="SDK Errors" value={String(errorCount)} hint="Review logs" />
+        <StatCard icon={CheckCircle2} label={t("sdk.stats.installed")} value={String(installedCount)} hint={t("sdk.stats.installedHint")} />
+        <StatCard icon={RefreshCw} label={t("sdk.stats.updates")} value={String(updateCount)} hint={t("sdk.stats.updatesHint")} />
+        <StatCard icon={XCircle} label={t("sdk.stats.missing")} value={String(missingCount)} hint={t("sdk.stats.missingHint")} />
+        <StatCard icon={AlertTriangle} label={t("sdk.stats.errors")} value={String(errorCount)} hint={t("sdk.stats.errorsHint")} />
       </div>
 
       {environment?.available === false ? (
-        <div className="rounded-md border p-3 text-sm ucd-status-warning">{environment.error ?? "Node.js or npm is unavailable"}</div>
+        <div className="rounded-md border p-3 text-sm ucd-status-warning">{environment.error ?? t("sdk.error.environmentUnavailable")}</div>
       ) : null}
       {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
-      <SectionPanel title="SDK List" description="Install directory is fixed to ~/.vanehub/dependencies/">
+      <SectionPanel title={t("sdk.list.title")} description={t("sdk.list.description")}>
         <div className="grid gap-4 xl:grid-cols-2">{sdkList.map(renderSdkCard)}</div>
-        {!statuses ? <div className="py-8 text-center text-sm text-muted-foreground">Loading SDK status</div> : null}
-        {statuses && !sdkList.length ? <div className="py-8 text-center text-sm text-muted-foreground">No matching SDKs</div> : null}
+        {!statuses ? <div className="py-8 text-center text-sm text-muted-foreground">{t("sdk.list.loading")}</div> : null}
+        {statuses && !sdkList.length ? <div className="py-8 text-center text-sm text-muted-foreground">{t("sdk.list.empty")}</div> : null}
       </SectionPanel>
 
       {logs.length ? (
-        <SectionPanel title="Operation Logs" description="Output from the most recent SDK operation">
+        <SectionPanel title={t("sdk.logs.title")} description={t("sdk.logs.description")}>
           <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/30 p-3 text-xs leading-5">
             {logs.map((entry) => `[${entry.sdkId}] ${entry.line}`).join("\n")}
           </pre>

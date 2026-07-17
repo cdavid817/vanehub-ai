@@ -1,12 +1,13 @@
 import * as React from "react";
 import { cn } from "../../lib/utils";
 
-type BadgeTone = "default" | "success" | "warning" | "muted";
+type BadgeTone = "default" | "success" | "warning" | "danger" | "muted";
 
 const tones: Record<BadgeTone, string> = {
   default: "border-transparent bg-primary text-primary-foreground",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  warning: "border-amber-200 bg-amber-50 text-amber-700",
+  success: "ucd-status-success",
+  warning: "ucd-status-warning",
+  danger: "ucd-status-danger",
   muted: "border-border bg-muted text-muted-foreground",
 };
 

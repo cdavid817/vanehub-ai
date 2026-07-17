@@ -1,4 +1,4 @@
-import { FolderOpen, RotateCcw } from "lucide-react";
+import { FolderOpen, RotateCcw, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
@@ -65,6 +65,7 @@ export function BasicSettingsPage() {
           </Button>
         }
         description={t("basic.description")}
+        icon={Settings}
         title={t("basic.title")}
       />
 

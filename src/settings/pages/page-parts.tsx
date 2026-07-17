@@ -1,17 +1,35 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { LucideIcon } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { cn } from "../../lib/utils";
 
-export function PageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  description,
+  actions,
+  icon: Icon,
+}: {
+  title: string;
+  description: string;
+  actions?: ReactNode;
+  icon?: LucideIcon;
+}) {
   const { t } = useTranslation();
 
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <div className="mb-1 text-xs text-muted-foreground">{t("app.settings.breadcrumb")} /</div>
-        <h2 className="text-xl font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      <div className="flex min-w-0 items-start gap-3">
+        {Icon ? (
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--nav-active-soft))] text-primary">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          <div className="mb-1 text-xs text-muted-foreground">{t("app.settings.breadcrumb")} /</div>
+          <h2 className="truncate text-xl font-semibold tracking-tight">{title}</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+        </div>
       </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
     </div>
@@ -31,8 +49,8 @@ export function SectionPanel({
 }) {
   return (
     <section className={cn("ucd-panel rounded-lg p-4", className)}>
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="mb-4 border-b border-border/70 pb-3">
+        <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       {children}
@@ -40,12 +58,21 @@ export function SectionPanel({
   );
 }
 
-export function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {
+export function StatCard({ label, value, hint, icon: Icon }: { label: string; value: string; hint: string; icon?: LucideIcon }) {
   return (
-    <div className="ucd-panel rounded-lg p-4">
-      <div className="text-2xl font-semibold text-primary">{value}</div>
-      <div className="mt-1 text-sm font-medium">{label}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
+    <div className="ucd-panel ucd-interactive rounded-lg p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-2xl font-semibold tracking-tight text-primary">{value}</div>
+          <div className="mt-1 text-sm font-medium">{label}</div>
+        </div>
+        {Icon ? (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))] text-primary">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 text-xs leading-5 text-muted-foreground">{hint}</div>
     </div>
   );
 }

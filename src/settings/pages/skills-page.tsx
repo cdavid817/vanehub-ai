@@ -1,4 +1,4 @@
-import { Plus, RotateCcw, Upload } from "lucide-react";
+import { Plus, Puzzle, RotateCcw, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -163,6 +163,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
           </>
         }
         description={t("skills.description")}
+        icon={Puzzle}
         title={t("skills.title")}
       />
 

@@ -1,13 +1,7 @@
 import { Lightbulb } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ReasoningDepth } from "../../../types/chat";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
-
-const labels: Record<ReasoningDepth, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  max: "Max",
-};
 
 export function ReasoningSelect({
   availableReasoning,
@@ -24,18 +18,20 @@ export function ReasoningSelect({
   open: boolean;
   value: ReasoningDepth;
 }) {
+  const { t } = useTranslation();
+  const labelFor = (depth: ReasoningDepth) => t(`chat.config.reasoning.${depth}`);
   if (availableReasoning.length === 0) return null;
   return (
     <div className="relative">
-      <SelectorButton icon={<Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />} label={labels[value]} onClick={onOpen} open={open} title={`Reasoning depth: ${labels[value]}`} />
+      <SelectorButton icon={<Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />} label={labelFor(value)} onClick={onOpen} open={open} title={t("chat.config.reasoningTitle", { label: labelFor(value) })} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}
           onSelect={onChange}
           options={availableReasoning.map((depth) => ({
             value: depth,
-            label: labels[depth],
-            description: depth === "max" ? "Deepest reasoning" : "Control reasoning effort before the response",
+            label: labelFor(depth),
+            description: depth === "max" ? t("chat.config.reasoning.maxDesc") : t("chat.config.reasoning.defaultDesc"),
             icon: <Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />,
           }))}
           value={value}

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { webAgentClient } from "./web-agent-client";
+import { webOperationClient } from "./web-operation-client";
 import type { ChatStreamEvent } from "../types/chat";
 
 afterEach(() => {
@@ -16,12 +17,17 @@ describe("webAgentClient", () => {
   });
 
   it("does not fake local CLI installation status in Web runtime", async () => {
+    vi.useFakeTimers();
     const cliTools = await webAgentClient.listCliTools();
 
     expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
     expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
     expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
-    await expect(webAgentClient.refreshCliDetections()).resolves.toMatchObject({ status: "failed" });
+    const operation = await webAgentClient.refreshCliDetections();
+    expect(operation).toMatchObject({ status: "queued" });
+
+    await vi.advanceTimersByTimeAsync(950);
+    await expect(webOperationClient.getOperationStatus(operation.id)).resolves.toMatchObject({ status: "failed" });
   });
 
   it("selects compatible agents and rejects unsupported interaction modes", async () => {

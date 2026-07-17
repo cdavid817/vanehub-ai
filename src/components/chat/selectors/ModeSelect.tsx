@@ -1,6 +1,6 @@
 import { Bot, CheckCircle2, ListChecks, Wand2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { PermissionMode } from "../../../types/chat";
-import { PERMISSION_MODES } from "../models";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
 
 const modeIcons: Record<PermissionMode, JSX.Element> = {
@@ -25,20 +25,24 @@ export function ModeSelect({
   open: boolean;
   value: PermissionMode;
 }) {
-  const current = PERMISSION_MODES.find((mode) => mode.id === value) ?? PERMISSION_MODES[0];
+  const { t } = useTranslation();
+  const permissionModes = availableModes.concat(["default", "plan", "agent", "auto"] as PermissionMode[])
+    .filter((mode, index, modes) => modes.indexOf(mode) === index);
+  const labelFor = (mode: PermissionMode) => t(`chat.config.permission.${mode}`);
+  const descriptionFor = (mode: PermissionMode) => t(`chat.config.permission.${mode}Desc`);
   return (
     <div className="relative">
-      <SelectorButton icon={modeIcons[current.id]} label={current.label} onClick={onOpen} open={open} title={`Mode: ${current.label}`} />
+      <SelectorButton icon={modeIcons[value]} label={labelFor(value)} onClick={onOpen} open={open} title={t("chat.config.modeTitle", { label: labelFor(value) })} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}
           onSelect={onChange}
-          options={PERMISSION_MODES.map((mode) => ({
-            value: mode.id,
-            label: mode.label,
-            description: mode.description,
-            icon: modeIcons[mode.id],
-            disabled: !availableModes.includes(mode.id),
+          options={permissionModes.map((mode) => ({
+            value: mode,
+            label: labelFor(mode),
+            description: descriptionFor(mode),
+            icon: modeIcons[mode],
+            disabled: !availableModes.includes(mode),
           }))}
           value={value}
         />

@@ -1,5 +1,6 @@
 import { Save, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { McpScope, McpServerConfig, McpTransportType } from "../../../types/mcp";
 import { type McpServerFormErrors, validateMcpServerForm } from "./mcp-server-validation";
@@ -17,6 +18,7 @@ export function McpServerForm({
   onCancel: () => void;
   onSave: (server: McpServerConfig) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const editingName = server?.name ?? null;
   const [name, setName] = useState(server?.name ?? "");
   const [transportType, setTransportType] = useState<McpTransportType>(server?.transportType ?? "stdio");
@@ -32,27 +34,36 @@ export function McpServerForm({
   const [fieldErrors, setFieldErrors] = useState<McpServerFormErrors>({});
   const [saving, setSaving] = useState(false);
 
-  const title = useMemo(() => (editingName ? "Edit MCP Server" : "Add MCP Server"), [editingName]);
+  const title = useMemo(() => (editingName ? t("mcp.form.editTitle") : t("mcp.form.addTitle")), [editingName, t]);
 
   async function handleSubmit() {
     setError(null);
     setFieldErrors({});
-    const result = validateMcpServerForm({
-      name,
-      transportType,
-      scope,
-      command,
-      args,
-      env,
-      url,
-      headers,
-      description,
-      active,
-    });
+    const result = validateMcpServerForm(
+      {
+        name,
+        transportType,
+        scope,
+        command,
+        args,
+        env,
+        url,
+        headers,
+        description,
+        active,
+      },
+      {
+        name: t("mcp.validation.name"),
+        commandRequired: t("mcp.validation.commandRequired"),
+        urlRequired: t("mcp.validation.urlRequired"),
+        jsonObject: t("mcp.validation.jsonObject"),
+        argsArray: t("mcp.validation.argsArray"),
+      },
+    );
 
     if (!result.success) {
       setFieldErrors(result.errors);
-      setError(result.errors.form ?? "Fix the errors in the form");
+      setError(result.errors.form ?? t("mcp.form.fixErrors"));
       return;
     }
 
@@ -71,26 +82,26 @@ export function McpServerForm({
       <section className="ucd-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg p-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title="Close">
+          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title={t("mcp.form.close")}>
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
         <div className="grid gap-3 text-sm md:grid-cols-2">
           <label className="grid gap-1">
-            <span className="text-xs text-muted-foreground">Name</span>
+            <span className="text-xs text-muted-foreground">{t("mcp.form.name")}</span>
             <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
             {fieldErrors.name ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.name}</span> : null}
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-muted-foreground">Scope</span>
+            <span className="text-xs text-muted-foreground">{t("mcp.form.scope")}</span>
             <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
-              <option value="user">User configuration</option>
-              <option value="project">Project configuration</option>
+              <option value="user">{t("mcp.scope.userConfig")}</option>
+              <option value="project">{t("mcp.scope.projectConfig")}</option>
             </select>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-muted-foreground">Transport</span>
+            <span className="text-xs text-muted-foreground">{t("mcp.form.transport")}</span>
             <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={transportType} onChange={(event) => setTransportType(event.target.value as McpTransportType)}>
               <option value="stdio">stdio</option>
               <option value="sse">sse</option>
@@ -99,29 +110,29 @@ export function McpServerForm({
           </label>
           <label className="flex items-center gap-2 pt-5 text-sm">
             <input checked={active} onChange={(event) => setActive(event.target.checked)} type="checkbox" />
-            Enabled
+            {t("mcp.form.enabled")}
           </label>
         </div>
 
         <label className="mt-3 grid gap-1 text-sm">
-          <span className="text-xs text-muted-foreground">Description</span>
+          <span className="text-xs text-muted-foreground">{t("mcp.form.description")}</span>
           <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={description} onChange={(event) => setDescription(event.target.value)} />
         </label>
 
         {transportType === "stdio" ? (
           <div className="mt-3 grid gap-3">
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Command</span>
+              <span className="text-xs text-muted-foreground">{t("mcp.form.command")}</span>
               <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={command} onChange={(event) => setCommand(event.target.value)} />
               {fieldErrors.command ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.command}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Args</span>
+              <span className="text-xs text-muted-foreground">{t("mcp.form.args")}</span>
               <textarea className="ucd-input min-h-24 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={args} onChange={(event) => setArgs(event.target.value)} />
               {fieldErrors.args ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.args}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Env JSON</span>
+              <span className="text-xs text-muted-foreground">{t("mcp.form.envJson")}</span>
               <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
               {fieldErrors.env ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.env}</span> : null}
             </label>
@@ -129,12 +140,12 @@ export function McpServerForm({
         ) : (
           <div className="mt-3 grid gap-3">
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">URL</span>
+              <span className="text-xs text-muted-foreground">{t("mcp.form.url")}</span>
               <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={url} onChange={(event) => setUrl(event.target.value)} />
               {fieldErrors.url ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.url}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">Headers JSON</span>
+              <span className="text-xs text-muted-foreground">{t("mcp.form.headersJson")}</span>
               <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
               {fieldErrors.headers ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.headers}</span> : null}
             </label>
@@ -144,10 +155,10 @@ export function McpServerForm({
         {error ? <div className="mt-3 rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button variant="outline" onClick={onCancel}>{t("mcp.form.cancel")}</Button>
           <Button onClick={() => void handleSubmit()} disabled={saving}>
             <Save className="h-4 w-4" aria-hidden="true" />
-            {saving ? "Saving" : "Save"}
+            {saving ? t("mcp.form.saving") : t("mcp.form.save")}
           </Button>
         </div>
       </section>

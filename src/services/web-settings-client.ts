@@ -1,5 +1,6 @@
 import type { SettingsService } from "./settings-service";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "./settings-service";
+import { i18n } from "../i18n";
 import type { AppSettings, NodeInfo } from "../types/settings";
 
 const storageKey = "vanehub.appSettings";
@@ -37,12 +38,12 @@ export const webSettingsClient: SettingsService = {
       available: false,
       path: null,
       version: null,
-      reason: "Node.js information is only available in the desktop runtime.",
+      reason: i18n.t("basic.nodeUnavailableReason"),
     };
   },
 
   async openLogDirectory(): Promise<void> {
-    throw new Error("Opening the local log directory is only available in the desktop runtime.");
+    throw new Error(i18n.t("web.error.openLogDirectory"));
   },
 
   async reportClientLogEvent(): Promise<void> {

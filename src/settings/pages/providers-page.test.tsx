@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import "../../i18n";
 import type { CliToolStatus } from "../../types/agent";
 import type { OperationTask } from "../../types/operation";
-import { ProvidersPage } from "./providers-page";
+import { ProvidersPage, refreshButtonState } from "./providers-page";
 
 const cliTool: CliToolStatus = {
   agentId: "claude-code",
@@ -55,5 +55,21 @@ describe("ProvidersPage CLI management rendering", () => {
     expect(html).toContain("C:\\Users\\dev\\claude.cmd");
     expect(html).toContain("最近操作");
     expect(html).toContain("已成功");
+  });
+
+  it("derives refresh button loading state from mutation or operation status", () => {
+    expect(refreshButtonState(true, undefined)).toMatchObject({
+      disabled: true,
+      labelKey: "cli.refreshing",
+    });
+    expect(refreshButtonState(false, { ...operation, status: "queued" })).toMatchObject({
+      disabled: true,
+      labelKey: "cli.refreshing",
+    });
+    expect(refreshButtonState(false, { ...operation, status: "running" }).iconClassName).toContain("animate-spin");
+    expect(refreshButtonState(false, { ...operation, status: "failed" })).toMatchObject({
+      disabled: false,
+      labelKey: "cli.refresh",
+    });
   });
 });

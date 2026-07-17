@@ -168,3 +168,59 @@ The main layout UI SHALL provide a create-session dialog with Agent, project fol
 #### Scenario: Submit concise failures
 - **WHEN** project inspection, folder selection, or session creation fails
 - **THEN** the dialog SHALL show a concise error message without rendering raw stdout or stderr
+
+### Requirement: Polished workspace shell visuals
+The workspace shell SHALL apply the shared visual design system consistently to the top bar, sidebar, main content panel, composer area, information panel, status bar, dialogs, and session cards.
+
+#### Scenario: Workspace panel rhythm
+- **WHEN** the workspace shell renders sidebar, main content, and information panel surfaces
+- **THEN** panels SHALL use consistent border strength, panel backgrounds, radius, spacing, and shadow depth
+- **AND** panel transitions and collapse controls SHALL remain visually aligned in both `futuristic` and `minimal` styles
+
+#### Scenario: Session list visual hierarchy
+- **WHEN** session cards, folder groups, activity groups, pinned areas, and archived areas render
+- **THEN** they SHALL use consistent list-row density, icons, status markers, text hierarchy, hover states, and selected states
+- **AND** long titles, folder paths, and agent labels SHALL not overlap adjacent controls
+
+### Requirement: Workspace icon and toolbar polish
+The workspace shell SHALL use consistent icons and compact toolbar controls for high-frequency workspace actions.
+
+#### Scenario: Workspace action icons
+- **WHEN** the top bar, sidebar utility row, session card context actions, create-session dialog, information panel tabs, or composer controls render actions
+- **THEN** controls SHALL use consistent lucide or existing project icons where icons improve recognition
+- **AND** icon-only controls SHALL have translated tooltips or accessible labels
+
+#### Scenario: Compact grouped controls
+- **WHEN** related workspace actions are displayed together
+- **THEN** they SHALL use compact grouped-control styling with stable dimensions, consistent gaps, and clear active states
+- **AND** hover or active styles SHALL not cause neighboring controls to shift
+
+### Requirement: Workspace theme refinement
+The workspace shell SHALL preserve functional layout behavior while improving visual quality in both registered styles.
+
+#### Scenario: Futuristic workspace appearance
+- **WHEN** `futuristic` style is active
+- **THEN** the workspace SHALL present a dark, focused operational surface with subtle panel depth, readable transcript content, and clear primary/status accents
+
+#### Scenario: Minimal workspace appearance
+- **WHEN** `minimal` style is active
+- **THEN** the workspace SHALL present a bright, crisp operational surface with low visual noise, clear separation between panels, and readable compact controls
+
+### Requirement: Localized workspace shell text
+The workspace shell SHALL render sidebar, status bar, information panel, session actions, and create-session dialog text through synchronized zh-CN and en translation resources.
+
+#### Scenario: Create-session dialog localized
+- **WHEN** the create-session dialog renders in Simplified Chinese or English
+- **THEN** its title, description, project folder labels, browse action, Git/worktree helper text, worktree labels, session name labels, placeholders, create action, cancel action, and user-facing validation errors SHALL use the active locale
+
+#### Scenario: Workspace panel labels localized
+- **WHEN** the workspace shell renders sidebar, main content, information panel, status bar, or context menus in Simplified Chinese or English
+- **THEN** user-visible labels, tab names, badges, context actions, confirmations, empty states, and helper text SHALL use the active locale
+
+#### Scenario: Workspace date formatting localized
+- **WHEN** workspace session cards or message-adjacent UI render user-visible dates
+- **THEN** date formatting SHALL follow the active application language rather than always using a fixed locale
+
+#### Scenario: Preserve workspace identifiers
+- **WHEN** the workspace shell displays Agent ids, interaction mode ids, project paths, worktree names, branch names, or command-like values
+- **THEN** those values MAY remain literal while surrounding labels and helper text use the active locale

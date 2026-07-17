@@ -1,6 +1,7 @@
-import { Boxes, Plus, RefreshCw, Upload } from "lucide-react";
+import { Boxes, Cable, Plus, RefreshCw, Upload, Wrench } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
 import type { McpImportExport, McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
@@ -26,6 +27,7 @@ async function loadMcpServersAndStatuses() {
 }
 
 export function McpPage({ searchTerm }: { searchTerm: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editingServer, setEditingServer] = useState<McpServerConfig | null | undefined>();
   const [showImportExport, setShowImportExport] = useState(false);
@@ -47,7 +49,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     },
     onSuccess: async () => {
       setEditingServer(undefined);
-      setNotice("MCP server saved");
+      setNotice(t("mcp.notice.saved"));
       await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
     },
   });
@@ -68,7 +70,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
       result: await mcpService.testConnection(server.name),
     }),
     onSuccess: async ({ server, result }) => {
-      setNotice(result.success ? `${server.name} test passed with ${result.tools.length} tools` : `${server.name} test failed`);
+      setNotice(result.success ? t("mcp.notice.testPassed", { name: server.name, count: result.tools.length }) : t("mcp.notice.testFailed", { name: server.name }));
       if (!result.success && result.error) setError(result.error);
       await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
     },
@@ -121,14 +123,14 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   }
 
   async function deleteServer(server: McpServerConfig) {
-    if (!window.confirm(`Delete MCP server ${server.name}?`)) return;
+    if (!window.confirm(t("mcp.confirm.delete", { name: server.name }))) return;
     setError(null);
     await deleteServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
   async function importServers(data: McpImportExport, scope: McpScope) {
     const result = await importServersMutation.mutateAsync({ data, scope });
-    return `Imported ${result.imported.length}, skipped ${result.skipped.length}`;
+    return t("mcp.notice.imported", { imported: result.imported.length, skipped: result.skipped.length });
   }
 
   async function exportServers(names: string[]) {
@@ -165,47 +167,48 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
           <>
             <Button disabled={serversQuery.isFetching} variant="outline" onClick={() => void serversQuery.refetch()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              {serversQuery.isFetching ? "Refreshing" : "Refresh"}
+              {serversQuery.isFetching ? t("mcp.refreshing") : t("mcp.refresh")}
             </Button>
             <Button variant="outline" onClick={() => setShowImportExport(true)}>
               <Upload className="h-4 w-4" aria-hidden="true" />
-              Import/Export
+              {t("mcp.importExport")}
             </Button>
             <Button onClick={() => setEditingServer(null)}>
               <Plus className="h-4 w-4" aria-hidden="true" />
-              Add MCP
+              {t("mcp.add")}
             </Button>
           </>
         }
-        description="Manage MCP server configuration, connection tests, and discovered tools"
-        title="MCP Servers"
+        description={t("mcp.description")}
+        icon={Boxes}
+        title={t("mcp.title")}
       />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="Servers" value={String(servers.length)} hint="Visible in user and project scopes" />
-        <StatCard label="Recently Passed" value={String(connectedCount)} hint="From cached test status" />
-        <StatCard label="Total Tools" value={String(totalTools)} hint={averageDuration ? `Average ${averageDuration}ms` : "Not tested"} />
+        <StatCard icon={Boxes} label={t("mcp.stats.servers")} value={String(servers.length)} hint={t("mcp.stats.serversHint")} />
+        <StatCard icon={Cable} label={t("mcp.stats.connected")} value={String(connectedCount)} hint={t("mcp.stats.connectedHint")} />
+        <StatCard icon={Wrench} label={t("mcp.stats.totalTools")} value={String(totalTools)} hint={averageDuration ? t("mcp.stats.average", { duration: averageDuration }) : t("mcp.stats.notTested")} />
       </div>
 
       {visibleError ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{visibleError}</div> : null}
       {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
 
       {serversQuery.isLoading ? (
-        <SectionPanel title="MCP Servers">
-          <div className="py-8 text-center text-sm text-muted-foreground">Loading MCP servers</div>
+        <SectionPanel title={t("mcp.title")}>
+          <div className="py-8 text-center text-sm text-muted-foreground">{t("mcp.loading")}</div>
         </SectionPanel>
       ) : visibleServers.length ? (
         <>
-          {renderGroup("User Configuration", userServers)}
-          {renderGroup("Project Configuration", projectServers)}
+          {renderGroup(t("mcp.group.user"), userServers)}
+          {renderGroup(t("mcp.group.project"), projectServers)}
         </>
       ) : (
-        <SectionPanel title="MCP Servers">
+        <SectionPanel title={t("mcp.title")}>
           <div className="flex min-h-40 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
             <Boxes className="h-8 w-8" aria-hidden="true" />
-            <div>No visible MCP servers</div>
+            <div>{t("mcp.empty")}</div>
             <button className="text-primary underline-offset-4 hover:underline" onClick={() => setEditingServer(null)} type="button">
-              Add the first MCP server
+              {t("mcp.emptyAction")}
             </button>
           </div>
         </SectionPanel>

@@ -1,5 +1,6 @@
 import type { AgentService } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
+import { i18n } from "../i18n";
 import type {
   CliToolStatus,
   CreateSessionInput,
@@ -12,6 +13,7 @@ import type {
 } from "../types/agent";
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
+import { createWebMockOperation } from "./web-operation-client";
 import type {
   Skill,
   SkillAgentMountPath,
@@ -25,6 +27,18 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+
+function tr(key: string) {
+  return i18n.t(key);
+}
+
+function webLocalCliDetectionMessage() {
+  return tr("web.error.localCliDetection");
+}
+
+function webCliPackageOperationsMessage() {
+  return tr("web.error.cliPackageOperations");
+}
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
@@ -138,7 +152,7 @@ const webCliTools: CliToolStatus[] = [
     detectedPath: null,
     installCommand: "npm install -g @anthropic-ai/claude-code@latest",
     lastCheckedAt: null,
-    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
   },
@@ -155,7 +169,7 @@ const webCliTools: CliToolStatus[] = [
     detectedPath: null,
     installCommand: "npm install -g @openai/codex@latest",
     lastCheckedAt: null,
-    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
   },
@@ -172,7 +186,7 @@ const webCliTools: CliToolStatus[] = [
     detectedPath: null,
     installCommand: "npm install -g @google/gemini-cli@latest",
     lastCheckedAt: null,
-    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
   },
@@ -189,7 +203,7 @@ const webCliTools: CliToolStatus[] = [
     detectedPath: null,
     installCommand: "npm install -g opencode-ai@latest",
     lastCheckedAt: null,
-    lastError: "Local CLI detection is only available in the desktop runtime.",
+    lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
     versionCheckStatus: "unsupported",
   },
@@ -455,51 +469,39 @@ export const webAgentClient: AgentService = {
   },
 
   async listCliTools() {
-    return webCliTools.map((tool) => ({ ...tool, availableVersions: [...tool.availableVersions] }));
+    return webCliTools.map((tool) => ({
+      ...tool,
+      availableVersions: [...tool.availableVersions],
+      lastError: webLocalCliDetectionMessage(),
+    }));
   },
 
   async refreshCliDetections(): Promise<OperationTask> {
     const timestamp = nowIso();
-    return {
-      id: `web-cli-refresh-${timestamp}`,
-      kind: "agent",
-      status: "failed",
+    const message = webLocalCliDetectionMessage();
+    const operationId = `web-cli-refresh-${timestamp}`;
+    return createWebMockOperation({
+      id: operationId,
       relatedEntityId: null,
-      message: "Local CLI detection is only available in the desktop runtime.",
-      logs: [
-        {
-          operationId: `web-cli-refresh-${timestamp}`,
-          line: "Local CLI detection is only available in the desktop runtime.",
-          timestamp,
-        },
-      ],
-      result: null,
-      error: "Local CLI detection is only available in the desktop runtime.",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
+      message,
+      terminalStatus: "failed",
+      error: message,
+      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
+    });
   },
 
-  async installCliVersion(): Promise<OperationTask> {
+  async installCliVersion(input): Promise<OperationTask> {
     const timestamp = nowIso();
-    return {
-      id: `web-cli-install-${timestamp}`,
-      kind: "agent",
-      status: "failed",
-      relatedEntityId: null,
-      message: "CLI package operations are only available in the desktop runtime.",
-      logs: [
-        {
-          operationId: `web-cli-install-${timestamp}`,
-          line: "CLI package operations are only available in the desktop runtime.",
-          timestamp,
-        },
-      ],
-      result: null,
-      error: "CLI package operations are only available in the desktop runtime.",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
+    const message = webCliPackageOperationsMessage();
+    const operationId = `web-cli-install-${input.agentId}-${timestamp}`;
+    return createWebMockOperation({
+      id: operationId,
+      relatedEntityId: input.agentId,
+      message,
+      terminalStatus: "failed",
+      error: message,
+      result: { agentId: input.agentId, targetVersion: input.targetVersion },
+    });
   },
 
   async getAgentById(agentId) {
@@ -583,7 +585,7 @@ export const webAgentClient: AgentService = {
 
   async inspectProject(path: string) {
     if (!path.trim()) {
-      throw new Error("Project path is required");
+      throw new Error(tr("web.error.projectPathRequired"));
     }
     return inspectMockProject(path);
   },
@@ -621,7 +623,7 @@ export const webAgentClient: AgentService = {
     const timestamp = nowIso();
     const session: Session = {
       id: `web-session-${nextSessionId}`,
-      title: input.title?.trim() || "新会话",
+      title: input.title?.trim() || tr("createSession.sessionPlaceholder"),
       agentId: input.agentId,
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
@@ -676,7 +678,7 @@ export const webAgentClient: AgentService = {
   async renameSession(sessionId: string, title: string) {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      throw new Error("Session title cannot be empty.");
+      throw new Error(tr("web.error.sessionTitleRequired"));
     }
     return updateSession(sessionId, { title: trimmedTitle });
   },
@@ -835,7 +837,7 @@ export const webAgentClient: AgentService = {
 
   async updateSkill(skillId, input: SkillUpdateInput) {
     if (input.metadata.id !== skillId) {
-      throw new Error("Skill id cannot be changed.");
+      throw new Error(tr("web.error.skillIdImmutable"));
     }
     const current = findWebSkill(skillId, input);
     const updated: Skill = {
@@ -915,12 +917,12 @@ export const webAgentClient: AgentService = {
       metadata: {
         id,
         name: id,
-        description: "Imported Skill from Web mock adapter.",
+        description: tr("web.skill.importedDescription"),
         category: "imported",
         version: "1.0.0",
         triggers: [],
       },
-      body: "Imported Skill mock body.",
+      body: tr("web.skill.importedBody"),
       enabled: input.enabled,
       boundAgentIds: input.boundAgentIds,
       source: "imported",
@@ -933,7 +935,7 @@ export const webAgentClient: AgentService = {
       type: "deleted-builtin" as const,
       agentId: null,
       path: null,
-      message: "Built-in Skill is deleted and can be restored.",
+      message: tr("web.skill.restoreMessage"),
     }));
     return {
       scope: input.scope,

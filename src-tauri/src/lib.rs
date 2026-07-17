@@ -707,7 +707,10 @@ fn apply_project_worktree_migration(conn: &Connection) -> Result<(), AppError> {
         "worktree_branch",
     ] {
         if !table_has_column(conn, "sessions", column)? {
-            conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"), [])?;
+            conn.execute(
+                &format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"),
+                [],
+            )?;
         }
     }
     Ok(())
@@ -1047,6 +1050,76 @@ fn install_command_for(definition: CliToolDefinition) -> String {
     format!("npm install -g {}@latest", definition.package_name)
 }
 
+fn cli_package_install_args(definition: CliToolDefinition, target_version: &str) -> Vec<String> {
+    vec![
+        "install".to_string(),
+        "-g".to_string(),
+        format!("{}@{}", definition.package_name, target_version),
+    ]
+}
+
+fn sanitized_cli_environment_context() -> BTreeMap<String, String> {
+    let mut context = BTreeMap::new();
+    context.insert("os".to_string(), std::env::consts::OS.to_string());
+    context.insert("arch".to_string(), std::env::consts::ARCH.to_string());
+    context.insert(
+        "pathConfigured".to_string(),
+        std::env::var_os("PATH").is_some().to_string(),
+    );
+    context.insert(
+        "npmConfigUserconfigConfigured".to_string(),
+        std::env::var_os("NPM_CONFIG_USERCONFIG")
+            .is_some()
+            .to_string(),
+    );
+    context
+}
+
+struct CliPackageFailureDetails<'a> {
+    target_version: &'a str,
+    npm_executable: &'a str,
+    args: &'a [String],
+    stdout: Option<&'a str>,
+    stderr: Option<&'a str>,
+    exit_status: Option<&'a str>,
+    timeout_reason: Option<&'a str>,
+    error: &'a str,
+}
+
+fn cli_package_failure_context(
+    definition: CliToolDefinition,
+    operation_id: &str,
+    details: CliPackageFailureDetails<'_>,
+) -> BTreeMap<String, String> {
+    let mut context = cli_definition_context(definition, operation_id);
+    context.insert(
+        "targetVersion".to_string(),
+        details.target_version.to_string(),
+    );
+    context.insert(
+        "npmExecutable".to_string(),
+        details.npm_executable.to_string(),
+    );
+    context.insert("npmArguments".to_string(), details.args.join(" "));
+    context.insert("error".to_string(), details.error.to_string());
+    if let Some(stdout) = details.stdout {
+        context.insert("stdout".to_string(), stdout.to_string());
+    }
+    if let Some(stderr) = details.stderr {
+        context.insert("stderr".to_string(), stderr.to_string());
+    }
+    if let Some(exit_status) = details.exit_status {
+        context.insert("exitStatus".to_string(), exit_status.to_string());
+    }
+    if let Some(timeout_reason) = details.timeout_reason {
+        context.insert("timeoutReason".to_string(), timeout_reason.to_string());
+    }
+    for (key, value) in sanitized_cli_environment_context() {
+        context.insert(key, value);
+    }
+    context
+}
+
 fn status_from_row(
     definition: CliToolDefinition,
     row: Option<(
@@ -1238,7 +1311,12 @@ fn first_output_line(output: &CapturedCommandOutput) -> Option<String> {
         .map(|line| line.to_string())
 }
 
-fn detect_cli_tool(definition: CliToolDefinition, operation_id: &str) -> CliToolStatus {
+fn detect_cli_tool(
+    app: Option<&AppHandle>,
+    registry: Option<&tasks::registry::TaskRegistry>,
+    definition: CliToolDefinition,
+    operation_id: &str,
+) -> CliToolStatus {
     let now = current_timestamp();
     let detected_path = resolve_command_path(definition.executable_name);
     let mut current_version = None;
@@ -1250,7 +1328,17 @@ fn detect_cli_tool(definition: CliToolDefinition, operation_id: &str) -> CliTool
         let mut command = match command_safety::std_command(path) {
             Ok(command) => command,
             Err(error) => {
-                errors.push(error.to_string());
+                let reason = error.to_string();
+                log_cli_detection_failure(
+                    app,
+                    registry,
+                    operation_id,
+                    definition,
+                    "resolve-executable",
+                    &reason,
+                    None,
+                );
+                errors.push(reason);
                 return CliToolStatus {
                     agent_id: definition.agent_id.to_string(),
                     display_name: definition.display_name.to_string(),
@@ -1273,22 +1361,67 @@ fn detect_cli_tool(definition: CliToolDefinition, operation_id: &str) -> CliTool
         command.arg("--version");
         match command_output_with_timeout(&mut command, Duration::from_secs(3)) {
             Ok(output) if output.success => current_version = first_output_line(&output),
-            Ok(output) => errors
-                .push(first_output_line(&output).unwrap_or_else(|| {
-                    format!("{} --version failed.", definition.executable_name)
-                })),
-            Err(error) => errors.push(error),
+            Ok(output) => {
+                let reason = first_output_line(&output)
+                    .unwrap_or_else(|| format!("{} --version failed.", definition.executable_name));
+                log_cli_detection_failure(
+                    app,
+                    registry,
+                    operation_id,
+                    definition,
+                    "executable-version",
+                    &reason,
+                    Some(&output),
+                );
+                errors.push(reason);
+            }
+            Err(error) => {
+                log_cli_detection_failure(
+                    app,
+                    registry,
+                    operation_id,
+                    definition,
+                    "executable-version",
+                    &error,
+                    None,
+                );
+                errors.push(error);
+            }
         }
     }
 
     match npm_view_package(definition.package_name, &["version"]) {
         Ok(version) => latest_version = Some(version),
-        Err(error) => errors.push(error.to_string()),
+        Err(error) => {
+            let reason = error.to_string();
+            log_cli_detection_failure(
+                app,
+                registry,
+                operation_id,
+                definition,
+                "npm-view-version",
+                &reason,
+                None,
+            );
+            errors.push(reason);
+        }
     }
 
     match npm_view_package(definition.package_name, &["versions", "--json"]) {
         Ok(raw) => available_versions = stable_versions_from_npm_json(&raw, 20),
-        Err(error) => errors.push(error.to_string()),
+        Err(error) => {
+            let reason = error.to_string();
+            log_cli_detection_failure(
+                app,
+                registry,
+                operation_id,
+                definition,
+                "npm-view-versions",
+                &reason,
+                None,
+            );
+            errors.push(reason);
+        }
     }
 
     let installed = detected_path.is_some();
@@ -1348,6 +1481,107 @@ fn stable_versions_from_npm_json(raw: &str, limit: usize) -> Vec<String> {
         .collect()
 }
 
+fn cli_definition_context(
+    definition: CliToolDefinition,
+    operation_id: &str,
+) -> BTreeMap<String, String> {
+    let mut context = BTreeMap::new();
+    context.insert("operationId".to_string(), operation_id.to_string());
+    context.insert("agentId".to_string(), definition.agent_id.to_string());
+    context.insert(
+        "displayName".to_string(),
+        definition.display_name.to_string(),
+    );
+    context.insert("provider".to_string(), definition.provider.to_string());
+    context.insert(
+        "executableName".to_string(),
+        definition.executable_name.to_string(),
+    );
+    context.insert(
+        "packageName".to_string(),
+        definition.package_name.to_string(),
+    );
+    context
+}
+
+fn write_cli_diagnostic_log_to_conn(
+    conn: &Connection,
+    level: logging::LogLevel,
+    message: &str,
+    context: BTreeMap<String, String>,
+) -> Result<(), AppError> {
+    logging::write_message(
+        &active_log_dir_from_conn(conn)?,
+        level,
+        "cli.diagnostic",
+        message,
+        context,
+    )
+}
+
+fn write_cli_diagnostic_log(
+    app: &AppHandle,
+    level: logging::LogLevel,
+    message: &str,
+    context: BTreeMap<String, String>,
+) {
+    let result = (|| -> Result<(), AppError> {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        write_cli_diagnostic_log_to_conn(&conn, level, message, context)
+    })();
+    if let Err(error) = result {
+        record_native_error("cli.diagnostic", &error);
+    }
+}
+
+fn log_cli_detection_failure(
+    app: Option<&AppHandle>,
+    registry: Option<&tasks::registry::TaskRegistry>,
+    operation_id: &str,
+    definition: CliToolDefinition,
+    attempted_operation: &str,
+    reason: &str,
+    output: Option<&CapturedCommandOutput>,
+) {
+    if let (Some(app), Some(registry)) = (app, registry) {
+        append_cli_log(
+            app,
+            registry,
+            operation_id,
+            Some(definition.agent_id),
+            &format!(
+                "{} {} failed: {reason}",
+                definition.display_name, attempted_operation
+            ),
+            logging::LogLevel::Warn,
+        );
+        let mut context = cli_definition_context(definition, operation_id);
+        context.insert(
+            "attemptedOperation".to_string(),
+            attempted_operation.to_string(),
+        );
+        context.insert("reason".to_string(), reason.to_string());
+        if let Some(output) = output {
+            context.insert("stdout".to_string(), output.stdout.clone());
+            context.insert("stderr".to_string(), output.stderr.clone());
+            context.insert("exitStatus".to_string(), output.status.clone());
+        }
+        if reason.to_ascii_lowercase().contains("timed out") {
+            context.insert("timeoutReason".to_string(), reason.to_string());
+        }
+        write_cli_diagnostic_log(
+            app,
+            logging::LogLevel::Warn,
+            "CLI detection diagnostic failure.",
+            context,
+        );
+    }
+}
+
 fn is_stable_version(version: &str) -> bool {
     !version.contains('-')
         && version
@@ -1384,6 +1618,7 @@ struct CapturedCommandOutput {
     success: bool,
     stdout: String,
     stderr: String,
+    status: String,
 }
 
 fn command_output_with_timeout(
@@ -1406,6 +1641,11 @@ fn command_output_with_timeout(
                     success: output.status.success(),
                     stdout: String::from_utf8_lossy(&output.stdout).trim().to_string(),
                     stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+                    status: output
+                        .status
+                        .code()
+                        .map(|code| code.to_string())
+                        .unwrap_or_else(|| output.status.to_string()),
                 });
             }
             Ok(None) if start.elapsed() >= timeout => {
@@ -1663,7 +1903,9 @@ fn display_name_for_path(path: &Path) -> String {
 fn canonical_project_path(path: &str) -> Result<PathBuf, AppError> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err(AppError::Validation("Project path is required.".to_string()));
+        return Err(AppError::Validation(
+            "Project path is required.".to_string(),
+        ));
     }
     let path = PathBuf::from(trimmed);
     std::fs::canonicalize(&path).map_err(|error| {
@@ -1677,7 +1919,10 @@ fn canonical_project_path(path: &str) -> Result<PathBuf, AppError> {
 }
 
 fn run_git_capture(args: &[&str]) -> Result<std::process::Output, AppError> {
-    let audit_args = args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>();
+    let audit_args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
     command_safety::audit_command("git.project", "git", &audit_args);
     command_safety::std_command("git")?
         .args(args)
@@ -1700,12 +1945,7 @@ fn output_text(bytes: &[u8]) -> String {
 fn inspect_project_inner(path: &str) -> Result<ProjectInspection, AppError> {
     let canonical = canonical_project_path(path)?;
     let canonical_string = canonical.to_string_lossy().to_string();
-    let output = run_git_capture(&[
-        "-C",
-        &canonical_string,
-        "rev-parse",
-        "--show-toplevel",
-    ]);
+    let output = run_git_capture(&["-C", &canonical_string, "rev-parse", "--show-toplevel"]);
     let git_root = match output {
         Ok(output) if output.status.success() => {
             let root = output_text(&output.stdout);
@@ -1796,7 +2036,9 @@ fn resolve_worktree_target(project_path: &Path, worktree_name: &str) -> Result<P
         .ok_or_else(|| AppError::Validation("Project name unavailable".to_string()))?;
     let target = parent.join(format!("{project_name}-{worktree_name}"));
     if target.exists() {
-        return Err(AppError::Validation("Git worktree target exists".to_string()));
+        return Err(AppError::Validation(
+            "Git worktree target exists".to_string(),
+        ));
     }
     if is_path_inside(&target, project_path) {
         return Err(AppError::Validation("Invalid worktree target".to_string()));
@@ -2227,7 +2469,7 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String) {
             ),
             logging::LogLevel::Info,
         );
-        let status = detect_cli_tool(definition, &operation_id);
+        let status = detect_cli_tool(Some(&app), Some(&registry), definition, &operation_id);
         if let Some(error) = status.last_error.as_deref() {
             append_cli_log(
                 &app,
@@ -2301,9 +2543,8 @@ fn run_cli_package_operation(
     target_version: String,
 ) {
     let registry = app.state::<tasks::registry::TaskRegistry>();
-    let package_spec = format!("{}@{}", definition.package_name, target_version);
-    let args = ["install", "-g", package_spec.as_str()];
-    let audit_args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    let npm = npm_executable();
+    let args = cli_package_install_args(definition, &target_version);
     append_cli_log(
         &app,
         &registry,
@@ -2315,21 +2556,56 @@ fn run_cli_package_operation(
         ),
         logging::LogLevel::Info,
     );
+    append_cli_log(
+        &app,
+        &registry,
+        &operation_id,
+        Some(definition.agent_id),
+        &format!("npm executable: {npm}; args: {}", args.join(" ")),
+        logging::LogLevel::Info,
+    );
 
-    let mut command = match command_safety::std_command(npm_executable()) {
+    let mut command = match command_safety::std_command(npm) {
         Ok(command) => command,
         Err(error) => {
-            persist_cli_operation_error(&app, definition, &operation_id, &error.to_string());
-            let _ = registry.fail(&operation_id, error.to_string());
+            let error = error.to_string();
+            let context = cli_package_failure_context(
+                definition,
+                &operation_id,
+                CliPackageFailureDetails {
+                    target_version: &target_version,
+                    npm_executable: npm,
+                    args: &args,
+                    stdout: None,
+                    stderr: None,
+                    exit_status: None,
+                    timeout_reason: None,
+                    error: &error,
+                },
+            );
+            write_cli_diagnostic_log(
+                &app,
+                logging::LogLevel::Error,
+                "CLI package operation failed before npm launch.",
+                context,
+            );
+            persist_cli_operation_error(&app, definition, &operation_id, &error);
+            let _ = registry.fail(&operation_id, error);
             return;
         }
     };
-    command_safety::audit_command("cli.npm.install", npm_executable(), &audit_args);
-    command.args(args);
+    command_safety::audit_command("cli.npm.install", npm, &args);
+    command.args(&args);
 
     match command_output_with_timeout(&mut command, Duration::from_secs(300)) {
         Ok(output) if output.success => {
-            append_command_logs(&app, &registry, &operation_id, Some(definition.agent_id), &output);
+            append_command_logs(
+                &app,
+                &registry,
+                &operation_id,
+                Some(definition.agent_id),
+                &output,
+            );
             append_cli_log(
                 &app,
                 &registry,
@@ -2338,7 +2614,7 @@ fn run_cli_package_operation(
                 &format!("npm install completed for {}.", definition.display_name),
                 logging::LogLevel::Info,
             );
-            let status = detect_cli_tool(definition, &operation_id);
+            let status = detect_cli_tool(Some(&app), Some(&registry), definition, &operation_id);
             let persist_result = (|| -> Result<(), AppError> {
                 let store = app.state::<Mutex<RegistryStore>>();
                 let store = store
@@ -2356,18 +2632,76 @@ fn run_cli_package_operation(
                     let _ = registry.complete(&operation_id, Some(result));
                 }
                 Err(error) => {
+                    append_cli_log(
+                        &app,
+                        &registry,
+                        &operation_id,
+                        Some(definition.agent_id),
+                        &format!("Failed to persist CLI package result: {error}"),
+                        logging::LogLevel::Error,
+                    );
                     let _ = registry.fail(&operation_id, error.to_string());
                 }
             }
         }
         Ok(output) => {
-            append_command_logs(&app, &registry, &operation_id, Some(definition.agent_id), &output);
+            append_command_logs(
+                &app,
+                &registry,
+                &operation_id,
+                Some(definition.agent_id),
+                &output,
+            );
             let error =
                 first_output_line(&output).unwrap_or_else(|| "npm install failed".to_string());
+            let context = cli_package_failure_context(
+                definition,
+                &operation_id,
+                CliPackageFailureDetails {
+                    target_version: &target_version,
+                    npm_executable: npm,
+                    args: &args,
+                    stdout: Some(&output.stdout),
+                    stderr: Some(&output.stderr),
+                    exit_status: Some(&output.status),
+                    timeout_reason: None,
+                    error: &error,
+                },
+            );
+            write_cli_diagnostic_log(
+                &app,
+                logging::LogLevel::Error,
+                "CLI package operation failed.",
+                context,
+            );
             persist_cli_operation_error(&app, definition, &operation_id, &error);
             let _ = registry.fail(&operation_id, error);
         }
         Err(error) => {
+            let timeout_reason = error
+                .to_ascii_lowercase()
+                .contains("timed out")
+                .then_some(error.as_str());
+            let context = cli_package_failure_context(
+                definition,
+                &operation_id,
+                CliPackageFailureDetails {
+                    target_version: &target_version,
+                    npm_executable: npm,
+                    args: &args,
+                    stdout: None,
+                    stderr: None,
+                    exit_status: None,
+                    timeout_reason,
+                    error: &error,
+                },
+            );
+            write_cli_diagnostic_log(
+                &app,
+                logging::LogLevel::Error,
+                "CLI package operation failed.",
+                context,
+            );
             persist_cli_operation_error(&app, definition, &operation_id, &error);
             let _ = registry.fail(&operation_id, error);
         }
@@ -2387,7 +2721,14 @@ fn append_command_logs(
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        append_cli_log(app, registry, operation_id, agent_id, line, logging::LogLevel::Info);
+        append_cli_log(
+            app,
+            registry,
+            operation_id,
+            agent_id,
+            line,
+            logging::LogLevel::Info,
+        );
     }
     for line in output
         .stderr
@@ -2395,7 +2736,14 @@ fn append_command_logs(
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
-        append_cli_log(app, registry, operation_id, agent_id, line, logging::LogLevel::Warn);
+        append_cli_log(
+            app,
+            registry,
+            operation_id,
+            agent_id,
+            line,
+            logging::LogLevel::Warn,
+        );
     }
 }
 
@@ -2544,10 +2892,17 @@ fn resolve_agent_cli_executable(
     agent: &AgentRegistryEntry,
 ) -> Result<String, String> {
     let Some(definition) = cli_tool_definition(&agent.id) else {
-        return Err(format!("{} is not supported by the generic CLI adapter.", agent.display_name));
+        return Err(format!(
+            "{} is not supported by the generic CLI adapter.",
+            agent.display_name
+        ));
     };
-    let cached_status = load_cli_tool_status(conn, definition).map_err(|error| error.to_string())?;
-    if let Some(path) = cached_status.detected_path.filter(|path| !path.trim().is_empty()) {
+    let cached_status =
+        load_cli_tool_status(conn, definition).map_err(|error| error.to_string())?;
+    if let Some(path) = cached_status
+        .detected_path
+        .filter(|path| !path.trim().is_empty())
+    {
         return Ok(path);
     }
     resolve_command_path(definition.executable_name).ok_or_else(|| {
@@ -2571,7 +2926,8 @@ fn execute_generic_cli_agent(
         ));
     }
     let executable = resolve_agent_cli_executable(conn, agent)?;
-    let mut command = command_safety::std_command(&executable).map_err(|error| error.to_string())?;
+    let mut command =
+        command_safety::std_command(&executable).map_err(|error| error.to_string())?;
     command.arg(prompt);
     command_safety::audit_command(
         "session.runtime.cli",
@@ -2907,7 +3263,9 @@ fn launch_command_if_present(agent: &AgentRegistryEntry) -> Result<(), AppError>
 }
 
 #[tauri::command]
-fn list_known_projects(state: State<'_, Mutex<RegistryStore>>) -> Result<Vec<KnownProject>, AppError> {
+fn list_known_projects(
+    state: State<'_, Mutex<RegistryStore>>,
+) -> Result<Vec<KnownProject>, AppError> {
     let store = state
         .lock()
         .map_err(|err| AppError::Storage(err.to_string()))?;
@@ -2957,9 +3315,7 @@ fn create_session(
         .or(input.folder.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let inspection = selected_project
-        .map(inspect_project_inner)
-        .transpose()?;
+    let inspection = selected_project.map(inspect_project_inner).transpose()?;
     if let Some(inspection) = &inspection {
         upsert_known_project(&conn, inspection)?;
     }
@@ -3360,7 +3716,8 @@ fn send_message(
             &selected_agent.id,
             &error,
         );
-        let failed = fail_assistant_message(&conn, &assistant_message.id, &response, &concise_error)?;
+        let failed =
+            fail_assistant_message(&conn, &assistant_message.id, &response, &concise_error)?;
         update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Failed)?;
         runtime.complete(&session_id)?;
         let _ = app.emit(
@@ -3389,7 +3746,8 @@ fn send_message(
         input: trimmed_content.chars().count() as i64,
         output: response.chars().count() as i64,
     };
-    let completed = complete_assistant_message(&conn, &assistant_message.id, &response, &token_usage)?;
+    let completed =
+        complete_assistant_message(&conn, &assistant_message.id, &response, &token_usage)?;
     update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle)?;
     runtime.complete(&session_id)?;
     let _ = app.emit(
@@ -3431,7 +3789,8 @@ fn stop_generation_for_session(
         let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
-    if matches!(stop_outcome, StopGenerationOutcome::NoActiveGeneration) && streaming_ids.is_empty() {
+    if matches!(stop_outcome, StopGenerationOutcome::NoActiveGeneration) && streaming_ids.is_empty()
+    {
         return Ok(stop_outcome);
     }
     cancel_streaming_messages(conn, session_id)?;
@@ -3742,7 +4101,12 @@ mod tests {
 
         let inspection = inspect_project_inner(root.to_str().expect("utf8 path")).expect("inspect");
 
-        assert_eq!(inspection.path, std::fs::canonicalize(&root).expect("canonical").to_string_lossy());
+        assert_eq!(
+            inspection.path,
+            std::fs::canonicalize(&root)
+                .expect("canonical")
+                .to_string_lossy()
+        );
         assert!(!inspection.is_git);
         assert_eq!(inspection.git_root, None);
         let _ = std::fs::remove_dir_all(root);
@@ -3750,7 +4114,10 @@ mod tests {
 
     #[test]
     fn worktree_name_validation_rejects_unsafe_values() {
-        assert_eq!(validate_worktree_name("feature-a").expect("valid"), "feature-a");
+        assert_eq!(
+            validate_worktree_name("feature-a").expect("valid"),
+            "feature-a"
+        );
         assert!(validate_worktree_name("").is_err());
         assert!(validate_worktree_name("../bad").is_err());
         assert!(validate_worktree_name("bad\\name").is_err());
@@ -3800,9 +4167,15 @@ mod tests {
 
         assert_eq!(session.folder.as_deref(), Some("D:\\code\\app-feature-a"));
         assert_eq!(session.project_path.as_deref(), Some("D:\\code\\app"));
-        assert_eq!(session.worktree_path.as_deref(), Some("D:\\code\\app-feature-a"));
+        assert_eq!(
+            session.worktree_path.as_deref(),
+            Some("D:\\code\\app-feature-a")
+        );
         assert_eq!(session.worktree_name.as_deref(), Some("feature-a"));
-        assert_eq!(session.worktree_branch.as_deref(), Some("vanehub/feature-a"));
+        assert_eq!(
+            session.worktree_branch.as_deref(),
+            Some("vanehub/feature-a")
+        );
     }
 
     #[test]
@@ -4035,9 +4408,8 @@ mod tests {
         let session = load_session(&conn, "session-1").expect("session");
         update_active_workflow_for_session(&conn, &session).expect("active session");
 
-        let updated =
-            update_session_lifecycle(&conn, "session-1", SessionLifecycleState::Running)
-                .expect("update lifecycle");
+        let updated = update_session_lifecycle(&conn, "session-1", SessionLifecycleState::Running)
+            .expect("update lifecycle");
         let workflow = get_workflow_state_from_conn(&conn).expect("workflow");
 
         assert!(matches!(
@@ -4057,13 +4429,8 @@ mod tests {
         let assistant = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
             .expect("assistant");
 
-        let failed = fail_assistant_message(
-            &conn,
-            &assistant.id,
-            "",
-            "Codex CLI unavailable",
-        )
-        .expect("fail assistant");
+        let failed = fail_assistant_message(&conn, &assistant.id, "", "Codex CLI unavailable")
+            .expect("fail assistant");
 
         assert_eq!(failed.status, "failed");
         assert_eq!(failed.error.as_deref(), Some("Codex CLI unavailable"));
@@ -4200,6 +4567,91 @@ mod tests {
             "@openai/codex"
         );
         assert!(cli_tool_definition("unknown").is_none());
+    }
+
+    #[test]
+    fn cli_package_args_are_explicit_for_all_managed_clis() {
+        let expected = [
+            ("claude-code", "@anthropic-ai/claude-code", "claude"),
+            ("codex-cli", "@openai/codex", "codex"),
+            ("gemini-cli", "@google/gemini-cli", "gemini"),
+            ("opencode", "opencode-ai", "opencode"),
+        ];
+
+        for (agent_id, package_name, executable_name) in expected {
+            let definition = cli_tool_definition(agent_id).expect("managed cli definition");
+            assert_eq!(definition.package_name, package_name);
+            assert_eq!(definition.executable_name, executable_name);
+            assert_eq!(
+                cli_package_install_args(definition, "1.2.3"),
+                vec![
+                    "install".to_string(),
+                    "-g".to_string(),
+                    format!("{package_name}@1.2.3")
+                ]
+            );
+        }
+        assert!(cli_tool_definition("unsupported-cli").is_none());
+        assert!(is_stable_version("1.2.3"));
+        assert!(!is_stable_version("1.2.3-beta.1"));
+    }
+
+    #[test]
+    fn cli_diagnostic_logs_persist_through_unified_redaction() {
+        let conn = test_conn();
+        let dir = unique_temp_dir("cli-diagnostic-logs");
+        std::fs::create_dir_all(&dir).expect("log dir");
+        save_setting_to_conn(&conn, "logDirectory", dir.to_str().expect("utf8 dir"))
+            .expect("save log dir");
+
+        let definition = cli_tool_definition("opencode").expect("opencode definition");
+        let package_args = cli_package_install_args(definition, "1.18.2");
+        let package_context = cli_package_failure_context(
+            definition,
+            "op-package",
+            CliPackageFailureDetails {
+                target_version: "1.18.2",
+                npm_executable: "npm",
+                args: &package_args,
+                stdout: Some("token=abc123"),
+                stderr: Some("password:super-secret"),
+                exit_status: Some("1"),
+                timeout_reason: None,
+                error: "npm install failed token=abc123",
+            },
+        );
+        write_cli_diagnostic_log_to_conn(
+            &conn,
+            logging::LogLevel::Error,
+            "CLI package operation failed token=abc123.",
+            package_context,
+        )
+        .expect("write package log");
+
+        let mut detection_context = cli_definition_context(definition, "op-refresh");
+        detection_context.insert(
+            "attemptedOperation".to_string(),
+            "npm-view-version".to_string(),
+        );
+        detection_context.insert("reason".to_string(), "command timed out".to_string());
+        detection_context.insert("timeoutReason".to_string(), "command timed out".to_string());
+        write_cli_diagnostic_log_to_conn(
+            &conn,
+            logging::LogLevel::Warn,
+            "CLI detection diagnostic failure.",
+            detection_context,
+        )
+        .expect("write detection log");
+
+        let content = std::fs::read_to_string(dir.join("vanehub.log")).expect("log file");
+        assert!(content.contains("\"category\":\"cli.diagnostic\""));
+        assert!(content.contains("\"agentId\":\"opencode\""));
+        assert!(content.contains("\"npmArguments\":\"install -g opencode-ai@1.18.2\""));
+        assert!(content.contains("\"attemptedOperation\":\"npm-view-version\""));
+        assert!(content.contains("\"timeoutReason\":\"command timed out\""));
+        assert!(!content.contains("abc123"));
+        assert!(!content.contains("super-secret"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

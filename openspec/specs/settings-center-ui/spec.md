@@ -410,3 +410,70 @@ The Basic Settings page SHALL provide a log management section for the active ru
 #### Scenario: Disable native open action in Web runtime
 - **WHEN** the Basic Settings page runs with the Web/mock adapter
 - **THEN** it SHALL display the mock log path and keep the open log directory action disabled
+
+### Requirement: Polished settings visual system
+The settings center SHALL apply the shared visual design system consistently across the shell, navigation, page headers, page sections, cards, forms, tables, filters, and operation panels.
+
+#### Scenario: Settings shell visual consistency
+- **WHEN** the settings center shell renders
+- **THEN** top navigation, sidebar navigation, page content, and fixed scroll regions SHALL share consistent typography, spacing, border strength, panel treatment, hover states, and focus rings
+- **AND** the visual result SHALL remain coherent in both `futuristic` and `minimal` styles
+
+#### Scenario: Settings page visual consistency
+- **WHEN** Basic Configuration, CLI Management, SDK Dependencies, MCP Servers, Agents, or Skills pages render
+- **THEN** page headers, stat summaries, section panels, cards, form controls, empty states, status messages, and operation logs SHALL use shared primitives or shared visual classes
+- **AND** page-specific styling SHALL not create a conflicting radius, color, or spacing system
+
+### Requirement: Icon-enhanced settings interactions
+The settings center SHALL use icons to improve scanability of navigation and high-frequency actions.
+
+#### Scenario: Settings navigation icons
+- **WHEN** the settings sidebar renders page navigation
+- **THEN** each navigation entry SHALL include a stable icon that reflects the page purpose
+- **AND** the active, hover, and disabled states SHALL remain legible in both registered styles
+
+#### Scenario: Settings action icons
+- **WHEN** a settings page renders refresh, install, update, rollback, delete, import, export, add, edit, filter, copy, open, or settings actions
+- **THEN** the action SHALL include a consistent icon unless the control is purely textual by design
+- **AND** icon-only actions SHALL expose a translated tooltip or accessible label
+
+### Requirement: Settings theme refinement
+The settings center SHALL visibly differentiate and polish both registered styles without changing page behavior.
+
+#### Scenario: Futuristic style refinement
+- **WHEN** `futuristic` style is active
+- **THEN** settings surfaces SHALL use a dark operational appearance with subtle depth, restrained translucent or glass-like panels, clear blue primary accents, and readable muted text
+- **AND** borders and shadows SHALL add structure without making the page look noisy
+
+#### Scenario: Minimal style refinement
+- **WHEN** `minimal` style is active
+- **THEN** settings surfaces SHALL use a bright, crisp, low-shadow appearance with restrained borders, clear primary accents, and higher information density
+- **AND** the style SHALL not rely on dark-only contrast assumptions from `futuristic`
+
+### Requirement: Complete localized settings pages
+All settings center pages and settings-owned dialogs SHALL render user-visible text through synchronized zh-CN and en translation resources.
+
+#### Scenario: Agents settings page localized
+- **WHEN** the Agents settings page renders in Simplified Chinese or English
+- **THEN** its title, description, refresh action, filter controls, mode labels, configuration details, launch action, session detail labels, notices, and empty or error states SHALL use the active locale
+
+#### Scenario: SDK settings page localized
+- **WHEN** the SDK Dependencies page renders in Simplified Chinese or English
+- **THEN** its title, description, refresh and update actions, stat cards, section headings, SDK status labels, version labels, operation actions, confirmations, notices, errors, empty states, and operation log labels SHALL use the active locale
+
+#### Scenario: MCP settings page localized
+- **WHEN** the MCP Servers page and its forms or import/export dialogs render in Simplified Chinese or English
+- **THEN** titles, descriptions, actions, stat cards, scope labels, group labels, form labels, placeholders, validation messages, confirmations, notices, empty states, and modal controls SHALL use the active locale
+
+#### Scenario: Existing settings translations corrected
+- **WHEN** settings center locale resources contain equivalent zh-CN and en keys
+- **THEN** each pair SHALL describe the same product concept and action semantics
+- **AND** terminology for Agent, Skill, CLI, SDK, MCP, workspace, session, install, update, rollback, upgrade, and downgrade SHALL remain consistent across settings pages
+
+### Requirement: Settings i18n regression coverage
+The system SHALL include regression coverage that prevents settings pages from introducing untranslated visible text.
+
+#### Scenario: Detect untranslated settings literals
+- **WHEN** automated frontend tests run
+- **THEN** they SHALL verify locale key parity
+- **AND** they SHALL detect hard-coded user-visible strings in settings page components except for approved stable identifiers

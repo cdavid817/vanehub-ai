@@ -20,6 +20,37 @@ const baseTool: CliToolStatus = {
   versionCheckStatus: "succeeded",
 };
 
+const cliExamples: Array<Pick<CliToolStatus, "agentId" | "displayName" | "provider" | "executableName" | "packageName">> = [
+  {
+    agentId: "claude-code",
+    displayName: "Anthropic Claude Code CLI",
+    provider: "Anthropic",
+    executableName: "claude",
+    packageName: "@anthropic-ai/claude-code",
+  },
+  {
+    agentId: "opencode",
+    displayName: "OpenCode CLI",
+    provider: "OpenCode",
+    executableName: "opencode",
+    packageName: "opencode-ai",
+  },
+  {
+    agentId: "codex-cli",
+    displayName: "OpenAI Codex CLI",
+    provider: "OpenAI",
+    executableName: "codex",
+    packageName: "@openai/codex",
+  },
+  {
+    agentId: "gemini-cli",
+    displayName: "Google Gemini CLI",
+    provider: "Google",
+    executableName: "gemini",
+    packageName: "@google/gemini-cli",
+  },
+];
+
 describe("CLI management utilities", () => {
   it("compares stable versions", () => {
     expect(compareStableVersions("1.3.0", "1.2.9")).toBe(1);
@@ -34,5 +65,14 @@ describe("CLI management utilities", () => {
     expect(deriveCliVersionAction(baseTool, "1.1.0")).toBe("downgrade");
     expect(deriveCliVersionAction(baseTool, "1.2.0")).toBe("current");
     expect(deriveCliVersionAction(baseTool, null)).toBe("unavailable");
+  });
+
+  it("derives selected-version actions consistently for every managed CLI", () => {
+    for (const cli of cliExamples) {
+      const tool = { ...baseTool, ...cli };
+      expect(deriveCliVersionAction({ ...tool, installed: false, currentVersion: null }, "1.3.0")).toBe("install");
+      expect(deriveCliVersionAction(tool, "1.3.0")).toBe("upgrade");
+      expect(deriveCliVersionAction(tool, "1.1.0")).toBe("downgrade");
+    }
   });
 });

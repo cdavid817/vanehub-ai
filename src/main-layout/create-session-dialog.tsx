@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bot, Folder, GitBranch, Loader2, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
@@ -18,12 +19,12 @@ function firstMode(agent: AgentRegistryEntry | null): InteractionMode {
   return agent?.supportedInteractionModes[0] ?? "cli";
 }
 
-function conciseError(error: unknown) {
+function conciseError(error: unknown, t: (key: string) => string) {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("Git")) return "Git worktree failed";
-  if (message.includes("Project")) return "Project unavailable";
-  if (message.includes("Agent")) return "Agent unavailable";
-  return "Command failed";
+  if (message.includes("Git")) return t("createSession.error.git");
+  if (message.includes("Project")) return t("createSession.error.project");
+  if (message.includes("Agent")) return t("createSession.error.agent");
+  return t("createSession.error.command");
 }
 
 export function CreateSessionDialog({
@@ -37,6 +38,7 @@ export function CreateSessionDialog({
   onCreated: (session: Session) => void;
   open: boolean;
 }) {
+  const { t } = useTranslation();
   const availableAgents = useMemo(
     () =>
       preferredAgentIds
@@ -83,7 +85,7 @@ export function CreateSessionDialog({
     try {
       setInspection(await agentService.inspectProject(trimmed));
     } catch (inspectionError) {
-      setError(conciseError(inspectionError));
+      setError(conciseError(inspectionError, t));
     }
   }
 
@@ -95,7 +97,7 @@ export function CreateSessionDialog({
         await inspectPath(selectedPath);
       }
     } catch (browseError) {
-      setError(conciseError(browseError));
+      setError(conciseError(browseError, t));
     }
   }
 
@@ -115,7 +117,7 @@ export function CreateSessionDialog({
       const session = await agentService.createSession(input);
       onCreated(session);
     } catch (createError) {
-      setError(conciseError(createError));
+      setError(conciseError(createError, t));
     } finally {
       setLoading(false);
     }
@@ -127,11 +129,11 @@ export function CreateSessionDialog({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4">
-      <div className="grid max-h-[88vh] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+      <div className="ucd-panel grid max-h-[88vh] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl">
         <div className="flex items-center justify-between border-b border-border p-4">
           <div>
-            <h3 className="text-sm font-semibold">创建会话</h3>
-            <p className="mt-1 text-xs text-muted-foreground">选择 Agent、项目文件夹和可选 Git worktree。</p>
+            <h3 className="text-sm font-semibold">{t("createSession.title")}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">{t("createSession.description")}</p>
           </div>
           <Button className="h-8 w-8 px-0" onClick={onClose} variant="outline">
             <X className="h-4 w-4" aria-hidden="true" />
@@ -141,12 +143,12 @@ export function CreateSessionDialog({
         <div className="min-h-0 overflow-y-auto p-4">
           <div className="grid gap-4">
             <section className="grid gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Agent</span>
+              <span className="text-xs font-medium text-muted-foreground">{t("createSession.agent")}</span>
               <div className="grid grid-cols-2 gap-2">
                 {availableAgents.map((agent) => (
                   <button
                     className={cn(
-                      "flex min-h-12 items-center gap-2 rounded border border-border p-2 text-left text-sm hover:bg-muted",
+                      "ucd-list-row flex min-h-12 items-center gap-2 rounded-md p-2 text-left text-sm",
                       selectedAgent?.id === agent.id && "border-primary bg-[hsl(var(--nav-active-soft))]",
                     )}
                     key={agent.id}
@@ -168,7 +170,7 @@ export function CreateSessionDialog({
                 {selectedAgent?.supportedInteractionModes.map((mode) => (
                   <button
                     className={cn(
-                      "h-7 rounded border border-border px-2 text-xs hover:bg-muted",
+                      "h-7 rounded-md border border-border px-2 text-xs hover:bg-muted",
                       interactionMode === mode && "border-primary bg-primary text-primary-foreground",
                     )}
                     key={mode}
@@ -182,7 +184,7 @@ export function CreateSessionDialog({
             </section>
 
             <section className="grid gap-2">
-              <span className="text-xs font-medium text-muted-foreground">项目文件夹</span>
+              <span className="text-xs font-medium text-muted-foreground">{t("createSession.projectFolder")}</span>
               <div className="flex gap-2">
                 <input
                   className="ucd-input h-9 min-w-0 flex-1 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -193,33 +195,33 @@ export function CreateSessionDialog({
                 />
                 <Button className="h-9 px-3 text-xs" onClick={browseProject} type="button" variant="outline">
                   <Folder className="h-3.5 w-3.5" aria-hidden="true" />
-                  浏览
+                  {t("createSession.browse")}
                 </Button>
               </div>
               {knownProjects.length > 0 ? (
                 <div className="grid gap-1">
                   {knownProjects.slice(0, 5).map((project) => (
                     <button
-                      className="flex items-center gap-2 rounded border border-border px-2 py-1.5 text-left text-xs hover:bg-muted"
+                      className="ucd-list-row flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs"
                       key={project.path}
                       onClick={() => void inspectPath(project.path)}
                       type="button"
                     >
                       <Folder className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate">{project.path}</span>
-                      <span className="text-muted-foreground">{project.isGit ? "Git" : "Folder"}</span>
+                      <span className="text-muted-foreground">{project.isGit ? t("createSession.folderType.git") : t("createSession.folderType.folder")}</span>
                     </button>
                   ))}
                 </div>
               ) : null}
               {inspection ? (
                 <p className="text-xs text-muted-foreground">
-                  {inspection.isGit ? "Git 项目，可创建 worktree。" : "普通文件夹，将禁用 worktree。"}
+                  {inspection.isGit ? t("createSession.gitProject") : t("createSession.normalFolder")}
                 </p>
               ) : null}
             </section>
 
-            <section className="grid gap-2 rounded border border-border p-3">
+            <section className="ucd-muted-panel grid gap-2 rounded-md p-3">
               <label className={cn("flex items-center gap-2 text-sm", !gitCapable && "text-muted-foreground")}>
                 <input
                   checked={worktreeEnabled}
@@ -229,28 +231,28 @@ export function CreateSessionDialog({
                   type="checkbox"
                 />
                 <GitBranch className="h-4 w-4" aria-hidden="true" />
-                创建新 Git worktree
+                {t("createSession.createWorktree")}
               </label>
               {worktreeEnabled ? (
                 <label className="grid gap-1">
-                  <span className="text-xs text-muted-foreground">Worktree 名称</span>
+                  <span className="text-xs text-muted-foreground">{t("createSession.worktreeName")}</span>
                   <input
                     className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onChange={(event) => setWorktreeName(event.target.value)}
                     placeholder="feature-a"
                     value={worktreeName}
                   />
-                  <span className="text-xs text-muted-foreground">默认路径：项目同级目录 + 项目名-worktreeName；分支：vanehub/worktreeName</span>
+                  <span className="text-xs text-muted-foreground">{t("createSession.worktreeHint")}</span>
                 </label>
               ) : null}
             </section>
 
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-muted-foreground">会话名称</span>
+              <span className="text-xs font-medium text-muted-foreground">{t("createSession.sessionName")}</span>
               <input
                 className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onChange={(event) => setTitle(event.target.value)}
-                placeholder="新会话"
+                placeholder={t("createSession.sessionPlaceholder")}
                 value={title}
               />
             </label>
@@ -260,10 +262,10 @@ export function CreateSessionDialog({
         <div className="flex items-center justify-between gap-3 border-t border-border p-4">
           <span className="min-w-0 truncate text-xs text-destructive">{error}</span>
           <div className="flex gap-2">
-            <Button className="h-8 px-3 text-xs" onClick={onClose} type="button" variant="outline">取消</Button>
+            <Button className="h-8 px-3 text-xs" onClick={onClose} type="button" variant="outline">{t("createSession.cancel")}</Button>
             <Button className="h-8 px-3 text-xs" disabled={!canSubmit || loading} onClick={submit} type="button">
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-              创建
+              {t("createSession.create")}
             </Button>
           </div>
         </div>

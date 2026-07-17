@@ -17,11 +17,11 @@ export function SkillDriftBanner({
   const { t } = useTranslation();
   const issues = drift?.issues ?? [];
   if (issues.length === 0 && !syncResult) {
-    return <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">{t("skills.drift.inSync")}</div>;
+    return <div className="rounded-lg border px-4 py-3 text-sm ucd-status-success">{t("skills.drift.inSync")}</div>;
   }
 
   return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
+    <div className="rounded-lg border px-4 py-3 ucd-status-warning">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <AlertTriangle className="h-4 w-4" aria-hidden="true" />

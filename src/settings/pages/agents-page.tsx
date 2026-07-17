@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, CircleAlert, Laptop, Play, RefreshCw, Search, Terminal } from "lucide-react";
+import { Activity, Bot, CheckCircle2, CircleAlert, Laptop, Play, RefreshCw, Search, Terminal } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { agentService } from "../../services/runtime-agent-client";
@@ -14,12 +15,6 @@ type AgentsOverview = {
 };
 
 const agentsOverviewQueryKey = (capabilityFilter: string) => ["agents", "overview", capabilityFilter] as const;
-
-const modeLabels: Record<InteractionMode, string> = {
-  browser: "Browser",
-  "native-desktop": "Native",
-  cli: "CLI",
-};
 
 const modeIcons: Record<InteractionMode, typeof Terminal> = {
   browser: Search,
@@ -38,6 +33,7 @@ function defaultMode(agent: AgentRegistryEntry): InteractionMode {
 }
 
 export function AgentsPage({ searchTerm }: { searchTerm: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [capabilityFilter, setCapabilityFilter] = useState("");
   const [appliedCapabilityFilter, setAppliedCapabilityFilter] = useState("");
@@ -77,7 +73,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
   const selectAgentMutation = useMutation({
     mutationFn: ({ agent, mode }: { agent: AgentRegistryEntry; mode: InteractionMode }) => agentService.selectAgent(agent.id, mode),
     onSuccess: async (_workflow, { agent, mode }) => {
-      setNotice(`${agent.displayName} selected for ${modeLabels[mode]} mode.`);
+      setNotice(t("agents.notice.selected", { agent: agent.displayName, mode: t(`agents.mode.${mode}`) }));
       await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
     },
   });
@@ -87,7 +83,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
       if (workflow?.activeAgentId && workflow.activeInteractionMode === "browser") {
         const readiness = await agentService.checkBrowserReadiness(workflow.activeAgentId);
         if (!readiness.ready) {
-          throw new Error(readiness.reason ?? "Browser mode is not ready.");
+          throw new Error(readiness.reason ?? t("agents.error.browserNotReady"));
         }
       }
       return agentService.launchActiveWorkflow();
@@ -114,11 +110,11 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
   async function handleSelect(agent: AgentRegistryEntry, mode: InteractionMode) {
     setError(null);
     if (agent.availabilityState !== "available" && agent.availabilityState !== "unknown") {
-      setError(agent.unavailableReason ?? `${agent.displayName} is not available.`);
+      setError(agent.unavailableReason ?? t("agents.error.notAvailable", { agent: agent.displayName }));
       return;
     }
     if (!agent.supportedInteractionModes.includes(mode)) {
-      setError(`${agent.displayName} supports ${agent.supportedInteractionModes.map((item) => modeLabels[item]).join(", ")}.`);
+      setError(t("agents.error.supportedModes", { agent: agent.displayName, modes: agent.supportedInteractionModes.map((item) => t(`agents.mode.${item}`)).join(", ") }));
       return;
     }
     setSelectedMode(mode);
@@ -147,16 +143,17 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
         actions={
           <Button disabled={agentsOverviewQuery.isFetching} variant="outline" onClick={() => void agentsOverviewQuery.refetch()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            {agentsOverviewQuery.isFetching ? "Refreshing" : "Refresh"}
+            {agentsOverviewQuery.isFetching ? t("agents.refreshing") : t("agents.refresh")}
           </Button>
         }
-        description="Manage available AI coding agents, interaction modes, and the current workflow"
-        title="Agents"
+        description={t("agents.description")}
+        icon={Bot}
+        title={t("agents.title")}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-4">
-          <SectionPanel title="Agent Filter" description="Filter registered Agents by capability tag">
+          <SectionPanel title={t("agents.filter.title")} description={t("agents.filter.description")}>
             <div className="flex flex-wrap gap-2">
               <input
                 value={capabilityFilter}
@@ -165,17 +162,17 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                   if (event.key === "Enter") applyCapabilityFilter();
                 }}
                 className="ucd-input h-9 min-w-56 flex-1 rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder="Filter capability tag"
+                placeholder={t("agents.filter.placeholder")}
               />
               <Button variant="outline" onClick={applyCapabilityFilter}>
-                Apply
+                {t("agents.filter.apply")}
               </Button>
             </div>
           </SectionPanel>
 
           <div className="grid gap-4 lg:grid-cols-2">
             {filteredAgents.map((agent) => (
-              <section className="ucd-panel rounded-lg p-4" key={agent.id}>
+              <section className="ucd-panel ucd-interactive rounded-lg p-4" key={agent.id}>
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -199,21 +196,21 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                         }`}
                         key={mode}
                         onClick={() => setSelectedMode(mode)}
-                        title={modeLabels[mode]}
+                        title={t(`agents.mode.${mode}`)}
                         type="button"
                       >
                         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                        {modeLabels[mode]}
+                        {t(`agents.mode.${mode}`)}
                       </button>
                     );
                   })}
                 </div>
 
                 <div className="mt-4 flex items-center justify-between gap-3">
-                  <StatusPill status={workflow?.activeAgentId === agent.id ? "Running" : "Idle"} />
+                  <StatusPill status={workflow?.activeAgentId === agent.id ? t("agents.status.running") : t("agents.status.idle")} />
                   <Button variant="outline" onClick={() => void handleSelect(agent, selectedMode)}>
                     <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    Configure
+                    {t("agents.configure")}
                   </Button>
                 </div>
               </section>
@@ -221,25 +218,25 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
           </div>
         </div>
 
-        <SectionPanel title="Agent Configuration Details" description="Current workflow and session status">
+        <SectionPanel title={t("agents.details.title")} description={t("agents.details.description")}>
           <dl className="grid gap-4 text-sm">
             <div>
-              <dt className="text-xs uppercase text-muted-foreground">Active Agent</dt>
-              <dd className="mt-1 font-medium">{activeAgent?.displayName ?? "None selected"}</dd>
+              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.activeAgent")}</dt>
+              <dd className="mt-1 font-medium">{activeAgent?.displayName ?? t("agents.details.noneSelected")}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase text-muted-foreground">Interaction Mode</dt>
+              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.interactionMode")}</dt>
               <dd className="mt-1 font-medium">
-                {workflow?.activeInteractionMode ? modeLabels[workflow.activeInteractionMode] : "Not selected"}
+                {workflow?.activeInteractionMode ? t(`agents.mode.${workflow.activeInteractionMode}`) : t("agents.details.notSelected")}
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase text-muted-foreground">Lifecycle</dt>
-              <dd className="mt-1 font-medium">{workflow?.lifecycleState ?? "idle"}</dd>
+              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.lifecycle")}</dt>
+              <dd className="mt-1 font-medium">{workflow?.lifecycleState ?? t("agents.status.idle")}</dd>
             </div>
             <div>
-              <dt className="text-xs uppercase text-muted-foreground">Intent</dt>
-              <dd className="mt-1 text-muted-foreground">{workflow?.intent ?? "Current development workflow"}</dd>
+              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.intent")}</dt>
+              <dd className="mt-1 text-muted-foreground">{workflow?.intent ?? t("agents.details.defaultIntent")}</dd>
             </div>
           </dl>
 
@@ -254,22 +251,22 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
 
           <Button className="mt-5 w-full" disabled={!activeAgent || launchWorkflowMutation.isPending} onClick={() => void handleLaunch()}>
             <Play className="h-4 w-4" aria-hidden="true" />
-            Launch
+            {t("agents.launch")}
           </Button>
 
           <div className="mt-5 border-t border-border pt-4">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
               <Activity className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              Session Details
+              {t("agents.details.session")}
             </div>
             {sessionDetails ? (
               <dl className="grid gap-2 text-xs text-muted-foreground">
                 <div className="flex justify-between gap-3">
-                  <dt>Adapter</dt>
+                  <dt>{t("agents.details.adapter")}</dt>
                   <dd className="font-medium text-foreground">{sessionDetails.adapter}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt>Runtime</dt>
+                  <dt>{t("agents.details.runtime")}</dt>
                   <dd className="font-medium text-foreground">{sessionDetails.details.runtime ?? "desktop"}</dd>
                 </div>
               </dl>

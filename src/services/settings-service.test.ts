@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { i18n } from "../i18n";
 import { defaultAppSettings, normalizeAppSettings } from "./settings-service";
 import { webSettingsClient } from "./web-settings-client";
 
@@ -40,6 +41,8 @@ describe("settings-service", () => {
   });
 
   it("keeps web mock client log events as no-op and blocks opening local directories", async () => {
+    await i18n.changeLanguage("en");
+
     await expect(
       webSettingsClient.reportClientLogEvent({
         level: "error",

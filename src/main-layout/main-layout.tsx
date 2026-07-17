@@ -35,14 +35,18 @@ const activityGroups: Array<{ key: ActivityKey; labelKey: string }> = [
 ];
 
 const agentMeta: Record<AgentKey, { label: string; Icon: LucideIcon; tone: string }> = {
-  codex: { label: "Codex", Icon: Code2, tone: "border-sky-400/40 bg-sky-400/10 text-sky-500" },
-  "claude-code": { label: "Claude Code", Icon: Sparkles, tone: "border-amber-400/40 bg-amber-400/10 text-amber-500" },
-  opencode: { label: "OpenCode", Icon: TerminalSquare, tone: "border-emerald-400/40 bg-emerald-400/10 text-emerald-500" },
-  gemini: { label: "Gemini", Icon: BrainCircuit, tone: "border-violet-400/40 bg-violet-400/10 text-violet-500" },
+  codex: { label: "Codex", Icon: Code2, tone: "ucd-agent-codex" },
+  "claude-code": { label: "Claude Code", Icon: Sparkles, tone: "ucd-agent-claude" },
+  opencode: { label: "OpenCode", Icon: TerminalSquare, tone: "ucd-agent-opencode" },
+  gemini: { label: "Gemini", Icon: BrainCircuit, tone: "ucd-agent-gemini" },
   unknown: { label: "Agent", Icon: Bot, tone: "border-border bg-muted text-muted-foreground" },
 };
 
-const infoTabs: Array<{ key: InfoTab; label: string }> = [{ key: "agent", label: "Agent Info" }, { key: "files", label: "Files" }, { key: "changes", label: "Changes" }];
+const infoTabs: Array<{ key: InfoTab; labelKey: string }> = [
+  { key: "agent", labelKey: "layout.infoTab.agent" },
+  { key: "files", labelKey: "layout.infoTab.files" },
+  { key: "changes", labelKey: "layout.infoTab.changes" },
+];
 
 function getActivityKeyForSession(session: Session): ActivityKey {
   if (session.archived || session.lifecycleState === "idle" || session.lifecycleState === "stopped") return "inactive";
@@ -63,8 +67,8 @@ function getAgentKeyForSession(session: Session): AgentKey {
   return "unknown";
 }
 
-function formatSessionDate(session: Session) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(session.updatedAt));
+function formatSessionDate(session: Session, language: string) {
+  return new Intl.DateTimeFormat(language, { month: "2-digit", day: "2-digit" }).format(new Date(session.updatedAt));
 }
 
 function formatLifecycle(session: Session, t: (key: string) => string) {
@@ -81,12 +85,14 @@ function formatLifecycle(session: Session, t: (key: string) => string) {
 function ConversationCard({
   active,
   lifecycleLabel,
+  language,
   onContextMenu,
   onSelect,
   session,
 }: {
   active: boolean;
   lifecycleLabel: string;
+  language: string;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
   onSelect: () => void;
   session: Session;
@@ -95,7 +101,7 @@ function ConversationCard({
   const Icon = meta.Icon;
 
   return (
-    <button className={cn("relative w-full rounded-lg border border-border p-2.5 text-left transition-colors hover:bg-muted", active && "bg-[hsl(var(--nav-active-soft))]")} onClick={onSelect} onContextMenu={onContextMenu} type="button">
+    <button className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")} onClick={onSelect} onContextMenu={onContextMenu} type="button">
       {active ? <span className="absolute left-0 top-2 h-10 w-0.5 rounded bg-primary" /> : null}
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", meta.tone)} title={meta.label}>
@@ -108,7 +114,7 @@ function ConversationCard({
         <span className={cn("h-2 w-2 rounded-full", session.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
         <span>{lifecycleLabel}</span>
         <span className="font-mono">{meta.label}</span>
-        <span className="ml-auto font-mono">{formatSessionDate(session)}</span>
+        <span className="ml-auto font-mono">{formatSessionDate(session, language)}</span>
       </div>
     </button>
   );
@@ -149,7 +155,7 @@ function applyChatEvent(messages: ChatMessageModel[], event: ChatStreamEvent) {
 }
 
 export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("activity");
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["Current Workspace", "Engineering", "Content"]));
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
@@ -359,7 +365,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     if (!contextPanel || contextPanel.mode !== "menu") return null;
     const session = contextPanel.session;
     return (
-      <div className="fixed z-50 grid w-40 gap-1 rounded-md border border-border bg-background p-1 text-sm shadow-lg" style={{ left: contextPanel.x, top: contextPanel.y }}>
+      <div className="ucd-panel fixed z-50 grid w-40 gap-1 rounded-md p-1 text-sm shadow-lg" style={{ left: contextPanel.x, top: contextPanel.y }}>
         <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => setContextPanel({ ...contextPanel, mode: "rename" })} type="button">{t("layout.rename")}</button>
         <button className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => { pinSessionMutation.mutate(session); setContextPanel(null); }} type="button">
           {session.pinned ? t("layout.unpin") : t("layout.pinned")}
@@ -377,7 +383,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     if (contextPanel.mode === "rename") {
       return (
         <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
-          <form className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl" onSubmit={(event) => { event.preventDefault(); submitRename(); }}>
+          <form className="ucd-panel grid w-full max-w-sm gap-3 rounded-lg p-4 text-sm shadow-xl" onSubmit={(event) => { event.preventDefault(); submitRename(); }}>
             <div>
               <h3 className="text-sm font-semibold">{t("layout.renameSession")}</h3>
               <p className="mt-1 text-xs text-muted-foreground">{t("layout.renameDescription")}</p>
@@ -401,7 +407,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     }
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4">
-        <div className="grid w-full max-w-sm gap-3 rounded-lg border border-border bg-background p-4 text-sm shadow-xl">
+        <div className="ucd-panel grid w-full max-w-sm gap-3 rounded-lg p-4 text-sm shadow-xl">
           <div>
             <h3 className="text-sm font-semibold">{t("layout.deleteSession")}</h3>
             <p className="mt-1 break-words text-xs text-muted-foreground">"{contextPanel.session.title}" {t("layout.deleteDescription")}</p>
@@ -420,6 +426,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       <ConversationCard
         active={activeSessionId === session.id}
         key={session.id}
+        language={i18n.language}
         lifecycleLabel={formatLifecycle(session, t)}
         onContextMenu={(event) => openContextMenu(event, session)}
         onSelect={() => {
@@ -437,19 +444,17 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
       <div className="relative flex h-screen min-h-0 flex-col overflow-hidden">
         <TopBar />
         <div
-          className={cn(
-            "relative grid min-h-0 flex-1 gap-4 p-2 transition-[grid-template-columns] duration-200",
-            infoPanelCollapsed ? "grid-cols-[220px_minmax(0,1fr)_0px]" : "grid-cols-[220px_minmax(0,1fr)_300px]",
-          )}
+          className="ucd-workspace-grid relative grid min-h-0 flex-1 gap-4 p-2 transition-[grid-template-columns] duration-200 max-[900px]:gap-2"
+          data-info-collapsed={infoPanelCollapsed ? "true" : "false"}
         >
-          <aside className="ucd-panel flex min-h-0 flex-col rounded-xl p-3" onContextMenu={(event) => event.preventDefault()}>
+          <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-3 max-[640px]:max-h-64" onContextMenu={(event) => event.preventDefault()}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
               <Button className="h-7 px-2 text-xs" disabled={!agentsQuery.data?.length} onClick={() => setCreateSessionOpen(true)}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />{t("layout.new")}
               </Button>
             </div>
-            <div className="mb-3 grid grid-cols-3 gap-1 rounded border border-border bg-[hsl(var(--panel-muted))] p-1">
+            <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">
                 {[["activity", t("layout.activity")], ["group", t("layout.group")], ["archived", `${t("layout.archive")} ${archivedSessions.length}`]].map(([key, label]) => (
                 <button className={cn("h-7 rounded text-xs", sidebarMode === key ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} key={key} onClick={() => setSidebarMode(key as SidebarMode)} type="button">
                   {label}
@@ -484,7 +489,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                     const expanded = expandedFolders.has(group.folder);
                     return (
                       <section className="grid gap-2" key={group.folder}>
-                        <button className="flex h-8 items-center gap-2 rounded border border-border px-2 text-left text-xs hover:bg-muted" onClick={() => toggleFolder(group.folder)} type="button">
+                        <button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggleFolder(group.folder)} type="button">
                           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                           <Folder className="h-3.5 w-3.5 text-primary" />
                           <span className="truncate">{group.folder}</span>
@@ -502,21 +507,21 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                     <span className="rounded-full border border-border px-1.5 font-mono">{archivedSessions.length}</span>
                   </div>
                   {archivedSessions.map(renderSessionCard)}
-                  {archivedSessions.length === 0 ? <p className="rounded border border-border p-3 text-xs text-muted-foreground">{t("layout.noArchived")}</p> : null}
+                  {archivedSessions.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noArchived")}</p> : null}
                 </div>
               )}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3">
-              <button className="h-7 rounded border border-border text-xs hover:bg-muted" onClick={onOpenSettings} type="button">
+              <button className="ucd-list-row h-7 rounded-md text-xs" onClick={onOpenSettings} type="button">
                 <Settings className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{t("layout.settings")}
               </button>
-              <button className="h-7 rounded border border-border text-xs hover:bg-muted" type="button">
+              <button className="ucd-list-row h-7 rounded-md text-xs" type="button">
                 <HelpCircle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{t("layout.help")}
               </button>
             </div>
           </aside>
 
-          <section className="ucd-panel flex min-h-0 min-w-0 flex-col rounded-xl p-3">
+          <section className="ucd-panel flex min-h-0 min-w-0 flex-col rounded-lg p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{t("layout.chatMode")}</h2>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -525,7 +530,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                 <span>{activeSession ? formatLifecycle(activeSession, t) : t("layout.noSession")}</span>
               </div>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))] shadow-sm">
               <div className="flex items-center justify-between gap-3 border-b border-border p-4">
                 <div>
                   <h3 className="text-sm font-semibold">{activeSession?.title ?? t("layout.noSession")}</h3>
@@ -547,7 +552,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
             <div className="mt-3">
               <ChatInputBox
                 agents={chatConfig.availableAgents.length > 0 ? chatConfig.availableAgents : agents}
-                availableModes={chatConfig.availableModes.map((mode) => mode.id)}
+                availableModes={chatConfig.availableModes}
                 availableModels={chatConfig.availableModels}
                 availableReasoning={chatConfig.availableReasoning}
                 config={chatConfig.config}
@@ -570,7 +575,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
             </div>
           </section>
 
-          <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-xl transition-[opacity,transform] duration-200", infoPanelCollapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
+          <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-lg transition-[opacity,transform] duration-200 max-[900px]:hidden", infoPanelCollapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
             <div className="flex h-full min-h-0 flex-col p-3">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2>
@@ -579,10 +584,10 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
                   {t("layout.collapse")}
                 </Button>
               </div>
-              <div className="mb-3 grid grid-cols-3 gap-1">
+              <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">
                 {infoTabs.map((tab) => (
-                  <button className={cn("h-8 rounded border border-border text-xs", activeInfoTab === tab.key ? "bg-[hsl(var(--nav-active-soft))] font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveInfoTab(tab.key)} type="button">
-                    {tab.label}
+                  <button className={cn("h-8 rounded-md text-xs", activeInfoTab === tab.key ? "bg-background font-semibold text-primary shadow-sm" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveInfoTab(tab.key)} type="button">
+                    {t(tab.labelKey)}
                   </button>
                 ))}
               </div>

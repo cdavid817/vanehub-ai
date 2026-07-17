@@ -13,15 +13,15 @@ function statusLabel(message: ChatMessage, t: (key: string) => string) {
   return t("chat.status.completed");
 }
 
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", {
+function formatTime(value: string, language: string) {
+  return new Intl.DateTimeFormat(language, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
 export function MessageItem({ message }: { message: ChatMessage }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const isUser = message.role === "user";
   const Icon = isUser ? UserRound : Bot;
   return (
@@ -40,8 +40,8 @@ export function MessageItem({ message }: { message: ChatMessage }) {
         )}
       >
         <div className={cn("mb-2 flex items-center gap-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
-          <span>{isUser ? t("chat.you") : message.role === "assistant" ? "Agent" : message.role}</span>
-          <span className="font-mono">{formatTime(message.updatedAt)}</span>
+          <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
+          <span className="font-mono">{formatTime(message.updatedAt, i18n.language)}</span>
           <span className="ml-auto inline-flex items-center gap-1">
             {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {message.status === "cancelled" ? <CircleStop className="h-3.5 w-3.5" aria-hidden="true" /> : null}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { defaultThemeId, getNextThemeId, getThemeDefinition, isUcdThemeId, normalizeThemeId, ucdThemes } from "./theme-registry";
 
 describe("theme registry", () => {
@@ -17,5 +18,29 @@ describe("theme registry", () => {
     expect(getThemeDefinition("futuristic").displayName).toBe("Futuristic");
     expect(getNextThemeId("futuristic")).toBe("minimal");
     expect(getNextThemeId("minimal")).toBe("futuristic");
+  });
+
+  it("keeps registered styles aligned on visual design tokens", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+    const requiredTokens = [
+      "--panel",
+      "--panel-muted",
+      "--panel-border",
+      "--panel-hover",
+      "--panel-glass",
+      "--border-strong",
+      "--success",
+      "--warning",
+      "--danger",
+      "--shadow-color",
+      "--shadow-elevated",
+    ];
+
+    for (const theme of ucdThemes) {
+      const block = css.match(new RegExp(`:root\\[data-theme="${theme.id}"\\] \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? "";
+      for (const token of requiredTokens) {
+        expect(block).toContain(token);
+      }
+    }
   });
 });
