@@ -12,11 +12,11 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
   const { t } = useTranslation();
 
   return (
-    <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-2">
+    <aside className="ucd-panel flex max-h-64 min-h-0 flex-col rounded-lg p-2 lg:max-h-none">
       <div className="px-3 py-3">
         <div className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{t("app.settings.system")}</div>
       </div>
-      <nav className="grid gap-1 border-t border-border pt-2">
+      <nav className="grid min-h-0 flex-1 gap-1 overflow-y-auto border-t border-border pt-2">
         {settingsPages.map((page) => {
           const Icon = page.icon;
           const active = page.id === activePageId;
