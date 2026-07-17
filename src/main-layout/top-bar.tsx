@@ -1,11 +1,12 @@
-import { Bell, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { NotificationCenter } from "../notifications/notification-center";
 
 export function TopBar() {
   const { t } = useTranslation();
 
   return (
-    <header className="ucd-panel mx-2 mt-2 flex min-h-12 items-center justify-between gap-3 rounded-lg px-4 py-2">
+    <header className="ucd-panel relative z-40 mx-2 mt-2 flex min-h-12 items-center justify-between gap-3 rounded-lg px-4 py-2">
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-primary bg-[hsl(var(--nav-active-soft))] text-sm font-bold text-primary">
           V
@@ -29,10 +30,7 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className="ucd-list-row relative flex h-8 w-9 items-center justify-center rounded-md" type="button" aria-label={t("layout.notifications")}>
-          <Bell className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-[hsl(var(--danger))]" />
-        </button>
+        <NotificationCenter />
       </div>
     </header>
   );

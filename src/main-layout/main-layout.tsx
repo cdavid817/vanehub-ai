@@ -7,6 +7,7 @@ import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { MessageList } from "../components/chat/MessageList";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
+import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { ChatConfig, ChatMessage as ChatMessageModel, ChatStreamEvent } from "../types/chat";
@@ -156,6 +157,7 @@ function applyChatEvent(messages: ChatMessageModel[], event: ChatStreamEvent) {
 
 export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { i18n, t } = useTranslation();
+  const { notify } = useNotifications();
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("activity");
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(["Current Workspace", "Engineering", "Content"]));
   const [activeInfoTab, setActiveInfoTab] = useState<InfoTab>("agent");
@@ -359,6 +361,12 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
     setCreateSessionOpen(false);
     queryClient.setQueryData(["sessions", "active"], session);
     invalidateSessions();
+    notify({
+      type: "success",
+      title: t("notifications.sessionCreated.title"),
+      message: t("notifications.sessionCreated.message", { title: session.title }),
+      scope: { kind: "session", sessionId: session.id },
+    });
   }
 
   function renderContextMenu() {
@@ -653,6 +661,7 @@ export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
         onCreated={handleSessionCreated}
         open={createSessionOpen}
       />
+      <NotificationHost activeSessionId={activeSessionId} />
     </main>
   );
 }

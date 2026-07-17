@@ -7,6 +7,7 @@ import { SettingsProvider } from "./settings/settings-provider";
 import { ThemeProvider } from "./theme/theme-provider";
 import { useTranslation } from "react-i18next";
 import { settingsService } from "./services/runtime-settings-client";
+import { NotificationProvider } from "./notifications/notification-provider";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,9 +48,10 @@ export function App() {
   return (
     <SettingsProvider>
       <ThemeProvider>
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <ErrorBoundary
+        <NotificationProvider>
+          <QueryClientProvider client={queryClient}>
+            <BrowserRouter>
+              <ErrorBoundary
               FallbackComponent={RouteErrorFallback}
               onError={(error, info) => {
                 const message = error instanceof Error ? error.message : String(error);
@@ -63,15 +65,16 @@ export function App() {
                   details: { componentStack: info.componentStack ?? "" },
                 });
               }}
-            >
-              <Routes>
-                <Route element={<WorkspaceRoute />} path="/workspace" />
-                <Route element={<SettingsRoute />} path="/settings" />
-                <Route element={<Navigate replace to="/workspace" />} path="*" />
-              </Routes>
-            </ErrorBoundary>
-          </BrowserRouter>
-        </QueryClientProvider>
+              >
+                <Routes>
+                  <Route element={<WorkspaceRoute />} path="/workspace" />
+                  <Route element={<SettingsRoute />} path="/settings" />
+                  <Route element={<Navigate replace to="/workspace" />} path="*" />
+                </Routes>
+              </ErrorBoundary>
+            </BrowserRouter>
+          </QueryClientProvider>
+        </NotificationProvider>
       </ThemeProvider>
     </SettingsProvider>
   );
