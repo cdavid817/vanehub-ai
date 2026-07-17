@@ -13,6 +13,7 @@ use thiserror::Error;
 
 mod cli_parameters;
 mod command_safety;
+mod extensions;
 mod logging;
 mod mcp;
 mod network_proxy;
@@ -1077,6 +1078,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
     apply_migration(
         conn,
         10,
+        "local-extension-management",
+        extensions::service::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        11,
         "cli-parameter-settings",
         cli_parameters::apply_schema,
     )?;
@@ -4709,6 +4716,7 @@ pub fn run() {
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            app.manage(extensions::commands::ExtensionRuntimeManager::default());
             let should_refresh = {
                 let store = app.state::<Mutex<RegistryStore>>();
                 let store = store.lock().map_err(|err| {
@@ -4804,7 +4812,16 @@ pub fn run() {
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
             tasks::commands::list_operations,
-            tasks::commands::get_operation_status
+            tasks::commands::get_operation_status,
+            extensions::commands::get_extension_overview,
+            extensions::commands::refresh_extension_health,
+            extensions::commands::get_extension_install_preview,
+            extensions::commands::install_extension,
+            extensions::commands::uninstall_extension,
+            extensions::commands::set_extension_enabled,
+            extensions::commands::start_extension,
+            extensions::commands::stop_extension,
+            extensions::commands::test_extension
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -4867,7 +4884,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     }
 
     #[test]

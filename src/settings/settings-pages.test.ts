@@ -11,6 +11,19 @@ describe("settingsPages", () => {
     });
   });
 
+  it("registers Extension Capabilities after SDK Dependencies", () => {
+    const sdkIndex = settingsPages.findIndex((page) => page.id === "sdk");
+    const extensionIndex = settingsPages.findIndex((page) => page.id === "extensions");
+    const mcpIndex = settingsPages.findIndex((page) => page.id === "mcp");
+
+    expect(extensionIndex).toBe(sdkIndex + 1);
+    expect(mcpIndex).toBe(extensionIndex + 1);
+    expect(settingsPages[extensionIndex]).toMatchObject({
+      labelKey: "settings.pages.extensions",
+      searchPlaceholderKey: "settings.search.extensions",
+    });
+  });
+
   it("registers Usage Statistics before About", () => {
     const usageIndex = settingsPages.findIndex((page) => page.id === "usage");
     const aboutIndex = settingsPages.findIndex((page) => page.id === "about");

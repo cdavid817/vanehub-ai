@@ -7,6 +7,7 @@ const checkedFiles = [
   "src/settings/pages/usage-statistics-page.tsx",
   "src/settings/pages/cli-parameters-page.tsx",
   "src/settings/pages/sdk-page.tsx",
+  "src/settings/pages/extensions-page.tsx",
   "src/settings/pages/mcp-page.tsx",
   "src/settings/pages/mcp/mcp-server-card.tsx",
   "src/settings/pages/mcp/mcp-server-form.tsx",

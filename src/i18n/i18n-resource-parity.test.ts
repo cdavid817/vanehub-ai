@@ -12,15 +12,19 @@ describe("i18n resources", () => {
     await i18n.changeLanguage("zh-CN");
     expect(i18n.t("agents.title")).toBe("Agent 管理");
     expect(i18n.t("sdk.title")).toBe("SDK 依赖");
+    expect(i18n.t("extensions.title")).toBe("扩展能力");
     expect(i18n.t("mcp.title")).toBe("MCP 服务器");
     expect(i18n.t("createSession.title")).toBe("创建会话");
+    expect(i18n.t("notifications.empty")).toBe("暂无未处理通知");
     expect(i18n.t("chat.config.configure")).toBe("配置");
 
     await i18n.changeLanguage("en");
     expect(i18n.t("agents.title")).toBe("Agent Management");
     expect(i18n.t("sdk.title")).toBe("SDK Dependencies");
+    expect(i18n.t("extensions.title")).toBe("Extension Capabilities");
     expect(i18n.t("mcp.title")).toBe("MCP Servers");
     expect(i18n.t("createSession.title")).toBe("Create Session");
+    expect(i18n.t("notifications.empty")).toBe("You're all caught up");
     expect(i18n.t("chat.config.configure")).toBe("Configure");
   });
 });

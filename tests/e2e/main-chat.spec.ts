@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { createSession } from "./session-helpers";
 
 test.describe("main chat experience", () => {
   test("shows an empty chat state before a session is selected", async ({ page }) => {
@@ -11,8 +12,7 @@ test.describe("main chat experience", () => {
   test("creates a session, sends a prompt, and renders the mock stream", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: /新建/ }).click();
-    await expect(page.getByText("开始新的对话")).toBeVisible();
+    await createSession(page, "Playwright 会话");
 
     await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("hello from playwright");
     await page.getByRole("button", { name: "发送" }).click();
@@ -24,22 +24,23 @@ test.describe("main chat experience", () => {
   test("exposes stop while a response is streaming", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: /新建/ }).click();
+    await createSession(page, "停止生成测试");
     await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("please stream long enough to stop");
     await page.getByRole("button", { name: "发送" }).click();
 
-    await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
   });
 
   test("keeps messages scoped to the active session", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: /新建/ }).click();
+    await createSession(page, "会话一");
     await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("session one marker");
     await page.getByRole("button", { name: "发送" }).click();
     await expect(page.getByText("session one marker")).toBeVisible();
+    await expect(page.getByText(/Mock .* response|Desktop preview response/)).toBeVisible();
 
-    await page.getByRole("button", { name: /新建/ }).click();
+    await createSession(page, "会话二");
     await expect(page.getByText("开始新的对话")).toBeVisible();
     await expect(page.getByText("session one marker")).toBeHidden();
   });
