@@ -9,6 +9,12 @@ export interface SettingsService {
   testNetworkProxy(input: { url: string; bypass: string }): Promise<NetworkProxyTestResult>;
   scanNetworkProxies(): Promise<DetectedNetworkProxy[]>;
   reportClientLogEvent(event: ClientLogEvent): Promise<void>;
+  subscribeSettingsEvents(handler: (event: SettingsStateEvent) => void): Promise<() => void>;
+}
+
+export interface SettingsStateEvent {
+  kind: "settings-changed";
+  key: AppSettingKey;
 }
 
 export const defaultLoggingPolicy: LoggingPolicy = {

@@ -12,13 +12,17 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
 
+mod cli_parameters;
 mod command_safety;
 mod desktop_lifecycle;
+mod extensions;
+mod floating_assistant;
 mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
 mod sdk;
+mod session_configuration;
 mod skills;
 mod tasks;
 
@@ -100,7 +104,7 @@ fn record_native_error(category: &str, error: &AppError) {
     record_native_log(NativeLogLevel::Error, category, &error.to_string());
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 enum InteractionMode {
     Browser,
@@ -296,6 +300,13 @@ struct SaveSettingInput {
     value: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsStateEvent {
+    kind: &'static str,
+    key: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct NodeInfo {
@@ -391,11 +402,12 @@ struct CreateWorktreeInput {
     name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ChatConfig {
     agent_id: String,
     interaction_mode: InteractionMode,
+    permission_mode: String,
     provider_id: Option<String>,
     model_id: Option<String>,
     reasoning_depth: Option<String>,
@@ -503,6 +515,23 @@ enum ChatStreamEvent {
     },
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStateEvent {
+    kind: String,
+    session_id: Option<String>,
+}
+
+fn emit_session_state_event(app: &AppHandle, kind: &str, session_id: Option<&str>) {
+    let _ = app.emit(
+        "session:event",
+        SessionStateEvent {
+            kind: kind.to_string(),
+            session_id: session_id.map(str::to_string),
+        },
+    );
+}
+
 #[derive(Debug, PartialEq)]
 enum ParsedAgentEvent {
     Token(String),
@@ -546,10 +575,12 @@ fn build_cli_invocation_spec(
     executable: String,
     prompt: &str,
     runtime_session_id: Option<&str>,
+    managed_args: &[String],
 ) -> Result<CliInvocationSpec, String> {
     let mut args = Vec::new();
     let prompt_delivery = match agent.id.as_str() {
         "claude-code" => {
+            args.extend_from_slice(managed_args);
             args.extend([
                 "-p".to_string(),
                 "--output-format".to_string(),
@@ -563,14 +594,27 @@ fn build_cli_invocation_spec(
             PromptDelivery::Stdin
         }
         "codex-cli" => {
+            args.extend(
+                managed_args
+                    .iter()
+                    .filter(|argument| argument.as_str() != "--ephemeral")
+                    .cloned(),
+            );
             args.push("exec".to_string());
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["resume".to_string(), session_id.to_string()]);
+            }
+            if managed_args
+                .iter()
+                .any(|argument| argument == "--ephemeral")
+            {
+                args.push("--ephemeral".to_string());
             }
             args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
             PromptDelivery::Stdin
         }
         "gemini-cli" => {
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--resume".to_string(), session_id.to_string()]);
             }
@@ -579,12 +623,12 @@ fn build_cli_invocation_spec(
                 prompt.to_string(),
                 "-o".to_string(),
                 "stream-json".to_string(),
-                "-y".to_string(),
             ]);
             PromptDelivery::Argument
         }
         "opencode" => {
             args.push("run".to_string());
+            args.extend_from_slice(managed_args);
             if let Some(session_id) = runtime_session_id.filter(|value| !value.trim().is_empty()) {
                 args.extend(["--session".to_string(), session_id.to_string()]);
             }
@@ -607,6 +651,106 @@ fn build_cli_invocation_spec(
         args,
         prompt_delivery,
     })
+}
+
+fn mapped_chat_model(agent_id: &str, model_id: &str) -> Option<&'static str> {
+    match (agent_id, model_id) {
+        ("claude-code", "claude-opus-4-8") => Some("opus"),
+        ("claude-code", "claude-sonnet-5" | "claude-sonnet-4-6") => Some("sonnet"),
+        ("claude-code", "claude-haiku-4-5") => Some("haiku"),
+        ("codex-cli", "gpt-5-5") => Some("gpt-5.5"),
+        ("codex-cli", "gpt-5-4") => Some("gpt-5.4"),
+        ("codex-cli", "gpt-5-2-codex") => Some("gpt-5.2-codex"),
+        ("codex-cli", "gpt-5-1-codex-max") => Some("gpt-5.1-codex-max"),
+        ("gemini-cli", "gemini-2-5-pro") => Some("gemini-2.5-pro"),
+        ("gemini-cli", "gemini-2-5-flash") => Some("gemini-2.5-flash"),
+        _ => None,
+    }
+}
+
+fn effective_cli_selections(
+    conn: &Connection,
+    agent_id: &str,
+    config: &ChatConfig,
+) -> Result<BTreeMap<String, serde_json::Value>, AppError> {
+    let mut selections = cli_parameters::load_selections(conn, agent_id)?;
+    if let Some(model) = config
+        .model_id
+        .as_deref()
+        .and_then(|model_id| mapped_chat_model(agent_id, model_id))
+    {
+        selections.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
+    }
+    if let Some(reasoning_depth) = config.reasoning_depth.as_deref() {
+        match agent_id {
+            "claude-code" => {
+                selections.insert(
+                    "effort".to_string(),
+                    serde_json::Value::String(reasoning_depth.to_string()),
+                );
+            }
+            "codex-cli" => {
+                let effort = if reasoning_depth == "max" {
+                    "xhigh"
+                } else {
+                    reasoning_depth
+                };
+                selections.insert(
+                    "reasoningEffort".to_string(),
+                    serde_json::Value::String(effort.to_string()),
+                );
+            }
+            _ => {}
+        }
+    }
+    match (agent_id, config.permission_mode.as_str()) {
+        ("claude-code", "plan") => {
+            selections.insert("permissionMode".to_string(), serde_json::json!("plan"));
+        }
+        ("claude-code", "agent" | "auto") => {
+            selections.insert(
+                "permissionMode".to_string(),
+                serde_json::json!("acceptEdits"),
+            );
+        }
+        ("codex-cli", "plan") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("read-only"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("codex-cli", "agent" | "auto") => {
+            selections.insert("sandbox".to_string(), serde_json::json!("workspace-write"));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                serde_json::json!("on-request"),
+            );
+        }
+        ("gemini-cli", "plan") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("plan"));
+        }
+        ("gemini-cli", "agent" | "auto") => {
+            selections.insert("approvalMode".to_string(), serde_json::json!("auto_edit"));
+        }
+        ("opencode", "plan") => {
+            selections.insert("agent".to_string(), serde_json::json!("plan"));
+        }
+        ("opencode", "agent") => {
+            selections.insert("agent".to_string(), serde_json::json!("build"));
+        }
+        ("opencode", "auto") => {
+            selections.insert("autoApprove".to_string(), serde_json::json!(true));
+        }
+        _ => {}
+    }
+    if agent_id == "opencode" {
+        selections.insert("thinking".to_string(), serde_json::json!(config.thinking));
+    }
+    cli_parameters::normalize_selections(agent_id, &selections)
 }
 
 struct GenericLineParser;
@@ -872,27 +1016,71 @@ enum ChatTerminalResult {
     Cancelled,
 }
 
+struct GenerationReservation<'a> {
+    runtime: &'a ChatRuntimeManager,
+    session_id: String,
+    attached: bool,
+}
+
+impl Drop for GenerationReservation<'_> {
+    fn drop(&mut self) {
+        if !self.attached {
+            let _ = self.runtime.complete(&self.session_id);
+        }
+    }
+}
+
 impl ChatRuntimeManager {
-    fn start(
-        &self,
-        session_id: String,
-        message_id: String,
-        process: Option<Child>,
-    ) -> Result<(), AppError> {
+    fn reserve(&self, session_id: String) -> Result<GenerationReservation<'_>, AppError> {
         let mut active = self
             .active
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
+        if active.contains_key(&session_id) {
+            return Err(AppError::Validation(format!(
+                "A generation is already active for session {session_id}."
+            )));
+        }
         active.insert(
-            session_id,
+            session_id.clone(),
             ActiveGeneration {
-                message_id,
-                process,
+                message_id: String::new(),
+                process: None,
             },
         );
+        Ok(GenerationReservation {
+            runtime: self,
+            session_id,
+            attached: false,
+        })
+    }
+}
+
+impl GenerationReservation<'_> {
+    fn attach(mut self, message_id: String, mut process: Option<Child>) -> Result<(), AppError> {
+        let mut active = self
+            .runtime
+            .active
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let Some(generation) = active.get_mut(&self.session_id) else {
+            if let Some(child) = process.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            return Err(AppError::Validation(format!(
+                "Generation for session {} was cancelled before startup completed.",
+                self.session_id
+            )));
+        };
+        generation.message_id = message_id;
+        generation.process = process;
+        self.attached = true;
         Ok(())
     }
+}
 
+impl ChatRuntimeManager {
     fn complete(&self, session_id: &str) -> Result<(), AppError> {
         let mut active = self
             .active
@@ -911,11 +1099,7 @@ impl ChatRuntimeManager {
         Ok(receiver)
     }
 
-    fn finish(
-        &self,
-        message_id: &str,
-        result: ChatTerminalResult,
-    ) -> Result<bool, AppError> {
+    fn finish(&self, message_id: &str, result: ChatTerminalResult) -> Result<bool, AppError> {
         let sender = self
             .completions
             .lock()
@@ -1031,6 +1215,30 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         11,
         "im-session-source",
         im::storage::apply_session_source_schema,
+    )?;
+    apply_migration(
+        conn,
+        12,
+        "cli-parameter-settings",
+        cli_parameters::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        13,
+        "session-chat-configuration",
+        session_configuration::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        14,
+        "floating-assistant-configuration",
+        floating_assistant::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        15,
+        "local-extension-management",
+        extensions::service::apply_schema,
     )?;
 
     Ok(())
@@ -3349,14 +3557,26 @@ fn get_settings(state: State<'_, Mutex<RegistryStore>>) -> Result<AppSettings, A
 
 #[tauri::command]
 fn save_setting(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     input: SaveSettingInput,
 ) -> Result<AppSettings, AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    save_setting_to_conn(&conn, &input.key, &input.value)
+    let settings = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_setting_to_conn(&conn, &input.key, &input.value)?
+    };
+    app.emit(
+        "settings:event",
+        SettingsStateEvent {
+            kind: "settings-changed",
+            key: input.key,
+        },
+    )
+    .map_err(|err| AppError::Storage(err.to_string()))?;
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -3479,6 +3699,7 @@ fn spawn_cli_generation(
     session: &Session,
     agent: &AgentRegistryEntry,
     prompt: &str,
+    config: &ChatConfig,
 ) -> Result<SpawnedCliGeneration, String> {
     if agent.launch.kind != "cli" {
         return Err(format!(
@@ -3487,11 +3708,20 @@ fn spawn_cli_generation(
         ));
     }
     let executable = resolve_agent_cli_executable(conn, agent)?;
+    let selections =
+        effective_cli_selections(conn, &agent.id, config).map_err(|error| error.to_string())?;
+    let managed_args = cli_parameters::preview_args(
+        &agent.id,
+        &selections,
+        cli_parameters::CliParameterLaunchScope::Chat,
+    )
+    .map_err(|error| error.to_string())?;
     let spec = build_cli_invocation_spec(
         agent,
         executable,
         prompt,
         session.runtime_session_id.as_deref(),
+        &managed_args,
     )?;
     let mut command =
         command_safety::std_command(&spec.executable).map_err(|error| error.to_string())?;
@@ -3756,7 +3986,8 @@ fn run_cli_generation_stream(
         input: prompt_len as i64,
         output: response.chars().count() as i64,
     };
-    let completed = complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
+    let completed =
+        complete_assistant_message(&conn, &assistant_message_id, &response, &token_usage);
     let _ = update_session_lifecycle(&conn, &session_id, SessionLifecycleState::Idle);
     if let Ok(message) = completed {
         let _ = runtime.finish(
@@ -4145,6 +4376,7 @@ fn create_session(
 
         match result {
             Ok(session) => {
+                emit_session_state_event(&app, "active-session-changed", Some(&session.id));
                 let _ =
                     registry.append_log(&operation_id, format!("Created session {}", session.id));
                 let _ = registry.complete(&operation_id, serde_json::to_value(&session).ok());
@@ -4317,7 +4549,36 @@ fn get_active_session(state: State<'_, Mutex<RegistryStore>>) -> Result<Option<S
 }
 
 #[tauri::command]
+fn get_session_chat_config(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    session_configuration::load_from_conn(&conn, &session_id)
+}
+
+#[tauri::command]
+fn save_session_chat_config(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    config: ChatConfig,
+) -> Result<ChatConfig, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let saved = session_configuration::save_to_conn(&conn, &session_id, &config)?;
+    emit_session_state_event(&app, "configuration-changed", Some(&session_id));
+    Ok(saved)
+}
+
+#[tauri::command]
 fn switch_session(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     session_id: String,
 ) -> Result<Session, AppError> {
@@ -4332,6 +4593,7 @@ fn switch_session(
         )));
     }
     update_active_workflow_for_session(&conn, &session)?;
+    emit_session_state_event(&app, "active-session-changed", Some(&session.id));
     Ok(session)
 }
 
@@ -4397,6 +4659,7 @@ fn archive_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(session)
 }
 
@@ -4427,6 +4690,7 @@ fn delete_session(
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
+    emit_session_state_event(&app, "active-session-changed", None);
     Ok(())
 }
 
@@ -4437,7 +4701,7 @@ fn send_message(
     runtime: State<'_, ChatRuntimeManager>,
     session_id: String,
     content: String,
-    _config: ChatConfig,
+    config: ChatConfig,
 ) -> Result<ChatMessage, AppError> {
     let (conn, db_path) = {
         let store = state
@@ -4452,6 +4716,7 @@ fn send_message(
         &runtime,
         &session_id,
         &content,
+        &config,
         false,
     )?
     .message)
@@ -4469,6 +4734,7 @@ fn submit_chat_message(
     runtime: &ChatRuntimeManager,
     session_id: &str,
     content: &str,
+    config: &ChatConfig,
     subscribe_to_completion: bool,
 ) -> Result<ChatSubmission, AppError> {
     let trimmed_content = content.trim().to_string();
@@ -4483,7 +4749,9 @@ fn submit_chat_message(
             "Cannot send a message to archived session: {session_id}"
         )));
     }
+    let config = session_configuration::validate_for_session(conn, session_id, config)?;
     let selected_agent = load_agent(conn, &session.agent_id)?;
+    let reservation = runtime.reserve(session_id.to_string())?;
 
     insert_chat_message(conn, session_id, "user", "completed", &trimmed_content)?;
     let assistant_message = insert_chat_message(conn, session_id, "assistant", "streaming", "")?;
@@ -4502,46 +4770,44 @@ fn submit_chat_message(
     );
     update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
-    let spawned = match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content) {
-        Ok(spawned) => spawned,
-        Err(error) => {
-            let concise_error = concise_cli_error(&selected_agent, &error);
-            let _ = write_session_runtime_log(
-                conn,
-                logging::LogLevel::Error,
-                session_id,
-                &selected_agent.id,
-                &error,
-            );
-            let failed = fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
-            update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
-            runtime.complete(session_id)?;
-            let _ = runtime.finish(
-                &assistant_message.id,
-                ChatTerminalResult::Failed(concise_error.clone()),
-            );
-            let _ = app.emit(
-                "chat:event",
-                ChatStreamEvent::Failed {
-                    session_id: session_id.to_string(),
-                    message_id: assistant_message.id.clone(),
-                    error: concise_error,
-                },
-            );
-            return Ok(ChatSubmission {
-                message: failed,
-                completion,
-            });
-        }
-    };
+    let spawned =
+        match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content, &config) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                let concise_error = concise_cli_error(&selected_agent, &error);
+                let _ = write_session_runtime_log(
+                    conn,
+                    logging::LogLevel::Error,
+                    session_id,
+                    &selected_agent.id,
+                    &error,
+                );
+                let failed =
+                    fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+                update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+                runtime.complete(session_id)?;
+                let _ = runtime.finish(
+                    &assistant_message.id,
+                    ChatTerminalResult::Failed(concise_error.clone()),
+                );
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Failed {
+                        session_id: session_id.to_string(),
+                        message_id: assistant_message.id.clone(),
+                        error: concise_error,
+                    },
+                );
+                return Ok(ChatSubmission {
+                    message: failed,
+                    completion,
+                });
+            }
+        };
 
     let stdout = spawned.stdout;
     let stderr = spawned.stderr;
-    runtime.start(
-        session_id.to_string(),
-        assistant_message.id.clone(),
-        Some(spawned.child),
-    )?;
+    reservation.attach(assistant_message.id.clone(), Some(spawned.child))?;
     let background_app = app.clone();
     let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
@@ -4758,7 +5024,10 @@ impl im::runtime::InboundAgent for VaneHubInboundAgent {
             im::runtime::DiagnosticLevel::Error => logging::LogLevel::Error,
         };
         let mut context = BTreeMap::new();
-        context.insert("connector".to_string(), event.connector.as_str().to_string());
+        context.insert(
+            "connector".to_string(),
+            event.connector.as_str().to_string(),
+        );
         context.insert("operation".to_string(), event.operation.to_string());
         context.insert("safeCode".to_string(), event.safe_code);
         context.insert("retryCount".to_string(), event.retry_count.to_string());
@@ -4841,9 +5110,9 @@ fn handle_im_inbound(
     };
     let repository = im::storage::ImRepository::new(&conn);
 
-    let routing = repository.routing().map_err(|_| {
-        im::runtime::ConnectorRuntimeError::new("routing-read-failed")
-    })?;
+    let routing = repository
+        .routing()
+        .map_err(|_| im::runtime::ConnectorRuntimeError::new("routing-read-failed"))?;
     let routing = routing.ok_or_else(|| {
         im::runtime::ConnectorRuntimeError::user_visible(
             "routing-not-configured",
@@ -4900,6 +5169,12 @@ fn handle_im_inbound(
         }
     };
 
+    let config = session_configuration::load_from_conn(&conn, &session_id).map_err(|_| {
+        im::runtime::ConnectorRuntimeError::user_visible(
+            "session-config-invalid",
+            "The session chat configuration could not be loaded.",
+        )
+    })?;
     let runtime = app.state::<ChatRuntimeManager>();
     let mut submission = submit_chat_message(
         app,
@@ -4908,6 +5183,7 @@ fn handle_im_inbound(
         &runtime,
         &session_id,
         &inbound.text,
+        &config,
         true,
     )
     .map_err(|_| {
@@ -4925,18 +5201,14 @@ fn handle_im_inbound(
             session_id,
             message_id: message.id,
         }),
-        Ok(ChatTerminalResult::Failed(_)) => Err(
-            im::runtime::ConnectorRuntimeError::user_visible(
-                "agent-generation-failed",
-                "The Agent could not complete this request.",
-            ),
-        ),
-        Ok(ChatTerminalResult::Cancelled) => Err(
-            im::runtime::ConnectorRuntimeError::user_visible(
-                "agent-generation-cancelled",
-                "The Agent request was cancelled.",
-            ),
-        ),
+        Ok(ChatTerminalResult::Failed(_)) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-failed",
+            "The Agent could not complete this request.",
+        )),
+        Ok(ChatTerminalResult::Cancelled) => Err(im::runtime::ConnectorRuntimeError::user_visible(
+            "agent-generation-cancelled",
+            "The Agent request was cancelled.",
+        )),
         Err(_) => Err(im::runtime::ConnectorRuntimeError::user_visible(
             "agent-generation-timeout",
             "The Agent did not finish before the IM response timeout.",
@@ -4965,6 +5237,7 @@ pub fn run() {
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
+            app.manage(extensions::commands::ExtensionRuntimeManager::default());
             let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
                 app: app.handle().clone(),
             }));
@@ -4979,6 +5252,13 @@ pub fn run() {
                     "desktop.lifecycle",
                     "System tray initialization failed; normal window close behavior remains active",
                     context,
+                );
+            }
+            if let Err(error) = floating_assistant::initialize(app.handle()) {
+                record_native_log(
+                    NativeLogLevel::Error,
+                    "floating-assistant.initialize",
+                    &error.to_string(),
                 );
             }
             let should_refresh = {
@@ -5007,12 +5287,55 @@ pub fn run() {
             ));
             Ok(())
         })
-        .on_window_event(desktop_lifecycle::handle_window_event)
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let enabled = floating_assistant::should_hide_main_on_close(app);
+                let floating = app.get_webview_window(floating_assistant::FLOATING_ASSISTANT_LABEL);
+                if floating_assistant::should_intercept_main_close(enabled, floating.is_some()) {
+                    if let Some(floating) = floating {
+                        match floating.show() {
+                            Ok(()) => {
+                                api.prevent_close();
+                                match window.hide() {
+                                    Ok(()) => return,
+                                    Err(error) => record_native_log(
+                                        NativeLogLevel::Error,
+                                        "floating-assistant.hide-main",
+                                        &error.to_string(),
+                                    ),
+                                }
+                            }
+                            Err(error) => {
+                                record_native_log(
+                                    NativeLogLevel::Error,
+                                    "floating-assistant.hide-main",
+                                    &format!("floating show failed; using desktop lifecycle fallback: {error}"),
+                                );
+                            }
+                        }
+                    }
+                } else if enabled {
+                    record_native_log(
+                        NativeLogLevel::Error,
+                        "floating-assistant.hide-main",
+                        "floating window missing; using desktop lifecycle fallback",
+                    );
+                }
+            }
+            desktop_lifecycle::handle_window_event(window, event);
+        })
         .invoke_handler(tauri::generate_handler![
             list_agents,
             list_cli_tools,
             refresh_cli_detections,
             install_cli_version,
+            cli_parameters::list_cli_parameter_profiles,
+            cli_parameters::save_cli_parameter_profile,
+            cli_parameters::reset_cli_parameter_profile,
             get_agent_by_id,
             get_workflow_state,
             select_agent,
@@ -5026,6 +5349,8 @@ pub fn run() {
             list_sessions,
             list_archived_sessions,
             get_active_session,
+            get_session_chat_config,
+            save_session_chat_config,
             switch_session,
             rename_session,
             pin_session,
@@ -5039,6 +5364,15 @@ pub fn run() {
             stop_generation,
             get_settings,
             save_setting,
+            floating_assistant::get_floating_assistant_runtime_info,
+            floating_assistant::get_floating_assistant_config,
+            floating_assistant::set_floating_assistant_enabled,
+            floating_assistant::set_floating_assistant_surface,
+            floating_assistant::start_floating_assistant_drag,
+            floating_assistant::save_floating_assistant_anchor,
+            floating_assistant::persist_floating_assistant_position,
+            floating_assistant::show_main_window,
+            floating_assistant::exit_application,
             test_network_proxy,
             scan_network_proxies,
             open_log_directory,
@@ -5090,7 +5424,16 @@ pub fn run() {
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
             tasks::commands::list_operations,
-            tasks::commands::get_operation_status
+            tasks::commands::get_operation_status,
+            extensions::commands::get_extension_overview,
+            extensions::commands::refresh_extension_health,
+            extensions::commands::get_extension_install_preview,
+            extensions::commands::install_extension,
+            extensions::commands::uninstall_extension,
+            extensions::commands::set_extension_enabled,
+            extensions::commands::start_extension,
+            extensions::commands::stop_extension,
+            extensions::commands::test_extension
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");
@@ -5100,7 +5443,7 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    fn test_conn() -> Connection {
+    pub(crate) fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("in-memory sqlite");
         migrate(&conn).expect("migrate");
         seed_agents(&conn).expect("seed");
@@ -5139,7 +5482,10 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("versions");
 
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        assert_eq!(
+            versions,
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        );
     }
 
     #[test]
@@ -5310,10 +5656,8 @@ mod tests {
         assert!(table_has_column(&conn, "settings", "value").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "runtime_session_id").expect("column check"));
         assert!(table_has_column(&conn, "sessions", "source_kind").expect("source column"));
-        assert!(
-            table_has_column(&conn, "sessions", "source_connector")
-                .expect("connector source column")
-        );
+        assert!(table_has_column(&conn, "sessions", "source_connector")
+            .expect("connector source column"));
     }
 
     #[test]
@@ -5429,7 +5773,7 @@ mod tests {
         assert!(save_setting_to_conn(&conn, "networkProxyBypass", "localhost\nbad").is_err());
     }
 
-    fn insert_test_session(conn: &Connection, session_id: &str) {
+    pub(crate) fn insert_test_session(conn: &Connection, session_id: &str) {
         let now = current_timestamp();
         conn.execute(
             "INSERT INTO sessions
@@ -5585,9 +5929,8 @@ mod tests {
 
         let old_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
             .expect("old assistant");
-        let recent_message =
-            insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
-                .expect("recent assistant");
+        let recent_message = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("recent assistant");
         complete_assistant_message(
             &conn,
             &old_message.id,
@@ -5711,32 +6054,44 @@ mod tests {
             "claude".to_string(),
             "hello",
             Some("claude-session"),
+            &[],
         )
         .expect("claude spec");
         assert_eq!(claude_spec.prompt_delivery, PromptDelivery::Stdin);
         assert!(claude_spec.args.iter().any(|arg| arg == "--resume"));
         assert!(!claude_spec.args.iter().any(|arg| arg == "hello"));
 
-        let codex_spec =
-            build_cli_invocation_spec(&codex, "codex".to_string(), "hello", Some("codex-session"))
-                .expect("codex spec");
+        let codex_spec = build_cli_invocation_spec(
+            &codex,
+            "codex".to_string(),
+            "hello",
+            Some("codex-session"),
+            &[],
+        )
+        .expect("codex spec");
         assert_eq!(codex_spec.prompt_delivery, PromptDelivery::Stdin);
         assert_eq!(
             codex_spec.args,
             vec!["exec", "resume", "codex-session", "--json", "--", "-"]
         );
 
-        let gemini_spec = build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None)
-            .expect("gemini spec");
+        let gemini_spec =
+            build_cli_invocation_spec(&gemini, "gemini".to_string(), "hello", None, &[])
+                .expect("gemini spec");
         assert_eq!(gemini_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(gemini_spec
             .args
             .windows(2)
             .any(|pair| pair == ["-p", "hello"]));
 
-        let opencode_spec =
-            build_cli_invocation_spec(&opencode, "opencode".to_string(), "hello", Some("open-1"))
-                .expect("opencode spec");
+        let opencode_spec = build_cli_invocation_spec(
+            &opencode,
+            "opencode".to_string(),
+            "hello",
+            Some("open-1"),
+            &[],
+        )
+        .expect("opencode spec");
         assert_eq!(opencode_spec.prompt_delivery, PromptDelivery::Argument);
         assert!(opencode_spec
             .args
@@ -5762,8 +6117,10 @@ mod tests {
     fn runtime_manager_tracks_and_soft_cancels_generation() {
         let manager = ChatRuntimeManager::default();
         manager
-            .start("session-1".to_string(), "message-1".to_string(), None)
-            .expect("start");
+            .reserve("session-1".to_string())
+            .expect("reserve")
+            .attach("message-1".to_string(), None)
+            .expect("attach");
 
         let outcome = manager.stop("session-1").expect("stop");
 
@@ -5777,6 +6134,19 @@ mod tests {
             manager.stop("session-1").expect("second stop"),
             StopGenerationOutcome::NoActiveGeneration
         );
+    }
+
+    #[test]
+    fn runtime_manager_rejects_concurrent_generation_for_same_session() {
+        let manager = ChatRuntimeManager::default();
+        let reservation = manager
+            .reserve("session-1".to_string())
+            .expect("first reserve");
+        let duplicate = manager.reserve("session-1".to_string());
+        assert!(matches!(duplicate, Err(AppError::Validation(_))));
+        reservation
+            .attach("message-1".to_string(), None)
+            .expect("attach");
     }
 
     #[test]

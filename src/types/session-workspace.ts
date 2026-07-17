@@ -124,7 +124,7 @@ export interface SessionLogQuery {
   limit?: number;
 }
 
-export interface SessionLogPage extends BoundedResult<SessionLogEntry> {}
+export type SessionLogPage = BoundedResult<SessionLogEntry>;
 
 export type SessionLogExportStatus = "exported" | "cancelled" | "unavailable";
 

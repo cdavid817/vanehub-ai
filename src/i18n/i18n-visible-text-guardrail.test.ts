@@ -33,6 +33,8 @@ const checkedFiles = [
   "src/session-workspace/shell-tab.tsx",
   "src/session-workspace/logs-tab.tsx",
   "src/session-workspace/report-tab.tsx",
+  "src/floating-assistant/floating-assistant-app.tsx",
+  "src/settings/pages/floating-assistant-settings-section.tsx",
 ];
 
 const disallowedLiteralPatterns = [

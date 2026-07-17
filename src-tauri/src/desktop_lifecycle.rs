@@ -60,12 +60,30 @@ impl DesktopLifecycleState {
 
 pub fn initialize(app: &mut App, language: &str) -> Result<(), String> {
     app.manage(DesktopLifecycleState::new(language));
-    let show = MenuItem::with_id(app, "show", TrayCopy::for_language(language).show, true, None::<&str>)
-        .map_err(|_| "tray-menu-create-failed".to_string())?;
-    let hide = MenuItem::with_id(app, "hide", TrayCopy::for_language(language).hide, true, None::<&str>)
-        .map_err(|_| "tray-menu-create-failed".to_string())?;
-    let quit = MenuItem::with_id(app, "quit", TrayCopy::for_language(language).quit, true, None::<&str>)
-        .map_err(|_| "tray-menu-create-failed".to_string())?;
+    let show = MenuItem::with_id(
+        app,
+        "show",
+        TrayCopy::for_language(language).show,
+        true,
+        None::<&str>,
+    )
+    .map_err(|_| "tray-menu-create-failed".to_string())?;
+    let hide = MenuItem::with_id(
+        app,
+        "hide",
+        TrayCopy::for_language(language).hide,
+        true,
+        None::<&str>,
+    )
+    .map_err(|_| "tray-menu-create-failed".to_string())?;
+    let quit = MenuItem::with_id(
+        app,
+        "quit",
+        TrayCopy::for_language(language).quit,
+        true,
+        None::<&str>,
+    )
+    .map_err(|_| "tray-menu-create-failed".to_string())?;
     let menu = Menu::with_items(app, &[&show, &hide, &quit])
         .map_err(|_| "tray-menu-create-failed".to_string())?;
     let icon = app
@@ -83,7 +101,14 @@ pub fn initialize(app: &mut App, language: &str) -> Result<(), String> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }) {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
                 show_main_window(tray.app_handle());
             }
         })
@@ -133,7 +158,7 @@ fn hide_main_window(app: &AppHandle) {
     }
 }
 
-fn request_quit(app: &AppHandle) {
+pub(crate) fn request_quit(app: &AppHandle) {
     let state = app.state::<DesktopLifecycleState>();
     if state.quitting.swap(true, Ordering::AcqRel) {
         return;

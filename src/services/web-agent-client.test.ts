@@ -235,6 +235,47 @@ describe("webAgentClient", () => {
     unsubscribe();
   });
 
+  it("persists chat configuration per session and keeps session identity authoritative", async () => {
+    const first = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Config one" });
+    const second = await createMockSession({ agentId: "gemini-cli", interactionMode: "browser", title: "Config two" });
+    const events: string[] = [];
+    const unsubscribe = await webAgentClient.subscribeSessionEvents((event) => events.push(event.kind));
+
+    const saved = await webAgentClient.saveSessionChatConfig(first.id, {
+      agentId: "claude-code",
+      interactionMode: "browser",
+      permissionMode: "agent",
+      providerId: "openai",
+      modelId: "gpt-5-4",
+      reasoningDepth: "medium",
+      streaming: false,
+      thinking: false,
+      longContext: true,
+    });
+
+    expect(saved).toMatchObject({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      modelId: "gpt-5-4",
+      permissionMode: "agent",
+    });
+    expect(await webAgentClient.getSessionChatConfig(first.id)).toEqual(saved);
+    expect((await webAgentClient.getSessionChatConfig(second.id)).agentId).toBe("gemini-cli");
+    expect(events).toContain("configuration-changed");
+    unsubscribe();
+  });
+
+  it("rejects a second generation while the same session is streaming", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Concurrency" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "first", config });
+
+    await expect(webAgentClient.sendMessage({ sessionId: session.id, content: "second", config }))
+      .rejects.toThrow("already active");
+    await webAgentClient.stopGeneration(session.id);
+  });
+
   it("aggregates mock usage statistics from completed assistant messages", async () => {
     vi.useFakeTimers();
     const session = await createMockSession({

@@ -82,7 +82,14 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
     return [...result.entries()];
   }, [sessions, t]);
   const card = (session: Session) => <SessionCard active={activeSessionId === session.id} key={session.id} onContextMenu={(event) => onContextMenu(event, session)} onSelect={() => onSelect(session)} session={session} />;
-  function toggle(folder: string) { setExpanded((current) => { const next = new Set(current); next.has(folder) ? next.delete(folder) : next.add(folder); return next; }); }
+  function toggle(folder: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  }
 
   return (
     <aside className="ucd-panel flex min-h-0 flex-col rounded-lg p-3 max-[640px]:max-h-64" onContextMenu={(event) => event.preventDefault()}>

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { ChatInputBox } from "../components/chat/ChatInputBox";
 import { NotificationHost } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
@@ -42,11 +42,21 @@ export function ConversationCard({
   );
 }
 
-export function MainLayout({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function MainLayout({
+  onOpenSettings,
+  openCreateSession = false,
+}: {
+  onOpenSettings: () => void;
+  openCreateSession?: boolean;
+}) {
   const model = useMainLayoutModel();
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
-  const [createSessionOpen, setCreateSessionOpen] = useState(false);
+  const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
+
+  useEffect(() => {
+    if (openCreateSession) setCreateSessionOpen(true);
+  }, [openCreateSession]);
 
   function openContextMenu(event: MouseEvent<HTMLButtonElement>, session: Session) {
     event.preventDefault();

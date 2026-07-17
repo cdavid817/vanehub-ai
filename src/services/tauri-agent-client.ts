@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AgentService } from "./agent-service";
+import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentRegistryEntry,
   CliParameterProfile,
@@ -18,7 +18,7 @@ import type {
   ManagedCliAgentId,
   WorkflowState,
 } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent, UsageStatistics } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, UsageStatistics } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   Skill,
@@ -101,6 +101,14 @@ export const tauriAgentClient: AgentService = {
 
   getActiveSession() {
     return invoke<Session | null>("get_active_session");
+  },
+
+  getSessionChatConfig(sessionId) {
+    return invoke<ChatConfig>("get_session_chat_config", { sessionId });
+  },
+
+  saveSessionChatConfig(sessionId, config) {
+    return invoke<ChatConfig>("save_session_chat_config", { sessionId, config });
   },
 
   listKnownProjects() {
@@ -186,6 +194,9 @@ export const tauriAgentClient: AgentService = {
   },
 
   ...tauriSessionWorkspaceClient,
+  async subscribeSessionEvents(handler) {
+    return listen<SessionStateEvent>("session:event", (event) => handler(event.payload));
+  },
 
   listSkills(input: SkillScopeInput) {
     return invoke<SkillListResult>("list_skills", { input });

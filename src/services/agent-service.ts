@@ -15,7 +15,7 @@ import type {
   SessionDetails,
   WorkflowState,
 } from "../types/agent";
-import type { ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   CreateShellInput,
@@ -63,6 +63,8 @@ export interface AgentService {
   listSessions(): Promise<Session[]>;
   listArchivedSessions(): Promise<Session[]>;
   getActiveSession(): Promise<Session | null>;
+  getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
+  saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   listKnownProjects(): Promise<KnownProject[]>;
   inspectProject(path: string): Promise<ProjectInspection>;
   selectProjectDirectory(): Promise<string | null>;
@@ -95,6 +97,7 @@ export interface AgentService {
   resizeShell(input: ResizeShellInput): Promise<void>;
   killShell(shellId: string): Promise<void>;
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
+  subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
@@ -110,3 +113,7 @@ export interface AgentService {
   syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
   selectWorkspaceDirectory(): Promise<string | null>;
 }
+
+export type SessionStateEvent =
+  | { kind: "active-session-changed"; sessionId: string | null }
+  | { kind: "configuration-changed"; sessionId: string };

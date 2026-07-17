@@ -126,6 +126,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+body.floating-assistant-surface {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
 .ucd-panel {
   border: 1px solid hsl(var(--panel-border));
   background: hsl(var(--panel-glass));
