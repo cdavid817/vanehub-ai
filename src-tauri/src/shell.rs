@@ -400,7 +400,7 @@ mod tests {
     use portable_pty::{ChildKiller, ExitStatus};
     use std::io;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn temp_dir(label: &str) -> PathBuf {
         let suffix = SystemTime::now()
@@ -408,6 +408,21 @@ mod tests {
             .expect("clock")
             .as_nanos();
         std::env::temp_dir().join(format!("vanehub-shell-{label}-{suffix}"))
+    }
+
+    fn remove_test_dir(path: &Path) {
+        let mut last_error = None;
+        for _ in 0..20 {
+            match std::fs::remove_dir_all(path) {
+                Ok(()) => return,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+                Err(error) => {
+                    last_error = Some(error);
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+            }
+        }
+        panic!("cleanup: {}", last_error.expect("cleanup error"));
     }
 
     #[derive(Debug)]
@@ -483,7 +498,7 @@ mod tests {
         assert!(content.contains("Shell process termination failed."));
         assert!(content.contains("Shell process wait failed."));
         assert!(!content.contains("secret"));
-        std::fs::remove_dir_all(root).expect("cleanup");
+        remove_test_dir(&root);
     }
 
     #[test]
@@ -537,7 +552,7 @@ mod tests {
         assert_eq!(manager.stop("shell-one").expect("repeat stop"), None);
         assert_eq!(manager.stop("shell-two").expect("stop second").as_deref(), Some("session-two"));
         assert!(manager.shells.lock().expect("shell map").is_empty());
-        std::fs::remove_dir_all(root).expect("cleanup");
+        remove_test_dir(&root);
     }
 
     #[test]
