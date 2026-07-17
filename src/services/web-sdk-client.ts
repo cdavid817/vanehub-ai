@@ -4,13 +4,13 @@ import type {
   SdkId,
   SdkOperationLog,
   SdkOperationRequest,
-  SdkOperationResult,
   SdkOperationType,
   SdkStatusMap,
   SdkUpdateMap,
   SdkVersionMap,
 } from "../types/sdk";
 import { compareSdkVersions, normalizeSdkVersion } from "./sdk-versioning";
+import { createWebMockOperation } from "./web-operation-client";
 
 const definitions: SdkDefinition[] = [
   {
@@ -97,7 +97,7 @@ function pushLog(sdkId: SdkId, operation: SdkOperationType, line: string) {
 async function simulateOperation(
   operation: SdkOperationType,
   request: SdkOperationRequest,
-): Promise<SdkOperationResult> {
+): Promise<import("../types/operation").OperationTask> {
   const version = normalizeSdkVersion(request.version) ?? versionMap[request.sdkId].latestVersion ?? undefined;
   const logs = [
     pushLog(request.sdkId, operation, `Starting ${operation} for ${request.sdkId}`),
@@ -118,7 +118,7 @@ async function simulateOperation(
     },
   };
 
-  return {
+  const result = {
     success: true,
     sdkId: request.sdkId,
     operation,
@@ -126,6 +126,15 @@ async function simulateOperation(
     installedVersion: statuses[request.sdkId].installedVersion,
     logs,
   };
+  return createWebMockOperation({
+    id: `web-sdk-${operation}-${request.sdkId}-${Date.now()}`,
+    kind: "sdk",
+    relatedEntityId: request.sdkId,
+    message: `Mock SDK ${operation} for ${request.sdkId}`,
+    terminalStatus: "succeeded",
+    error: null,
+    result: result as unknown as Record<string, unknown>,
+  });
 }
 
 export const webSdkClient: SdkService = {
@@ -192,7 +201,16 @@ export const webSdkClient: SdkService = {
         lastChecked: new Date().toISOString(),
       },
     };
-    return { success: true, sdkId, operation: "uninstall", logs };
+    const result = { success: true, sdkId, operation: "uninstall" as const, logs };
+    return createWebMockOperation({
+      id: `web-sdk-uninstall-${sdkId}-${Date.now()}`,
+      kind: "sdk",
+      relatedEntityId: sdkId,
+      message: `Mock SDK uninstall for ${sdkId}`,
+      terminalStatus: "succeeded",
+      error: null,
+      result: result as unknown as Record<string, unknown>,
+    });
   },
 
   async getOperationLogs(sdkId) {

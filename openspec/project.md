@@ -29,3 +29,14 @@ Required checks:
 - Hover, active, disabled, loading, and focus states MUST not resize controls or shift adjacent content.
 - Page sections MUST avoid nested card-in-card decoration. Use cards for repeated items, dialogs, and framed tools; use full-width or unframed layouts for larger sections.
 - Visual QA for substantial UI changes MUST inspect representative pages in both `futuristic` and `minimal` styles at desktop and narrow widths for overlap, clipping, unreadable contrast, and blank panels.
+
+## Long-Running Operation Responsiveness
+
+- Potentially time-consuming work MUST be handled asynchronously and MUST NOT block React rendering, the browser event loop, Tauri command boundaries, or the Tauri main thread.
+- Refresh, download, network resource access, package operations, external command execution, MCP connection testing, SDK installation/removal, Git inspection/worktree creation, large filesystem scans, and database-heavy maintenance MUST use service-backed loading/running/terminal state instead of synchronous UI-blocking flows.
+- React components MUST trigger potentially slow work through frontend service interfaces and runtime adapters; they MUST NOT call Tauri `invoke()` directly or hide runtime-specific behavior inside page components.
+- Tauri adapters MUST call declared native commands that return a stable operation/task id before variable-duration native work completes.
+- Web/mock adapters MUST preserve the same asynchronous service contract by simulating queued/running/succeeded/failed operation state.
+- Native implementations MUST run variable-duration work through backend-managed operations/tasks and expose status, timestamps, terminal result or error, and logs through the service boundary.
+- Existing data SHOULD remain visible during refresh or background operation progress; pages SHOULD show stale/refreshing state rather than replacing loaded content with a blank blocking state.
+- Native diagnostics, operation output, timeouts, partial completion, and failures from long-running work MUST be associated with the operation/task and persisted through the unified logging service with redaction before disk writes.

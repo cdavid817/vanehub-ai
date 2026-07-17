@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { webOperationClient } from "./web-operation-client";
 import { webSdkClient } from "./web-sdk-client";
 
 describe("webSdkClient", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns deterministic SDK definitions and statuses", async () => {
     const definitions = await webSdkClient.listDefinitions();
     const statuses = await webSdkClient.listStatuses();
@@ -19,15 +24,23 @@ describe("webSdkClient", () => {
   });
 
   it("simulates install and uninstall operation logs", async () => {
+    vi.useFakeTimers();
     const install = await webSdkClient.install({ sdkId: "codex-sdk", version: "0.117.0" });
-    expect(install.success).toBe(true);
+    expect(install.kind).toBe("sdk");
+    expect(install.status).toBe("queued");
     expect(install.logs.length).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(950);
+    const completedInstall = await webOperationClient.getOperationStatus(install.id);
+    expect(completedInstall.status).toBe("succeeded");
 
     const statuses = await webSdkClient.listStatuses();
     expect(statuses["codex-sdk"].status).toBe("installed");
 
     const uninstall = await webSdkClient.uninstall("codex-sdk");
-    expect(uninstall.success).toBe(true);
+    expect(uninstall.kind).toBe("sdk");
+    await vi.advanceTimersByTimeAsync(950);
+    const completedUninstall = await webOperationClient.getOperationStatus(uninstall.id);
+    expect(completedUninstall.status).toBe("succeeded");
 
     const logs = await webSdkClient.getOperationLogs("codex-sdk");
     expect(logs.some((entry) => entry.operation === "uninstall")).toBe(true);

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
+import { operationService } from "../services/runtime-operation-client";
 import type {
   AgentRegistryEntry,
   CreateSessionInput,
@@ -12,6 +13,7 @@ import type {
   ProjectInspection,
   Session,
 } from "../types/agent";
+import type { OperationTask } from "../types/operation";
 
 const preferredAgentIds = ["claude-code", "gemini-cli", "codex-cli", "opencode"];
 
@@ -57,6 +59,8 @@ export function CreateSessionDialog({
   const [worktreeName, setWorktreeName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createOperationId, setCreateOperationId] = useState<string | null>(null);
+  const [handledCreateOperationId, setHandledCreateOperationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +70,47 @@ export function CreateSessionDialog({
     setError(null);
     void agentService.listKnownProjects().then(setKnownProjects).catch(() => setKnownProjects([]));
   }, [availableAgents, open]);
+
+  useEffect(() => {
+    if (!createOperationId || handledCreateOperationId === createOperationId) return;
+    const operationId = createOperationId;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function pollOperation() {
+      try {
+        const operation = await operationService.getOperationStatus(operationId);
+        if (cancelled) return;
+        if (operation.status === "queued" || operation.status === "running") {
+          timer = window.setTimeout(() => void pollOperation(), 600);
+          return;
+        }
+        setHandledCreateOperationId(operation.id);
+        setLoading(false);
+        if (operation.status === "failed") {
+          setError(operation.error ?? t("createSession.error.command"));
+          return;
+        }
+        const session = sessionResult(operation.result);
+        if (!session) {
+          setError(t("createSession.error.command"));
+          return;
+        }
+        onCreated(session);
+      } catch (operationError) {
+        if (!cancelled) {
+          setLoading(false);
+          setError(conciseError(operationError, t));
+        }
+      }
+    }
+
+    void pollOperation();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [createOperationId, handledCreateOperationId, onCreated, t]);
 
   useEffect(() => {
     if (!selectedAgent) return;
@@ -114,11 +159,11 @@ export function CreateSessionDialog({
       worktree: worktreeEnabled ? { enabled: true, name: worktreeName } : null,
     };
     try {
-      const session = await agentService.createSession(input);
-      onCreated(session);
+      const operation = await agentService.createSession(input);
+      setCreateOperationId(operation.id);
+      setHandledCreateOperationId(null);
     } catch (createError) {
       setError(conciseError(createError, t));
-    } finally {
       setLoading(false);
     }
   }
@@ -272,4 +317,12 @@ export function CreateSessionDialog({
       </div>
     </div>
   );
+}
+
+function sessionResult(result: OperationTask["result"]): Session | null {
+  if (!result || typeof result !== "object") return null;
+  if (typeof result.id !== "string") return null;
+  if (typeof result.agentId !== "string") return null;
+  if (typeof result.interactionMode !== "string") return null;
+  return result as unknown as Session;
 }

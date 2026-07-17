@@ -7,9 +7,9 @@ import type {
   McpScope,
   McpServerConfig,
   McpServerStatus,
-  McpTestResult,
   PartialMcpServerConfig,
 } from "../types/mcp";
+import type { OperationTask } from "../types/operation";
 
 export const tauriMcpClient: McpService = {
   listServers() {
@@ -33,7 +33,7 @@ export const tauriMcpClient: McpService = {
   },
 
   testConnection(name: string) {
-    return invoke<McpTestResult>("test_mcp_connection", { name });
+    return invoke<OperationTask>("test_mcp_connection", { name });
   },
 
   getServerStatus(name: string) {

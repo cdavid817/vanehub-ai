@@ -6,9 +6,9 @@ import type {
   McpScope,
   McpServerConfig,
   McpServerStatus,
-  McpTestResult,
   PartialMcpServerConfig,
 } from "../types/mcp";
+import { createWebMockOperation } from "./web-operation-client";
 
 let mockServers: McpServerConfig[] = [
   {
@@ -79,8 +79,8 @@ export const webMcpClient: McpService = {
     await this.updateServer(name, { active });
   },
 
-  async testConnection(name: string): Promise<McpTestResult> {
-    const result: McpTestResult = {
+  async testConnection(name: string) {
+    const result = {
       success: true,
       durationMs: 38,
       tools: [
@@ -98,7 +98,15 @@ export const webMcpClient: McpService = {
       lastConnected: "preview",
       durationMs: result.durationMs,
     };
-    return result;
+    return createWebMockOperation({
+      id: `web-mcp-test-${name}-${Date.now()}`,
+      kind: "mcp",
+      relatedEntityId: name,
+      message: `Mock MCP connection test for ${name}`,
+      terminalStatus: "succeeded",
+      error: null,
+      result: result as unknown as Record<string, unknown>,
+    });
   },
 
   async getServerStatus(name: string) {

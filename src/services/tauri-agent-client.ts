@@ -101,7 +101,7 @@ export const tauriAgentClient: AgentService = {
   },
 
   createSession(input) {
-    return invoke<Session>("create_session", {
+    return invoke<OperationTask>("create_session", {
       input,
     });
   },

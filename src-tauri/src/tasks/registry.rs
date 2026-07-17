@@ -142,4 +142,54 @@ mod tests {
         let task = registry.complete(&task.id, None).expect("complete");
         assert!(matches!(task.status, OperationStatus::Succeeded));
     }
+
+    #[test]
+    fn task_registry_exposes_terminal_result_and_failure() {
+        let registry = TaskRegistry::default();
+        let success = registry
+            .start(
+                OperationKind::Mcp,
+                Some("filesystem-tools".to_string()),
+                Some("Testing MCP server".to_string()),
+            )
+            .expect("start success");
+        registry
+            .append_log(&success.id, "connection initialized".to_string())
+            .expect("append log");
+        registry
+            .complete(
+                &success.id,
+                Some(serde_json::json!({
+                    "success": true,
+                    "tools": [{ "name": "read_file" }]
+                })),
+            )
+            .expect("complete success");
+
+        let loaded = registry.get(&success.id).expect("load success");
+        assert!(matches!(loaded.status, OperationStatus::Succeeded));
+        assert_eq!(loaded.logs.len(), 1);
+        assert_eq!(
+            loaded
+                .result
+                .as_ref()
+                .and_then(|value| value.get("success"))
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+
+        let failure = registry
+            .start(
+                OperationKind::Sdk,
+                Some("codex-sdk".to_string()),
+                Some("Installing SDK".to_string()),
+            )
+            .expect("start failure");
+        registry
+            .fail(&failure.id, "npm install failed".to_string())
+            .expect("fail");
+        let loaded = registry.get(&failure.id).expect("load failure");
+        assert!(matches!(loaded.status, OperationStatus::Failed));
+        assert_eq!(loaded.error.as_deref(), Some("npm install failed"));
+    }
 }

@@ -1,11 +1,15 @@
 use crate::mcp::connection;
 use crate::mcp::models::*;
 use crate::mcp::service;
+use crate::logging;
 use crate::tasks::models::OperationKind;
 use crate::tasks::registry::TaskRegistry;
 use crate::{AppError, RegistryStore};
+use rusqlite::Connection;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn list_mcp_servers(
@@ -70,10 +74,11 @@ pub fn toggle_mcp_server(
 
 #[tauri::command]
 pub async fn test_mcp_connection(
+    app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     registry: State<'_, TaskRegistry>,
     name: String,
-) -> Result<McpTestResult, AppError> {
+) -> Result<crate::tasks::models::OperationTask, AppError> {
     let config = {
         let store = state
             .lock()
@@ -87,30 +92,59 @@ pub async fn test_mcp_connection(
         Some(name.clone()),
         Some(format!("Testing MCP server {name}")),
     )?;
-    let mut result = connection::test_connection(&config).await;
-    result.operation_id = Some(task.id.clone());
+    let operation_id = task.id.clone();
 
-    {
-        let store = state
-            .lock()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
-        let conn = store.connection()?;
-        service::record_test_result(&conn, &name, &result)?;
-    }
+    tauri::async_runtime::spawn(async move {
+        let mut result = connection::test_connection(&config).await;
+        result.operation_id = Some(operation_id.clone());
 
-    if result.success {
-        let _ = registry.append_log(&task.id, format!("MCP test passed for {name}"));
-        let _ = registry.complete(&task.id, None);
-    } else {
-        let error = result
-            .error
-            .clone()
-            .unwrap_or_else(|| "MCP test failed".to_string());
-        let _ = registry.append_log(&task.id, error.clone());
-        let _ = registry.fail(&task.id, error);
-    }
+        let registry = app.state::<TaskRegistry>();
+        let persist_result = {
+            let store = app.state::<Mutex<RegistryStore>>();
+            let result = (|| -> Result<(), AppError> {
+                let store = store
+                    .lock()
+                    .map_err(|error| AppError::Storage(error.to_string()))?;
+                let conn = store.connection()?;
+                service::record_test_result(&conn, &name, &result)?;
+                write_mcp_operation_log(
+                    &conn,
+                    &operation_id,
+                    &name,
+                    if result.success {
+                        "MCP connection test passed"
+                    } else {
+                        result.error.as_deref().unwrap_or("MCP connection test failed")
+                    },
+                    if result.success {
+                        logging::LogLevel::Info
+                    } else {
+                        logging::LogLevel::Warn
+                    },
+                )?;
+                Ok(())
+            })();
+            result
+        };
 
-    Ok(result)
+        if let Err(error) = persist_result {
+            let _ = registry.append_log(&operation_id, error.to_string());
+        }
+
+        if result.success {
+            let _ = registry.append_log(&operation_id, format!("MCP test passed for {name}"));
+            let _ = registry.complete(&operation_id, serde_json::to_value(&result).ok());
+        } else {
+            let error = result
+                .error
+                .clone()
+                .unwrap_or_else(|| "MCP test failed".to_string());
+            let _ = registry.append_log(&operation_id, error.clone());
+            let _ = registry.fail(&operation_id, error);
+        }
+    });
+
+    Ok(task)
 }
 
 #[tauri::command]
@@ -148,4 +182,38 @@ pub fn export_mcp_servers(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     service::export_servers(&conn, names)
+}
+
+fn write_mcp_operation_log(
+    conn: &Connection,
+    operation_id: &str,
+    server_name: &str,
+    message: &str,
+    level: logging::LogLevel,
+) -> Result<(), AppError> {
+    let mut context = BTreeMap::new();
+    context.insert("operationId".to_string(), operation_id.to_string());
+    context.insert("serverName".to_string(), server_name.to_string());
+    logging::write_message(
+        &active_log_dir_from_conn(conn),
+        level,
+        "mcp.operation",
+        message,
+        context,
+    )
+}
+
+fn active_log_dir_from_conn(conn: &Connection) -> PathBuf {
+    PathBuf::from(
+        super::super::load_setting_value(conn, "logDirectory")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| {
+                conn.path()
+                    .and_then(|path| PathBuf::from(path).parent().map(logging::default_log_dir))
+                    .unwrap_or_else(super::super::fallback_log_dir)
+                    .to_string_lossy()
+                    .to_string()
+            }),
+    )
 }

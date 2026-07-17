@@ -1,10 +1,12 @@
 import { Boxes, Cable, Plus, RefreshCw, Upload, Wrench } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
+import { operationService } from "../../services/runtime-operation-client";
 import type { McpImportExport, McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
+import type { OperationTask } from "../../types/operation";
 import { PageHeader, SectionPanel, StatCard } from "./page-parts";
 import { McpImportExportModal } from "./mcp/mcp-import-export";
 import { McpServerCard } from "./mcp/mcp-server-card";
@@ -33,6 +35,8 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   const [showImportExport, setShowImportExport] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTestOperationId, setActiveTestOperationId] = useState<string | null>(null);
+  const [handledTestOperationId, setHandledTestOperationId] = useState<string | null>(null);
 
   const serversQuery = useQuery({
     queryKey: mcpServersQueryKey,
@@ -67,13 +71,19 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   const testServerMutation = useMutation({
     mutationFn: async (server: McpServerConfig) => ({
       server,
-      result: await mcpService.testConnection(server.name),
+      operation: await mcpService.testConnection(server.name),
     }),
-    onSuccess: async ({ server, result }) => {
-      setNotice(result.success ? t("mcp.notice.testPassed", { name: server.name, count: result.tools.length }) : t("mcp.notice.testFailed", { name: server.name }));
-      if (!result.success && result.error) setError(result.error);
-      await queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
+    onSuccess: ({ operation }) => {
+      setActiveTestOperationId(operation.id);
+      setHandledTestOperationId(null);
     },
+  });
+
+  const activeTestOperationQuery = useQuery({
+    queryKey: ["operation", activeTestOperationId],
+    queryFn: () => operationService.getOperationStatus(activeTestOperationId ?? ""),
+    enabled: activeTestOperationId !== null,
+    refetchInterval: (query) => (query.state.data?.status === "queued" || query.state.data?.status === "running" ? 600 : false),
   });
 
   const importServersMutation = useMutation({
@@ -83,9 +93,30 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
 
   const servers = serversQuery.data?.servers ?? [];
   const statuses = serversQuery.data?.statuses ?? {};
-  const testingName = testServerMutation.isPending ? testServerMutation.variables?.name ?? null : null;
+  const activeTestStatus = activeTestOperationQuery.data?.status;
+  const testingName = testServerMutation.isPending
+    ? testServerMutation.variables?.name ?? null
+    : activeTestStatus === "queued" || activeTestStatus === "running"
+      ? activeTestOperationQuery.data?.relatedEntityId ?? null
+      : null;
   const queryError = serversQuery.error instanceof Error ? serversQuery.error.message : serversQuery.error ? String(serversQuery.error) : null;
   const visibleError = error ?? queryError;
+
+  useEffect(() => {
+    const operation = activeTestOperationQuery.data;
+    if (!operation || operation.id === handledTestOperationId) return;
+    if (operation.status === "queued" || operation.status === "running") return;
+    setHandledTestOperationId(operation.id);
+    const result = mcpTestResult(operation.result);
+    const name = operation.relatedEntityId ?? testServerMutation.variables?.name ?? "";
+    if (operation.status === "failed" || !result?.success) {
+      setNotice(t("mcp.notice.testFailed", { name }));
+      setError(operation.error ?? result?.error ?? t("mcp.notice.testFailed", { name }));
+    } else {
+      setNotice(t("mcp.notice.testPassed", { name, count: result.tools.length }));
+    }
+    void queryClient.invalidateQueries({ queryKey: mcpServersQueryKey });
+  }, [activeTestOperationQuery.data, handledTestOperationId, queryClient, t, testServerMutation.variables?.name]);
 
   const visibleServers = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -227,4 +258,11 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
       ) : null}
     </div>
   );
+}
+
+function mcpTestResult(result: OperationTask["result"]): McpTestResult | null {
+  if (!result || typeof result !== "object") return null;
+  if (typeof result.success !== "boolean") return null;
+  if (!Array.isArray(result.tools)) return null;
+  return result as unknown as McpTestResult;
 }

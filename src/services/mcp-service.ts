@@ -4,9 +4,9 @@ import type {
   McpScope,
   McpServerConfig,
   McpServerStatus,
-  McpTestResult,
   PartialMcpServerConfig,
 } from "../types/mcp";
+import type { OperationTask } from "../types/operation";
 
 export interface McpService {
   listServers(): Promise<McpServerConfig[]>;
@@ -14,7 +14,7 @@ export interface McpService {
   updateServer(name: string, config: PartialMcpServerConfig): Promise<void>;
   removeServer(name: string): Promise<void>;
   toggleServer(name: string, active: boolean): Promise<void>;
-  testConnection(name: string): Promise<McpTestResult>;
+  testConnection(name: string): Promise<OperationTask>;
   getServerStatus(name: string): Promise<McpServerStatus>;
   callTool(serverName: string, toolName: string, args?: Record<string, unknown>): Promise<unknown>;
   importServers(data: McpImportExport, scope: McpScope): Promise<McpImportResult>;

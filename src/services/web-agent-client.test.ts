@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { webAgentClient } from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
+import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
 
 afterEach(() => {
@@ -8,6 +9,15 @@ afterEach(() => {
 });
 
 describe("webAgentClient", () => {
+  async function createMockSession(input: CreateSessionInput): Promise<Session> {
+    vi.useFakeTimers();
+    const operation = await webAgentClient.createSession(input);
+    await vi.advanceTimersByTimeAsync(950);
+    const completed = await webOperationClient.getOperationStatus(operation.id);
+    expect(completed.status).toBe("succeeded");
+    return completed.result as unknown as Session;
+  }
+
   it("lists agents and filters by capability tag", async () => {
     const allAgents = await webAgentClient.listAgents();
     const browserAgents = await webAgentClient.listAgents("browser");
@@ -50,12 +60,12 @@ describe("webAgentClient", () => {
   });
 
   it("manages sessions with Web runtime behavior", async () => {
-    const first = await webAgentClient.createSession({
+    const first = await createMockSession({
       agentId: "gemini-cli",
       interactionMode: "browser",
       projectPath: "D:\\example\\mobile-app",
     });
-    const second = await webAgentClient.createSession({
+    const second = await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       title: "Codex work",
@@ -92,7 +102,7 @@ describe("webAgentClient", () => {
     const inspection = await webAgentClient.inspectProject("D:\\example\\git-app");
     expect(inspection.isGit).toBe(true);
 
-    await webAgentClient.createSession({
+    await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       projectPath: inspection.path,
@@ -107,7 +117,7 @@ describe("webAgentClient", () => {
   });
 
   it("creates mock worktree sessions with sibling path and branch metadata", async () => {
-    const session = await webAgentClient.createSession({
+    const session = await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       projectPath: "D:\\code\\app",
@@ -131,7 +141,7 @@ describe("webAgentClient", () => {
       }),
     ).rejects.toThrow("Invalid worktree name");
 
-    const session = await webAgentClient.createSession({
+    const session = await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       projectPath: "D:\\code\\non-git",
@@ -151,7 +161,7 @@ describe("webAgentClient", () => {
 
   it("stores messages and emits mock streaming events", async () => {
     vi.useFakeTimers();
-    const session = await webAgentClient.createSession({
+    const session = await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       title: "Streaming test",
@@ -193,7 +203,7 @@ describe("webAgentClient", () => {
 
   it("cancels active mock generation and preserves partial content", async () => {
     vi.useFakeTimers();
-    const session = await webAgentClient.createSession({
+    const session = await createMockSession({
       agentId: "gemini-cli",
       interactionMode: "browser",
       title: "Cancel test",
@@ -223,7 +233,7 @@ describe("webAgentClient", () => {
 
   it("archives a running mock session by cancelling active generation first", async () => {
     vi.useFakeTimers();
-    const session = await webAgentClient.createSession({
+    const session = await createMockSession({
       agentId: "codex-cli",
       interactionMode: "cli",
       title: "Archive running",

@@ -3291,14 +3291,49 @@ fn select_project_directory() -> Result<Option<String>, AppError> {
 
 #[tauri::command]
 fn create_session(
-    state: State<'_, Mutex<RegistryStore>>,
+    app: AppHandle,
+    registry: State<'_, tasks::registry::TaskRegistry>,
+    input: CreateSessionInput,
+) -> Result<tasks::models::OperationTask, AppError> {
+    let operation = registry.start(
+        tasks::models::OperationKind::Workspace,
+        input.project_path.clone().or(input.folder.clone()),
+        Some("Creating session".to_string()),
+    )?;
+    let operation_id = operation.id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let registry = app.state::<tasks::registry::TaskRegistry>();
+        let result = (|| -> Result<Session, AppError> {
+            let state = app.state::<Mutex<RegistryStore>>();
+            let store = state
+                .lock()
+                .map_err(|err| AppError::Storage(err.to_string()))?;
+            let conn = store.connection()?;
+            create_session_inner(&conn, input)
+        })();
+
+        match result {
+            Ok(session) => {
+                let _ = registry.append_log(&operation_id, format!("Created session {}", session.id));
+                let _ = registry.complete(&operation_id, serde_json::to_value(&session).ok());
+            }
+            Err(error) => {
+                record_native_error("session.create", &error);
+                let _ = registry.append_log(&operation_id, error.to_string());
+                let _ = registry.fail(&operation_id, error.to_string());
+            }
+        }
+    });
+
+    Ok(operation)
+}
+
+fn create_session_inner(
+    conn: &Connection,
     input: CreateSessionInput,
 ) -> Result<Session, AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
-    let agent = load_agent(&conn, &input.agent_id)?;
+    let agent = load_agent(conn, &input.agent_id)?;
     if !agent
         .supported_interaction_modes
         .iter()
@@ -3317,7 +3352,7 @@ fn create_session(
         .filter(|value| !value.is_empty());
     let inspection = selected_project.map(inspect_project_inner).transpose()?;
     if let Some(inspection) = &inspection {
-        upsert_known_project(&conn, inspection)?;
+        upsert_known_project(conn, inspection)?;
     }
 
     let mut effective_folder = inspection
@@ -3371,8 +3406,8 @@ fn create_session(
         ],
     )?;
 
-    let session = load_session(&conn, &id)?;
-    update_active_workflow_for_session(&conn, &session)?;
+    let session = load_session(conn, &id)?;
+    update_active_workflow_for_session(conn, &session)?;
     Ok(session)
 }
 

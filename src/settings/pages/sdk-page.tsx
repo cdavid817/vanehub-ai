@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { operationService } from "../../services/runtime-operation-client";
 import { sdkService } from "../../services/runtime-sdk-client";
 import { buildSdkVersionOptions, getSdkVersionAction, normalizeSdkVersion } from "../../services/sdk-versioning";
+import type { OperationLogEntry, OperationTask } from "../../types/operation";
 import type {
   SdkEnvironmentStatus,
   SdkDefinition,
   SdkId,
-  SdkOperationLog,
   SdkOperationResult,
   SdkStatus,
   SdkStatusMap,
@@ -30,9 +31,11 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedVersions, setSelectedVersions] = useState<SelectedVersions>({});
-  const [logs, setLogs] = useState<SdkOperationLog[]>([]);
+  const [logs, setLogs] = useState<OperationLogEntry[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const [handledOperationId, setHandledOperationId] = useState<string | null>(null);
 
   const sdkOverviewQuery = useQuery({
     queryKey: sdkOverviewQueryKey,
@@ -108,23 +111,42 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       if (action === "update") return sdkService.update({ sdkId: sdk.id, version: requestedVersion });
       return sdkService.rollback({ sdkId: sdk.id, version: requestedVersion });
     },
-    onSuccess: (result) => handleOperationResult(result),
+    onSuccess: (operation) => handleOperationStarted(operation),
   });
 
   const uninstallMutation = useMutation({
     mutationFn: (sdk: SdkStatus) => sdkService.uninstall(sdk.id),
-    onSuccess: (result) => handleOperationResult(result),
+    onSuccess: (operation) => handleOperationStarted(operation),
   });
 
+  const activeOperationQuery = useQuery({
+    queryKey: ["operation", activeOperationId],
+    queryFn: () => operationService.getOperationStatus(activeOperationId ?? ""),
+    enabled: activeOperationId !== null,
+    refetchInterval: (query) => (query.state.data?.status === "queued" || query.state.data?.status === "running" ? 600 : false),
+  });
+
+  const activeOperationStatus = activeOperationQuery.data?.status;
   const activeOperation = runOperationMutation.isPending
     ? runOperationMutation.variables?.sdk.id ?? null
     : uninstallMutation.isPending
       ? uninstallMutation.variables?.id ?? null
-      : null;
+      : activeOperationStatus === "queued" || activeOperationStatus === "running"
+        ? activeOperationQuery.data?.relatedEntityId ?? null
+        : null;
   const refreshing = sdkOverviewQuery.isFetching;
   const checkingUpdates = checkUpdatesMutation.isPending;
   const queryError = sdkOverviewQuery.error instanceof Error ? sdkOverviewQuery.error.message : sdkOverviewQuery.error ? String(sdkOverviewQuery.error) : null;
   const visibleError = error ?? queryError;
+
+  useEffect(() => {
+    const operation = activeOperationQuery.data;
+    if (!operation || operation.id === handledOperationId) return;
+    setLogs(operation.logs);
+    if (operation.status === "queued" || operation.status === "running") return;
+    setHandledOperationId(operation.id);
+    handleOperationFinished(operation);
+  }, [activeOperationQuery.data, handledOperationId]);
 
   const sdkList = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -170,8 +192,22 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
     await uninstallMutation.mutateAsync(sdk).catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }
 
-  function handleOperationResult(result: SdkOperationResult) {
-    setLogs(result.logs);
+  function handleOperationStarted(operation: OperationTask) {
+    setActiveOperationId(operation.id);
+    setHandledOperationId(null);
+    setLogs(operation.logs);
+  }
+
+  function handleOperationFinished(operation: OperationTask) {
+    if (operation.status === "failed") {
+      setError(operation.error ?? t("sdk.error.operationFailed"));
+      return;
+    }
+    const result = sdkOperationResult(operation.result);
+    if (!result) {
+      setError(t("sdk.error.operationFailed"));
+      return;
+    }
     if (!result.success) {
       setError(result.error ?? t("sdk.error.operationFailed"));
       return;
@@ -325,12 +361,20 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
       {logs.length ? (
         <SectionPanel title={t("sdk.logs.title")} description={t("sdk.logs.description")}>
           <pre className="max-h-72 overflow-auto rounded-md border border-border bg-muted/30 p-3 text-xs leading-5">
-            {logs.map((entry) => `[${entry.sdkId}] ${entry.line}`).join("\n")}
+            {logs.map((entry) => `[${entry.operationId}] ${entry.line}`).join("\n")}
           </pre>
         </SectionPanel>
       ) : null}
     </div>
   );
+}
+
+function sdkOperationResult(result: OperationTask["result"]): SdkOperationResult | null {
+  if (!result || typeof result !== "object") return null;
+  if (typeof result.success !== "boolean") return null;
+  if (typeof result.sdkId !== "string") return null;
+  if (typeof result.operation !== "string") return null;
+  return result as unknown as SdkOperationResult;
 }
 
 function fallbackVersionsFromDefinitions(definitions: SdkDefinition[]): SdkVersionMap {

@@ -45,7 +45,7 @@ export interface AgentService {
   listKnownProjects(): Promise<KnownProject[]>;
   inspectProject(path: string): Promise<ProjectInspection>;
   selectProjectDirectory(): Promise<string | null>;
-  createSession(input: CreateSessionInput): Promise<Session>;
+  createSession(input: CreateSessionInput): Promise<OperationTask>;
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
   renameSession(sessionId: string, title: string): Promise<Session>;

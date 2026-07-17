@@ -19,6 +19,7 @@ function updateWebOperation(operationId: string, updates: Partial<OperationTask>
 
 export function createWebMockOperation(input: {
   id: string;
+  kind?: OperationTask["kind"];
   relatedEntityId: string | null;
   message: string;
   terminalStatus: "succeeded" | "failed";
@@ -28,7 +29,7 @@ export function createWebMockOperation(input: {
   const timestamp = nowIso();
   const operation: OperationTask = {
     id: input.id,
-    kind: "agent",
+    kind: input.kind ?? "agent",
     status: "queued",
     relatedEntityId: input.relatedEntityId,
     message: input.message,

@@ -6,11 +6,11 @@ import type {
   SdkId,
   SdkOperationLog,
   SdkOperationRequest,
-  SdkOperationResult,
   SdkStatusMap,
   SdkUpdateMap,
   SdkVersionMap,
 } from "../types/sdk";
+import type { OperationTask } from "../types/operation";
 
 export const tauriSdkClient: SdkService = {
   listDefinitions() {
@@ -34,19 +34,19 @@ export const tauriSdkClient: SdkService = {
   },
 
   install(request: SdkOperationRequest) {
-    return invoke<SdkOperationResult>("install_sdk_dependency", { request });
+    return invoke<OperationTask>("install_sdk_dependency", { request });
   },
 
   update(request: SdkOperationRequest) {
-    return invoke<SdkOperationResult>("update_sdk_dependency", { request });
+    return invoke<OperationTask>("update_sdk_dependency", { request });
   },
 
   rollback(request: SdkOperationRequest) {
-    return invoke<SdkOperationResult>("rollback_sdk_dependency", { request });
+    return invoke<OperationTask>("rollback_sdk_dependency", { request });
   },
 
   uninstall(sdkId: SdkId) {
-    return invoke<SdkOperationResult>("uninstall_sdk_dependency", { sdkId });
+    return invoke<OperationTask>("uninstall_sdk_dependency", { sdkId });
   },
 
   getOperationLogs(sdkId?: SdkId) {

@@ -7,7 +7,7 @@ use rusqlite::Connection;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn list_sdk_definitions() -> Result<Vec<SdkDefinition>, AppError> {
@@ -36,48 +36,44 @@ pub fn check_sdk_updates(sdk_id: Option<SdkId>) -> Result<SdkUpdateMap, AppError
 
 #[tauri::command]
 pub fn install_sdk_dependency(
+    app: AppHandle,
     registry: State<'_, TaskRegistry>,
-    store: State<'_, Mutex<RegistryStore>>,
     request: SdkOperationRequest,
-) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(&registry, &store, request.sdk_id, SdkOperationType::Install, || {
+) -> Result<crate::tasks::models::OperationTask, AppError> {
+    start_sdk_operation(app, &registry, request.sdk_id, SdkOperationType::Install, move || {
         service::install(request, SdkOperationType::Install)
     })
 }
 
 #[tauri::command]
 pub fn update_sdk_dependency(
+    app: AppHandle,
     registry: State<'_, TaskRegistry>,
-    store: State<'_, Mutex<RegistryStore>>,
     request: SdkOperationRequest,
-) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(&registry, &store, request.sdk_id, SdkOperationType::Update, || {
+) -> Result<crate::tasks::models::OperationTask, AppError> {
+    start_sdk_operation(app, &registry, request.sdk_id, SdkOperationType::Update, move || {
         service::install(request, SdkOperationType::Update)
     })
 }
 
 #[tauri::command]
 pub fn rollback_sdk_dependency(
+    app: AppHandle,
     registry: State<'_, TaskRegistry>,
-    store: State<'_, Mutex<RegistryStore>>,
     request: SdkOperationRequest,
-) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(
-        &registry,
-        &store,
-        request.sdk_id,
-        SdkOperationType::Rollback,
-        || service::install(request, SdkOperationType::Rollback),
-    )
+) -> Result<crate::tasks::models::OperationTask, AppError> {
+    start_sdk_operation(app, &registry, request.sdk_id, SdkOperationType::Rollback, move || {
+        service::install(request, SdkOperationType::Rollback)
+    })
 }
 
 #[tauri::command]
 pub fn uninstall_sdk_dependency(
+    app: AppHandle,
     registry: State<'_, TaskRegistry>,
-    store: State<'_, Mutex<RegistryStore>>,
     sdk_id: SdkId,
-) -> Result<SdkOperationResult, AppError> {
-    run_sdk_operation(&registry, &store, sdk_id, SdkOperationType::Uninstall, || {
+) -> Result<crate::tasks::models::OperationTask, AppError> {
+    start_sdk_operation(app, &registry, sdk_id, SdkOperationType::Uninstall, move || {
         service::uninstall(sdk_id)
     })
 }
@@ -87,39 +83,53 @@ pub fn get_sdk_operation_logs(sdk_id: Option<SdkId>) -> Result<Vec<SdkOperationL
     Ok(service::operation_logs(sdk_id))
 }
 
-fn run_sdk_operation(
+fn start_sdk_operation(
+    app: AppHandle,
     registry: &TaskRegistry,
-    store: &Mutex<RegistryStore>,
     sdk_id: SdkId,
     operation: SdkOperationType,
-    run: impl FnOnce() -> SdkOperationResult,
-) -> Result<SdkOperationResult, AppError> {
+    run: impl FnOnce() -> SdkOperationResult + Send + 'static,
+) -> Result<crate::tasks::models::OperationTask, AppError> {
     let task = registry.start(
         OperationKind::Sdk,
         Some(sdk_id.as_str().to_string()),
         Some(format!("{operation:?} SDK operation")),
     )?;
+    let operation_id = task.id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_sdk_operation(app, operation_id, run);
+    });
+
+    Ok(task)
+}
+
+fn run_sdk_operation(
+    app: AppHandle,
+    operation_id: String,
+    run: impl FnOnce() -> SdkOperationResult,
+) {
+    let registry = app.state::<TaskRegistry>();
+    let store = app.state::<Mutex<RegistryStore>>();
     let mut result = run();
-    result.operation_id = Some(task.id.clone());
+    result.operation_id = Some(operation_id.clone());
 
     for log in &result.logs {
-        let _ = registry.append_log(&task.id, log.line.clone());
-        let _ = write_sdk_operation_log(store, &task.id, log);
+        let _ = registry.append_log(&operation_id, log.line.clone());
+        let _ = write_sdk_operation_log(&store, &operation_id, log);
     }
 
     if result.success {
-        let _ = registry.complete(&task.id, None);
+        let _ = registry.complete(&operation_id, serde_json::to_value(&result).ok());
     } else {
         let _ = registry.fail(
-            &task.id,
+            &operation_id,
             result
                 .error
                 .clone()
                 .unwrap_or_else(|| "SDK operation failed".to_string()),
         );
     }
-
-    Ok(result)
 }
 
 fn write_sdk_operation_log(

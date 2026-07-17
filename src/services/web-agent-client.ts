@@ -646,7 +646,15 @@ export const webAgentClient: AgentService = {
       activeInteractionMode: session.interactionMode,
       lifecycleState: session.lifecycleState,
     };
-    return session;
+    return createWebMockOperation({
+      id: `web-session-create-${session.id}-${Date.now()}`,
+      kind: "workspace",
+      relatedEntityId: projectPath,
+      message: `Created mock session ${session.id}`,
+      terminalStatus: "succeeded",
+      error: null,
+      result: session as unknown as Record<string, unknown>,
+    });
   },
 
   async deleteSession(sessionId: string) {
