@@ -2,13 +2,22 @@ import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import type {
+  AssignSessionCategoryInput,
+  AutomaticArchivalSettings,
   CliParameterSelections,
   CliToolStatus,
+  CreateSessionCategoryInput,
   CreateSessionInput,
+  ExportSessionInput,
   InteractionMode,
   KnownProject,
   ProjectInspection,
+  RenameSessionCategoryInput,
   Session,
+  SessionCategory,
+  SessionExportResult,
+  SessionSearchInput,
+  SessionSearchResult,
   SessionDetails,
   WorkflowState,
   ManagedCliAgentId,
@@ -76,6 +85,9 @@ function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, Cl
 let nextMessageId = 1;
 let activeSessionId: string | null = null;
 let sessions: Session[] = [];
+let sessionCategories: SessionCategory[] = [];
+let nextSessionCategoryId = 1;
+let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
 let knownProjects: KnownProject[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
@@ -118,6 +130,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     worktreeName: null,
     worktreeBranch: null,
     runtimeSessionId: null,
+    categoryId: null,
     source: { kind: "im", connector },
     pinned: false,
     archived: false,
@@ -486,6 +499,76 @@ function sortSessions(items: Session[]) {
   });
 }
 
+function searchText(value: string | null | undefined, query: string) {
+  return (value ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase());
+}
+
+function sessionSearchMatches(session: Session, query: string): SessionSearchResult | null {
+  const matches: SessionSearchResult["matches"] = [];
+  if (searchText(session.title, query)) {
+    matches.push({ kind: "title", excerpt: session.title });
+  }
+  const projectMatch = [session.folder, session.projectPath, session.worktreePath, session.worktreeName, session.worktreeBranch].find(
+    (value) => searchText(value, query),
+  );
+  if (projectMatch) {
+    matches.push({ kind: "project", excerpt: projectMatch });
+  }
+  const messageMatch = getSessionMessages(session.id).find((message) => searchText(message.content, query));
+  if (messageMatch) {
+    matches.push({
+      kind: "message",
+      excerpt: messageMatch.content.slice(0, 160),
+      messageId: messageMatch.id,
+    });
+  }
+  return matches.length > 0 ? { session: { ...session }, matches } : null;
+}
+
+function findCategory(categoryId: string) {
+  const category = sessionCategories.find((candidate) => candidate.id === categoryId);
+  if (!category) {
+    throw new Error(`Category not found: ${categoryId}`);
+  }
+  return category;
+}
+
+function validateCategoryName(name: string, exceptId?: string) {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Category name cannot be empty.");
+  const duplicate = sessionCategories.some((category) => category.name === trimmed && category.id !== exceptId);
+  if (duplicate) throw new Error("Category name already exists.");
+  return trimmed;
+}
+
+function serializeWebSessionExport(input: ExportSessionInput): SessionExportResult {
+  const session = findSession(input.sessionId);
+  const payload = {
+    version: 1,
+    exportedAt: nowIso(),
+    session,
+    messages: getSessionMessages(session.id),
+  };
+  const content =
+    input.format === "json"
+      ? JSON.stringify(payload, null, 2)
+      : [`# ${session.title}`, "", `- ID: \`${session.id}\``, `- Agent: \`${session.agentId}\``, "", "## Messages", ""]
+          .concat(
+            payload.messages.flatMap((message) => [
+              `### ${message.role.toUpperCase()} - \`${message.status}\``,
+              "",
+              message.content,
+              "",
+            ]),
+          )
+          .join("\n");
+  return {
+    status: input.destinationDirectory === null ? "cancelled" : "exported",
+    path: input.destinationDirectory ? `${input.destinationDirectory}\\${session.id}.${input.format === "json" ? "json" : "md"}` : null,
+    content,
+  };
+}
+
 function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
   const records: UsageRecord[] = [...representativeUsageRecords];
   for (const [sessionId, messages] of messagesBySession.entries()) {
@@ -762,9 +845,66 @@ export const webAgentClient: AgentService = {
     return sortSessions(sessions.filter((session) => session.archived));
   },
 
+  async searchSessions(input: SessionSearchInput) {
+    const query = input.query.trim();
+    if (!query) return [];
+    return sortSessions(sessions)
+      .map((session) => sessionSearchMatches(session, query))
+      .filter((result): result is SessionSearchResult => result !== null)
+      .slice(0, input.limit ?? 50);
+  },
+
   async getActiveSession() {
     if (!activeSessionId) return null;
     return sessions.find((session) => session.id === activeSessionId) ?? null;
+  },
+
+  async listSessionCategories() {
+    return [...sessionCategories].sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
+  },
+
+  async createSessionCategory(input: CreateSessionCategoryInput) {
+    const timestamp = nowIso();
+    const category: SessionCategory = {
+      id: `web-category-${nextSessionCategoryId++}`,
+      name: validateCategoryName(input.name),
+      sortOrder: sessionCategories.length,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    sessionCategories = [...sessionCategories, category];
+    return category;
+  },
+
+  async renameSessionCategory(input: RenameSessionCategoryInput) {
+    const category = findCategory(input.categoryId);
+    const timestamp = nowIso();
+    const updated = { ...category, name: validateCategoryName(input.name, input.categoryId), updatedAt: timestamp };
+    sessionCategories = sessionCategories.map((candidate) => (candidate.id === input.categoryId ? updated : candidate));
+    return updated;
+  },
+
+  async deleteSessionCategory(categoryId: string) {
+    findCategory(categoryId);
+    sessionCategories = sessionCategories.filter((category) => category.id !== categoryId);
+    sessions = sessions.map((session) => (session.categoryId === categoryId ? { ...session, categoryId: null, updatedAt: nowIso() } : session));
+  },
+
+  async assignSessionCategory(input: AssignSessionCategoryInput) {
+    if (input.categoryId) findCategory(input.categoryId);
+    return updateSession(input.sessionId, { categoryId: input.categoryId });
+  },
+
+  async getAutomaticArchivalSettings() {
+    return { ...automaticArchivalSettings };
+  },
+
+  async saveAutomaticArchivalSettings(input: AutomaticArchivalSettings) {
+    if (input.inactiveDays < 1 || input.inactiveDays > 3650) {
+      throw new Error("Invalid automatic archival threshold.");
+    }
+    automaticArchivalSettings = { ...input };
+    return { ...automaticArchivalSettings };
   },
 
   async getSessionChatConfig(sessionId) {
@@ -835,6 +975,7 @@ export const webAgentClient: AgentService = {
       worktreeName,
       worktreeBranch,
       runtimeSessionId: null,
+      categoryId: null,
       pinned: false,
       archived: false,
       createdAt: timestamp,
@@ -922,6 +1063,10 @@ export const webAgentClient: AgentService = {
     return updateSession(sessionId, { archived: false });
   },
 
+  async exportSession(input: ExportSessionInput) {
+    return serializeWebSessionExport(input);
+  },
+
   async sendMessage(input) {
     const session = findSession(input.sessionId);
     const config = normalizeChatConfigForSession(session, input.config);
@@ -935,6 +1080,7 @@ export const webAgentClient: AgentService = {
       role: "user",
       content: input.content.trim(),
       status: "completed",
+      fileReferences: input.fileReferences,
       createdAt: timestamp,
       updatedAt: timestamp,
     };

@@ -86,11 +86,11 @@ pub(crate) struct DocumentListing {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileContent {
-    path: String,
-    name: String,
-    status: &'static str,
-    size: u64,
-    content: Option<String>,
+    pub(crate) path: String,
+    pub(crate) name: String,
+    pub(crate) status: &'static str,
+    pub(crate) size: u64,
+    pub(crate) content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -529,6 +529,23 @@ pub(crate) fn read_session_file(
         AppError::Validation("Session workspace is unavailable.".to_string())
     })?;
     read_file_at(&root, &path)
+}
+
+pub(crate) fn read_session_text_file(
+    conn: &Connection,
+    session_id: &str,
+    path: &str,
+) -> Result<FileContent, AppError> {
+    let root = resolve_session_root(conn, session_id)?.ok_or_else(|| {
+        AppError::Validation("Session workspace is unavailable.".to_string())
+    })?;
+    let file = read_file_at(&root, path)?;
+    if file.status != "text" {
+        return Err(AppError::Validation(format!(
+            "Referenced file is not readable text: {path}"
+        )));
+    }
+    Ok(file)
 }
 
 fn git_change_kind(value: char) -> String {

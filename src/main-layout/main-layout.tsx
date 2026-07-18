@@ -118,9 +118,14 @@ export function MainLayout({
                 activeSessionId={model.activeSessionId}
                 agentsAvailable={model.agentsAvailable}
                 archivedSessions={model.archivedSessions}
+                categories={model.categories}
+                onAssignCategory={model.assignCategory}
                 onContextMenu={openContextMenu}
                 onNew={() => setCreateSessionOpen(true)}
+                onSearchChange={model.setSessionSearchQuery}
                 onSelect={(session) => { setContextPanel(null); model.switchSession(session); }}
+                searchQuery={model.sessionSearchQuery}
+                searchResults={model.sessionSearchResults}
                 sessions={model.sessions}
               />
             </div>
@@ -134,7 +139,10 @@ export function MainLayout({
                   availableReasoning={model.chatConfig.availableReasoning}
                   config={model.chatConfig.config}
                   disabled={!model.activeSession || model.isSending}
+                  fileReferenceCandidates={model.fileReferenceCandidates}
+                  fileReferences={model.fileReferences}
                   isStreaming={model.isStreaming}
+                  onAddFileReference={model.addFileReference}
                   onChange={model.setDraft}
                   onClear={() => model.setDraft("")}
                   onConfigAgentChange={model.chatConfig.changeAgent}
@@ -145,6 +153,7 @@ export function MainLayout({
                   onConfigReasoningChange={model.chatConfig.setReasoningDepth}
                   onConfigStreamingChange={model.chatConfig.setStreaming}
                   onConfigThinkingChange={model.chatConfig.setThinking}
+                  onRemoveFileReference={model.removeFileReference}
                   onStop={model.stop}
                   onSubmit={model.submit}
                   value={model.draft}
@@ -161,10 +170,22 @@ export function MainLayout({
         <StatusBar />
       </div>
       <SessionContextPanel
+        categories={model.categories}
         onArchive={model.archiveSession}
+        onAssignCategory={model.assignCategory}
         onChange={setContextPanel}
+        onCreateCategory={(session) => {
+          const name = window.prompt(t("layout.newCategoryPrompt"));
+          if (!name?.trim()) return;
+          void model.createCategory(name.trim())
+            .then((category) => model.assignCategory(session, category.id))
+            .catch((reason: unknown) => {
+              notify({ type: "error", title: t("app.error.title"), message: reason instanceof Error ? reason.message : String(reason), scope: { kind: "session", sessionId: session.id } });
+            });
+        }}
         onDelete={model.deleteSession}
         onDismiss={() => setContextPanel(null)}
+        onExport={model.exportSession}
         onPin={model.pinSession}
         onRename={model.renameSession}
         value={contextPanel}

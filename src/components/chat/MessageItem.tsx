@@ -1,11 +1,21 @@
-import { AlertTriangle, Bot, CheckCircle2, CircleStop, UserRound } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, CircleStop, FileText, UserRound } from "lucide-react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
 import { RichBlocks } from "./RichBlocks";
+import { MermaidDiagram } from "./MermaidDiagram";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
+
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const content = String(children).replace(/\n$/, "");
+    if (/\blanguage-mermaid\b/.test(className ?? "")) return <MermaidDiagram chart={content} />;
+    return <code className={className} {...props}>{children}</code>;
+  },
+};
 
 function statusLabel(message: ChatMessage, t: (key: string) => string) {
   if (message.status === "streaming") return message.content ? t("chat.status.streaming") : t("chat.status.waiting");
@@ -51,9 +61,21 @@ export function MessageItem({ message }: { message: ChatMessage }) {
           </span>
         </div>
         {message.content ? (
-          <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+          <div className="prose prose-sm max-w-none whitespace-pre-wrap leading-6 text-inherit prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:bg-muted prose-pre:p-3 prose-code:text-inherit">
+            <ReactMarkdown components={markdownComponents}>{message.content}</ReactMarkdown>
+          </div>
         ) : message.status === "streaming" ? (
           <WaitingIndicator />
+        ) : null}
+        {message.fileReferences?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {message.fileReferences.map((reference) => (
+              <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.path}>
+                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{reference.name}</span>
+              </span>
+            ))}
+          </div>
         ) : null}
         {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
         <ThinkingBlock content={message.thinkingContent ?? ""} />

@@ -588,6 +588,27 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "improve-session-management",
+                         "path":  "openspec/changes/archive/2026-07-18-improve-session-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings",
+                                              "chat-experience",
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "session-category-management",
+                                              "session-export",
+                                              "session-management",
+                                              "session-runtime-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "optimize-cli-local-environment-management",
                          "path":  "openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/",
                          "artifacts":  [

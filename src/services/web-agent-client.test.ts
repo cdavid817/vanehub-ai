@@ -133,6 +133,75 @@ describe("webAgentClient", () => {
     expect((await webAgentClient.listSessions()).some((item) => item.id === session.id)).toBe(false);
   });
 
+  it("searches sessions by title, project, and message content", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Searchable planning session",
+      projectPath: "D:\\example\\search-project",
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "Discuss roadmap anchors", config, fileReferences: [{ id: "ref-1", path: "D:\\example\\search-project\\README.md", name: "README.md" }] });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const titleResults = await webAgentClient.searchSessions({ query: "planning" });
+    const projectResults = await webAgentClient.searchSessions({ query: "search-project" });
+    const contentResults = await webAgentClient.searchSessions({ query: "roadmap anchors" });
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+
+    expect(titleResults.some((result) => result.session.id === session.id && result.matches.some((match) => match.kind === "title"))).toBe(true);
+    expect(projectResults.some((result) => result.session.id === session.id && result.matches.some((match) => match.kind === "project"))).toBe(true);
+    expect(contentResults.some((result) => result.session.id === session.id && result.matches.some((match) => match.kind === "message"))).toBe(true);
+    expect(messages.find((message) => message.role === "user")?.fileReferences?.[0]?.name).toBe("README.md");
+  });
+
+  it("manages session categories and clears assignments on deletion", async () => {
+    const session = await createMockSession({
+      agentId: "gemini-cli",
+      interactionMode: "browser",
+      title: "Categorized session",
+    });
+    const category = await webAgentClient.createSessionCategory({ name: "Planning" });
+    const assigned = await webAgentClient.assignSessionCategory({ sessionId: session.id, categoryId: category.id });
+    const renamed = await webAgentClient.renameSessionCategory({ categoryId: category.id, name: "Delivery" });
+
+    expect(assigned.categoryId).toBe(category.id);
+    expect((await webAgentClient.listSessionCategories()).map((item) => item.name)).toContain("Delivery");
+    expect(renamed.name).toBe("Delivery");
+
+    await webAgentClient.deleteSessionCategory(category.id);
+    expect((await webAgentClient.switchSession(session.id)).categoryId).toBeNull();
+  });
+
+  it("persists automatic archival settings and rejects invalid thresholds", async () => {
+    expect(await webAgentClient.getAutomaticArchivalSettings()).toEqual({ enabled: true, inactiveDays: 10 });
+    await expect(webAgentClient.saveAutomaticArchivalSettings({ enabled: true, inactiveDays: 0 })).rejects.toThrow("Invalid");
+
+    const saved = await webAgentClient.saveAutomaticArchivalSettings({ enabled: false, inactiveDays: 30 });
+
+    expect(saved).toEqual({ enabled: false, inactiveDays: 30 });
+    expect(await webAgentClient.getAutomaticArchivalSettings()).toEqual(saved);
+  });
+
+  it("exports sessions as JSON or Markdown in Web preview", async () => {
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Exportable session",
+    });
+    const json = await webAgentClient.exportSession({ sessionId: session.id, format: "json", destinationDirectory: "D:\\exports" });
+    const markdown = await webAgentClient.exportSession({ sessionId: session.id, format: "markdown", destinationDirectory: "D:\\exports" });
+    const cancelled = await webAgentClient.exportSession({ sessionId: session.id, format: "json", destinationDirectory: null });
+
+    expect(json.status).toBe("exported");
+    expect(json.path).toContain(`${session.id}.json`);
+    expect(json.content).toContain("\"version\": 1");
+    expect(markdown.path).toContain(`${session.id}.md`);
+    expect(markdown.content).toContain("# Exportable session");
+    expect(cancelled.status).toBe("cancelled");
+  });
+
   it("tracks known projects and mock Git inspection", async () => {
     const inspection = await webAgentClient.inspectProject("D:\\example\\git-app");
     expect(inspection.isGit).toBe(true);

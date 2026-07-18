@@ -4,18 +4,27 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentRegistryEntry,
+  AssignSessionCategoryInput,
+  AutomaticArchivalSettings,
   CliParameterProfile,
   CliPackageOperationInput,
   CliToolStatus,
+  CreateSessionCategoryInput,
+  ExportSessionInput,
   InteractionMode,
   KnownProject,
   LaunchResult,
+  ManagedCliAgentId,
   ProjectInspection,
   ReadinessStatus,
+  RenameSessionCategoryInput,
   Session,
+  SessionCategory,
   SessionDetails,
   SaveCliParameterProfileInput,
-  ManagedCliAgentId,
+  SessionExportResult,
+  SessionSearchInput,
+  SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
@@ -105,8 +114,49 @@ export const tauriAgentClient: AgentService = {
     return invoke<Session[]>("list_archived_sessions");
   },
 
+  searchSessions(input: SessionSearchInput) {
+    return invoke<SessionSearchResult[]>("search_sessions", {
+      query: input.query,
+      limit: input.limit ?? null,
+    });
+  },
+
   getActiveSession() {
     return invoke<Session | null>("get_active_session");
+  },
+
+  listSessionCategories() {
+    return invoke<SessionCategory[]>("list_session_categories");
+  },
+
+  createSessionCategory(input: CreateSessionCategoryInput) {
+    return invoke<SessionCategory>("create_session_category", { name: input.name });
+  },
+
+  renameSessionCategory(input: RenameSessionCategoryInput) {
+    return invoke<SessionCategory>("rename_session_category", {
+      categoryId: input.categoryId,
+      name: input.name,
+    });
+  },
+
+  async deleteSessionCategory(categoryId: string) {
+    await invoke<void>("delete_session_category", { categoryId });
+  },
+
+  assignSessionCategory(input: AssignSessionCategoryInput) {
+    return invoke<Session>("assign_session_category", {
+      sessionId: input.sessionId,
+      categoryId: input.categoryId,
+    });
+  },
+
+  getAutomaticArchivalSettings() {
+    return invoke<AutomaticArchivalSettings>("get_automatic_archival_settings");
+  },
+
+  saveAutomaticArchivalSettings(input: AutomaticArchivalSettings) {
+    return invoke<AutomaticArchivalSettings>("save_automatic_archival_settings", { input });
   },
 
   getSessionChatConfig(sessionId) {
@@ -164,11 +214,23 @@ export const tauriAgentClient: AgentService = {
     return invoke<Session>("unarchive_session", { sessionId });
   },
 
+  async exportSession(input: ExportSessionInput) {
+    const destinationDirectory =
+      input.destinationDirectory ??
+      ((await open({ directory: true, multiple: false })) as string | string[] | null);
+    return invoke<SessionExportResult>("export_session", {
+      sessionId: input.sessionId,
+      format: input.format,
+      destinationDirectory: typeof destinationDirectory === "string" ? destinationDirectory : null,
+    });
+  },
+
   sendMessage(input) {
     return invoke<ChatMessage>("send_message", {
       sessionId: input.sessionId,
       content: input.content,
       config: input.config,
+      fileReferences: input.fileReferences ?? null,
     });
   },
 

@@ -49,11 +49,73 @@ export interface Session {
   worktreeName: string | null;
   worktreeBranch: string | null;
   runtimeSessionId: string | null;
+  categoryId: string | null;
   source?: SessionSourceMetadata;
   pinned: boolean;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type SessionSearchMatchKind = "title" | "project" | "message";
+
+export interface SessionSearchMatch {
+  kind: SessionSearchMatchKind;
+  excerpt: string;
+  messageId?: string | null;
+}
+
+export interface SessionSearchInput {
+  query: string;
+  limit?: number;
+}
+
+export interface SessionSearchResult {
+  session: Session;
+  matches: SessionSearchMatch[];
+}
+
+export interface SessionCategory {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSessionCategoryInput {
+  name: string;
+}
+
+export interface RenameSessionCategoryInput {
+  categoryId: string;
+  name: string;
+}
+
+export interface AssignSessionCategoryInput {
+  sessionId: string;
+  categoryId: string | null;
+}
+
+export type SessionExportFormat = "json" | "markdown";
+
+export interface ExportSessionInput {
+  sessionId: string;
+  format: SessionExportFormat;
+  destinationDirectory?: string | null;
+}
+
+export type SessionExportStatus = "exported" | "cancelled" | "unavailable";
+
+export interface SessionExportResult {
+  status: SessionExportStatus;
+  path?: string | null;
+  content?: string | null;
+}
+
+export interface AutomaticArchivalSettings {
+  enabled: boolean;
+  inactiveDays: number;
 }
 
 export interface KnownProject {
