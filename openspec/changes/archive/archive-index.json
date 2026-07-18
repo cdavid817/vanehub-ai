@@ -588,6 +588,19 @@
                                               "native-runtime-architecture",
                                               "settings-center-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
+                         "changeName":  "optimize-cli-management-and-about",
+                         "path":  "openspec/changes/archive/2026-07-18-optimize-cli-management-and-about/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-cli-management-ui"
+                                          ]
                      }
                  ]
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, RefreshCw, TerminalSquare, XCircle } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, RefreshCw, Stethoscope, TerminalSquare, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { agentService } from "../../services/runtime-agent-client";
@@ -8,7 +8,7 @@ import { operationService } from "../../services/runtime-operation-client";
 import { settingsService } from "../../services/runtime-settings-client";
 import type { CliToolStatus } from "../../types/agent";
 import type { OperationTask } from "../../types/operation";
-import { deriveCliVersionAction } from "./cli-management-utils";
+import { deriveCliVersionAction, isBulkCliUpgradeEligible } from "./cli-management-utils";
 import { CliConflictDialog } from "./cli-conflict-dialog";
 import { CliEnvironmentCard } from "./cli-environment-card";
 import { PageHeader, StatCard } from "./page-parts";
@@ -28,6 +28,10 @@ export function refreshButtonState(isPending: boolean, operation?: OperationTask
   };
 }
 
+export function resolveCliPackageActionTargetVersion(tool: CliToolStatus) {
+  return tool.latestVersion ?? "latest";
+}
+
 type PendingPackageAction = {
   tool: CliToolStatus;
   targetVersion: string;
@@ -45,7 +49,7 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   const [pendingPackageAction, setPendingPackageAction] = useState<PendingPackageAction | null>(null);
 
   const toolsQuery = useQuery({ queryKey: cliToolsQueryKey, queryFn: () => agentService.listCliTools() });
-  const tools = toolsQuery.data ?? [];
+  const tools = useMemo(() => toolsQuery.data ?? [], [toolsQuery.data]);
 
   useEffect(() => {
     setSelectedVersions((current) => {
@@ -122,6 +126,15 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
     }),
   });
 
+  const upgradeAllMutation = useMutation({
+    mutationFn: () => agentService.upgradeAllCliVersions(),
+    onSuccess: (operation) => {
+      setActiveOperationIds(Object.fromEntries(tools.map((tool) => [tool.agentId, operation.id])));
+      setPackageOperationIds(Object.fromEntries(tools.map((tool) => [tool.agentId, operation.id])));
+    },
+    onError: (error) => reportCliStartFailure("ProvidersPage.upgradeAllCliVersions", error),
+  });
+
   const filteredTools = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return tools;
@@ -129,16 +142,21 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   }, [searchTerm, tools]);
   const installedCount = tools.filter((tool) => tool.installed === true).length;
   const missingCount = tools.filter((tool) => tool.installed === false).length;
-  const packageBusy = installMutation.isPending || Object.values(packageOperationIds).some((id) => !operationsById[id] || isOperationRunning(operationsById[id]));
+  const bulkEligibleCount = tools.filter(isBulkCliUpgradeEligible).length;
   const refreshOperation = refreshOperationId ? operationsById[refreshOperationId] : undefined;
   const refreshState = refreshButtonState(refreshMutation.isPending && refreshMutation.variables === null, refreshOperation);
 
+  function diagnoseInstallConflicts() {
+    setExpandedDiagnostics(Object.fromEntries(tools.map((tool) => [tool.agentId, true])));
+  }
+
   function requestPackageAction(tool: CliToolStatus, targetVersion: string) {
+    const effectiveTargetVersion = targetVersion || tool.latestVersion || "latest";
     if (tool.installations.length > 1) {
-      setPendingPackageAction({ tool, targetVersion });
+      setPendingPackageAction({ tool, targetVersion: effectiveTargetVersion });
       return;
     }
-    installMutation.mutate({ tool, targetVersion });
+    installMutation.mutate({ tool, targetVersion: effectiveTargetVersion });
   }
 
   function confirmPackageAction() {
@@ -153,13 +171,31 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        actions={<Button disabled={refreshState.disabled} variant="outline" onClick={() => refreshMutation.mutate(null)}>
-          <RefreshCw className={refreshState.iconClassName} aria-hidden="true" />{t(refreshState.labelKey)}
-        </Button>}
+        actions={<div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={diagnoseInstallConflicts}>
+            <Stethoscope className="h-4 w-4" aria-hidden="true" />{t("cli.diagnoseConflicts")}
+          </Button>
+          <Button disabled={refreshState.disabled} variant="outline" onClick={() => refreshMutation.mutate(null)}>
+            <RefreshCw className={refreshState.iconClassName} aria-hidden="true" />{t(refreshState.labelKey)}
+          </Button>
+          <Button disabled={upgradeAllMutation.isPending || bulkEligibleCount === 0} onClick={() => upgradeAllMutation.mutate()}>
+            <ArrowUpCircle className={upgradeAllMutation.isPending ? "h-4 w-4 animate-spin" : "h-4 w-4"} aria-hidden="true" />
+            {t("cli.upgradeAll", { count: bulkEligibleCount })}
+          </Button>
+        </div>}
         description={t("cli.description")}
         icon={TerminalSquare}
         title={t("cli.title")}
       />
+      <section className="ucd-panel rounded-lg p-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">{t("cli.localEnvironmentCheck")}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t("cli.localEnvironmentHint")}</p>
+          </div>
+          <span className="text-xs text-muted-foreground">{t("cli.upgradeAll", { count: bulkEligibleCount })}</span>
+        </div>
+      </section>
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard icon={CheckCircle2} label={t("cli.stats.installed")} value={`${installedCount} / ${tools.length}`} hint={t("cli.stats.installedHint")} />
         <StatCard icon={XCircle} label={t("cli.stats.missing")} value={`${missingCount} / ${tools.length}`} hint={t("cli.stats.missingHint")} />
@@ -168,14 +204,17 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
       <div className="grid gap-4 xl:grid-cols-2">
         {filteredTools.map((tool) => {
           const selectedVersion = selectedVersions[tool.agentId] ?? "";
+          const packageActionTargetVersion = tool.installed === true ? tool.latestVersion ?? null : tool.latestVersion ?? "latest";
+          const packageMutationTargetVersion = resolveCliPackageActionTargetVersion(tool);
           const operationId = activeOperationIds[tool.agentId] ?? tool.lastOperationId;
           const operation = operationId ? operationsById[operationId] : undefined;
           const refreshing = refreshMutation.isPending && refreshMutation.variables === tool.agentId || Boolean(operation && isOperationRunning(operation) && !packageOperationIds[tool.agentId]);
+          const packageBusy = installMutation.isPending || upgradeAllMutation.isPending || Boolean(packageOperationIds[tool.agentId] && (!operation || isOperationRunning(operation)));
           return <CliEnvironmentCard
             key={tool.agentId}
             tool={tool}
             selectedVersion={selectedVersion}
-            action={deriveCliVersionAction(tool, selectedVersion || null)}
+            action={deriveCliVersionAction(tool, packageActionTargetVersion)}
             operation={operation}
             diagnosticsExpanded={Boolean(expandedDiagnostics[tool.agentId])}
             operationExpanded={Boolean(expandedLogs[tool.agentId])}
@@ -183,8 +222,7 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
             packageBusy={packageBusy}
             onSelectedVersionChange={(version) => setSelectedVersions((current) => ({ ...current, [tool.agentId]: version }))}
             onRefresh={() => refreshMutation.mutate(tool.agentId)}
-            onRunAction={() => requestPackageAction(tool, selectedVersion)}
-            onCopyInstallCommand={() => void navigator.clipboard?.writeText(tool.installCommand)}
+            onRunAction={() => requestPackageAction(tool, packageMutationTargetVersion)}
             onToggleDiagnostics={() => setExpandedDiagnostics((current) => ({ ...current, [tool.agentId]: !current[tool.agentId] }))}
             onToggleOperation={() => setExpandedLogs((current) => ({ ...current, [tool.agentId]: !current[tool.agentId] }))}
           />;

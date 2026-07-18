@@ -46,5 +46,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-18 | add-workspace-activity-bar | main-layout-ui, settings-center-ui | `openspec/changes/archive/2026-07-18-add-workspace-activity-bar/` |
 | 2026-07-18 | fix-log-performance-and-error-reporting | chat-experience, session-log-viewer, session-workspace-tabs, unified-log-management | `openspec/changes/archive/2026-07-18-fix-log-performance-and-error-reporting/` |
 | 2026-07-18 | optimize-cli-local-environment-management | agent-tool-registry, frontend-runtime-architecture, native-runtime-architecture, settings-center-ui | `openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/` |
+| 2026-07-18 | optimize-cli-management-and-about | settings-cli-management-ui | `openspec/changes/archive/2026-07-18-optimize-cli-management-and-about/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

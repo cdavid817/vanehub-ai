@@ -229,7 +229,7 @@ const webCliTools: CliToolStatus[] = [
     latestVersion: null,
     availableVersions: [],
     detectedPath: null,
-    installCommand: "npm install -g @anthropic-ai/claude-code@latest",
+    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://claude.ai/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g @anthropic-ai/claude-code@latest",
     lastCheckedAt: null,
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
@@ -295,7 +295,7 @@ const webCliTools: CliToolStatus[] = [
     latestVersion: null,
     availableVersions: [],
     detectedPath: null,
-    installCommand: "npm install -g opencode-ai@latest",
+    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://opencode.ai/install && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g opencode-ai@latest",
     lastCheckedAt: null,
     lastError: webLocalCliDetectionMessage(),
     lastOperationId: null,
@@ -650,6 +650,19 @@ export const webAgentClient: AgentService = {
       terminalStatus: "failed",
       error: message,
       result: { agentId: input.agentId, targetVersion: input.targetVersion },
+    });
+  },
+
+  async upgradeAllCliVersions(): Promise<OperationTask> {
+    const timestamp = nowIso();
+    const message = webCliPackageOperationsMessage();
+    return createWebMockOperation({
+      id: `web-cli-upgrade-all-${timestamp}`,
+      relatedEntityId: null,
+      message,
+      terminalStatus: "failed",
+      error: message,
+      result: { agentIds: webCliTools.map((tool) => tool.agentId) },
     });
   },
 

@@ -1,6 +1,10 @@
-import type { CliToolStatus } from "../../types/agent";
+import type { CliInstallSource, CliLifecycleEligibility, CliToolStatus } from "../../types/agent";
 
 export type CliVersionAction = "install" | "upgrade" | "downgrade" | "current" | "manual" | "unavailable";
+
+export function isManagedCliLifecycle(value: CliLifecycleEligibility) {
+  return value === "npm" || value === "wget" || value === "winget";
+}
 
 function parseVersion(version: string) {
   const normalized = version.trim().replace(/^v/i, "");
@@ -30,13 +34,40 @@ export function compareStableVersions(left: string, right: string) {
 }
 
 export function deriveCliVersionAction(tool: CliToolStatus, targetVersion: string | null): CliVersionAction {
-  if (tool.lifecycleEligibility === "manual") return "manual";
-  if (tool.lifecycleEligibility !== "npm") return "unavailable";
+  if (tool.installed !== true) return targetVersion ? "install" : "unavailable";
+  const activeInstallation = tool.installations.find((installation) => installation.isActive) ?? tool.installations[0];
+  if (activeInstallation && !activeInstallation.runnable) return "manual";
+  if (!tool.currentVersion && isManagedCliLifecycle(tool.lifecycleEligibility)) return "upgrade";
+  if (!tool.currentVersion) return "unavailable";
+  if (!targetVersion && isManagedCliLifecycle(tool.lifecycleEligibility)) return "upgrade";
   if (!targetVersion) return "unavailable";
-  if (tool.installed !== true || !tool.currentVersion) return "install";
   const comparison = compareStableVersions(targetVersion, tool.currentVersion);
-  if (comparison === null) return "unavailable";
+  if (comparison === null) return isManagedCliLifecycle(tool.lifecycleEligibility) ? "upgrade" : "unavailable";
   if (comparison > 0) return "upgrade";
-  if (comparison < 0) return "downgrade";
-  return "current";
+  if (comparison < 0) return tool.lifecycleEligibility === "npm" ? "downgrade" : "manual";
+  return isManagedCliLifecycle(tool.lifecycleEligibility) ? "upgrade" : "current";
+}
+
+export function isBulkCliUpgradeEligible(tool: CliToolStatus) {
+  if (!isManagedCliLifecycle(tool.lifecycleEligibility)) return false;
+  if (tool.installed !== true || !tool.currentVersion || !tool.latestVersion) return false;
+  if (tool.installations.length > 1) return false;
+  return compareStableVersions(tool.latestVersion, tool.currentVersion) === 1;
+}
+
+export type CliLifecycleGuidance =
+  | { kind: "broken"; key: "cli.guidance.checkEnv" }
+  | { kind: "multiple"; key: "cli.guidance.multipleInstallations" }
+  | { kind: "source-native"; key: "cli.guidance.sourceNative"; source: CliInstallSource }
+  | { kind: "manual"; key: "cli.guidance.manual" };
+
+export function deriveCliLifecycleGuidance(tool: CliToolStatus): CliLifecycleGuidance | null {
+  if (tool.lifecycleEligibility !== "manual") return null;
+  const activeInstallation = tool.installations.find((installation) => installation.isActive) ?? tool.installations[0];
+  if (activeInstallation && !activeInstallation.runnable) return { kind: "broken", key: "cli.guidance.checkEnv" };
+  if (tool.conflictState !== "none" || tool.installations.length > 1) return { kind: "multiple", key: "cli.guidance.multipleInstallations" };
+  if (activeInstallation && activeInstallation.source !== "npm") {
+    return { kind: "source-native", key: "cli.guidance.sourceNative", source: activeInstallation.source };
+  }
+  return { kind: "manual", key: "cli.guidance.manual" };
 }
