@@ -57,6 +57,10 @@ export const tauriAgentClient: AgentService = {
     });
   },
 
+  upgradeAllCliVersions() {
+    return invoke<OperationTask>("upgrade_all_cli_versions");
+  },
+
   listCliParameterProfiles() {
     return invoke<CliParameterProfile[]>("list_cli_parameter_profiles");
   },

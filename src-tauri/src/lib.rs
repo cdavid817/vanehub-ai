@@ -5,15 +5,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc,
-    Arc, Mutex,
-};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thiserror::Error;
+
+const CLI_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 mod cli_parameters;
 mod command_safety;
@@ -235,6 +233,8 @@ enum CliConflictState {
 #[serde(rename_all = "kebab-case")]
 enum CliLifecycleEligibility {
     Npm,
+    Wget,
+    Winget,
     Manual,
     Unavailable,
 }
@@ -253,18 +253,42 @@ struct CliInstallation {
 
 #[derive(Default)]
 struct CliMutationGuard {
-    active: AtomicBool,
+    active_agent_ids: Mutex<HashSet<String>>,
 }
 
 impl CliMutationGuard {
-    fn try_acquire(&self) -> bool {
-        self.active
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
+    fn try_acquire(&self, agent_id: &str) -> bool {
+        let Ok(mut active_agent_ids) = self.active_agent_ids.lock() else {
+            return false;
+        };
+        active_agent_ids.insert(agent_id.to_string())
     }
 
-    fn release(&self) {
-        self.active.store(false, Ordering::Release);
+    fn release(&self, agent_id: &str) {
+        if let Ok(mut active_agent_ids) = self.active_agent_ids.lock() {
+            active_agent_ids.remove(agent_id);
+        }
+    }
+
+    fn try_acquire_many<'a>(&self, agent_ids: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+        let Ok(mut active_agent_ids) = self.active_agent_ids.lock() else {
+            return Vec::new();
+        };
+        let mut acquired = Vec::new();
+        for agent_id in agent_ids {
+            if active_agent_ids.insert(agent_id.to_string()) {
+                acquired.push(agent_id.to_string());
+            }
+        }
+        acquired
+    }
+
+    fn release_many<'a>(&self, agent_ids: impl IntoIterator<Item = &'a str>) {
+        if let Ok(mut active_agent_ids) = self.active_agent_ids.lock() {
+            for agent_id in agent_ids {
+                active_agent_ids.remove(agent_id);
+            }
+        }
     }
 }
 
@@ -275,6 +299,8 @@ struct CliToolDefinition {
     provider: &'static str,
     executable_name: &'static str,
     package_name: &'static str,
+    script_install_url: Option<&'static str>,
+    winget_package_id: Option<&'static str>,
 }
 
 const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
@@ -284,6 +310,8 @@ const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
         provider: "Anthropic",
         executable_name: "claude",
         package_name: "@anthropic-ai/claude-code",
+        script_install_url: Some("https://claude.ai/install.sh"),
+        winget_package_id: Some("Anthropic.ClaudeCode"),
     },
     CliToolDefinition {
         agent_id: "codex-cli",
@@ -291,6 +319,8 @@ const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
         provider: "OpenAI",
         executable_name: "codex",
         package_name: "@openai/codex",
+        script_install_url: None,
+        winget_package_id: None,
     },
     CliToolDefinition {
         agent_id: "gemini-cli",
@@ -298,6 +328,8 @@ const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
         provider: "Google",
         executable_name: "gemini",
         package_name: "@google/gemini-cli",
+        script_install_url: None,
+        winget_package_id: None,
     },
     CliToolDefinition {
         agent_id: "opencode",
@@ -305,6 +337,8 @@ const CLI_TOOL_DEFINITIONS: [CliToolDefinition; 4] = [
         provider: "OpenCode",
         executable_name: "opencode",
         package_name: "opencode-ai",
+        script_install_url: Some("https://opencode.ai/install"),
+        winget_package_id: None,
     },
 ];
 
@@ -1702,8 +1736,18 @@ fn npm_executable() -> &'static str {
     }
 }
 
+fn bash_executable() -> &'static str {
+    "bash"
+}
+
 fn install_command_for(definition: CliToolDefinition) -> String {
-    format!("npm install -g {}@latest", definition.package_name)
+    match definition.script_install_url {
+        Some(url) => format!(
+            "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" {url} && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g {}@latest",
+            definition.package_name
+        ),
+        None => format!("npm install -g {}@latest", definition.package_name),
+    }
 }
 
 fn cli_package_install_args(definition: CliToolDefinition, target_version: &str) -> Vec<String> {
@@ -1712,6 +1756,126 @@ fn cli_package_install_args(definition: CliToolDefinition, target_version: &str)
         "-g".to_string(),
         format!("{}@{}", definition.package_name, target_version),
     ]
+}
+
+fn cli_wget_script_args(definition: CliToolDefinition) -> Option<Vec<String>> {
+    let url = definition.script_install_url?;
+    let script = format!(
+        "tmp=$(mktemp) && \
+         (if command -v wget >/dev/null 2>&1; then wget -qO \"$tmp\" {url}; \
+         elif command -v curl >/dev/null 2>&1; then curl -fsSL {url} -o \"$tmp\"; \
+         else echo \"wget or curl is required\" >&2; exit 127; fi) && \
+         bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status"
+    );
+    Some(vec!["-lc".to_string(), script])
+}
+
+fn parse_winget_package_id(path: &Path) -> Option<String> {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let normalized_lower = normalized.to_ascii_lowercase();
+    let marker = "/microsoft/winget/packages/";
+    let start = normalized_lower.find(marker)? + marker.len();
+    let package_dir = normalized[start..].split('/').next()?;
+    let package_id = package_dir
+        .split("_Microsoft.Winget.")
+        .next()
+        .unwrap_or(package_dir)
+        .trim();
+    (!package_id.is_empty()).then(|| package_id.to_string())
+}
+
+fn cli_winget_package_id(
+    definition: CliToolDefinition,
+    status: &CliToolStatus,
+) -> Option<String> {
+    status
+        .installations
+        .iter()
+        .find(|installation| installation.is_active && installation.source == CliInstallSource::Winget)
+        .and_then(|installation| parse_winget_package_id(Path::new(&installation.path)))
+        .or_else(|| definition.winget_package_id.map(str::to_string))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliLifecycleMethod {
+    Npm,
+    Wget,
+    Winget,
+}
+
+impl CliLifecycleMethod {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Npm => "npm",
+            Self::Wget => "wget",
+            Self::Winget => "winget",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CliLifecyclePlan {
+    method: CliLifecycleMethod,
+    executable: String,
+    args: Vec<String>,
+    fallback_npm_on_failure: bool,
+}
+
+fn cli_lifecycle_plan(
+    definition: CliToolDefinition,
+    status: &CliToolStatus,
+    target_version: &str,
+) -> Result<CliLifecyclePlan, AppError> {
+    match status.lifecycle_eligibility {
+        CliLifecycleEligibility::Npm => Ok(CliLifecyclePlan {
+            method: CliLifecycleMethod::Npm,
+            executable: npm_executable().to_string(),
+            args: cli_package_install_args(definition, target_version),
+            fallback_npm_on_failure: false,
+        }),
+        CliLifecycleEligibility::Wget => {
+            let args = cli_wget_script_args(definition).ok_or_else(|| {
+                AppError::Validation(format!(
+                    "{} does not have a verified wget installer",
+                    definition.display_name
+                ))
+            })?;
+            Ok(CliLifecyclePlan {
+                method: CliLifecycleMethod::Wget,
+                executable: bash_executable().to_string(),
+                args,
+                fallback_npm_on_failure: status.installed != Some(true),
+            })
+        }
+        CliLifecycleEligibility::Winget => {
+            let package_id = cli_winget_package_id(definition, status).ok_or_else(|| {
+                AppError::Validation(format!(
+                    "{} does not have a verified WinGet package id",
+                    definition.display_name
+                ))
+            })?;
+            Ok(CliLifecyclePlan {
+                method: CliLifecycleMethod::Winget,
+                executable: "winget".to_string(),
+                args: vec![
+                    "upgrade".to_string(),
+                    "--id".to_string(),
+                    package_id,
+                    "--exact".to_string(),
+                    "--accept-package-agreements".to_string(),
+                    "--accept-source-agreements".to_string(),
+                ],
+                fallback_npm_on_failure: false,
+            })
+        }
+        CliLifecycleEligibility::Manual => Err(AppError::Validation(
+            "the active CLI installation must be updated by its source-native installer"
+                .to_string(),
+        )),
+        CliLifecycleEligibility::Unavailable => Err(AppError::Validation(
+            "the CLI lifecycle method is unavailable".to_string(),
+        )),
+    }
 }
 
 fn sanitized_cli_environment_context() -> BTreeMap<String, String> {
@@ -1733,7 +1897,8 @@ fn sanitized_cli_environment_context() -> BTreeMap<String, String> {
 
 struct CliPackageFailureDetails<'a> {
     target_version: &'a str,
-    npm_executable: &'a str,
+    lifecycle_method: &'a str,
+    executable: &'a str,
     args: &'a [String],
     stdout: Option<&'a str>,
     stderr: Option<&'a str>,
@@ -1753,10 +1918,15 @@ fn cli_package_failure_context(
         details.target_version.to_string(),
     );
     context.insert(
-        "npmExecutable".to_string(),
-        details.npm_executable.to_string(),
+        "lifecycleMethod".to_string(),
+        details.lifecycle_method.to_string(),
     );
-    context.insert("npmArguments".to_string(), details.args.join(" "));
+    context.insert("executable".to_string(), details.executable.to_string());
+    context.insert("arguments".to_string(), details.args.join(" "));
+    if details.lifecycle_method == "npm" {
+        context.insert("npmExecutable".to_string(), details.executable.to_string());
+        context.insert("npmArguments".to_string(), details.args.join(" "));
+    }
     context.insert("error".to_string(), details.error.to_string());
     if let Some(stdout) = details.stdout {
         context.insert("stdout".to_string(), stdout.to_string());
@@ -1810,7 +1980,7 @@ fn status_from_row(
     row: Option<PersistedCliStatusRow>,
 ) -> CliToolStatus {
     if let Some(row) = row {
-        return CliToolStatus {
+        let status = CliToolStatus {
             agent_id: definition.agent_id.to_string(),
             display_name: definition.display_name.to_string(),
             provider: definition.provider.to_string(),
@@ -1832,10 +2002,9 @@ fn status_from_row(
                 .unwrap_or_default(),
             active_installation_path: row.active_installation_path,
             conflict_state: parse_cli_conflict_state(&row.conflict_state),
-            lifecycle_eligibility: parse_cli_lifecycle_eligibility(
-                &row.lifecycle_eligibility,
-            ),
+            lifecycle_eligibility: parse_cli_lifecycle_eligibility(&row.lifecycle_eligibility),
         };
+        return sanitize_cached_cli_status(definition, status);
     }
 
     CliToolStatus {
@@ -1860,6 +2029,66 @@ fn status_from_row(
         conflict_state: CliConflictState::None,
         lifecycle_eligibility: CliLifecycleEligibility::Unavailable,
     }
+}
+
+fn is_stale_windows_direct_launch_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    error.contains("不是有效的 Win32 应用程序")
+        || lower.contains("not a valid win32 application")
+        || lower.contains("os error 193")
+        || lower.contains("command timed out")
+}
+
+fn sanitize_cached_cli_status(
+    definition: CliToolDefinition,
+    mut status: CliToolStatus,
+) -> CliToolStatus {
+    if !cfg!(target_os = "windows") {
+        return status;
+    }
+    let before_count = status.installations.len();
+    status.installations.retain(|installation| {
+        let path = Path::new(&installation.path);
+        is_direct_cli_executable(path)
+    });
+    if status
+        .installations
+        .iter()
+        .filter(|installation| installation.is_active)
+        .count()
+        != 1
+        || status.installations.len() != before_count
+    {
+        for (index, installation) in status.installations.iter_mut().enumerate() {
+            installation.is_active = index == 0;
+        }
+    }
+    let active = status
+        .installations
+        .iter()
+        .find(|installation| installation.is_active);
+    let installed = !status.installations.is_empty();
+    status.installed = Some(installed);
+    status.detected_path = active.map(|installation| installation.path.clone());
+    status.active_installation_path = status.detected_path.clone();
+    status.current_version = active.and_then(|installation| installation.version.clone());
+    status.conflict_state = derive_cli_conflict_state(&status.installations);
+    status.lifecycle_eligibility =
+        derive_cli_lifecycle_eligibility(definition, installed, active);
+    if status
+        .last_error
+        .as_deref()
+        .is_some_and(is_stale_windows_direct_launch_error)
+    {
+        status.last_error = None;
+        status.last_operation_id = None;
+        status.version_check_status = if installed {
+            CliVersionCheckStatus::Succeeded
+        } else {
+            CliVersionCheckStatus::NotDetected
+        };
+    }
+    status
 }
 
 fn parse_cli_version_check_status(value: &str) -> CliVersionCheckStatus {
@@ -1919,6 +2148,8 @@ fn cli_conflict_state_str(value: CliConflictState) -> &'static str {
 fn parse_cli_lifecycle_eligibility(value: &str) -> CliLifecycleEligibility {
     match value {
         "npm" => CliLifecycleEligibility::Npm,
+        "wget" => CliLifecycleEligibility::Wget,
+        "winget" => CliLifecycleEligibility::Winget,
         "manual" => CliLifecycleEligibility::Manual,
         _ => CliLifecycleEligibility::Unavailable,
     }
@@ -1927,6 +2158,8 @@ fn parse_cli_lifecycle_eligibility(value: &str) -> CliLifecycleEligibility {
 fn cli_lifecycle_eligibility_str(value: CliLifecycleEligibility) -> &'static str {
     match value {
         CliLifecycleEligibility::Npm => "npm",
+        CliLifecycleEligibility::Wget => "wget",
+        CliLifecycleEligibility::Winget => "winget",
         CliLifecycleEligibility::Manual => "manual",
         CliLifecycleEligibility::Unavailable => "unavailable",
     }
@@ -2059,7 +2292,12 @@ fn resolve_command_paths(command_name: &str) -> Vec<String> {
 }
 
 fn resolve_command_path(command_name: &str) -> Option<String> {
-    resolve_command_paths(command_name).into_iter().next()
+    resolve_command_paths(command_name)
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|path| is_direct_cli_executable(path))
+        .map(|path| path.to_string_lossy().to_string())
+        .next()
 }
 
 fn known_cli_candidate_paths(definition: CliToolDefinition) -> Vec<PathBuf> {
@@ -2097,6 +2335,7 @@ fn known_cli_candidate_paths(definition: CliToolDefinition) -> Vec<PathBuf> {
                 ".npm-global/bin",
                 ".volta/bin",
                 ".bun/bin",
+                ".opencode/bin",
             ] {
                 candidates.push(home.join(relative).join(definition.executable_name));
             }
@@ -2130,6 +2369,23 @@ fn cli_candidate_key(path: &Path) -> String {
     }
 }
 
+fn is_direct_cli_executable(path: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        return matches!(extension.as_str(), "exe" | "cmd" | "bat" | "com");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        true
+    }
+}
+
 fn enumerate_cli_candidates(definition: CliToolDefinition) -> Vec<PathBuf> {
     let mut paths = resolve_command_paths(definition.executable_name)
         .into_iter()
@@ -2140,16 +2396,26 @@ fn enumerate_cli_candidates(definition: CliToolDefinition) -> Vec<PathBuf> {
     paths
         .into_iter()
         .filter(|path| path.is_file())
+        .filter(|path| is_direct_cli_executable(path))
         .filter(|path| seen.insert(cli_candidate_key(path)))
         .take(24)
         .collect()
 }
 
 fn classify_cli_install_source(path: &Path) -> CliInstallSource {
-    let value = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let value = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     let parent = path.parent();
     let npm_sibling = parent
-        .map(|parent| parent.join(if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" }))
+        .map(|parent| {
+            parent.join(if cfg!(target_os = "windows") {
+                "npm.cmd"
+            } else {
+                "npm"
+            })
+        })
         .is_some_and(|candidate| candidate.is_file());
     if value.contains("/microsoft/winget/packages/") || value.contains("/microsoft/winget/links/") {
         CliInstallSource::Winget
@@ -2167,7 +2433,10 @@ fn classify_cli_install_source(path: &Path) -> CliInstallSource {
         CliInstallSource::Volta
     } else if value.contains("/.bun/") {
         CliInstallSource::Bun
-    } else if value.contains("/.local/bin/") || value.contains("/.claude/") {
+    } else if value.contains("/.local/bin/")
+        || value.contains("/.claude/")
+        || value.contains("/.opencode/")
+    {
         CliInstallSource::Vendor
     } else if value.starts_with("/usr/bin/") || value.starts_with("/usr/local/bin/") {
         CliInstallSource::System
@@ -2180,8 +2449,12 @@ fn derive_cli_conflict_state(installations: &[CliInstallation]) -> CliConflictSt
     if installations.len() <= 1 {
         return CliConflictState::None;
     }
-    let has_runnable = installations.iter().any(|installation| installation.runnable);
-    let has_broken = installations.iter().any(|installation| !installation.runnable);
+    let has_runnable = installations
+        .iter()
+        .any(|installation| installation.runnable);
+    let has_broken = installations
+        .iter()
+        .any(|installation| !installation.runnable);
     if has_runnable && has_broken {
         return CliConflictState::RunnableMismatch;
     }
@@ -2197,17 +2470,37 @@ fn derive_cli_conflict_state(installations: &[CliInstallation]) -> CliConflictSt
 }
 
 fn derive_cli_lifecycle_eligibility(
+    definition: CliToolDefinition,
     installed: bool,
     active: Option<&CliInstallation>,
 ) -> CliLifecycleEligibility {
     if !installed {
-        return CliLifecycleEligibility::Npm;
+        return if definition.script_install_url.is_some() {
+            CliLifecycleEligibility::Wget
+        } else {
+            CliLifecycleEligibility::Npm
+        };
     }
     match active {
         Some(installation)
             if installation.runnable && installation.source == CliInstallSource::Npm =>
         {
             CliLifecycleEligibility::Npm
+        }
+        Some(installation)
+            if installation.runnable
+                && installation.source == CliInstallSource::Vendor
+                && definition.script_install_url.is_some() =>
+        {
+            CliLifecycleEligibility::Wget
+        }
+        Some(installation)
+            if installation.runnable
+                && installation.source == CliInstallSource::Winget
+                && (definition.winget_package_id.is_some()
+                    || parse_winget_package_id(Path::new(&installation.path)).is_some()) =>
+        {
+            CliLifecycleEligibility::Winget
         }
         Some(_) => CliLifecycleEligibility::Manual,
         None => CliLifecycleEligibility::Unavailable,
@@ -2224,12 +2517,31 @@ fn first_output_line(output: &CapturedCommandOutput) -> Option<String> {
         .map(|line| line.to_string())
 }
 
+struct CliDetectionResult {
+    status: CliToolStatus,
+    warnings: Vec<String>,
+}
+
+struct CliBulkUpgradeOutcome {
+    agent_id: String,
+    result: Result<(), String>,
+}
+
 fn detect_cli_tool(
     app: Option<&AppHandle>,
     registry: Option<&tasks::registry::TaskRegistry>,
     definition: CliToolDefinition,
     operation_id: &str,
 ) -> CliToolStatus {
+    detect_cli_tool_with_warnings(app, registry, definition, operation_id).status
+}
+
+fn detect_cli_tool_with_warnings(
+    app: Option<&AppHandle>,
+    registry: Option<&tasks::registry::TaskRegistry>,
+    definition: CliToolDefinition,
+    operation_id: &str,
+) -> CliDetectionResult {
     let now = current_timestamp();
     let environment_type = current_cli_environment_type();
     let candidates = enumerate_cli_candidates(definition);
@@ -2270,7 +2582,7 @@ fn detect_cli_tool(
             }
         };
         command.arg("--version");
-        match command_output_with_timeout(&mut command, Duration::from_secs(3)) {
+        match command_output_with_timeout(&mut command, CLI_VERSION_PROBE_TIMEOUT) {
             Ok(output) if output.success => version = first_output_line(&output),
             Ok(output) => {
                 let reason = first_output_line(&output)
@@ -2347,12 +2659,14 @@ fn detect_cli_tool(
     }
 
     let installed = !installations.is_empty();
-    let active = installations.iter().find(|installation| installation.is_active);
+    let active = installations
+        .iter()
+        .find(|installation| installation.is_active);
     let detected_path = active.map(|installation| installation.path.clone());
     let current_version = active.and_then(|installation| installation.version.clone());
     let conflict_state = derive_cli_conflict_state(&installations);
-    let lifecycle_eligibility = derive_cli_lifecycle_eligibility(installed, active);
-    CliToolStatus {
+    let lifecycle_eligibility = derive_cli_lifecycle_eligibility(definition, installed, active);
+    let status = CliToolStatus {
         agent_id: definition.agent_id.to_string(),
         display_name: definition.display_name.to_string(),
         provider: definition.provider.to_string(),
@@ -2365,22 +2679,22 @@ fn detect_cli_tool(
         detected_path: detected_path.clone(),
         install_command: install_command_for(definition),
         last_checked_at: Some(now),
-        last_error: if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join("; "))
-        },
+        last_error: None,
         last_operation_id: Some(operation_id.to_string()),
-        version_check_status: if errors.is_empty() {
+        version_check_status: if installed {
             CliVersionCheckStatus::Succeeded
         } else {
-            CliVersionCheckStatus::Failed
+            CliVersionCheckStatus::NotDetected
         },
         environment_type,
         installations,
         active_installation_path: detected_path,
         conflict_state,
         lifecycle_eligibility,
+    };
+    CliDetectionResult {
+        status,
+        warnings: errors,
     }
 }
 
@@ -2521,7 +2835,6 @@ fn is_stable_version(version: &str) -> bool {
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
 }
 
-#[cfg(test)]
 fn version_parts(version: &str) -> Option<Vec<u64>> {
     let trimmed = version.trim().trim_start_matches('v');
     if trimmed.contains('-') {
@@ -2535,7 +2848,6 @@ fn version_parts(version: &str) -> Option<Vec<u64>> {
     Some(parts)
 }
 
-#[cfg(test)]
 fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     let mut left_parts = version_parts(left)?;
     let mut right_parts = version_parts(right)?;
@@ -3490,9 +3802,8 @@ fn start_cli_refresh_operation(
     agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
     if let Some(agent_id) = agent_id.as_deref() {
-        cli_tool_definition(agent_id).ok_or_else(|| {
-            AppError::Validation(format!("unsupported CLI agent id: {agent_id}"))
-        })?;
+        cli_tool_definition(agent_id)
+            .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
     }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
@@ -3519,7 +3830,7 @@ fn install_cli_version(
 ) -> Result<tasks::models::OperationTask, AppError> {
     let definition = cli_tool_definition(&agent_id)
         .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
-    if !is_stable_version(&target_version) {
+    if target_version != "latest" && !is_stable_version(&target_version) {
         return Err(AppError::Validation(format!(
             "target version must be a stable semantic version: {target_version}"
         )));
@@ -3534,13 +3845,14 @@ fn install_cli_version(
     };
     let fresh_candidates = enumerate_cli_candidates(definition);
     validate_cli_package_eligibility(
+        definition,
         &status,
         &fresh_candidates,
         confirmed_active_path.as_deref(),
     )?;
-    if !mutation_guard.try_acquire() {
+    if !mutation_guard.try_acquire(definition.agent_id) {
         return Err(AppError::Validation(
-            "another CLI package operation is already running".to_string(),
+            "another package operation for this CLI is already running".to_string(),
         ));
     }
     let operation = registry.start(
@@ -3554,34 +3866,159 @@ fn install_cli_version(
     let operation = match operation {
         Ok(operation) => operation,
         Err(error) => {
-            mutation_guard.release();
+            mutation_guard.release(definition.agent_id);
             return Err(error);
         }
     };
     let operation_id = operation.id.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        run_cli_package_operation(app, operation_id, definition, target_version);
+        run_cli_package_operation(app, operation_id, definition, status, target_version);
     });
 
     Ok(operation)
 }
 
+#[tauri::command]
+fn upgrade_all_cli_versions(
+    app: AppHandle,
+    registry: State<'_, tasks::registry::TaskRegistry>,
+    mutation_guard: State<'_, CliMutationGuard>,
+) -> Result<tasks::models::OperationTask, AppError> {
+    let statuses = {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        load_cli_tool_statuses(&conn)?
+    };
+    let eligible_agent_ids = bulk_cli_upgrade_agent_ids(&statuses);
+    let acquired_agent_ids = mutation_guard.try_acquire_many(
+        eligible_agent_ids
+            .iter()
+            .map(String::as_str),
+    );
+    if !eligible_agent_ids.is_empty() && acquired_agent_ids.is_empty() {
+        return Err(AppError::Validation(
+            "package operations for eligible CLIs are already running".to_string(),
+        ));
+    }
+    let operation = registry.start(
+        tasks::models::OperationKind::Agent,
+        None,
+        Some("Upgrading all eligible CLI tools".to_string()),
+    );
+    let operation = match operation {
+        Ok(operation) => operation,
+        Err(error) => {
+            mutation_guard.release_many(acquired_agent_ids.iter().map(String::as_str));
+            return Err(error);
+        }
+    };
+    let operation_id = operation.id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_cli_bulk_upgrade_operation(app, operation_id, statuses, acquired_agent_ids);
+    });
+
+    Ok(operation)
+}
+
+fn bulk_cli_upgrade_agent_ids(statuses: &[CliToolStatus]) -> Vec<String> {
+    statuses
+        .iter()
+        .filter(|status| bulk_cli_upgrade_target(status).is_some())
+        .map(|status| status.agent_id.clone())
+        .collect()
+}
+
+fn bulk_cli_upgrade_target(status: &CliToolStatus) -> Option<String> {
+    if !matches!(
+        status.lifecycle_eligibility,
+        CliLifecycleEligibility::Npm | CliLifecycleEligibility::Wget | CliLifecycleEligibility::Winget
+    ) {
+        return None;
+    }
+    if status.installed != Some(true) || status.installations.len() > 1 {
+        return None;
+    }
+    let current = status.current_version.as_deref()?;
+    let latest = status.latest_version.as_deref()?;
+    if !is_stable_version(current) || !is_stable_version(latest) {
+        return None;
+    }
+    matches!(
+        compare_versions(latest, current),
+        Some(std::cmp::Ordering::Greater)
+    )
+    .then(|| latest.to_string())
+}
+
 fn validate_cli_package_eligibility(
+    definition: CliToolDefinition,
     status: &CliToolStatus,
     fresh_candidates: &[PathBuf],
     confirmed_active_path: Option<&str>,
 ) -> Result<(), AppError> {
-    if !matches!(status.lifecycle_eligibility, CliLifecycleEligibility::Npm) {
-        return Err(AppError::Validation(
-            "the active CLI installation must be updated by its source-native installer"
-                .to_string(),
-        ));
-    }
-    if let Some(active_path) = fresh_candidates.first() {
-        if classify_cli_install_source(active_path) != CliInstallSource::Npm {
+    match status.lifecycle_eligibility {
+        CliLifecycleEligibility::Npm => {
+            if let Some(active_path) = fresh_candidates.first() {
+                if classify_cli_install_source(active_path) != CliInstallSource::Npm {
+                    return Err(AppError::Validation(
+                        "the active CLI path changed and is not npm-managed".to_string(),
+                    ));
+                }
+            }
+        }
+        CliLifecycleEligibility::Wget => {
+            if definition.script_install_url.is_none() {
+                return Err(AppError::Validation(
+                    "the CLI does not have a verified wget installer".to_string(),
+                ));
+            }
+            if status.installed == Some(true) {
+                let active_path = fresh_candidates.first().ok_or_else(|| {
+                    AppError::Validation(
+                        "the active CLI installation could not be resolved".to_string(),
+                    )
+                })?;
+                if classify_cli_install_source(active_path) != CliInstallSource::Vendor {
+                    return Err(AppError::Validation(
+                        "the active CLI path changed and is not a recognized script installation"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+        CliLifecycleEligibility::Winget => {
+            let active_path = fresh_candidates.first().ok_or_else(|| {
+                AppError::Validation(
+                    "the active CLI installation could not be resolved".to_string(),
+                )
+            })?;
+            if classify_cli_install_source(active_path) != CliInstallSource::Winget {
+                return Err(AppError::Validation(
+                    "the active CLI path changed and is not WinGet-managed".to_string(),
+                ));
+            }
+            if definition.winget_package_id.is_none()
+                && parse_winget_package_id(active_path).is_none()
+            {
+                return Err(AppError::Validation(
+                    "the active WinGet package id could not be resolved".to_string(),
+                ));
+            }
+        }
+        CliLifecycleEligibility::Manual => {
             return Err(AppError::Validation(
-                "the active CLI path changed and is not npm-managed".to_string(),
+                "the active CLI installation must be updated by its source-native installer"
+                    .to_string(),
+            ));
+        }
+        CliLifecycleEligibility::Unavailable => {
+            return Err(AppError::Validation(
+                "the CLI lifecycle method is unavailable".to_string(),
             ));
         }
     }
@@ -3590,8 +4027,10 @@ fn validate_cli_package_eligibility(
             .first()
             .map(|path| path.to_string_lossy().to_string())
             .ok_or_else(|| {
-            AppError::Validation("the active CLI installation could not be resolved".to_string())
-        })?;
+                AppError::Validation(
+                    "the active CLI installation could not be resolved".to_string(),
+                )
+            })?;
         if confirmed_active_path != Some(active_path.as_str()) {
             return Err(AppError::Validation(
                 "multiple CLI installations require confirmation of the active path".to_string(),
@@ -3611,144 +4050,428 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String, agent_id: Opt
         "Starting CLI detection refresh.",
         logging::LogLevel::Info,
     );
-    let mut statuses = Vec::new();
-    for definition in CLI_TOOL_DEFINITIONS
+    let definitions = CLI_TOOL_DEFINITIONS
         .into_iter()
-        .filter(|definition| agent_id.as_deref().is_none_or(|id| id == definition.agent_id))
-    {
-        append_cli_log(
-            &app,
-            &registry,
-            &operation_id,
-            Some(definition.agent_id),
-            &format!(
-                "Checking {} ({})",
-                definition.display_name, definition.executable_name
-            ),
-            logging::LogLevel::Info,
-        );
-        let status = detect_cli_tool(Some(&app), Some(&registry), definition, &operation_id);
-        if let Some(error) = status.last_error.as_deref() {
-            append_cli_log(
-                &app,
-                &registry,
-                &operation_id,
-                Some(definition.agent_id),
-                &format!(
-                    "{} completed with warnings: {error}",
-                    definition.display_name
-                ),
-                logging::LogLevel::Warn,
-            );
-        } else {
-            append_cli_log(
-                &app,
-                &registry,
-                &operation_id,
-                Some(definition.agent_id),
-                &format!("{} detection succeeded.", definition.display_name),
-                logging::LogLevel::Info,
-            );
+        .filter(|definition| {
+            agent_id
+                .as_deref()
+                .is_none_or(|id| id == definition.agent_id)
+        })
+        .collect::<Vec<_>>();
+    let handles = definitions
+        .into_iter()
+        .map(|definition| {
+            let app = app.clone();
+            let operation_id = operation_id.clone();
+            thread::spawn(move || {
+                let registry = app.state::<tasks::registry::TaskRegistry>();
+                append_cli_log(
+                    &app,
+                    &registry,
+                    &operation_id,
+                    Some(definition.agent_id),
+                    &format!(
+                        "Checking {} ({})",
+                        definition.display_name, definition.executable_name
+                    ),
+                    logging::LogLevel::Info,
+                );
+                let detection = detect_cli_tool_with_warnings(
+                    Some(&app),
+                    Some(&registry),
+                    definition,
+                    &operation_id,
+                );
+                if detection.warnings.is_empty() {
+                    append_cli_log(
+                        &app,
+                        &registry,
+                        &operation_id,
+                        Some(definition.agent_id),
+                        &format!("{} detection succeeded.", definition.display_name),
+                        logging::LogLevel::Info,
+                    );
+                } else {
+                    append_cli_log(
+                        &app,
+                        &registry,
+                        &operation_id,
+                        Some(definition.agent_id),
+                        &format!(
+                            "{} refresh completed with warnings: {}",
+                            definition.display_name,
+                            detection.warnings.join("; ")
+                        ),
+                        logging::LogLevel::Warn,
+                    );
+                }
+                let persist_result = (|| -> Result<(), AppError> {
+                    let store = app.state::<Mutex<RegistryStore>>();
+                    let store = store
+                        .lock()
+                        .map_err(|err| AppError::Storage(err.to_string()))?;
+                    let conn = store.connection()?;
+                    save_cli_tool_status(&conn, &detection.status)
+                })();
+                match persist_result {
+                    Ok(()) => Ok(detection.status.agent_id),
+                    Err(error) => Err((definition.agent_id.to_string(), error.to_string())),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut refreshed = Vec::new();
+    let mut failed = Vec::new();
+    for handle in handles {
+        match handle.join() {
+            Ok(Ok(agent_id)) => refreshed.push(agent_id),
+            Ok(Err((agent_id, error))) => {
+                append_cli_log(
+                    &app,
+                    &registry,
+                    &operation_id,
+                    Some(&agent_id),
+                    &format!("Failed to persist CLI detection result: {error}"),
+                    logging::LogLevel::Error,
+                );
+                failed.push(agent_id);
+            }
+            Err(_) => {
+                append_cli_log(
+                    &app,
+                    &registry,
+                    &operation_id,
+                    None,
+                    "A CLI detection worker panicked.",
+                    logging::LogLevel::Error,
+                );
+                failed.push("unknown".to_string());
+            }
         }
-        statuses.push(status);
     }
 
-    let persist_result = (|| -> Result<(), AppError> {
-        let store = app.state::<Mutex<RegistryStore>>();
-        let store = store
-            .lock()
-            .map_err(|err| AppError::Storage(err.to_string()))?;
-        let conn = store.connection()?;
-        for status in &statuses {
-            save_cli_tool_status(&conn, status)?;
-        }
-        Ok(())
-    })();
-
-    match persist_result {
-        Ok(()) => {
-            append_cli_log(
-                &app,
-                &registry,
-                &operation_id,
-                None,
-                "CLI detection refresh finished.",
-                logging::LogLevel::Info,
-            );
-            let result = serde_json::json!({
-                "agentIds": statuses.iter().map(|status| status.agent_id.clone()).collect::<Vec<_>>()
-            });
-            let _ = registry.complete(&operation_id, Some(result));
-        }
-        Err(error) => {
-            append_cli_log(
-                &app,
-                &registry,
-                &operation_id,
-                None,
-                &format!("Failed to persist CLI detection results: {error}"),
-                logging::LogLevel::Error,
-            );
-            let _ = registry.fail(&operation_id, error.to_string());
-        }
-    }
+    append_cli_log(
+        &app,
+        &registry,
+        &operation_id,
+        None,
+        "CLI detection refresh finished.",
+        logging::LogLevel::Info,
+    );
+    let result = serde_json::json!({
+        "agentIds": refreshed,
+        "failed": failed,
+    });
+    let _ = registry.complete(&operation_id, Some(result));
 }
 
 fn run_cli_package_operation(
     app: AppHandle,
     operation_id: String,
     definition: CliToolDefinition,
+    status: CliToolStatus,
     target_version: String,
 ) {
     run_cli_package_operation_inner(
         app.clone(),
         operation_id,
         definition,
+        status,
         target_version,
     );
-    app.state::<CliMutationGuard>().release();
+    app.state::<CliMutationGuard>().release(definition.agent_id);
+}
+
+fn run_cli_bulk_upgrade_operation(
+    app: AppHandle,
+    operation_id: String,
+    statuses: Vec<CliToolStatus>,
+    acquired_agent_ids: Vec<String>,
+) {
+    let registry = app.state::<tasks::registry::TaskRegistry>();
+    append_cli_log(
+        &app,
+        &registry,
+        &operation_id,
+        None,
+        "Starting bulk CLI upgrade.",
+        logging::LogLevel::Info,
+    );
+
+    let mut skipped = Vec::new();
+    let acquired_agent_ids_set = acquired_agent_ids.iter().cloned().collect::<HashSet<_>>();
+    let mut handles = Vec::new();
+
+    for status in statuses {
+        let Some(definition) = cli_tool_definition(&status.agent_id) else {
+            skipped.push(status.agent_id.clone());
+            continue;
+        };
+        let Some(target_version) = bulk_cli_upgrade_target(&status) else {
+            append_cli_log(
+                &app,
+                &registry,
+                &operation_id,
+                Some(definition.agent_id),
+                &format!(
+                    "Skipping {} because it is not eligible for bulk upgrade.",
+                    definition.display_name
+                ),
+                logging::LogLevel::Info,
+            );
+            skipped.push(definition.agent_id.to_string());
+            continue;
+        };
+        if !acquired_agent_ids_set.contains(definition.agent_id) {
+            append_cli_log(
+                &app,
+                &registry,
+                &operation_id,
+                Some(definition.agent_id),
+                &format!(
+                    "Skipping {} because another operation for this CLI is already running.",
+                    definition.display_name
+                ),
+                logging::LogLevel::Warn,
+            );
+            skipped.push(definition.agent_id.to_string());
+            continue;
+        }
+        let fresh_candidates = enumerate_cli_candidates(definition);
+        if let Err(error) =
+            validate_cli_package_eligibility(definition, &status, &fresh_candidates, None)
+        {
+            append_cli_log(
+                &app,
+                &registry,
+                &operation_id,
+                Some(definition.agent_id),
+                &format!("Skipping {}: {error}", definition.display_name),
+                logging::LogLevel::Warn,
+            );
+            skipped.push(definition.agent_id.to_string());
+            continue;
+        }
+        let app = app.clone();
+        let operation_id = operation_id.clone();
+        handles.push(thread::spawn(move || {
+            let registry = app.state::<tasks::registry::TaskRegistry>();
+            let result = run_cli_package_install_steps(
+                &app,
+                &registry,
+                &operation_id,
+                definition,
+                &status,
+                &target_version,
+            );
+            CliBulkUpgradeOutcome {
+                agent_id: definition.agent_id.to_string(),
+                result,
+            }
+        }));
+    }
+
+    let mut upgraded = Vec::new();
+    let mut failed = Vec::new();
+    for handle in handles {
+        match handle.join() {
+            Ok(outcome) => match outcome.result {
+                Ok(()) => upgraded.push(outcome.agent_id),
+                Err(error) => {
+                    append_cli_log(
+                        &app,
+                        &registry,
+                        &operation_id,
+                        Some(&outcome.agent_id),
+                        &format!("Failed to upgrade {}: {error}", outcome.agent_id),
+                        logging::LogLevel::Error,
+                    );
+                    failed.push(outcome.agent_id);
+                }
+            },
+            Err(_) => {
+                append_cli_log(
+                    &app,
+                    &registry,
+                    &operation_id,
+                    None,
+                    "A CLI upgrade worker panicked.",
+                    logging::LogLevel::Error,
+                );
+                failed.push("unknown".to_string());
+            }
+        }
+    }
+
+    app.state::<CliMutationGuard>().release_many(acquired_agent_ids.iter().map(String::as_str));
+    append_cli_log(
+        &app,
+        &registry,
+        &operation_id,
+        None,
+        "Bulk CLI upgrade finished.",
+        logging::LogLevel::Info,
+    );
+    let result = serde_json::json!({
+        "upgraded": upgraded,
+        "skipped": skipped,
+        "failed": failed,
+    });
+    let _ = registry.complete(&operation_id, Some(result));
+}
+
+fn run_cli_package_install_steps(
+    app: &AppHandle,
+    registry: &tasks::registry::TaskRegistry,
+    operation_id: &str,
+    definition: CliToolDefinition,
+    status: &CliToolStatus,
+    target_version: &str,
+) -> Result<(), String> {
+    run_cli_lifecycle_steps(
+        app,
+        registry,
+        operation_id,
+        definition,
+        status,
+        target_version,
+    )
 }
 
 fn run_cli_package_operation_inner(
     app: AppHandle,
     operation_id: String,
     definition: CliToolDefinition,
+    status: CliToolStatus,
     target_version: String,
 ) {
     let registry = app.state::<tasks::registry::TaskRegistry>();
-    let npm = npm_executable();
-    let args = cli_package_install_args(definition, &target_version);
-    append_cli_log(
+    match run_cli_lifecycle_steps(
         &app,
         &registry,
         &operation_id,
+        definition,
+        &status,
+        &target_version,
+    ) {
+        Ok(()) => {
+            let result = serde_json::json!({
+                "agentId": definition.agent_id,
+                "targetVersion": target_version,
+            });
+            let _ = registry.complete(&operation_id, Some(result));
+        }
+        Err(error) => {
+            let _ = registry.fail(&operation_id, error);
+        }
+    }
+}
+
+fn run_cli_lifecycle_steps(
+    app: &AppHandle,
+    registry: &tasks::registry::TaskRegistry,
+    operation_id: &str,
+    definition: CliToolDefinition,
+    status: &CliToolStatus,
+    target_version: &str,
+) -> Result<(), String> {
+    let plan = cli_lifecycle_plan(definition, status, target_version)
+        .map_err(|error| error.to_string())?;
+    let first_result = run_cli_lifecycle_plan(
+        app,
+        registry,
+        operation_id,
+        definition,
+        target_version,
+        &plan,
+    );
+    if first_result.is_err() && plan.fallback_npm_on_failure {
+        append_cli_log(
+            app,
+            registry,
+            operation_id,
+            Some(definition.agent_id),
+            "wget installer failed; falling back to npm for first install.",
+            logging::LogLevel::Warn,
+        );
+        let fallback_plan = CliLifecyclePlan {
+            method: CliLifecycleMethod::Npm,
+            executable: npm_executable().to_string(),
+            args: cli_package_install_args(definition, target_version),
+            fallback_npm_on_failure: false,
+        };
+        run_cli_lifecycle_plan(
+            app,
+            registry,
+            operation_id,
+            definition,
+            target_version,
+            &fallback_plan,
+        )?;
+    } else {
+        first_result?;
+    }
+
+    let status = detect_cli_tool(Some(app), Some(registry), definition, operation_id);
+    let persist_result = (|| -> Result<(), AppError> {
+        let store = app.state::<Mutex<RegistryStore>>();
+        let store = store
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_cli_tool_status(&conn, &status)
+    })();
+    persist_result.map_err(|error| error.to_string())
+}
+
+fn run_cli_lifecycle_plan(
+    app: &AppHandle,
+    registry: &tasks::registry::TaskRegistry,
+    operation_id: &str,
+    definition: CliToolDefinition,
+    target_version: &str,
+    plan: &CliLifecyclePlan,
+) -> Result<(), String> {
+    append_cli_log(
+        app,
+        registry,
+        operation_id,
         Some(definition.agent_id),
         &format!(
-            "Running npm install for {} version {}.",
-            definition.display_name, target_version
+            "Running {} lifecycle operation for {} version {}.",
+            plan.method.as_str(),
+            definition.display_name,
+            target_version
         ),
         logging::LogLevel::Info,
     );
     append_cli_log(
-        &app,
-        &registry,
-        &operation_id,
+        app,
+        registry,
+        operation_id,
         Some(definition.agent_id),
-        &format!("npm executable: {npm}; args: {}", args.join(" ")),
+        &format!(
+            "{} executable: {}; args: {}",
+            plan.method.as_str(),
+            plan.executable,
+            plan.args.join(" ")
+        ),
         logging::LogLevel::Info,
     );
 
-    let mut command = match command_safety::std_command(npm) {
+    let mut command = match command_safety::std_command(&plan.executable) {
         Ok(command) => command,
         Err(error) => {
             let error = error.to_string();
             let context = cli_package_failure_context(
                 definition,
-                &operation_id,
+                operation_id,
                 CliPackageFailureDetails {
-                    target_version: &target_version,
-                    npm_executable: npm,
-                    args: &args,
+                    target_version,
+                    lifecycle_method: plan.method.as_str(),
+                    executable: &plan.executable,
+                    args: &plan.args,
                     stdout: None,
                     stderr: None,
                     exit_status: None,
@@ -3757,83 +4480,67 @@ fn run_cli_package_operation_inner(
                 },
             );
             write_cli_diagnostic_log(
-                &app,
+                app,
                 logging::LogLevel::Error,
-                "CLI package operation failed before npm launch.",
+                "CLI package operation failed before launch.",
                 context,
             );
-            persist_cli_operation_error(&app, definition, &operation_id, &error);
-            let _ = registry.fail(&operation_id, error);
-            return;
+            persist_cli_operation_error(app, definition, operation_id, &error);
+            return Err(error);
         }
     };
-    command_safety::audit_command("cli.npm.install", npm, &args);
-    command.args(&args);
+    command_safety::audit_command(
+        match plan.method {
+            CliLifecycleMethod::Npm => "cli.npm.install",
+            CliLifecycleMethod::Wget => "cli.wget.install",
+            CliLifecycleMethod::Winget => "cli.winget.upgrade",
+        },
+        &plan.executable,
+        &plan.args,
+    );
+    command.args(&plan.args);
 
     match command_output_with_timeout(&mut command, Duration::from_secs(300)) {
         Ok(output) if output.success => {
             append_command_logs(
-                &app,
-                &registry,
-                &operation_id,
+                app,
+                registry,
+                operation_id,
                 Some(definition.agent_id),
                 &output,
             );
             append_cli_log(
-                &app,
-                &registry,
-                &operation_id,
+                app,
+                registry,
+                operation_id,
                 Some(definition.agent_id),
-                &format!("npm install completed for {}.", definition.display_name),
+                &format!(
+                    "{} lifecycle operation completed for {}.",
+                    plan.method.as_str(),
+                    definition.display_name
+                ),
                 logging::LogLevel::Info,
             );
-            let status = detect_cli_tool(Some(&app), Some(&registry), definition, &operation_id);
-            let persist_result = (|| -> Result<(), AppError> {
-                let store = app.state::<Mutex<RegistryStore>>();
-                let store = store
-                    .lock()
-                    .map_err(|err| AppError::Storage(err.to_string()))?;
-                let conn = store.connection()?;
-                save_cli_tool_status(&conn, &status)
-            })();
-            match persist_result {
-                Ok(()) => {
-                    let result = serde_json::json!({
-                        "agentId": definition.agent_id,
-                        "targetVersion": target_version,
-                    });
-                    let _ = registry.complete(&operation_id, Some(result));
-                }
-                Err(error) => {
-                    append_cli_log(
-                        &app,
-                        &registry,
-                        &operation_id,
-                        Some(definition.agent_id),
-                        &format!("Failed to persist CLI package result: {error}"),
-                        logging::LogLevel::Error,
-                    );
-                    let _ = registry.fail(&operation_id, error.to_string());
-                }
-            }
+            Ok(())
         }
         Ok(output) => {
             append_command_logs(
-                &app,
-                &registry,
-                &operation_id,
+                app,
+                registry,
+                operation_id,
                 Some(definition.agent_id),
                 &output,
             );
-            let error =
-                first_output_line(&output).unwrap_or_else(|| "npm install failed".to_string());
+            let error = first_output_line(&output)
+                .unwrap_or_else(|| format!("{} install failed", plan.method.as_str()));
             let context = cli_package_failure_context(
                 definition,
-                &operation_id,
+                operation_id,
                 CliPackageFailureDetails {
-                    target_version: &target_version,
-                    npm_executable: npm,
-                    args: &args,
+                    target_version,
+                    lifecycle_method: plan.method.as_str(),
+                    executable: &plan.executable,
+                    args: &plan.args,
                     stdout: Some(&output.stdout),
                     stderr: Some(&output.stderr),
                     exit_status: Some(&output.status),
@@ -3842,13 +4549,13 @@ fn run_cli_package_operation_inner(
                 },
             );
             write_cli_diagnostic_log(
-                &app,
+                app,
                 logging::LogLevel::Error,
                 "CLI package operation failed.",
                 context,
             );
-            persist_cli_operation_error(&app, definition, &operation_id, &error);
-            let _ = registry.fail(&operation_id, error);
+            persist_cli_operation_error(app, definition, operation_id, &error);
+            Err(error)
         }
         Err(error) => {
             let timeout_reason = error
@@ -3857,11 +4564,12 @@ fn run_cli_package_operation_inner(
                 .then_some(error.as_str());
             let context = cli_package_failure_context(
                 definition,
-                &operation_id,
+                operation_id,
                 CliPackageFailureDetails {
-                    target_version: &target_version,
-                    npm_executable: npm,
-                    args: &args,
+                    target_version,
+                    lifecycle_method: plan.method.as_str(),
+                    executable: &plan.executable,
+                    args: &plan.args,
                     stdout: None,
                     stderr: None,
                     exit_status: None,
@@ -3870,13 +4578,13 @@ fn run_cli_package_operation_inner(
                 },
             );
             write_cli_diagnostic_log(
-                &app,
+                app,
                 logging::LogLevel::Error,
                 "CLI package operation failed.",
                 context,
             );
-            persist_cli_operation_error(&app, definition, &operation_id, &error);
-            let _ = registry.fail(&operation_id, error);
+            persist_cli_operation_error(app, definition, operation_id, &error);
+            Err(error)
         }
     }
 }
@@ -4103,10 +4811,19 @@ fn resolve_agent_cli_executable(
     if let Some(path) = cached_status
         .detected_path
         .filter(|path| !path.trim().is_empty())
+        .filter(|path| {
+            let candidate = Path::new(path);
+            candidate.is_file() && is_direct_cli_executable(candidate)
+        })
     {
         return Ok(path);
     }
-    resolve_command_path(definition.executable_name).ok_or_else(|| {
+    enumerate_cli_candidates(definition)
+        .into_iter()
+        .next()
+        .map(|path| path.to_string_lossy().to_string())
+        .or_else(|| resolve_command_path(definition.executable_name))
+        .ok_or_else(|| {
         format!(
             "{} executable '{}' could not be resolved.",
             agent.display_name, definition.executable_name
@@ -5807,6 +6524,7 @@ pub fn run() {
             list_cli_tools,
             refresh_cli_detections,
             install_cli_version,
+            upgrade_all_cli_versions,
             cli_parameters::list_cli_parameter_profiles,
             cli_parameters::save_cli_parameter_profile,
             cli_parameters::reset_cli_parameter_profile,
@@ -6845,7 +7563,8 @@ mod tests {
             "op-package",
             CliPackageFailureDetails {
                 target_version: "1.18.2",
-                npm_executable: "npm",
+                lifecycle_method: "npm",
+                executable: "npm",
                 args: &package_args,
                 stdout: Some("token=abc123"),
                 stderr: Some("password:super-secret"),
@@ -6959,6 +7678,51 @@ mod tests {
         assert_eq!(loaded.lifecycle_eligibility, CliLifecycleEligibility::Npm);
     }
 
+    #[test]
+    fn cli_detection_warnings_do_not_persist_as_status_error() {
+        let definition = cli_tool_definition("codex-cli").expect("codex definition");
+        let result = CliDetectionResult {
+            status: CliToolStatus {
+                agent_id: definition.agent_id.to_string(),
+                display_name: definition.display_name.to_string(),
+                provider: definition.provider.to_string(),
+                executable_name: definition.executable_name.to_string(),
+                package_name: definition.package_name.to_string(),
+                installed: Some(true),
+                current_version: Some("1.2.3".to_string()),
+                latest_version: None,
+                available_versions: vec![],
+                detected_path: Some("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string()),
+                install_command: install_command_for(definition),
+                last_checked_at: Some("123".to_string()),
+                last_error: None,
+                last_operation_id: Some("refresh-op".to_string()),
+                version_check_status: CliVersionCheckStatus::Succeeded,
+                environment_type: CliEnvironmentType::Windows,
+                installations: vec![CliInstallation {
+                    path: "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string(),
+                    version: Some("1.2.3".to_string()),
+                    runnable: true,
+                    error: None,
+                    source: CliInstallSource::Npm,
+                    environment_type: CliEnvironmentType::Windows,
+                    is_active: true,
+                }],
+                active_installation_path: Some("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string()),
+                conflict_state: CliConflictState::None,
+                lifecycle_eligibility: CliLifecycleEligibility::Npm,
+            },
+            warnings: vec!["command timed out".to_string()],
+        };
+
+        assert_eq!(result.warnings, vec!["command timed out"]);
+        assert!(result.status.last_error.is_none());
+        assert!(matches!(
+            result.status.version_check_status,
+            CliVersionCheckStatus::Succeeded
+        ));
+    }
+
     fn test_installation(
         path: &str,
         version: Option<&str>,
@@ -6992,6 +7756,13 @@ mod tests {
             CliInstallSource::Winget
         );
         assert_eq!(
+            parse_winget_package_id(Path::new(
+                "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe"
+            ))
+            .as_deref(),
+            Some("Anthropic.ClaudeCode")
+        );
+        assert_eq!(
             classify_cli_install_source(Path::new(
                 "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe"
             )),
@@ -7007,13 +7778,122 @@ mod tests {
     #[test]
     fn cli_candidate_dedup_collapses_windows_command_wrappers() {
         assert_eq!(
-            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
-            cli_candidate_key(Path::new("c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1")),
+            cli_candidate_key(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
+            cli_candidate_key(Path::new(
+                "c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1"
+            )),
         );
         assert_ne!(
-            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
             cli_candidate_key(Path::new("C:\\Tools\\codex.cmd")),
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cli_direct_executable_filter_rejects_windows_scripts() {
+        assert!(is_direct_cli_executable(Path::new(
+            "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+        )));
+        assert!(is_direct_cli_executable(Path::new(
+            "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\codex.exe"
+        )));
+        assert!(!is_direct_cli_executable(Path::new(
+            "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.ps1"
+        )));
+        assert!(!is_direct_cli_executable(Path::new("C:\\Tools\\codex.sh")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cached_cli_status_sanitizes_stale_windows_script_launch_errors() {
+        let definition = cli_tool_definition("codex-cli").expect("codex definition");
+        let status = sanitize_cached_cli_status(
+            definition,
+            CliToolStatus {
+                agent_id: definition.agent_id.to_string(),
+                display_name: definition.display_name.to_string(),
+                provider: definition.provider.to_string(),
+                executable_name: definition.executable_name.to_string(),
+                package_name: definition.package_name.to_string(),
+                installed: Some(true),
+                current_version: None,
+                latest_version: Some("1.2.3".to_string()),
+                available_versions: vec![],
+                detected_path: Some("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.ps1".to_string()),
+                install_command: install_command_for(definition),
+                last_checked_at: Some("123".to_string()),
+                last_error: Some("%1 不是有效的 Win32 应用程序。 (os error 193); launch failed: command timed out".to_string()),
+                last_operation_id: Some("old-op".to_string()),
+                version_check_status: CliVersionCheckStatus::Failed,
+                environment_type: CliEnvironmentType::Windows,
+                installations: vec![CliInstallation {
+                    path: "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.ps1".to_string(),
+                    version: None,
+                    runnable: false,
+                    error: Some("%1 不是有效的 Win32 应用程序。 (os error 193)".to_string()),
+                    source: CliInstallSource::Npm,
+                    environment_type: CliEnvironmentType::Windows,
+                    is_active: true,
+                }],
+                active_installation_path: Some("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.ps1".to_string()),
+                conflict_state: CliConflictState::None,
+                lifecycle_eligibility: CliLifecycleEligibility::Manual,
+            },
+        );
+
+        assert_eq!(status.installed, Some(false));
+        assert!(status.installations.is_empty());
+        assert!(status.detected_path.is_none());
+        assert!(status.last_error.is_none());
+        assert!(status.last_operation_id.is_none());
+        assert!(matches!(status.version_check_status, CliVersionCheckStatus::NotDetected));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn cached_cli_status_recomputes_winget_lifecycle() {
+        let definition = cli_tool_definition("claude-code").expect("claude definition");
+        let winget_path = "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe";
+        let status = sanitize_cached_cli_status(
+            definition,
+            CliToolStatus {
+                agent_id: definition.agent_id.to_string(),
+                display_name: definition.display_name.to_string(),
+                provider: definition.provider.to_string(),
+                executable_name: definition.executable_name.to_string(),
+                package_name: definition.package_name.to_string(),
+                installed: Some(true),
+                current_version: Some("2.1.126".to_string()),
+                latest_version: Some("2.1.126".to_string()),
+                available_versions: vec![],
+                detected_path: Some(winget_path.to_string()),
+                install_command: install_command_for(definition),
+                last_checked_at: Some("123".to_string()),
+                last_error: None,
+                last_operation_id: None,
+                version_check_status: CliVersionCheckStatus::Succeeded,
+                environment_type: CliEnvironmentType::Windows,
+                installations: vec![CliInstallation {
+                    path: winget_path.to_string(),
+                    version: Some("2.1.126".to_string()),
+                    runnable: true,
+                    error: None,
+                    source: CliInstallSource::Winget,
+                    environment_type: CliEnvironmentType::Windows,
+                    is_active: true,
+                }],
+                active_installation_path: Some(winget_path.to_string()),
+                conflict_state: CliConflictState::None,
+                lifecycle_eligibility: CliLifecycleEligibility::Manual,
+            },
+        );
+
+        assert_eq!(status.lifecycle_eligibility, CliLifecycleEligibility::Winget);
     }
 
     #[test]
@@ -7059,7 +7939,23 @@ mod tests {
 
     #[test]
     fn cli_lifecycle_requires_runnable_npm_active_installation() {
+        let claude = cli_tool_definition("claude-code").expect("claude definition");
+        let codex = cli_tool_definition("codex-cli").expect("codex definition");
         let npm = test_installation("npm", Some("1.0.0"), true, CliInstallSource::Npm, true);
+        let vendor = test_installation(
+            "C:\\Users\\dev\\.claude\\bin\\claude.exe",
+            Some("1.0.0"),
+            true,
+            CliInstallSource::Vendor,
+            true,
+        );
+        let winget = test_installation(
+            "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe",
+            Some("1.0.0"),
+            true,
+            CliInstallSource::Winget,
+            true,
+        );
         let desktop = test_installation(
             "desktop",
             Some("1.0.0"),
@@ -7069,19 +7965,31 @@ mod tests {
         );
         let broken = test_installation("npm", None, false, CliInstallSource::Npm, true);
         assert_eq!(
-            derive_cli_lifecycle_eligibility(false, None),
+            derive_cli_lifecycle_eligibility(claude, false, None),
+            CliLifecycleEligibility::Wget
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(codex, false, None),
             CliLifecycleEligibility::Npm
         );
         assert_eq!(
-            derive_cli_lifecycle_eligibility(true, Some(&npm)),
+            derive_cli_lifecycle_eligibility(claude, true, Some(&npm)),
             CliLifecycleEligibility::Npm
         );
         assert_eq!(
-            derive_cli_lifecycle_eligibility(true, Some(&desktop)),
+            derive_cli_lifecycle_eligibility(claude, true, Some(&vendor)),
+            CliLifecycleEligibility::Wget
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(claude, true, Some(&winget)),
+            CliLifecycleEligibility::Winget
+        );
+        assert_eq!(
+            derive_cli_lifecycle_eligibility(claude, true, Some(&desktop)),
             CliLifecycleEligibility::Manual
         );
         assert_eq!(
-            derive_cli_lifecycle_eligibility(true, Some(&broken)),
+            derive_cli_lifecycle_eligibility(claude, true, Some(&broken)),
             CliLifecycleEligibility::Manual
         );
     }
@@ -7091,30 +7999,120 @@ mod tests {
         let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
         status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
         let npm = PathBuf::from("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd");
-        assert!(validate_cli_package_eligibility(&status, std::slice::from_ref(&npm), None).is_ok());
+        assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[1],
+            &status,
+            std::slice::from_ref(&npm),
+            None
+        )
+        .is_ok());
 
         let desktop = PathBuf::from(
             "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
         );
-        assert!(validate_cli_package_eligibility(&status, &[desktop], None).is_err());
+        assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[1],
+            &status,
+            &[desktop],
+            None
+        )
+        .is_err());
 
         let second = PathBuf::from("C:\\Tools\\nodejs\\codex.cmd");
-        assert!(validate_cli_package_eligibility(&status, &[npm.clone(), second.clone()], None).is_err());
         assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[1],
+            &status,
+            &[npm.clone(), second.clone()],
+            None
+        )
+        .is_err());
+        assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[1],
             &status,
             &[npm.clone(), second],
             Some(npm.to_string_lossy().as_ref()),
         )
         .is_ok());
+
+        let mut winget_status = status_from_row(CLI_TOOL_DEFINITIONS[0], None);
+        winget_status.lifecycle_eligibility = CliLifecycleEligibility::Winget;
+        let winget_path = PathBuf::from(
+            "C:\\Users\\dev\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe",
+        );
+        assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[0],
+            &winget_status,
+            std::slice::from_ref(&winget_path),
+            None,
+        )
+        .is_ok());
+        assert!(validate_cli_package_eligibility(
+            CLI_TOOL_DEFINITIONS[0],
+            &winget_status,
+            &[npm],
+            None,
+        )
+        .is_err());
     }
 
     #[test]
-    fn cli_mutation_guard_serializes_package_writes() {
+    fn cli_lifecycle_plan_prefers_wget_for_script_installs() {
+        let claude = cli_tool_definition("claude-code").expect("claude definition");
+        let mut missing = status_from_row(claude, None);
+        missing.installed = Some(false);
+        missing.lifecycle_eligibility = CliLifecycleEligibility::Wget;
+        let plan = cli_lifecycle_plan(claude, &missing, "1.2.3").expect("wget plan");
+        assert_eq!(plan.method, CliLifecycleMethod::Wget);
+        assert_eq!(plan.executable, "bash");
+        assert!(plan.args.join(" ").contains("wget -qO"));
+        assert!(plan.args.join(" ").contains("https://claude.ai/install.sh"));
+        assert!(plan.fallback_npm_on_failure);
+
+        let codex = cli_tool_definition("codex-cli").expect("codex definition");
+        let mut codex_missing = status_from_row(codex, None);
+        codex_missing.installed = Some(false);
+        codex_missing.lifecycle_eligibility = CliLifecycleEligibility::Npm;
+        let npm_plan = cli_lifecycle_plan(codex, &codex_missing, "1.2.3").expect("npm plan");
+        assert_eq!(npm_plan.method, CliLifecycleMethod::Npm);
+        assert_eq!(npm_plan.args, cli_package_install_args(codex, "1.2.3"));
+
+        let mut vendor = status_from_row(claude, None);
+        vendor.installed = Some(true);
+        vendor.lifecycle_eligibility = CliLifecycleEligibility::Wget;
+        let vendor_plan = cli_lifecycle_plan(claude, &vendor, "1.2.3").expect("vendor plan");
+        assert_eq!(vendor_plan.method, CliLifecycleMethod::Wget);
+        assert!(!vendor_plan.fallback_npm_on_failure);
+
+        let mut winget = status_from_row(claude, None);
+        winget.installed = Some(true);
+        winget.lifecycle_eligibility = CliLifecycleEligibility::Winget;
+        let winget_plan = cli_lifecycle_plan(claude, &winget, "latest").expect("winget plan");
+        assert_eq!(winget_plan.method, CliLifecycleMethod::Winget);
+        assert_eq!(winget_plan.executable, "winget");
+        assert_eq!(
+            winget_plan.args,
+            vec![
+                "upgrade".to_string(),
+                "--id".to_string(),
+                "Anthropic.ClaudeCode".to_string(),
+                "--exact".to_string(),
+                "--accept-package-agreements".to_string(),
+                "--accept-source-agreements".to_string(),
+            ]
+        );
+        assert!(!winget_plan.fallback_npm_on_failure);
+    }
+
+    #[test]
+    fn cli_mutation_guard_serializes_per_cli_only() {
         let guard = CliMutationGuard::default();
-        assert!(guard.try_acquire());
-        assert!(!guard.try_acquire());
-        guard.release();
-        assert!(guard.try_acquire());
+        assert!(guard.try_acquire("claude-code"));
+        assert!(!guard.try_acquire("claude-code"));
+        assert!(guard.try_acquire("codex-cli"));
+        guard.release("claude-code");
+        assert!(guard.try_acquire("claude-code"));
+        guard.release_many(["claude-code", "codex-cli"]);
+        assert!(guard.try_acquire_many(["claude-code", "codex-cli"]).len() == 2);
     }
 
     #[test]
@@ -7132,5 +8130,43 @@ mod tests {
             Some(std::cmp::Ordering::Less)
         );
         assert_eq!(compare_versions("1.2.0-beta.1", "1.2.0"), None);
+    }
+
+    #[test]
+    fn bulk_cli_upgrade_target_requires_safe_npm_upgrade() {
+        let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
+        status.installed = Some(true);
+        status.current_version = Some("1.2.0".to_string());
+        status.latest_version = Some("1.3.0".to_string());
+        status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
+        status.installations = vec![CliInstallation {
+            path: "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string(),
+            version: Some("1.2.0".to_string()),
+            runnable: true,
+            error: None,
+            source: CliInstallSource::Npm,
+            environment_type: CliEnvironmentType::Windows,
+            is_active: true,
+        }];
+        assert_eq!(bulk_cli_upgrade_target(&status).as_deref(), Some("1.3.0"));
+
+        status.lifecycle_eligibility = CliLifecycleEligibility::Wget;
+        status.installations[0].source = CliInstallSource::Vendor;
+        assert_eq!(bulk_cli_upgrade_target(&status).as_deref(), Some("1.3.0"));
+
+        status.latest_version = Some("1.2.0".to_string());
+        assert_eq!(bulk_cli_upgrade_target(&status), None);
+
+        status.latest_version = Some("1.3.0".to_string());
+        status.installations.push(CliInstallation {
+            path: "C:\\Tools\\codex.cmd".to_string(),
+            version: Some("1.2.0".to_string()),
+            runnable: true,
+            error: None,
+            source: CliInstallSource::System,
+            environment_type: CliEnvironmentType::Windows,
+            is_active: false,
+        });
+        assert_eq!(bulk_cli_upgrade_target(&status), None);
     }
 }

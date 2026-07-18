@@ -1,20 +1,19 @@
 import {
   AlertTriangle,
+  ArrowUpCircle,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clipboard,
   Download,
   RefreshCw,
   Stethoscope,
-  Terminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import type { CliToolStatus } from "../../types/agent";
 import type { OperationTask } from "../../types/operation";
-import type { CliVersionAction } from "./cli-management-utils";
+import { deriveCliLifecycleGuidance, isManagedCliLifecycle, type CliVersionAction } from "./cli-management-utils";
 import { CliInstallationList } from "./cli-installation-list";
 
 interface CliEnvironmentCardProps {
@@ -29,13 +28,12 @@ interface CliEnvironmentCardProps {
   onSelectedVersionChange: (version: string) => void;
   onRefresh: () => void;
   onRunAction: () => void;
-  onCopyInstallCommand: () => void;
   onToggleDiagnostics: () => void;
   onToggleOperation: () => void;
 }
 
 function statusTone(tool: CliToolStatus): "success" | "warning" | "muted" {
-  if (tool.installed === true && tool.lifecycleEligibility === "npm" && tool.conflictState === "none") return "success";
+  if (tool.installed === true && isManagedCliLifecycle(tool.lifecycleEligibility) && tool.conflictState === "none") return "success";
   if (tool.installed === false || tool.lifecycleEligibility === "manual" || tool.conflictState !== "none") return "warning";
   return "muted";
 }
@@ -65,14 +63,20 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
   const activeInstallation = tool.installations.find((installation) => installation.isActive);
   const operationRunning = operation?.status === "running" || operation?.status === "queued";
   const canMutate = ["install", "upgrade", "downgrade"].includes(props.action);
+  const showsDisabledUpgrade = tool.installed === true && !canMutate;
+  const canRunPackageAction = canMutate && isManagedCliLifecycle(tool.lifecycleEligibility);
+  const showsManualUpgrade = (props.action === "upgrade" || showsDisabledUpgrade) && !isManagedCliLifecycle(tool.lifecycleEligibility);
+  const guidance = deriveCliLifecycleGuidance(tool);
+  const guidanceText = guidance?.kind === "source-native"
+    ? t(guidance.key, { source: t(`cli.source.${guidance.source}`) })
+    : guidance
+      ? t(guidance.key)
+      : null;
 
   return (
     <section className="ucd-panel ucd-interactive flex min-h-72 flex-col rounded-lg p-4" data-cli-agent={tool.agentId}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))]">
-            <Terminal className="h-4 w-4 text-primary" aria-hidden="true" />
-          </span>
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{tool.displayName}</h3>
             <p className="mt-1 truncate text-xs text-muted-foreground">{tool.packageName}</p>
@@ -114,10 +118,10 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
         </div>
       </dl>
 
-      {tool.lifecycleEligibility === "manual" ? (
+      {guidanceText ? (
         <div className="mt-4 flex gap-2 rounded-md border p-3 text-xs ucd-status-warning">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{t("cli.manualGuidance")}</span>
+          <span>{guidanceText}</span>
         </div>
       ) : null}
       {tool.lastError ? <div className="mt-3 rounded-md border p-3 text-xs ucd-status-warning">{tool.lastError}</div> : null}
@@ -136,9 +140,19 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
           </select>
         ) : null}
         {canMutate ? (
-          <Button disabled={props.packageBusy || operationRunning || !props.selectedVersion} onClick={props.onRunAction}>
-            <Download aria-hidden="true" />
+          <Button
+            disabled={props.packageBusy || operationRunning || !canRunPackageAction}
+            title={showsManualUpgrade && guidanceText ? guidanceText : undefined}
+            variant={showsManualUpgrade ? "outline" : "default"}
+            onClick={props.onRunAction}
+          >
+            {props.action === "upgrade" ? <ArrowUpCircle aria-hidden="true" /> : <Download aria-hidden="true" />}
             {t(`cli.action.${props.action}`)}
+          </Button>
+        ) : showsDisabledUpgrade ? (
+          <Button disabled title={guidanceText ?? t("cli.action.unavailable")} variant="outline">
+            <ArrowUpCircle aria-hidden="true" />
+            {t("cli.action.upgrade")}
           </Button>
         ) : props.action === "current" ? (
           <span className="inline-flex h-9 items-center gap-2 text-xs text-muted-foreground">
@@ -146,10 +160,6 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
             {t("cli.action.current")}
           </span>
         ) : null}
-        <Button variant="outline" onClick={props.onCopyInstallCommand}>
-          <Clipboard aria-hidden="true" />
-          {t("cli.copyInstall")}
-        </Button>
       </div>
 
       <div className="mt-auto pt-4">

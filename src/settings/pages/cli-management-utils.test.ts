@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CliToolStatus } from "../../types/agent";
-import { compareStableVersions, deriveCliVersionAction } from "./cli-management-utils";
+import { compareStableVersions, deriveCliLifecycleGuidance, deriveCliVersionAction, isBulkCliUpgradeEligible } from "./cli-management-utils";
 
 const baseTool: CliToolStatus = {
   agentId: "codex-cli",
@@ -76,8 +76,8 @@ describe("CLI management utilities", () => {
     expect(deriveCliVersionAction({ ...baseTool, installed: false, currentVersion: null }, "1.3.0")).toBe("install");
     expect(deriveCliVersionAction(baseTool, "1.3.0")).toBe("upgrade");
     expect(deriveCliVersionAction(baseTool, "1.1.0")).toBe("downgrade");
-    expect(deriveCliVersionAction(baseTool, "1.2.0")).toBe("current");
-    expect(deriveCliVersionAction(baseTool, null)).toBe("unavailable");
+    expect(deriveCliVersionAction(baseTool, "1.2.0")).toBe("upgrade");
+    expect(deriveCliVersionAction(baseTool, null)).toBe("upgrade");
   });
 
   it("derives selected-version actions consistently for every managed CLI", () => {
@@ -89,7 +89,61 @@ describe("CLI management utilities", () => {
     }
   });
 
-  it("uses manual guidance for source-native active installations", () => {
-    expect(deriveCliVersionAction({ ...baseTool, lifecycleEligibility: "manual" }, "1.3.0")).toBe("manual");
+  it("still surfaces upgrades for source-native active installations", () => {
+    expect(deriveCliVersionAction({ ...baseTool, lifecycleEligibility: "manual" }, "1.3.0")).toBe("upgrade");
+    expect(deriveCliVersionAction({ ...baseTool, lifecycleEligibility: "manual" }, "1.2.0")).toBe("current");
+  });
+
+  it("treats wget-script lifecycle as backend managed", () => {
+    const tool = {
+      ...baseTool,
+      lifecycleEligibility: "wget" as const,
+      installations: [{ ...baseTool.installations[0], source: "vendor" as const }],
+    };
+    expect(deriveCliVersionAction(tool, "1.3.0")).toBe("upgrade");
+    expect(deriveCliVersionAction(tool, "1.2.0")).toBe("upgrade");
+    expect(isBulkCliUpgradeEligible(tool)).toBe(true);
+    expect(deriveCliLifecycleGuidance(tool)).toBeNull();
+  });
+
+  it("treats WinGet lifecycle as backend managed", () => {
+    const tool = {
+      ...baseTool,
+      lifecycleEligibility: "winget" as const,
+      installations: [{ ...baseTool.installations[0], source: "winget" as const }],
+    };
+    expect(deriveCliVersionAction(tool, "1.3.0")).toBe("upgrade");
+    expect(deriveCliVersionAction(tool, "1.2.0")).toBe("upgrade");
+    expect(isBulkCliUpgradeEligible(tool)).toBe(true);
+    expect(deriveCliLifecycleGuidance(tool)).toBeNull();
+  });
+
+  it("keeps one-click upgrade visible when latest version lookup is unavailable", () => {
+    expect(deriveCliVersionAction({ ...baseTool, latestVersion: null, availableVersions: [] }, null)).toBe("upgrade");
+    expect(deriveCliVersionAction({ ...baseTool, currentVersion: null, latestVersion: null, availableVersions: [] }, null)).toBe("upgrade");
+  });
+
+  it("derives cause-specific lifecycle guidance", () => {
+    expect(deriveCliLifecycleGuidance({
+      ...baseTool,
+      lifecycleEligibility: "manual",
+      installations: [{ ...baseTool.installations[0], runnable: false, source: "npm" }],
+    })).toMatchObject({ kind: "broken", key: "cli.guidance.checkEnv" });
+
+    expect(deriveCliLifecycleGuidance({
+      ...baseTool,
+      lifecycleEligibility: "manual",
+      conflictState: "version-mismatch",
+      installations: [
+        baseTool.installations[0],
+        { ...baseTool.installations[0], path: "C:\\Tools\\codex.cmd", version: "1.1.0", isActive: false },
+      ],
+    })).toMatchObject({ kind: "multiple", key: "cli.guidance.multipleInstallations" });
+
+    expect(deriveCliLifecycleGuidance({
+      ...baseTool,
+      lifecycleEligibility: "manual",
+      installations: [{ ...baseTool.installations[0], source: "homebrew" }],
+    })).toMatchObject({ kind: "source-native", key: "cli.guidance.sourceNative", source: "homebrew" });
   });
 });

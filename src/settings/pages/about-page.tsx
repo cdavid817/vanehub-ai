@@ -160,6 +160,7 @@ export function AboutPage({ onNavigate }: { onNavigate?: (pageId: "providers") =
           </SectionPanel>
 
           <SectionPanel title={t("about.environment.title")} description={t("about.environment.description")}>
+            <p className="mb-3 text-xs leading-5 text-muted-foreground">{t("about.environment.summary")}</p>
             {cliDetectionUnsupported ? (
               <div className="rounded-md border p-3 text-xs ucd-status-warning">{t("about.environment.webUnsupported")}</div>
             ) : (

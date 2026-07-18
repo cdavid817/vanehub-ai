@@ -51,6 +51,7 @@ export interface AgentService {
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
+  upgradeAllCliVersions(): Promise<OperationTask>;
   listCliParameterProfiles(): Promise<CliParameterProfile[]>;
   saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
   resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;

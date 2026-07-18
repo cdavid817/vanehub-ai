@@ -106,7 +106,7 @@ export type CliVersionCheckStatus = "unsupported" | "not-detected" | "succeeded"
 export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
 export type CliInstallSource = "npm" | "winget" | "desktop" | "homebrew" | "volta" | "bun" | "vendor" | "system" | "unknown";
 export type CliConflictState = "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
-export type CliLifecycleEligibility = "npm" | "manual" | "unavailable";
+export type CliLifecycleEligibility = "npm" | "wget" | "winget" | "manual" | "unavailable";
 
 export interface CliInstallation {
   path: string;
