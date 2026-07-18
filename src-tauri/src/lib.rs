@@ -10,6 +10,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 use thiserror::Error;
 
 const CLI_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -72,6 +73,7 @@ impl Serialize for AppError {
 #[serde(rename_all = "lowercase")]
 enum NativeLogLevel {
     Error,
+    Warn,
     Info,
 }
 
@@ -82,6 +84,7 @@ fn record_native_log(level: NativeLogLevel, category: &str, message: &str) {
         &logging::active_log_dir(fallback_log_dir()),
         match level {
             NativeLogLevel::Error => logging::LogLevel::Error,
+            NativeLogLevel::Warn => logging::LogLevel::Warn,
             NativeLogLevel::Info => logging::LogLevel::Info,
         },
         category,
@@ -392,6 +395,7 @@ struct AppSettings {
     network_proxy_bypass: String,
     automatic_archival_enabled: bool,
     automatic_archival_inactive_days: i64,
+    launch_on_startup: bool,
     logging_policy: logging::LoggingPolicy,
 }
 
@@ -399,7 +403,15 @@ struct AppSettings {
 #[serde(rename_all = "camelCase")]
 struct SaveSettingInput {
     key: String,
-    value: String,
+    value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct DataManagementInfo {
+    database_path: String,
+    database_directory: String,
+    can_open_directory: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -3131,6 +3143,7 @@ fn default_app_settings() -> AppSettings {
         network_proxy_bypass: network_proxy::DEFAULT_BYPASS.to_string(),
         automatic_archival_enabled: true,
         automatic_archival_inactive_days: 10,
+        launch_on_startup: false,
         logging_policy: logging::policy(true),
     }
 }
@@ -3149,6 +3162,7 @@ fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
             .parse::<i64>()
             .map(|days| (1..=3650).contains(&days))
             .unwrap_or(false),
+        "launchOnStartup" => matches!(value, "true" | "false"),
         _ => false,
     };
     if valid {
@@ -3166,6 +3180,16 @@ fn normalize_setting_value(key: &str, value: &str) -> Result<String, AppError> {
         "networkProxyUrl" => network_proxy::normalize_proxy_url(value),
         "networkProxyBypass" => network_proxy::normalize_bypass(value),
         _ => Ok(value.to_string()),
+    }
+}
+
+fn setting_json_value_to_string(key: &str, value: &serde_json::Value) -> Result<String, AppError> {
+    match (key, value) {
+        ("launchOnStartup", serde_json::Value::Bool(enabled)) => Ok(enabled.to_string()),
+        (_, serde_json::Value::String(text)) => Ok(text.clone()),
+        _ => Err(AppError::Validation(format!(
+            "Invalid setting value type for key '{key}'."
+        ))),
     }
 }
 
@@ -3212,6 +3236,10 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
             .filter(|value| validate_setting_value("automaticArchivalInactiveDays", value).is_ok())
             .and_then(|value| value.parse::<i64>().ok())
             .unwrap_or(defaults.automatic_archival_inactive_days);
+    let launch_on_startup = load_setting_value(conn, "launchOnStartup")?
+        .filter(|value| validate_setting_value("launchOnStartup", value).is_ok())
+        .map(|value| value == "true")
+        .unwrap_or(defaults.launch_on_startup);
     network_proxy::apply(&network_proxy_url, &network_proxy_bypass)?;
 
     Ok(AppSettings {
@@ -3224,6 +3252,7 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
         network_proxy_bypass,
         automatic_archival_enabled,
         automatic_archival_inactive_days,
+        launch_on_startup,
         logging_policy: logging::policy(true),
     })
 }
@@ -5350,6 +5379,16 @@ fn get_settings(state: State<'_, Mutex<RegistryStore>>) -> Result<AppSettings, A
     get_settings_from_conn(&conn)
 }
 
+fn sync_launch_on_startup(app: &AppHandle, enabled: bool) -> Result<(), AppError> {
+    let autolaunch = app.autolaunch();
+    let result = if enabled {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    };
+    result.map_err(|err| AppError::Storage(err.to_string()))
+}
+
 #[tauri::command]
 fn save_setting(
     app: AppHandle,
@@ -5357,15 +5396,20 @@ fn save_setting(
     input: SaveSettingInput,
 ) -> Result<AppSettings, AppError> {
     let log_directory_changed = input.key == "logDirectory";
+    let launch_on_startup_changed = input.key == "launchOnStartup";
+    let value = setting_json_value_to_string(&input.key, &input.value)?;
     let settings = {
         let store = state
             .lock()
             .map_err(|err| AppError::Storage(err.to_string()))?;
         let conn = store.connection()?;
-        save_setting_to_conn(&conn, &input.key, &input.value)?
+        save_setting_to_conn(&conn, &input.key, &value)?
     };
     if log_directory_changed {
         logging::set_active_log_dir(PathBuf::from(&settings.log_directory));
+    }
+    if launch_on_startup_changed {
+        sync_launch_on_startup(&app, settings.launch_on_startup)?;
     }
     app.emit(
         "settings:event",
@@ -5414,6 +5458,31 @@ fn save_automatic_archival_settings(
 }
 
 #[tauri::command]
+fn set_launch_on_startup(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    enabled: bool,
+) -> Result<AppSettings, AppError> {
+    let settings = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_setting_to_conn(&conn, "launchOnStartup", &enabled.to_string())?
+    };
+    sync_launch_on_startup(&app, enabled)?;
+    app.emit(
+        "settings:event",
+        SettingsStateEvent {
+            kind: "settings-changed",
+            key: "launchOnStartup".to_string(),
+        },
+    )
+    .map_err(|err| AppError::Storage(err.to_string()))?;
+    Ok(settings)
+}
+
+#[tauri::command]
 async fn test_network_proxy(
     input: network_proxy::TestNetworkProxyInput,
 ) -> Result<network_proxy::NetworkProxyTestResult, AppError> {
@@ -5427,6 +5496,19 @@ async fn scan_network_proxies() -> Vec<network_proxy::DetectedNetworkProxy> {
 
 fn active_log_dir_from_conn(conn: &Connection) -> Result<PathBuf, AppError> {
     Ok(PathBuf::from(get_settings_from_conn(conn)?.log_directory))
+}
+
+fn data_management_info_from_store(store: &RegistryStore) -> Result<DataManagementInfo, AppError> {
+    let database_path = store.db_path.clone();
+    let database_directory = database_path
+        .parent()
+        .ok_or_else(|| AppError::Storage("Database path has no containing directory.".to_string()))?
+        .to_path_buf();
+    Ok(DataManagementInfo {
+        database_path: database_path.to_string_lossy().to_string(),
+        database_directory: database_directory.to_string_lossy().to_string(),
+        can_open_directory: database_directory.is_dir(),
+    })
 }
 
 fn write_session_runtime_log(
@@ -5866,6 +5948,25 @@ fn open_log_directory(state: State<'_, Mutex<RegistryStore>>) -> Result<(), AppE
         .map_err(|err| AppError::Storage(err.to_string()))?;
     let conn = store.connection()?;
     logging::open_directory(&active_log_dir_from_conn(&conn)?)
+}
+
+#[tauri::command]
+fn get_data_management_info(
+    state: State<'_, Mutex<RegistryStore>>,
+) -> Result<DataManagementInfo, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    data_management_info_from_store(&store)
+}
+
+#[tauri::command]
+fn open_database_directory(state: State<'_, Mutex<RegistryStore>>) -> Result<(), AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let info = data_management_info_from_store(&store)?;
+    logging::open_directory(&PathBuf::from(info.database_directory))
 }
 
 #[tauri::command]
@@ -7491,6 +7592,10 @@ fn handle_im_inbound(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -7506,6 +7611,15 @@ pub fn run() {
                 .and_then(|conn| get_settings_from_conn(&conn).ok());
             if let Some(settings) = &initial_settings {
                 logging::set_active_log_dir(PathBuf::from(&settings.log_directory));
+                if let Err(error) =
+                    sync_launch_on_startup(&app.handle().clone(), settings.launch_on_startup)
+                {
+                    record_native_log(
+                        NativeLogLevel::Warn,
+                        "settings.autostart.sync",
+                        &error.to_string(),
+                    );
+                }
             }
             let tray_language = initial_settings
                 .as_ref()
@@ -7667,6 +7781,7 @@ pub fn run() {
             save_setting,
             get_automatic_archival_settings,
             save_automatic_archival_settings,
+            set_launch_on_startup,
             floating_assistant::get_floating_assistant_runtime_info,
             floating_assistant::get_floating_assistant_config,
             floating_assistant::set_floating_assistant_enabled,
@@ -7678,6 +7793,8 @@ pub fn run() {
             floating_assistant::exit_application,
             test_network_proxy,
             scan_network_proxies,
+            get_data_management_info,
+            open_database_directory,
             open_log_directory,
             report_client_log_event,
             im::commands::list_im_connectors,
@@ -8327,6 +8444,7 @@ mod tests {
         assert_eq!(defaults.theme, "futuristic");
         assert_eq!(defaults.network_proxy_url, "");
         assert_eq!(defaults.network_proxy_bypass, network_proxy::DEFAULT_BYPASS);
+        assert!(!defaults.launch_on_startup);
 
         let saved = save_setting_to_conn(&conn, "fontSize", "18px").expect("save setting");
 
@@ -8341,6 +8459,19 @@ mod tests {
         let result = save_setting_to_conn(&conn, "fontSize", "20px");
 
         assert!(matches!(result, Err(AppError::Validation(_))));
+        assert!(save_setting_to_conn(&conn, "launchOnStartup", "yes").is_err());
+    }
+
+    #[test]
+    fn settings_repository_persists_launch_on_startup() {
+        let conn = test_conn();
+
+        let saved =
+            save_setting_to_conn(&conn, "launchOnStartup", "true").expect("save startup setting");
+        assert!(saved.launch_on_startup);
+
+        let loaded = get_settings_from_conn(&conn).expect("load settings");
+        assert!(loaded.launch_on_startup);
     }
 
     #[test]
@@ -8363,6 +8494,18 @@ mod tests {
 
         assert!(save_setting_to_conn(&conn, "networkProxyUrl", "ftp://127.0.0.1:7890").is_err());
         assert!(save_setting_to_conn(&conn, "networkProxyBypass", "localhost\nbad").is_err());
+    }
+
+    #[test]
+    fn data_management_info_uses_database_parent_directory() {
+        let root = unique_temp_dir("data-management");
+        let store = RegistryStore::new(root.clone()).expect("store");
+
+        let info = data_management_info_from_store(&store).expect("data info");
+
+        assert_eq!(PathBuf::from(&info.database_path), root.join("vanehub.sqlite"));
+        assert_eq!(PathBuf::from(&info.database_directory), root);
+        assert!(info.can_open_directory);
     }
 
     pub(crate) fn insert_test_session(conn: &Connection, session_id: &str) {

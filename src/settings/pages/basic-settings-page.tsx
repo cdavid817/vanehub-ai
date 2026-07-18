@@ -8,6 +8,8 @@ import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "
 import { NetworkProxySection } from "./network-proxy-section";
 import { PageHeader, SectionPanel } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
+import { DataManagementSection } from "./data-management-section";
+import { StartupSettingsSection } from "./startup-settings-section";
 
 function SelectField<T extends string>({
   disabled,
@@ -123,7 +125,9 @@ export function BasicSettingsPage() {
             </div>
           </SectionPanel>
 
-          <FloatingAssistantSettingsSection />
+          <StartupSettingsSection />
+
+          <DataManagementSection />
 
           <NetworkProxySection />
 
@@ -234,6 +238,8 @@ export function BasicSettingsPage() {
           </SectionPanel>
         </div>
       </div>
+
+      <FloatingAssistantSettingsSection />
     </div>
   );
 }

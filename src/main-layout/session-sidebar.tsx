@@ -1,13 +1,13 @@
 import { useMemo, useState, type DragEvent, type MouseEvent } from "react";
-import { Archive, Bot, BrainCircuit, ChevronDown, ChevronRight, Code2, Folder, Pin, Plus, Search, Sparkles, Tags, TerminalSquare, type LucideIcon } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Folder, Pin, Plus, Search, Tags } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
+import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { cn } from "../lib/utils";
 import type { Session, SessionCategory, SessionSearchResult } from "../types/agent";
 
 type SidebarMode = "activity" | "group" | "category" | "archived";
 type ActivityKey = "needs-input" | "pending-verification" | "in-progress" | "inactive";
-type AgentKey = "codex" | "claude-code" | "opencode" | "gemini" | "unknown";
 
 const activityGroups: Array<{ key: ActivityKey; labelKey: string }> = [
   { key: "needs-input", labelKey: "layout.needsInput" },
@@ -16,27 +16,11 @@ const activityGroups: Array<{ key: ActivityKey; labelKey: string }> = [
   { key: "inactive", labelKey: "layout.inactive" },
 ];
 
-const agentMeta: Record<AgentKey, { label: string; Icon: LucideIcon; tone: string }> = {
-  codex: { label: "Codex", Icon: Code2, tone: "ucd-agent-codex" },
-  "claude-code": { label: "Claude Code", Icon: Sparkles, tone: "ucd-agent-claude" },
-  opencode: { label: "OpenCode", Icon: TerminalSquare, tone: "ucd-agent-opencode" },
-  gemini: { label: "Gemini", Icon: BrainCircuit, tone: "ucd-agent-gemini" },
-  unknown: { label: "Agent", Icon: Bot, tone: "border-border bg-muted text-muted-foreground" },
-};
-
 function activityFor(session: Session): ActivityKey {
   if (session.archived || session.lifecycleState === "idle" || session.lifecycleState === "stopped") return "inactive";
   if (session.lifecycleState === "failed") return "needs-input";
   if (session.lifecycleState === "starting") return "pending-verification";
   return "in-progress";
-}
-
-function agentFor(session: Session): AgentKey {
-  if (session.agentId.includes("codex")) return "codex";
-  if (session.agentId.includes("claude")) return "claude-code";
-  if (session.agentId.includes("opencode")) return "opencode";
-  if (session.agentId.includes("gemini")) return "gemini";
-  return "unknown";
 }
 
 function SessionCard({ active, draggable, onContextMenu, onDragStart, onSelect, session }: {
@@ -48,7 +32,7 @@ function SessionCard({ active, draggable, onContextMenu, onDragStart, onSelect, 
   session: Session;
 }) {
   const { i18n, t } = useTranslation();
-  const meta = agentMeta[agentFor(session)];
+  const meta = getAgentVisualIdentity(session.agentId);
   const lifecycle: Record<Session["lifecycleState"], string> = {
     failed: t("layout.needsInput"), idle: t("layout.idle"), running: t("layout.running"),
     starting: t("layout.pendingVerification"), stopped: t("layout.stopped"),
@@ -58,7 +42,7 @@ function SessionCard({ active, draggable, onContextMenu, onDragStart, onSelect, 
     <button className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")} draggable={draggable} onClick={onSelect} onContextMenu={onContextMenu} onDragStart={onDragStart} type="button">
       {active ? <span className="absolute left-0 top-2 h-10 w-0.5 rounded bg-primary" /> : null}
       <div className="flex min-w-0 items-center gap-2">
-        <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", meta.tone)} title={meta.label}><meta.Icon aria-hidden="true" className="h-3.5 w-3.5" /></span>
+        <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border", meta.tone)} title={meta.label}><meta.Icon aria-hidden="true" className="h-3.5 w-3.5" /></span>
         <span className={cn("truncate text-sm font-medium", session.archived && "text-muted-foreground")}>{session.title}</span>
         {session.pinned ? <Pin aria-hidden="true" className="ml-auto h-3.5 w-3.5 text-primary" /> : null}
       </div>

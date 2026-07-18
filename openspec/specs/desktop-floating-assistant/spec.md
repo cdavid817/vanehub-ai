@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the opt-in Windows desktop floating assistant lifecycle, native window behavior, quick actions, active-session mini chat, cross-window consistency, adapter isolation, localization, and accessibility requirements.
-
 ## Requirements
-
 ### Requirement: Opt-in Windows floating assistant lifecycle
 The desktop runtime SHALL provide a floating assistant that is disabled by default and SHALL create or destroy its native window when the persisted setting is enabled or disabled.
 
@@ -130,3 +128,18 @@ The floating assistant SHALL expose synchronized Simplified Chinese and English 
 #### Scenario: Operate without pointer-only access
 - **WHEN** a keyboard user navigates the collapsed control, quick menu, or mini chat
 - **THEN** interactive controls SHALL have visible focus, translated accessible names, predictable activation, and Escape behavior appropriate to the current surface mode
+
+### Requirement: Efficient floating assistant settings synchronization
+The floating-assistant settings surface SHALL avoid unnecessary UI refresh work while remaining synchronized with native configuration changes.
+
+#### Scenario: Load floating assistant settings once per mount
+- **WHEN** the Basic Configuration floating-assistant section mounts
+- **THEN** it SHALL load runtime information and configuration through the floating-assistant service without repeated polling
+
+#### Scenario: Update from configuration events
+- **WHEN** the floating-assistant service emits a configuration-changed event
+- **THEN** the settings surface SHALL update only the relevant configuration state
+
+#### Scenario: Clean up event subscriptions
+- **WHEN** the floating-assistant settings section unmounts
+- **THEN** it SHALL release its event subscription so navigating settings pages does not accumulate listeners

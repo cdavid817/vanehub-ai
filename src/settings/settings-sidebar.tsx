@@ -30,7 +30,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
               type="button"
             >
               {active ? <span className="absolute left-0 h-6 w-0.5 rounded bg-primary" /> : null}
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))]">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-border bg-[hsl(var(--panel-muted))]">
                 <Icon className="h-3.5 w-3.5" aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1 truncate">{t(page.labelKey)}</span>
