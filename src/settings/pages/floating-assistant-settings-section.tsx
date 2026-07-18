@@ -60,14 +60,15 @@ export function FloatingAssistantSettingsSection() {
     <SectionPanel title={t("floating.settingsTitle")} description={t("floating.settingsDescription")}>
       <div className="grid gap-4">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <span className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-primary">
             <Bot className="h-5 w-5" aria-hidden="true" />
-            <Sparkles className="absolute right-1 top-1 h-3 w-3" aria-hidden="true" />
+            <Sparkles className="absolute right-1 top-1 h-3 w-3 text-primary" aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">{t("floating.enable")}</div>
             <div className="mt-0.5 text-xs text-muted-foreground">{t("floating.enableHint")}</div>
           </div>
+          <span className={`h-2.5 w-2.5 rounded-full ${(config?.enabled ?? false) ? "bg-[hsl(var(--success))]" : "bg-muted-foreground/50"}`} title={(config?.enabled ?? false) ? t("basic.enabled") : t("basic.disabled")} />
           <button
             aria-checked={config?.enabled ?? false}
             aria-label={t("floating.enable")}

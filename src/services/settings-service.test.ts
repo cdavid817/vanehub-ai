@@ -21,6 +21,7 @@ describe("settings-service", () => {
     });
 
     expect(settings.logDirectory).toBe("D:/logs");
+    expect(settings.launchOnStartup).toBe(false);
     expect(settings.loggingPolicy.retentionDays).toBe(30);
     expect(settings.loggingPolicy.canOpenDirectory).toBe(true);
     expect(settings.loggingPolicy.levels).toEqual(["error", "warn", "info", "debug"]);
@@ -74,9 +75,19 @@ describe("settings-service", () => {
     ).resolves.toBeUndefined();
 
     await expect(webSettingsClient.openLogDirectory()).rejects.toThrow("desktop runtime");
+    await expect(webSettingsClient.openDatabaseDirectory()).rejects.toThrow("desktop runtime");
     await expect(webSettingsClient.testNetworkProxy({ url: "http://127.0.0.1:7890", bypass: "" })).rejects.toThrow(
       "desktop runtime",
     );
     await expect(webSettingsClient.scanNetworkProxies()).rejects.toThrow("desktop runtime");
+  });
+
+  it("preserves launch-on-startup shape in the web mock adapter", async () => {
+    const dataInfo = await webSettingsClient.getDataManagementInfo();
+
+    await expect(webSettingsClient.setLaunchOnStartup(true)).rejects.toThrow("desktop runtime");
+    expect((await webSettingsClient.getSettings()).launchOnStartup).toBe(false);
+    expect(dataInfo.canOpenDirectory).toBe(false);
+    expect(dataInfo.databasePath).toContain("localStorage");
   });
 });

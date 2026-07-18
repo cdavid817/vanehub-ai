@@ -13,6 +13,7 @@ import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
 import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
+import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 
 export function ConversationCard({
   active,
@@ -30,6 +31,7 @@ export function ConversationCard({
   session: Session;
   sourceLabel?: string;
 }) {
+  const identity = getAgentVisualIdentity(session.agentId);
   return (
     <button
       className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")}
@@ -37,6 +39,9 @@ export function ConversationCard({
       onContextMenu={onContextMenu}
       type="button"
     >
+      <span className={cn("mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border align-middle", identity.tone)} title={identity.label}>
+        <identity.Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
       <span className="truncate text-sm font-medium">{session.title}</span>
       <span className="ml-2 text-xs text-muted-foreground">{lifecycleLabel}</span>
       {sourceLabel ? <span className="ml-2 text-xs text-foreground">{sourceLabel}</span> : null}

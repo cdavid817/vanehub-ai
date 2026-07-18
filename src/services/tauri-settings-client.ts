@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { normalizeAppSettings } from "./settings-service";
-import type { AppSettings, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
+import type { AppSettings, DataManagementInfo, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
 
 export const tauriSettingsClient: SettingsService = {
   async getSettings() {
@@ -15,8 +15,21 @@ export const tauriSettingsClient: SettingsService = {
     return normalizeAppSettings(settings);
   },
 
+  async setLaunchOnStartup(enabled) {
+    const settings = await invoke<AppSettings>("set_launch_on_startup", { enabled });
+    return normalizeAppSettings(settings);
+  },
+
   async getNodeInfo() {
     return invoke<NodeInfo>("get_node_info");
+  },
+
+  async getDataManagementInfo() {
+    return invoke<DataManagementInfo>("get_data_management_info");
+  },
+
+  async openDatabaseDirectory() {
+    await invoke<void>("open_database_directory");
   },
 
   async openLogDirectory() {

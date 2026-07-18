@@ -1,10 +1,13 @@
-import { appFontSizes, appLanguages, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { appFontSizes, appLanguages, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
   getSettings(): Promise<AppSettings>;
   saveSetting(input: { key: AppSettingKey; value: AppSettings[AppSettingKey] }): Promise<AppSettings>;
+  setLaunchOnStartup(enabled: boolean): Promise<AppSettings>;
   getNodeInfo(): Promise<NodeInfo>;
+  getDataManagementInfo(): Promise<DataManagementInfo>;
+  openDatabaseDirectory(): Promise<void>;
   openLogDirectory(): Promise<void>;
   testNetworkProxy(input: { url: string; bypass: string }): Promise<NetworkProxyTestResult>;
   scanNetworkProxies(): Promise<DetectedNetworkProxy[]>;
@@ -33,6 +36,7 @@ export const defaultAppSettings: AppSettings = {
   logDirectory: "",
   networkProxyUrl: "",
   networkProxyBypass: "localhost,127.0.0.1,::1",
+  launchOnStartup: false,
   loggingPolicy: defaultLoggingPolicy,
 };
 
@@ -105,6 +109,8 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
         ? input.networkProxyUrl
         : defaultAppSettings.networkProxyUrl,
     networkProxyBypass,
+    launchOnStartup:
+      typeof input.launchOnStartup === "boolean" ? input.launchOnStartup : defaultAppSettings.launchOnStartup,
     loggingPolicy: normalizeLoggingPolicy(input.loggingPolicy),
   };
 }

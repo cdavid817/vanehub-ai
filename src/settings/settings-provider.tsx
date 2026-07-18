@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "../services/settings-service";
-import type { AppSettingKey, AppSettings, ClientLogEvent, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
+import type { AppSettingKey, AppSettings, ClientLogEvent, DataManagementInfo, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -11,8 +11,11 @@ interface SettingsContextValue {
   savingKey: AppSettingKey | null;
   error: string | null;
   saveSetting: <K extends AppSettingKey>(key: K, value: AppSettings[K]) => Promise<void>;
+  setLaunchOnStartup: (enabled: boolean) => Promise<void>;
   resetSettings: () => Promise<void>;
   refreshNodeInfo: () => Promise<void>;
+  getDataManagementInfo: () => Promise<DataManagementInfo>;
+  openDatabaseDirectory: () => Promise<void>;
   openLogDirectory: () => Promise<void>;
   testNetworkProxy: (input: { url: string; bypass: string }) => Promise<NetworkProxyTestResult>;
   scanNetworkProxies: () => Promise<DetectedNetworkProxy[]>;
@@ -128,11 +131,45 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       "logDirectory",
       "networkProxyUrl",
       "networkProxyBypass",
+      "launchOnStartup",
     ];
     for (const key of resettableKeys) {
-      await saveSetting(key, defaultAppSettings[key]);
+      if (key === "launchOnStartup") await settingsService.setLaunchOnStartup(defaultAppSettings.launchOnStartup);
+      else await saveSetting(key, defaultAppSettings[key]);
     }
   }, [saveSetting]);
+
+  const setLaunchOnStartup = useCallback(
+    async (enabled: boolean) => {
+      setSavingKey("launchOnStartup");
+      setError(null);
+      const previousSettings = settings;
+      const optimisticSettings = normalizeAppSettings({ ...settings, launchOnStartup: enabled });
+      setSettings(optimisticSettings);
+      applySettings(optimisticSettings);
+      try {
+        const nextSettings = normalizeAppSettings(await settingsService.setLaunchOnStartup(enabled));
+        setSettings(nextSettings);
+        applySettings(nextSettings);
+      } catch (err) {
+        setSettings(previousSettings);
+        applySettings(previousSettings);
+        setError(err instanceof Error ? err.message : String(err));
+        throw err;
+      } finally {
+        setSavingKey(null);
+      }
+    },
+    [settings],
+  );
+
+  const getDataManagementInfo = useCallback(async () => {
+    return settingsService.getDataManagementInfo();
+  }, []);
+
+  const openDatabaseDirectory = useCallback(async () => {
+    await settingsService.openDatabaseDirectory();
+  }, []);
 
   const openLogDirectory = useCallback(async () => {
     await settingsService.openLogDirectory();
@@ -158,14 +195,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       savingKey,
       error,
       saveSetting,
+      setLaunchOnStartup,
       resetSettings,
       refreshNodeInfo,
+      getDataManagementInfo,
+      openDatabaseDirectory,
       openLogDirectory,
       testNetworkProxy,
       scanNetworkProxies,
       reportClientLogEvent,
     }),
-    [error, loading, nodeInfo, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, savingKey, settings, testNetworkProxy],
+    [error, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
   );
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

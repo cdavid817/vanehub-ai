@@ -614,6 +614,29 @@
                          "capabilities":  [
                                               "settings-cli-management-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
+                         "changeName":  "optimize-settings-ui-and-runtime-controls",
+                         "path":  "openspec/changes/archive/2026-07-18-optimize-settings-ui-and-runtime-controls/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings",
+                                              "desktop-floating-assistant",
+                                              "desktop-startup-controls",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "session-management",
+                                              "settings-basic-configuration-ui",
+                                              "settings-center-ui",
+                                              "settings-data-management",
+                                              "settings-extension-management-ui",
+                                              "settings-floating-assistant-ui"
+                                          ]
                      }
                  ]
 }

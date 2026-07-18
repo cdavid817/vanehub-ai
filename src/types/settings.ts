@@ -31,6 +31,12 @@ export interface LoggingPolicy {
   canOpenDirectory: boolean;
 }
 
+export interface DataManagementInfo {
+  databasePath: string;
+  databaseDirectory: string;
+  canOpenDirectory: boolean;
+}
+
 export type AppSettingKey =
   | "applicationLanguage"
   | "fontSize"
@@ -38,7 +44,8 @@ export type AppSettingKey =
   | "defaultFolderPath"
   | "logDirectory"
   | "networkProxyUrl"
-  | "networkProxyBypass";
+  | "networkProxyBypass"
+  | "launchOnStartup";
 
 export interface AppSettings {
   applicationLanguage: AppLanguage;
@@ -48,6 +55,7 @@ export interface AppSettings {
   logDirectory: string;
   networkProxyUrl: string;
   networkProxyBypass: string;
+  launchOnStartup: boolean;
   loggingPolicy: LoggingPolicy;
 }
 

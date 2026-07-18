@@ -1,7 +1,7 @@
 import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "./settings-service";
 import { i18n } from "../i18n";
-import type { AppSettings, NodeInfo } from "../types/settings";
+import type { AppSettings, DataManagementInfo, NodeInfo } from "../types/settings";
 
 const storageKey = "vanehub.appSettings";
 const settingsSubscribers = new Set<(event: SettingsStateEvent) => void>();
@@ -35,6 +35,11 @@ export const webSettingsClient: SettingsService = {
     return nextSettings;
   },
 
+  async setLaunchOnStartup(enabled) {
+    void enabled;
+    throw new Error(i18n.t("web.error.launchOnStartupDesktopOnly"));
+  },
+
   async getNodeInfo(): Promise<NodeInfo> {
     return {
       available: false,
@@ -42,6 +47,18 @@ export const webSettingsClient: SettingsService = {
       version: null,
       reason: i18n.t("basic.nodeUnavailableReason"),
     };
+  },
+
+  async getDataManagementInfo(): Promise<DataManagementInfo> {
+    return {
+      databasePath: "localStorage:vanehub",
+      databaseDirectory: i18n.t("basic.webDataStorage"),
+      canOpenDirectory: false,
+    };
+  },
+
+  async openDatabaseDirectory(): Promise<void> {
+    throw new Error(i18n.t("web.error.openDatabaseDirectory"));
   },
 
   async openLogDirectory(): Promise<void> {

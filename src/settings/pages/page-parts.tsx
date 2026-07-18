@@ -21,7 +21,7 @@ export function PageHeader({
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-3">
         {Icon ? (
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--nav-active-soft))] text-primary">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-[hsl(var(--nav-active-soft))] text-primary">
             <Icon className="h-4 w-4" aria-hidden="true" />
           </span>
         ) : null}
@@ -67,7 +67,7 @@ export function StatCard({ label, value, hint, icon: Icon }: { label: string; va
           <div className="mt-1 text-sm font-medium">{label}</div>
         </div>
         {Icon ? (
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))] text-primary">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-[hsl(var(--panel-muted))] text-primary">
             <Icon className="h-4 w-4" aria-hidden="true" />
           </span>
         ) : null}

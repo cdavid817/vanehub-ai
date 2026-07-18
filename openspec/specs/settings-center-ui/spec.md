@@ -15,12 +15,14 @@ The system SHALL render a UCD-aligned settings center as the primary frontend su
 - **THEN** the system SHALL update the active page content and active navigation state without requiring a runtime-specific backend call
 
 ### Requirement: UCD settings pages
-The system SHALL provide settings pages for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and product information.
+The system SHALL provide primary settings navigation for basic configuration, CLI management, CLI parameter management, MCP servers, agents, skills, IM connectors, extension capabilities, usage statistics, and product information, while retaining SDK dependency management outside the primary navigation.
 
 #### Scenario: Display UCD page set
 - **WHEN** the settings center navigation is rendered
-- **THEN** the system SHALL include entries for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and about
+- **THEN** the system SHALL include primary entries for basic configuration, CLI management, CLI parameter management, MCP servers, agents, skills, IM connectors, extension capabilities, usage statistics, and about
 - **AND** the CLI parameter management entry SHALL appear immediately after CLI management
+- **AND** the SDK Dependencies page SHALL NOT appear as a primary settings navigation item
+- **AND** Extension Capabilities SHALL appear below the higher-frequency agent, skill, and IM management entries
 - **AND** the about entry SHALL be the final settings navigation item
 
 #### Scenario: Display pages without backend services
@@ -93,7 +95,7 @@ The system SHALL render the MCP settings page as a service-backed management sur
 - **THEN** the page SHALL show an empty state with an action to add the first MCP server
 
 ### Requirement: Service-backed SDK settings page
-The system SHALL render the SDK dependencies page as a service-backed management surface rather than a static demo data page.
+The system SHALL render the SDK dependencies page as a service-backed management surface rather than a static demo data page, while retaining it outside the primary settings navigation.
 
 #### Scenario: Display SDK dependency statuses
 - **WHEN** a user opens the SDK dependencies settings page
@@ -110,6 +112,10 @@ The system SHALL render the SDK dependencies page as a service-backed management
 #### Scenario: Preserve settings page style
 - **WHEN** the SDK dependencies page renders service-backed data and controls
 - **THEN** the page SHALL use the shared settings center layout, semantic design tokens, controls, and status styles consistently with the rest of the settings center
+
+#### Scenario: Hide SDK from primary navigation
+- **WHEN** the settings sidebar or settings page registry is used to render primary navigation
+- **THEN** SDK Dependencies SHALL be omitted without deleting the SDK service or native implementation
 
 ### Requirement: SDK version action controls
 The system SHALL present selectable SDK versions and derive the primary action from installed state and selected target version.
@@ -247,3 +253,14 @@ The system SHALL include regression coverage that prevents settings pages from i
 - **WHEN** automated frontend tests run
 - **THEN** they SHALL verify locale key parity
 - **AND** they SHALL detect hard-coded user-visible strings in settings page components except for approved stable identifiers
+
+### Requirement: Rounded semantic settings icons
+The settings center SHALL use consistent rounded icon containers and semantic icons for settings navigation and high-frequency settings actions.
+
+#### Scenario: Render rounded navigation icons
+- **WHEN** settings navigation renders in either registered visual style
+- **THEN** page icons SHALL use stable dimensions, rounded geometry, semantic colors, and accessible labels without shifting layout on hover or active state
+
+#### Scenario: Render desktop-control action icons
+- **WHEN** Basic Configuration renders reset, open-directory, startup, data-management, log, proxy, or floating-assistant actions
+- **THEN** actions SHALL use lucide or existing project icons where icons improve recognition

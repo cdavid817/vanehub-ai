@@ -4,11 +4,11 @@
 TBD - created by archiving change split-settings-center-ui-spec. Update Purpose after archive.
 ## Requirements
 ### Requirement: Extension Capabilities settings page
-The settings center SHALL provide a service-backed Extension Capabilities page after SDK Dependencies for managing OCR, ASR, and TTS frameworks.
+The settings center SHALL provide a service-backed Extension Capabilities page as a lower advanced-capability navigation entry for managing OCR, ASR, and TTS frameworks.
 
 #### Scenario: Navigate to Extension Capabilities
 - **WHEN** the settings sidebar renders
-- **THEN** it SHALL include a localized Extension Capabilities entry after SDK Dependencies and before MCP Servers
+- **THEN** it SHALL include a localized Extension Capabilities entry below the higher-frequency agent, skill, and IM management entries
 
 #### Scenario: Display capability overview
 - **WHEN** the Extension Capabilities page loads

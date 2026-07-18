@@ -2,7 +2,6 @@ import {
   Bot,
   BarChart3,
   Boxes,
-  Code2,
   Cpu,
   Info,
   MessagesSquare,
@@ -20,7 +19,6 @@ import { ExtensionsPage } from "./pages/extensions-page";
 import { McpPage } from "./pages/mcp-page";
 import { ImPage } from "./pages/im-page";
 import { ProvidersPage } from "./pages/providers-page";
-import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
@@ -28,7 +26,6 @@ export type SettingsPageId =
   | "basic"
   | "providers"
   | "cli-parameters"
-  | "sdk"
   | "extensions"
   | "mcp"
   | "agents"
@@ -80,24 +77,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     component: CliParametersPage,
   },
   {
-    id: "sdk",
-    labelKey: "settings.pages.sdk",
-    crumbKey: "settings.pages.sdk",
-    icon: Code2,
-    badge: 5,
-    searchPlaceholderKey: "settings.search.sdk",
-    component: SdkPage,
-  },
-  {
-    id: "extensions",
-    labelKey: "settings.pages.extensions",
-    crumbKey: "settings.pages.extensions",
-    icon: Cpu,
-    badge: 3,
-    searchPlaceholderKey: "settings.search.extensions",
-    component: ExtensionsPage,
-  },
-  {
     id: "mcp",
     labelKey: "settings.pages.mcp",
     crumbKey: "settings.pages.mcp",
@@ -132,6 +111,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 5,
     searchPlaceholderKey: "settings.search.im",
     component: ImPage,
+  },
+  {
+    id: "extensions",
+    labelKey: "settings.pages.extensions",
+    crumbKey: "settings.pages.extensions",
+    icon: Cpu,
+    badge: 3,
+    searchPlaceholderKey: "settings.search.extensions",
+    component: ExtensionsPage,
   },
   {
     id: "usage",

@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines durable session records, active-session selection, session listing, mutation operations, and runtime persistence expectations shared by the Tauri desktop runtime and browser Web runtime.
-
 ## Requirements
 ### Requirement: Session entity contract
 The system SHALL expose sessions as durable records with id, title, agent id, interaction mode, lifecycle state, folder, optional project/worktree metadata, pinned, archived, created timestamp, and updated timestamp fields.
@@ -156,3 +155,15 @@ The desktop runtime SHALL persist sessions through the Rust/Tauri SQLite layer a
 #### Scenario: Keep invoke in Tauri adapter
 - **WHEN** the desktop frontend performs a session operation
 - **THEN** Tauri `invoke()` usage SHALL remain in the Tauri-specific frontend adapter
+
+### Requirement: Derived session visual identity
+The system SHALL derive session icon identity from the session's stable agent id rather than persisting redundant icon metadata in the session entity.
+
+#### Scenario: Store stable agent id only
+- **WHEN** a session is created for Claude Code, Gemini CLI, Codex CLI, or OpenCode
+- **THEN** the session record SHALL store the selected stable agent id
+- **AND** it SHALL NOT require a persisted icon name, icon path, or icon color field
+
+#### Scenario: Derive icon after reload
+- **WHEN** persisted sessions are listed after app restart or Web/mock reload
+- **THEN** the UI SHALL be able to render the CLI-specific icon from the stored stable agent id
