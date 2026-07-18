@@ -563,6 +563,14 @@ function applyStreamEvent(event: ChatStreamEvent) {
     });
   } else if (event.type === "tool_use") {
     upsertMessage({ ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt: timestamp });
+  } else if (event.type === "rich_block") {
+    const blocks = message.richBlocks ?? [];
+    const blockIndex = blocks.findIndex((block) => block.id === event.block.id);
+    const richBlocks =
+      blockIndex === -1
+        ? [...blocks, event.block]
+        : blocks.map((block, index) => (index === blockIndex ? event.block : block));
+    upsertMessage({ ...message, richBlocks, updatedAt: timestamp });
   } else if (event.type === "completed") {
     upsertMessage({ ...message, status: "completed", tokenUsage: event.tokenUsage, updatedAt: timestamp });
     activeStreams.delete(event.sessionId);
@@ -968,6 +976,44 @@ export const webAgentClient: AgentService = {
       });
     }, 210);
     timeoutIds.push(toolUseTimeoutId);
+    const richCardTimeoutId = setTimeout(() => {
+      publishChatEvent({
+        type: "rich_block",
+        sessionId: input.sessionId,
+        messageId: assistantMessage.id,
+        block: {
+          id: `web-rich-card-${assistantMessage.id}`,
+          kind: "card",
+          v: 1,
+          title: "Web preview summary",
+          bodyMarkdown: "Mock Rich Block rendering is active for this session.",
+          tone: "info",
+          fields: [
+            { label: "Agent", value: session.agentId },
+            { label: "Mode", value: session.interactionMode },
+          ],
+        },
+      });
+    }, 260);
+    timeoutIds.push(richCardTimeoutId);
+    const richChecklistTimeoutId = setTimeout(() => {
+      publishChatEvent({
+        type: "rich_block",
+        sessionId: input.sessionId,
+        messageId: assistantMessage.id,
+        block: {
+          id: `web-rich-checklist-${assistantMessage.id}`,
+          kind: "checklist",
+          v: 1,
+          title: "Mock validation",
+          items: [
+            { id: "contract", text: "Stream event normalized", checked: true },
+            { id: "render", text: "Rich Block attached to message", checked: true },
+          ],
+        },
+      });
+    }, 300);
+    timeoutIds.push(richChecklistTimeoutId);
     const completeTimeoutId = setTimeout(() => {
       publishChatEvent({
         type: "completed",

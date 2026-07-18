@@ -229,9 +229,11 @@ describe("webAgentClient", () => {
     const completedAssistant = messages.find((message) => message.id === assistant.id);
 
     expect(events.some((event) => event.type === "token")).toBe(true);
+    expect(events.some((event) => event.type === "rich_block")).toBe(true);
     expect(events.some((event) => event.type === "completed")).toBe(true);
     expect(completedAssistant?.status).toBe("completed");
     expect(completedAssistant?.content).toContain("Mock codex-cli response");
+    expect(completedAssistant?.richBlocks?.map((block) => block.kind)).toEqual(["card", "checklist"]);
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("idle");
     unsubscribe();
   });

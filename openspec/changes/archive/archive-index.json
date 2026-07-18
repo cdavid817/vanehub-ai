@@ -545,6 +545,19 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "add-rich-block-chat-rendering",
+                         "path":  "openspec/changes/archive/2026-07-18-add-rich-block-chat-rendering/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "add-workspace-activity-bar",
                          "path":  "openspec/changes/archive/2026-07-18-add-workspace-activity-bar/",
                          "artifacts":  [

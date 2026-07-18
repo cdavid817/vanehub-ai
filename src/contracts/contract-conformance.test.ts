@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type * as AgentContracts from "./agent";
+import type * as ChatContracts from "./chat";
 import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
 import type * as SkillContracts from "./skill";
 import type * as OperationContracts from "./operation";
 import type * as AgentTypes from "../types/agent";
+import type * as ChatTypes from "../types/chat";
 import type * as McpTypes from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
@@ -55,6 +57,33 @@ type AgentAssertions = [
   Assert<Equal<AgentContracts.CliParameterSelections, AgentTypes.CliParameterSelections>>,
   Assert<Equal<AgentContracts.CliParameterProfile, AgentTypes.CliParameterProfile>>,
   Assert<Equal<AgentContracts.SaveCliParameterProfileInput, AgentTypes.SaveCliParameterProfileInput>>,
+];
+
+type ChatAssertions = [
+  Assert<Equal<ChatContracts.MessageRole, ChatTypes.MessageRole>>,
+  Assert<Equal<ChatContracts.MessageStatus, ChatTypes.MessageStatus>>,
+  Assert<Equal<ChatContracts.ReasoningDepth, ChatTypes.ReasoningDepth>>,
+  Assert<Equal<ChatContracts.PermissionMode, ChatTypes.PermissionMode>>,
+  Assert<Equal<ChatContracts.ModelInfo, ChatTypes.ModelInfo>>,
+  Assert<Equal<ChatContracts.ChatConfig, ChatTypes.ChatConfig>>,
+  Assert<Equal<ChatContracts.ToolUseBlock, ChatTypes.ToolUseBlock>>,
+  Assert<Equal<ChatContracts.RichBlockKind, ChatTypes.RichBlockKind>>,
+  Assert<Equal<ChatContracts.RichCardBlock, ChatTypes.RichCardBlock>>,
+  Assert<Equal<ChatContracts.RichDiffBlock, ChatTypes.RichDiffBlock>>,
+  Assert<Equal<ChatContracts.RichChecklistBlock, ChatTypes.RichChecklistBlock>>,
+  Assert<Equal<ChatContracts.RichMediaGalleryBlock, ChatTypes.RichMediaGalleryBlock>>,
+  Assert<Equal<ChatContracts.RichAudioBlock, ChatTypes.RichAudioBlock>>,
+  Assert<Equal<ChatContracts.RichInteractiveOption, ChatTypes.RichInteractiveOption>>,
+  Assert<Equal<ChatContracts.RichInteractiveBlock, ChatTypes.RichInteractiveBlock>>,
+  Assert<Equal<ChatContracts.RichHtmlWidgetBlock, ChatTypes.RichHtmlWidgetBlock>>,
+  Assert<Equal<ChatContracts.RichFileBlock, ChatTypes.RichFileBlock>>,
+  Assert<Equal<ChatContracts.RichBlock, ChatTypes.RichBlock>>,
+  Assert<Equal<ChatContracts.TokenUsage, ChatTypes.TokenUsage>>,
+  Assert<Equal<ChatContracts.ChatMessage, ChatTypes.ChatMessage>>,
+  Assert<Equal<ChatContracts.ChatStreamEvent, ChatTypes.ChatStreamEvent>>,
+  Assert<Equal<ChatContracts.SendMessageInput, ChatTypes.SendMessageInput>>,
+  Assert<Equal<ChatContracts.UsageStatisticsRange, ChatTypes.UsageStatisticsRange>>,
+  Assert<Equal<ChatContracts.UsageStatistics, ChatTypes.UsageStatistics>>,
 ];
 
 type McpAssertions = [
@@ -132,6 +161,7 @@ type SessionWorkspaceAssertions = [
 ];
 
 void (0 as unknown as AgentAssertions);
+void (0 as unknown as ChatAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
