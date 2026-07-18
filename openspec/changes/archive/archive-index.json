@@ -559,6 +559,22 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "fix-log-performance-and-error-reporting",
+                         "path":  "openspec/changes/archive/2026-07-18-fix-log-performance-and-error-reporting/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "session-log-viewer",
+                                              "session-workspace-tabs",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "optimize-cli-local-environment-management",
                          "path":  "openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/",
                          "artifacts":  [

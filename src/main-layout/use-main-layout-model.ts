@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
+import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { agentService } from "../services/runtime-agent-client";
+import { settingsService } from "../services/runtime-settings-client";
 import type { Session } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 
@@ -41,7 +43,26 @@ export function useMainLayoutModel() {
   });
   const messages = messagesQuery.data ?? [];
   const isStreaming = messages.some((message) => message.status === "streaming");
-  const chatConfig = useChatConfig({ activeSession, agents });
+  const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
+    const event = createChatOperationFailureEvent(source, reason);
+    if (restoreDraft !== undefined) setDraft(restoreDraft);
+    notify({
+      type: "error",
+      title: t("app.error.title"),
+      message: event.message,
+      scope: sessionId ? { kind: "session", sessionId } : { kind: "global" },
+    });
+    void settingsService.reportClientLogEvent(event).catch(() => undefined);
+  }, [notify, t]);
+  const reportConfigPersistFailure = useCallback(
+    (reason: unknown) => reportChatFailure("MainLayout.saveSessionChatConfig", reason, activeSessionId),
+    [activeSessionId, reportChatFailure],
+  );
+  const chatConfig = useChatConfig({
+    activeSession,
+    agents,
+    onPersistError: reportConfigPersistFailure,
+  });
   const invalidateSessions = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     void queryClient.invalidateQueries({ queryKey: ["workflow"] });
@@ -56,8 +77,16 @@ export function useMainLayoutModel() {
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
   const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions });
   const deleteSession = useMutation({ mutationFn: (sessionId: string) => agentService.deleteSession(sessionId), onSuccess: invalidateSessions });
-  const sendMessage = useMutation({ mutationFn: (input: { content: string; config: ChatConfig; sessionId: string }) => agentService.sendMessage(input), onSuccess: invalidateRuntime });
-  const stopGeneration = useMutation({ mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId), onSuccess: invalidateRuntime });
+  const sendMessage = useMutation({
+    mutationFn: (input: { content: string; config: ChatConfig; sessionId: string }) => agentService.sendMessage(input),
+    onSuccess: invalidateRuntime,
+    onError: (reason, input) => reportChatFailure("MainLayout.sendMessage", reason, input.sessionId, input.content),
+  });
+  const stopGeneration = useMutation({
+    mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId),
+    onSuccess: invalidateRuntime,
+    onError: (reason, sessionId) => reportChatFailure("MainLayout.stopGeneration", reason, sessionId),
+  });
 
   useEffect(() => {
     if (!activeSessionId) return;

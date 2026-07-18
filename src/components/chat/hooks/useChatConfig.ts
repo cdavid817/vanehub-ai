@@ -35,9 +35,11 @@ function modesForProvider(providerId: string) {
 export function useChatConfig({
   activeSession,
   agents,
+  onPersistError,
 }: {
   activeSession: Session | null;
   agents: AgentRegistryEntry[];
+  onPersistError?: (error: unknown) => void;
 }) {
   const sessionAgent = useMemo(
     () => agents.find((agent) => agent.id === activeSession?.agentId) ?? agents[0] ?? null,
@@ -153,10 +155,12 @@ export function useChatConfig({
   useEffect(() => {
     if (!activeSession || loadedSessionRef.current !== activeSession.id) return;
     const timeoutId = window.setTimeout(() => {
-      void agentService.saveSessionChatConfig(activeSession.id, config).catch(() => undefined);
+      void agentService.saveSessionChatConfig(activeSession.id, config).catch((error: unknown) => {
+        onPersistError?.(error);
+      });
     }, 120);
     return () => window.clearTimeout(timeoutId);
-  }, [activeSession?.id, activeSession?.interactionMode, agentId, longContext, modelId, permissionMode, providerId, reasoningDepth, streaming, thinking]);
+  }, [activeSession?.id, activeSession?.interactionMode, agentId, longContext, modelId, onPersistError, permissionMode, providerId, reasoningDepth, streaming, thinking]);
 
   return {
     availableAgents,

@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
@@ -17,6 +17,7 @@ const DOCUMENT_LIMIT: usize = 300;
 const FILE_BYTE_LIMIT: u64 = 1024 * 1024;
 const DIFF_BYTE_LIMIT: usize = 2 * 1024 * 1024;
 const LOG_PAGE_LIMIT: usize = 200;
+const LOG_QUERY_BYTE_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -944,9 +945,39 @@ fn filtered_log_entries(path: &Path, input: &SessionLogQuery) -> Result<Vec<logg
         return Ok(Vec::new());
     }
     let file = fs::File::open(path).map_err(|error| AppError::Storage(error.to_string()))?;
+    Ok(filter_log_entries(BufReader::new(file), input))
+}
+
+fn filtered_log_entries_tail(
+    path: &Path,
+    input: &SessionLogQuery,
+    byte_limit: u64,
+) -> Result<Vec<logging::LogEntry>, AppError> {
+    let mut file = fs::File::open(path).map_err(|error| AppError::Storage(error.to_string()))?;
+    let length = file
+        .metadata()
+        .map_err(|error| AppError::Storage(error.to_string()))?
+        .len();
+    if length <= byte_limit {
+        return Ok(filter_log_entries(BufReader::new(file), input));
+    }
+    file.seek(SeekFrom::Start(length - byte_limit))
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    let mut reader = BufReader::new(file);
+    let mut discarded_partial_line = String::new();
+    reader
+        .read_line(&mut discarded_partial_line)
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    Ok(filter_log_entries(reader, input))
+}
+
+fn filter_log_entries(
+    reader: impl BufRead,
+    input: &SessionLogQuery,
+) -> Vec<logging::LogEntry> {
     let search = input.search.trim().to_lowercase();
     let mut entries = Vec::new();
-    for line in BufReader::new(file).lines() {
+    for line in reader.lines() {
         let Ok(line) = line else {
             continue;
         };
@@ -973,12 +1004,70 @@ fn filtered_log_entries(path: &Path, input: &SessionLogQuery) -> Result<Vec<logg
         }
         entries.push(entry);
     }
-    entries.reverse();
+    entries
+}
+
+fn log_files(log_dir: &Path) -> Result<Vec<PathBuf>, AppError> {
+    if !log_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = fs::read_dir(log_dir)
+        .map_err(|error| AppError::Storage(error.to_string()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && logging::is_log_file(path))
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| {
+        let left_modified = fs::metadata(left)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        let right_modified = fs::metadata(right)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        right_modified.cmp(&left_modified)
+    });
+    Ok(files)
+}
+
+fn sort_newest_first(entries: &mut [logging::LogEntry]) {
+    entries.sort_by(|left, right| right.timestamp.cmp(&left.timestamp));
+}
+
+fn bounded_filtered_log_entries(
+    log_dir: &Path,
+    input: &SessionLogQuery,
+) -> Result<Vec<logging::LogEntry>, AppError> {
+    let mut remaining = LOG_QUERY_BYTE_LIMIT;
+    let mut entries = Vec::new();
+    for path in log_files(log_dir)? {
+        if remaining == 0 {
+            break;
+        }
+        let length = fs::metadata(&path)
+            .map_err(|error| AppError::Storage(error.to_string()))?
+            .len();
+        let read_limit = length.min(remaining);
+        entries.extend(filtered_log_entries_tail(&path, input, read_limit)?);
+        remaining -= read_limit;
+    }
+    sort_newest_first(&mut entries);
+    Ok(entries)
+}
+
+fn all_filtered_log_entries(
+    log_dir: &Path,
+    input: &SessionLogQuery,
+) -> Result<Vec<logging::LogEntry>, AppError> {
+    let mut entries = Vec::new();
+    for path in log_files(log_dir)? {
+        entries.extend(filtered_log_entries(&path, input)?);
+    }
+    sort_newest_first(&mut entries);
     Ok(entries)
 }
 
 fn query_logs(log_dir: &Path, input: &SessionLogQuery) -> Result<SessionLogPage, AppError> {
-    let entries = filtered_log_entries(&log_dir.join(logging::LOG_FILE_NAME), input)?;
+    let entries = bounded_filtered_log_entries(log_dir, input)?;
     let offset = input
         .cursor
         .as_deref()
@@ -1034,12 +1123,15 @@ pub(crate) fn list_session_logs(
     state: State<'_, Mutex<RegistryStore>>,
     input: SessionLogQuery,
 ) -> Result<SessionLogPage, AppError> {
-    let store = state
-        .lock()
-        .map_err(|error| AppError::Storage(error.to_string()))?;
-    let conn = store.connection()?;
-    load_session(&conn, &input.session_id)?;
-    query_logs(&active_log_dir_from_conn(&conn)?, &input)
+    let log_dir = {
+        let store = state
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        let conn = store.connection()?;
+        load_session(&conn, &input.session_id)?;
+        active_log_dir_from_conn(&conn)?
+    };
+    query_logs(&log_dir, &input)
 }
 
 pub(crate) fn export_session_logs(
@@ -1047,15 +1139,15 @@ pub(crate) fn export_session_logs(
     state: State<'_, Mutex<RegistryStore>>,
     input: SessionLogQuery,
 ) -> Result<SessionLogExportResult, AppError> {
-    let store = state
-        .lock()
-        .map_err(|error| AppError::Storage(error.to_string()))?;
-    let conn = store.connection()?;
-    load_session(&conn, &input.session_id)?;
-    let entries = filtered_log_entries(
-        &active_log_dir_from_conn(&conn)?.join(logging::LOG_FILE_NAME),
-        &input,
-    )?;
+    let log_dir = {
+        let store = state
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        let conn = store.connection()?;
+        load_session(&conn, &input.session_id)?;
+        active_log_dir_from_conn(&conn)?
+    };
+    let entries = all_filtered_log_entries(&log_dir, &input)?;
     let selected = app
         .dialog()
         .file()
@@ -1332,6 +1424,43 @@ mod tests {
         let exported_text = fs::read_to_string(export_path).expect("exported text");
         assert!(exported_text.contains("safe message"));
         assert!(!exported_text.contains("not-json"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn bounded_log_query_reads_the_newest_complete_entries() {
+        let root = temp_dir("bounded-log-tail");
+        let message_padding = "x".repeat((LOG_QUERY_BYTE_LIMIT / 2 + 1024) as usize);
+        for message in [
+            format!("older {message_padding}"),
+            format!("newest {message_padding}"),
+        ] {
+            let mut context = BTreeMap::new();
+            context.insert("sessionId".to_string(), "session-1".to_string());
+            logging::write_message(
+                &root,
+                logging::LogLevel::Info,
+                "session.runtime",
+                &message,
+                context,
+            )
+            .expect("write log");
+        }
+
+        let entries = bounded_filtered_log_entries(
+            &root,
+            &SessionLogQuery {
+                session_id: "session-1".to_string(),
+                levels: vec![logging::LogLevel::Info],
+                search: String::new(),
+                cursor: None,
+                limit: None,
+            },
+        )
+        .expect("bounded query");
+
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].message.starts_with("newest"));
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

@@ -227,6 +227,21 @@ impl ShellManager {
         app: &AppHandle,
         session_id: &str,
     ) -> Result<(), AppError> {
+        for (shell_id, owning_session_id) in self.stop_for_session(session_id)? {
+            let _ = app.emit(
+                "shell:event",
+                ShellEvent::State {
+                    shell_id,
+                    session_id: owning_session_id,
+                    state: "disconnected",
+                    error: None,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn stop_for_session(&self, session_id: &str) -> Result<Vec<(String, String)>, AppError> {
         let shell_ids = self
             .shells
             .lock()
@@ -235,10 +250,13 @@ impl ShellManager {
             .filter(|(_, shell)| shell.session_id == session_id)
             .map(|(shell_id, _)| shell_id.clone())
             .collect::<Vec<_>>();
+        let mut stopped = Vec::with_capacity(shell_ids.len());
         for shell_id in shell_ids {
-            self.kill(app, &shell_id)?;
+            if let Some(owning_session_id) = self.stop(&shell_id)? {
+                stopped.push((shell_id, owning_session_id));
+            }
         }
-        Ok(())
+        Ok(stopped)
     }
 }
 
@@ -552,6 +570,27 @@ mod tests {
         assert_eq!(manager.stop("shell-one").expect("repeat stop"), None);
         assert_eq!(manager.stop("shell-two").expect("stop second").as_deref(), Some("session-two"));
         assert!(manager.shells.lock().expect("shell map").is_empty());
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn manager_cleans_up_only_the_requested_session_shells() {
+        let root = temp_dir("session-cleanup");
+        std::fs::create_dir_all(&root).expect("root");
+        let manager = ShellManager::default();
+        manager
+            .insert("shell-one".to_string(), managed_test_shell("session-one", &root))
+            .expect("insert first");
+        manager
+            .insert("shell-two".to_string(), managed_test_shell("session-two", &root))
+            .expect("insert second");
+
+        let stopped = manager.stop_for_session("session-one").expect("stop session");
+
+        assert_eq!(stopped, vec![("shell-one".to_string(), "session-one".to_string())]);
+        assert!(manager.shells.lock().expect("shell map").contains_key("shell-two"));
+        assert_eq!(manager.stop_for_session("session-one").expect("repeat cleanup"), Vec::new());
+        manager.stop("shell-two").expect("stop remaining");
         remove_test_dir(&root);
     }
 

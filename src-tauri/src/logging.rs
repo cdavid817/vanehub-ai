@@ -6,10 +6,17 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 pub(crate) const LOG_FILE_NAME: &str = "vanehub.log";
 const ARCHIVE_DIR_NAME: &str = "archive";
 const RETENTION_DAYS: i64 = 30;
+const ROTATION_AGE_HOURS: i64 = 24;
+const MAINTENANCE_INTERVAL_HOURS: i64 = 1;
+
+static ACTIVE_LOG_DIR: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+static LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static LAST_MAINTENANCE: OnceLock<Mutex<BTreeMap<PathBuf, DateTime<Utc>>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -72,6 +79,23 @@ pub fn default_log_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("logs")
 }
 
+pub fn set_active_log_dir(path: PathBuf) {
+    if let Ok(path) = validate_log_dir(&path) {
+        if let Ok(mut active) = ACTIVE_LOG_DIR.get_or_init(|| Mutex::new(None)).lock() {
+            *active = Some(path);
+        }
+    }
+}
+
+pub fn active_log_dir(fallback: PathBuf) -> PathBuf {
+    ACTIVE_LOG_DIR
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|active| active.clone())
+        .unwrap_or(fallback)
+}
+
 pub fn validate_log_dir(path: &Path) -> Result<PathBuf, AppError> {
     fs::create_dir_all(path).map_err(|error| AppError::Storage(error.to_string()))?;
     let metadata = fs::metadata(path).map_err(|error| AppError::Storage(error.to_string()))?;
@@ -85,8 +109,12 @@ pub fn validate_log_dir(path: &Path) -> Result<PathBuf, AppError> {
 }
 
 pub fn write_entry(log_dir: &Path, entry: LogEntry) -> Result<(), AppError> {
+    let _write_guard = LOG_WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     let log_dir = validate_log_dir(log_dir)?;
-    archive_expired_logs(&log_dir)?;
+    maintain_log_dir(&log_dir, Utc::now())?;
     let path = log_dir.join(LOG_FILE_NAME);
     let line = serde_json::to_string(&redact_entry(entry))
         .map_err(|error| AppError::Storage(error.to_string()))?;
@@ -141,17 +169,65 @@ pub fn open_directory(path: &Path) -> Result<(), AppError> {
         .map_err(|error| AppError::LaunchFailed(error.to_string()))
 }
 
-pub fn archive_expired_logs(log_dir: &Path) -> Result<(), AppError> {
-    let cutoff = Utc::now() - Duration::days(RETENTION_DAYS);
+fn maintain_log_dir(log_dir: &Path, now: DateTime<Utc>) -> Result<(), AppError> {
+    let mut maintenance = LAST_MAINTENANCE
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
+    if maintenance
+        .get(log_dir)
+        .is_some_and(|last_run| now - *last_run < Duration::hours(MAINTENANCE_INTERVAL_HOURS))
+    {
+        return Ok(());
+    }
+
+    rotate_active_log(log_dir, now)?;
+    archive_expired_logs_at(log_dir, now)?;
+    maintenance.insert(log_dir.to_path_buf(), now);
+    Ok(())
+}
+
+fn rotate_active_log(log_dir: &Path, now: DateTime<Utc>) -> Result<(), AppError> {
+    let active_path = log_dir.join(LOG_FILE_NAME);
+    if !active_path.exists() {
+        return Ok(());
+    }
+    let modified: DateTime<Utc> = fs::metadata(&active_path)
+        .and_then(|metadata| metadata.modified())
+        .map_err(|error| AppError::Storage(error.to_string()))?
+        .into();
+    if now - modified < Duration::hours(ROTATION_AGE_HOURS) {
+        return Ok(());
+    }
+
+    let target = next_rotated_log_path(log_dir, modified);
+    fs::rename(active_path, target).map_err(|error| AppError::Storage(error.to_string()))
+}
+
+fn next_rotated_log_path(log_dir: &Path, modified: DateTime<Utc>) -> PathBuf {
+    let stem = format!("vanehub-{}", modified.format("%Y%m%dT%H%M%SZ"));
+    let mut suffix = 0;
+    loop {
+        let name = if suffix == 0 {
+            format!("{stem}.log")
+        } else {
+            format!("{stem}-{suffix}.log")
+        };
+        let candidate = log_dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
+fn archive_expired_logs_at(log_dir: &Path, now: DateTime<Utc>) -> Result<(), AppError> {
+    let cutoff = now - Duration::days(RETENTION_DAYS);
     let archive_dir = log_dir.join(ARCHIVE_DIR_NAME);
     for entry in fs::read_dir(log_dir).map_err(|error| AppError::Storage(error.to_string()))? {
         let entry = entry.map_err(|error| AppError::Storage(error.to_string()))?;
         let path = entry.path();
-        if !path.is_file() || path.file_name().and_then(|name| name.to_str()) == Some(LOG_FILE_NAME)
-        {
-            continue;
-        }
-        if path.extension().and_then(|value| value.to_str()) != Some("log") {
+        if !path.is_file() || !is_rotated_log(&path) {
             continue;
         }
         let modified = entry
@@ -159,7 +235,7 @@ pub fn archive_expired_logs(log_dir: &Path) -> Result<(), AppError> {
             .and_then(|metadata| metadata.modified())
             .map_err(|error| AppError::Storage(error.to_string()))?;
         let modified: DateTime<Utc> = modified.into();
-        if modified >= cutoff {
+        if !is_expired(modified, cutoff) {
             continue;
         }
         fs::create_dir_all(&archive_dir).map_err(|error| AppError::Storage(error.to_string()))?;
@@ -172,18 +248,65 @@ pub fn archive_expired_logs(log_dir: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+fn is_expired(modified: DateTime<Utc>, cutoff: DateTime<Utc>) -> bool {
+    modified < cutoff
+}
+
+pub fn is_log_file(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some(LOG_FILE_NAME) || is_rotated_log(path)
+}
+
+fn is_rotated_log(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("vanehub-") && name.ends_with(".log"))
+}
+
 pub fn redact_text(input: &str) -> String {
     let tokens = input.split_whitespace().collect::<Vec<_>>();
     let mut redacted = Vec::new();
     let mut index = 0;
     while index < tokens.len() {
-        if tokens[index].eq_ignore_ascii_case("bearer") && index + 1 < tokens.len() {
+        if token_without_punctuation(tokens[index]).eq_ignore_ascii_case("bearer")
+            && index + 1 < tokens.len()
+        {
             redacted.push("Bearer".to_string());
             redacted.push("[REDACTED]".to_string());
             index += 2;
             continue;
         }
-        redacted.push(redact_token(tokens[index]));
+        if is_provider_token(tokens[index]) {
+            redacted.push("[REDACTED]".to_string());
+            index += 1;
+            continue;
+        }
+        if let Some((replacement, needs_next_value)) = redact_inline_sensitive_token(tokens[index]) {
+            redacted.push(replacement);
+            if needs_next_value
+                && tokens
+                    .get(index + 1)
+                    .is_some_and(|value| token_without_punctuation(value).eq_ignore_ascii_case("bearer"))
+            {
+                index += 3;
+            } else {
+                index += if needs_next_value { 2 } else { 1 };
+            }
+            continue;
+        }
+        if is_sensitive_key(token_without_punctuation(tokens[index])) {
+            if let Some(separator) = tokens
+                .get(index + 1)
+                .filter(|value| matches!(**value, "=" | ":"))
+            {
+                redacted.push(format!("{}{separator}[REDACTED]", tokens[index]));
+                index += 3;
+            } else {
+                redacted.push(format!("{}=[REDACTED]", tokens[index]));
+                index += 2;
+            }
+            continue;
+        }
+        redacted.push(tokens[index].to_string());
         index += 1;
     }
     redacted.join(" ")
@@ -206,23 +329,30 @@ fn redact_entry(mut entry: LogEntry) -> LogEntry {
     entry
 }
 
-fn redact_token(token: &str) -> String {
-    if token.starts_with("sk-")
-        || token.starts_with("sk-ant-")
-        || token.starts_with("ghp_")
-        || token.starts_with("github_pat_")
-    {
-        return "[REDACTED]".to_string();
-    }
+fn redact_inline_sensitive_token(token: &str) -> Option<(String, bool)> {
     let separators = ['=', ':'];
     for separator in separators {
-        if let Some((key, _value)) = token.split_once(separator) {
+        if let Some((key, value)) = token.split_once(separator) {
             if is_sensitive_key(key) {
-                return format!("{key}{separator}[REDACTED]");
+                return Some((
+                    format!("{key}{separator}[REDACTED]"),
+                    value.trim_matches(['\"', '\'', ',', '}']).is_empty(),
+                ));
             }
         }
     }
-    token.to_string()
+    None
+}
+
+fn is_provider_token(token: &str) -> bool {
+    let normalized = token_without_punctuation(token);
+    normalized.starts_with("sk-")
+        || normalized.starts_with("ghp_")
+        || normalized.starts_with("github_pat_")
+}
+
+fn token_without_punctuation(token: &str) -> &str {
+    token.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
 }
 
 fn is_sensitive_key(key: &str) -> bool {
@@ -268,6 +398,17 @@ mod tests {
         assert!(!redacted.contains("sk-test"));
         assert!(!redacted.contains("ghp_token"));
         assert!(redacted.contains("plain"));
+    }
+
+    #[test]
+    fn redacts_structured_and_whitespace_separated_sensitive_values() {
+        let input = r#"payload {"token": "json-secret"} api_key = spaced-secret password plain-secret Authorization: Bearer bearer-secret"#;
+        let redacted = redact_text(input);
+
+        for secret in ["json-secret", "spaced-secret", "plain-secret", "bearer-secret"] {
+            assert!(!redacted.contains(secret), "redaction leaked {secret}");
+        }
+        assert!(redacted.contains("[REDACTED]"));
     }
 
     #[test]
@@ -352,15 +493,35 @@ mod tests {
     }
 
     #[test]
-    fn archives_expired_log_files() {
-        let dir = temp_dir("archive");
-        fs::create_dir_all(&dir).expect("dir");
-        let old_log = dir.join("old.log");
-        fs::write(&old_log, "old").expect("old log");
+    fn identifies_rotated_logs_and_expiration() {
+        let now = Utc::now();
+        assert!(is_rotated_log(Path::new("vanehub-20260101T000000Z.log")));
+        assert!(!is_rotated_log(Path::new(LOG_FILE_NAME)));
+        assert!(is_expired(
+            now - Duration::days(RETENTION_DAYS + 1),
+            now - Duration::days(RETENTION_DAYS),
+        ));
+        assert!(!is_expired(now, now - Duration::days(RETENTION_DAYS)));
+    }
 
-        archive_expired_logs(&dir).expect("archive pass");
+    #[test]
+    fn rotates_active_log_and_archives_expired_rotated_log() {
+        let dir = temp_dir("rotation");
+        write_message(&dir, LogLevel::Info, "test", "active entry", BTreeMap::new()).expect("write");
+        let now = Utc::now();
 
-        assert!(old_log.exists());
+        rotate_active_log(&dir, now + Duration::hours(ROTATION_AGE_HOURS + 1)).expect("rotate");
+
+        assert!(!dir.join(LOG_FILE_NAME).exists());
+        let rotated = fs::read_dir(&dir)
+            .expect("read logs")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| is_rotated_log(path))
+            .expect("rotated log");
+        archive_expired_logs_at(&dir, now + Duration::days(RETENTION_DAYS + 1)).expect("archive");
+        assert!(!rotated.exists());
+        assert!(dir.join(ARCHIVE_DIR_NAME).read_dir().expect("archive dir").next().is_some());
         let _ = fs::remove_dir_all(dir);
     }
 }

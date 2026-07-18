@@ -17,6 +17,7 @@ use thiserror::Error;
 
 mod cli_parameters;
 mod command_safety;
+mod commands;
 mod desktop_lifecycle;
 mod extensions;
 mod floating_assistant;
@@ -26,6 +27,8 @@ mod mcp;
 mod network_proxy;
 mod sdk;
 mod session_configuration;
+mod session_tabs;
+mod shell;
 mod skills;
 mod tasks;
 
@@ -71,28 +74,11 @@ enum NativeLogLevel {
     Info,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NativeLogEvent<'a> {
-    level: NativeLogLevel,
-    category: &'a str,
-    message: &'a str,
-}
-
 fn record_native_log(level: NativeLogLevel, category: &str, message: &str) {
-    let event = NativeLogEvent {
-        level,
-        category,
-        message,
-    };
-    match serde_json::to_string(&event) {
-        Ok(line) => eprintln!("{line}"),
-        Err(_) => eprintln!("[{category}] {message}"),
-    }
     let mut context = BTreeMap::new();
     context.insert("source".to_string(), "native".to_string());
     let _ = logging::write_message(
-        &fallback_log_dir(),
+        &logging::active_log_dir(fallback_log_dir()),
         match level {
             NativeLogLevel::Error => logging::LogLevel::Error,
             NativeLogLevel::Info => logging::LogLevel::Info,
@@ -4029,6 +4015,7 @@ fn save_setting(
     state: State<'_, Mutex<RegistryStore>>,
     input: SaveSettingInput,
 ) -> Result<AppSettings, AppError> {
+    let log_directory_changed = input.key == "logDirectory";
     let settings = {
         let store = state
             .lock()
@@ -4036,6 +4023,9 @@ fn save_setting(
         let conn = store.connection()?;
         save_setting_to_conn(&conn, &input.key, &input.value)?
     };
+    if log_directory_changed {
+        logging::set_active_log_dir(PathBuf::from(&settings.log_directory));
+    }
     app.emit(
         "settings:event",
         SettingsStateEvent {
@@ -5118,13 +5108,17 @@ fn archive_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
+    shells: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<Session, AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
+    let conn = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        store.connection()?
+    };
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
+    shells.kill_for_session(&app, &session_id)?;
     let session = update_session_flag(&conn, &session_id, "archived", true)?;
     clear_active_session_if_matches(&conn, &session_id)?;
     emit_session_state_event(&app, "active-session-changed", None);
@@ -5148,14 +5142,18 @@ fn delete_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
     runtime: State<'_, ChatRuntimeManager>,
+    shells: State<'_, shell::ShellManager>,
     session_id: String,
 ) -> Result<(), AppError> {
-    let store = state
-        .lock()
-        .map_err(|err| AppError::Storage(err.to_string()))?;
-    let conn = store.connection()?;
+    let conn = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        store.connection()?
+    };
     load_session(&conn, &session_id)?;
     stop_generation_for_session(&app, &conn, &runtime, &session_id)?;
+    shells.kill_for_session(&app, &session_id)?;
     conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
     clear_active_session_if_matches(&conn, &session_id)?;
     emit_session_state_event(&app, "active-session-changed", None);
@@ -5696,14 +5694,20 @@ pub fn run() {
             let store = RegistryStore::new(data_dir)
                 .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)?;
             let im_db_path = store.db_path.clone();
-            let tray_language = store
+            let initial_settings = store
                 .connection()
                 .ok()
-                .and_then(|conn| get_settings_from_conn(&conn).ok())
-                .map(|settings| settings.application_language)
+                .and_then(|conn| get_settings_from_conn(&conn).ok());
+            if let Some(settings) = &initial_settings {
+                logging::set_active_log_dir(PathBuf::from(&settings.log_directory));
+            }
+            let tray_language = initial_settings
+                .as_ref()
+                .map(|settings| settings.application_language.clone())
                 .unwrap_or_else(|| "zh-CN".to_string());
             app.manage(Mutex::new(store));
             app.manage(ChatRuntimeManager::default());
+            app.manage(shell::ShellManager::default());
             app.manage(tasks::registry::TaskRegistry::default());
             app.manage(CliMutationGuard::default());
             app.manage(extensions::commands::ExtensionRuntimeManager::default());
@@ -5716,7 +5720,7 @@ pub fn run() {
                 let mut context = BTreeMap::new();
                 context.insert("safeCode".to_string(), code);
                 let _ = logging::write_message(
-                    &fallback_log_dir(),
+                    &logging::active_log_dir(fallback_log_dir()),
                     logging::LogLevel::Warn,
                     "desktop.lifecycle",
                     "System tray initialization failed; normal window close behavior remains active",
@@ -5832,6 +5836,18 @@ pub fn run() {
             list_messages,
             get_usage_statistics,
             stop_generation,
+            commands::session_tabs::list_session_directory::list_session_directory,
+            commands::session_tabs::read_session_file::read_session_file,
+            commands::session_tabs::list_session_documents::list_session_documents,
+            commands::session_tabs::get_session_git_status::get_session_git_status,
+            commands::session_tabs::get_session_git_diff::get_session_git_diff,
+            commands::session_tabs::list_session_logs::list_session_logs,
+            commands::session_tabs::export_session_logs::export_session_logs,
+            commands::shell::shell_create::shell_create,
+            commands::shell::shell_input::shell_input,
+            commands::shell::shell_cd::shell_cd,
+            commands::shell::shell_resize::shell_resize,
+            commands::shell::shell_kill::shell_kill,
             get_settings,
             save_setting,
             floating_assistant::get_floating_assistant_runtime_info,
