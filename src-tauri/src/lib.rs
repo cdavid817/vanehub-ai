@@ -24,6 +24,7 @@ mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
+mod prompt_hooks;
 mod sdk;
 mod session_configuration;
 mod session_tabs;
@@ -1448,6 +1449,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "session-management-organization",
         apply_session_management_organization_migration,
     )?;
+    apply_migration(
+        conn,
+        19,
+        "prompt-hook-management",
+        prompt_hooks::apply_schema,
+    )?;
 
     Ok(())
 }
@@ -1936,14 +1943,13 @@ fn parse_winget_package_id(path: &Path) -> Option<String> {
     (!package_id.is_empty()).then(|| package_id.to_string())
 }
 
-fn cli_winget_package_id(
-    definition: CliToolDefinition,
-    status: &CliToolStatus,
-) -> Option<String> {
+fn cli_winget_package_id(definition: CliToolDefinition, status: &CliToolStatus) -> Option<String> {
     status
         .installations
         .iter()
-        .find(|installation| installation.is_active && installation.source == CliInstallSource::Winget)
+        .find(|installation| {
+            installation.is_active && installation.source == CliInstallSource::Winget
+        })
         .and_then(|installation| parse_winget_package_id(Path::new(&installation.path)))
         .or_else(|| definition.winget_package_id.map(str::to_string))
 }
@@ -2225,8 +2231,7 @@ fn sanitize_cached_cli_status(
     status.active_installation_path = status.detected_path.clone();
     status.current_version = active.and_then(|installation| installation.version.clone());
     status.conflict_state = derive_cli_conflict_state(&status.installations);
-    status.lifecycle_eligibility =
-        derive_cli_lifecycle_eligibility(definition, installed, active);
+    status.lifecycle_eligibility = derive_cli_lifecycle_eligibility(definition, installed, active);
     if status
         .last_error
         .as_deref()
@@ -3638,7 +3643,16 @@ fn insert_chat_message_with_references(
         "INSERT INTO messages
          (id, session_id, role, status, content, file_references, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![id, session_id, role, status, content, file_references_json, now, now],
+        params![
+            id,
+            session_id,
+            role,
+            status,
+            content,
+            file_references_json,
+            now,
+            now
+        ],
     )?;
     load_chat_message(conn, &id)
 }
@@ -4059,7 +4073,9 @@ fn append_assistant_rich_block(
     block: serde_json::Value,
 ) -> Result<ChatMessage, AppError> {
     if !valid_rich_block(&block) {
-        return Err(AppError::Validation("Invalid Rich Block payload.".to_string()));
+        return Err(AppError::Validation(
+            "Invalid Rich Block payload.".to_string(),
+        ));
     }
     let mut message = load_chat_message(conn, message_id)?;
     let mut blocks = message.rich_blocks.take().unwrap_or_default();
@@ -4510,11 +4526,8 @@ fn upgrade_all_cli_versions(
         load_cli_tool_statuses(&conn)?
     };
     let eligible_agent_ids = bulk_cli_upgrade_agent_ids(&statuses);
-    let acquired_agent_ids = mutation_guard.try_acquire_many(
-        eligible_agent_ids
-            .iter()
-            .map(String::as_str),
-    );
+    let acquired_agent_ids =
+        mutation_guard.try_acquire_many(eligible_agent_ids.iter().map(String::as_str));
     if !eligible_agent_ids.is_empty() && acquired_agent_ids.is_empty() {
         return Err(AppError::Validation(
             "package operations for eligible CLIs are already running".to_string(),
@@ -4552,7 +4565,9 @@ fn bulk_cli_upgrade_agent_ids(statuses: &[CliToolStatus]) -> Vec<String> {
 fn bulk_cli_upgrade_target(status: &CliToolStatus) -> Option<String> {
     if !matches!(
         status.lifecycle_eligibility,
-        CliLifecycleEligibility::Npm | CliLifecycleEligibility::Wget | CliLifecycleEligibility::Winget
+        CliLifecycleEligibility::Npm
+            | CliLifecycleEligibility::Wget
+            | CliLifecycleEligibility::Winget
     ) {
         return None;
     }
@@ -4920,7 +4935,8 @@ fn run_cli_bulk_upgrade_operation(
         }
     }
 
-    app.state::<CliMutationGuard>().release_many(acquired_agent_ids.iter().map(String::as_str));
+    app.state::<CliMutationGuard>()
+        .release_many(acquired_agent_ids.iter().map(String::as_str));
     append_cli_log(
         &app,
         &registry,
@@ -5475,11 +5491,11 @@ fn resolve_agent_cli_executable(
         .map(|path| path.to_string_lossy().to_string())
         .or_else(|| resolve_command_path(definition.executable_name))
         .ok_or_else(|| {
-        format!(
-            "{} executable '{}' could not be resolved.",
-            agent.display_name, definition.executable_name
-        )
-    })
+            format!(
+                "{} executable '{}' could not be resolved.",
+                agent.display_name, definition.executable_name
+            )
+        })
 }
 
 #[cfg(test)]
@@ -6965,8 +6981,67 @@ fn submit_chat_message(
     );
     update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
+    let assembled_prompt = match prompt_hooks::assemble_prompt(
+        conn,
+        &selected_agent.id,
+        Some(session_id),
+        &prompt_content,
+    ) {
+        Ok(result) => {
+            for trace in &result.trace {
+                let _ = write_session_runtime_log(
+                    conn,
+                    logging::LogLevel::Debug,
+                    session_id,
+                    &selected_agent.id,
+                    &format!(
+                        "Prompt Hook {} {} hash={} tokens={} reason={}",
+                        trace.hook_id,
+                        trace.status,
+                        trace.content_hash.as_deref().unwrap_or("none"),
+                        trace
+                            .token_estimate
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "none".to_string()),
+                        trace.reason.as_deref().unwrap_or("none")
+                    ),
+                );
+            }
+            result.effective_prompt
+        }
+        Err(error) => {
+            let concise_error = "Prompt Hook assembly failed".to_string();
+            let _ = write_session_runtime_log(
+                conn,
+                logging::LogLevel::Error,
+                session_id,
+                &selected_agent.id,
+                &format!("Prompt Hook assembly failed: {error}"),
+            );
+            let failed = fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+            update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+            runtime.complete(session_id)?;
+            let _ = runtime.finish(
+                &assistant_message.id,
+                ChatTerminalResult::Failed(concise_error.clone()),
+            );
+            let _ = app.emit(
+                "chat:event",
+                ChatStreamEvent::Failed {
+                    session_id: session_id.to_string(),
+                    message_id: assistant_message.id.clone(),
+                    error: concise_error,
+                },
+            );
+            return Ok(ChatSubmission {
+                message: failed,
+                completion,
+            });
+        }
+    };
+
     let spawned =
-        match spawn_cli_generation(conn, &session, &selected_agent, &prompt_content, &config) {
+        match spawn_cli_generation(conn, &session, &selected_agent, &assembled_prompt, &config) {
             Ok(spawned) => spawned,
             Err(error) => {
                 let concise_error = concise_cli_error(&selected_agent, &error);
@@ -7007,7 +7082,7 @@ fn submit_chat_message(
     let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
     let background_message_id = assistant_message.id.clone();
-    let prompt_len = prompt_content.chars().count();
+    let prompt_len = assembled_prompt.chars().count();
     thread::spawn(move || {
         run_cli_generation_stream(
             background_app,
@@ -7650,6 +7725,15 @@ pub fn run() {
             skills::commands::detect_skill_drift,
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
+            prompt_hooks::list_prompt_hooks,
+            prompt_hooks::create_prompt_hook,
+            prompt_hooks::update_prompt_hook,
+            prompt_hooks::delete_prompt_hook,
+            prompt_hooks::set_prompt_hook_enabled,
+            prompt_hooks::set_prompt_hook_cli_bindings,
+            prompt_hooks::preview_prompt_hook,
+            prompt_hooks::preview_prompt_assembly,
+            prompt_hooks::list_prompt_hook_traces,
             tasks::commands::list_operations,
             tasks::commands::get_operation_status,
             extensions::commands::get_extension_overview,
@@ -7711,9 +7795,7 @@ mod tests {
 
         assert_eq!(
             versions,
-            vec![
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
-            ]
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
         );
     }
 
@@ -8351,7 +8433,10 @@ mod tests {
         let blocks = messages[0].rich_blocks.as_ref().expect("rich blocks");
 
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].get("kind").and_then(serde_json::Value::as_str), Some("card"));
+        assert_eq!(
+            blocks[0].get("kind").and_then(serde_json::Value::as_str),
+            Some("card")
+        );
     }
 
     #[test]
@@ -8378,7 +8463,10 @@ mod tests {
         let blocks = message.rich_blocks.expect("rich blocks");
 
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0].get("title").and_then(serde_json::Value::as_str), Some("After"));
+        assert_eq!(
+            blocks[0].get("title").and_then(serde_json::Value::as_str),
+            Some("After")
+        );
     }
 
     #[test]
@@ -9079,7 +9167,9 @@ mod tests {
                     environment_type: CliEnvironmentType::Windows,
                     is_active: true,
                 }],
-                active_installation_path: Some("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string()),
+                active_installation_path: Some(
+                    "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd".to_string(),
+                ),
                 conflict_state: CliConflictState::None,
                 lifecycle_eligibility: CliLifecycleEligibility::Npm,
             },
@@ -9222,7 +9312,10 @@ mod tests {
         assert!(status.detected_path.is_none());
         assert!(status.last_error.is_none());
         assert!(status.last_operation_id.is_none());
-        assert!(matches!(status.version_check_status, CliVersionCheckStatus::NotDetected));
+        assert!(matches!(
+            status.version_check_status,
+            CliVersionCheckStatus::NotDetected
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -9264,7 +9357,10 @@ mod tests {
             },
         );
 
-        assert_eq!(status.lifecycle_eligibility, CliLifecycleEligibility::Winget);
+        assert_eq!(
+            status.lifecycle_eligibility,
+            CliLifecycleEligibility::Winget
+        );
     }
 
     #[test]

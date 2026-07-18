@@ -15,6 +15,19 @@ describe("settingsPages", () => {
     });
   });
 
+  it("registers Prompt Hooks after Skills", () => {
+    const skillsIndex = settingsPages.findIndex((page) => page.id === "skills");
+    const promptHooksIndex = settingsPages.findIndex((page) => page.id === "prompt-hooks");
+
+    expect(skillsIndex).toBeGreaterThan(-1);
+    expect(promptHooksIndex).toBe(skillsIndex + 1);
+    expect(settingsPages[promptHooksIndex]).toMatchObject({
+      labelKey: "settings.pages.promptHooks",
+      searchPlaceholderKey: "settings.search.promptHooks",
+      badge: 7,
+    });
+  });
+
   it("registers Usage Statistics before About", () => {
     const usageIndex = settingsPages.findIndex((page) => page.id === "usage");
     const aboutIndex = settingsPages.findIndex((page) => page.id === "about");
