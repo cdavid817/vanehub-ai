@@ -15,12 +15,13 @@ The system SHALL render a UCD-aligned settings center as the primary frontend su
 - **THEN** the system SHALL update the active page content and active navigation state without requiring a runtime-specific backend call
 
 ### Requirement: UCD settings pages
-The system SHALL provide settings pages for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and product information.
+The system SHALL provide settings pages for basic configuration, CLI management, CLI parameter management, SDK dependencies, extension capabilities, plugin integrations, MCP servers, agents, skills, IM connectors, usage statistics, and product information.
 
 #### Scenario: Display UCD page set
 - **WHEN** the settings center navigation is rendered
-- **THEN** the system SHALL include entries for basic configuration, CLI management, CLI parameter management, SDK dependencies, MCP servers, agents, skills, and about
+- **THEN** the system SHALL include entries for basic configuration, CLI management, CLI parameter management, SDK dependencies, extension capabilities, plugin integrations, MCP servers, agents, skills, IM connectors, usage statistics, and about
 - **AND** the CLI parameter management entry SHALL appear immediately after CLI management
+- **AND** the plugin integrations entry SHALL appear after extension capabilities and before MCP servers
 - **AND** the about entry SHALL be the final settings navigation item
 
 #### Scenario: Display pages without backend services

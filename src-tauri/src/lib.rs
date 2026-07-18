@@ -24,6 +24,7 @@ mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
+mod plugin_integrations;
 mod prompt_hooks;
 mod sdk;
 mod session_configuration;
@@ -7744,7 +7745,10 @@ pub fn run() {
             extensions::commands::set_extension_enabled,
             extensions::commands::start_extension,
             extensions::commands::stop_extension,
-            extensions::commands::test_extension
+            extensions::commands::test_extension,
+            plugin_integrations::commands::get_plugin_integration_overview,
+            plugin_integrations::commands::refresh_plugin_integrations,
+            plugin_integrations::commands::test_plugin_integration
         ])
         .run(tauri::generate_context!())
         .expect("error while running VaneHub AI");

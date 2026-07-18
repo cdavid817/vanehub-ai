@@ -7,6 +7,7 @@ import {
   Info,
   MessagesSquare,
   Puzzle,
+  Plug,
   Settings,
   SlidersHorizontal,
   Terminal,
@@ -20,6 +21,7 @@ import { CliParametersPage } from "./pages/cli-parameters-page";
 import { ExtensionsPage } from "./pages/extensions-page";
 import { McpPage } from "./pages/mcp-page";
 import { ImPage } from "./pages/im-page";
+import { PluginIntegrationsPage } from "./pages/plugin-integrations-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SdkPage } from "./pages/sdk-page";
@@ -32,6 +34,7 @@ export type SettingsPageId =
   | "cli-parameters"
   | "sdk"
   | "extensions"
+  | "plugins"
   | "mcp"
   | "agents"
   | "skills"
@@ -99,6 +102,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 3,
     searchPlaceholderKey: "settings.search.extensions",
     component: ExtensionsPage,
+  },
+  {
+    id: "plugins",
+    labelKey: "settings.pages.plugins",
+    crumbKey: "settings.pages.plugins",
+    icon: Plug,
+    badge: 1,
+    searchPlaceholderKey: "settings.search.plugins",
+    component: PluginIntegrationsPage,
   },
   {
     id: "mcp",

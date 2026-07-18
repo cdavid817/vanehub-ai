@@ -545,6 +545,23 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "add-github-plugin-integration",
+                         "path":  "openspec/changes/archive/2026-07-18-add-github-plugin-integration/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "plugin-integration-management",
+                                              "settings-center-ui",
+                                              "settings-plugin-integration-ui",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "add-rich-block-chat-rendering",
                          "path":  "openspec/changes/archive/2026-07-18-add-rich-block-chat-rendering/",
                          "artifacts":  [
