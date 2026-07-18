@@ -16,6 +16,7 @@ describe("ConversationCard IM source", () => {
       worktreePath: null,
       worktreeName: null,
       worktreeBranch: null,
+      remoteWorkspace: null,
       runtimeSessionId: null,
       categoryId: null,
       source: { kind: "im", connector: "dingtalk" },

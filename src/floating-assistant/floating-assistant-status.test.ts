@@ -14,6 +14,7 @@ const session: Session = {
   worktreePath: null,
   worktreeName: null,
   worktreeBranch: null,
+  remoteWorkspace: null,
   runtimeSessionId: null,
   categoryId: null,
   pinned: false,

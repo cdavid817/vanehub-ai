@@ -10,8 +10,10 @@ import type {
   CreateSessionInput,
   ExportSessionInput,
   InteractionMode,
+  KnownRemoteWorkspace,
   KnownProject,
   ProjectInspection,
+  RemoteWorkspace,
   RenameSessionCategoryInput,
   Session,
   SessionCategory,
@@ -100,6 +102,7 @@ let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
 let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
 let knownProjects: KnownProject[] = [];
+let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
@@ -140,6 +143,7 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     worktreePath: null,
     worktreeName: null,
     worktreeBranch: null,
+    remoteWorkspace: null,
     runtimeSessionId: null,
     categoryId: null,
     source: { kind: "im", connector },
@@ -504,6 +508,40 @@ function resolveProjectPath(input: CreateSessionInput) {
   return input.projectPath?.trim() || input.folder?.trim() || null;
 }
 
+function displayNameForRemotePath(path: string) {
+  return path.replace(/\/+$/, "").split("/").filter(Boolean).at(-1) ?? path;
+}
+
+function normalizeRemoteWorkspace(input: NonNullable<CreateSessionInput["remoteWorkspace"]>): RemoteWorkspace {
+  const host = input.host.trim();
+  const path = input.path.trim();
+  const user = input.user?.trim() || null;
+  if (!host || !path) {
+    throw new Error("Remote workspace requires host and path");
+  }
+  if (host.includes("/") || host.includes("\\") || /[\u0000-\u001f]/.test(`${host}${path}${user ?? ""}`)) {
+    throw new Error("Invalid remote workspace");
+  }
+  const authority = user ? `${user}@${host}` : host;
+  return {
+    host,
+    user,
+    path,
+    displayName: input.displayName?.trim() || `${host}:${displayNameForRemotePath(path)}`,
+    uri: `ssh://${authority}${path.startsWith("/") ? "" : "/"}${path}`,
+  };
+}
+
+function upsertKnownRemoteWorkspace(remoteWorkspace: RemoteWorkspace) {
+  const timestamp = nowIso();
+  const known: KnownRemoteWorkspace = { ...remoteWorkspace, lastOpenedAt: timestamp };
+  knownRemoteWorkspaces = [
+    known,
+    ...knownRemoteWorkspaces.filter((candidate) => candidate.uri !== remoteWorkspace.uri),
+  ];
+  return known;
+}
+
 function skillScopeMatches(skill: Skill, input: SkillScopeInput) {
   return (
     skill.scope === input.scope &&
@@ -602,9 +640,19 @@ function sessionSearchMatches(session: Session, query: string): SessionSearchRes
   if (searchText(session.title, query)) {
     matches.push({ kind: "title", excerpt: session.title });
   }
-  const projectMatch = [session.folder, session.projectPath, session.worktreePath, session.worktreeName, session.worktreeBranch].find(
-    (value) => searchText(value, query),
-  );
+  const remoteWorkspace = session.remoteWorkspace;
+  const projectMatch = [
+    session.folder,
+    session.projectPath,
+    session.worktreePath,
+    session.worktreeName,
+    session.worktreeBranch,
+    remoteWorkspace?.host,
+    remoteWorkspace?.user,
+    remoteWorkspace?.path,
+    remoteWorkspace?.displayName,
+    remoteWorkspace?.uri,
+  ].find((value) => searchText(value, query));
   if (projectMatch) {
     matches.push({ kind: "project", excerpt: projectMatch });
   }
@@ -1207,6 +1255,10 @@ export const webAgentClient: AgentService = {
     return knownProjects.map((project) => ({ ...project }));
   },
 
+  async listKnownRemoteWorkspaces() {
+    return knownRemoteWorkspaces.map((workspace) => ({ ...workspace }));
+  },
+
   async inspectProject(path: string) {
     if (!path.trim()) {
       throw new Error(tr("web.error.projectPathRequired"));
@@ -1226,12 +1278,19 @@ export const webAgentClient: AgentService = {
     if (!agent.supportedInteractionModes.includes(input.interactionMode)) {
       throw new Error(`${agent.displayName} does not support ${input.interactionMode}.`);
     }
-    const projectPath = resolveProjectPath(input);
+    const remoteWorkspace = input.remoteWorkspace ? normalizeRemoteWorkspace(input.remoteWorkspace) : null;
+    if (remoteWorkspace && input.worktree?.enabled) {
+      throw new Error("Remote workspace cannot use Git worktree");
+    }
+    const projectPath = remoteWorkspace ? null : resolveProjectPath(input);
     const inspection = projectPath ? inspectMockProject(projectPath) : null;
     if (inspection) {
       upsertKnownProject(inspection);
     }
-    let effectiveFolder = projectPath;
+    if (remoteWorkspace) {
+      upsertKnownRemoteWorkspace(remoteWorkspace);
+    }
+    let effectiveFolder = remoteWorkspace?.uri ?? projectPath;
     let worktreePath: string | null = null;
     let worktreeName: string | null = null;
     let worktreeBranch: string | null = null;
@@ -1256,6 +1315,7 @@ export const webAgentClient: AgentService = {
       worktreePath,
       worktreeName,
       worktreeBranch,
+      remoteWorkspace,
       runtimeSessionId: null,
       categoryId: null,
       pinned: false,
@@ -1276,7 +1336,7 @@ export const webAgentClient: AgentService = {
     return createWebMockOperation({
       id: `web-session-create-${session.id}-${Date.now()}`,
       kind: "workspace",
-      relatedEntityId: projectPath,
+      relatedEntityId: remoteWorkspace?.uri ?? projectPath,
       message: `Created mock session ${session.id}`,
       terminalStatus: "succeeded",
       error: null,

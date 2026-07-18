@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the eight-tab session workspace, tab lifecycle, Chat composer behavior, execution history, document and report views, localization, themes, and Web preview behavior.
-
 ## Requirements
 ### Requirement: Eight-tab session workspace
 The main content area SHALL provide session-scoped Chat, Changes, Documents, Files, Terminal, Shell, Logs, and Report tabs in that order.
@@ -151,3 +150,15 @@ The desktop runtime SHALL register declared session-workspace and shell commands
 #### Scenario: Run session workspace in Web mode
 - **WHEN** the session workspace runs through the Web/mock adapter
 - **THEN** it SHALL retain the existing Web-compatible service behavior without requiring native command registration
+
+### Requirement: Remote workspace local-tab availability
+Local filesystem-backed session workspace tabs SHALL avoid reading local paths for remote workspace sessions.
+
+#### Scenario: Open local file-backed tab for remote workspace
+- **WHEN** Files, Documents, Changes, or Shell is opened for a remote workspace session before remote execution support exists
+- **THEN** the service SHALL return an unavailable workspace context or reject process creation with a concise unsupported message
+
+#### Scenario: Keep chat available for remote workspace
+- **WHEN** a remote workspace session is selected
+- **THEN** the Chat tab SHALL remain available and the session metadata SHALL identify the remote workspace target
+

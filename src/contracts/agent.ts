@@ -48,6 +48,7 @@ export interface Session {
   worktreePath: string | null;
   worktreeName: string | null;
   worktreeBranch: string | null;
+  remoteWorkspace: RemoteWorkspace | null;
   runtimeSessionId: string | null;
   categoryId: string | null;
   source?: SessionSourceMetadata;
@@ -71,12 +72,30 @@ export interface ProjectInspection {
   gitRoot: string | null;
 }
 
+export interface RemoteWorkspace {
+  host: string;
+  user: string | null;
+  path: string;
+  displayName: string;
+  uri: string;
+}
+
+export interface KnownRemoteWorkspace extends RemoteWorkspace {
+  lastOpenedAt: string;
+}
+
 export interface CreateSessionInput {
   agentId: string;
   interactionMode: InteractionMode;
   title?: string;
   folder?: string | null;
   projectPath?: string | null;
+  remoteWorkspace?: {
+    host: string;
+    user?: string | null;
+    path: string;
+    displayName?: string | null;
+  } | null;
   worktree?: {
     enabled: boolean;
     name?: string;

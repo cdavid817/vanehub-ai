@@ -236,6 +236,37 @@ describe("webAgentClient", () => {
     expect(session.worktreeBranch).toBe("vanehub/feature-a");
   });
 
+  it("creates and searches mock remote workspace sessions", async () => {
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Remote workspace",
+      remoteWorkspace: {
+        host: "remote.example.test",
+        user: "dev",
+        path: "/work/app",
+        displayName: "Remote App",
+      },
+    });
+
+    expect(session.folder).toBe("ssh://dev@remote.example.test/work/app");
+    expect(session.projectPath).toBeNull();
+    expect(session.worktreePath).toBeNull();
+    expect(session.remoteWorkspace).toMatchObject({
+      host: "remote.example.test",
+      user: "dev",
+      path: "/work/app",
+      displayName: "Remote App",
+      uri: "ssh://dev@remote.example.test/work/app",
+    });
+
+    const workspaces = await webAgentClient.listKnownRemoteWorkspaces();
+    expect(workspaces[0]).toMatchObject({ uri: "ssh://dev@remote.example.test/work/app" });
+
+    const results = await webAgentClient.searchSessions({ query: "remote.example.test" });
+    expect(results.some((result) => result.session.id === session.id && result.matches.some((match) => match.kind === "project"))).toBe(true);
+  });
+
   it("rejects invalid or unavailable mock worktree requests", async () => {
     await expect(
       webAgentClient.createSession({
@@ -262,6 +293,25 @@ describe("webAgentClient", () => {
         worktree: { enabled: true, name: "feature-a" },
       }),
     ).rejects.toThrow("Git worktree unavailable");
+  });
+
+  it("rejects incomplete or mixed mock remote workspace requests", async () => {
+    await expect(
+      webAgentClient.createSession({
+        agentId: "codex-cli",
+        interactionMode: "cli",
+        remoteWorkspace: { host: "", path: "/work/app" },
+      }),
+    ).rejects.toThrow("Remote workspace requires host and path");
+
+    await expect(
+      webAgentClient.createSession({
+        agentId: "codex-cli",
+        interactionMode: "cli",
+        remoteWorkspace: { host: "remote.example.test", path: "/work/app" },
+        worktree: { enabled: true, name: "feature-a" },
+      }),
+    ).rejects.toThrow("Remote workspace cannot use Git worktree");
   });
 
   it("stores messages and emits mock streaming events", async () => {

@@ -450,6 +450,7 @@ struct Session {
     worktree_path: Option<String>,
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
+    remote_workspace: Option<RemoteWorkspace>,
     runtime_session_id: Option<String>,
     category_id: Option<String>,
     source: SessionSourceMetadata,
@@ -531,6 +532,27 @@ struct ProjectInspection {
     git_root: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct RemoteWorkspace {
+    host: String,
+    user: Option<String>,
+    path: String,
+    display_name: String,
+    uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct KnownRemoteWorkspace {
+    host: String,
+    user: Option<String>,
+    path: String,
+    display_name: String,
+    uri: String,
+    last_opened_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateSessionInput {
@@ -539,7 +561,17 @@ struct CreateSessionInput {
     title: Option<String>,
     folder: Option<String>,
     project_path: Option<String>,
+    remote_workspace: Option<CreateRemoteWorkspaceInput>,
     worktree: Option<CreateWorktreeInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateRemoteWorkspaceInput {
+    host: String,
+    user: Option<String>,
+    path: String,
+    display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1468,7 +1500,40 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "prompt-hook-management",
         prompt_hooks::apply_schema,
     )?;
+    apply_migration(
+        conn,
+        20,
+        "remote-workspace-sessions",
+        apply_remote_workspace_migration,
+    )?;
 
+    Ok(())
+}
+
+fn apply_remote_workspace_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS known_remote_workspaces (
+            uri TEXT PRIMARY KEY,
+            host TEXT NOT NULL,
+            user TEXT,
+            path TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            last_opened_at TEXT NOT NULL
+        );
+        "#,
+    )?;
+    for column in [
+        "remote_workspace_host",
+        "remote_workspace_user",
+        "remote_workspace_path",
+        "remote_workspace_display_name",
+        "remote_workspace_uri",
+    ] {
+        if !table_has_column(conn, "sessions", column)? {
+            conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {column} TEXT"), [])?;
+        }
+    }
     Ok(())
 }
 
@@ -3375,24 +3440,47 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         worktree_path: row.get(7)?,
         worktree_name: row.get(8)?,
         worktree_branch: row.get(9)?,
-        runtime_session_id: row.get(10)?,
-        category_id: row.get(11)?,
+        remote_workspace: remote_workspace_from_parts(
+            row.get(10)?,
+            row.get(11)?,
+            row.get(12)?,
+            row.get(13)?,
+            row.get(14)?,
+        ),
+        runtime_session_id: row.get(15)?,
+        category_id: row.get(16)?,
         source: SessionSourceMetadata {
-            kind: row.get(12)?,
+            kind: row.get(17)?,
             connector: row
-                .get::<_, Option<String>>(13)?
+                .get::<_, Option<String>>(18)?
                 .as_deref()
                 .and_then(im::models::ConnectorKind::parse),
         },
-        pinned: row.get::<_, i64>(14)? != 0,
-        archived: row.get::<_, i64>(15)? != 0,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        pinned: row.get::<_, i64>(19)? != 0,
+        archived: row.get::<_, i64>(20)? != 0,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
+    })
+}
+
+fn remote_workspace_from_parts(
+    host: Option<String>,
+    user: Option<String>,
+    path: Option<String>,
+    display_name: Option<String>,
+    uri: Option<String>,
+) -> Option<RemoteWorkspace> {
+    Some(RemoteWorkspace {
+        host: host?,
+        user,
+        path: path?,
+        display_name: display_name?,
+        uri: uri?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -3524,6 +3612,90 @@ fn load_known_project_from_row(row: &Row<'_>) -> Result<KnownProject, rusqlite::
         is_git: row.get::<_, i64>(2)? != 0,
         last_opened_at: row.get(3)?,
     })
+}
+
+fn load_known_remote_workspace_from_row(row: &Row<'_>) -> Result<KnownRemoteWorkspace, rusqlite::Error> {
+    Ok(KnownRemoteWorkspace {
+        uri: row.get(0)?,
+        host: row.get(1)?,
+        user: row.get(2)?,
+        path: row.get(3)?,
+        display_name: row.get(4)?,
+        last_opened_at: row.get(5)?,
+    })
+}
+
+fn display_name_for_remote_path(path: &str) -> String {
+    path.trim_end_matches('/')
+        .split('/')
+        .rfind(|value| !value.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn validate_remote_workspace(input: &CreateRemoteWorkspaceInput) -> Result<RemoteWorkspace, AppError> {
+    let host = input.host.trim().to_string();
+    let path = input.path.trim().to_string();
+    let user = input
+        .user
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if host.is_empty() || path.is_empty() {
+        return Err(AppError::Validation("Remote workspace requires host and path".to_string()));
+    }
+    let contains_control = host
+        .chars()
+        .chain(path.chars())
+        .chain(user.as_deref().unwrap_or("").chars())
+        .any(char::is_control);
+    if host.contains('/') || host.contains('\\') || contains_control {
+        return Err(AppError::Validation("Invalid remote workspace".to_string()));
+    }
+    let authority = user
+        .as_ref()
+        .map(|user| format!("{user}@{host}"))
+        .unwrap_or_else(|| host.clone());
+    let display_name = input
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{host}:{}", display_name_for_remote_path(&path)));
+    Ok(RemoteWorkspace {
+        host,
+        user,
+        uri: format!("ssh://{authority}{}{}", if path.starts_with('/') { "" } else { "/" }, path),
+        path,
+        display_name,
+    })
+}
+
+fn upsert_known_remote_workspace(conn: &Connection, remote_workspace: &RemoteWorkspace) -> Result<(), AppError> {
+    let now = current_timestamp();
+    conn.execute(
+        r#"
+        INSERT INTO known_remote_workspaces (uri, host, user, path, display_name, last_opened_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(uri) DO UPDATE SET
+            host = excluded.host,
+            user = excluded.user,
+            path = excluded.path,
+            display_name = excluded.display_name,
+            last_opened_at = excluded.last_opened_at
+        "#,
+        params![
+            remote_workspace.uri,
+            remote_workspace.host,
+            remote_workspace.user,
+            remote_workspace.path,
+            remote_workspace.display_name,
+            now
+        ],
+    )?;
+    Ok(())
 }
 
 fn validate_worktree_name(name: &str) -> Result<String, AppError> {
@@ -6295,6 +6467,22 @@ fn list_known_projects(
 }
 
 #[tauri::command]
+fn list_known_remote_workspaces(
+    state: State<'_, Mutex<RegistryStore>>,
+) -> Result<Vec<KnownRemoteWorkspace>, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let mut stmt = conn.prepare(
+        "SELECT uri, host, user, path, display_name, last_opened_at FROM known_remote_workspaces ORDER BY last_opened_at DESC",
+    )?;
+    let rows = stmt.query_map([], load_known_remote_workspace_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
 fn inspect_project(path: String) -> Result<ProjectInspection, AppError> {
     inspect_project_inner(&path)
 }
@@ -6313,7 +6501,13 @@ fn create_session(
 ) -> Result<tasks::models::OperationTask, AppError> {
     let operation = registry.start(
         tasks::models::OperationKind::Workspace,
-        input.project_path.clone().or(input.folder.clone()),
+        input
+            .remote_workspace
+            .as_ref()
+            .and_then(|workspace| validate_remote_workspace(workspace).ok())
+            .map(|workspace| workspace.uri)
+            .or(input.project_path.clone())
+            .or(input.folder.clone()),
         Some("Creating session".to_string()),
     )?;
     let operation_id = operation.id.clone();
@@ -6373,20 +6567,38 @@ fn create_session_internal(
         ));
     }
 
-    let selected_project = input
-        .project_path
-        .as_deref()
-        .or(input.folder.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let remote_workspace = input
+        .remote_workspace
+        .as_ref()
+        .map(validate_remote_workspace)
+        .transpose()?;
+    if remote_workspace.is_some() && input.worktree.as_ref().is_some_and(|request| request.enabled) {
+        return Err(AppError::Validation(
+            "Remote workspace cannot use Git worktree".to_string(),
+        ));
+    }
+    let selected_project = if remote_workspace.is_some() {
+        None
+    } else {
+        input
+            .project_path
+            .as_deref()
+            .or(input.folder.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
     let inspection = selected_project.map(inspect_project_inner).transpose()?;
     if let Some(inspection) = &inspection {
         upsert_known_project(conn, inspection)?;
+    }
+    if let Some(remote_workspace) = &remote_workspace {
+        upsert_known_remote_workspace(conn, remote_workspace)?;
     }
 
     let mut effective_folder = inspection
         .as_ref()
         .map(|project| project.path.clone())
+        .or_else(|| remote_workspace.as_ref().map(|workspace| workspace.uri.clone()))
         .or(input.folder.clone());
     let mut worktree_path = None;
     let mut worktree_name = None;
@@ -6417,8 +6629,8 @@ fn create_session_internal(
         .unwrap_or_else(|| "新会话".to_string());
     conn.execute(
         "INSERT INTO sessions
-         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, source_kind, source_connector, pinned, archived, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0, ?13, ?14)",
+         (id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, source_kind, source_connector, pinned, archived, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 0, 0, ?18, ?19)",
         params![
             id,
             session_title,
@@ -6430,6 +6642,11 @@ fn create_session_internal(
             worktree_path,
             worktree_name,
             worktree_branch,
+            remote_workspace.as_ref().map(|workspace| workspace.host.clone()),
+            remote_workspace.as_ref().and_then(|workspace| workspace.user.clone()),
+            remote_workspace.as_ref().map(|workspace| workspace.path.clone()),
+            remote_workspace.as_ref().map(|workspace| workspace.display_name.clone()),
+            remote_workspace.as_ref().map(|workspace| workspace.uri.clone()),
             source.kind,
             source.connector.map(im::models::ConnectorKind::as_str),
             now,
@@ -6525,6 +6742,14 @@ fn search_session_matches(
         session.worktree_path.as_deref(),
         session.worktree_name.as_deref(),
         session.worktree_branch.as_deref(),
+        session.remote_workspace.as_ref().map(|workspace| workspace.host.as_str()),
+        session.remote_workspace.as_ref().and_then(|workspace| workspace.user.as_deref()),
+        session.remote_workspace.as_ref().map(|workspace| workspace.path.as_str()),
+        session
+            .remote_workspace
+            .as_ref()
+            .map(|workspace| workspace.display_name.as_str()),
+        session.remote_workspace.as_ref().map(|workspace| workspace.uri.as_str()),
     ];
     if let Some(value) = project_values
         .into_iter()
@@ -6588,6 +6813,11 @@ fn search_sessions_from_conn(
            OR COALESCE(s.worktree_path, '') LIKE ?1 ESCAPE '\'
            OR COALESCE(s.worktree_name, '') LIKE ?1 ESCAPE '\'
            OR COALESCE(s.worktree_branch, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.remote_workspace_host, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.remote_workspace_user, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.remote_workspace_path, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.remote_workspace_display_name, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.remote_workspace_uri, '') LIKE ?1 ESCAPE '\'
            OR EXISTS (
                 SELECT 1 FROM messages m
                 WHERE m.session_id = s.id AND m.content LIKE ?1 ESCAPE '\'
@@ -6601,8 +6831,8 @@ fn search_sessions_from_conn(
         .collect::<Result<Vec<_>, _>>()?;
     ids.into_iter()
         .map(|session_id| {
-            let session = load_session(&conn, &session_id)?;
-            let matches = search_session_matches(&conn, &session, &query, &pattern)?;
+            let session = load_session(conn, &session_id)?;
+            let matches = search_session_matches(conn, &session, &query, &pattern)?;
             Ok(SessionSearchResult { session, matches })
         })
         .collect()
@@ -7523,6 +7753,7 @@ fn handle_im_inbound(
                     title: Some(format!("{} IM", inbound.connector.as_str())),
                     folder: None,
                     project_path: Some(routing.project_path),
+                    remote_workspace: None,
                     worktree: None,
                 },
                 SessionActivation::PreserveActive,
@@ -7739,6 +7970,7 @@ pub fn run() {
             launch_active_workflow,
             get_session_details,
             list_known_projects,
+            list_known_remote_workspaces,
             inspect_project,
             select_project_directory,
             create_session,
@@ -7916,7 +8148,9 @@ mod tests {
 
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            vec![
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+            ]
         );
     }
 
@@ -7931,6 +8165,26 @@ mod tests {
             params!["D:\\code\\app", "app", 1, current_timestamp()],
         )
         .expect("insert project");
+    }
+
+    #[test]
+    fn remote_workspace_migration_adds_tables_and_columns() {
+        let conn = test_conn();
+
+        assert!(table_has_column(&conn, "sessions", "remote_workspace_uri")
+            .expect("remote workspace uri column"));
+        conn.execute(
+            "INSERT INTO known_remote_workspaces (uri, host, user, path, display_name, last_opened_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                "ssh://dev@example.com/work/app",
+                "example.com",
+                "dev",
+                "/work/app",
+                "example app",
+                current_timestamp()
+            ],
+        )
+        .expect("insert remote workspace");
     }
 
     #[test]
@@ -8052,6 +8306,137 @@ mod tests {
     }
 
     #[test]
+    fn remote_workspace_session_persists_history_and_search_metadata() {
+        let conn = test_conn();
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Remote Build".to_string()),
+                folder: None,
+                project_path: None,
+                remote_workspace: Some(CreateRemoteWorkspaceInput {
+                    host: "example.com".to_string(),
+                    user: Some("dev".to_string()),
+                    path: "/work/app".to_string(),
+                    display_name: Some("Remote App".to_string()),
+                }),
+                worktree: None,
+            },
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("remote session");
+
+        let remote = session.remote_workspace.as_ref().expect("remote metadata");
+        assert_eq!(session.folder.as_deref(), Some("ssh://dev@example.com/work/app"));
+        assert_eq!(session.project_path, None);
+        assert_eq!(remote.host, "example.com");
+        assert_eq!(remote.user.as_deref(), Some("dev"));
+        assert_eq!(remote.path, "/work/app");
+        assert_eq!(remote.display_name, "Remote App");
+
+        let mut stmt = conn
+            .prepare("SELECT uri, host, user, path, display_name, last_opened_at FROM known_remote_workspaces")
+            .expect("prepare");
+        let workspaces = stmt
+            .query_map([], load_known_remote_workspace_from_row)
+            .expect("query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("workspaces");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].uri, "ssh://dev@example.com/work/app");
+
+        let search = search_sessions_from_conn(&conn, "example.com", Some(10)).expect("search");
+        assert_eq!(search.len(), 1);
+        assert_eq!(search[0].session.id, session.id);
+        assert!(search[0].matches.iter().any(|entry| entry.kind == "project"));
+    }
+
+    #[test]
+    fn remote_workspace_rejects_incomplete_and_mixed_worktree_input() {
+        let conn = test_conn();
+        let base =
+            |remote_workspace: CreateRemoteWorkspaceInput, worktree: Option<CreateWorktreeInput>| {
+                CreateSessionInput {
+                    agent_id: "codex-cli".to_string(),
+                    interaction_mode: InteractionMode::Cli,
+                    title: Some("Remote".to_string()),
+                    folder: None,
+                    project_path: None,
+                    remote_workspace: Some(remote_workspace),
+                    worktree,
+                }
+            };
+
+        assert!(create_session_internal(
+            &conn,
+            base(
+                CreateRemoteWorkspaceInput {
+                    host: "".to_string(),
+                    user: None,
+                    path: "/work/app".to_string(),
+                    display_name: None,
+                },
+                None,
+            ),
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .is_err());
+
+        assert!(create_session_internal(
+            &conn,
+            base(
+                CreateRemoteWorkspaceInput {
+                    host: "example.com".to_string(),
+                    user: None,
+                    path: "/work/app".to_string(),
+                    display_name: None,
+                },
+                Some(CreateWorktreeInput {
+                    enabled: true,
+                    name: Some("feature-a".to_string()),
+                }),
+            ),
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn remote_workspace_session_does_not_resolve_local_workspace_root() {
+        let conn = test_conn();
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Remote".to_string()),
+                folder: None,
+                project_path: None,
+                remote_workspace: Some(CreateRemoteWorkspaceInput {
+                    host: "example.com".to_string(),
+                    user: None,
+                    path: "/work/app".to_string(),
+                    display_name: None,
+                }),
+                worktree: None,
+            },
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("remote session");
+
+        assert_eq!(
+            session_tabs::resolve_session_root(&conn, &session.id).expect("root"),
+            None
+        );
+    }
+
+    #[test]
     fn session_organization_migration_adds_category_and_reference_storage() {
         let conn = test_conn();
 
@@ -8134,6 +8519,7 @@ mod tests {
                 title: Some("Categorized".to_string()),
                 folder: None,
                 project_path: None,
+                remote_workspace: None,
                 worktree: None,
             },
             SessionActivation::PreserveActive,
@@ -8183,6 +8569,7 @@ mod tests {
                 title: Some("Old active".to_string()),
                 folder: None,
                 project_path: None,
+                remote_workspace: None,
                 worktree: None,
             },
             SessionActivation::PreserveActive,
@@ -8243,6 +8630,7 @@ mod tests {
                 title: Some("Recover me".to_string()),
                 folder: None,
                 project_path: None,
+                remote_workspace: None,
                 worktree: None,
             },
             SessionActivation::Activate,
@@ -8290,6 +8678,7 @@ mod tests {
                 title: Some("Export Me".to_string()),
                 folder: None,
                 project_path: None,
+                remote_workspace: None,
                 worktree: None,
             },
             SessionActivation::PreserveActive,
@@ -8367,6 +8756,8 @@ mod tests {
         assert!(table_has_column(&conn, "sessions", "source_kind").expect("source column"));
         assert!(table_has_column(&conn, "sessions", "source_connector")
             .expect("connector source column"));
+        assert!(table_has_column(&conn, "sessions", "remote_workspace_uri")
+            .expect("remote workspace column"));
     }
 
     #[test]
@@ -8378,6 +8769,7 @@ mod tests {
             title: Some(title.to_string()),
             folder: None,
             project_path: None,
+            remote_workspace: None,
             worktree: None,
         };
         let desktop = create_session_internal(
