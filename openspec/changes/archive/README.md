@@ -45,6 +45,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-17 | upgrade-usage-statistics-monitoring | frontend-runtime-architecture, native-runtime-architecture, session-runtime-management, settings-center-ui, usage-statistics | `openspec/changes/archive/2026-07-17-upgrade-usage-statistics-monitoring/` |
 | 2026-07-18 | add-rich-block-chat-rendering | chat-experience | `openspec/changes/archive/2026-07-18-add-rich-block-chat-rendering/` |
 | 2026-07-18 | add-workspace-activity-bar | main-layout-ui, settings-center-ui | `openspec/changes/archive/2026-07-18-add-workspace-activity-bar/` |
+| 2026-07-18 | enhance-prompt-hook-management | chat-experience, frontend-runtime-architecture, native-runtime-architecture, prompt-hook-management, settings-center-ui, settings-prompt-hooks-ui, unified-log-management | `openspec/changes/archive/2026-07-18-enhance-prompt-hook-management/` |
 | 2026-07-18 | fix-log-performance-and-error-reporting | chat-experience, session-log-viewer, session-workspace-tabs, unified-log-management | `openspec/changes/archive/2026-07-18-fix-log-performance-and-error-reporting/` |
 | 2026-07-18 | optimize-cli-local-environment-management | agent-tool-registry, frontend-runtime-architecture, native-runtime-architecture, settings-center-ui | `openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/` |
 | 2026-07-18 | optimize-cli-management-and-about | settings-cli-management-ui | `openspec/changes/archive/2026-07-18-optimize-cli-management-and-about/` |

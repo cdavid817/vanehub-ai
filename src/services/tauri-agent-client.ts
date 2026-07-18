@@ -21,6 +21,16 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
+  PromptAssemblyPreviewInput,
+  PromptHook,
+  PromptHookListResult,
+  PromptHookMutationInput,
+  PromptHookPreview,
+  PromptHookPreviewInput,
+  PromptHookTraceSummary,
+  PromptHookUpdateInput,
+} from "../types/prompt-hook";
+import type {
   Skill,
   SkillAgentMountPath,
   SkillDriftReport,
@@ -255,6 +265,42 @@ export const tauriAgentClient: AgentService = {
 
   syncSkillDrift(input: SkillScopeInput) {
     return invoke<SkillSyncResult>("sync_skill_drift", { input });
+  },
+
+  listPromptHooks() {
+    return invoke<PromptHookListResult>("list_prompt_hooks");
+  },
+
+  createPromptHook(input: PromptHookMutationInput) {
+    return invoke<PromptHook>("create_prompt_hook", { input });
+  },
+
+  updatePromptHook(hookId: string, input: PromptHookUpdateInput) {
+    return invoke<PromptHook>("update_prompt_hook", { hookId, input });
+  },
+
+  async deletePromptHook(hookId: string) {
+    await invoke<void>("delete_prompt_hook", { hookId });
+  },
+
+  setPromptHookEnabled(hookId: string, enabled: boolean) {
+    return invoke<PromptHook>("set_prompt_hook_enabled", { hookId, enabled });
+  },
+
+  setPromptHookCliBindings(hookId: string, agentIds: string[]) {
+    return invoke<PromptHook>("set_prompt_hook_cli_bindings", { hookId, agentIds });
+  },
+
+  previewPromptHook(input: PromptHookPreviewInput) {
+    return invoke<PromptHookPreview>("preview_prompt_hook", { input });
+  },
+
+  previewPromptAssembly(input: PromptAssemblyPreviewInput) {
+    return invoke<PromptHookPreview>("preview_prompt_assembly", { input });
+  },
+
+  listPromptHookTraces(limit?: number) {
+    return invoke<PromptHookTraceSummary[]>("list_prompt_hook_traces", { limit: limit ?? null });
   },
 
   selectWorkspaceDirectory() {

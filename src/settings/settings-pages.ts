@@ -10,6 +10,7 @@ import {
   Settings,
   SlidersHorizontal,
   Terminal,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import { AgentsPage } from "./pages/agents-page";
@@ -20,6 +21,7 @@ import { ExtensionsPage } from "./pages/extensions-page";
 import { McpPage } from "./pages/mcp-page";
 import { ImPage } from "./pages/im-page";
 import { ProvidersPage } from "./pages/providers-page";
+import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SdkPage } from "./pages/sdk-page";
 import { SkillsPage } from "./pages/skills-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
@@ -33,6 +35,7 @@ export type SettingsPageId =
   | "mcp"
   | "agents"
   | "skills"
+  | "prompt-hooks"
   | "im"
   | "usage"
   | "about";
@@ -123,6 +126,15 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
+  },
+  {
+    id: "prompt-hooks",
+    labelKey: "settings.pages.promptHooks",
+    crumbKey: "settings.pages.promptHooks",
+    icon: Workflow,
+    badge: 7,
+    searchPlaceholderKey: "settings.search.promptHooks",
+    component: PromptHooksPage,
   },
   {
     id: "im",

@@ -23,6 +23,7 @@ mod im;
 mod logging;
 mod mcp;
 mod network_proxy;
+mod prompt_hooks;
 mod sdk;
 mod session_configuration;
 mod session_tabs;
@@ -1370,6 +1371,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         17,
         "message-rich-blocks",
         apply_message_rich_blocks_migration,
+    )?;
+    apply_migration(
+        conn,
+        18,
+        "prompt-hook-management",
+        prompt_hooks::apply_schema,
     )?;
 
     Ok(())
@@ -6053,8 +6060,65 @@ fn submit_chat_message(
     );
     update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
+    let assembled_prompt =
+        match prompt_hooks::assemble_prompt(conn, &selected_agent.id, Some(session_id), &trimmed_content)
+        {
+            Ok(result) => {
+                for trace in &result.trace {
+                    let _ = write_session_runtime_log(
+                        conn,
+                        logging::LogLevel::Debug,
+                        session_id,
+                        &selected_agent.id,
+                        &format!(
+                            "Prompt Hook {} {} hash={} tokens={} reason={}",
+                            trace.hook_id,
+                            trace.status,
+                            trace.content_hash.as_deref().unwrap_or("none"),
+                            trace
+                                .token_estimate
+                                .map(|value| value.to_string())
+                                .unwrap_or_else(|| "none".to_string()),
+                            trace.reason.as_deref().unwrap_or("none")
+                        ),
+                    );
+                }
+                result.effective_prompt
+            }
+            Err(error) => {
+                let concise_error = "Prompt Hook assembly failed".to_string();
+                let _ = write_session_runtime_log(
+                    conn,
+                    logging::LogLevel::Error,
+                    session_id,
+                    &selected_agent.id,
+                    &format!("Prompt Hook assembly failed: {error}"),
+                );
+                let failed =
+                    fail_assistant_message(conn, &assistant_message.id, "", &concise_error)?;
+                update_session_lifecycle(conn, session_id, SessionLifecycleState::Failed)?;
+                runtime.complete(session_id)?;
+                let _ = runtime.finish(
+                    &assistant_message.id,
+                    ChatTerminalResult::Failed(concise_error.clone()),
+                );
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::Failed {
+                        session_id: session_id.to_string(),
+                        message_id: assistant_message.id.clone(),
+                        error: concise_error,
+                    },
+                );
+                return Ok(ChatSubmission {
+                    message: failed,
+                    completion,
+                });
+            }
+        };
+
     let spawned =
-        match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content, &config) {
+        match spawn_cli_generation(conn, &session, &selected_agent, &assembled_prompt, &config) {
             Ok(spawned) => spawned,
             Err(error) => {
                 let concise_error = concise_cli_error(&selected_agent, &error);
@@ -6095,7 +6159,7 @@ fn submit_chat_message(
     let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
     let background_message_id = assistant_message.id.clone();
-    let prompt_len = trimmed_content.chars().count();
+    let prompt_len = assembled_prompt.chars().count();
     thread::spawn(move || {
         run_cli_generation_stream(
             background_app,
@@ -6727,6 +6791,15 @@ pub fn run() {
             skills::commands::detect_skill_drift,
             skills::commands::sync_skill_drift,
             skills::commands::select_workspace_directory,
+            prompt_hooks::list_prompt_hooks,
+            prompt_hooks::create_prompt_hook,
+            prompt_hooks::update_prompt_hook,
+            prompt_hooks::delete_prompt_hook,
+            prompt_hooks::set_prompt_hook_enabled,
+            prompt_hooks::set_prompt_hook_cli_bindings,
+            prompt_hooks::preview_prompt_hook,
+            prompt_hooks::preview_prompt_assembly,
+            prompt_hooks::list_prompt_hook_traces,
             tasks::commands::list_operations,
             tasks::commands::get_operation_status,
             extensions::commands::get_extension_overview,
@@ -6789,7 +6862,7 @@ mod tests {
         assert_eq!(
             versions,
             vec![
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
             ]
         );
     }

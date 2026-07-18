@@ -45,6 +45,16 @@ import type {
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type {
+  PromptAssemblyPreviewInput,
+  PromptHook,
+  PromptHookListResult,
+  PromptHookMutationInput,
+  PromptHookPreview,
+  PromptHookPreviewInput,
+  PromptHookTraceSummary,
+  PromptHookUpdateInput,
+} from "../types/prompt-hook";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
@@ -112,6 +122,15 @@ export interface AgentService {
   importSkill(input: SkillImportInput): Promise<Skill>;
   detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;
   syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
+  listPromptHooks(): Promise<PromptHookListResult>;
+  createPromptHook(input: PromptHookMutationInput): Promise<PromptHook>;
+  updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook>;
+  deletePromptHook(hookId: string): Promise<void>;
+  setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook>;
+  setPromptHookCliBindings(hookId: string, agentIds: string[]): Promise<PromptHook>;
+  previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview>;
+  previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview>;
+  listPromptHookTraces(limit?: number): Promise<PromptHookTraceSummary[]>;
   selectWorkspaceDirectory(): Promise<string | null>;
 }
 

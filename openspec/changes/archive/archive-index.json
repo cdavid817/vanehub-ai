@@ -572,6 +572,25 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "enhance-prompt-hook-management",
+                         "path":  "openspec/changes/archive/2026-07-18-enhance-prompt-hook-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture",
+                                              "prompt-hook-management",
+                                              "settings-center-ui",
+                                              "settings-prompt-hooks-ui",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "fix-log-performance-and-error-reporting",
                          "path":  "openspec/changes/archive/2026-07-18-fix-log-performance-and-error-reporting/",
                          "artifacts":  [

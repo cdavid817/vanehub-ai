@@ -3,6 +3,7 @@ import { seedWebImSessionForTest, webAgentClient } from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
 import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
+import type { PromptHookMutationInput } from "../types/prompt-hook";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -407,5 +408,74 @@ describe("webAgentClient", () => {
 
     const sync = await webAgentClient.syncSkillDrift({ scope: "global" });
     expect(sync.restored).toContain("code-review");
+  });
+
+  it("manages mock Prompt Hooks, previews content, and stores safe traces", async () => {
+    const initial = await webAgentClient.listPromptHooks();
+    expect(initial.hooks.map((hook) => hook.category)).toEqual(
+      expect.arrayContaining(["bootstrap", "callback", "dynamic", "law", "navigation", "routing", "static"]),
+    );
+    expect(initial.stats.builtin).toBeGreaterThanOrEqual(7);
+
+    await expect(webAgentClient.setPromptHookEnabled("law-runtime-boundary", false)).rejects.toThrow("cannot be disabled");
+
+    const disabled = await webAgentClient.setPromptHookEnabled("navigation-project-hints", false);
+    expect(disabled.enabled).toBe(false);
+
+    const rebound = await webAgentClient.setPromptHookCliBindings("navigation-project-hints", ["codex-cli"]);
+    expect(rebound.cliBindings).toEqual(["codex-cli"]);
+    await expect(webAgentClient.setPromptHookCliBindings("navigation-project-hints", ["unknown-cli"])).rejects.toThrow(
+      "Unsupported",
+    );
+
+    const input: PromptHookMutationInput = {
+      id: "user-review-focus",
+      name: "Review Focus",
+      description: "Adds a review-focused instruction.",
+      category: "dynamic",
+      stage: "per-turn",
+      order: 450,
+      templateBody: "Review focus for {{agentId}}: {{sampleInput}}",
+      enabled: true,
+      cliBindings: ["codex-cli"],
+      governance: {
+        safetyTier: "editable",
+        transparencyTier: "visible-by-default",
+        governanceTier: "human-gated",
+      },
+    };
+    const created = await webAgentClient.createPromptHook(input);
+    expect(created.source).toBe("user");
+
+    const preview = await webAgentClient.previewPromptHook({
+      hookId: created.id,
+      agentId: "codex-cli",
+      sampleInput: "check regressions",
+    });
+    expect(preview.renderedContent).toContain("Review focus for codex-cli");
+    expect(preview.trace[0]).toMatchObject({ hookId: created.id, status: "fired" });
+    expect(preview.trace[0]?.contentHash).toBeTruthy();
+
+    const assembly = await webAgentClient.previewPromptAssembly({
+      agentId: "codex-cli",
+      sampleInput: "implement feature",
+    });
+    expect(assembly.renderedContent).toContain("implement feature");
+    expect(assembly.trace.some((trace) => trace.status === "fired")).toBe(true);
+
+    const traces = await webAgentClient.listPromptHookTraces(5);
+    expect(traces.length).toBeGreaterThan(0);
+    expect(traces[0]).not.toHaveProperty("renderedContent");
+
+    const updated = await webAgentClient.updatePromptHook(created.id, {
+      ...input,
+      version: 2,
+      name: "Review Focus Updated",
+    });
+    expect(updated.version).toBe(2);
+    expect(updated.name).toBe("Review Focus Updated");
+
+    await webAgentClient.deletePromptHook(created.id);
+    expect((await webAgentClient.listPromptHooks()).hooks.some((hook) => hook.id === created.id)).toBe(false);
   });
 });

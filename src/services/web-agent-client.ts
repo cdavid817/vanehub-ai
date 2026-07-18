@@ -18,6 +18,17 @@ import { managedCliAgentIds } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
+import type {
+  PromptAssemblyPreviewInput,
+  PromptHook,
+  PromptHookCategory,
+  PromptHookListResult,
+  PromptHookMutationInput,
+  PromptHookPreview,
+  PromptHookPreviewInput,
+  PromptHookTraceSummary,
+  PromptHookUpdateInput,
+} from "../types/prompt-hook";
 import { createWebMockOperation } from "./web-operation-client";
 import type {
   Skill,
@@ -216,6 +227,89 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
 });
 
 const deletedBuiltinSkillIds = new Set<string>();
+
+const promptHookStorageKey = "vanehub.prompt-hooks.v1";
+const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
+
+const defaultPromptHookBindings: ManagedCliAgentId[] = ["claude-code", "codex-cli", "gemini-cli", "opencode"];
+const promptHookCategories: PromptHookCategory[] = ["bootstrap", "callback", "dynamic", "law", "navigation", "routing", "static"];
+
+const builtinPromptHookSeeds: PromptHook[] = [
+  createBuiltinPromptHook({
+    id: "bootstrap-session-context",
+    name: "Session Context",
+    description: "Adds session and workspace context to each CLI prompt.",
+    category: "bootstrap",
+    stage: "session-init",
+    order: 100,
+    disableable: true,
+    templateBody: "Session context: {{sampleInput}}",
+  }),
+  createBuiltinPromptHook({
+    id: "law-runtime-boundary",
+    name: "Runtime Boundary",
+    description: "Keeps CLI behavior inside VaneHub runtime and permission boundaries.",
+    category: "law",
+    stage: "session-init",
+    order: 200,
+    disableable: false,
+    templateBody: "Respect the active VaneHub runtime, permissions, and project boundaries.",
+  }),
+  createBuiltinPromptHook({
+    id: "static-response-format",
+    name: "Response Format",
+    description: "Sets a concise engineering response baseline.",
+    category: "static",
+    stage: "session-init",
+    order: 300,
+    disableable: true,
+    templateBody: "Use direct, actionable engineering responses with concise verification notes.",
+  }),
+  createBuiltinPromptHook({
+    id: "dynamic-session-config",
+    name: "Session Configuration",
+    description: "Summarizes active session configuration for the selected CLI.",
+    category: "dynamic",
+    stage: "per-turn",
+    order: 400,
+    disableable: true,
+    templateBody: "Active CLI: {{agentId}}. User request follows after the hook context.",
+  }),
+  createBuiltinPromptHook({
+    id: "navigation-project-hints",
+    name: "Project Navigation",
+    description: "Encourages grounded project inspection before code changes.",
+    category: "navigation",
+    stage: "per-turn",
+    order: 500,
+    disableable: true,
+    templateBody: "Inspect relevant project files and existing patterns before making changes.",
+  }),
+  createBuiltinPromptHook({
+    id: "routing-cli-capabilities",
+    name: "CLI Capability Routing",
+    description: "Keeps behavior aligned with the selected CLI agent capabilities.",
+    category: "routing",
+    stage: "per-turn",
+    order: 600,
+    disableable: true,
+    templateBody: "Route work through capabilities available to {{agentId}}.",
+  }),
+  createBuiltinPromptHook({
+    id: "callback-future-channel",
+    name: "Callback Channel Placeholder",
+    description: "Reserved placeholder for future callback-aware workflows.",
+    category: "callback",
+    stage: "per-turn",
+    order: 700,
+    disableable: true,
+    enabled: false,
+    templateBody: "Callback channel support is not active in this runtime.",
+  }),
+];
+
+let memoryPromptHooks: Record<string, PromptHook> = {};
+let memoryPromptTraces: PromptHookTraceSummary[] = [];
 
 const webCliTools: CliToolStatus[] = [
   {
@@ -521,6 +615,194 @@ function createMessageId() {
   const id = `web-message-${nextMessageId}`;
   nextMessageId += 1;
   return id;
+}
+
+function createBuiltinPromptHook(input: {
+  id: string;
+  name: string;
+  description: string;
+  category: PromptHookCategory;
+  stage: PromptHook["stage"];
+  order: number;
+  disableable: boolean;
+  templateBody: string;
+  enabled?: boolean;
+}): PromptHook {
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    category: input.category,
+    stage: input.stage,
+    order: input.order,
+    version: 1,
+    source: "builtin",
+    enabled: input.enabled ?? true,
+    disableable: input.disableable,
+    cliBindings: [...defaultPromptHookBindings],
+    governance: {
+      safetyTier: "readonly",
+      transparencyTier: input.disableable ? "opt-in-view" : "visible-by-default",
+      governanceTier: input.disableable ? "human-gated" : "immutable",
+    },
+    templateBody: input.templateBody,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    updatedAt: "2026-07-18T00:00:00.000Z",
+  };
+}
+
+function isManagedCliAgentId(value: string): value is ManagedCliAgentId {
+  return managedCliAgentIds.includes(value as ManagedCliAgentId);
+}
+
+function validatePromptHookInput(input: PromptHookMutationInput | PromptHookUpdateInput) {
+  if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(input.id)) {
+    throw new Error("Invalid Prompt Hook id");
+  }
+  if (!input.name.trim()) throw new Error("Prompt Hook name is required");
+  if (!promptHookCategories.includes(input.category)) throw new Error("Unsupported Prompt Hook category");
+  if (input.stage !== "session-init" && input.stage !== "per-turn") throw new Error("Unsupported Prompt Hook stage");
+  if (!Number.isFinite(input.order) || input.order < 0) throw new Error("Invalid Prompt Hook order");
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(input.templateBody)) {
+    throw new Error("Prompt Hook content contains unsupported control characters");
+  }
+  if (!input.cliBindings.every(isManagedCliAgentId)) throw new Error("Unsupported Prompt Hook CLI binding");
+}
+
+function readStoredPromptHooks(): Record<string, PromptHook> {
+  if (typeof localStorage === "undefined") return memoryPromptHooks;
+  const raw = localStorage.getItem(promptHookStorageKey);
+  if (!raw) return memoryPromptHooks;
+  try {
+    return JSON.parse(raw) as Record<string, PromptHook>;
+  } catch {
+    return memoryPromptHooks;
+  }
+}
+
+function writeStoredPromptHooks(value: Record<string, PromptHook>) {
+  memoryPromptHooks = value;
+  if (typeof localStorage !== "undefined") localStorage.setItem(promptHookStorageKey, JSON.stringify(value));
+}
+
+function readPromptHookTraces(): PromptHookTraceSummary[] {
+  if (typeof localStorage === "undefined") return memoryPromptTraces;
+  const raw = localStorage.getItem(promptHookTraceStorageKey);
+  if (!raw) return memoryPromptTraces;
+  try {
+    return JSON.parse(raw) as PromptHookTraceSummary[];
+  } catch {
+    return memoryPromptTraces;
+  }
+}
+
+function writePromptHookTraces(value: PromptHookTraceSummary[]) {
+  memoryPromptTraces = value.slice(0, 50);
+  if (typeof localStorage !== "undefined") localStorage.setItem(promptHookTraceStorageKey, JSON.stringify(memoryPromptTraces));
+}
+
+function listEffectivePromptHooks(): PromptHook[] {
+  const stored = readStoredPromptHooks();
+  const builtins = builtinPromptHookSeeds.map((hook) => stored[hook.id] ?? hook);
+  const userHooks = Object.values(stored).filter((hook) => hook.source === "user");
+  return [...builtins, ...userHooks].sort((left, right) => {
+    if (left.stage !== right.stage) return left.stage.localeCompare(right.stage);
+    if (left.category !== right.category) return left.category.localeCompare(right.category);
+    return left.order - right.order || left.id.localeCompare(right.id);
+  });
+}
+
+function promptHookStats(hooks: PromptHook[]): PromptHookListResult["stats"] {
+  return {
+    total: hooks.length,
+    enabled: hooks.filter((hook) => hook.enabled).length,
+    builtin: hooks.filter((hook) => hook.source === "builtin").length,
+    user: hooks.filter((hook) => hook.source === "user").length,
+  };
+}
+
+function renderPromptHookTemplate(template: string, input: { agentId: ManagedCliAgentId; sampleInput: string }) {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
+    if (key === "agentId") return input.agentId;
+    if (key === "sampleInput") return input.sampleInput;
+    return match;
+  });
+}
+
+function promptHookHash(content: string) {
+  let hash = 5381;
+  for (let index = 0; index < content.length; index += 1) {
+    hash = (hash * 33) ^ content.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function traceForHook(hook: PromptHook, status: PromptHookTraceSummary["status"], content: string | null, agentId: ManagedCliAgentId, reason?: string): PromptHookTraceSummary {
+  return {
+    id: `web-prompt-trace-${Date.now()}-${hook.id}`,
+    hookId: hook.id,
+    category: hook.category,
+    stage: hook.stage,
+    status,
+    version: status === "fired" ? hook.version : undefined,
+    contentHash: content ? promptHookHash(content) : undefined,
+    tokenEstimate: content ? Math.ceil(content.length / 4) : undefined,
+    reason,
+    agentId,
+    createdAt: nowIso(),
+  };
+}
+
+function assemblePromptHooks(input: PromptAssemblyPreviewInput): PromptHookPreview {
+  const traces: PromptHookTraceSummary[] = [];
+  const rendered: string[] = [];
+  for (const hook of listEffectivePromptHooks()) {
+    if (!hook.enabled) {
+      traces.push(traceForHook(hook, "disabled", null, input.agentId, "disabled"));
+      continue;
+    }
+    if (!hook.cliBindings.includes(input.agentId)) {
+      traces.push(traceForHook(hook, "skipped", null, input.agentId, "unbound-cli"));
+      continue;
+    }
+    const content = renderPromptHookTemplate(hook.templateBody ?? "", {
+      agentId: input.agentId,
+      sampleInput: input.sampleInput,
+    });
+    rendered.push(content);
+    traces.push(traceForHook(hook, "fired", content, input.agentId));
+  }
+  const renderedContent = [...rendered, input.sampleInput].filter(Boolean).join("\n\n");
+  writePromptHookTraces([...traces, ...readPromptHookTraces()]);
+  return { agentId: input.agentId, renderedContent, trace: traces };
+}
+
+function mutationToPromptHook(input: PromptHookMutationInput): PromptHook {
+  validatePromptHookInput(input);
+  const timestamp = nowIso();
+  return {
+    id: input.id,
+    name: input.name.trim(),
+    description: input.description.trim(),
+    category: input.category,
+    stage: input.stage,
+    order: input.order,
+    version: 1,
+    source: "user",
+    enabled: input.enabled,
+    disableable: true,
+    cliBindings: [...input.cliBindings],
+    governance: input.governance,
+    templateBody: input.templateBody,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function findPromptHook(hookId: string) {
+  const hook = listEffectivePromptHooks().find((candidate) => candidate.id === hookId);
+  if (!hook) throw new Error(`Prompt Hook not found: ${hookId}`);
+  return hook;
 }
 
 function getSessionMessages(sessionId: string) {
@@ -1246,6 +1528,97 @@ export const webAgentClient: AgentService = {
       failed: [],
       resolvedFrom: report,
     };
+  },
+
+  async listPromptHooks(): Promise<PromptHookListResult> {
+    const hooks = listEffectivePromptHooks();
+    return { hooks, stats: promptHookStats(hooks) };
+  },
+
+  async createPromptHook(input: PromptHookMutationInput): Promise<PromptHook> {
+    const stored = readStoredPromptHooks();
+    if (listEffectivePromptHooks().some((hook) => hook.id === input.id)) {
+      throw new Error(`Prompt Hook already exists: ${input.id}`);
+    }
+    const hook = mutationToPromptHook(input);
+    writeStoredPromptHooks({ ...stored, [hook.id]: hook });
+    return hook;
+  },
+
+  async updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook> {
+    const current = findPromptHook(hookId);
+    if (current.source === "builtin") {
+      throw new Error("Built-in Prompt Hook content cannot be edited");
+    }
+    if (input.id !== hookId) {
+      throw new Error("Prompt Hook id cannot be changed");
+    }
+    validatePromptHookInput(input);
+    const updated: PromptHook = {
+      ...current,
+      name: input.name.trim(),
+      description: input.description.trim(),
+      category: input.category,
+      stage: input.stage,
+      order: input.order,
+      version: input.version,
+      enabled: input.enabled,
+      cliBindings: [...input.cliBindings],
+      governance: input.governance,
+      templateBody: input.templateBody,
+      updatedAt: nowIso(),
+    };
+    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
+    return updated;
+  },
+
+  async deletePromptHook(hookId: string): Promise<void> {
+    const current = findPromptHook(hookId);
+    if (current.source === "builtin") {
+      throw new Error("Built-in Prompt Hook cannot be deleted");
+    }
+    const stored = { ...readStoredPromptHooks() };
+    delete stored[hookId];
+    writeStoredPromptHooks(stored);
+  },
+
+  async setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook> {
+    const current = findPromptHook(hookId);
+    if (!enabled && !current.disableable) {
+      throw new Error("Prompt Hook cannot be disabled");
+    }
+    const updated = { ...current, enabled, updatedAt: nowIso() };
+    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
+    return updated;
+  },
+
+  async setPromptHookCliBindings(hookId: string, agentIds: string[]): Promise<PromptHook> {
+    if (!agentIds.every(isManagedCliAgentId)) throw new Error("Unsupported Prompt Hook CLI binding");
+    const current = findPromptHook(hookId);
+    const cliBindings = Array.from(new Set(agentIds));
+    const updated = { ...current, cliBindings, updatedAt: nowIso() };
+    writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
+    return updated;
+  },
+
+  async previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview> {
+    const hook = findPromptHook(input.hookId);
+    const sampleInput = input.sampleInput ?? "Preview request";
+    const renderedContent = renderPromptHookTemplate(hook.templateBody ?? "", {
+      agentId: input.agentId,
+      sampleInput,
+    });
+    const trace = [traceForHook(hook, hook.enabled ? "fired" : "disabled", hook.enabled ? renderedContent : null, input.agentId, hook.enabled ? undefined : "disabled")];
+    writePromptHookTraces([...trace, ...readPromptHookTraces()]);
+    return { hookId: hook.id, agentId: input.agentId, renderedContent, trace };
+  },
+
+  async previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview> {
+    return assemblePromptHooks(input);
+  },
+
+  async listPromptHookTraces(limit = 25): Promise<PromptHookTraceSummary[]> {
+    return readPromptHookTraces().slice(0, limit);
   },
 
   async selectWorkspaceDirectory() {

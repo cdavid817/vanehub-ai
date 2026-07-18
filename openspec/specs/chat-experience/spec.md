@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines the main-window chat experience, including prompt submission, selector-driven chat configuration, conversation history rendering, streamed assistant output, cancellation, persistence, and service boundary rules.
-
 ## Requirements
 ### Requirement: Chat input submits user messages
 The system SHALL allow the user to submit a non-empty text message from the main chat input for the active session through the frontend agent service.
@@ -345,3 +344,34 @@ The first Rich Block implementation SHALL treat `interactive` blocks as read-onl
 - **WHEN** a message contains an `interactive` Rich Block
 - **THEN** the UI SHALL show the title, description, and options without sending chat messages or invoking native commands from option clicks
 - **AND** the UI SHALL show localized text indicating that interactive actions are not enabled yet
+
+### Requirement: CLI chat applies Prompt Hooks before provider invocation
+The desktop CLI chat runtime SHALL assemble enabled Prompt Hooks into the effective prompt before launching a provider CLI process.
+
+#### Scenario: Apply hooks for bound CLI
+- **WHEN** a user sends a message to an active non-archived CLI session whose stable agent id has enabled Prompt Hooks bound to it
+- **THEN** the desktop runtime SHALL assemble those hooks with the user content before provider invocation
+- **AND** the provider-specific invocation builder SHALL receive the assembled effective prompt
+
+#### Scenario: Skip unbound hooks
+- **WHEN** a Prompt Hook is not bound to the active session's stable agent id
+- **THEN** the desktop runtime SHALL skip that hook for the invocation
+
+#### Scenario: Preserve original user message
+- **WHEN** Prompt Hooks are applied to a chat invocation
+- **THEN** the persisted and displayed user message SHALL remain the original trimmed user input
+- **AND** the assembled effective prompt SHALL NOT replace the user-visible message content
+
+#### Scenario: Hook assembly failure
+- **WHEN** Prompt Hook assembly fails during chat send
+- **THEN** the user message SHALL remain persisted
+- **AND** the assistant message SHALL be marked `failed` with a concise user-facing error
+- **AND** detailed redacted diagnostics SHALL be written through unified logging
+
+### Requirement: Web runtime preserves Prompt Hook chat parity
+The Web/mock runtime SHALL preserve the Prompt Hook chat contract without claiming native CLI execution.
+
+#### Scenario: Web mock applies deterministic hook preview
+- **WHEN** the Web/mock adapter sends a mock chat message with enabled Prompt Hooks
+- **THEN** it SHALL use deterministic Prompt Hook assembly behavior for mock response metadata or trace behavior
+- **AND** it SHALL preserve the same original user-message display semantics as desktop mode
