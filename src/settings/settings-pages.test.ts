@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
+  it("registers Plugin Integrations after Extension Capabilities and before MCP", () => {
+    const extensionsIndex = settingsPages.findIndex((page) => page.id === "extensions");
+    const pluginsIndex = settingsPages.findIndex((page) => page.id === "plugins");
+    const mcpIndex = settingsPages.findIndex((page) => page.id === "mcp");
+
+    expect(pluginsIndex).toBeGreaterThan(-1);
+    expect(pluginsIndex).toBe(extensionsIndex + 1);
+    expect(pluginsIndex).toBe(mcpIndex - 1);
+    expect(settingsPages[pluginsIndex]).toMatchObject({
+      labelKey: "settings.pages.plugins",
+      searchPlaceholderKey: "settings.search.plugins",
+      badge: 1,
+    });
+  });
+
   it("registers IM before Usage Statistics and About", () => {
     const imIndex = settingsPages.findIndex((page) => page.id === "im");
     const usageIndex = settingsPages.findIndex((page) => page.id === "usage");
