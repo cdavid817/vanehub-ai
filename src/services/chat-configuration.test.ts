@@ -15,6 +15,7 @@ const session: Session = {
   worktreeName: null,
   worktreeBranch: null,
   runtimeSessionId: null,
+  categoryId: null,
   pinned: false,
   archived: false,
   createdAt: "2026-07-17T00:00:00.000Z",

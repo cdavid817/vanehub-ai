@@ -2,13 +2,13 @@ use chrono::{Duration as ChronoDuration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    mpsc,
-    Arc, Mutex,
+    mpsc, Arc, Mutex,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -120,7 +120,7 @@ enum AvailabilityState {
     Unknown,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 enum SessionLifecycleState {
     Idle,
@@ -353,6 +353,8 @@ struct AppSettings {
     log_directory: String,
     network_proxy_url: String,
     network_proxy_bypass: String,
+    automatic_archival_enabled: bool,
+    automatic_archival_inactive_days: i64,
     logging_policy: logging::LoggingPolicy,
 }
 
@@ -361,6 +363,13 @@ struct AppSettings {
 struct SaveSettingInput {
     key: String,
     value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct AutomaticArchivalSettings {
+    enabled: bool,
+    inactive_days: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -393,6 +402,7 @@ struct Session {
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
     runtime_session_id: Option<String>,
+    category_id: Option<String>,
     source: SessionSourceMetadata,
     pinned: bool,
     archived: bool,
@@ -405,6 +415,31 @@ struct Session {
 struct SessionSourceMetadata {
     kind: String,
     connector: Option<im::models::ConnectorKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSearchMatch {
+    kind: String,
+    excerpt: String,
+    message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSearchResult {
+    session: Session,
+    matches: Vec<SessionSearchMatch>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionCategory {
+    id: String,
+    name: String,
+    sort_order: i64,
+    created_at: String,
+    updated_at: String,
 }
 
 impl SessionSourceMetadata {
@@ -496,6 +531,16 @@ struct TokenUsage {
     output: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ChatFileReference {
+    id: String,
+    path: String,
+    name: String,
+    size_bytes: Option<i64>,
+    content_hash: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 enum UsageStatisticsRange {
@@ -528,9 +573,34 @@ struct ChatMessage {
     tool_use: Option<Vec<ToolUseBlock>>,
     thinking_content: Option<String>,
     token_usage: Option<TokenUsage>,
+    file_references: Option<Vec<ChatFileReference>>,
     error: Option<String>,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionExportPayload {
+    version: i64,
+    exported_at: String,
+    session: Session,
+    messages: Vec<ChatMessage>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum SessionExportFormat {
+    Json,
+    Markdown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionExportResult {
+    status: String,
+    path: Option<String>,
+    content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1309,7 +1379,51 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "cli-local-environment-details",
         apply_cli_environment_details_migration,
     )?;
+    apply_migration(
+        conn,
+        17,
+        "session-management-organization",
+        apply_session_management_organization_migration,
+    )?;
 
+    Ok(())
+}
+
+fn apply_session_management_organization_migration(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS session_categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_session_categories_sort
+            ON session_categories(sort_order, name);
+        "#,
+    )?;
+    if !table_has_column(conn, "sessions", "category_id")? {
+        conn.execute("ALTER TABLE sessions ADD COLUMN category_id TEXT", [])?;
+    }
+    if !table_has_column(conn, "messages", "file_references")? {
+        conn.execute("ALTER TABLE messages ADD COLUMN file_references TEXT", [])?;
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_category_updated ON sessions(category_id, updated_at)",
+        [],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value, created_at, updated_at)
+         VALUES ('automaticArchivalEnabled', 'true', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        [],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value, created_at, updated_at)
+         VALUES ('automaticArchivalInactiveDays', '10', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        [],
+    )?;
     Ok(())
 }
 
@@ -1832,9 +1946,7 @@ fn status_from_row(
                 .unwrap_or_default(),
             active_installation_path: row.active_installation_path,
             conflict_state: parse_cli_conflict_state(&row.conflict_state),
-            lifecycle_eligibility: parse_cli_lifecycle_eligibility(
-                &row.lifecycle_eligibility,
-            ),
+            lifecycle_eligibility: parse_cli_lifecycle_eligibility(&row.lifecycle_eligibility),
         };
     }
 
@@ -2092,12 +2204,7 @@ fn known_cli_candidate_paths(definition: CliToolDefinition) -> Vec<PathBuf> {
     {
         if let Some(home) = std::env::var_os("HOME") {
             let home = PathBuf::from(home);
-            for relative in [
-                ".local/bin",
-                ".npm-global/bin",
-                ".volta/bin",
-                ".bun/bin",
-            ] {
+            for relative in [".local/bin", ".npm-global/bin", ".volta/bin", ".bun/bin"] {
                 candidates.push(home.join(relative).join(definition.executable_name));
             }
         }
@@ -2146,10 +2253,19 @@ fn enumerate_cli_candidates(definition: CliToolDefinition) -> Vec<PathBuf> {
 }
 
 fn classify_cli_install_source(path: &Path) -> CliInstallSource {
-    let value = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    let value = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     let parent = path.parent();
     let npm_sibling = parent
-        .map(|parent| parent.join(if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" }))
+        .map(|parent| {
+            parent.join(if cfg!(target_os = "windows") {
+                "npm.cmd"
+            } else {
+                "npm"
+            })
+        })
         .is_some_and(|candidate| candidate.is_file());
     if value.contains("/microsoft/winget/packages/") || value.contains("/microsoft/winget/links/") {
         CliInstallSource::Winget
@@ -2180,8 +2296,12 @@ fn derive_cli_conflict_state(installations: &[CliInstallation]) -> CliConflictSt
     if installations.len() <= 1 {
         return CliConflictState::None;
     }
-    let has_runnable = installations.iter().any(|installation| installation.runnable);
-    let has_broken = installations.iter().any(|installation| !installation.runnable);
+    let has_runnable = installations
+        .iter()
+        .any(|installation| installation.runnable);
+    let has_broken = installations
+        .iter()
+        .any(|installation| !installation.runnable);
     if has_runnable && has_broken {
         return CliConflictState::RunnableMismatch;
     }
@@ -2347,7 +2467,9 @@ fn detect_cli_tool(
     }
 
     let installed = !installations.is_empty();
-    let active = installations.iter().find(|installation| installation.is_active);
+    let active = installations
+        .iter()
+        .find(|installation| installation.is_active);
     let detected_path = active.map(|installation| installation.path.clone());
     let current_version = active.and_then(|installation| installation.version.clone());
     let conflict_state = derive_cli_conflict_state(&installations);
@@ -2659,6 +2781,8 @@ fn default_app_settings() -> AppSettings {
         log_directory: fallback_log_dir().to_string_lossy().to_string(),
         network_proxy_url: String::new(),
         network_proxy_bypass: network_proxy::DEFAULT_BYPASS.to_string(),
+        automatic_archival_enabled: true,
+        automatic_archival_inactive_days: 10,
         logging_policy: logging::policy(true),
     }
 }
@@ -2672,6 +2796,11 @@ fn validate_setting_value(key: &str, value: &str) -> Result<(), AppError> {
         "logDirectory" => !value.trim().is_empty(),
         "networkProxyUrl" => network_proxy::normalize_proxy_url(value).is_ok(),
         "networkProxyBypass" => network_proxy::normalize_bypass(value).is_ok(),
+        "automaticArchivalEnabled" => matches!(value, "true" | "false"),
+        "automaticArchivalInactiveDays" => value
+            .parse::<i64>()
+            .map(|days| (1..=3650).contains(&days))
+            .unwrap_or(false),
         _ => false,
     };
     if valid {
@@ -2726,6 +2855,15 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
     let network_proxy_bypass = load_setting_value(conn, "networkProxyBypass")?
         .and_then(|value| network_proxy::normalize_bypass(&value).ok())
         .unwrap_or(defaults.network_proxy_bypass);
+    let automatic_archival_enabled = load_setting_value(conn, "automaticArchivalEnabled")?
+        .filter(|value| validate_setting_value("automaticArchivalEnabled", value).is_ok())
+        .map(|value| value == "true")
+        .unwrap_or(defaults.automatic_archival_enabled);
+    let automatic_archival_inactive_days =
+        load_setting_value(conn, "automaticArchivalInactiveDays")?
+            .filter(|value| validate_setting_value("automaticArchivalInactiveDays", value).is_ok())
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(defaults.automatic_archival_inactive_days);
     network_proxy::apply(&network_proxy_url, &network_proxy_bypass)?;
 
     Ok(AppSettings {
@@ -2736,6 +2874,8 @@ fn get_settings_from_conn(conn: &Connection) -> Result<AppSettings, AppError> {
         log_directory,
         network_proxy_url,
         network_proxy_bypass,
+        automatic_archival_enabled,
+        automatic_archival_inactive_days,
         logging_policy: logging::policy(true),
     })
 }
@@ -2761,6 +2901,41 @@ fn save_setting_to_conn(
     let settings = get_settings_from_conn(conn)?;
     network_proxy::apply(&settings.network_proxy_url, &settings.network_proxy_bypass)?;
     Ok(settings)
+}
+
+fn get_automatic_archival_settings_from_conn(
+    conn: &Connection,
+) -> Result<AutomaticArchivalSettings, AppError> {
+    let settings = get_settings_from_conn(conn)?;
+    Ok(AutomaticArchivalSettings {
+        enabled: settings.automatic_archival_enabled,
+        inactive_days: settings.automatic_archival_inactive_days,
+    })
+}
+
+fn save_automatic_archival_settings_to_conn(
+    conn: &Connection,
+    input: &AutomaticArchivalSettings,
+) -> Result<AutomaticArchivalSettings, AppError> {
+    validate_setting_value(
+        "automaticArchivalEnabled",
+        if input.enabled { "true" } else { "false" },
+    )?;
+    validate_setting_value(
+        "automaticArchivalInactiveDays",
+        &input.inactive_days.to_string(),
+    )?;
+    save_setting_to_conn(
+        conn,
+        "automaticArchivalEnabled",
+        if input.enabled { "true" } else { "false" },
+    )?;
+    save_setting_to_conn(
+        conn,
+        "automaticArchivalInactiveDays",
+        &input.inactive_days.to_string(),
+    )?;
+    get_automatic_archival_settings_from_conn(conn)
 }
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
@@ -2824,22 +2999,23 @@ fn load_session_from_row(row: &Row<'_>) -> Result<Session, rusqlite::Error> {
         worktree_name: row.get(8)?,
         worktree_branch: row.get(9)?,
         runtime_session_id: row.get(10)?,
+        category_id: row.get(11)?,
         source: SessionSourceMetadata {
-            kind: row.get(11)?,
+            kind: row.get(12)?,
             connector: row
-                .get::<_, Option<String>>(12)?
+                .get::<_, Option<String>>(13)?
                 .as_deref()
                 .and_then(im::models::ConnectorKind::parse),
         },
-        pinned: row.get::<_, i64>(13)? != 0,
-        archived: row.get::<_, i64>(14)? != 0,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        pinned: row.get::<_, i64>(14)? != 0,
+        archived: row.get::<_, i64>(15)? != 0,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
     })
 }
 
 fn session_select_sql() -> &'static str {
-    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
+    "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions"
 }
 
 fn load_session(conn: &Connection, session_id: &str) -> Result<Session, AppError> {
@@ -3053,6 +3229,10 @@ fn load_chat_message_from_row(row: &Row<'_>) -> Result<ChatMessage, rusqlite::Er
     let tool_use = tool_use_json
         .as_deref()
         .and_then(|value| serde_json::from_str::<Vec<ToolUseBlock>>(value).ok());
+    let file_references_json: Option<String> = row.get(10)?;
+    let file_references = file_references_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Vec<ChatFileReference>>(value).ok());
     let token_input = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
     let token_output = row.get::<_, Option<i64>>(8)?.unwrap_or(0);
     let token_usage = if token_input > 0 || token_output > 0 {
@@ -3072,14 +3252,15 @@ fn load_chat_message_from_row(row: &Row<'_>) -> Result<ChatMessage, rusqlite::Er
         thinking_content: row.get(5)?,
         tool_use,
         token_usage,
+        file_references,
         error: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
 fn message_select_sql() -> &'static str {
-    "SELECT id, session_id, role, status, content, thinking_content, tool_use, token_input, token_output, metadata, created_at, updated_at FROM messages"
+    "SELECT id, session_id, role, status, content, thinking_content, tool_use, token_input, token_output, metadata, file_references, created_at, updated_at FROM messages"
 }
 
 fn insert_chat_message(
@@ -3089,15 +3270,60 @@ fn insert_chat_message(
     status: &str,
     content: &str,
 ) -> Result<ChatMessage, AppError> {
+    insert_chat_message_with_references(conn, session_id, role, status, content, None)
+}
+
+fn insert_chat_message_with_references(
+    conn: &Connection,
+    session_id: &str,
+    role: &str,
+    status: &str,
+    content: &str,
+    file_references: Option<&Vec<ChatFileReference>>,
+) -> Result<ChatMessage, AppError> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = current_timestamp();
+    let file_references_json = file_references
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| AppError::Storage(error.to_string()))?;
     conn.execute(
         "INSERT INTO messages
-         (id, session_id, role, status, content, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![id, session_id, role, status, content, now, now],
+         (id, session_id, role, status, content, file_references, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, session_id, role, status, content, file_references_json, now, now],
     )?;
     load_chat_message(conn, &id)
+}
+
+fn compose_prompt_with_file_references(
+    conn: &Connection,
+    session_id: &str,
+    content: &str,
+    file_references: Option<&Vec<ChatFileReference>>,
+) -> Result<String, AppError> {
+    let Some(file_references) = file_references else {
+        return Ok(content.to_string());
+    };
+    if file_references.is_empty() {
+        return Ok(content.to_string());
+    }
+    if file_references.len() > 5 {
+        return Err(AppError::Validation(
+            "At most 5 files can be referenced in one message.".to_string(),
+        ));
+    }
+    let mut prompt = content.to_string();
+    prompt.push_str("\n\nReferenced files:\n");
+    for reference in file_references {
+        let file = session_tabs::read_session_text_file(conn, session_id, &reference.path)?;
+        let file_content = file.content.unwrap_or_default();
+        prompt.push_str(&format!(
+            "\n--- FILE: {} ---\n{}\n--- END FILE: {} ---\n",
+            reference.path, file_content, reference.path
+        ));
+    }
+    Ok(prompt)
 }
 
 fn load_chat_message(conn: &Connection, message_id: &str) -> Result<ChatMessage, AppError> {
@@ -3140,6 +3366,201 @@ fn list_chat_messages(
     };
     messages.reverse();
     Ok(messages)
+}
+
+fn list_all_chat_messages(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<ChatMessage>, AppError> {
+    load_session(conn, session_id)?;
+    let mut stmt = conn.prepare(&format!(
+        "{} WHERE session_id = ?1 ORDER BY created_at ASC",
+        message_select_sql()
+    ))?;
+    let rows = stmt.query_map(params![session_id], load_chat_message_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::Database)
+}
+
+fn build_session_export_payload(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<SessionExportPayload, AppError> {
+    let session = load_session(conn, session_id)?;
+    let messages = list_all_chat_messages(conn, session_id)?;
+    Ok(SessionExportPayload {
+        version: 1,
+        exported_at: current_timestamp(),
+        session,
+        messages,
+    })
+}
+
+fn serialize_session_export_json(payload: &SessionExportPayload) -> Result<String, AppError> {
+    serde_json::to_string_pretty(payload).map_err(|error| AppError::Storage(error.to_string()))
+}
+
+fn markdown_code_block(language: &str, content: &str) -> String {
+    let fence = if content.contains("```") {
+        "````"
+    } else {
+        "```"
+    };
+    format!("{fence}{language}\n{content}\n{fence}\n")
+}
+
+fn serialize_session_export_markdown(payload: &SessionExportPayload) -> Result<String, AppError> {
+    let mut output = String::new();
+    output.push_str(&format!("# {}\n\n", payload.session.title));
+    output.push_str("## Session\n\n");
+    output.push_str(&format!("- ID: `{}`\n", payload.session.id));
+    output.push_str(&format!("- Agent: `{}`\n", payload.session.agent_id));
+    output.push_str(&format!(
+        "- Interaction mode: `{}`\n",
+        payload.session.interaction_mode.as_str()
+    ));
+    output.push_str(&format!(
+        "- Lifecycle: `{}`\n",
+        payload.session.lifecycle_state.as_str()
+    ));
+    output.push_str(&format!("- Archived: `{}`\n", payload.session.archived));
+    output.push_str(&format!("- Pinned: `{}`\n", payload.session.pinned));
+    if let Some(category_id) = &payload.session.category_id {
+        output.push_str(&format!("- Category ID: `{category_id}`\n"));
+    }
+    if let Some(folder) = &payload.session.folder {
+        output.push_str(&format!("- Folder: `{folder}`\n"));
+    }
+    if let Some(project_path) = &payload.session.project_path {
+        output.push_str(&format!("- Project: `{project_path}`\n"));
+    }
+    output.push_str(&format!("- Created: `{}`\n", payload.session.created_at));
+    output.push_str(&format!("- Updated: `{}`\n", payload.session.updated_at));
+    output.push_str(&format!("- Exported: `{}`\n\n", payload.exported_at));
+    output.push_str("## Messages\n\n");
+    for message in &payload.messages {
+        output.push_str(&format!(
+            "### {} - `{}`\n\n",
+            message.role.to_uppercase(),
+            message.status
+        ));
+        output.push_str(&format!("- Message ID: `{}`\n", message.id));
+        output.push_str(&format!("- Created: `{}`\n", message.created_at));
+        if let Some(usage) = &message.token_usage {
+            output.push_str(&format!(
+                "- Token usage: input `{}`, output `{}`\n",
+                usage.input, usage.output
+            ));
+        }
+        if let Some(references) = &message.file_references {
+            if !references.is_empty() {
+                output.push_str("- File references:\n");
+                for reference in references {
+                    output.push_str(&format!("  - `{}`\n", reference.path));
+                }
+            }
+        }
+        output.push('\n');
+        output.push_str(&message.content);
+        output.push_str("\n\n");
+        if let Some(thinking) = &message.thinking_content {
+            output.push_str("#### Thinking\n\n");
+            output.push_str(&markdown_code_block("", thinking));
+            output.push('\n');
+        }
+        if let Some(tool_use) = &message.tool_use {
+            if !tool_use.is_empty() {
+                output.push_str("#### Tool Use\n\n");
+                let raw = serde_json::to_string_pretty(tool_use)
+                    .map_err(|error| AppError::Storage(error.to_string()))?;
+                output.push_str(&markdown_code_block("json", &raw));
+                output.push('\n');
+            }
+        }
+        if let Some(error) = &message.error {
+            output.push_str("#### Error\n\n");
+            output.push_str(&markdown_code_block("", error));
+            output.push('\n');
+        }
+    }
+    Ok(output)
+}
+
+fn serialize_session_export(
+    payload: &SessionExportPayload,
+    format: SessionExportFormat,
+) -> Result<String, AppError> {
+    match format {
+        SessionExportFormat::Json => serialize_session_export_json(payload),
+        SessionExportFormat::Markdown => serialize_session_export_markdown(payload),
+    }
+}
+
+fn export_file_extension(format: SessionExportFormat) -> &'static str {
+    match format {
+        SessionExportFormat::Json => "json",
+        SessionExportFormat::Markdown => "md",
+    }
+}
+
+fn safe_export_filename(session: &Session, format: SessionExportFormat) -> String {
+    let mut title = session
+        .title
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while title.contains("--") {
+        title = title.replace("--", "-");
+    }
+    let title = title.trim_matches('-');
+    let title = if title.is_empty() { "session" } else { title };
+    format!("{}-{}.{}", title, session.id, export_file_extension(format))
+}
+
+fn export_session_to_directory(
+    conn: &Connection,
+    session_id: &str,
+    format: SessionExportFormat,
+    destination_directory: Option<&str>,
+) -> Result<SessionExportResult, AppError> {
+    let Some(destination_directory) = destination_directory
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(SessionExportResult {
+            status: "cancelled".to_string(),
+            path: None,
+            content: None,
+        });
+    };
+    let destination = PathBuf::from(destination_directory);
+    if !destination.is_dir() {
+        return Err(AppError::Validation(
+            "Export destination directory is unavailable.".to_string(),
+        ));
+    }
+    let payload = build_session_export_payload(conn, session_id)?;
+    let content = serialize_session_export(&payload, format)?;
+    let path = destination.join(safe_export_filename(&payload.session, format));
+    fs::write(&path, content).map_err(|error| {
+        record_native_log(
+            NativeLogLevel::Error,
+            "session.export",
+            &format!("Failed to write session export: {error}"),
+        );
+        AppError::Storage("Session export failed".to_string())
+    })?;
+    Ok(SessionExportResult {
+        status: "exported".to_string(),
+        path: Some(path.to_string_lossy().to_string()),
+        content: None,
+    })
 }
 
 fn usage_range_start(range: UsageStatisticsRange) -> Option<String> {
@@ -3365,6 +3786,118 @@ fn update_session_flag(
     load_session(conn, session_id)
 }
 
+fn recover_orphan_session_state(conn: &Connection) -> Result<usize, AppError> {
+    let mut stmt = conn.prepare(&format!(
+        "{} WHERE lifecycle_state IN ('starting', 'running')",
+        session_select_sql()
+    ))?;
+    let sessions = stmt
+        .query_map([], load_session_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let now = current_timestamp();
+    let mut recovered = 0usize;
+    for session in sessions {
+        conn.execute(
+            "UPDATE messages
+             SET status = 'failed',
+                 metadata = COALESCE(metadata, 'Recovered after application restart.'),
+                 updated_at = ?1
+             WHERE session_id = ?2
+               AND role = 'assistant'
+               AND status IN ('pending', 'streaming')",
+            params![&now, &session.id],
+        )?;
+        update_session_lifecycle(conn, &session.id, SessionLifecycleState::Failed)?;
+        let _ = write_session_runtime_log(
+            conn,
+            logging::LogLevel::Warn,
+            &session.id,
+            &session.agent_id,
+            &format!(
+                "Recovered orphan session state after startup. previousLifecycle={} newLifecycle=failed",
+                session.lifecycle_state.as_str()
+            ),
+        );
+        recovered += 1;
+    }
+    Ok(recovered)
+}
+
+fn archive_inactive_sessions(
+    conn: &Connection,
+    now: chrono::DateTime<Utc>,
+) -> Result<usize, AppError> {
+    let settings = get_automatic_archival_settings_from_conn(conn)?;
+    if !settings.enabled {
+        return Ok(0);
+    }
+    let cutoff = (now - ChronoDuration::days(settings.inactive_days)).to_rfc3339();
+    let mut stmt = conn.prepare(&format!(
+        "{} WHERE archived = 0
+             AND pinned = 0
+             AND lifecycle_state NOT IN ('starting', 'running')
+             AND updated_at < ?1
+         ORDER BY updated_at ASC",
+        session_select_sql()
+    ))?;
+    let sessions = stmt
+        .query_map(params![cutoff], load_session_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let archived_at = now.to_rfc3339();
+    for session in &sessions {
+        conn.execute(
+            "UPDATE sessions SET archived = 1, updated_at = ?1 WHERE id = ?2",
+            params![&archived_at, &session.id],
+        )?;
+        let _ = write_session_runtime_log(
+            conn,
+            logging::LogLevel::Info,
+            &session.id,
+            &session.agent_id,
+            "Automatically archived inactive session.",
+        );
+    }
+    Ok(sessions.len())
+}
+
+fn run_session_maintenance_once(app: &AppHandle) -> Result<(), AppError> {
+    let state = app.state::<Mutex<RegistryStore>>();
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let recovered = recover_orphan_session_state(&conn)?;
+    let archived = archive_inactive_sessions(&conn, Utc::now())?;
+    if recovered > 0 || archived > 0 {
+        record_native_log(
+            NativeLogLevel::Info,
+            "session.maintenance",
+            &format!("Session maintenance completed. recovered={recovered} archived={archived}"),
+        );
+    }
+    Ok(())
+}
+
+fn start_session_maintenance_jobs(app: AppHandle) {
+    if let Err(error) = run_session_maintenance_once(&app) {
+        record_native_log(
+            NativeLogLevel::Error,
+            "session.maintenance",
+            &format!("Startup session maintenance failed: {error}"),
+        );
+    }
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(60 * 60));
+        if let Err(error) = run_session_maintenance_once(&app) {
+            record_native_log(
+                NativeLogLevel::Error,
+                "session.maintenance",
+                &format!("Scheduled session maintenance failed: {error}"),
+            );
+        }
+    });
+}
+
 fn load_agent(conn: &Connection, agent_id: &str) -> Result<AgentRegistryEntry, AppError> {
     let row = conn
         .query_row(
@@ -3490,9 +4023,8 @@ fn start_cli_refresh_operation(
     agent_id: Option<String>,
 ) -> Result<tasks::models::OperationTask, AppError> {
     if let Some(agent_id) = agent_id.as_deref() {
-        cli_tool_definition(agent_id).ok_or_else(|| {
-            AppError::Validation(format!("unsupported CLI agent id: {agent_id}"))
-        })?;
+        cli_tool_definition(agent_id)
+            .ok_or_else(|| AppError::Validation(format!("unsupported CLI agent id: {agent_id}")))?;
     }
     let operation = registry.start(
         tasks::models::OperationKind::Agent,
@@ -3533,11 +4065,7 @@ fn install_cli_version(
         load_cli_tool_status(&conn, definition)?
     };
     let fresh_candidates = enumerate_cli_candidates(definition);
-    validate_cli_package_eligibility(
-        &status,
-        &fresh_candidates,
-        confirmed_active_path.as_deref(),
-    )?;
+    validate_cli_package_eligibility(&status, &fresh_candidates, confirmed_active_path.as_deref())?;
     if !mutation_guard.try_acquire() {
         return Err(AppError::Validation(
             "another CLI package operation is already running".to_string(),
@@ -3590,8 +4118,10 @@ fn validate_cli_package_eligibility(
             .first()
             .map(|path| path.to_string_lossy().to_string())
             .ok_or_else(|| {
-            AppError::Validation("the active CLI installation could not be resolved".to_string())
-        })?;
+                AppError::Validation(
+                    "the active CLI installation could not be resolved".to_string(),
+                )
+            })?;
         if confirmed_active_path != Some(active_path.as_str()) {
             return Err(AppError::Validation(
                 "multiple CLI installations require confirmation of the active path".to_string(),
@@ -3612,10 +4142,11 @@ fn run_cli_refresh_operation(app: AppHandle, operation_id: String, agent_id: Opt
         logging::LogLevel::Info,
     );
     let mut statuses = Vec::new();
-    for definition in CLI_TOOL_DEFINITIONS
-        .into_iter()
-        .filter(|definition| agent_id.as_deref().is_none_or(|id| id == definition.agent_id))
-    {
+    for definition in CLI_TOOL_DEFINITIONS.into_iter().filter(|definition| {
+        agent_id
+            .as_deref()
+            .is_none_or(|id| id == definition.agent_id)
+    }) {
         append_cli_log(
             &app,
             &registry,
@@ -3700,12 +4231,7 @@ fn run_cli_package_operation(
     definition: CliToolDefinition,
     target_version: String,
 ) {
-    run_cli_package_operation_inner(
-        app.clone(),
-        operation_id,
-        definition,
-        target_version,
-    );
+    run_cli_package_operation_inner(app.clone(), operation_id, definition, target_version);
     app.state::<CliMutationGuard>().release();
 }
 
@@ -4035,6 +4561,41 @@ fn save_setting(
     )
     .map_err(|err| AppError::Storage(err.to_string()))?;
     Ok(settings)
+}
+
+#[tauri::command]
+fn get_automatic_archival_settings(
+    state: State<'_, Mutex<RegistryStore>>,
+) -> Result<AutomaticArchivalSettings, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    get_automatic_archival_settings_from_conn(&conn)
+}
+
+#[tauri::command]
+fn save_automatic_archival_settings(
+    app: AppHandle,
+    state: State<'_, Mutex<RegistryStore>>,
+    input: AutomaticArchivalSettings,
+) -> Result<AutomaticArchivalSettings, AppError> {
+    let saved = {
+        let store = state
+            .lock()
+            .map_err(|err| AppError::Storage(err.to_string()))?;
+        let conn = store.connection()?;
+        save_automatic_archival_settings_to_conn(&conn, &input)?
+    };
+    app.emit(
+        "settings:event",
+        SettingsStateEvent {
+            kind: "settings-changed",
+            key: "automaticArchival".to_string(),
+        },
+    )
+    .map_err(|err| AppError::Storage(err.to_string()))?;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -4979,6 +5540,330 @@ fn list_archived_sessions(
         .map_err(AppError::Database)
 }
 
+fn like_pattern(query: &str) -> String {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+fn contains_case_insensitive(value: Option<&str>, query: &str) -> bool {
+    value
+        .map(|value| value.to_lowercase().contains(&query.to_lowercase()))
+        .unwrap_or(false)
+}
+
+fn bounded_excerpt(content: &str, query: &str) -> String {
+    const MAX_EXCERPT_CHARS: usize = 160;
+    let lower_content = content.to_lowercase();
+    let lower_query = query.to_lowercase();
+    let start = lower_content
+        .find(&lower_query)
+        .map(|index| index.saturating_sub(40))
+        .unwrap_or(0);
+    content
+        .chars()
+        .skip(start)
+        .take(MAX_EXCERPT_CHARS)
+        .collect()
+}
+
+fn search_session_matches(
+    conn: &Connection,
+    session: &Session,
+    query: &str,
+    pattern: &str,
+) -> Result<Vec<SessionSearchMatch>, AppError> {
+    let mut matches = Vec::new();
+    if contains_case_insensitive(Some(&session.title), query) {
+        matches.push(SessionSearchMatch {
+            kind: "title".to_string(),
+            excerpt: session.title.clone(),
+            message_id: None,
+        });
+    }
+    let project_values = [
+        session.folder.as_deref(),
+        session.project_path.as_deref(),
+        session.worktree_path.as_deref(),
+        session.worktree_name.as_deref(),
+        session.worktree_branch.as_deref(),
+    ];
+    if let Some(value) = project_values
+        .into_iter()
+        .flatten()
+        .find(|value| contains_case_insensitive(Some(value), query))
+    {
+        matches.push(SessionSearchMatch {
+            kind: "project".to_string(),
+            excerpt: value.to_string(),
+            message_id: None,
+        });
+    }
+    let message_match = conn
+        .query_row(
+            "SELECT id, content FROM messages WHERE session_id = ?1 AND content LIKE ?2 ESCAPE '\\' ORDER BY created_at DESC LIMIT 1",
+            params![&session.id, pattern],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((message_id, content)) = message_match {
+        matches.push(SessionSearchMatch {
+            kind: "message".to_string(),
+            excerpt: bounded_excerpt(&content, query),
+            message_id: Some(message_id),
+        });
+    }
+    Ok(matches)
+}
+
+#[tauri::command]
+fn search_sessions(
+    state: State<'_, Mutex<RegistryStore>>,
+    query: String,
+    limit: Option<i64>,
+) -> Result<Vec<SessionSearchResult>, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    search_sessions_from_conn(&conn, &query, limit)
+}
+
+fn search_sessions_from_conn(
+    conn: &Connection,
+    query: &str,
+    limit: Option<i64>,
+) -> Result<Vec<SessionSearchResult>, AppError> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.unwrap_or(50).clamp(1, 100);
+    let pattern = like_pattern(&query);
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT DISTINCT s.id
+        FROM sessions s
+        WHERE s.title LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.project_path, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.folder, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.worktree_path, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.worktree_name, '') LIKE ?1 ESCAPE '\'
+           OR COALESCE(s.worktree_branch, '') LIKE ?1 ESCAPE '\'
+           OR EXISTS (
+                SELECT 1 FROM messages m
+                WHERE m.session_id = s.id AND m.content LIKE ?1 ESCAPE '\'
+           )
+        ORDER BY s.updated_at DESC
+        LIMIT ?2
+        "#,
+    )?;
+    let ids = stmt
+        .query_map(params![&pattern, limit], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    ids.into_iter()
+        .map(|session_id| {
+            let session = load_session(&conn, &session_id)?;
+            let matches = search_session_matches(&conn, &session, &query, &pattern)?;
+            Ok(SessionSearchResult { session, matches })
+        })
+        .collect()
+}
+
+fn load_session_category_from_row(row: &Row<'_>) -> Result<SessionCategory, rusqlite::Error> {
+    Ok(SessionCategory {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        sort_order: row.get(2)?,
+        created_at: row.get(3)?,
+        updated_at: row.get(4)?,
+    })
+}
+
+fn validate_session_category_name(
+    conn: &Connection,
+    name: &str,
+    except_id: Option<&str>,
+) -> Result<String, AppError> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation(
+            "Category name cannot be empty.".to_string(),
+        ));
+    }
+    let existing = match except_id {
+        Some(id) => conn
+            .query_row(
+                "SELECT 1 FROM session_categories WHERE name = ?1 AND id != ?2",
+                params![name, id],
+                |_| Ok(()),
+            )
+            .optional()?,
+        None => conn
+            .query_row(
+                "SELECT 1 FROM session_categories WHERE name = ?1",
+                params![name],
+                |_| Ok(()),
+            )
+            .optional()?,
+    };
+    if existing.is_some() {
+        return Err(AppError::Validation(
+            "Category name already exists.".to_string(),
+        ));
+    }
+    Ok(name)
+}
+
+fn load_session_category(
+    conn: &Connection,
+    category_id: &str,
+) -> Result<SessionCategory, AppError> {
+    conn.query_row(
+        "SELECT id, name, sort_order, created_at, updated_at FROM session_categories WHERE id = ?1",
+        params![category_id],
+        load_session_category_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| AppError::Validation(format!("Category not found: {category_id}")))
+}
+
+fn create_session_category_in_conn(
+    conn: &Connection,
+    name: &str,
+) -> Result<SessionCategory, AppError> {
+    let name = validate_session_category_name(conn, name, None)?;
+    let sort_order = conn
+        .query_row(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM session_categories",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = current_timestamp();
+    conn.execute(
+        "INSERT INTO session_categories (id, name, sort_order, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)",
+        params![id, name, sort_order, now],
+    )?;
+    load_session_category(conn, &id)
+}
+
+fn rename_session_category_in_conn(
+    conn: &Connection,
+    category_id: &str,
+    name: &str,
+) -> Result<SessionCategory, AppError> {
+    load_session_category(conn, category_id)?;
+    let name = validate_session_category_name(conn, name, Some(category_id))?;
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE session_categories SET name = ?1, updated_at = ?2 WHERE id = ?3",
+        params![name, now, category_id],
+    )?;
+    load_session_category(conn, category_id)
+}
+
+fn delete_session_category_in_conn(conn: &Connection, category_id: &str) -> Result<(), AppError> {
+    load_session_category(conn, category_id)?;
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE sessions SET category_id = NULL, updated_at = ?1 WHERE category_id = ?2",
+        params![now, category_id],
+    )?;
+    conn.execute(
+        "DELETE FROM session_categories WHERE id = ?1",
+        params![category_id],
+    )?;
+    Ok(())
+}
+
+fn assign_session_category_in_conn(
+    conn: &Connection,
+    session_id: &str,
+    category_id: Option<&str>,
+) -> Result<Session, AppError> {
+    load_session(conn, session_id)?;
+    if let Some(category_id) = category_id {
+        load_session_category(conn, category_id)?;
+    }
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE sessions SET category_id = ?1, updated_at = ?2 WHERE id = ?3",
+        params![category_id, now, session_id],
+    )?;
+    load_session(conn, session_id)
+}
+
+#[tauri::command]
+fn list_session_categories(
+    state: State<'_, Mutex<RegistryStore>>,
+) -> Result<Vec<SessionCategory>, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, sort_order, created_at, updated_at FROM session_categories ORDER BY sort_order ASC, name ASC",
+    )?;
+    let rows = stmt.query_map([], load_session_category_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(AppError::Database)
+}
+
+#[tauri::command]
+fn create_session_category(
+    state: State<'_, Mutex<RegistryStore>>,
+    name: String,
+) -> Result<SessionCategory, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    create_session_category_in_conn(&conn, &name)
+}
+
+#[tauri::command]
+fn rename_session_category(
+    state: State<'_, Mutex<RegistryStore>>,
+    category_id: String,
+    name: String,
+) -> Result<SessionCategory, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    rename_session_category_in_conn(&conn, &category_id, &name)
+}
+
+#[tauri::command]
+fn delete_session_category(
+    state: State<'_, Mutex<RegistryStore>>,
+    category_id: String,
+) -> Result<(), AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    delete_session_category_in_conn(&conn, &category_id)
+}
+
+#[tauri::command]
+fn assign_session_category(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    category_id: Option<String>,
+) -> Result<Session, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    assign_session_category_in_conn(&conn, &session_id, category_id.as_deref())
+}
+
 #[tauri::command]
 fn get_active_session(state: State<'_, Mutex<RegistryStore>>) -> Result<Option<Session>, AppError> {
     let store = state
@@ -5138,6 +6023,20 @@ fn unarchive_session(
 }
 
 #[tauri::command]
+fn export_session(
+    state: State<'_, Mutex<RegistryStore>>,
+    session_id: String,
+    format: SessionExportFormat,
+    destination_directory: Option<String>,
+) -> Result<SessionExportResult, AppError> {
+    let store = state
+        .lock()
+        .map_err(|err| AppError::Storage(err.to_string()))?;
+    let conn = store.connection()?;
+    export_session_to_directory(&conn, &session_id, format, destination_directory.as_deref())
+}
+
+#[tauri::command]
 fn delete_session(
     app: AppHandle,
     state: State<'_, Mutex<RegistryStore>>,
@@ -5168,6 +6067,7 @@ fn send_message(
     session_id: String,
     content: String,
     config: ChatConfig,
+    file_references: Option<Vec<ChatFileReference>>,
 ) -> Result<ChatMessage, AppError> {
     let (conn, db_path) = {
         let store = state
@@ -5183,6 +6083,7 @@ fn send_message(
         &session_id,
         &content,
         &config,
+        file_references.as_ref(),
         false,
     )?
     .message)
@@ -5201,6 +6102,7 @@ fn submit_chat_message(
     session_id: &str,
     content: &str,
     config: &ChatConfig,
+    file_references: Option<&Vec<ChatFileReference>>,
     subscribe_to_completion: bool,
 ) -> Result<ChatSubmission, AppError> {
     let trimmed_content = content.trim().to_string();
@@ -5219,7 +6121,16 @@ fn submit_chat_message(
     let selected_agent = load_agent(conn, &session.agent_id)?;
     let reservation = runtime.reserve(session_id.to_string())?;
 
-    insert_chat_message(conn, session_id, "user", "completed", &trimmed_content)?;
+    let prompt_content =
+        compose_prompt_with_file_references(conn, session_id, &trimmed_content, file_references)?;
+    insert_chat_message_with_references(
+        conn,
+        session_id,
+        "user",
+        "completed",
+        &trimmed_content,
+        file_references,
+    )?;
     let assistant_message = insert_chat_message(conn, session_id, "assistant", "streaming", "")?;
     let completion = if subscribe_to_completion {
         Some(runtime.subscribe(&assistant_message.id)?)
@@ -5237,7 +6148,7 @@ fn submit_chat_message(
     update_session_lifecycle(conn, session_id, SessionLifecycleState::Running)?;
 
     let spawned =
-        match spawn_cli_generation(conn, &session, &selected_agent, &trimmed_content, &config) {
+        match spawn_cli_generation(conn, &session, &selected_agent, &prompt_content, &config) {
             Ok(spawned) => spawned,
             Err(error) => {
                 let concise_error = concise_cli_error(&selected_agent, &error);
@@ -5278,7 +6189,7 @@ fn submit_chat_message(
     let background_session_id = session_id.to_string();
     let background_agent = selected_agent.clone();
     let background_message_id = assistant_message.id.clone();
-    let prompt_len = trimmed_content.chars().count();
+    let prompt_len = prompt_content.chars().count();
     thread::spawn(move || {
         run_cli_generation_stream(
             background_app,
@@ -5650,6 +6561,7 @@ fn handle_im_inbound(
         &session_id,
         &inbound.text,
         &config,
+        None,
         true,
     )
     .map_err(|_| {
@@ -5711,6 +6623,7 @@ pub fn run() {
             app.manage(tasks::registry::TaskRegistry::default());
             app.manage(CliMutationGuard::default());
             app.manage(extensions::commands::ExtensionRuntimeManager::default());
+            start_session_maintenance_jobs(app.handle().clone());
             let im_runtime = im::runtime::ImRuntimeManager::new(Arc::new(VaneHubInboundAgent {
                 app: app.handle().clone(),
             }));
@@ -5822,6 +6735,12 @@ pub fn run() {
             create_session,
             list_sessions,
             list_archived_sessions,
+            search_sessions,
+            list_session_categories,
+            create_session_category,
+            rename_session_category,
+            delete_session_category,
+            assign_session_category,
             get_active_session,
             get_session_chat_config,
             save_session_chat_config,
@@ -5831,6 +6750,7 @@ pub fn run() {
             unpin_session,
             archive_session,
             unarchive_session,
+            export_session,
             delete_session,
             send_message,
             list_messages,
@@ -5850,6 +6770,8 @@ pub fn run() {
             commands::shell::shell_kill::shell_kill,
             get_settings,
             save_setting,
+            get_automatic_archival_settings,
+            save_automatic_archival_settings,
             floating_assistant::get_floating_assistant_runtime_info,
             floating_assistant::get_floating_assistant_config,
             floating_assistant::set_floating_assistant_enabled,
@@ -5970,7 +6892,7 @@ mod tests {
 
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
         );
     }
 
@@ -6102,6 +7024,283 @@ mod tests {
             session.worktree_branch.as_deref(),
             Some("vanehub/feature-a")
         );
+        assert_eq!(session.category_id, None);
+    }
+
+    #[test]
+    fn session_organization_migration_adds_category_and_reference_storage() {
+        let conn = test_conn();
+
+        assert!(table_has_column(&conn, "sessions", "category_id").expect("category column"));
+        assert!(table_has_column(&conn, "messages", "file_references").expect("reference column"));
+        assert_eq!(
+            load_setting_value(&conn, "automaticArchivalEnabled")
+                .expect("setting")
+                .as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            load_setting_value(&conn, "automaticArchivalInactiveDays")
+                .expect("setting")
+                .as_deref(),
+            Some("10")
+        );
+    }
+
+    #[test]
+    fn historical_search_matches_title_project_messages_and_archived_sessions() {
+        let conn = test_conn();
+        let now = current_timestamp();
+        conn.execute(
+            "INSERT INTO sessions
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
+             VALUES ('session-billing', 'Billing refactor', 'codex-cli', 'cli', 'idle', 'D:\\code\\billing', 0, 0, ?1, ?1)",
+            params![now],
+        )
+        .expect("first session");
+        conn.execute(
+            "INSERT INTO sessions
+             (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
+             VALUES ('session-archive', 'Archived notes', 'claude-code', 'cli', 'idle', 'D:\\code\\archive', 0, 0, ?1, ?1)",
+            params![now],
+        )
+        .expect("second session");
+        let first = load_session(&conn, "session-billing").expect("first");
+        let second = load_session(&conn, "session-archive").expect("second");
+        conn.execute(
+            "UPDATE sessions SET archived = 1 WHERE id = ?1",
+            params![second.id],
+        )
+        .expect("archive");
+        insert_chat_message(
+            &conn,
+            &first.id,
+            "assistant",
+            "completed",
+            "Investigated invoice export paths",
+        )
+        .expect("message");
+
+        let title = search_sessions_from_conn(&conn, "Billing", Some(10)).expect("title search");
+        assert_eq!(title[0].session.id, first.id);
+        assert!(title[0].matches.iter().any(|entry| entry.kind == "title"));
+
+        let project =
+            search_sessions_from_conn(&conn, "archive", Some(10)).expect("project search");
+        assert!(project
+            .iter()
+            .any(|entry| entry.session.id == second.id && entry.session.archived));
+
+        let message =
+            search_sessions_from_conn(&conn, "invoice", Some(10)).expect("message search");
+        assert!(message[0]
+            .matches
+            .iter()
+            .any(|entry| entry.kind == "message"));
+    }
+
+    #[test]
+    fn category_assignment_and_deletion_preserve_sessions() {
+        let conn = test_conn();
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Categorized".to_string()),
+                folder: None,
+                project_path: None,
+                worktree: None,
+            },
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("session");
+        let category = create_session_category_in_conn(&conn, "Feature Work").expect("category");
+        assert!(create_session_category_in_conn(&conn, "Feature Work").is_err());
+
+        let assigned = assign_session_category_in_conn(&conn, &session.id, Some(&category.id))
+            .expect("assign");
+        assert_eq!(assigned.category_id.as_deref(), Some(category.id.as_str()));
+
+        let renamed =
+            rename_session_category_in_conn(&conn, &category.id, "Feature Queue").expect("rename");
+        assert_eq!(renamed.name, "Feature Queue");
+
+        delete_session_category_in_conn(&conn, &category.id).expect("delete category");
+        let restored = load_session(&conn, &session.id).expect("session survives");
+        assert_eq!(restored.category_id, None);
+    }
+
+    #[test]
+    fn automatic_archival_settings_default_and_disabled_skip_mutation() {
+        let conn = test_conn();
+        let defaults = get_automatic_archival_settings_from_conn(&conn).expect("defaults");
+        assert_eq!(
+            defaults,
+            AutomaticArchivalSettings {
+                enabled: true,
+                inactive_days: 10
+            }
+        );
+        save_automatic_archival_settings_to_conn(
+            &conn,
+            &AutomaticArchivalSettings {
+                enabled: false,
+                inactive_days: 10,
+            },
+        )
+        .expect("save disabled");
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Old active".to_string()),
+                folder: None,
+                project_path: None,
+                worktree: None,
+            },
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("session");
+        let old_timestamp = (Utc::now() - ChronoDuration::days(40)).to_rfc3339();
+        conn.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            params![old_timestamp, session.id],
+        )
+        .expect("age");
+
+        let archived = archive_inactive_sessions(&conn, Utc::now()).expect("archive check");
+        assert_eq!(archived, 0);
+        assert!(!load_session(&conn, &session.id).expect("session").archived);
+    }
+
+    #[test]
+    fn automatic_archival_archives_only_eligible_sessions() {
+        let conn = test_conn();
+        let make_session = |id: &str, pinned: bool, lifecycle: &str| {
+            let now = current_timestamp();
+            conn.execute(
+                "INSERT INTO sessions
+                 (id, title, agent_id, interaction_mode, lifecycle_state, folder, pinned, archived, created_at, updated_at)
+                 VALUES (?1, ?1, 'codex-cli', 'cli', ?2, NULL, ?3, 0, ?4, ?4)",
+                params![id, lifecycle, if pinned { 1 } else { 0 }, now],
+            )
+            .expect("insert session");
+            let old_timestamp = (Utc::now() - ChronoDuration::days(40)).to_rfc3339();
+            conn.execute(
+                "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+                params![old_timestamp, id],
+            )
+            .expect("age session");
+        };
+        make_session("eligible", false, "idle");
+        make_session("pinned", true, "idle");
+        make_session("running", false, "running");
+
+        let archived = archive_inactive_sessions(&conn, Utc::now()).expect("archive");
+
+        assert_eq!(archived, 1);
+        assert!(load_session(&conn, "eligible").expect("eligible").archived);
+        assert!(!load_session(&conn, "pinned").expect("pinned").archived);
+        assert!(!load_session(&conn, "running").expect("running").archived);
+    }
+
+    #[test]
+    fn startup_recovery_marks_orphan_messages_failed_and_preserves_resume_metadata() {
+        let conn = test_conn();
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Recover me".to_string()),
+                folder: None,
+                project_path: None,
+                worktree: None,
+            },
+            SessionActivation::Activate,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("session");
+        update_session_runtime_session_id(&conn, &session.id, "provider-session-1")
+            .expect("runtime id");
+        update_session_lifecycle(&conn, &session.id, SessionLifecycleState::Running)
+            .expect("running");
+        let assistant = insert_chat_message(
+            &conn,
+            &session.id,
+            "assistant",
+            "streaming",
+            "partial answer",
+        )
+        .expect("assistant");
+
+        let recovered = recover_orphan_session_state(&conn).expect("recover");
+
+        assert_eq!(recovered, 1);
+        let recovered_session = load_session(&conn, &session.id).expect("session");
+        assert_eq!(
+            recovered_session.lifecycle_state,
+            SessionLifecycleState::Failed
+        );
+        assert_eq!(
+            recovered_session.runtime_session_id.as_deref(),
+            Some("provider-session-1")
+        );
+        let recovered_message = load_chat_message(&conn, &assistant.id).expect("message");
+        assert_eq!(recovered_message.status, "failed");
+        assert_eq!(recovered_message.content, "partial answer");
+    }
+
+    #[test]
+    fn session_export_serializes_json_markdown_and_writes_file() {
+        let conn = test_conn();
+        let session = create_session_internal(
+            &conn,
+            CreateSessionInput {
+                agent_id: "codex-cli".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                title: Some("Export Me".to_string()),
+                folder: None,
+                project_path: None,
+                worktree: None,
+            },
+            SessionActivation::PreserveActive,
+            SessionSourceMetadata::desktop(),
+        )
+        .expect("session");
+        insert_chat_message(&conn, &session.id, "user", "completed", "hello").expect("user");
+        insert_chat_message(&conn, &session.id, "assistant", "completed", "world")
+            .expect("assistant");
+
+        let payload = build_session_export_payload(&conn, &session.id).expect("payload");
+        let json = serialize_session_export(&payload, SessionExportFormat::Json).expect("json");
+        assert!(json.contains("\"version\": 1"));
+        assert!(json.contains("\"messages\""));
+        let markdown =
+            serialize_session_export(&payload, SessionExportFormat::Markdown).expect("markdown");
+        assert!(markdown.contains("# Export Me"));
+        assert!(markdown.contains("### USER - `completed`"));
+
+        let dir = unique_temp_dir("session-export");
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported = export_session_to_directory(
+            &conn,
+            &session.id,
+            SessionExportFormat::Markdown,
+            Some(dir.to_str().expect("utf8")),
+        )
+        .expect("export");
+        assert_eq!(exported.status, "exported");
+        let path = PathBuf::from(exported.path.expect("path"));
+        assert!(path.exists());
+        assert!(std::fs::read_to_string(path)
+            .expect("content")
+            .contains("world"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -7007,11 +8206,17 @@ mod tests {
     #[test]
     fn cli_candidate_dedup_collapses_windows_command_wrappers() {
         assert_eq!(
-            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
-            cli_candidate_key(Path::new("c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1")),
+            cli_candidate_key(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
+            cli_candidate_key(Path::new(
+                "c:\\users\\dev\\appdata\\roaming\\npm\\codex.ps1"
+            )),
         );
         assert_ne!(
-            cli_candidate_key(Path::new("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd")),
+            cli_candidate_key(Path::new(
+                "C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd"
+            )),
             cli_candidate_key(Path::new("C:\\Tools\\codex.cmd")),
         );
     }
@@ -7091,7 +8296,9 @@ mod tests {
         let mut status = status_from_row(CLI_TOOL_DEFINITIONS[1], None);
         status.lifecycle_eligibility = CliLifecycleEligibility::Npm;
         let npm = PathBuf::from("C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.cmd");
-        assert!(validate_cli_package_eligibility(&status, std::slice::from_ref(&npm), None).is_ok());
+        assert!(
+            validate_cli_package_eligibility(&status, std::slice::from_ref(&npm), None).is_ok()
+        );
 
         let desktop = PathBuf::from(
             "C:\\Users\\dev\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe",
@@ -7099,7 +8306,10 @@ mod tests {
         assert!(validate_cli_package_eligibility(&status, &[desktop], None).is_err());
 
         let second = PathBuf::from("C:\\Tools\\nodejs\\codex.cmd");
-        assert!(validate_cli_package_eligibility(&status, &[npm.clone(), second.clone()], None).is_err());
+        assert!(
+            validate_cli_package_eligibility(&status, &[npm.clone(), second.clone()], None)
+                .is_err()
+        );
         assert!(validate_cli_package_eligibility(
             &status,
             &[npm.clone(), second],

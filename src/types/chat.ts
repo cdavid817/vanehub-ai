@@ -43,6 +43,14 @@ export interface TokenUsage {
   output: number;
 }
 
+export interface ChatFileReference {
+  id: string;
+  path: string;
+  name: string;
+  sizeBytes?: number | null;
+  contentHash?: string | null;
+}
+
 export type UsageStatisticsRange = "today" | "last7Days" | "last30Days" | "all";
 
 export interface ReportedTokenTotals {
@@ -100,6 +108,7 @@ export interface ChatMessage {
   toolUse?: ToolUseBlock[];
   thinkingContent?: string;
   tokenUsage?: TokenUsage;
+  fileReferences?: ChatFileReference[];
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -118,4 +127,5 @@ export interface SendMessageInput {
   sessionId: string;
   content: string;
   config: ChatConfig;
+  fileReferences?: ChatFileReference[];
 }

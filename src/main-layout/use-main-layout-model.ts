@@ -6,8 +6,9 @@ import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { agentService } from "../services/runtime-agent-client";
 import { settingsService } from "../services/runtime-settings-client";
-import type { Session } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
+import type { SessionDocument } from "../types/session-workspace";
+import type { ChatConfig, ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
 
 function applyChatEvent(messages: ChatMessage[], event: ChatStreamEvent) {
   return messages.map((message) => {
@@ -28,10 +29,18 @@ export function useMainLayoutModel() {
   const { notify } = useNotifications();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [fileReferences, setFileReferences] = useState<ChatFileReference[]>([]);
   const [messageLimit, setMessageLimit] = useState(50);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const agentsQuery = useQuery({ queryKey: ["agents"], queryFn: () => agentService.listAgents() });
   const sessionsQuery = useQuery({ queryKey: ["sessions"], queryFn: () => agentService.listSessions() });
   const archivedQuery = useQuery({ queryKey: ["sessions", "archived"], queryFn: () => agentService.listArchivedSessions() });
+  const categoriesQuery = useQuery({ queryKey: ["session-categories"], queryFn: () => agentService.listSessionCategories() });
+  const sessionSearch = useQuery({
+    enabled: sessionSearchQuery.trim().length > 0,
+    queryKey: ["sessions", "search", sessionSearchQuery],
+    queryFn: () => agentService.searchSessions({ query: sessionSearchQuery, limit: 50 }),
+  });
   const activeQuery = useQuery({ queryKey: ["sessions", "active"], queryFn: () => agentService.getActiveSession() });
   const agents = agentsQuery.data ?? [];
   const activeSession = activeQuery.data ?? null;
@@ -42,6 +51,12 @@ export function useMainLayoutModel() {
     queryFn: () => activeSessionId ? agentService.listMessages({ sessionId: activeSessionId, limit: messageLimit }) : Promise.resolve([]),
   });
   const messages = messagesQuery.data ?? [];
+  const documentsQuery = useQuery({
+    enabled: Boolean(activeSessionId),
+    queryKey: ["session-documents", activeSessionId],
+    queryFn: () => activeSessionId ? agentService.listSessionDocuments(activeSessionId) : Promise.resolve({ context: { availability: "unavailable" as const, rootName: null, reason: null }, items: [], truncated: false, nextCursor: null }),
+  });
+  const fileReferenceCandidates = documentsQuery.data?.items ?? [];
   const isStreaming = messages.some((message) => message.status === "streaming");
   const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
     const event = createChatOperationFailureEvent(source, reason);
@@ -65,6 +80,7 @@ export function useMainLayoutModel() {
   });
   const invalidateSessions = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    void queryClient.invalidateQueries({ queryKey: ["session-categories"] });
     void queryClient.invalidateQueries({ queryKey: ["workflow"] });
   }, [queryClient]);
   const invalidateRuntime = useCallback(() => {
@@ -77,8 +93,21 @@ export function useMainLayoutModel() {
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
   const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions });
   const deleteSession = useMutation({ mutationFn: (sessionId: string) => agentService.deleteSession(sessionId), onSuccess: invalidateSessions });
+  const createCategory = useMutation({ mutationFn: (name: string) => agentService.createSessionCategory({ name }), onSuccess: invalidateSessions });
+  const assignCategory = useMutation({ mutationFn: ({ session, categoryId }: { session: Session; categoryId: string | null }) => agentService.assignSessionCategory({ sessionId: session.id, categoryId }), onSuccess: invalidateSessions });
+  const exportSession = useMutation({
+    mutationFn: ({ session, format }: { session: Session; format: SessionExportFormat }) => agentService.exportSession({ sessionId: session.id, format }),
+    onSuccess: (result, input) => {
+      if (result.status === "exported") {
+        notify({ type: "success", title: t("notifications.sessionExported.title"), message: t("notifications.sessionExported.message", { title: input.session.title, path: result.path ?? "" }), scope: { kind: "session", sessionId: input.session.id } });
+        return;
+      }
+      notify({ type: "warning", title: t("notifications.sessionExportCancelled.title"), message: t("notifications.sessionExportCancelled.message"), scope: { kind: "session", sessionId: input.session.id } });
+    },
+    onError: (reason, input) => reportChatFailure("MainLayout.exportSession", reason, input.session.id),
+  });
   const sendMessage = useMutation({
-    mutationFn: (input: { content: string; config: ChatConfig; sessionId: string }) => agentService.sendMessage(input),
+    mutationFn: (input: { content: string; config: ChatConfig; fileReferences: ChatFileReference[]; sessionId: string }) => agentService.sendMessage(input),
     onSuccess: invalidateRuntime,
     onError: (reason, input) => reportChatFailure("MainLayout.sendMessage", reason, input.sessionId, input.content),
   });
@@ -99,13 +128,15 @@ export function useMainLayoutModel() {
     return () => { cancelled = true; cleanup?.(); };
   }, [activeSessionId, invalidateSessions, messageLimit, queryClient]);
 
-  useEffect(() => { setMessageLimit(50); setDraft(""); }, [activeSessionId]);
+  useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); }, [activeSessionId]);
 
   function submit() {
     if (!activeSession || !draft.trim() || isStreaming) return;
     const content = draft.trim();
+    const references = fileReferences;
     setDraft("");
-    sendMessage.mutate({ sessionId: activeSession.id, content, config: { ...chatConfig.config, agentId: chatConfig.config.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
+    setFileReferences([]);
+    sendMessage.mutate({ sessionId: activeSession.id, content, fileReferences: references, config: { ...chatConfig.config, agentId: chatConfig.config.agentId || activeSession.agentId, interactionMode: activeSession.interactionMode } });
   }
   function stop() { if (activeSessionId && isStreaming) stopGeneration.mutate(activeSessionId); }
   function sessionCreated(session: Session) {
@@ -115,11 +146,28 @@ export function useMainLayoutModel() {
   }
   return {
     activeSession, activeSessionId, agents, agentsAvailable: Boolean(agentsQuery.data?.length), archivedSessions: archivedQuery.data ?? [],
-    chatConfig, deleteSession: (session: Session) => deleteSession.mutate(session.id), draft, isSending: sendMessage.isPending, isStreaming,
+    assignCategory: (session: Session, categoryId: string | null) => assignCategory.mutate({ session, categoryId }),
+    categories: categoriesQuery.data ?? [],
+    chatConfig,
+    createCategory: async (name: string): Promise<SessionCategory> => createCategory.mutateAsync(name),
+    deleteSession: (session: Session) => deleteSession.mutate(session.id),
+    draft,
+    exportSession: (session: Session, format: SessionExportFormat) => exportSession.mutate({ session, format }),
+    fileReferenceCandidates,
+    fileReferences,
+    isSending: sendMessage.isPending, isStreaming,
     loadEarlier: () => setMessageLimit((value) => value + 50), messages, messagesPartial: messages.length >= messageLimit,
     pinSession: (session: Session) => pinSession.mutate(session), archiveSession: (session: Session) => archiveSession.mutate(session),
     renameSession: (session: Session, title: string) => renameSession.mutate({ sessionId: session.id, title }),
-    sessionCreated, sessions: sessionsQuery.data ?? [], setDraft, stop, submit,
+    sessionCreated,
+    sessionSearchQuery,
+    sessionSearchResults: sessionSearch.data ?? [],
+    sessions: sessionsQuery.data ?? [],
+    setDraft,
+    addFileReference: (document: SessionDocument) => setFileReferences((current) => current.some((reference) => reference.path === document.path) ? current : [...current, { id: document.path, path: document.path, name: document.name }]),
+    removeFileReference: (path: string) => setFileReferences((current) => current.filter((reference) => reference.path !== path)),
+    setSessionSearchQuery,
+    stop, submit,
     switchSession: (session: Session) => { if (!session.archived) switchSession.mutate(session.id); },
   };
 }

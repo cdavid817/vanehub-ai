@@ -1,18 +1,27 @@
 import type {
   AgentRegistryEntry,
+  AssignSessionCategoryInput,
+  AutomaticArchivalSettings,
   CliParameterProfile,
+  CreateSessionCategoryInput,
   ManagedCliAgentId,
+  ExportSessionInput,
   SaveCliParameterProfileInput,
   CliPackageOperationInput,
   CliToolStatus,
   CreateSessionInput,
   InteractionMode,
+  RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
   ProjectInspection,
   ReadinessStatus,
   Session,
+  SessionCategory,
   SessionDetails,
+  SessionExportResult,
+  SessionSearchInput,
+  SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -62,7 +71,15 @@ export interface AgentService {
   getSessionDetails(): Promise<SessionDetails>;
   listSessions(): Promise<Session[]>;
   listArchivedSessions(): Promise<Session[]>;
+  searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
   getActiveSession(): Promise<Session | null>;
+  listSessionCategories(): Promise<SessionCategory[]>;
+  createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
+  renameSessionCategory(input: RenameSessionCategoryInput): Promise<SessionCategory>;
+  deleteSessionCategory(categoryId: string): Promise<void>;
+  assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
+  getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
+  saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   listKnownProjects(): Promise<KnownProject[]>;
@@ -76,6 +93,7 @@ export interface AgentService {
   unpinSession(sessionId: string): Promise<Session>;
   archiveSession(sessionId: string): Promise<Session>;
   unarchiveSession(sessionId: string): Promise<Session>;
+  exportSession(input: ExportSessionInput): Promise<SessionExportResult>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
