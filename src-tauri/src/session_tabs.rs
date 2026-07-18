@@ -200,12 +200,22 @@ pub(crate) fn resolve_session_root(
     session_id: &str,
 ) -> Result<Option<PathBuf>, AppError> {
     let session = load_session(conn, session_id)?;
+    if session.remote_workspace.is_some() {
+        return Ok(None);
+    }
     let candidate = session
         .worktree_path
         .as_ref()
         .or(session.folder.as_ref())
         .or(session.project_path.as_ref());
     canonical_workspace_root(candidate.map(String::as_str))
+}
+
+pub(crate) fn session_has_remote_workspace(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<bool, AppError> {
+    Ok(load_session(conn, session_id)?.remote_workspace.is_some())
 }
 
 fn canonical_workspace_root(candidate: Option<&str>) -> Result<Option<PathBuf>, AppError> {

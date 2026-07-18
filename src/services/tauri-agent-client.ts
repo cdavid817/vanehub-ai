@@ -12,6 +12,7 @@ import type {
   CreateSessionCategoryInput,
   ExportSessionInput,
   InteractionMode,
+  KnownRemoteWorkspace,
   KnownProject,
   LaunchResult,
   ManagedCliAgentId,
@@ -169,6 +170,10 @@ export const tauriAgentClient: AgentService = {
 
   listKnownProjects() {
     return invoke<KnownProject[]>("list_known_projects");
+  },
+
+  listKnownRemoteWorkspaces() {
+    return invoke<KnownRemoteWorkspace[]>("list_known_remote_workspaces");
   },
 
   inspectProject(path: string) {

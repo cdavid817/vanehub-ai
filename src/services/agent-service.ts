@@ -11,6 +11,7 @@ import type {
   CliToolStatus,
   CreateSessionInput,
   InteractionMode,
+  KnownRemoteWorkspace,
   RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
@@ -84,6 +85,7 @@ export interface AgentService {
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   listKnownProjects(): Promise<KnownProject[]>;
+  listKnownRemoteWorkspaces(): Promise<KnownRemoteWorkspace[]>;
   inspectProject(path: string): Promise<ProjectInspection>;
   selectProjectDirectory(): Promise<string | null>;
   createSession(input: CreateSessionInput): Promise<OperationTask>;

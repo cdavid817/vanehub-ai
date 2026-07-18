@@ -545,6 +545,21 @@
                      },
                      {
                          "archivedOn":  "2026-07-18",
+                         "changeName":  "add-remote-workspace",
+                         "path":  "openspec/changes/archive/2026-07-18-add-remote-workspace/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "project-worktree-management",
+                                              "session-management",
+                                              "session-workspace-tabs"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-18",
                          "changeName":  "add-rich-block-chat-rendering",
                          "path":  "openspec/changes/archive/2026-07-18-add-rich-block-chat-rendering/",
                          "artifacts":  [

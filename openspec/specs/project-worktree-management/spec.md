@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines known project history, project folder selection, Git repository detection, optional Git worktree creation, and worktree diagnostics for session startup.
-
 ## Requirements
 ### Requirement: Known project history
 The system SHALL maintain a history of project folders selected during session creation.
@@ -90,3 +89,19 @@ The system SHALL keep worktree command output out of React UI while preserving d
 #### Scenario: Git executable unavailable
 - **WHEN** Git cannot be executed in desktop mode
 - **THEN** the UI SHALL receive a concise unavailable message and the native runtime SHALL write the detailed failure through the unified logging service
+
+### Requirement: Remote workspace history
+The system SHALL maintain a history of remote workspaces used during session creation.
+
+#### Scenario: Record remote workspace
+- **WHEN** a session is created with a remote workspace target
+- **THEN** the system SHALL persist host, optional user, path, display name, URI, and last opened timestamp
+
+#### Scenario: List remote workspaces
+- **WHEN** the create-session dialog requests known remote workspaces
+- **THEN** the system SHALL return previously used remote workspaces ordered by most recently opened first
+
+#### Scenario: Preserve local project history
+- **WHEN** local project history is requested
+- **THEN** remote workspace entries SHALL NOT be mixed into the local project history list
+

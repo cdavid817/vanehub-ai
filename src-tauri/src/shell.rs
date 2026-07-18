@@ -281,6 +281,11 @@ pub(crate) fn shell_create(
         .map_err(|error| AppError::Storage(error.to_string()))?;
     let conn = store.connection()?;
     let session = load_session(&conn, &input.session_id)?;
+    if session_tabs::session_has_remote_workspace(&conn, &input.session_id)? {
+        return Err(AppError::Validation(
+            "Remote workspace shell is unsupported.".to_string(),
+        ));
+    }
     let root = session_tabs::resolve_session_root(&conn, &input.session_id)?.ok_or_else(|| {
         AppError::Validation("Session workspace is unavailable.".to_string())
     })?;
