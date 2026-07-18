@@ -2,6 +2,7 @@ import { AlertTriangle, Bot, CheckCircle2, CircleStop, UserRound } from "lucide-
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
+import { RichBlocks } from "./RichBlocks";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
@@ -57,6 +58,7 @@ export function MessageItem({ message }: { message: ChatMessage }) {
         {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
         <ThinkingBlock content={message.thinkingContent ?? ""} />
         <ToolUseBlock toolUse={message.toolUse ?? []} />
+        <RichBlocks blocks={message.richBlocks ?? []} />
       </div>
     </article>
   );

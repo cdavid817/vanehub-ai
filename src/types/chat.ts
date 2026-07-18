@@ -38,6 +38,104 @@ export interface ToolUseBlock {
   status: "pending" | "running" | "completed" | "failed";
 }
 
+export type RichBlockKind =
+  | "card"
+  | "diff"
+  | "checklist"
+  | "media_gallery"
+  | "audio"
+  | "interactive"
+  | "html_widget"
+  | "file";
+
+interface RichBlockBase {
+  id: string;
+  kind: RichBlockKind;
+  v: 1;
+}
+
+export interface RichCardBlock extends RichBlockBase {
+  kind: "card";
+  title: string;
+  bodyMarkdown?: string;
+  tone?: "info" | "success" | "warning" | "danger";
+  fields?: Array<{ label: string; value: string }>;
+  meta?: Record<string, unknown>;
+}
+
+export interface RichDiffBlock extends RichBlockBase {
+  kind: "diff";
+  filePath: string;
+  diff: string;
+  languageHint?: string;
+}
+
+export interface RichChecklistBlock extends RichBlockBase {
+  kind: "checklist";
+  title?: string;
+  items: Array<{ id: string; text: string; checked?: boolean }>;
+}
+
+export interface RichMediaGalleryBlock extends RichBlockBase {
+  kind: "media_gallery";
+  title?: string;
+  items: Array<{ url: string; alt?: string; caption?: string }>;
+}
+
+export interface RichAudioBlock extends RichBlockBase {
+  kind: "audio";
+  url: string;
+  text?: string;
+  title?: string;
+  durationSec?: number;
+  mimeType?: string;
+}
+
+export interface RichInteractiveOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface RichInteractiveBlock extends RichBlockBase {
+  kind: "interactive";
+  interactiveType: "select" | "multi-select" | "card-grid" | "confirm";
+  title?: string;
+  description?: string;
+  options: RichInteractiveOption[];
+  maxSelect?: number;
+  allowRandom?: boolean;
+  messageTemplate?: string;
+  disabled?: boolean;
+  selectedIds?: string[];
+  groupId?: string;
+}
+
+export interface RichHtmlWidgetBlock extends RichBlockBase {
+  kind: "html_widget";
+  html: string;
+  title?: string;
+  height?: number;
+}
+
+export interface RichFileBlock extends RichBlockBase {
+  kind: "file";
+  url: string;
+  fileName: string;
+  mimeType?: string;
+  fileSize?: number;
+}
+
+export type RichBlock =
+  | RichCardBlock
+  | RichDiffBlock
+  | RichChecklistBlock
+  | RichMediaGalleryBlock
+  | RichAudioBlock
+  | RichInteractiveBlock
+  | RichHtmlWidgetBlock
+  | RichFileBlock;
+
 export interface TokenUsage {
   input: number;
   output: number;
@@ -99,6 +197,7 @@ export interface ChatMessage {
   status: MessageStatus;
   toolUse?: ToolUseBlock[];
   thinkingContent?: string;
+  richBlocks?: RichBlock[];
   tokenUsage?: TokenUsage;
   error?: string;
   createdAt: string;
@@ -110,6 +209,7 @@ export type ChatStreamEvent =
   | { type: "token"; sessionId: string; messageId: string; contentDelta: string }
   | { type: "thinking"; sessionId: string; messageId: string; contentDelta: string }
   | { type: "tool_use"; sessionId: string; messageId: string; toolUse: ToolUseBlock }
+  | { type: "rich_block"; sessionId: string; messageId: string; block: RichBlock }
   | { type: "completed"; sessionId: string; messageId: string; tokenUsage?: TokenUsage }
   | { type: "failed"; sessionId: string; messageId: string; error: string }
   | { type: "cancelled"; sessionId: string; messageId: string };

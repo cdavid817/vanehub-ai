@@ -561,6 +561,7 @@ struct ChatMessage {
     status: String,
     tool_use: Option<Vec<ToolUseBlock>>,
     thinking_content: Option<String>,
+    rich_blocks: Option<Vec<serde_json::Value>>,
     token_usage: Option<TokenUsage>,
     error: Option<String>,
     created_at: String,
@@ -592,6 +593,12 @@ enum ChatStreamEvent {
         session_id: String,
         message_id: String,
         tool_use: ToolUseBlock,
+    },
+    #[serde(rename_all = "camelCase")]
+    RichBlock {
+        session_id: String,
+        message_id: String,
+        block: serde_json::Value,
     },
     #[serde(rename_all = "camelCase")]
     Completed {
@@ -634,6 +641,7 @@ enum ParsedAgentEvent {
     Token(String),
     Thinking(String),
     ToolUse(ToolUseBlock),
+    RichBlock(serde_json::Value),
     SessionId(String),
     Completed,
     Failed(String),
@@ -880,6 +888,12 @@ impl AgentOutputParser for ClaudeCodeParser {
             .unwrap_or_default();
 
         match event_type {
+            "rich_block" => value
+                .get("block")
+                .filter(|block| valid_rich_block(block))
+                .cloned()
+                .map(ParsedAgentEvent::RichBlock)
+                .unwrap_or(ParsedAgentEvent::Empty),
             "system" | "session_init" => value
                 .get("session_id")
                 .or_else(|| value.get("sessionId"))
@@ -1050,6 +1064,14 @@ impl AgentOutputParser for StructuredJsonParser {
         if matches!(event_type, "thinking" | "thinking_delta" | "reasoning") {
             return Self::thinking_value(&value)
                 .map(ParsedAgentEvent::Thinking)
+                .unwrap_or(ParsedAgentEvent::Empty);
+        }
+        if event_type == "rich_block" {
+            return value
+                .get("block")
+                .filter(|block| valid_rich_block(block))
+                .cloned()
+                .map(ParsedAgentEvent::RichBlock)
                 .unwrap_or(ParsedAgentEvent::Empty);
         }
         if matches!(event_type, "tool_use" | "tool" | "tool_call" | "tool.start") {
@@ -1343,6 +1365,12 @@ fn migrate(conn: &Connection) -> Result<(), AppError> {
         "cli-local-environment-details",
         apply_cli_environment_details_migration,
     )?;
+    apply_migration(
+        conn,
+        17,
+        "message-rich-blocks",
+        apply_message_rich_blocks_migration,
+    )?;
 
     Ok(())
 }
@@ -1426,6 +1454,13 @@ fn apply_cli_environment_details_migration(conn: &Connection) -> Result<(), AppE
     Ok(())
 }
 
+fn apply_message_rich_blocks_migration(conn: &Connection) -> Result<(), AppError> {
+    if !table_has_column(conn, "messages", "rich_blocks")? {
+        conn.execute("ALTER TABLE messages ADD COLUMN rich_blocks TEXT", [])?;
+    }
+    Ok(())
+}
+
 fn apply_app_settings_migration(conn: &Connection) -> Result<(), AppError> {
     conn.execute_batch(
         r#"
@@ -1451,6 +1486,7 @@ fn apply_chat_messages_migration(conn: &Connection) -> Result<(), AppError> {
             content TEXT NOT NULL DEFAULT '',
             thinking_content TEXT,
             tool_use TEXT,
+            rich_blocks TEXT,
             token_input INTEGER DEFAULT 0,
             token_output INTEGER DEFAULT 0,
             metadata TEXT,
@@ -3365,8 +3401,12 @@ fn load_chat_message_from_row(row: &Row<'_>) -> Result<ChatMessage, rusqlite::Er
     let tool_use = tool_use_json
         .as_deref()
         .and_then(|value| serde_json::from_str::<Vec<ToolUseBlock>>(value).ok());
-    let token_input = row.get::<_, Option<i64>>(7)?.unwrap_or(0);
-    let token_output = row.get::<_, Option<i64>>(8)?.unwrap_or(0);
+    let rich_blocks_json: Option<String> = row.get(7)?;
+    let rich_blocks = rich_blocks_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Vec<serde_json::Value>>(value).ok());
+    let token_input = row.get::<_, Option<i64>>(8)?.unwrap_or(0);
+    let token_output = row.get::<_, Option<i64>>(9)?.unwrap_or(0);
     let token_usage = if token_input > 0 || token_output > 0 {
         Some(TokenUsage {
             input: token_input,
@@ -3383,15 +3423,16 @@ fn load_chat_message_from_row(row: &Row<'_>) -> Result<ChatMessage, rusqlite::Er
         content: row.get(4)?,
         thinking_content: row.get(5)?,
         tool_use,
+        rich_blocks,
         token_usage,
-        error: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        error: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
 fn message_select_sql() -> &'static str {
-    "SELECT id, session_id, role, status, content, thinking_content, tool_use, token_input, token_output, metadata, created_at, updated_at FROM messages"
+    "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, created_at, updated_at FROM messages"
 }
 
 fn insert_chat_message(
@@ -3575,6 +3616,54 @@ fn append_assistant_tool_use(
     conn.execute(
         "UPDATE messages SET tool_use = ?1, updated_at = ?2 WHERE id = ?3",
         params![tools_json, now, message_id],
+    )?;
+    load_chat_message(conn, message_id)
+}
+
+fn valid_rich_block(block: &serde_json::Value) -> bool {
+    block
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        && block
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+        && block.get("v").and_then(serde_json::Value::as_i64) == Some(1)
+}
+
+fn rich_block_id(block: &serde_json::Value) -> Option<&str> {
+    block.get("id").and_then(serde_json::Value::as_str)
+}
+
+fn append_assistant_rich_block(
+    conn: &Connection,
+    message_id: &str,
+    block: serde_json::Value,
+) -> Result<ChatMessage, AppError> {
+    if !valid_rich_block(&block) {
+        return Err(AppError::Validation("Invalid Rich Block payload.".to_string()));
+    }
+    let mut message = load_chat_message(conn, message_id)?;
+    let mut blocks = message.rich_blocks.take().unwrap_or_default();
+    if let Some(block_id) = rich_block_id(&block) {
+        if let Some(index) = blocks
+            .iter()
+            .position(|candidate| rich_block_id(candidate) == Some(block_id))
+        {
+            blocks[index] = block;
+        } else {
+            blocks.push(block);
+        }
+    }
+    let blocks_json =
+        serde_json::to_string(&blocks).map_err(|error| AppError::Storage(error.to_string()))?;
+    let now = current_timestamp();
+    conn.execute(
+        "UPDATE messages SET rich_blocks = ?1, updated_at = ?2 WHERE id = ?3",
+        params![blocks_json, now, message_id],
     )?;
     load_chat_message(conn, message_id)
 }
@@ -5052,6 +5141,17 @@ fn run_cli_generation_stream(
                         session_id: session_id.clone(),
                         message_id: assistant_message_id.clone(),
                         tool_use,
+                    },
+                );
+            }
+            ParsedAgentEvent::RichBlock(block) => {
+                let _ = append_assistant_rich_block(&conn, &assistant_message_id, block.clone());
+                let _ = app.emit(
+                    "chat:event",
+                    ChatStreamEvent::RichBlock {
+                        session_id: session_id.clone(),
+                        message_id: assistant_message_id.clone(),
+                        block,
                     },
                 );
             }
@@ -6688,7 +6788,9 @@ mod tests {
 
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+            vec![
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+            ]
         );
     }
 
@@ -7027,6 +7129,59 @@ mod tests {
     }
 
     #[test]
+    fn message_repository_persists_rich_blocks() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+        let assistant = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("assistant message");
+
+        append_assistant_rich_block(
+            &conn,
+            &assistant.id,
+            serde_json::json!({
+                "id": "card-1",
+                "kind": "card",
+                "v": 1,
+                "title": "Summary"
+            }),
+        )
+        .expect("append rich block");
+
+        let messages = list_chat_messages(&conn, "session-1", Some(50), None).expect("messages");
+        let blocks = messages[0].rich_blocks.as_ref().expect("rich blocks");
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].get("kind").and_then(serde_json::Value::as_str), Some("card"));
+    }
+
+    #[test]
+    fn message_repository_replaces_duplicate_rich_block_ids() {
+        let conn = test_conn();
+        insert_test_session(&conn, "session-1");
+        let assistant = insert_chat_message(&conn, "session-1", "assistant", "streaming", "")
+            .expect("assistant message");
+
+        append_assistant_rich_block(
+            &conn,
+            &assistant.id,
+            serde_json::json!({ "id": "card-1", "kind": "card", "v": 1, "title": "Before" }),
+        )
+        .expect("append before");
+        append_assistant_rich_block(
+            &conn,
+            &assistant.id,
+            serde_json::json!({ "id": "card-1", "kind": "card", "v": 1, "title": "After" }),
+        )
+        .expect("append after");
+
+        let message = load_chat_message(&conn, &assistant.id).expect("message");
+        let blocks = message.rich_blocks.expect("rich blocks");
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].get("title").and_then(serde_json::Value::as_str), Some("After"));
+    }
+
+    #[test]
     fn message_repository_pages_older_messages() {
         let conn = test_conn();
         insert_test_session(&conn, "session-1");
@@ -7216,6 +7371,14 @@ mod tests {
             ClaudeCodeParser.parse_line(r#"{"type":"error","message":"boom"}"#),
             ParsedAgentEvent::Failed("boom".to_string())
         );
+        assert_eq!(
+            ClaudeCodeParser.parse_line(
+                r#"{"type":"rich_block","block":{"id":"card-1","kind":"card","v":1,"title":"Summary"}}"#
+            ),
+            ParsedAgentEvent::RichBlock(
+                serde_json::json!({"id":"card-1","kind":"card","v":1,"title":"Summary"})
+            )
+        );
     }
 
     #[test]
@@ -7242,6 +7405,14 @@ mod tests {
                 output: None,
                 status: "running".to_string(),
             })
+        );
+        assert_eq!(
+            StructuredJsonParser.parse_line(
+                r#"{"type":"rich_block","block":{"id":"diff-1","kind":"diff","v":1,"filePath":"src/main.ts","diff":"+ok"}}"#
+            ),
+            ParsedAgentEvent::RichBlock(
+                serde_json::json!({"id":"diff-1","kind":"diff","v":1,"filePath":"src/main.ts","diff":"+ok"})
+            )
         );
     }
 

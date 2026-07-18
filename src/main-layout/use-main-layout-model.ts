@@ -4,24 +4,11 @@ import { useTranslation } from "react-i18next";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
+import { applyChatEvent } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
-
-function applyChatEvent(messages: ChatMessage[], event: ChatStreamEvent) {
-  return messages.map((message) => {
-    if (message.id !== event.messageId) return message;
-    const updatedAt = new Date().toISOString();
-    if (event.type === "token") return { ...message, content: `${message.content}${event.contentDelta}`, updatedAt };
-    if (event.type === "thinking") return { ...message, thinkingContent: `${message.thinkingContent ?? ""}${event.contentDelta}`, updatedAt };
-    if (event.type === "tool_use") return { ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt };
-    if (event.type === "completed") return { ...message, status: "completed" as const, tokenUsage: event.tokenUsage, updatedAt };
-    if (event.type === "failed") return { ...message, status: "failed" as const, error: event.error, updatedAt };
-    if (event.type === "cancelled") return { ...message, status: "cancelled" as const, updatedAt };
-    return message;
-  });
-}
+import type { ChatConfig, ChatMessage } from "../types/chat";
 
 export function useMainLayoutModel() {
   const { t } = useTranslation();
