@@ -4,6 +4,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentRegistryEntry,
+  AgentTerminalEvent,
+  AgentTerminalSession,
+  AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
   CliParameterProfile,
@@ -266,6 +269,31 @@ export const tauriAgentClient: AgentService = {
 
   async stopGeneration(sessionId: string) {
     await invoke<void>("stop_generation", { sessionId });
+  },
+
+  openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
+    return invoke<AgentTerminalSession>("open_agent_terminal", { sessionId, size });
+  },
+
+  async sendAgentTerminalInput(terminalId: string, content: string) {
+    await invoke<void>("send_agent_terminal_input", { terminalId, content });
+  },
+
+  async resizeAgentTerminal(terminalId: string, size: AgentTerminalSize) {
+    await invoke<void>("resize_agent_terminal", { terminalId, size });
+  },
+
+  stopAgentTerminal(terminalId: string) {
+    return invoke<boolean>("stop_agent_terminal", { terminalId });
+  },
+
+  async subscribeAgentTerminalEvents(sessionId, handler) {
+    const unlisten = await listen<AgentTerminalEvent>("agent-terminal:event", (event) => {
+      if (event.payload.sessionId === sessionId) {
+        handler(event.payload);
+      }
+    });
+    return unlisten;
   },
 
   async subscribeMessageEvents(sessionId, handler) {

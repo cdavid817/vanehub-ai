@@ -371,6 +371,9 @@ fn is_sensitive_key(key: &str) -> bool {
         .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-')
         .to_ascii_lowercase();
     normalized.contains("password")
+        || normalized.contains("api-key")
+        || normalized.contains("api_key")
+        || normalized.contains("apikey")
         || normalized.contains("token")
         || normalized.contains("secret")
         || normalized.contains("authorization")

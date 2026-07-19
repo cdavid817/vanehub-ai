@@ -146,7 +146,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
-    app.manage(agent_runtime_api);
+    app.manage(agent_runtime_api.clone());
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());
@@ -157,9 +157,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings_api,
         fallback_log_directory.clone(),
     );
+    start_agent_terminal_cleanup_job(agent_runtime_api.clone());
     let desktop_lifecycle_api = super::assemble_desktop_lifecycle_api(
         app.handle().clone(),
         &tray_language,
+        agent_runtime_api.clone(),
         communications_api.clone(),
         fallback_log_directory.clone(),
     );
@@ -181,6 +183,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         }
     });
     Ok(())
+}
+
+fn start_agent_terminal_cleanup_job(
+    agent_runtime_api: crate::contexts::agent_runtime::api::AgentRuntimeApi,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let _ = agent_runtime_api.cleanup_idle_agent_terminals(30 * 60);
+        }
+    });
 }
 
 fn configured_app_data_dir(value: Option<OsString>) -> Result<Option<PathBuf>, Box<dyn Error>> {

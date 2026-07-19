@@ -110,6 +110,97 @@ pub(crate) struct AgentSession {
     pub(crate) archived: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentTerminalState {
+    #[expect(
+        dead_code,
+        reason = "reserved for future asynchronous terminal startup events"
+    )]
+    Starting,
+    Running,
+    Stopped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentTerminalCapability {
+    Native,
+    #[expect(
+        dead_code,
+        reason = "frontend contract includes simulated terminals for web/mock parity"
+    )]
+    Simulated,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTerminalSize {
+    pub(crate) rows: u16,
+    pub(crate) cols: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTerminalSession {
+    pub(crate) terminal_id: String,
+    pub(crate) session_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) state: AgentTerminalState,
+    pub(crate) capability: AgentTerminalCapability,
+    pub(crate) size: AgentTerminalSize,
+    pub(crate) runtime_session_id: Option<String>,
+    pub(crate) retained: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenAgentTerminalRequest {
+    pub(crate) session_id: String,
+    pub(crate) size: AgentTerminalSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTerminalInputRequest {
+    pub(crate) terminal_id: String,
+    pub(crate) content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResizeAgentTerminalRequest {
+    pub(crate) terminal_id: String,
+    pub(crate) size: AgentTerminalSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StopAgentTerminalRequest {
+    pub(crate) terminal_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentTerminalProcessRequest {
+    pub(crate) session: AgentSession,
+    pub(crate) agent: AgentView,
+    pub(crate) cli_profile: CliProfileSnapshot,
+    pub(crate) size: AgentTerminalSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentTerminalEvent {
+    Output {
+        terminal_id: String,
+        session_id: String,
+        content: String,
+    },
+    State {
+        terminal_id: String,
+        session_id: String,
+        state: AgentTerminalState,
+        error: Option<String>,
+    },
+    RuntimeSessionId {
+        terminal_id: String,
+        session_id: String,
+        runtime_session_id: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentChatConfiguration {
     pub(crate) agent_id: String,

@@ -1,9 +1,11 @@
 use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMessage, AgentOperation,
-    AgentRuntimeApplicationError, AgentSession, CliProfileSnapshot, CompleteAgentMessage,
+    AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent, AgentTerminalInputRequest,
+    AgentTerminalProcessRequest, AgentTerminalSession, CliProfileSnapshot, CompleteAgentMessage,
     EffectivePrompt, GenerationCancellation, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, NewAgentMessage, StartedGenerationProcess, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    GenerationProcessRequest, NewAgentMessage, ResizeAgentTerminalRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment,
@@ -131,6 +133,15 @@ pub(crate) trait AgentCliProfileGateway: Send + Sync {
         agent_id: &str,
         configuration: &AgentChatConfiguration,
     ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError>;
+
+    fn load_interactive(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::CliProfile(format!(
+            "interactive CLI profile loading is not implemented for {agent_id}."
+        )))
+    }
 }
 
 pub(crate) trait EffectivePromptGateway: Send + Sync {
@@ -164,6 +175,38 @@ pub(crate) trait AgentProcessGateway: Send + Sync {
 
 pub(crate) trait AgentProcessEventSink: Send + Sync {
     fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait AgentTerminalGateway: Send + Sync {
+    fn open_or_attach(
+        &self,
+        request: AgentTerminalProcessRequest,
+    ) -> Result<AgentTerminalSession, AgentRuntimeApplicationError>;
+
+    fn input(&self, request: AgentTerminalInputRequest)
+        -> Result<(), AgentRuntimeApplicationError>;
+
+    fn resize(
+        &self,
+        request: ResizeAgentTerminalRequest,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn stop(&self, request: StopAgentTerminalRequest)
+        -> Result<bool, AgentRuntimeApplicationError>;
+
+    fn cleanup_idle(
+        &self,
+        idle_after_seconds: i64,
+    ) -> Result<Vec<String>, AgentRuntimeApplicationError>;
+
+    fn shutdown(&self) -> Result<Vec<String>, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait AgentTerminalEventPort: Send + Sync {
+    fn publish_terminal(
+        &self,
+        event: AgentTerminalEvent,
+    ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait AgentTaskPort: Send + Sync {

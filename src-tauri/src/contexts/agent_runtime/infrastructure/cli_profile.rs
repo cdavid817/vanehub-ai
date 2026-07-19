@@ -52,6 +52,38 @@ impl AgentCliProfileGateway for RuntimeAgentCliProfileAdapter {
             managed_args,
         })
     }
+
+    fn load_interactive(
+        &self,
+        agent_id: &str,
+    ) -> Result<CliProfileSnapshot, AgentRuntimeApplicationError> {
+        let selections = self
+            .parameters
+            .load_selections(agent_id)
+            .map_err(cli_profile_error)?;
+        let selections = self
+            .parameters
+            .normalize_selections(agent_id, &selections)
+            .map_err(cli_profile_error)?;
+        let managed_args = self
+            .parameters
+            .preview_args(agent_id, &selections, CliParameterLaunchScope::Interactive)
+            .map_err(cli_profile_error)?;
+        let executable = self
+            .cli
+            .resolve_executable(agent_id)
+            .map_err(cli_profile_error)?
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::CliProfile(format!(
+                    "Agent executable could not be resolved for {agent_id}."
+                ))
+            })?;
+        Ok(CliProfileSnapshot {
+            executable,
+            selections,
+            managed_args,
+        })
+    }
 }
 
 fn cli_profile_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError {

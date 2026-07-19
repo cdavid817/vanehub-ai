@@ -1,7 +1,7 @@
 use super::invocation::ProviderInvocationError;
 use super::{
-    apply_configuration_overrides, build_invocation, output_parser_for, ProviderOutputEvent,
-    ProviderPromptDelivery,
+    apply_configuration_overrides, build_interactive_invocation, build_invocation,
+    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery,
 };
 use crate::contexts::agent_runtime::application::{AgentChatConfiguration, ToolUseBlock};
 use crate::contexts::agent_runtime::domain::InteractionMode;
@@ -94,6 +94,73 @@ fn parameter_mapping_fixtures_cover_every_stable_provider() {
             apply_configuration_overrides(&fixture.agent_id, fixture.base, &configuration);
 
         assert_eq!(selections, fixture.expected, "{}", fixture.agent_id);
+    }
+}
+
+#[test]
+fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
+    let fixtures = [
+        (
+            "claude-code",
+            vec!["--chrome".to_string()],
+            vec!["--chrome".to_string()],
+            vec![
+                "--chrome".to_string(),
+                "--resume".to_string(),
+                "runtime-1".to_string(),
+            ],
+        ),
+        (
+            "codex-cli",
+            vec!["--strict-config".to_string()],
+            vec!["--strict-config".to_string()],
+            vec![
+                "--strict-config".to_string(),
+                "resume".to_string(),
+                "runtime-1".to_string(),
+            ],
+        ),
+        (
+            "gemini-cli",
+            vec!["--sandbox".to_string()],
+            vec!["--sandbox".to_string()],
+            vec![
+                "--sandbox".to_string(),
+                "--resume".to_string(),
+                "runtime-1".to_string(),
+            ],
+        ),
+        (
+            "opencode",
+            vec!["--auto".to_string()],
+            vec!["--auto".to_string()],
+            vec![
+                "--auto".to_string(),
+                "--session".to_string(),
+                "runtime-1".to_string(),
+            ],
+        ),
+    ];
+    assert_stable_agent_coverage(fixtures.iter().map(|(agent_id, _, _, _)| *agent_id));
+
+    for (agent_id, managed_args, fresh_args, resume_args) in fixtures {
+        let fresh = build_interactive_invocation(
+            agent_id,
+            format!("C:/bin/{agent_id}.exe"),
+            None,
+            &managed_args,
+        )
+        .expect("fresh interactive invocation");
+        assert_eq!(fresh.args, fresh_args, "{agent_id} fresh");
+
+        let resume = build_interactive_invocation(
+            agent_id,
+            format!("C:/bin/{agent_id}.exe"),
+            Some("runtime-1"),
+            &managed_args,
+        )
+        .expect("resume interactive invocation");
+        assert_eq!(resume.args, resume_args, "{agent_id} resume");
     }
 }
 

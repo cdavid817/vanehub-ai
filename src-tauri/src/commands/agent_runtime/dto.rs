@@ -144,3 +144,39 @@ pub(crate) struct ChatMessage {
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum AgentTerminalState {
+    Starting,
+    Running,
+    Stopped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum AgentTerminalCapability {
+    Native,
+    Simulated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentTerminalSize {
+    pub(crate) rows: u16,
+    pub(crate) cols: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentTerminalSession {
+    pub(crate) terminal_id: String,
+    pub(crate) session_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) state: AgentTerminalState,
+    pub(crate) capability: AgentTerminalCapability,
+    pub(crate) size: AgentTerminalSize,
+    pub(crate) runtime_session_id: Option<String>,
+    pub(crate) retained: bool,
+}

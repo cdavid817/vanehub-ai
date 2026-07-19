@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Bot, Loader2, Users, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import { agentService } from "../services/runtime-agent-client";
@@ -24,6 +24,7 @@ import type { OperationTask } from "../types/operation";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 
 const preferredAgentIds = ["claude-code", "gemini-cli", "codex-cli", "opencode"];
+type SessionAgentMode = "single" | "multi";
 
 function firstMode(agent: AgentRegistryEntry | null): InteractionMode { return agent?.supportedInteractionModes[0] ?? "cli"; }
 
@@ -52,6 +53,7 @@ export function CreateSessionDialog({
   const [agentId, setAgentId] = useState("");
   const selectedAgent = availableAgents.find((agent) => agent.id === agentId) ?? availableAgents[0] ?? null;
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("cli");
+  const [agentMode, setAgentMode] = useState<SessionAgentMode>("single");
   const [title, setTitle] = useState("");
   const [titleUserEdited, setTitleUserEdited] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
@@ -75,6 +77,7 @@ export function CreateSessionDialog({
     const agent = availableAgents[0] ?? null;
     setAgentId(agent?.id ?? "");
     setInteractionMode(firstMode(agent));
+    setAgentMode("single");
     setTitle("");
     setTitleUserEdited(false);
     setWorkspaceMode("local");
@@ -172,6 +175,7 @@ export function CreateSessionDialog({
 
   async function submit() {
     if (!selectedAgent) return;
+    if (agentMode !== "single") return;
     if (workspaceMode === "local" && !projectPath.trim()) return;
     if (workspaceMode === "remote" && (!remoteHost.trim() || !remotePath.trim())) return;
     setLoading(true);
@@ -207,6 +211,7 @@ export function CreateSessionDialog({
   const gitCapable = inspection?.isGit ?? false;
   const canSubmit = Boolean(
     selectedAgent &&
+      agentMode === "single" &&
       (workspaceMode === "remote"
         ? remoteHost.trim() && remotePath.trim()
         : projectPath.trim() && (!worktreeEnabled || worktreeName.trim())),
@@ -227,7 +232,10 @@ export function CreateSessionDialog({
 
         <div className="min-h-0 overflow-y-auto p-4">
           <div className="grid gap-4">
+            <SessionAgentModeSelector mode={agentMode} onModeChange={setAgentMode} />
+
             <CreateSessionAgentSection
+              disabled={agentMode !== "single"}
               agents={availableAgents}
               onAgentSelect={(agent) => {
                 setAgentId(agent.id);
@@ -301,6 +309,58 @@ export function CreateSessionDialog({
       </div>
     </div>
   );
+}
+
+export function SessionAgentModeSelector({
+  mode,
+  onModeChange,
+}: {
+  mode: SessionAgentMode;
+  onModeChange: (mode: SessionAgentMode) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section className="grid gap-2">
+      <span className="text-xs font-medium text-muted-foreground">{t("createSession.agentMode")}</span>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          aria-pressed={mode === "single"}
+          className={cnModeButton(mode === "single")}
+          onClick={() => onModeChange("single")}
+          type="button"
+        >
+          <Bot className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{t("createSession.agentMode.single")}</span>
+            <span className="block truncate text-xs text-muted-foreground">{t("createSession.agentMode.singleHint")}</span>
+          </span>
+        </button>
+        <button
+          aria-disabled="true"
+          aria-pressed={mode === "multi"}
+          className={cnModeButton(mode === "multi", true)}
+          onClick={() => onModeChange("multi")}
+          type="button"
+        >
+          <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{t("createSession.agentMode.multi")}</span>
+            <span className="block truncate text-xs text-muted-foreground">{t("createSession.agentMode.comingSoon")}</span>
+          </span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function cnModeButton(selected: boolean, disabled = false) {
+  return [
+    "ucd-list-row flex min-h-12 items-center gap-2 rounded-md p-2 text-left text-sm transition",
+    selected ? "border-primary bg-[hsl(var(--nav-active-soft))] text-foreground shadow-[0_0_0_1px_hsl(var(--primary))]" : "",
+    disabled ? "cursor-not-allowed opacity-60" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function sessionResult(result: OperationTask["result"]): Session | null {

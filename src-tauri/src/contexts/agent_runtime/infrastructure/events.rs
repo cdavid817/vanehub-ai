@@ -1,5 +1,6 @@
 use crate::contexts::agent_runtime::application::{
-    AgentEvent, AgentEventPort, AgentRuntimeApplicationError, MessageTokenUsage, ToolUseBlock,
+    AgentEvent, AgentEventPort, AgentRuntimeApplicationError, AgentTerminalEvent,
+    AgentTerminalEventPort, AgentTerminalState, MessageTokenUsage, ToolUseBlock,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -23,6 +24,17 @@ impl AgentEventPort for TauriAgentRuntimeEventAdapter {
         };
         self.app
             .emit("chat:event", event)
+            .map_err(|error| AgentRuntimeApplicationError::Event(error.to_string()))
+    }
+}
+
+impl AgentTerminalEventPort for TauriAgentRuntimeEventAdapter {
+    fn publish_terminal(
+        &self,
+        event: AgentTerminalEvent,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.app
+            .emit("agent-terminal:event", terminal_event(event))
             .map_err(|error| AgentRuntimeApplicationError::Event(error.to_string()))
     }
 }
@@ -75,6 +87,30 @@ enum ChatStreamEvent {
     Cancelled {
         session_id: String,
         message_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", tag = "type")]
+enum SerializableAgentTerminalEvent {
+    #[serde(rename_all = "camelCase")]
+    Output {
+        terminal_id: String,
+        session_id: String,
+        content: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    State {
+        terminal_id: String,
+        session_id: String,
+        state: &'static str,
+        error: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    RuntimeSessionId {
+        terminal_id: String,
+        session_id: String,
+        runtime_session_id: String,
     },
 }
 
@@ -168,6 +204,49 @@ fn chat_event(event: AgentEvent) -> Option<ChatStreamEvent> {
     }
 }
 
+fn terminal_event(event: AgentTerminalEvent) -> SerializableAgentTerminalEvent {
+    match event {
+        AgentTerminalEvent::Output {
+            terminal_id,
+            session_id,
+            content,
+        } => SerializableAgentTerminalEvent::Output {
+            terminal_id,
+            session_id,
+            content,
+        },
+        AgentTerminalEvent::State {
+            terminal_id,
+            session_id,
+            state,
+            error,
+        } => SerializableAgentTerminalEvent::State {
+            terminal_id,
+            session_id,
+            state: terminal_state_label(state),
+            error,
+        },
+        AgentTerminalEvent::RuntimeSessionId {
+            terminal_id,
+            session_id,
+            runtime_session_id,
+        } => SerializableAgentTerminalEvent::RuntimeSessionId {
+            terminal_id,
+            session_id,
+            runtime_session_id,
+        },
+    }
+}
+
+fn terminal_state_label(state: AgentTerminalState) -> &'static str {
+    match state {
+        AgentTerminalState::Starting => "starting",
+        AgentTerminalState::Running => "running",
+        AgentTerminalState::Stopped => "stopped",
+        AgentTerminalState::Failed => "failed",
+    }
+}
+
 fn serializable_tool_use(tool_use: ToolUseBlock) -> SerializableToolUse {
     SerializableToolUse {
         id: tool_use.id,
@@ -206,5 +285,21 @@ mod tests {
         assert_eq!(value["messageId"], "message-1");
         assert_eq!(value["tokenUsage"]["input"], 10);
         assert!(value.get("session_id").is_none());
+    }
+
+    #[test]
+    fn terminal_events_use_dedicated_tag_and_camel_case_payload_contract() {
+        let value = serde_json::to_value(terminal_event(AgentTerminalEvent::RuntimeSessionId {
+            terminal_id: "terminal-1".to_string(),
+            session_id: "session-1".to_string(),
+            runtime_session_id: "runtime-1".to_string(),
+        }))
+        .expect("serialize terminal event");
+
+        assert_eq!(value["type"], "runtime_session_id");
+        assert_eq!(value["terminalId"], "terminal-1");
+        assert_eq!(value["sessionId"], "session-1");
+        assert_eq!(value["runtimeSessionId"], "runtime-1");
+        assert!(value.get("runtime_session_id").is_none());
     }
 }

@@ -1,5 +1,8 @@
 import type {
   AgentRegistryEntry,
+  AgentTerminalEvent,
+  AgentTerminalSession,
+  AgentTerminalSize,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
   CliParameterProfile,
@@ -112,6 +115,14 @@ export interface AgentService {
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   stopGeneration(sessionId: string): Promise<void>;
+  openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
+  sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
+  resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;
+  stopAgentTerminal(terminalId: string): Promise<boolean>;
+  subscribeAgentTerminalEvents(
+    sessionId: string,
+    handler: (event: AgentTerminalEvent) => void,
+  ): Promise<() => void>;
   subscribeMessageEvents(
     sessionId: string,
     handler: (event: ChatStreamEvent) => void,

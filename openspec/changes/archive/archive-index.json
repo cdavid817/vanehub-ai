@@ -728,6 +728,26 @@
                      },
                      {
                          "archivedOn":  "2026-07-19",
+                         "changeName":  "fix-session-creation-and-cli-runtime",
+                         "path":  "openspec/changes/archive/2026-07-19-fix-session-creation-and-cli-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "cli-parameter-management",
+                                              "interaction-modes",
+                                              "main-layout-ui",
+                                              "session-management",
+                                              "session-runtime-management",
+                                              "settings-cli-management-ui",
+                                              "workspace-folder-openers"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
                          "changeName":  "redesign-cross-platform-app-icon",
                          "path":  "openspec/changes/archive/2026-07-19-redesign-cross-platform-app-icon/",
                          "artifacts":  [
@@ -751,6 +771,23 @@
                                        ],
                          "capabilities":  [
                                               "native-runtime-architecture"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
+                         "changeName":  "replace-chat-with-agent-terminal-session",
+                         "path":  "openspec/changes/archive/2026-07-19-replace-chat-with-agent-terminal-session/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "cli-parameter-management",
+                                              "main-layout-ui",
+                                              "native-runtime-architecture",
+                                              "session-management"
                                           ]
                      }
                  ]

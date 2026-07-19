@@ -183,6 +183,41 @@ export interface SessionDetails {
   details: Record<string, string>;
 }
 
+export type AgentTerminalState = "starting" | "running" | "stopped" | "failed";
+export type AgentTerminalCapability = "native" | "simulated";
+
+export interface AgentTerminalSize {
+  rows: number;
+  cols: number;
+}
+
+export interface AgentTerminalSession {
+  terminalId: string;
+  sessionId: string;
+  agentId: string;
+  state: AgentTerminalState;
+  capability: AgentTerminalCapability;
+  size: AgentTerminalSize;
+  runtimeSessionId: string | null;
+  retained: boolean;
+}
+
+export type AgentTerminalEvent =
+  | { type: "output"; terminalId: string; sessionId: string; content: string }
+  | {
+      type: "state";
+      terminalId: string;
+      sessionId: string;
+      state: AgentTerminalState;
+      error: string | null;
+    }
+  | {
+      type: "runtime_session_id";
+      terminalId: string;
+      sessionId: string;
+      runtimeSessionId: string;
+    };
+
 export type CliVersionCheckStatus = "unsupported" | "not-detected" | "succeeded" | "failed";
 export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
 export type CliInstallSource = "npm" | "winget" | "desktop" | "homebrew" | "volta" | "bun" | "vendor" | "system" | "unknown";

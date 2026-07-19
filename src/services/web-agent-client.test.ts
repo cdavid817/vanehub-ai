@@ -89,7 +89,7 @@ describe("webAgentClient", () => {
       title: "Codex work",
     });
 
-    expect(first.title).toBe("新会话");
+    expect(first.title).toMatch(/^mobile-app-/);
     expect(first.folder).toBe("D:\\example\\mobile-app");
     expect(first.projectPath).toBe("D:\\example\\mobile-app");
     expect(first.worktreePath).toBeNull();
@@ -596,5 +596,38 @@ describe("webAgentClient", () => {
 
     await webAgentClient.deletePromptHook(created.id);
     expect((await webAgentClient.listPromptHooks()).hooks.some((hook) => hook.id === created.id)).toBe(false);
+  });
+
+  it("simulates Agent Terminal without writing terminal output to chat messages", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      projectPath: "D:\\example\\terminal-project",
+    });
+    const events: string[] = [];
+    const unsubscribe = await webAgentClient.subscribeAgentTerminalEvents(session.id, (event) => {
+      events.push(event.type);
+    });
+
+    const terminal = await webAgentClient.openAgentTerminal(session.id, { rows: 24, cols: 80 });
+    await vi.advanceTimersByTimeAsync(40);
+
+    expect(terminal).toMatchObject({
+      sessionId: session.id,
+      agentId: "codex-cli",
+      state: "running",
+      capability: "simulated",
+      retained: true,
+    });
+    expect((await webAgentClient.getActiveSession())?.runtimeSessionId).toBe(`web-runtime-${session.id}`);
+    expect(events).toEqual(["runtime_session_id", "output"]);
+    expect(await webAgentClient.listMessages({ sessionId: session.id })).toEqual([]);
+
+    await webAgentClient.sendAgentTerminalInput(terminal.terminalId, "hello\r\n");
+    await webAgentClient.resizeAgentTerminal(terminal.terminalId, { rows: 40, cols: 120 });
+    await expect(webAgentClient.stopAgentTerminal(terminal.terminalId)).resolves.toBe(true);
+    expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("stopped");
+    unsubscribe();
   });
 });

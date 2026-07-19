@@ -1,12 +1,14 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
-    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
+    AgentTerminalApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, InMemoryGenerationCoordinator,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository,
-    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter,
+    PortablePtyAgentTerminalRuntime, RuntimeAgentAvailabilityAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeEffectivePromptAdapter,
+    SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository, SystemAgentRuntimeClock,
+    TauriAgentRuntimeEventAdapter,
 };
 use crate::contexts::operations::api::{DiagnosticLogPort, OperationLogPort, OperationsApi};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
@@ -51,21 +53,41 @@ pub(crate) fn assemble_agent_runtime_api(
         logging.clone(),
         clock.clone(),
     ));
+    let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
+    let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
+        dependencies.cli_parameters,
+        dependencies.cli,
+    ));
+    let events = Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app));
+    let terminal_runtime = Arc::new(PortablePtyAgentTerminalRuntime::new(
+        events.clone(),
+        sessions.clone(),
+        logging.clone(),
+        clock.clone(),
+        std::env::temp_dir().join("vanehub-agent-terminal-wrappers"),
+    ));
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: repository.clone(),
-        workflows: repository,
-        sessions: Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions)),
-        cli_profiles: Arc::new(RuntimeAgentCliProfileAdapter::new(
-            dependencies.cli_parameters,
-            dependencies.cli,
-        )),
+        workflows: repository.clone(),
+        sessions: sessions.clone(),
+        cli_profiles: cli_profiles.clone(),
         prompts: Arc::new(RuntimeEffectivePromptAdapter::new(dependencies.prompts)),
         processes,
         operations: Arc::new(AgentRuntimeOperationAdapter::new(dependencies.operations)),
-        logging,
-        clock,
-        events: Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app)),
+        logging: logging.clone(),
+        clock: clock.clone(),
+        events: events.clone(),
         generations: Arc::new(InMemoryGenerationCoordinator::default()),
     });
-    AgentRuntimeApi::new(service)
+    let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
+        registry: repository,
+        sessions,
+        cli_profiles,
+        terminals: terminal_runtime,
+        logging,
+        clock,
+        events: events.clone(),
+        terminal_events: events,
+    });
+    AgentRuntimeApi::new(service, terminal_service)
 }

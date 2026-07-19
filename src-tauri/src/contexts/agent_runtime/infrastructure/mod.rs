@@ -9,6 +9,8 @@ mod runtime_support;
 mod schema;
 mod sessions_gateway;
 mod sqlite_repository;
+mod terminal_process;
+mod terminal_wrapper;
 
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
@@ -22,6 +24,7 @@ pub(crate) use runtime_support::{
 pub(crate) use schema::seed_registry;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
+pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
 
 #[cfg(test)]
 mod tests;

@@ -13,6 +13,10 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::get_session_details::get_session_details,
         crate::commands::agent_runtime::send_message::send_message,
         crate::commands::agent_runtime::stop_generation::stop_generation,
+        crate::commands::agent_runtime::open_agent_terminal::open_agent_terminal,
+        crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,
+        crate::commands::agent_runtime::resize_agent_terminal::resize_agent_terminal,
+        crate::commands::agent_runtime::stop_agent_terminal::stop_agent_terminal,
         // Sessions
         crate::commands::sessions::create_session::create_session,
         crate::commands::sessions::list_sessions::list_sessions,

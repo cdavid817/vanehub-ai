@@ -148,31 +148,27 @@ The sidebar SHALL support service-backed session navigation without utility or t
 - **THEN** the session list SHALL scroll inside the sidebar without scrolling the whole workspace shell
 
 ### Requirement: Flexible main content area
-The main content panel SHALL render a chat-first workspace area that resizes with the available workspace area while keeping the bottom composer usable and connected to the active session message list.
+The main content panel SHALL render an Agent Terminal-first workspace area for active single-Agent CLI sessions while keeping the panel responsive within the workspace shell.
 
-#### Scenario: Chat transcript flexes with panel height
+#### Scenario: Agent Terminal flexes with panel height
 - **WHEN** the workspace panel height changes
-- **THEN** the chat transcript area SHALL flex to fill the remaining main content space without a fixed minimum height forcing overflow
+- **THEN** the Agent Terminal area SHALL flex to fill the available main content space without a fixed minimum height forcing overflow
 
-#### Scenario: Chat transcript scrolls internally
-- **WHEN** chat message content exceeds the available transcript height
-- **THEN** the transcript SHALL scroll inside the main content panel without scrolling the whole workspace shell
-
-#### Scenario: Composer remains fixed
-- **WHEN** the main content panel becomes shorter
-- **THEN** the bottom composer SHALL retain its usable size and SHALL remain within the main content panel bounds
+#### Scenario: Agent Terminal scrolls internally
+- **WHEN** terminal content exceeds the available terminal viewport
+- **THEN** the terminal SHALL scroll or buffer inside the main content panel without scrolling the whole workspace shell
 
 #### Scenario: Main content expands after panel collapse
 - **WHEN** the information panel is collapsed
 - **THEN** the main content panel SHALL smoothly expand to occupy the space released by the information panel
 
-#### Scenario: Message list renders for active session
-- **WHEN** an active session is selected
-- **THEN** the main content panel SHALL render the message list for that active session above the composer
+#### Scenario: Agent Terminal renders for active session
+- **WHEN** an active single-Agent CLI session is selected
+- **THEN** the main content panel SHALL render the Agent Terminal for that active session instead of the previous chat message list and composer
 
-#### Scenario: Composer sends to active session
-- **WHEN** the user submits the bottom composer
-- **THEN** the submitted chat message SHALL target the active session
+#### Scenario: Session-page chat selectors removed
+- **WHEN** the Agent Terminal main content renders
+- **THEN** the page SHALL NOT render model, provider, permission, reasoning, thinking, streaming, or prompt-composer controls for that terminal
 
 ### Requirement: Collapsible information panel
 The information panel SHALL support smooth collapse and expand behavior while preserving mounted internal state.
@@ -209,11 +205,21 @@ The information panel SHALL provide keep-alive tabs for Agent Info, Files, and C
 - **THEN** the tab SHALL show an independent progress bar with overall completion percentage and completed, in-progress, and pending task counts
 
 ### Requirement: Create-session dialog
-The main layout UI SHALL provide a create-session dialog with Agent, project folder, project history, and optional Git worktree controls.
+The main layout UI SHALL provide a create-session dialog with Agent mode selection, Agent choice for Single Agent sessions, project folder, project history, and optional Git worktree controls.
+
+#### Scenario: Select session mode
+- **WHEN** the create-session dialog opens
+- **THEN** it SHALL present Single Agent and Multi Agent mode choices
+- **AND** Single Agent SHALL be the enabled first-version mode
+
+#### Scenario: Multi Agent is disabled
+- **WHEN** the user views the Multi Agent mode choice
+- **THEN** it SHALL be marked as coming soon or disabled
+- **AND** the user SHALL NOT be able to submit a Multi Agent session
 
 #### Scenario: Select Agent
-- **WHEN** the create-session dialog opens
-- **THEN** it SHALL let the user choose among Claude Code, Gemini CLI, Codex, and OpenCode using stable agent ids
+- **WHEN** Single Agent mode is active
+- **THEN** the dialog SHALL let the user choose among Claude Code, Gemini CLI, Codex, and OpenCode using stable agent ids
 
 #### Scenario: Show project history
 - **WHEN** the create-session dialog opens
@@ -229,11 +235,24 @@ The main layout UI SHALL provide a create-session dialog with Agent, project fol
 
 #### Scenario: Disable worktree controls for non-Git project
 - **WHEN** the selected project folder is not a Git repository
-- **THEN** the dialog SHALL allow normal session creation and SHALL hide or disable worktree controls
+- **THEN** the dialog SHALL allow normal Single Agent session creation and SHALL hide or disable worktree controls
 
 #### Scenario: Submit concise failures
 - **WHEN** project inspection, folder selection, or session creation fails
 - **THEN** the dialog SHALL show a concise error message without rendering raw stdout or stderr
+
+### Requirement: Agent Terminal and Shell tab separation
+The workspace shell SHALL keep the Agent Terminal experience separate from the ordinary project Shell tab.
+
+#### Scenario: Keep ordinary Shell tab
+- **WHEN** an active session is selected
+- **THEN** the workspace SHALL keep the existing ordinary Shell tab available for project shell commands
+- **AND** that Shell tab SHALL NOT inject Agent CLI parameters or automatically launch the selected Agent CLI
+
+#### Scenario: Agent Terminal owns Agent CLI interaction
+- **WHEN** the user interacts with the selected Agent CLI
+- **THEN** that interaction SHALL occur through the Agent Terminal surface
+- **AND** it SHALL use the selected session's stable agent id
 
 ### Requirement: Polished workspace shell visuals
 The workspace shell SHALL apply the shared visual design system consistently to the top bar, sidebar, main content panel, composer area, information panel, status bar, dialogs, and session cards.

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { cn } from "../lib/utils";
+import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChangesTab } from "./changes-tab";
-import { ChatTab } from "./chat-tab";
 import { DocumentsTab } from "./documents-tab";
 import { FilesTab } from "./files-tab";
 import { LogsTab } from "./logs-tab";
@@ -14,19 +14,13 @@ import { TerminalTab, toolUseCount } from "./terminal-tab";
 
 export function SessionTabs({
   activeSession,
-  composer,
-  isStreaming,
   messages,
   messagesPartial,
-  onLoadEarlier,
   onOpenSettings,
 }: {
   activeSession: Session | null;
-  composer: ReactNode;
-  isStreaming: boolean;
   messages: ChatMessage[];
   messagesPartial: boolean;
-  onLoadEarlier: () => void;
   onOpenSettings: () => void;
 }) {
   const sessionId = activeSession?.id ?? null;
@@ -56,7 +50,7 @@ export function SessionTabs({
             key={`${sessionId ?? "none"}-${id}`}
             role="tabpanel"
           >
-            {id === "chat" ? <ChatTab activeSession={activeSession} composer={composer} isStreaming={isStreaming} messages={messages} onLoadEarlier={onLoadEarlier} /> : null}
+            {id === "chat" ? <AgentTerminalTab active={activeTab === "chat"} session={activeSession} /> : null}
             {id === "changes" ? <ChangesTab sessionId={sessionId} /> : null}
             {id === "documents" ? <DocumentsTab sessionId={sessionId} /> : null}
             {id === "files" ? <FilesTab sessionId={sessionId} /> : null}

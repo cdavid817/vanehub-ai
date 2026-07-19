@@ -7,10 +7,12 @@ import type { AgentRegistryEntry } from "../types/agent";
 
 export function CreateSessionAgentSection({
   agents,
+  disabled = false,
   onAgentSelect,
   selectedAgent,
 }: {
   agents: AgentRegistryEntry[];
+  disabled?: boolean;
   onAgentSelect: (agent: AgentRegistryEntry) => void;
   selectedAgent: AgentRegistryEntry | null;
 }) {
@@ -24,13 +26,17 @@ export function CreateSessionAgentSection({
           const selected = selectedAgent?.id === agent.id;
           return (
             <button
+              aria-disabled={disabled ? "true" : undefined}
               aria-pressed={selected}
               className={cn(
                 "ucd-list-row flex min-h-12 items-center gap-2 rounded-md p-2 text-left text-sm transition",
                 selected && "border-primary bg-[hsl(var(--nav-active-soft))] text-foreground shadow-[0_0_0_1px_hsl(var(--primary))]",
+                disabled && "cursor-not-allowed opacity-60",
               )}
               key={agent.id}
-              onClick={() => onAgentSelect(agent)}
+              onClick={() => {
+                if (!disabled) onAgentSelect(agent);
+              }}
               type="button"
             >
               <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded border", identity.tone)}>

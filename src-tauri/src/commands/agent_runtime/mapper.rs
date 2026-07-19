@@ -1,8 +1,14 @@
 use super::dto;
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMessage,
-    AgentSessionDetails, AgentView, InteractionMode, LaunchWorkflowResult, ReadinessView,
-    SendMessageRequest, WorkflowView,
+    AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
+    AgentTerminalSize as ApiAgentTerminalSize, AgentView, InteractionMode, LaunchWorkflowResult,
+    OpenAgentTerminalRequest, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
+    StopAgentTerminalRequest, WorkflowView,
+};
+use crate::contexts::agent_runtime::application::{
+    AgentTerminalCapability as ApiAgentTerminalCapability,
+    AgentTerminalState as ApiAgentTerminalState,
 };
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
@@ -154,6 +160,53 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
     }
 }
 
+pub(super) fn open_agent_terminal_request(
+    session_id: String,
+    size: dto::AgentTerminalSize,
+) -> OpenAgentTerminalRequest {
+    OpenAgentTerminalRequest {
+        session_id,
+        size: terminal_size_from_dto(size),
+    }
+}
+
+pub(super) fn terminal_input_request(
+    terminal_id: String,
+    content: String,
+) -> AgentTerminalInputRequest {
+    AgentTerminalInputRequest {
+        terminal_id,
+        content,
+    }
+}
+
+pub(super) fn resize_terminal_request(
+    terminal_id: String,
+    size: dto::AgentTerminalSize,
+) -> ResizeAgentTerminalRequest {
+    ResizeAgentTerminalRequest {
+        terminal_id,
+        size: terminal_size_from_dto(size),
+    }
+}
+
+pub(super) fn stop_terminal_request(terminal_id: String) -> StopAgentTerminalRequest {
+    StopAgentTerminalRequest { terminal_id }
+}
+
+pub(super) fn terminal_session_to_dto(session: AgentTerminalSession) -> dto::AgentTerminalSession {
+    dto::AgentTerminalSession {
+        terminal_id: session.terminal_id,
+        session_id: session.session_id,
+        agent_id: session.agent_id,
+        state: terminal_state_to_dto(session.state),
+        capability: terminal_capability_to_dto(session.capability),
+        size: terminal_size_to_dto(session.size),
+        runtime_session_id: session.runtime_session_id,
+        retained: session.retained,
+    }
+}
+
 pub(super) fn interaction_mode_from_dto(mode: dto::InteractionMode) -> InteractionMode {
     match mode {
         dto::InteractionMode::Browser => InteractionMode::Browser,
@@ -186,6 +239,38 @@ fn lifecycle_to_dto(lifecycle: AgentLifecycle) -> dto::SessionLifecycleState {
         AgentLifecycle::Running => dto::SessionLifecycleState::Running,
         AgentLifecycle::Failed => dto::SessionLifecycleState::Failed,
         AgentLifecycle::Stopped => dto::SessionLifecycleState::Stopped,
+    }
+}
+
+fn terminal_size_from_dto(size: dto::AgentTerminalSize) -> ApiAgentTerminalSize {
+    ApiAgentTerminalSize {
+        rows: size.rows,
+        cols: size.cols,
+    }
+}
+
+fn terminal_size_to_dto(size: ApiAgentTerminalSize) -> dto::AgentTerminalSize {
+    dto::AgentTerminalSize {
+        rows: size.rows,
+        cols: size.cols,
+    }
+}
+
+fn terminal_state_to_dto(state: ApiAgentTerminalState) -> dto::AgentTerminalState {
+    match state {
+        ApiAgentTerminalState::Starting => dto::AgentTerminalState::Starting,
+        ApiAgentTerminalState::Running => dto::AgentTerminalState::Running,
+        ApiAgentTerminalState::Stopped => dto::AgentTerminalState::Stopped,
+        ApiAgentTerminalState::Failed => dto::AgentTerminalState::Failed,
+    }
+}
+
+fn terminal_capability_to_dto(
+    capability: ApiAgentTerminalCapability,
+) -> dto::AgentTerminalCapability {
+    match capability {
+        ApiAgentTerminalCapability::Native => dto::AgentTerminalCapability::Native,
+        ApiAgentTerminalCapability::Simulated => dto::AgentTerminalCapability::Simulated,
     }
 }
 
@@ -290,5 +375,28 @@ mod tests {
         assert_eq!(details["lifecycleState"], "running");
         assert_eq!(details["details"]["runtime"], "tauri");
         assert!(details.get("lifecycle_state").is_none());
+    }
+
+    #[test]
+    fn terminal_session_mapping_keeps_camel_case_contract() {
+        let value = serde_json::to_value(terminal_session_to_dto(AgentTerminalSession {
+            terminal_id: "terminal-1".to_string(),
+            session_id: "session-1".to_string(),
+            agent_id: "codex-cli".to_string(),
+            state: ApiAgentTerminalState::Running,
+            capability: ApiAgentTerminalCapability::Native,
+            size: ApiAgentTerminalSize { rows: 24, cols: 80 },
+            runtime_session_id: Some("runtime-1".to_string()),
+            retained: true,
+        }))
+        .expect("serialize terminal session");
+
+        assert_eq!(value["terminalId"], "terminal-1");
+        assert_eq!(value["sessionId"], "session-1");
+        assert_eq!(value["agentId"], "codex-cli");
+        assert_eq!(value["runtimeSessionId"], "runtime-1");
+        assert_eq!(value["state"], "running");
+        assert_eq!(value["capability"], "native");
+        assert!(value.get("terminal_id").is_none());
     }
 }

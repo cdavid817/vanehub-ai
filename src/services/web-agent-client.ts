@@ -4,6 +4,9 @@ import { i18n } from "../i18n";
 import type {
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
+  AgentTerminalEvent,
+  AgentTerminalSession,
+  AgentTerminalSize,
   CliParameterSelections,
   CliToolStatus,
   CreateSessionCategoryInput,
@@ -107,6 +110,8 @@ let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
+const terminalsBySession = new Map<string, AgentTerminalSession>();
 const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
@@ -1003,6 +1008,15 @@ function publishChatEvent(event: ChatStreamEvent) {
   emitChatEvent(event);
 }
 
+function emitTerminalEvent(event: AgentTerminalEvent) {
+  const subscribers = terminalSubscribersBySession.get(event.sessionId);
+  subscribers?.forEach((handler) => handler(event));
+}
+
+function upsertTerminalSession(session: AgentTerminalSession) {
+  terminalsBySession.set(session.sessionId, session);
+}
+
 function cancelActiveStream(sessionId: string) {
   const activeStream = activeStreams.get(sessionId);
   if (!activeStream) return false;
@@ -1551,6 +1565,91 @@ export const webAgentClient: AgentService = {
     findSession(sessionId);
     if (!cancelActiveStream(sessionId)) return;
     updateSession(sessionId, { lifecycleState: "stopped" });
+  },
+
+  async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
+    const session = findSession(sessionId);
+    const existing = terminalsBySession.get(sessionId);
+    if (existing?.state === "running") {
+      return existing;
+    }
+    const runtimeSessionId = session.runtimeSessionId ?? `web-runtime-${session.id}`;
+    const terminal: AgentTerminalSession = {
+      terminalId: `web-terminal-${session.id}`,
+      sessionId: session.id,
+      agentId: session.agentId,
+      state: "running",
+      capability: "simulated",
+      size,
+      runtimeSessionId,
+      retained: true,
+    };
+    upsertTerminalSession(terminal);
+    updateSession(sessionId, { lifecycleState: "running", runtimeSessionId });
+    setTimeout(() => {
+      emitTerminalEvent({
+        type: "runtime_session_id",
+        terminalId: terminal.terminalId,
+        sessionId,
+        runtimeSessionId,
+      });
+      emitTerminalEvent({
+        type: "output",
+        terminalId: terminal.terminalId,
+        sessionId,
+        content: `Web mock Agent Terminal for ${session.agentId}\r\nLocal CLI execution is unavailable in Web mode.\r\n`,
+      });
+    }, 30);
+    return terminal;
+  },
+
+  async sendAgentTerminalInput(terminalId: string, content: string) {
+    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
+    if (!terminal) {
+      throw new Error("Agent terminal is not connected.");
+    }
+    emitTerminalEvent({
+      type: "output",
+      terminalId,
+      sessionId: terminal.sessionId,
+      content,
+    });
+  },
+
+  async resizeAgentTerminal(terminalId: string, size: AgentTerminalSize) {
+    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
+    if (!terminal) {
+      throw new Error("Agent terminal is not connected.");
+    }
+    upsertTerminalSession({ ...terminal, size });
+  },
+
+  async stopAgentTerminal(terminalId: string) {
+    const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
+    if (!terminal) return false;
+    terminalsBySession.delete(terminal.sessionId);
+    updateSession(terminal.sessionId, { lifecycleState: "stopped" });
+    emitTerminalEvent({
+      type: "state",
+      terminalId,
+      sessionId: terminal.sessionId,
+      state: "stopped",
+      error: null,
+    });
+    return true;
+  },
+
+  async subscribeAgentTerminalEvents(sessionId, handler) {
+    const subscribers = terminalSubscribersBySession.get(sessionId) ?? new Set<(event: AgentTerminalEvent) => void>();
+    subscribers.add(handler);
+    terminalSubscribersBySession.set(sessionId, subscribers);
+    return () => {
+      const currentSubscribers = terminalSubscribersBySession.get(sessionId);
+      currentSubscribers?.delete(handler);
+      if (currentSubscribers?.size === 0) {
+        terminalSubscribersBySession.delete(sessionId);
+      }
+    };
   },
 
   async subscribeMessageEvents(sessionId, handler) {

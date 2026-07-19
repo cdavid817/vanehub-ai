@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ChatInputBox } from "../components/chat/ChatInputBox";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
@@ -147,36 +146,8 @@ export function MainLayout({
             <section className="ucd-panel flex min-h-0 min-w-0 flex-col rounded-lg p-3">
               <SessionTabs
                 activeSession={model.activeSession}
-                composer={<ChatInputBox
-                  agents={model.chatConfig.availableAgents.length > 0 ? model.chatConfig.availableAgents : model.agents}
-                  availableModes={model.chatConfig.availableModes}
-                  availableModels={model.chatConfig.availableModels}
-                  availableReasoning={model.chatConfig.availableReasoning}
-                  config={model.chatConfig.config}
-                  disabled={!model.activeSession || model.isSending}
-                  fileReferenceCandidates={model.fileReferenceCandidates}
-                  fileReferences={model.fileReferences}
-                  isStreaming={model.isStreaming}
-                  onAddFileReference={model.addFileReference}
-                  onChange={model.setDraft}
-                  onClear={() => model.setDraft("")}
-                  onConfigAgentChange={model.chatConfig.changeAgent}
-                  onConfigLongContextChange={model.chatConfig.setLongContext}
-                  onConfigModeChange={model.chatConfig.setPermissionMode}
-                  onConfigModelChange={model.chatConfig.changeModel}
-                  onConfigProviderChange={model.chatConfig.changeProvider}
-                  onConfigReasoningChange={model.chatConfig.setReasoningDepth}
-                  onConfigStreamingChange={model.chatConfig.setStreaming}
-                  onConfigThinkingChange={model.chatConfig.setThinking}
-                  onRemoveFileReference={model.removeFileReference}
-                  onStop={model.stop}
-                  onSubmit={model.submit}
-                  value={model.draft}
-                />}
-                isStreaming={model.isStreaming}
                 messages={model.messages}
                 messagesPartial={model.messagesPartial}
-                onLoadEarlier={model.loadEarlier}
                 onOpenSettings={onOpenSettings}
               />
             </section>

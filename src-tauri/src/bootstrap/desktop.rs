@@ -1,3 +1,4 @@
+use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::communications::api::CommunicationsApi;
 use crate::contexts::desktop::api::{
     DesktopLifecycleApi, DesktopSettingsApi, FloatingAssistantApi,
@@ -78,6 +79,7 @@ pub(crate) fn assemble_floating_assistant_api(
 pub(crate) fn assemble_desktop_lifecycle_api(
     app: AppHandle,
     language: &str,
+    agents: AgentRuntimeApi,
     communications: CommunicationsApi,
     fallback_log_directory: PathBuf,
 ) -> DesktopLifecycleApi {
@@ -86,7 +88,10 @@ pub(crate) fn assemble_desktop_lifecycle_api(
     let lifecycle = TauriDesktopLifecycleAdapter::new(
         app,
         language,
-        Arc::new(CommunicationsShutdownAdapter { communications }),
+        Arc::new(RuntimeShutdownAdapter {
+            agents,
+            communications,
+        }),
         logging,
     );
     DesktopLifecycleApi::new(DesktopLifecycleApplicationService::new(Arc::new(lifecycle)))
@@ -111,13 +116,17 @@ pub(crate) fn initialize_desktop_runtime(
     }
 }
 
-struct CommunicationsShutdownAdapter {
+struct RuntimeShutdownAdapter {
+    agents: AgentRuntimeApi,
     communications: CommunicationsApi,
 }
 
 #[async_trait]
-impl DesktopShutdownPort for CommunicationsShutdownAdapter {
+impl DesktopShutdownPort for RuntimeShutdownAdapter {
     async fn shutdown(&self) -> Result<(), String> {
+        self.agents
+            .shutdown_agent_terminals()
+            .map_err(|_| "agent-terminal-shutdown-failed".to_string())?;
         self.communications
             .shutdown()
             .await

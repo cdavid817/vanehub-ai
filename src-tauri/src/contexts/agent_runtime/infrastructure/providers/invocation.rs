@@ -17,6 +17,12 @@ pub(crate) struct ProviderInvocationSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderInteractiveInvocationSpec {
+    pub(crate) executable: String,
+    pub(crate) args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderInvocationError {
     UnsupportedAgent(String),
 }
@@ -105,6 +111,38 @@ pub(crate) fn build_invocation(
         args,
         prompt_delivery,
     })
+}
+
+pub(crate) fn build_interactive_invocation(
+    agent_id: &str,
+    executable: String,
+    runtime_session_id: Option<&str>,
+    managed_args: &[String],
+) -> Result<ProviderInteractiveInvocationSpec, ProviderInvocationError> {
+    let mut args = Vec::new();
+    match agent_id {
+        "claude-code" => {
+            args.extend_from_slice(managed_args);
+            push_resume_args(&mut args, runtime_session_id, "--resume");
+        }
+        "codex-cli" => {
+            args.extend_from_slice(managed_args);
+            if let Some(session_id) = non_empty_session_id(runtime_session_id) {
+                args.extend(["resume".to_string(), session_id.to_string()]);
+            }
+        }
+        "gemini-cli" => {
+            args.extend_from_slice(managed_args);
+            push_resume_args(&mut args, runtime_session_id, "--resume");
+        }
+        "opencode" => {
+            args.extend_from_slice(managed_args);
+            push_resume_args(&mut args, runtime_session_id, "--session");
+        }
+        other => return Err(ProviderInvocationError::UnsupportedAgent(other.to_string())),
+    };
+
+    Ok(ProviderInteractiveInvocationSpec { executable, args })
 }
 
 pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path: &str) {
