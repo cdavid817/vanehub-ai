@@ -186,6 +186,14 @@ body.floating-assistant-surface {
   background: hsl(var(--panel-hover));
 }
 
+.ucd-choice-selected,
+.ucd-choice-selected:hover {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--background));
+  box-shadow: 0 8px 20px hsl(var(--primary) / 0.18);
+}
+
 .ucd-workspace-grid {
   grid-template-columns: 220px minmax(0, 1fr) 300px;
 }

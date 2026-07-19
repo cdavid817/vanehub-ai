@@ -14,7 +14,7 @@
     "prompt": "fixture prompt for codex",
     "runtimeSessionId": "codex-session",
     "managedArgs": ["--model", "gpt-5.5", "--ephemeral"],
-    "expectedArgs": ["--model", "gpt-5.5", "exec", "resume", "codex-session", "--ephemeral", "--json", "--", "-"],
+    "expectedArgs": ["--model", "gpt-5.5", "exec", "resume", "codex-session", "--ephemeral", "--json", "-"],
     "promptDelivery": "stdin"
   },
   {

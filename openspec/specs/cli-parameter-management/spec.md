@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines safe, typed, persisted CLI launch-parameter profiles and their application across settings, Web/mock preview, interactive launches, and provider chat processes.
-
 ## Requirements
 ### Requirement: Managed CLI parameter profiles
 The system SHALL provide one typed launch-parameter profile for each managed CLI stable agent id: `claude-code`, `codex-cli`, `gemini-cli`, and `opencode`.
@@ -138,3 +137,13 @@ The CLI Parameter Management page SHALL provide aligned Simplified Chinese and E
 #### Scenario: Switch theme
 - **WHEN** the active theme changes between `futuristic` and `minimal`
 - **THEN** all parameter controls, descriptions, warnings, previews, and action states SHALL remain readable and usable without page-specific theme branches
+
+### Requirement: CLI parameter management uses branded CLI identity
+
+The CLI parameter management settings page SHALL show the branded icon for each managed CLI.
+
+#### Scenario: CLI parameter agent list shows tool icons
+
+- **WHEN** the CLI parameter management page lists managed CLI profiles
+- **THEN** each profile entry SHALL render the corresponding branded CLI icon from the stable agent id.
+

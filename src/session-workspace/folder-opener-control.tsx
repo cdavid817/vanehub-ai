@@ -29,6 +29,17 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
   }, [menuOpen]);
 
   useEffect(() => {
+    if (!menuOpen) return;
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    }
+    window.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [menuOpen]);
+
+  useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     void agentService.subscribeFolderOpenerEvents(() => {
       void Promise.all([agentService.listFolderOpeners(), agentService.getFolderOpenerPreferences()]).then(([nextOpeners, nextPreferences]) => {
@@ -40,7 +51,9 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
 
   const targetAvailable = Boolean(session && !session.remoteWorkspace && (session.worktreePath || session.folder || session.projectPath));
   const effective = preferences?.effectiveDefaultOpenerId ?? null;
-  const enabled = openers.filter((item) => item.status === "available" && preferences?.enabledOpenerIds.includes(item.id));
+  const enabled = (preferences?.enabledOpenerIds ?? [])
+    .map((id) => openers.find((item) => item.id === id))
+    .filter((item): item is FolderOpenerAvailability => item !== undefined && item.status === "available");
 
   async function launch(id: FolderOpenerId) {
     if (!session) return;
@@ -48,6 +61,18 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
     try {
       const result = await agentService.openSessionFolder(session.id, id);
       if (result.status !== "opened") setError(t("folderOpeners.webUnavailable"));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+
+  async function selectDefault(id: FolderOpenerId) {
+    if (!preferences) return;
+    setBusy(true); setError(null); setMenuOpen(false);
+    try {
+      setPreferences(await agentService.saveFolderOpenerPreferences({
+        configuredDefaultOpenerId: id,
+        enabledOpenerIds: preferences.enabledOpenerIds,
+      }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   }
@@ -67,7 +92,7 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
       menuButtonRef.current?.focus();
     }} role="menu">
       {preferences?.fallbackActive ? <p className="px-2 py-1 text-xs text-muted-foreground">{t("folderOpeners.fallbackActive")}</p> : null}
-      {enabled.map((opener) => <button className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted" key={opener.id} onClick={() => void launch(opener.id)} role="menuitem" type="button"><FolderOpenerIcon id={opener.id} /><span className="flex-1">{t(`folderOpeners.name.${opener.id}`)}</span>{effective === opener.id ? <Check className="h-4 w-4" /> : null}</button>)}
+      {enabled.map((opener) => <button className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted" key={opener.id} onClick={() => void selectDefault(opener.id)} role="menuitem" type="button"><FolderOpenerIcon id={opener.id} /><span className="flex-1">{t(`folderOpeners.name.${opener.id}`)}</span>{effective === opener.id ? <Check className="h-4 w-4" /> : null}</button>)}
       <div className="my-1 border-t border-border" />
       <button className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted" onClick={() => { setMenuOpen(false); onOpenSettings(); }} role="menuitem" type="button"><Settings className="h-4 w-4" />{t("folderOpeners.manage")}</button>
     </div> : null}

@@ -2,7 +2,9 @@ use crate::contexts::workspaces::application::{
     ShellEvent, ShellLaunch, ShellLog, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
     WorkspaceShellEventPort, WorkspaceShellLogPort, WorkspaceShellRuntimePort,
 };
-use crate::contexts::workspaces::domain::{reset_directory_command, ShellHost, TerminalDimensions};
+use crate::contexts::workspaces::domain::{
+    normalize_windows_extended_length_path, reset_directory_command, ShellHost, TerminalDimensions,
+};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -53,6 +55,10 @@ fn default_shell() -> String {
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     }
+}
+
+fn shell_root_path(root: &str) -> PathBuf {
+    PathBuf::from(normalize_windows_extended_length_path(root))
 }
 
 fn write_shell_log(
@@ -119,7 +125,7 @@ impl PortablePtyShellRuntime {
 
 impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
     fn open_shell(&self, launch: &ShellLaunch) -> Result<(), AppError> {
-        let root = PathBuf::from(&launch.root);
+        let root = shell_root_path(&launch.root);
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(terminal_size(launch.dimensions))
@@ -495,6 +501,18 @@ mod tests {
     #[test]
     fn default_shell_and_cd_escaping_are_platform_specific() {
         assert!(!default_shell().trim().is_empty());
+    }
+
+    #[test]
+    fn shell_roots_strip_windows_extended_length_prefixes_before_launch() {
+        assert_eq!(
+            shell_root_path(r"\\?\D:\cdavid\Documents\code\claude-code").to_string_lossy(),
+            r"D:\cdavid\Documents\code\claude-code"
+        );
+        assert_eq!(
+            shell_root_path(r"\\?\UNC\server\share\repo").to_string_lossy(),
+            r"\\server\share\repo"
+        );
     }
 
     #[test]

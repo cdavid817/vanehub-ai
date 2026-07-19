@@ -1,6 +1,7 @@
 use crate::contexts::workspaces::application::{
     ShellWorkspace, WorkspaceApplicationError, WorkspaceShellContextPort,
 };
+use crate::contexts::workspaces::domain::normalize_windows_extended_length_path;
 use crate::platform::{database::NativeDatabase, filesystem};
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;
@@ -58,7 +59,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
         } else {
             filesystem::canonical_directory_if_available(workspace.1.as_deref().map(Path::new))
                 .map_err(|error| WorkspaceApplicationError::Storage(error.to_string()))?
-                .map(|path| path.to_string_lossy().to_string())
+                .map(|path| normalize_windows_extended_length_path(&path.to_string_lossy()))
         };
         Ok(ShellWorkspace {
             agent_id: workspace.0,
@@ -120,11 +121,9 @@ mod tests {
         let missing = adapter
             .load_shell_workspace("missing")
             .expect_err("missing session");
-        let canonical_root = root
-            .canonicalize()
-            .expect("canonical")
-            .to_string_lossy()
-            .to_string();
+        let canonical_root = normalize_windows_extended_length_path(
+            &root.canonicalize().expect("canonical").to_string_lossy(),
+        );
 
         assert_eq!(local.agent_id, "codex-cli");
         assert_eq!(local.root.as_deref(), Some(canonical_root.as_str()));

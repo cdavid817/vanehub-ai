@@ -9,8 +9,10 @@ import {
   Stethoscope,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 import type { CliToolStatus } from "../../types/agent";
 import type { OperationTask } from "../../types/operation";
 import { deriveCliLifecycleGuidance, isManagedCliLifecycle, type CliVersionAction } from "./cli-management-utils";
@@ -67,6 +69,7 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
   const canRunPackageAction = canMutate && isManagedCliLifecycle(tool.lifecycleEligibility);
   const showsManualUpgrade = (props.action === "upgrade" || showsDisabledUpgrade) && !isManagedCliLifecycle(tool.lifecycleEligibility);
   const guidance = deriveCliLifecycleGuidance(tool);
+  const identity = getAgentVisualIdentity(tool.agentId);
   const guidanceText = guidance?.kind === "source-native"
     ? t(guidance.key, { source: t(`cli.source.${guidance.source}`) })
     : guidance
@@ -77,6 +80,9 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
     <section className="ucd-panel ucd-interactive flex min-h-72 flex-col rounded-lg p-4" data-cli-agent={tool.agentId}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
+          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${identity.tone}`}>
+            <AgentBrandIcon agentId={tool.agentId} className="h-5 w-5" />
+          </span>
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{tool.displayName}</h3>
             <p className="mt-1 truncate text-xs text-muted-foreground">{tool.packageName}</p>

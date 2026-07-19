@@ -149,19 +149,36 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
     }
     if matches!(
         event_type,
-        "result" | "done" | "complete" | "completed" | "turn.completed"
+        "result"
+            | "done"
+            | "complete"
+            | "completed"
+            | "turn.completed"
+            | "step_finish"
+            | "step-finish"
     ) {
         return ProviderOutputEvent::Completed;
     }
     if let Some(session_id) = session_id(&value) {
         if matches!(
             event_type,
-            "session" | "session_init" | "session_configured" | "start" | "started"
+            "session"
+                | "session_init"
+                | "session_configured"
+                | "start"
+                | "started"
+                | "thread.started"
+                | "conversation.started"
+                | "step_start"
+                | "step-start"
         ) {
             return ProviderOutputEvent::SessionId(session_id);
         }
     }
-    if matches!(event_type, "thinking" | "thinking_delta" | "reasoning") {
+    if matches!(
+        event_type,
+        "thinking" | "thinking_delta" | "reasoning" | "reasoning_delta"
+    ) {
         return thinking_value(&value)
             .map(ProviderOutputEvent::Thinking)
             .unwrap_or(ProviderOutputEvent::Empty);
@@ -174,17 +191,34 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
             .map(ProviderOutputEvent::RichBlock)
             .unwrap_or(ProviderOutputEvent::Empty);
     }
-    if matches!(event_type, "tool_use" | "tool" | "tool_call" | "tool.start") {
+    if matches!(
+        event_type,
+        "tool_use"
+            | "tool"
+            | "tool_call"
+            | "tool.start"
+            | "item.started"
+            | "tool_call_start"
+            | "tool-call-start"
+    ) {
         return ProviderOutputEvent::ToolUse(ToolUseBlock {
-            id: nested_string_field(&value, "id", "/tool/id", "tool"),
-            name: nested_string_field(&value, "name", "/tool/name", "tool"),
+            id: first_string_field(&value, &["/id", "/tool/id", "/part/id"], "tool"),
+            name: first_string_field(
+                &value,
+                &["/name", "/tool/name", "/part/tool", "/part/name"],
+                "tool",
+            ),
             input: value
                 .get("input")
                 .or_else(|| value.pointer("/tool/input"))
+                .or_else(|| value.pointer("/part/input"))
+                .or_else(|| value.pointer("/item/input"))
                 .cloned(),
             output: value
                 .get("output")
                 .or_else(|| value.pointer("/tool/output"))
+                .or_else(|| value.pointer("/part/output"))
+                .or_else(|| value.pointer("/item/output"))
                 .cloned(),
             status: string_field(&value, "status", "running"),
         });
@@ -198,13 +232,27 @@ fn text_value(value: &Value) -> Option<String> {
     [
         "/delta/text",
         "/message/content/0/text",
+        "/item/content/0/text",
+        "/item/content/0/output_text",
+        "/item/content/0/text/text",
+        "/item/content/0/text/value",
         "/content/0/text",
+        "/content/0/output_text",
         "/content/text",
         "/data/text",
+        "/data/message",
+        "/part/text",
+        "/delta",
+        "/message",
+        "/output_text",
+        "/response/output_text",
+        "/response/output/0/content/0/text",
+        "/response/output/0/content/0/output_text",
     ]
     .iter()
     .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
     .or_else(|| value.get("text").and_then(Value::as_str))
+    .or_else(|| value.get("message").and_then(Value::as_str))
     .or_else(|| value.get("content").and_then(Value::as_str))
     .map(str::to_string)
     .filter(|text| !text.is_empty())
@@ -215,6 +263,8 @@ fn thinking_value(value: &Value) -> Option<String> {
         "/delta/thinking",
         "/thinking",
         "/reasoning",
+        "/item/summary/0/text",
+        "/item/content/0/summary",
         "/data/thinking",
     ]
     .iter()
@@ -228,8 +278,15 @@ fn session_id(value: &Value) -> Option<String> {
         "/session_id",
         "/sessionId",
         "/session/id",
+        "/sessionID",
+        "/thread_id",
+        "/threadId",
+        "/conversation_id",
+        "/conversationId",
         "/metadata/session_id",
         "/metadata/sessionId",
+        "/part/sessionID",
+        "/part/session_id",
     ]
     .iter()
     .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
@@ -267,11 +324,10 @@ fn string_field(value: &Value, field: &str, fallback: &str) -> String {
         .to_string()
 }
 
-fn nested_string_field(value: &Value, field: &str, pointer: &str, fallback: &str) -> String {
-    value
-        .get(field)
-        .or_else(|| value.pointer(pointer))
-        .and_then(Value::as_str)
+fn first_string_field(value: &Value, pointers: &[&str], fallback: &str) -> String {
+    pointers
+        .iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
         .unwrap_or(fallback)
         .to_string()
 }

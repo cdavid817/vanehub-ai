@@ -3,3 +3,5 @@
 {"type":"reasoning","reasoning":"checking files"}
 {"type":"tool_call","id":"codex-tool","name":"read_file","input":{"path":"Cargo.toml"}}
 {"type":"turn.completed"}
+{"type":"thread.started","thread_id":"codex-thread"}
+{"type":"item.completed","item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello from current codex"}]}}

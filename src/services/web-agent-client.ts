@@ -26,6 +26,7 @@ import type {
   ImSessionConnector,
 } from "../types/agent";
 import { managedCliAgentIds } from "../types/agent";
+import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
@@ -505,7 +506,8 @@ function upsertKnownProject(inspection: ProjectInspection) {
 }
 
 function resolveProjectPath(input: CreateSessionInput) {
-  return input.projectPath?.trim() || input.folder?.trim() || null;
+  const path = input.projectPath?.trim() || input.folder?.trim() || "";
+  return path ? normalizeDisplayPath(path) : null;
 }
 
 function displayNameForRemotePath(path: string) {
@@ -1304,9 +1306,10 @@ export const webAgentClient: AgentService = {
       effectiveFolder = worktreePath;
     }
     const timestamp = nowIso();
+    const titleSource = remoteWorkspace?.displayName || effectiveFolder || "";
     const session: Session = {
       id: `web-session-${nextSessionId}`,
-      title: input.title?.trim() || tr("createSession.sessionPlaceholder"),
+      title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
       agentId: input.agentId,
       interactionMode: input.interactionMode,
       lifecycleState: "idle",

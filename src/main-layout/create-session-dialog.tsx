@@ -21,6 +21,7 @@ import type {
   Session,
 } from "../types/agent";
 import type { OperationTask } from "../types/operation";
+import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 
 const preferredAgentIds = ["claude-code", "gemini-cli", "codex-cli", "opencode"];
 
@@ -52,6 +53,7 @@ export function CreateSessionDialog({
   const selectedAgent = availableAgents.find((agent) => agent.id === agentId) ?? availableAgents[0] ?? null;
   const [interactionMode, setInteractionMode] = useState<InteractionMode>("cli");
   const [title, setTitle] = useState("");
+  const [titleUserEdited, setTitleUserEdited] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
   const [projectPath, setProjectPath] = useState("");
   const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
@@ -73,7 +75,14 @@ export function CreateSessionDialog({
     const agent = availableAgents[0] ?? null;
     setAgentId(agent?.id ?? "");
     setInteractionMode(firstMode(agent));
+    setTitle("");
+    setTitleUserEdited(false);
     setWorkspaceMode("local");
+    setProjectPath("");
+    setRemoteHost("");
+    setRemoteUser("");
+    setRemotePath("");
+    setRemoteDisplayName("");
     setError(null);
     void agentService.listKnownProjects().then(setKnownProjects).catch(() => setKnownProjects([]));
     void agentService.listKnownRemoteWorkspaces().then(setKnownRemoteWorkspaces).catch(() => setKnownRemoteWorkspaces([]));
@@ -127,8 +136,15 @@ export function CreateSessionDialog({
     }
   }, [interactionMode, selectedAgent]);
 
+  useEffect(() => {
+    if (titleUserEdited) return;
+    const source = workspaceMode === "local" ? projectPath : remoteDisplayName || remotePath;
+    const nextTitle = defaultSessionTitleFromPath(source);
+    setTitle(nextTitle);
+  }, [projectPath, remoteDisplayName, remotePath, titleUserEdited, workspaceMode]);
+
   async function inspectPath(path: string) {
-    const trimmed = path.trim();
+    const trimmed = normalizeDisplayPath(path.trim());
     setProjectPath(trimmed);
     setWorktreeEnabled(false);
     setWorktreeName("");
@@ -213,12 +229,10 @@ export function CreateSessionDialog({
           <div className="grid gap-4">
             <CreateSessionAgentSection
               agents={availableAgents}
-              interactionMode={interactionMode}
               onAgentSelect={(agent) => {
                 setAgentId(agent.id);
                 setInteractionMode(firstMode(agent));
               }}
-              onInteractionModeChange={setInteractionMode}
               selectedAgent={selectedAgent}
             />
 
@@ -263,7 +277,10 @@ export function CreateSessionDialog({
               <span className="text-xs font-medium text-muted-foreground">{t("createSession.sessionName")}</span>
               <input
                 className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  setTitleUserEdited(true);
+                  setTitle(event.target.value);
+                }}
                 placeholder={t("createSession.sessionPlaceholder")}
                 value={title}
               />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatInputBox } from "../components/chat/ChatInputBox";
+import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
 import type { Session } from "../types/agent";
@@ -40,7 +41,7 @@ export function ConversationCard({
       type="button"
     >
       <span className={cn("mr-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border align-middle", identity.tone)} title={identity.label}>
-        <identity.Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        <AgentBrandIcon agentId={session.agentId} className="h-4 w-4" />
       </span>
       <span className="truncate text-sm font-medium">{session.title}</span>
       <span className="ml-2 text-xs text-muted-foreground">{lifecycleLabel}</span>
@@ -75,7 +76,16 @@ export function MainLayout({
 
   function openContextMenu(event: MouseEvent<HTMLButtonElement>, session: Session) {
     event.preventDefault();
-    setContextPanel({ session, mode: "menu", draftTitle: session.title });
+    event.stopPropagation();
+    setContextPanel({
+      session,
+      mode: "menu",
+      draftTitle: session.title,
+      position: {
+        x: event.clientX,
+        y: event.clientY,
+      },
+    });
   }
 
   function showScheduledTasksPlaceholder() {

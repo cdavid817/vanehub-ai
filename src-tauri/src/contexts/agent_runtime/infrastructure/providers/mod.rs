@@ -2,7 +2,8 @@ mod invocation;
 mod output;
 
 pub(crate) use invocation::{
-    apply_configuration_overrides, build_invocation, ProviderPromptDelivery,
+    add_codex_output_capture_args, apply_configuration_overrides, build_invocation,
+    ProviderPromptDelivery,
 };
 pub(crate) use output::{output_parser_for, ProviderOutputEvent};
 

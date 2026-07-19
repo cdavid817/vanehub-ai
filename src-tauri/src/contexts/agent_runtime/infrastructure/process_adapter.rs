@@ -1,5 +1,6 @@
 use super::providers::{
-    build_invocation, output_parser_for, ProviderOutputEvent, ProviderPromptDelivery,
+    add_codex_output_capture_args, build_invocation, output_parser_for, ProviderOutputEvent,
+    ProviderPromptDelivery,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
@@ -10,7 +11,9 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
 use crate::platform::process;
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdout, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -33,6 +36,7 @@ struct ManagedProcess {
     session_id: String,
     operation_id: String,
     monitoring: bool,
+    final_output_path: Option<PathBuf>,
 }
 
 struct ProcessMonitor {
@@ -45,6 +49,7 @@ struct ProcessMonitor {
     clock: Arc<dyn AgentClockPort>,
     session_id: String,
     operation_id: String,
+    final_output_path: Option<PathBuf>,
 }
 
 impl RuntimeAgentProcessAdapter {
@@ -67,14 +72,23 @@ impl RuntimeAgentProcessAdapter {
                 request.agent.display_name, request.agent.launch.kind
             )));
         }
-        let spec = build_invocation(
+        let executable =
+            normalize_generation_executable(&request.agent.id, &request.cli_profile.executable);
+        let mut spec = build_invocation(
             &request.agent.id,
-            request.cli_profile.executable,
+            executable,
             &request.effective_prompt,
             request.session.runtime_session_id.as_deref(),
             &request.cli_profile.managed_args,
         )
         .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        let final_output_path = if request.agent.id == "codex-cli" {
+            let path = codex_output_capture_path(&request.session.id, &request.operation_id);
+            add_codex_output_capture_args(&mut spec.args, &path.to_string_lossy());
+            Some(path)
+        } else {
+            None
+        };
         let mut command = process::std_command(&spec.executable)
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
         command.args(&spec.args);
@@ -149,6 +163,7 @@ impl RuntimeAgentProcessAdapter {
             session_id: request.session.id,
             operation_id: request.operation_id,
             monitoring: false,
+            final_output_path,
         };
         self.processes
             .lock()
@@ -243,7 +258,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         process_id: &str,
         sink: Arc<dyn AgentProcessEventSink>,
     ) -> Result<(), AgentRuntimeApplicationError> {
-        let (child, stdout, stderr, agent_id, session_id, operation_id) = {
+        let (child, stdout, stderr, agent_id, session_id, operation_id, final_output_path) = {
             let mut processes = self
                 .processes
                 .lock()
@@ -270,6 +285,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 managed.agent_id.clone(),
                 managed.session_id.clone(),
                 managed.operation_id.clone(),
+                managed.final_output_path.clone(),
             )
         };
         let processes = self.processes.clone();
@@ -287,6 +303,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 clock,
                 session_id,
                 operation_id,
+                final_output_path,
             }
             .run();
             if let Ok(mut processes) = processes.lock() {
@@ -328,13 +345,29 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
 
 impl ProcessMonitor {
     fn run(self) {
-        let stderr_handle = thread::spawn(move || read_stderr(self.stderr));
-        let parser = output_parser_for(&self.agent_id);
+        let ProcessMonitor {
+            child,
+            stdout,
+            stderr,
+            agent_id,
+            sink,
+            logging,
+            clock,
+            session_id,
+            operation_id,
+            final_output_path,
+        } = self;
+        let stderr_handle = thread::spawn(move || read_stderr(stderr));
+        let parser = output_parser_for(&agent_id);
         let mut terminal_error = None;
-        for line in BufReader::new(self.stdout).lines() {
+        let mut emitted_content = false;
+        for line in BufReader::new(stdout).lines() {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
-                    ProviderOutputEvent::Token(delta) => Some(GenerationProcessEvent::Token(delta)),
+                    ProviderOutputEvent::Token(delta) => {
+                        emitted_content = true;
+                        Some(GenerationProcessEvent::Token(delta))
+                    }
                     ProviderOutputEvent::Thinking(content) => {
                         Some(GenerationProcessEvent::Thinking(content))
                     }
@@ -359,23 +392,30 @@ impl ProcessMonitor {
                 }
             };
             if let Some(event) = event {
-                if let Err(error) = self.sink.handle(event) {
+                if let Err(error) = sink.handle(event) {
                     terminal_error =
                         Some(format!("Agent generation event handling failed: {error}"));
                     break;
                 }
             }
         }
-        let exit_status = self
-            .child
+        let exit_status = child
             .lock()
             .map_err(|error| error.to_string())
             .and_then(|mut child| child.wait().map_err(|error| error.to_string()));
         let stderr_output = stderr_handle.join().unwrap_or_default();
         if !stderr_output.trim().is_empty() {
-            let _ = self.sink.handle(GenerationProcessEvent::Stderr(
+            let _ = sink.handle(GenerationProcessEvent::Stderr(
                 stderr_output.trim().to_string(),
             ));
+        }
+        if terminal_error.is_none()
+            && exit_status.as_ref().is_ok_and(|status| status.success())
+            && !emitted_content
+        {
+            if let Some(final_message) = read_final_output(final_output_path.as_deref()) {
+                let _ = sink.handle(GenerationProcessEvent::Token(final_message));
+            }
         }
         let terminal = match (terminal_error, exit_status) {
             (Some(error), _) => GenerationProcessEvent::Failed(error),
@@ -389,17 +429,32 @@ impl ProcessMonitor {
             }
             (None, Err(error)) => GenerationProcessEvent::Failed(error),
         };
-        if let Err(error) = self.sink.handle(terminal) {
-            let _ = self.logging.record(AgentLog {
+        if let Err(error) = sink.handle(terminal) {
+            let _ = logging.record(AgentLog {
                 level: AgentLogLevel::Error,
                 category: "session.runtime.cli".to_string(),
                 message: format!("Agent generation terminal event failed: {error}"),
-                agent_id: Some(self.agent_id),
-                session_id: Some(self.session_id),
-                operation_id: Some(self.operation_id),
-                occurred_at: self.clock.now(),
+                agent_id: Some(agent_id),
+                session_id: Some(session_id),
+                operation_id: Some(operation_id),
+                occurred_at: clock.now(),
             });
         }
+        cleanup_final_output(final_output_path.as_deref());
+    }
+}
+
+fn read_final_output(path: Option<&Path>) -> Option<String> {
+    let path = path?;
+    fs::read_to_string(path)
+        .ok()
+        .map(|content| content.trim().to_string())
+        .filter(|content| !content.is_empty())
+}
+
+fn cleanup_final_output(path: Option<&Path>) {
+    if let Some(path) = path {
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -436,4 +491,52 @@ fn launch_command(command: Option<&str>) -> Result<(), AgentRuntimeApplicationEr
 fn terminate_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+fn codex_output_capture_path(session_id: &str, operation_id: &str) -> PathBuf {
+    let safe_session = safe_file_segment(session_id);
+    let safe_operation = safe_file_segment(operation_id);
+    std::env::temp_dir().join(format!(
+        "vanehub-codex-last-message-{safe_session}-{safe_operation}.txt"
+    ))
+}
+
+fn safe_file_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn normalize_generation_executable(agent_id: &str, executable: &str) -> String {
+    if agent_id != "opencode" {
+        return executable.to_string();
+    }
+    resolve_opencode_npm_shim(executable).unwrap_or_else(|| executable.to_string())
+}
+
+fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
+    let path = Path::new(executable);
+    let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
+    if extension != "cmd" && extension != "ps1" {
+        return None;
+    }
+    if path.file_stem()?.to_string_lossy().to_ascii_lowercase() != "opencode" {
+        return None;
+    }
+    let resolved = path
+        .parent()?
+        .join("node_modules")
+        .join("opencode-ai")
+        .join("bin")
+        .join("opencode.exe");
+    resolved
+        .is_file()
+        .then(|| resolved.to_string_lossy().to_string())
 }

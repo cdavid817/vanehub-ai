@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Bot, CheckCircle2, CircleAlert, Laptop, Play, RefreshCw, Search, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { agentService } from "../../services/runtime-agent-client";
 import type { AgentRegistryEntry, InteractionMode, SessionDetails, WorkflowState } from "../../types/agent";
 import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
+import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 
 type AgentsOverview = {
   agents: AgentRegistryEntry[];
@@ -176,7 +178,9 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <Terminal className="h-4 w-4 text-primary" aria-hidden="true" />
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border ${getAgentVisualIdentity(agent.id).tone}`}>
+                        <AgentBrandIcon agentId={agent.id} className="h-4 w-4" />
+                      </span>
                       <h3 className="truncate font-semibold">{agent.displayName}</h3>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">{agent.provider}</p>
@@ -222,7 +226,14 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
           <dl className="grid gap-4 text-sm">
             <div>
               <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.activeAgent")}</dt>
-              <dd className="mt-1 font-medium">{activeAgent?.displayName ?? t("agents.details.noneSelected")}</dd>
+              <dd className="mt-1 flex min-w-0 items-center gap-2 font-medium">
+                {activeAgent ? (
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border ${getAgentVisualIdentity(activeAgent.id).tone}`}>
+                    <AgentBrandIcon agentId={activeAgent.id} className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+                <span className="truncate">{activeAgent?.displayName ?? t("agents.details.noneSelected")}</span>
+              </dd>
             </div>
             <div>
               <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.interactionMode")}</dt>

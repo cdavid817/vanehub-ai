@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the stable folder-opener catalog, bounded Windows application discovery, preference invariants, authorized session-folder resolution, safe detached launch, diagnostics, and runtime adapter parity.
-
 ## Requirements
-
 ### Requirement: Stable folder-opener catalog
 The desktop runtime SHALL expose stable opener ids for `vscode`, `file-explorer`, `windows-terminal`, `git-bash`, `intellij-idea`, and `webstorm`, with localized display metadata, category, icon identity, availability status, and resolved installation details when available.
 
@@ -116,3 +114,20 @@ The frontend service boundary SHALL expose opener availability, refresh, prefere
 - **WHEN** the Web/mock runtime lists or configures folder openers
 - **THEN** it SHALL return deterministic catalog and preference data
 - **AND** a launch request SHALL report native action unavailable without claiming a local process was started
+
+### Requirement: Configure opening-method preference without launch
+
+The system SHALL allow users to reorder opening methods and select the default opening method without launching an external application.
+
+#### Scenario: User changes default opener
+
+- **WHEN** the user changes the opening-method dropdown selection in management UI
+- **THEN** the system SHALL persist the selected default opener
+- **AND** it SHALL NOT launch the selected opener.
+
+#### Scenario: Opener dropdown collapses on outside interaction
+
+- **WHEN** the opening-method dropdown is open
+- **AND** the user interacts outside the dropdown
+- **THEN** the dropdown SHALL collapse without launching an opener.
+

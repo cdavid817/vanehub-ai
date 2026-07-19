@@ -1,8 +1,10 @@
 import { useMemo, useState, type DragEvent, type MouseEvent } from "react";
 import { Archive, ChevronDown, ChevronRight, Folder, Pin, Plus, Search, Tags } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { Button } from "../components/ui/button";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
+import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import type { Session, SessionCategory, SessionSearchResult } from "../types/agent";
 
@@ -42,7 +44,7 @@ function SessionCard({ active, draggable, onContextMenu, onDragStart, onSelect, 
     <button className={cn("ucd-list-row relative w-full rounded-lg p-2.5 text-left", active && "border-primary bg-[hsl(var(--nav-active-soft))]")} draggable={draggable} onClick={onSelect} onContextMenu={onContextMenu} onDragStart={onDragStart} type="button">
       {active ? <span className="absolute left-0 top-2 h-10 w-0.5 rounded bg-primary" /> : null}
       <div className="flex min-w-0 items-center gap-2">
-        <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border", meta.tone)} title={meta.label}><meta.Icon aria-hidden="true" className="h-3.5 w-3.5" /></span>
+        <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border", meta.tone)} title={meta.label}><AgentBrandIcon agentId={session.agentId} className="h-4 w-4" /></span>
         <span className={cn("truncate text-sm font-medium", session.archived && "text-muted-foreground")}>{session.title}</span>
         {session.pinned ? <Pin aria-hidden="true" className="ml-auto h-3.5 w-3.5 text-primary" /> : null}
       </div>
@@ -68,7 +70,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   const folders = useMemo(() => {
     const result = new Map<string, Session[]>();
     sessions.filter((session) => !session.pinned).forEach((session) => {
-      const folder = session.folder ?? t("layout.currentWorkspace");
+      const folder = session.folder ? normalizeDisplayPath(session.folder) : t("layout.currentWorkspace");
       result.set(folder, [...(result.get(folder) ?? []), session]);
     });
     return [...result.entries()];

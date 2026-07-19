@@ -314,12 +314,18 @@ impl FolderOpenerService {
 }
 
 fn normalize_enabled(enabled: &mut Vec<FolderOpenerId>) {
-    enabled.push(FolderOpenerId::FileExplorer);
-    let selected = enabled.iter().copied().collect::<BTreeSet<_>>();
-    *enabled = FolderOpenerId::ALL
-        .into_iter()
-        .filter(|id| selected.contains(id))
-        .collect();
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for id in enabled
+        .iter()
+        .copied()
+        .chain([FolderOpenerId::FileExplorer])
+    {
+        if FolderOpenerId::ALL.contains(&id) && seen.insert(id) {
+            normalized.push(id);
+        }
+    }
+    *enabled = normalized;
 }
 
 fn validate_saved_enabled(mut enabled: Vec<FolderOpenerId>) -> Result<Vec<FolderOpenerId>, String> {
@@ -591,9 +597,9 @@ mod tests {
         assert_eq!(
             enabled,
             vec![
+                FolderOpenerId::GitBash,
                 FolderOpenerId::Vscode,
-                FolderOpenerId::FileExplorer,
-                FolderOpenerId::GitBash
+                FolderOpenerId::FileExplorer
             ]
         );
     }

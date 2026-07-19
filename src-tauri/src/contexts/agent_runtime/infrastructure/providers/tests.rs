@@ -135,6 +135,8 @@ fn output_fixtures_cover_every_stable_provider() {
                     status: "running".to_string(),
                 }),
                 ProviderOutputEvent::Completed,
+                ProviderOutputEvent::SessionId("codex-thread".to_string()),
+                ProviderOutputEvent::Token("hello from current codex".to_string()),
             ],
         ),
         (
@@ -166,6 +168,9 @@ fn output_fixtures_cover_every_stable_provider() {
                     output: None,
                     status: "running".to_string(),
                 }),
+                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::SessionId("opencode-current-session".to_string()),
+                ProviderOutputEvent::Token("hello from current opencode".to_string()),
                 ProviderOutputEvent::Completed,
             ],
         ),

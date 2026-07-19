@@ -72,7 +72,7 @@ pub(crate) fn build_invocation(
             {
                 args.push("--ephemeral".to_string());
             }
-            args.extend(["--json".to_string(), "--".to_string(), "-".to_string()]);
+            args.extend(["--json".to_string(), "-".to_string()]);
             ProviderPromptDelivery::Stdin
         }
         "gemini-cli" => {
@@ -105,6 +105,17 @@ pub(crate) fn build_invocation(
         args,
         prompt_delivery,
     })
+}
+
+pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path: &str) {
+    let insert_at = args
+        .iter()
+        .position(|argument| argument == "-")
+        .unwrap_or(args.len());
+    args.splice(
+        insert_at..insert_at,
+        ["-o".to_string(), output_path.to_string()],
+    );
 }
 
 pub(crate) fn apply_configuration_overrides(

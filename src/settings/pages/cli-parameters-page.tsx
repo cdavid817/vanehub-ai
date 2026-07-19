@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Save, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 import { buildCliParameterPreviewFromDefinitions } from "../../services/cli-parameter-catalog";
 import { agentService } from "../../services/runtime-agent-client";
 import type {
@@ -186,12 +188,15 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
           <div className="space-y-2">
             {profiles.map((profile) => (
               <Button
-                className="w-full justify-start"
+                className="w-full justify-start gap-2"
                 key={profile.agentId}
                 onClick={() => setActiveAgentId(profile.agentId)}
                 variant={activeProfile?.agentId === profile.agentId ? "default" : "ghost"}
               >
-                {t(`cliParameters.agents.${profile.agentId}`)}
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border ${getAgentVisualIdentity(profile.agentId).tone}`}>
+                  <AgentBrandIcon agentId={profile.agentId} className="h-3.5 w-3.5" />
+                </span>
+                <span className="truncate">{t(`cliParameters.agents.${profile.agentId}`)}</span>
               </Button>
             ))}
           </div>

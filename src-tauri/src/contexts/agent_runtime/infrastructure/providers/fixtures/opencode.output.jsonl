@@ -2,3 +2,6 @@
 {"event":"message","data":{"text":"hello from opencode"}}
 {"event":"tool.start","tool":{"id":"opencode-tool","name":"read","input":{"path":"src/lib.rs"}}}
 {"event":"completed"}
+{"type":"step_start","timestamp":1784471978974,"sessionID":"opencode-current-session","part":{"id":"prt_step","messageID":"msg_step","sessionID":"opencode-current-session","type":"step-start"}}
+{"type":"text","timestamp":1784471979712,"sessionID":"opencode-current-session","part":{"id":"prt_text","messageID":"msg_step","sessionID":"opencode-current-session","type":"text","text":"hello from current opencode"}}
+{"type":"step_finish","timestamp":1784471980604,"sessionID":"opencode-current-session","part":{"id":"prt_finish","reason":"stop","messageID":"msg_step","sessionID":"opencode-current-session","type":"step-finish"}}

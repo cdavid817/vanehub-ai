@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
@@ -38,6 +38,17 @@ export function FolderOpenersSection() {
     finally { setBusy(false); }
   }
 
+  function moveOpener(openerId: FolderOpenerId, direction: -1 | 1) {
+    if (!preferences) return;
+    const current = preferences.enabledOpenerIds;
+    const index = current.indexOf(openerId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return;
+    const next = [...current];
+    [next[index], next[target]] = [next[target], next[index]];
+    void save(preferences.configuredDefaultOpenerId, next);
+  }
+
   return (
     <SectionPanel title={t("folderOpeners.title")} description={t("folderOpeners.description")}>
       <div className="grid gap-3">
@@ -49,9 +60,14 @@ export function FolderOpenersSection() {
           </select>
         </label>
         <div className="grid gap-2">
-          {openers.map((opener) => {
+          {(preferences?.enabledOpenerIds ?? [])
+            .map((openerId) => openers.find((item) => item.id === openerId))
+            .filter((opener): opener is FolderOpenerAvailability => Boolean(opener))
+            .concat(openers.filter((opener) => !(preferences?.enabledOpenerIds ?? []).includes(opener.id)))
+            .map((opener) => {
             const checked = preferences?.enabledOpenerIds.includes(opener.id) ?? false;
             const locked = opener.id === "file-explorer";
+            const index = preferences?.enabledOpenerIds.indexOf(opener.id) ?? -1;
             return <label className="flex items-start gap-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3" key={opener.id}>
               <input checked={checked} className="mt-1" disabled={busy || locked || !preferences} onChange={(event) => {
                 if (!preferences) return;
@@ -70,6 +86,10 @@ export function FolderOpenersSection() {
                 </span> : null}
                 {opener.executablePath ? <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground" title={opener.executablePath}>{opener.executablePath}</span> : null}
               </span>
+              {checked ? <span className="flex shrink-0 gap-1">
+                <Button className="h-7 w-7 px-0" disabled={busy || index <= 0} onClick={(event) => { event.preventDefault(); moveOpener(opener.id, -1); }} title={t("folderOpeners.moveUp")} type="button" variant="outline"><ArrowUp className="h-3.5 w-3.5" /></Button>
+                <Button className="h-7 w-7 px-0" disabled={busy || !preferences || index < 0 || index >= preferences.enabledOpenerIds.length - 1} onClick={(event) => { event.preventDefault(); moveOpener(opener.id, 1); }} title={t("folderOpeners.moveDown")} type="button" variant="outline"><ArrowDown className="h-3.5 w-3.5" /></Button>
+              </span> : null}
             </label>;
           })}
         </div>
