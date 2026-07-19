@@ -185,6 +185,45 @@ describe("webAgentClient", () => {
     expect(await webAgentClient.getAutomaticArchivalSettings()).toEqual(saved);
   });
 
+  it("manages scheduled task creation, enabled state, and deletion in Web runtime", async () => {
+    const created = await webAgentClient.createScheduledTask({
+      name: " Daily summary ",
+      content: " Summarize project progress ",
+      agentId: "codex-cli",
+      frequency: { kind: "daily", timeOfDay: "09:30" },
+    });
+
+    expect(created).toMatchObject({
+      name: "Daily summary",
+      content: "Summarize project progress",
+      agentId: "codex-cli",
+      enabled: true,
+      latestStatus: "never-run",
+      latestRunAt: null,
+    });
+    expect(created.nextRunAt).toBeTruthy();
+    expect((await webAgentClient.listScheduledTasks()).some((task) => task.id === created.id)).toBe(true);
+
+    const disabled = await webAgentClient.setScheduledTaskEnabled({ taskId: created.id, enabled: false });
+    expect(disabled.enabled).toBe(false);
+
+    const enabled = await webAgentClient.setScheduledTaskEnabled({ taskId: created.id, enabled: true });
+    expect(enabled.enabled).toBe(true);
+    expect(enabled.nextRunAt).toBeTruthy();
+
+    await expect(
+      webAgentClient.createScheduledTask({
+        name: "Bad task",
+        content: "Run it",
+        agentId: "unknown-agent",
+        frequency: { kind: "minutes", interval: 5 },
+      }),
+    ).rejects.toThrow("Unsupported Agent");
+
+    await webAgentClient.deleteScheduledTask(created.id);
+    expect((await webAgentClient.listScheduledTasks()).some((task) => task.id === created.id)).toBe(false);
+  });
+
   it("exports sessions as JSON or Markdown in Web preview", async () => {
     const session = await createMockSession({
       agentId: "codex-cli",

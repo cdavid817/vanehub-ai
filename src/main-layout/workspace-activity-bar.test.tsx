@@ -8,7 +8,7 @@ const labels: WorkspaceActivityBarLabels = {
   sessions: "Sessions",
   expandSessions: "Expand sessions",
   collapseSessions: "Collapse sessions",
-  scheduledTasks: "Scheduled tasks (coming soon)",
+  scheduledTasks: "Scheduled tasks",
   settings: "Settings",
   help: "Help",
 };
@@ -31,7 +31,7 @@ describe("WorkspaceActivityBar", () => {
     expect(html).toContain('aria-label="Workspace navigation"');
     expect(html).toContain('data-activity-group="primary"');
     expect(html).toContain('data-activity-group="utility"');
-    expect(html.indexOf('title="Collapse sessions"')).toBeLessThan(html.indexOf('title="Scheduled tasks (coming soon)"'));
+    expect(html.indexOf('title="Collapse sessions"')).toBeLessThan(html.indexOf('title="Scheduled tasks"'));
     expect(html.indexOf('title="Settings"')).toBeLessThan(html.indexOf('title="Help"'));
     expect(html).toContain('aria-controls="workspace-session-sidebar"');
     expect(html).toContain('aria-expanded="true"');

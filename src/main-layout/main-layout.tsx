@@ -8,6 +8,7 @@ import { CreateSessionDialog } from "./create-session-dialog";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
+import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
@@ -63,6 +64,7 @@ export function MainLayout({
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,15 +89,6 @@ export function MainLayout({
     });
   }
 
-  function showScheduledTasksPlaceholder() {
-    notify({
-      type: "info",
-      title: t("layout.activityBar.scheduledTasksTitle"),
-      message: t("layout.activityBar.scheduledTasksMessage"),
-      scope: { kind: "global" },
-    });
-  }
-
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="pointer-events-none fixed inset-0 opacity-[0.035] [background-image:linear-gradient(hsl(var(--primary))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary))_1px,transparent_1px)] [background-size:100px_100px]" />
@@ -113,7 +106,7 @@ export function MainLayout({
               help: t("layout.activityBar.help"),
             }}
             onOpenSettings={onOpenSettings}
-            onScheduledTasks={showScheduledTasksPlaceholder}
+            onScheduledTasks={() => setScheduledTasksOpen(true)}
             onToggleSessions={() => setSessionSidebarCollapsed((collapsed) => !collapsed)}
             sessionSidebarExpanded={!sessionSidebarCollapsed}
           />
@@ -178,6 +171,7 @@ export function MainLayout({
         value={contextPanel}
       />
       <CreateSessionDialog agents={model.agents} onClose={() => setCreateSessionOpen(false)} onCreated={(session) => { setCreateSessionOpen(false); model.sessionCreated(session); }} open={createSessionOpen} />
+      <ScheduledTasksDialog agents={model.agents} onClose={() => setScheduledTasksOpen(false)} open={scheduledTasksOpen} />
       <NotificationHost activeSessionId={model.activeSessionId} />
     </main>
   );

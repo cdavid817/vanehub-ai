@@ -13,6 +13,7 @@ import type {
   CliPackageOperationInput,
   CliToolStatus,
   CreateSessionCategoryInput,
+  CreateScheduledTaskInput,
   ExportSessionInput,
   InteractionMode,
   KnownRemoteWorkspace,
@@ -26,6 +27,8 @@ import type {
   SessionCategory,
   SessionDetails,
   SaveCliParameterProfileInput,
+  ScheduledTask,
+  SetScheduledTaskEnabledInput,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
@@ -171,6 +174,22 @@ export const tauriAgentClient: AgentService = {
 
   saveAutomaticArchivalSettings(input: AutomaticArchivalSettings) {
     return invoke<AutomaticArchivalSettings>("save_automatic_archival_settings", { input });
+  },
+
+  listScheduledTasks() {
+    return invoke<ScheduledTask[]>("list_scheduled_tasks");
+  },
+
+  createScheduledTask(input: CreateScheduledTaskInput) {
+    return invoke<ScheduledTask>("create_scheduled_task", { input });
+  },
+
+  setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput) {
+    return invoke<ScheduledTask>("set_scheduled_task_enabled", { input });
+  },
+
+  async deleteScheduledTask(taskId: string) {
+    await invoke<void>("delete_scheduled_task", { taskId });
   },
 
   getSessionChatConfig(sessionId) {

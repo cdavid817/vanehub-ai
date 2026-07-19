@@ -11,6 +11,7 @@ import type {
   CliToolStatus,
   CreateSessionCategoryInput,
   CreateSessionInput,
+  CreateScheduledTaskInput,
   ExportSessionInput,
   InteractionMode,
   KnownRemoteWorkspace,
@@ -18,6 +19,8 @@ import type {
   ProjectInspection,
   RemoteWorkspace,
   RenameSessionCategoryInput,
+  ScheduledTask,
+  SetScheduledTaskEnabledInput,
   Session,
   SessionCategory,
   SessionExportResult,
@@ -66,6 +69,7 @@ import {
 import { aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { defaultChatConfigForSession, normalizeChatConfigForSession } from "./chat-configuration";
+import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 
 function tr(key: string) {
   return i18n.t(key);
@@ -105,6 +109,8 @@ let sessions: Session[] = [];
 let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
 let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
+let scheduledTasks: ScheduledTask[] = [];
+let nextScheduledTaskId = 1;
 let knownProjects: KnownProject[] = [];
 let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
@@ -1045,6 +1051,28 @@ function updateSession(sessionId: string, updates: Partial<Session>) {
   return updatedSession;
 }
 
+function findScheduledTask(taskId: string) {
+  const task = scheduledTasks.find((candidate) => candidate.id === taskId);
+  if (!task) throw new Error(`Scheduled task not found: ${taskId}`);
+  return task;
+}
+
+function cloneScheduledTask(task: ScheduledTask): ScheduledTask {
+  return { ...task, frequency: { ...task.frequency } };
+}
+
+function validateScheduledTaskInput(input: CreateScheduledTaskInput) {
+  const name = input.name.trim();
+  const content = input.content.trim();
+  if (!name) throw new Error("Scheduled task name is required.");
+  if (!content) throw new Error("Scheduled task content is required.");
+  if (!mockAgents.some((agent) => agent.id === input.agentId)) {
+    throw new Error(`Unsupported Agent: ${input.agentId}`);
+  }
+  validateScheduledTaskFrequency(input.frequency);
+  return { name, content };
+}
+
 export const webAgentClient: AgentService = {
   ...webSessionWorkspaceClient,
   async listAgents(capabilityTag) {
@@ -1251,6 +1279,50 @@ export const webAgentClient: AgentService = {
     }
     automaticArchivalSettings = { ...input };
     return { ...automaticArchivalSettings };
+  },
+
+  async listScheduledTasks() {
+    return scheduledTasks.map(cloneScheduledTask).sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
+  },
+
+  async createScheduledTask(input: CreateScheduledTaskInput) {
+    const { name, content } = validateScheduledTaskInput(input);
+    const timestamp = nowIso();
+    const task: ScheduledTask = {
+      id: `web-scheduled-task-${nextScheduledTaskId++}`,
+      name,
+      content,
+      agentId: input.agentId,
+      frequency: { ...input.frequency },
+      enabled: true,
+      nextRunAt: computeNextScheduledRun(input.frequency),
+      latestStatus: "never-run",
+      latestRunAt: null,
+      latestRunSessionId: null,
+      latestError: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    scheduledTasks = [task, ...scheduledTasks];
+    return cloneScheduledTask(task);
+  },
+
+  async setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput) {
+    const task = findScheduledTask(input.taskId);
+    const timestamp = nowIso();
+    const updated: ScheduledTask = {
+      ...task,
+      enabled: input.enabled,
+      nextRunAt: input.enabled ? computeNextScheduledRun(task.frequency) : task.nextRunAt,
+      updatedAt: timestamp,
+    };
+    scheduledTasks = scheduledTasks.map((candidate) => (candidate.id === input.taskId ? updated : candidate));
+    return cloneScheduledTask(updated);
+  },
+
+  async deleteScheduledTask(taskId: string) {
+    findScheduledTask(taskId);
+    scheduledTasks = scheduledTasks.filter((task) => task.id !== taskId);
   },
 
   async getSessionChatConfig(sessionId) {

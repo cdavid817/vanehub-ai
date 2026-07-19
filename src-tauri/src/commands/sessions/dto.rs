@@ -82,6 +82,50 @@ pub(crate) struct CreateSessionInput {
     pub(crate) worktree: Option<CreateWorktreeInput>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(crate) enum ScheduledTaskFrequency {
+    Minutes { interval: i64 },
+    Hours { interval: i64 },
+    Daily { time_of_day: String },
+    Weekly { weekday: i64, time_of_day: String },
+    Monthly { day_of_month: i64, time_of_day: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScheduledTask {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) content: String,
+    pub(crate) agent_id: String,
+    pub(crate) frequency: ScheduledTaskFrequency,
+    pub(crate) enabled: bool,
+    pub(crate) next_run_at: String,
+    pub(crate) latest_status: String,
+    pub(crate) latest_run_at: Option<String>,
+    pub(crate) latest_run_session_id: Option<String>,
+    pub(crate) latest_error: Option<String>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateScheduledTaskInput {
+    pub(crate) name: String,
+    pub(crate) content: String,
+    pub(crate) agent_id: String,
+    pub(crate) frequency: ScheduledTaskFrequency,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SetScheduledTaskEnabledInput {
+    pub(crate) task_id: String,
+    pub(crate) enabled: bool,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateRemoteWorkspaceInput {

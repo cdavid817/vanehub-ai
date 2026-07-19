@@ -62,18 +62,42 @@ test.describe("workspace activity bar", () => {
     await expect(sessionCard).toHaveClass(/border-primary/);
   });
 
-  test("keeps placeholder and utility actions accessible without adding a scheduled-task route", async ({ page }) => {
+  test("opens scheduled tasks and manages a Web mock task", async ({ page }) => {
     await page.goto("/");
 
-    const scheduledTasks = page.getByRole("button", { name: "定时任务（敬请期待）" });
+    const scheduledTasks = page.getByRole("button", { name: "定时任务" });
     await page.getByRole("button", { name: "折叠会话栏" }).focus();
     await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();
     await scheduledTasks.click();
     await expect(page).toHaveURL(/\/workspace$/);
-    await expect(page.getByText("定时任务管理功能即将推出。")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
+    await expect(page.getByPlaceholder("例如：每日整理项目进度")).toBeVisible();
+
+    await page.getByLabel("任务名称").fill("每日整理项目进度");
+    await page.getByLabel("任务内容").fill("请整理当前项目进度");
+    await page.getByLabel("Agent 工具").selectOption("codex-cli");
+    await page.getByLabel("执行频率").selectOption("minutes");
+    await page.getByRole("spinbutton").fill("15");
+    await page.getByRole("button", { name: "创建任务" }).click();
+
+    const taskRow = page.locator(".ucd-list-row").filter({ hasText: "每日整理项目进度" });
+    await expect(taskRow).toBeVisible();
+    await expect(taskRow.getByText("Codex CLI")).toBeVisible();
+    await expect(taskRow.getByText("尚未运行")).toBeVisible();
+    await taskRow.getByLabel("已启用").uncheck();
+    await expect(taskRow.getByLabel("已停用")).toBeVisible();
+    await taskRow.getByLabel("已停用").check();
+    await expect(taskRow.getByLabel("已启用")).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await taskRow.getByRole("button", { name: "删除任务" }).click();
+    await expect(page.getByText("每日整理项目进度")).toHaveCount(0);
+    await expect(page.getByText("还没有定时任务。")).toBeVisible();
     await expect(page.getByRole("button", { name: "帮助" })).toBeVisible();
 
+    await page.getByRole("button", { name: "关闭定时任务" }).click();
+    await expect(page.getByRole("heading", { name: "定时任务" })).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
   });

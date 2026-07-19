@@ -21,10 +21,10 @@ The workspace shell SHALL render a persistent icon-only activity bar at the far 
 - **WHEN** the user activates the Settings activity entry
 - **THEN** the system SHALL open the existing settings center without requiring a runtime-specific backend call
 
-#### Scenario: Activate scheduled tasks placeholder
+#### Scenario: Open scheduled tasks from activity bar
 - **WHEN** the user activates the Scheduled Tasks activity entry
-- **THEN** the workspace SHALL show a localized non-blocking coming-soon indication
-- **AND** it SHALL NOT navigate, create a scheduled-task page, call a frontend service, or invoke native runtime behavior
+- **THEN** the workspace SHALL open the scheduled-task management dialog
+- **AND** it SHALL NOT show a coming-soon placeholder
 
 #### Scenario: Preserve future help entry
 - **WHEN** the activity bar renders its bottom group

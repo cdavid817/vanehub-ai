@@ -119,6 +119,43 @@ export interface AutomaticArchivalSettings {
   inactiveDays: number;
 }
 
+export type ScheduledTaskFrequency =
+  | { kind: "minutes"; interval: number }
+  | { kind: "hours"; interval: number }
+  | { kind: "daily"; timeOfDay: string }
+  | { kind: "weekly"; weekday: number; timeOfDay: string }
+  | { kind: "monthly"; dayOfMonth: number; timeOfDay: string };
+
+export type ScheduledTaskLatestStatus = "never-run" | "running" | "succeeded" | "failed" | "skipped";
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  content: string;
+  agentId: string;
+  frequency: ScheduledTaskFrequency;
+  enabled: boolean;
+  nextRunAt: string;
+  latestStatus: ScheduledTaskLatestStatus;
+  latestRunAt: string | null;
+  latestRunSessionId: string | null;
+  latestError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateScheduledTaskInput {
+  name: string;
+  content: string;
+  agentId: string;
+  frequency: ScheduledTaskFrequency;
+}
+
+export interface SetScheduledTaskEnabledInput {
+  taskId: string;
+  enabled: boolean;
+}
+
 export interface KnownProject {
   path: string;
   displayName: string;

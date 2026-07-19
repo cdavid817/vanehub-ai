@@ -126,7 +126,40 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-usage-records",
         crate::contexts::sessions::infrastructure::apply_usage_schema,
     )?;
+    apply_migration(
+        conn,
+        23,
+        "scheduled-task-management",
+        apply_scheduled_task_management_migration,
+    )?;
 
+    Ok(())
+}
+
+fn apply_scheduled_task_management_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            content TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            frequency TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            next_run_at TEXT NOT NULL,
+            latest_status TEXT NOT NULL DEFAULT 'never-run',
+            latest_run_at TEXT,
+            latest_run_session_id TEXT,
+            latest_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (agent_id) REFERENCES agents(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled_next_run
+            ON scheduled_tasks(enabled, next_run_at);
+        "#,
+    )?;
     Ok(())
 }
 

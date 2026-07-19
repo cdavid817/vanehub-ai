@@ -122,6 +122,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .attach_agent_runtime(agent_runtime_api.clone())
         .map_err(boxed_message)?;
 
+    let scheduled_task_database = database.clone();
+    app.manage(database.clone());
+    app.manage(super::ScheduledTaskLogDirectory::new(
+        fallback_log_directory.clone(),
+    ));
+
     let communications = super::assemble_communications(super::CommunicationsDependencies {
         database,
         operations: operations_api.clone(),
@@ -152,6 +158,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(desktop_settings_api.clone());
     app.manage(floating_assistant_api.clone());
 
+    super::start_scheduled_task_jobs(
+        scheduled_task_database,
+        sessions_api.clone(),
+        agent_runtime_api.clone(),
+        fallback_log_directory.clone(),
+    );
     super::start_session_maintenance_jobs(
         sessions_api,
         desktop_settings_api,

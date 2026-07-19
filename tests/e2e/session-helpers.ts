@@ -7,5 +7,5 @@ export async function createSession(page: Page, title: string) {
   await projectPath.press("Tab");
   await page.getByPlaceholder("新会话").fill(title);
   await page.getByRole("button", { name: "创建", exact: true }).click();
-  await expect(page.getByPlaceholder("输入指令，下发任务给当前 Agent...")).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeEnabled();
 }

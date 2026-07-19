@@ -40,6 +40,10 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::delete_session::delete_session,
         crate::commands::sessions::list_messages::list_messages,
         crate::commands::sessions::get_usage_statistics::get_usage_statistics,
+        crate::commands::sessions::scheduled_tasks::list_scheduled_tasks,
+        crate::commands::sessions::scheduled_tasks::create_scheduled_task,
+        crate::commands::sessions::scheduled_tasks::set_scheduled_task_enabled,
+        crate::commands::sessions::scheduled_tasks::delete_scheduled_task,
         // Workspaces
         crate::commands::workspaces::list_known_projects::list_known_projects,
         crate::commands::workspaces::list_known_remote_workspaces::list_known_remote_workspaces,
