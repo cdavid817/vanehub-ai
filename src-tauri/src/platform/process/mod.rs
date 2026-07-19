@@ -116,6 +116,35 @@ impl ProcessAdapter {
     }
 }
 
+pub(crate) fn spawn_detached(
+    executable: &std::path::Path,
+    args: &[OsString],
+    current_dir: &std::path::Path,
+) -> Result<(), ProcessError> {
+    validate_executable(&executable.to_string_lossy())?;
+    if !current_dir.is_dir() {
+        return Err(ProcessError::Spawn(
+            "working directory is unavailable".to_string(),
+        ));
+    }
+    let mut command = Command::new(executable);
+    command
+        .args(args)
+        .current_dir(current_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0000_0008 | 0x0000_0200);
+    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| ProcessError::Spawn(error.to_string()))
+}
+
 pub(crate) fn validate_executable(executable: &str) -> Result<(), ProcessError> {
     let trimmed = executable.trim();
     if trimmed.is_empty() {
@@ -299,5 +328,11 @@ mod tests {
             validate_executable("node\nserver"),
             Err(ProcessError::InvalidExecutable(_))
         ));
+    }
+
+    #[test]
+    fn detached_plan_keeps_special_arguments_separate() {
+        let args = [OsString::from("D:/A & B/$(literal)")];
+        assert_eq!(args[0], OsString::from("D:/A & B/$(literal)"));
     }
 }

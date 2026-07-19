@@ -19,6 +19,7 @@ export function SessionTabs({
   messages,
   messagesPartial,
   onLoadEarlier,
+  onOpenSettings,
 }: {
   activeSession: Session | null;
   composer: ReactNode;
@@ -26,6 +27,7 @@ export function SessionTabs({
   messages: ChatMessage[];
   messagesPartial: boolean;
   onLoadEarlier: () => void;
+  onOpenSettings: () => void;
 }) {
   const sessionId = activeSession?.id ?? null;
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
@@ -44,7 +46,7 @@ export function SessionTabs({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <SessionTabBar activeTab={activeTab} badges={{ terminal: terminalCount }} onActivate={activate} />
+      <SessionTabBar activeTab={activeTab} badges={{ terminal: terminalCount }} onActivate={activate} onOpenSettings={onOpenSettings} session={activeSession} />
       <div className="min-h-0 flex-1 overflow-hidden">
         {sessionTabDefinitions.map(({ id }) => mountedTabs.has(id) ? (
           <section

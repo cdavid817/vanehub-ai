@@ -160,6 +160,17 @@ struct FakeSessionQueries {
 }
 
 impl WorkspaceSessionQueryPort for FakeSessionQueries {
+    fn resolve_session_root(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("query:root:{session_id}"));
+        Ok(Some("D:/workspace".to_string()))
+    }
+
     fn list_directory(
         &self,
         session_id: &str,

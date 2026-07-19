@@ -712,6 +712,22 @@
                      },
                      {
                          "archivedOn":  "2026-07-19",
+                         "changeName":  "add-workspace-folder-openers",
+                         "path":  "openspec/changes/archive/2026-07-19-add-workspace-folder-openers/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "app-settings",
+                                              "session-workspace-tabs",
+                                              "settings-basic-configuration-ui",
+                                              "workspace-folder-openers"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
                          "changeName":  "redesign-cross-platform-app-icon",
                          "path":  "openspec/changes/archive/2026-07-19-redesign-cross-platform-app-icon/",
                          "artifacts":  [

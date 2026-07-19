@@ -24,7 +24,7 @@ describe("session workspace components", () => {
     await i18n.changeLanguage("en");
   });
   it("renders all tab labels and the terminal badge", () => {
-    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} />);
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
     expect(html).toContain("Chat");
     expect(html).toContain("Changes");
     expect(html).toContain("Report");

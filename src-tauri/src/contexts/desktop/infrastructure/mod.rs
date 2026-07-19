@@ -1,4 +1,5 @@
 mod environment;
+mod folder_openers;
 mod runtime_logging;
 mod runtime_settings;
 mod sqlite_floating_assistant_repository;
@@ -9,6 +10,10 @@ mod tauri_floating_assistant_window;
 pub(crate) use environment::{
     DesktopDirectoryAdapter, PlatformNodeInfoAdapter, RuntimeNetworkProxyActionsAdapter,
     UnifiedClientLoggingAdapter,
+};
+pub(crate) use folder_openers::{
+    FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferencesView, FolderOpenerService,
+    OpenSessionFolderResult, SaveFolderOpenerPreferences,
 };
 pub(crate) use runtime_settings::{
     RuntimeLogDirectoryAdapter, RuntimeNetworkProxyAdapter, SystemDesktopClock,

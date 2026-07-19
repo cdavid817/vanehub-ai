@@ -61,6 +61,11 @@ pub(crate) trait WorkspaceClockPort: Send + Sync {
 }
 
 pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
+    fn resolve_session_root(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, WorkspaceApplicationError>;
+
     fn list_directory(
         &self,
         session_id: &str,

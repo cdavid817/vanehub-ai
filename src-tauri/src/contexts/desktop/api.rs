@@ -13,6 +13,11 @@ pub(crate) use super::domain::{
     AutomaticArchivalSettings, FloatingAssistantConfig, FloatingAssistantMainAction,
     FloatingAssistantPlatform, FloatingAssistantSurfaceMode, SurfaceTransition,
 };
+use super::infrastructure::FolderOpenerService;
+pub(crate) use super::infrastructure::{
+    FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferencesView, OpenSessionFolderResult,
+    SaveFolderOpenerPreferences,
+};
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -21,17 +26,52 @@ use std::sync::Arc;
 pub(crate) struct DesktopSettingsApi {
     settings: DesktopSettingsApplicationService,
     environment: DesktopEnvironmentApplicationService,
+    folder_openers: FolderOpenerService,
 }
 
 impl DesktopSettingsApi {
     pub(crate) fn new(
         settings: DesktopSettingsApplicationService,
         environment: DesktopEnvironmentApplicationService,
+        folder_openers: FolderOpenerService,
     ) -> Self {
         Self {
             settings,
             environment,
+            folder_openers,
         }
+    }
+
+    pub(crate) fn list_folder_openers(&self, refresh: bool) -> Vec<FolderOpenerAvailability> {
+        self.folder_openers.list(refresh)
+    }
+
+    pub(crate) fn get_folder_opener_preferences(
+        &self,
+    ) -> Result<FolderOpenerPreferencesView, DesktopSettingsError> {
+        self.folder_openers
+            .preferences()
+            .map_err(DesktopSettingsError::Repository)
+    }
+
+    pub(crate) fn save_folder_opener_preferences(
+        &self,
+        input: SaveFolderOpenerPreferences,
+    ) -> Result<FolderOpenerPreferencesView, DesktopSettingsError> {
+        self.folder_openers
+            .save_preferences(input)
+            .map_err(DesktopSettingsError::Repository)
+    }
+
+    pub(crate) fn open_session_folder(
+        &self,
+        session_id: &str,
+        path: &std::path::Path,
+        opener_id: FolderOpenerId,
+    ) -> Result<OpenSessionFolderResult, DesktopSettingsError> {
+        self.folder_openers
+            .open_path(session_id, path, opener_id)
+            .map_err(DesktopSettingsError::Directory)
     }
 
     pub(crate) fn get_settings(&self) -> Result<DesktopSettingsView, DesktopSettingsError> {

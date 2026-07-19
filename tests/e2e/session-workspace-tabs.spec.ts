@@ -26,6 +26,37 @@ test.describe("session workspace tabs", () => {
     await expect(chat).toBeFocused();
   });
 
+  test("keeps the folder opener outside the tablist and exposes deterministic Web options", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openWorkspace(page, "文件夹打开方式测试");
+
+    await expect(page.getByRole("tab")).toHaveCount(8);
+    await expect(page.getByRole("button", { name: /使用 Visual Studio Code 打开文件夹/ })).toBeVisible();
+    await page.getByRole("button", { name: "选择文件夹打开方式" }).click();
+    await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeFocused();
+    await expect(page.getByRole("menuitem", { name: /文件资源管理器/ })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Windows Terminal/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.getByRole("menuitem", { name: /Visual Studio Code/ }).press("Escape");
+    await expect(page.getByRole("button", { name: "选择文件夹打开方式" })).toBeFocused();
+    await page.getByRole("button", { name: "选择文件夹打开方式" }).click();
+    await page.getByRole("menuitem", { name: "管理打开方式" }).click();
+    await expect(page.getByRole("heading", { name: "文件夹打开方式" })).toBeVisible();
+    const gitBash = page.getByRole("checkbox", { name: /Git Bash/ });
+    await expect(gitBash).toBeChecked();
+    await gitBash.uncheck();
+    await expect(gitBash).not.toBeChecked();
+    await expect(page.getByRole("checkbox", { name: /文件资源管理器/ })).toBeDisabled();
+  });
+
+  test("reports the Web native-launch limitation without claiming success", async ({ page }) => {
+    await openWorkspace(page, "Web 打开限制测试");
+    await page.getByRole("button", { name: /使用 Visual Studio Code 打开文件夹/ }).click();
+    await expect(page.getByRole("button", { name: "Web 预览模式不能启动本地程序。" })).toBeVisible();
+  });
+
   test("keeps mounted tab state and chat draft while switching tabs", async ({ page }) => {
     await openWorkspace(page);
     const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");

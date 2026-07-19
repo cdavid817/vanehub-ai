@@ -17,6 +17,8 @@ describe("BasicSettingsPage", () => {
     expect(html).toContain("数据管理");
     expect(html).toContain("开机自启");
     expect(html).toContain("网络代理");
+    expect(html).toContain("文件夹打开方式");
+    expect(html).toContain("检测已安装程序");
     expect(html).toContain("NO_PROXY");
     expect(html).toContain("30 天");
     expect(html).toContain("error / warn / info / debug");

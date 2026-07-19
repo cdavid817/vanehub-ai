@@ -5,7 +5,7 @@ use crate::contexts::desktop::domain::{
     AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation,
 };
 use crate::platform::database::NativeDatabase;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Clone)]
 pub(crate) struct SqliteDesktopSettingsRepository {
@@ -15,6 +15,49 @@ pub(crate) struct SqliteDesktopSettingsRepository {
 impl SqliteDesktopSettingsRepository {
     pub(crate) fn new(database: NativeDatabase) -> Self {
         Self { database }
+    }
+
+    pub(crate) fn load_folder_opener_preferences(
+        &self,
+    ) -> Result<(Option<String>, Option<String>), DesktopSettingsApplicationError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let load = |key: &str| {
+            connection
+                .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .map_err(repository_error)
+        };
+        Ok((
+            load("defaultFolderOpenerId")?,
+            load("enabledFolderOpenerIds")?,
+        ))
+    }
+
+    pub(crate) fn save_folder_opener_preferences(
+        &self,
+        default_id: &str,
+        enabled_ids: &str,
+        updated_at: &str,
+    ) -> Result<(), DesktopSettingsApplicationError> {
+        let mut connection = self.database.connection().map_err(database_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        upsert_setting(
+            &transaction,
+            "defaultFolderOpenerId",
+            default_id,
+            updated_at,
+        )
+        .map_err(repository_error)?;
+        upsert_setting(
+            &transaction,
+            "enabledFolderOpenerIds",
+            enabled_ids,
+            updated_at,
+        )
+        .map_err(repository_error)?;
+        transaction.commit().map_err(repository_error)
     }
 }
 
@@ -221,5 +264,32 @@ mod tests {
             )
             .expect("archival rows");
         assert_eq!(rows, ("true".to_string(), "10".to_string()));
+    }
+
+    #[test]
+    fn folder_opener_preferences_are_committed_atomically() {
+        let (_directory, database, repository) = fixture();
+        let connection = database.connection().expect("connection");
+        connection.execute_batch(
+            "CREATE TRIGGER reject_opener_enabled BEFORE INSERT ON settings WHEN NEW.key = 'enabledFolderOpenerIds' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;",
+        ).expect("failure trigger");
+        drop(connection);
+
+        assert!(repository
+            .save_folder_opener_preferences(
+                "vscode",
+                "vscode,file-explorer",
+                "2026-07-19T00:00:00Z"
+            )
+            .is_err());
+        let connection = database.connection().expect("connection");
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key = 'defaultFolderOpenerId'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 0);
     }
 }
