@@ -55,6 +55,11 @@ pub(crate) fn invoke_handler(
         crate::commands::workspaces::shell_kill::shell_kill,
         // Desktop
         crate::commands::desktop::get_settings::get_settings,
+        crate::commands::desktop::list_folder_openers::list_folder_openers,
+        crate::commands::desktop::refresh_folder_openers::refresh_folder_openers,
+        crate::commands::desktop::get_folder_opener_preferences::get_folder_opener_preferences,
+        crate::commands::desktop::save_folder_opener_preferences::save_folder_opener_preferences,
+        crate::commands::desktop::open_session_folder::open_session_folder,
         crate::commands::desktop::save_setting::save_setting,
         crate::commands::desktop::get_automatic_archival_settings::get_automatic_archival_settings,
         crate::commands::desktop::save_automatic_archival_settings::save_automatic_archival_settings,

@@ -167,6 +167,7 @@ export function MainLayout({
                 messages={model.messages}
                 messagesPartial={model.messagesPartial}
                 onLoadEarlier={model.loadEarlier}
+                onOpenSettings={onOpenSettings}
               />
             </section>
             <SessionInfoPanel activeSession={model.activeSession} collapsed={infoPanelCollapsed} onCollapsedChange={setInfoPanelCollapsed} />

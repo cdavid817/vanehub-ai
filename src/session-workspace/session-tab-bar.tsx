@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import type { Session } from "../types/agent";
+import { FolderOpenerControl } from "./folder-opener-control";
 
 export type SessionTabId =
   | "chat"
@@ -43,10 +45,14 @@ export function SessionTabBar({
   activeTab,
   badges,
   onActivate,
+  session,
+  onOpenSettings,
 }: {
   activeTab: SessionTabId;
   badges: Partial<Record<SessionTabId, number>>;
   onActivate: (tab: SessionTabId) => void;
+  session: Session | null;
+  onOpenSettings: () => void;
 }) {
   const { t } = useTranslation();
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -65,9 +71,10 @@ export function SessionTabBar({
   }
 
   return (
+    <div className="flex min-w-0 shrink-0 items-center gap-2">
     <div
       aria-label={t("sessionTabs.ariaLabel")}
-      className="ucd-segmented flex shrink-0 gap-1 overflow-x-auto rounded-md p-1"
+      className="ucd-segmented flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-md p-1"
       role="tablist"
     >
       {sessionTabDefinitions.map(({ id, icon: Icon }, index) => {
@@ -105,6 +112,8 @@ export function SessionTabBar({
           </button>
         );
       })}
+    </div>
+    <FolderOpenerControl onOpenSettings={onOpenSettings} session={session} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { PageHeader, SectionPanel } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
 import { DataManagementSection } from "./data-management-section";
 import { StartupSettingsSection } from "./startup-settings-section";
+import { FolderOpenersSection } from "./folder-openers-section";
 
 function SelectField<T extends string>({
   disabled,
@@ -126,6 +127,8 @@ export function BasicSettingsPage() {
           </SectionPanel>
 
           <StartupSettingsSection />
+
+          <FolderOpenersSection />
 
           <DataManagementSection />
 

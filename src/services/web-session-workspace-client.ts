@@ -10,6 +10,7 @@ import type {
   ShellEvent,
   ShellSession,
 } from "../types/session-workspace";
+import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../types/folder-opener";
 
 type SessionWorkspaceMethods = Pick<
   AgentService,
@@ -26,6 +27,12 @@ type SessionWorkspaceMethods = Pick<
   | "resizeShell"
   | "killShell"
   | "subscribeShellEvents"
+  | "listFolderOpeners"
+  | "refreshFolderOpeners"
+  | "getFolderOpenerPreferences"
+  | "saveFolderOpenerPreferences"
+  | "openSessionFolder"
+  | "subscribeFolderOpenerEvents"
 >;
 
 const availableContext = { availability: "available" as const, rootName: "vanehub-demo", reason: null };
@@ -130,11 +137,51 @@ let nextShellId = 1;
 const shells = new Map<string, ShellSession>();
 const shellSubscribers = new Map<string, Set<(event: ShellEvent) => void>>();
 
+const mockOpeners: FolderOpenerAvailability[] = [
+  ["vscode", "editor", true],
+  ["file-explorer", "file-manager", true],
+  ["windows-terminal", "terminal", true],
+  ["git-bash", "terminal", true],
+  ["intellij-idea", "ide", false],
+  ["webstorm", "ide", false],
+].map(([id, category, available]) => ({
+  id: id as FolderOpenerId,
+  category: category as FolderOpenerAvailability["category"],
+  status: available ? "available" : "not-installed",
+  executablePath: available ? `[WEB MOCK] ${id}` : null,
+  version: available ? "mock" : null,
+  edition: null,
+  detectionSource: "web-mock",
+  iconKey: id as FolderOpenerId,
+  reason: available ? null : "not-installed",
+}));
+let mockPreferences: FolderOpenerPreferences = {
+  configuredDefaultOpenerId: "vscode",
+  effectiveDefaultOpenerId: "vscode",
+  enabledOpenerIds: ["vscode", "file-explorer", "windows-terminal", "git-bash"],
+  fallbackActive: false,
+};
+const openerSubscribers = new Set<() => void>();
+
 function publishShellEvent(event: ShellEvent) {
   shellSubscribers.get(event.shellId)?.forEach((handler) => handler(event));
 }
 
 export const webSessionWorkspaceClient: SessionWorkspaceMethods = {
+  async listFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
+  async refreshFolderOpeners() { return mockOpeners.map((item) => ({ ...item })); },
+  async getFolderOpenerPreferences() { return { ...mockPreferences, enabledOpenerIds: [...mockPreferences.enabledOpenerIds] }; },
+  async saveFolderOpenerPreferences(input) {
+    const enabled = [...new Set(input.enabledOpenerIds)];
+    if (!enabled.includes("file-explorer")) throw new Error("File Explorer must remain enabled.");
+    if (!enabled.includes(input.configuredDefaultOpenerId)) throw new Error("Default folder opener must be enabled.");
+    if (!mockOpeners.some((item) => item.id === input.configuredDefaultOpenerId && item.status === "available")) throw new Error("Default folder opener must be available.");
+    mockPreferences = { configuredDefaultOpenerId: input.configuredDefaultOpenerId, effectiveDefaultOpenerId: input.configuredDefaultOpenerId, enabledOpenerIds: enabled, fallbackActive: false };
+    openerSubscribers.forEach((handler) => handler());
+    return { ...mockPreferences, enabledOpenerIds: [...enabled] };
+  },
+  async openSessionFolder(_sessionId, openerId) { return { status: "unavailable", openerId, reason: "web-runtime" }; },
+  async subscribeFolderOpenerEvents(handler) { openerSubscribers.add(handler); return () => openerSubscribers.delete(handler); },
   async listSessionDirectory(_sessionId, path = "") {
     return {
       context: availableContext,

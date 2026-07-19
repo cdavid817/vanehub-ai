@@ -36,6 +36,13 @@ impl WorkspaceApi {
         self.service.list_known_projects()
     }
 
+    pub(crate) fn resolve_session_root(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, WorkspaceError> {
+        self.queries.resolve_session_root(session_id)
+    }
+
     pub(crate) fn list_known_remote_workspaces(
         &self,
     ) -> Result<Vec<KnownRemoteWorkspace>, WorkspaceError> {

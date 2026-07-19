@@ -44,6 +44,11 @@ impl SessionWorkspaceQueryAdapter {
 }
 
 impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
+    fn resolve_session_root(&self, session_id: &str) -> Result<Option<String>, AppError> {
+        resolve_session_root(&self.connection()?, session_id)
+            .map(|root| root.map(|path| path.to_string_lossy().to_string()))
+    }
+
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
         list_session_directory(&self.connection()?, session_id, path)
     }
@@ -129,12 +134,19 @@ pub(crate) fn resolve_session_root(
     if session.remote_workspace {
         return Ok(None);
     }
-    let candidate = session
-        .worktree_path
-        .as_ref()
-        .or(session.folder.as_ref())
-        .or(session.project_path.as_ref());
-    canonical_workspace_root(candidate.map(String::as_str))
+    for candidate in [
+        session.worktree_path.as_deref(),
+        session.folder.as_deref(),
+        session.project_path.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(root) = canonical_workspace_root(Some(candidate))? {
+            return Ok(Some(root));
+        }
+    }
+    Ok(None)
 }
 
 fn canonical_workspace_root(candidate: Option<&str>) -> Result<Option<PathBuf>, AppError> {
@@ -1215,6 +1227,16 @@ mod tests {
         assert_eq!(
             resolve_session_root(&connection, "session-local").expect("local root"),
             Some(worktree.canonicalize().expect("canonical worktree"))
+        );
+        fs::remove_dir_all(&worktree).expect("remove stale worktree");
+        assert_eq!(
+            resolve_session_root(&connection, "session-local").expect("folder fallback"),
+            Some(folder.canonicalize().expect("canonical folder"))
+        );
+        fs::remove_dir_all(&folder).expect("remove stale folder");
+        assert_eq!(
+            resolve_session_root(&connection, "session-local").expect("project fallback"),
+            Some(project.canonicalize().expect("canonical project"))
         );
         assert_eq!(
             resolve_session_root(&connection, "session-remote").expect("remote root"),

@@ -65,6 +65,7 @@ import type {
   PromptHookTraceSummary,
   PromptHookUpdateInput,
 } from "../types/prompt-hook";
+import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
@@ -122,6 +123,12 @@ export interface AgentService {
   getSessionGitDiff(sessionId: string, path: string, source: GitDiffSource): Promise<GitDiffResult>;
   listSessionLogs(input: SessionLogQuery): Promise<SessionLogPage>;
   exportSessionLogs(input: SessionLogQuery): Promise<SessionLogExportResult>;
+  listFolderOpeners(): Promise<FolderOpenerAvailability[]>;
+  refreshFolderOpeners(): Promise<FolderOpenerAvailability[]>;
+  getFolderOpenerPreferences(): Promise<FolderOpenerPreferences>;
+  saveFolderOpenerPreferences(input: SaveFolderOpenerPreferencesInput): Promise<FolderOpenerPreferences>;
+  openSessionFolder(sessionId: string, openerId: FolderOpenerId): Promise<OpenSessionFolderResult>;
+  subscribeFolderOpenerEvents(handler: () => void): Promise<() => void>;
   createShell(input: CreateShellInput): Promise<ShellSession>;
   writeShellInput(shellId: string, content: string): Promise<void>;
   resetShellDirectory(shellId: string): Promise<void>;

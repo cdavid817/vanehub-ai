@@ -7,10 +7,11 @@ use crate::contexts::desktop::application::{
     DesktopSettingsApplicationService, DesktopShutdownPort, FloatingAssistantApplicationService,
 };
 use crate::contexts::desktop::infrastructure::{
-    DesktopDirectoryAdapter, PlatformNodeInfoAdapter, RuntimeLogDirectoryAdapter,
-    RuntimeNetworkProxyActionsAdapter, RuntimeNetworkProxyAdapter, SqliteDesktopSettingsRepository,
-    SqliteFloatingAssistantRepository, SystemDesktopClock, TauriDesktopLifecycleAdapter,
-    TauriDesktopStartupAdapter, TauriFloatingAssistantWindowAdapter, UnifiedClientLoggingAdapter,
+    DesktopDirectoryAdapter, FolderOpenerService, PlatformNodeInfoAdapter,
+    RuntimeLogDirectoryAdapter, RuntimeNetworkProxyActionsAdapter, RuntimeNetworkProxyAdapter,
+    SqliteDesktopSettingsRepository, SqliteFloatingAssistantRepository, SystemDesktopClock,
+    TauriDesktopLifecycleAdapter, TauriDesktopStartupAdapter, TauriFloatingAssistantWindowAdapter,
+    UnifiedClientLoggingAdapter,
 };
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
@@ -32,8 +33,9 @@ pub(crate) fn assemble_desktop_settings_api(
         .unwrap_or_else(|| crate::platform::logging::default_log_dir(std::path::Path::new(".")))
         .to_string_lossy()
         .to_string();
+    let settings_repository = SqliteDesktopSettingsRepository::new(database.clone());
     let settings = DesktopSettingsApplicationService::new(
-        Arc::new(SqliteDesktopSettingsRepository::new(database.clone())),
+        Arc::new(settings_repository.clone()),
         Arc::new(SystemDesktopClock),
         Arc::new(RuntimeNetworkProxyAdapter),
         Arc::new(RuntimeLogDirectoryAdapter),
@@ -41,12 +43,16 @@ pub(crate) fn assemble_desktop_settings_api(
         default_log_directory,
     );
     let environment = DesktopEnvironmentApplicationService::new(
-        Arc::new(DesktopDirectoryAdapter::new(database)),
+        Arc::new(DesktopDirectoryAdapter::new(database.clone())),
         Arc::new(PlatformNodeInfoAdapter),
         Arc::new(RuntimeNetworkProxyActionsAdapter),
         Arc::new(UnifiedClientLoggingAdapter),
     );
-    DesktopSettingsApi::new(settings, environment)
+    DesktopSettingsApi::new(
+        settings,
+        environment,
+        FolderOpenerService::new(settings_repository),
+    )
 }
 
 pub(crate) fn assemble_floating_assistant_api(
