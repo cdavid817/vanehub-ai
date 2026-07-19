@@ -712,6 +712,19 @@
                      },
                      {
                          "archivedOn":  "2026-07-19",
+                         "changeName":  "redesign-cross-platform-app-icon",
+                         "path":  "openspec/changes/archive/2026-07-19-redesign-cross-platform-app-icon/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "cross-platform-app-icon"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
                          "changeName":  "refactor-rust-ddd-architecture",
                          "path":  "openspec/changes/archive/2026-07-19-refactor-rust-ddd-architecture/",
                          "artifacts":  [

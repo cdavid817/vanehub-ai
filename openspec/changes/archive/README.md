@@ -53,6 +53,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-18 | optimize-cli-local-environment-management | agent-tool-registry, frontend-runtime-architecture, native-runtime-architecture, settings-center-ui | `openspec/changes/archive/2026-07-18-optimize-cli-local-environment-management/` |
 | 2026-07-18 | optimize-cli-management-and-about | settings-cli-management-ui | `openspec/changes/archive/2026-07-18-optimize-cli-management-and-about/` |
 | 2026-07-18 | optimize-settings-ui-and-runtime-controls | app-settings, desktop-floating-assistant, desktop-startup-controls, main-layout-ui, native-runtime-architecture, session-management, settings-basic-configuration-ui, settings-center-ui, settings-data-management, settings-extension-management-ui, settings-floating-assistant-ui | `openspec/changes/archive/2026-07-18-optimize-settings-ui-and-runtime-controls/` |
+| 2026-07-19 | redesign-cross-platform-app-icon | cross-platform-app-icon | `openspec/changes/archive/2026-07-19-redesign-cross-platform-app-icon/` |
 | 2026-07-19 | refactor-rust-ddd-architecture | native-runtime-architecture | `openspec/changes/archive/2026-07-19-refactor-rust-ddd-architecture/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -28,7 +28,11 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/icon.ico"
+      "icons/generated/32x32.png",
+      "icons/generated/128x128.png",
+      "icons/generated/128x128@2x.png",
+      "icons/generated/icon.icns",
+      "icons/generated/icon.ico"
     ]
   }
 }
