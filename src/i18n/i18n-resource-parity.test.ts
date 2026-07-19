@@ -17,7 +17,7 @@ describe("i18n resources", () => {
     expect(i18n.t("chat.config.configure")).toBe("配置");
     expect(i18n.t("im.platform.weixin.name")).toBe("个人微信");
     expect(i18n.t("im.routing.title")).toBe("默认路由");
-    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("定时任务（敬请期待）");
+    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("定时任务");
 
     await i18n.changeLanguage("en");
     expect(i18n.t("agents.title")).toBe("Agent Management");
@@ -27,6 +27,6 @@ describe("i18n resources", () => {
     expect(i18n.t("chat.config.configure")).toBe("Configure");
     expect(i18n.t("im.platform.weixin.name")).toBe("Personal WeChat");
     expect(i18n.t("im.routing.title")).toBe("Default Routing");
-    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("Scheduled tasks (coming soon)");
+    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("Scheduled tasks");
   });
 });

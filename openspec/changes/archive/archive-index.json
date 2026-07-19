@@ -712,6 +712,20 @@
                      },
                      {
                          "archivedOn":  "2026-07-19",
+                         "changeName":  "add-scheduled-tasks",
+                         "path":  "openspec/changes/archive/2026-07-19-add-scheduled-tasks/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "scheduled-task-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
                          "changeName":  "add-workspace-folder-openers",
                          "path":  "openspec/changes/archive/2026-07-19-add-workspace-folder-openers/",
                          "artifacts":  [

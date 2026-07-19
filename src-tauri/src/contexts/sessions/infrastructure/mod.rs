@@ -3,6 +3,7 @@ mod creation_context;
 mod operation_adapter;
 mod rows;
 mod runtime_support;
+pub(crate) mod scheduled_tasks;
 mod schema;
 mod sqlite_repository;
 mod transactions;

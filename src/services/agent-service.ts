@@ -20,12 +20,15 @@ import type {
   LaunchResult,
   ProjectInspection,
   ReadinessStatus,
+  CreateScheduledTaskInput,
+  SetScheduledTaskEnabledInput,
   Session,
   SessionCategory,
   SessionDetails,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
+  ScheduledTask,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -96,6 +99,10 @@ export interface AgentService {
   assignSessionCategory(input: AssignSessionCategoryInput): Promise<Session>;
   getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
   saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
+  listScheduledTasks(): Promise<ScheduledTask[]>;
+  createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
+  setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
+  deleteScheduledTask(taskId: string): Promise<void>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   listKnownProjects(): Promise<KnownProject[]>;
