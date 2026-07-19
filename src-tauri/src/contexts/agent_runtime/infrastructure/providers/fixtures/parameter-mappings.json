@@ -1,0 +1,38 @@
+[
+  {
+    "agentId": "claude-code",
+    "modelId": "claude-sonnet-5",
+    "reasoningDepth": "high",
+    "permissionMode": "plan",
+    "thinking": false,
+    "base": {"chrome": true},
+    "expected": {"chrome": true, "effort": "high", "model": "sonnet", "permissionMode": "plan"}
+  },
+  {
+    "agentId": "codex-cli",
+    "modelId": "gpt-5-5",
+    "reasoningDepth": "max",
+    "permissionMode": "agent",
+    "thinking": false,
+    "base": {"webSearch": true},
+    "expected": {"approvalPolicy": "on-request", "model": "gpt-5.5", "reasoningEffort": "xhigh", "sandbox": "workspace-write", "webSearch": true}
+  },
+  {
+    "agentId": "gemini-cli",
+    "modelId": "gemini-2-5-flash",
+    "reasoningDepth": "high",
+    "permissionMode": "auto",
+    "thinking": false,
+    "base": {"sandbox": false},
+    "expected": {"approvalMode": "auto_edit", "model": "gemini-2.5-flash", "sandbox": false}
+  },
+  {
+    "agentId": "opencode",
+    "modelId": null,
+    "reasoningDepth": null,
+    "permissionMode": "agent",
+    "thinking": true,
+    "base": {},
+    "expected": {"agent": "build", "thinking": true}
+  }
+]

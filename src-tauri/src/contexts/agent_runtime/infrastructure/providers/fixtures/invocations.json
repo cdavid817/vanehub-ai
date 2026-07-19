@@ -1,0 +1,38 @@
+[
+  {
+    "agentId": "claude-code",
+    "executable": "claude",
+    "prompt": "fixture prompt for claude",
+    "runtimeSessionId": "claude-session",
+    "managedArgs": ["--model", "sonnet"],
+    "expectedArgs": ["--model", "sonnet", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--resume", "claude-session"],
+    "promptDelivery": "stdin"
+  },
+  {
+    "agentId": "codex-cli",
+    "executable": "codex",
+    "prompt": "fixture prompt for codex",
+    "runtimeSessionId": "codex-session",
+    "managedArgs": ["--model", "gpt-5.5", "--ephemeral"],
+    "expectedArgs": ["--model", "gpt-5.5", "exec", "resume", "codex-session", "--ephemeral", "--json", "--", "-"],
+    "promptDelivery": "stdin"
+  },
+  {
+    "agentId": "gemini-cli",
+    "executable": "gemini",
+    "prompt": "fixture prompt for gemini",
+    "runtimeSessionId": "gemini-session",
+    "managedArgs": ["--model", "gemini-2.5-flash"],
+    "expectedArgs": ["--model", "gemini-2.5-flash", "--resume", "gemini-session", "-p", "fixture prompt for gemini", "-o", "stream-json"],
+    "promptDelivery": "argument"
+  },
+  {
+    "agentId": "opencode",
+    "executable": "opencode",
+    "prompt": "fixture prompt for opencode",
+    "runtimeSessionId": "opencode-session",
+    "managedArgs": ["--agent", "build"],
+    "expectedArgs": ["run", "--agent", "build", "--session", "opencode-session", "--format", "json", "fixture prompt for opencode"],
+    "promptDelivery": "argument"
+  }
+]

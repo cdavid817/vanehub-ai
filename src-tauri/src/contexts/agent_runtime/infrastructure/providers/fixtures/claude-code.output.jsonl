@@ -1,0 +1,6 @@
+{"type":"system","session_id":"claude-session"}
+{"type":"content_block_delta","delta":{"text":"hello from claude"}}
+{"type":"thinking_delta","delta":{"thinking":"inspect first"}}
+{"type":"tool_use","id":"claude-tool","name":"Read","input":{"path":"src/main.rs"},"status":"running"}
+{"type":"rich_block","block":{"id":"claude-card","kind":"card","v":1,"title":"Summary"}}
+{"type":"result"}

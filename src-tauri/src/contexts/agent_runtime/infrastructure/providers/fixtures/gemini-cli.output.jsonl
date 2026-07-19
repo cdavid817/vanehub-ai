@@ -1,0 +1,4 @@
+{"type":"session","sessionId":"gemini-session"}
+{"type":"message","content":"hello from gemini"}
+{"type":"tool_call","tool":{"id":"gemini-tool","name":"read_file","input":{"path":"README.md"}}}
+{"type":"done"}

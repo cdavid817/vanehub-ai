@@ -1,0 +1,4 @@
+{"event":"started","metadata":{"sessionId":"opencode-session"}}
+{"event":"message","data":{"text":"hello from opencode"}}
+{"event":"tool.start","tool":{"id":"opencode-tool","name":"read","input":{"path":"src/lib.rs"}}}
+{"event":"completed"}

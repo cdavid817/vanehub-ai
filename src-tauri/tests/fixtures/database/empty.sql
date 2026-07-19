@@ -1,0 +1,1 @@
+-- Intentionally empty. The migration runner must initialize this database.

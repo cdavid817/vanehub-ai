@@ -709,6 +709,20 @@
                                               "settings-extension-management-ui",
                                               "settings-floating-assistant-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-19",
+                         "changeName":  "refactor-rust-ddd-architecture",
+                         "path":  "openspec/changes/archive/2026-07-19-refactor-rust-ddd-architecture/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "native-runtime-architecture"
+                                          ]
                      }
                  ]
 }

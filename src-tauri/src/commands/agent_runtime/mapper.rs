@@ -1,0 +1,294 @@
+use super::dto;
+use crate::contexts::agent_runtime::api::{
+    AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMessage,
+    AgentSessionDetails, AgentView, InteractionMode, LaunchWorkflowResult, ReadinessView,
+    SendMessageRequest, WorkflowView,
+};
+
+pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
+    agents.into_iter().map(agent_to_dto).collect()
+}
+
+pub(super) fn agent_to_dto(agent: AgentView) -> dto::AgentRegistryEntry {
+    dto::AgentRegistryEntry {
+        id: agent.id,
+        display_name: agent.display_name,
+        provider: agent.provider,
+        managed_sdk_dependency_id: agent.managed_sdk_dependency_id,
+        launch: dto::LaunchMetadata {
+            kind: agent.launch.kind,
+            command: agent.launch.command,
+            url: agent.launch.url,
+            executable_name: agent.launch.executable_name,
+        },
+        supported_interaction_modes: agent
+            .supported_interaction_modes
+            .into_iter()
+            .map(interaction_mode_to_dto)
+            .collect(),
+        availability_state: availability_to_dto(agent.availability),
+        unavailable_reason: agent.unavailable_reason,
+        capability_tags: agent.capability_tags,
+    }
+}
+
+pub(super) fn workflow_to_dto(workflow: WorkflowView) -> dto::WorkflowState {
+    dto::WorkflowState {
+        active_agent_id: workflow.active_agent_id,
+        active_interaction_mode: workflow
+            .active_interaction_mode
+            .map(interaction_mode_to_dto),
+        lifecycle_state: lifecycle_to_dto(workflow.lifecycle),
+        intent: workflow.intent,
+    }
+}
+
+pub(super) fn readiness_to_dto(readiness: ReadinessView) -> dto::ReadinessStatus {
+    dto::ReadinessStatus {
+        ready: readiness.ready,
+        reason: readiness.reason,
+        requires_authentication: readiness.requires_authentication,
+    }
+}
+
+pub(super) fn launch_to_dto(launch: LaunchWorkflowResult) -> dto::LaunchResult {
+    dto::LaunchResult {
+        operation_id: Some(launch.operation_id),
+        workflow: workflow_to_dto(launch.workflow),
+        message: launch.message,
+    }
+}
+
+pub(super) fn session_details_to_dto(details: AgentSessionDetails) -> dto::SessionDetails {
+    dto::SessionDetails {
+        agent_id: details.workflow.active_agent_id.clone(),
+        interaction_mode: details
+            .workflow
+            .active_interaction_mode
+            .map(interaction_mode_to_dto),
+        lifecycle_state: lifecycle_to_dto(details.workflow.lifecycle),
+        adapter: details.adapter,
+        details: details.details,
+    }
+}
+
+pub(super) fn send_message_request(
+    session_id: String,
+    content: String,
+    configuration: dto::ChatConfig,
+    file_references: Option<Vec<dto::ChatFileReference>>,
+) -> SendMessageRequest {
+    SendMessageRequest {
+        session_id,
+        content,
+        configuration: AgentChatConfiguration {
+            agent_id: configuration.agent_id,
+            interaction_mode: interaction_mode_from_dto(configuration.interaction_mode),
+            permission_mode: configuration.permission_mode,
+            provider_id: configuration.provider_id,
+            model_id: configuration.model_id,
+            reasoning_depth: configuration.reasoning_depth,
+            streaming: configuration.streaming,
+            thinking: configuration.thinking,
+            long_context: configuration.long_context,
+        },
+        file_references: file_references
+            .unwrap_or_default()
+            .into_iter()
+            .map(|reference| AgentFileReference {
+                id: reference.id,
+                path: reference.path,
+                name: reference.name,
+                size_bytes: reference.size_bytes,
+                content_hash: reference.content_hash,
+            })
+            .collect(),
+    }
+}
+
+pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
+    let tool_use = (!message.tool_use.is_empty()).then(|| {
+        message
+            .tool_use
+            .into_iter()
+            .map(|tool_use| dto::ToolUseBlock {
+                id: tool_use.id,
+                name: tool_use.name,
+                input: tool_use.input,
+                output: tool_use.output,
+                status: tool_use.status,
+            })
+            .collect()
+    });
+    let rich_blocks = (!message.rich_blocks.is_empty()).then_some(message.rich_blocks);
+    let file_references = (!message.file_references.is_empty()).then(|| {
+        message
+            .file_references
+            .into_iter()
+            .map(|reference| dto::ChatFileReference {
+                id: reference.id,
+                path: reference.path,
+                name: reference.name,
+                size_bytes: reference.size_bytes,
+                content_hash: reference.content_hash,
+            })
+            .collect()
+    });
+    dto::ChatMessage {
+        id: message.id,
+        session_id: message.session_id,
+        role: message.role,
+        content: message.content,
+        status: message.status,
+        tool_use,
+        thinking_content: message.thinking_content,
+        rich_blocks,
+        token_usage: message.token_usage.map(|usage| dto::TokenUsage {
+            input: usage.input,
+            output: usage.output,
+        }),
+        file_references,
+        error: message.error,
+        created_at: message.created_at,
+        updated_at: message.updated_at,
+    }
+}
+
+pub(super) fn interaction_mode_from_dto(mode: dto::InteractionMode) -> InteractionMode {
+    match mode {
+        dto::InteractionMode::Browser => InteractionMode::Browser,
+        dto::InteractionMode::NativeDesktop => InteractionMode::NativeDesktop,
+        dto::InteractionMode::Cli => InteractionMode::Cli,
+    }
+}
+
+fn interaction_mode_to_dto(mode: InteractionMode) -> dto::InteractionMode {
+    match mode {
+        InteractionMode::Browser => dto::InteractionMode::Browser,
+        InteractionMode::NativeDesktop => dto::InteractionMode::NativeDesktop,
+        InteractionMode::Cli => dto::InteractionMode::Cli,
+    }
+}
+
+fn availability_to_dto(availability: AgentAvailability) -> dto::AvailabilityState {
+    match availability {
+        AgentAvailability::Available => dto::AvailabilityState::Available,
+        AgentAvailability::Unavailable => dto::AvailabilityState::Unavailable,
+        AgentAvailability::NeedsAuthentication => dto::AvailabilityState::NeedsAuth,
+        AgentAvailability::Unknown => dto::AvailabilityState::Unknown,
+    }
+}
+
+fn lifecycle_to_dto(lifecycle: AgentLifecycle) -> dto::SessionLifecycleState {
+    match lifecycle {
+        AgentLifecycle::Idle => dto::SessionLifecycleState::Idle,
+        AgentLifecycle::Starting => dto::SessionLifecycleState::Starting,
+        AgentLifecycle::Running => dto::SessionLifecycleState::Running,
+        AgentLifecycle::Failed => dto::SessionLifecycleState::Failed,
+        AgentLifecycle::Stopped => dto::SessionLifecycleState::Stopped,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::agent_runtime::api::{
+        AgentLaunchView, LaunchWorkflowResult, MessageTokenUsage, ReadinessView, WorkflowView,
+    };
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn agent_mapping_preserves_the_existing_camel_case_and_enum_contract() {
+        let value = serde_json::to_value(agent_to_dto(AgentView {
+            id: "codex-cli".to_string(),
+            display_name: "Codex CLI".to_string(),
+            provider: "OpenAI".to_string(),
+            managed_sdk_dependency_id: Some("codex-sdk".to_string()),
+            launch: AgentLaunchView {
+                kind: "cli".to_string(),
+                command: Some("codex".to_string()),
+                url: None,
+                executable_name: Some("codex".to_string()),
+            },
+            supported_interaction_modes: vec![InteractionMode::Cli],
+            availability: AgentAvailability::NeedsAuthentication,
+            unavailable_reason: Some("authentication required".to_string()),
+            capability_tags: vec!["coding".to_string()],
+        }))
+        .expect("serialize agent");
+
+        assert_eq!(value["id"], "codex-cli");
+        assert_eq!(value["managedSdkDependencyId"], "codex-sdk");
+        assert_eq!(value["supportedInteractionModes"][0], "cli");
+        assert_eq!(value["availabilityState"], "needs-auth");
+        assert_eq!(value["launch"]["executableName"], "codex");
+        assert!(value.get("availability_state").is_none());
+    }
+
+    #[test]
+    fn message_mapping_keeps_optional_collections_absent_when_empty() {
+        let value = serde_json::to_value(message_to_dto(AgentMessage {
+            id: "message-1".to_string(),
+            session_id: "session-1".to_string(),
+            role: "assistant".to_string(),
+            content: "done".to_string(),
+            status: "completed".to_string(),
+            tool_use: Vec::new(),
+            thinking_content: None,
+            rich_blocks: Vec::new(),
+            token_usage: Some(MessageTokenUsage {
+                input: 3,
+                output: 5,
+            }),
+            file_references: Vec::new(),
+            error: None,
+            created_at: "100".to_string(),
+            updated_at: "101".to_string(),
+        }))
+        .expect("serialize message");
+
+        assert!(value["toolUse"].is_null());
+        assert!(value["richBlocks"].is_null());
+        assert!(value["fileReferences"].is_null());
+        assert_eq!(value["tokenUsage"]["output"], 5);
+        assert!(value.get("session_id").is_none());
+    }
+
+    #[test]
+    fn workflow_readiness_launch_and_details_keep_legacy_transport_shapes() {
+        let workflow = WorkflowView {
+            active_agent_id: Some("codex-cli".to_string()),
+            active_interaction_mode: Some(InteractionMode::Cli),
+            lifecycle: AgentLifecycle::Running,
+            intent: "coding".to_string(),
+        };
+        let launch = serde_json::to_value(launch_to_dto(LaunchWorkflowResult {
+            operation_id: "operation-1".to_string(),
+            workflow: workflow.clone(),
+            message: "launched".to_string(),
+        }))
+        .expect("serialize launch");
+        let readiness = serde_json::to_value(readiness_to_dto(ReadinessView {
+            ready: true,
+            reason: None,
+            requires_authentication: true,
+        }))
+        .expect("serialize readiness");
+        let details = serde_json::to_value(session_details_to_dto(AgentSessionDetails {
+            workflow,
+            adapter: "cli".to_string(),
+            details: BTreeMap::from([("runtime".to_string(), "tauri".to_string())]),
+        }))
+        .expect("serialize details");
+
+        assert_eq!(launch["operationId"], "operation-1");
+        assert_eq!(launch["workflow"]["activeInteractionMode"], "cli");
+        assert_eq!(launch["workflow"]["lifecycleState"], "running");
+        assert_eq!(readiness["requiresAuthentication"], true);
+        assert_eq!(details["agentId"], "codex-cli");
+        assert_eq!(details["interactionMode"], "cli");
+        assert_eq!(details["lifecycleState"], "running");
+        assert_eq!(details["details"]["runtime"], "tauri");
+        assert!(details.get("lifecycle_state").is_none());
+    }
+}

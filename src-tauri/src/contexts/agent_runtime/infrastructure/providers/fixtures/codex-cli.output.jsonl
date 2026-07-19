@@ -1,0 +1,5 @@
+{"type":"session_init","session_id":"codex-session"}
+{"type":"message","text":"hello from codex"}
+{"type":"reasoning","reasoning":"checking files"}
+{"type":"tool_call","id":"codex-tool","name":"read_file","input":{"path":"Cargo.toml"}}
+{"type":"turn.completed"}
