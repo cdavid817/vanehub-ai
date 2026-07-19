@@ -123,9 +123,17 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 Some(&request.agent.id),
                 Some(&request.session.id),
             );
+            let _ = self.events.publish_terminal(AgentTerminalEvent::State {
+                terminal_id: session.terminal_id.clone(),
+                session_id: session.session_id.clone(),
+                state: AgentTerminalState::Running,
+                error: None,
+            });
             return Ok(session);
         }
 
+        let agent_id_for_error = request.agent.id.clone();
+        let session_id_for_error = request.session.id.clone();
         let executable =
             normalize_interactive_executable(&request.agent.id, &request.cli_profile.executable);
         let invocation = build_interactive_invocation(
@@ -134,7 +142,16 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             request.session.runtime_session_id.as_deref(),
             &request.cli_profile.managed_args,
         )
-        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        .map_err(|error| {
+            let message = format!("Failed to prepare Agent terminal invocation: {error}");
+            self.record_log(
+                AgentLogLevel::Error,
+                message.clone(),
+                Some(&agent_id_for_error),
+                Some(&session_id_for_error),
+            );
+            AgentRuntimeApplicationError::Process(message)
+        })?;
         let terminal_id = self.next_terminal_id(&request.session.id);
         let (shell, shell_executable) = default_agent_terminal_shell();
         let wrapper = generate_agent_terminal_wrapper(&AgentTerminalWrapperRequest {
@@ -151,7 +168,16 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             shell_executable,
             wrapper_dir: self.wrapper_dir.clone(),
         })
-        .map_err(AgentRuntimeApplicationError::Process)?;
+        .map_err(|error| {
+            let message = format!("Failed to prepare Agent terminal wrapper: {error}");
+            self.record_log(
+                AgentLogLevel::Error,
+                message.clone(),
+                Some(&request.agent.id),
+                Some(&request.session.id),
+            );
+            AgentRuntimeApplicationError::Process(message)
+        })?;
 
         self.record_log(
             AgentLogLevel::Info,
@@ -163,9 +189,19 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(terminal_size(&request.size))
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        let mut command = CommandBuilder::new(wrapper.executable);
-        command.args(wrapper.args);
+            .map_err(|error| {
+                let message = format!("Failed to allocate Agent terminal PTY: {error}");
+                self.record_log(
+                    AgentLogLevel::Error,
+                    message.clone(),
+                    Some(&request.agent.id),
+                    Some(&request.session.id),
+                );
+                AgentRuntimeApplicationError::Process(message)
+            })?;
+        let redacted_command = wrapper.redacted_command.clone();
+        let mut command = CommandBuilder::new(wrapper.executable.clone());
+        command.args(wrapper.args.clone());
         if let Some(folder) = request
             .session
             .folder
@@ -174,19 +210,40 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         {
             command.cwd(folder);
         }
-        let child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        let child = pair.slave.spawn_command(command).map_err(|error| {
+            let message = format!(
+                "Failed to spawn Agent terminal process for {}: {error}",
+                redacted_command
+            );
+            self.record_log(
+                AgentLogLevel::Error,
+                message.clone(),
+                Some(&request.agent.id),
+                Some(&request.session.id),
+            );
+            AgentRuntimeApplicationError::Process(message)
+        })?;
         drop(pair.slave);
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        let mut reader = pair.master.try_clone_reader().map_err(|error| {
+            let message = format!("Failed to attach Agent terminal reader: {error}");
+            self.record_log(
+                AgentLogLevel::Error,
+                message.clone(),
+                Some(&request.agent.id),
+                Some(&request.session.id),
+            );
+            AgentRuntimeApplicationError::Process(message)
+        })?;
+        let writer = pair.master.take_writer().map_err(|error| {
+            let message = format!("Failed to attach Agent terminal writer: {error}");
+            self.record_log(
+                AgentLogLevel::Error,
+                message.clone(),
+                Some(&request.agent.id),
+                Some(&request.session.id),
+            );
+            AgentRuntimeApplicationError::Process(message)
+        })?;
         let child = Arc::new(Mutex::new(child));
         let terminal = ManagedAgentTerminal {
             terminal_id: terminal_id.clone(),
@@ -466,30 +523,79 @@ fn now_timestamp(clock: &dyn AgentClockPort) -> i64 {
 }
 
 fn normalize_interactive_executable(agent_id: &str, executable: &str) -> String {
-    if agent_id != "opencode" {
-        return executable.to_string();
-    }
-    resolve_opencode_npm_shim(executable).unwrap_or_else(|| executable.to_string())
+    resolve_windows_npm_shim(agent_id, executable).unwrap_or_else(|| executable.to_string())
 }
 
-fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
+fn resolve_windows_npm_shim(agent_id: &str, executable: &str) -> Option<String> {
     let path = Path::new(executable);
     let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
     if extension != "cmd" && extension != "ps1" {
         return None;
     }
-    if path.file_stem()?.to_string_lossy().to_ascii_lowercase() != "opencode" {
+    let stem = path.file_stem()?.to_string_lossy().to_ascii_lowercase();
+    if expected_windows_shim_stem(agent_id) != Some(stem.as_str()) {
         return None;
     }
-    let resolved = path
-        .parent()?
-        .join("node_modules")
-        .join("opencode-ai")
-        .join("bin")
-        .join("opencode.exe");
-    resolved
-        .is_file()
-        .then(|| resolved.to_string_lossy().to_string())
+    if extension == "ps1" {
+        let sibling_cmd = path.with_extension("cmd");
+        if sibling_cmd.is_file() {
+            return Some(sibling_cmd.to_string_lossy().to_string());
+        }
+    }
+    let parent = path.parent()?;
+    managed_windows_binary_candidates(agent_id, parent)
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .map(|candidate| candidate.to_string_lossy().to_string())
+}
+
+fn expected_windows_shim_stem(agent_id: &str) -> Option<&'static str> {
+    match agent_id {
+        "claude-code" => Some("claude"),
+        "codex-cli" => Some("codex"),
+        "opencode" => Some("opencode"),
+        _ => None,
+    }
+}
+
+fn managed_windows_binary_candidates(agent_id: &str, shim_parent: &Path) -> Vec<PathBuf> {
+    let node_modules = shim_parent.join("node_modules");
+    match agent_id {
+        "claude-code" => vec![
+            node_modules
+                .join("@anthropic-ai")
+                .join("claude-code")
+                .join("claude.exe"),
+            node_modules
+                .join("@anthropic-ai")
+                .join("claude-code")
+                .join("bin")
+                .join("claude.exe"),
+            node_modules
+                .join("@anthropic-ai")
+                .join("claude-code")
+                .join("vendor")
+                .join("claude.exe"),
+        ],
+        "codex-cli" => vec![
+            node_modules
+                .join("@openai")
+                .join("codex")
+                .join("bin")
+                .join("codex.exe"),
+            node_modules
+                .join("@openai")
+                .join("codex")
+                .join("bin")
+                .join("codex-x86_64-pc-windows-msvc.exe"),
+            node_modules.join("@openai").join("codex").join("codex.exe"),
+        ],
+        "opencode" => vec![node_modules
+            .join("opencode-ai")
+            .join("bin")
+            .join("opencode.exe")],
+        _ => Vec::new(),
+    }
 }
 
 fn safe_file_segment(value: &str) -> String {
@@ -523,21 +629,74 @@ mod tests {
     }
 
     #[test]
-    fn opencode_windows_shim_resolves_to_real_binary_when_present() {
-        let directory = TempDirectory::new("opencode-shim");
-        let shim = directory.path().join("opencode.cmd");
-        let binary = directory
-            .path()
-            .join("node_modules")
-            .join("opencode-ai")
-            .join("bin")
-            .join("opencode.exe");
-        std::fs::create_dir_all(binary.parent().expect("parent")).expect("dirs");
-        std::fs::write(&binary, "fixture").expect("binary");
+    fn windows_ps1_shim_prefers_sibling_cmd_for_interactive_launch() {
+        let directory = TempDirectory::new("agent-terminal-ps1-shim");
+        let shim = directory.path().join("codex.ps1");
+        let cmd = directory.path().join("codex.cmd");
+        std::fs::write(&shim, "fixture").expect("shim");
+        std::fs::write(&cmd, "fixture").expect("cmd");
 
         assert_eq!(
-            normalize_interactive_executable("opencode", &shim.to_string_lossy()),
-            binary.to_string_lossy().to_string()
+            normalize_interactive_executable("codex-cli", &shim.to_string_lossy()),
+            cmd.to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn windows_shims_resolve_known_managed_cli_binaries_when_present() {
+        let cases: [(&str, &str, &[&str]); 3] = [
+            (
+                "claude-code",
+                "claude.cmd",
+                &[
+                    "node_modules",
+                    "@anthropic-ai",
+                    "claude-code",
+                    "bin",
+                    "claude.exe",
+                ],
+            ),
+            (
+                "codex-cli",
+                "codex.cmd",
+                &["node_modules", "@openai", "codex", "bin", "codex.exe"],
+            ),
+            (
+                "opencode",
+                "opencode.cmd",
+                &["node_modules", "opencode-ai", "bin", "opencode.exe"],
+            ),
+        ];
+        for (agent_id, shim_name, binary_parts) in cases {
+            let directory = TempDirectory::new("agent-terminal-shim");
+            let shim = directory.path().join(shim_name);
+            let binary = binary_parts
+                .iter()
+                .fold(directory.path().to_path_buf(), |path, part| path.join(part));
+            std::fs::write(&shim, "fixture").expect("shim");
+            std::fs::create_dir_all(binary.parent().expect("parent")).expect("dirs");
+            std::fs::write(&binary, "fixture").expect("binary");
+
+            assert_eq!(
+                normalize_interactive_executable(agent_id, &shim.to_string_lossy()),
+                binary.to_string_lossy().to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn windows_shim_resolution_falls_back_for_unknown_or_missing_targets() {
+        let directory = TempDirectory::new("agent-terminal-shim-fallback");
+        let shim = directory.path().join("codex.cmd");
+        std::fs::write(&shim, "fixture").expect("shim");
+
+        assert_eq!(
+            normalize_interactive_executable("codex-cli", &shim.to_string_lossy()),
+            shim.to_string_lossy().to_string()
+        );
+        assert_eq!(
+            normalize_interactive_executable("gemini-cli", &shim.to_string_lossy()),
+            shim.to_string_lossy().to_string()
         );
     }
 

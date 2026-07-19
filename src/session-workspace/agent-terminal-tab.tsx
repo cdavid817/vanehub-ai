@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as XtermTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { useQueryClient } from "@tanstack/react-query";
+import { Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentTerminalState, Session } from "../types/agent";
@@ -24,6 +26,7 @@ function terminalTheme() {
 
 export function AgentTerminalTab({ active, session }: { active: boolean; session: Session | null }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const sessionId = session?.id ?? null;
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XtermTerminal | null>(null);
@@ -33,6 +36,7 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
   const [state, setState] = useState<AgentTerminalState>("starting");
   const [simulated, setSimulated] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
+  const [commandInput, setCommandInput] = useState("");
 
   useEffect(() => {
     activeRef.current = active;
@@ -77,6 +81,23 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
       try {
         setError(null);
         setState("starting");
+        unsubscribe = await agentService.subscribeAgentTerminalEvents(targetSessionId, (event) => {
+          if (event.type === "output") {
+            terminal.write(event.content);
+            return;
+          }
+          if (event.type === "state") {
+            terminalIdRef.current = event.terminalId;
+            setState(event.state);
+            void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            if (event.state === "stopped" || event.state === "failed") terminalIdRef.current = null;
+            if (event.error) setError(workspaceErrorKey(event.error));
+          }
+        });
+        if (disposed) {
+          unsubscribe();
+          return;
+        }
         const opened = await agentService.openAgentTerminal(targetSessionId, {
           rows: terminal.rows,
           cols: terminal.cols,
@@ -85,21 +106,12 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
         terminalIdRef.current = opened.terminalId;
         setState(opened.state);
         setSimulated(opened.capability === "simulated");
+        void queryClient.invalidateQueries({ queryKey: ["sessions"] });
         if (opened.capability === "simulated") terminal.writeln(t("sessionTabs.agentTerminal.simulatedBanner"));
-        unsubscribe = await agentService.subscribeAgentTerminalEvents(targetSessionId, (event) => {
-          if (event.type === "output") {
-            terminal.write(event.content);
-            return;
-          }
-          if (event.type === "state") {
-            setState(event.state);
-            if (event.state === "stopped" || event.state === "failed") terminalIdRef.current = null;
-            if (event.error) setError(workspaceErrorKey(event.error));
-          }
-        });
       } catch (reason) {
         setState("failed");
         setError(workspaceErrorKey(reason));
+        void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       }
     }
 
@@ -115,7 +127,7 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [sessionId, t]);
+  }, [queryClient, sessionId, t]);
 
   useEffect(() => {
     if (!active) return;
@@ -129,6 +141,22 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
   }, [active]);
 
   if (!session) return <WorkspaceState kind="unavailable" />;
+  const canSubmitCommand = Boolean(terminalIdRef.current) && state === "running";
+
+  function submitCommand() {
+    const terminalId = terminalIdRef.current;
+    const content = commandInput.trimEnd();
+    if (!terminalId || !content) return;
+    void agentService.sendAgentTerminalInput(terminalId, `${content}\r`);
+    setCommandInput("");
+    terminalRef.current?.focus();
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    submitCommand();
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
@@ -143,6 +171,31 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
       <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="min-h-0 flex-1 p-2" ref={hostRef} />
+      <form className="shrink-0 border-t border-border bg-background/80 p-2" onSubmit={(event) => { event.preventDefault(); submitCommand(); }}>
+        <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 shadow-sm focus-within:border-primary">
+          <textarea
+          aria-label={t("sessionTabs.agentTerminal.input")}
+          className="min-h-20 w-full resize-none border-0 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={!canSubmitCommand}
+          onKeyDown={handleComposerKeyDown}
+          onChange={(event) => setCommandInput(event.target.value)}
+          placeholder={t("sessionTabs.agentTerminal.inputPlaceholder")}
+          rows={3}
+          value={commandInput}
+          />
+          <div className="mt-2 flex items-center justify-end">
+            <button
+              className="flex h-8 items-center gap-1 rounded border border-border px-3 text-xs text-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canSubmitCommand || commandInput.trimEnd().length === 0}
+              title={t("sessionTabs.agentTerminal.send")}
+              type="submit"
+            >
+              <Send className="h-3.5 w-3.5" />
+              {t("sessionTabs.agentTerminal.send")}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

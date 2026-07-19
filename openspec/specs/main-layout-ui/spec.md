@@ -147,8 +147,20 @@ The sidebar SHALL support service-backed session navigation without utility or t
 - **WHEN** the session list content exceeds the sidebar height
 - **THEN** the session list SHALL scroll inside the sidebar without scrolling the whole workspace shell
 
-### Requirement: Flexible main content area
-The main content panel SHALL render an Agent Terminal-first workspace area for active single-Agent CLI sessions while keeping the panel responsive within the workspace shell.
+### Requirement: Main content Agent workspace
+The main content panel SHALL render a Workspace-first area for active single-Agent CLI sessions while keeping the panel responsive within the workspace shell.
+
+#### Scenario: Workspace tab is user-facing
+- **WHEN** the session tab navigation renders for the former Agent Terminal surface
+- **THEN** the tab SHALL be named Workspace / 工作区
+- **AND** the surface SHALL continue to host the selected Agent CLI terminal interaction
+
+#### Scenario: Workspace terminal composer
+- **WHEN** a Workspace terminal session is attached
+- **THEN** the workspace SHALL provide a bottom multiline composer below the terminal viewport
+- **AND** pressing Enter in the composer SHALL send the entered text followed by Enter to the current Agent CLI terminal
+- **AND** pressing Shift+Enter SHALL insert a new line without submitting
+- **AND** the composer SHALL be disabled when no terminal process is attached
 
 #### Scenario: Agent Terminal flexes with panel height
 - **WHEN** the workspace panel height changes
@@ -190,19 +202,25 @@ The information panel SHALL support smooth collapse and expand behavior while pr
 - **THEN** the content area SHALL scroll inside the information panel without scrolling the whole workspace shell
 
 ### Requirement: Information panel tabs
-The information panel SHALL provide keep-alive tabs for Agent Info, Files, and Changes.
+The information panel SHALL provide keep-alive tabs for Basic Info, Files, Changes, and Logs.
 
-#### Scenario: Render three tabs
-- **WHEN** the information panel is rendered
-- **THEN** the panel SHALL show exactly three tabs named Agent Info, Files, and Changes
+#### Scenario: Information panel tab set
+- **WHEN** the information panel renders for an active session
+- **THEN** the panel SHALL show tabs named Basic Info, Files, Changes, and Logs
+- **AND** the previous Agent Info tab content SHALL remain available under Basic Info
 
 #### Scenario: Switch tabs without unmounting content
 - **WHEN** the user switches between information panel tabs
 - **THEN** all tab contents SHALL remain mounted while only the selected tab content is visible
 
 #### Scenario: Show agent progress summary
-- **WHEN** the Agent Info tab is visible
+- **WHEN** the Basic Info tab is visible
 - **THEN** the tab SHALL show an independent progress bar with overall completion percentage and completed, in-progress, and pending task counts
+
+#### Scenario: Compact terminal logs are visible
+- **WHEN** the user opens the Logs tab in the information panel
+- **THEN** the panel SHALL show recent session log entries for Agent terminal diagnostics
+- **AND** startup and startup-failure records SHALL be visible without opening the detailed Logs workspace tab
 
 ### Requirement: Create-session dialog
 The main layout UI SHALL provide a create-session dialog with Agent mode selection, Agent choice for Single Agent sessions, project folder, project history, and optional Git worktree controls.

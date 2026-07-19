@@ -5,7 +5,7 @@ use super::{
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalState, AgentView,
     OpenAgentTerminalRequest, ResizeAgentTerminalRequest, StopAgentTerminalRequest,
 };
-use crate::contexts::agent_runtime::domain::{AgentAvailability, AgentLifecycle, InteractionMode};
+use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -29,8 +29,8 @@ mod tests {
         ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
     };
     use crate::contexts::agent_runtime::domain::{
-        AgentDefinition, AgentDefinitionInput, AgentWorkflow, AvailabilityAssessment,
-        LaunchMetadata,
+        AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentWorkflow,
+        AvailabilityAssessment, LaunchMetadata,
     };
     use serde_json::Value;
     use std::collections::BTreeMap;
@@ -38,6 +38,7 @@ mod tests {
 
     struct TerminalWorld {
         session: Mutex<super::super::AgentSession>,
+        agent_availability: Mutex<AvailabilityAssessment>,
         lifecycle: Mutex<Vec<AgentLifecycle>>,
         terminal: Mutex<Option<AgentTerminalSession>>,
         terminal_requests: Mutex<Vec<AgentTerminalProcessRequest>>,
@@ -52,6 +53,10 @@ mod tests {
         fn new(session: super::super::AgentSession) -> Arc<Self> {
             Arc::new(Self {
                 session: Mutex::new(session),
+                agent_availability: Mutex::new(AvailabilityAssessment::new(
+                    AgentAvailability::Available,
+                    None,
+                )),
                 lifecycle: Mutex::new(Vec::new()),
                 terminal: Mutex::new(None),
                 terminal_requests: Mutex::new(Vec::new()),
@@ -75,18 +80,34 @@ mod tests {
                 terminal_events: self.clone(),
             })
         }
+
+        fn set_agent_availability(&self, availability: AvailabilityAssessment) {
+            *self.agent_availability.lock().expect("agent availability") = availability;
+        }
     }
 
     impl AgentRegistryRepository for TerminalWorld {
         fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
-            Ok(vec![agent()])
+            Ok(vec![agent(
+                self.agent_availability
+                    .lock()
+                    .expect("agent availability")
+                    .clone(),
+            )])
         }
 
         fn find(
             &self,
             agent_id: &str,
         ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
-            Ok((agent_id == "codex-cli").then(agent))
+            Ok((agent_id == "codex-cli").then(|| {
+                agent(
+                    self.agent_availability
+                        .lock()
+                        .expect("agent availability")
+                        .clone(),
+                )
+            }))
         }
     }
 
@@ -498,6 +519,29 @@ mod tests {
     }
 
     #[test]
+    fn cli_terminal_uses_interactive_profile_even_when_sdk_dependency_is_missing() {
+        let world = TerminalWorld::new(session(false));
+        world.set_agent_availability(AvailabilityAssessment::new(
+            AgentAvailability::Unavailable,
+            Some("Managed SDK dependency 'codex-sdk' is not installed.".to_string()),
+        ));
+
+        let opened = world
+            .service()
+            .open_or_attach(open_request())
+            .expect("open terminal");
+
+        assert_eq!(opened.terminal_id, "terminal-1");
+        assert_eq!(world.terminal_requests.lock().expect("requests").len(), 1);
+        assert_eq!(
+            world.terminal_requests.lock().expect("requests")[0]
+                .cli_profile
+                .executable,
+            "C:/bin/codex-cli.exe"
+        );
+    }
+
+    #[test]
     fn archived_session_is_rejected_before_process_start() {
         let world = TerminalWorld::new(session(true));
         let error = world
@@ -544,6 +588,10 @@ mod tests {
             world.logs.lock().expect("logs").last().unwrap().level,
             AgentLogLevel::Error
         );
+        assert_eq!(
+            world.logs.lock().expect("logs").last().unwrap().category,
+            "session.agent_terminal"
+        );
     }
 
     #[test]
@@ -567,7 +615,7 @@ mod tests {
             .is_empty());
     }
 
-    fn agent() -> AgentDefinition {
+    fn agent(availability: AvailabilityAssessment) -> AgentDefinition {
         AgentDefinition::new(AgentDefinitionInput {
             id: "codex-cli".to_string(),
             display_name: "Codex CLI".to_string(),
@@ -581,7 +629,7 @@ mod tests {
             )
             .expect("launch"),
             supported_interaction_modes: vec![InteractionMode::Cli],
-            availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+            availability,
             capability_tags: vec!["coding".to_string()],
         })
         .expect("agent")
@@ -627,49 +675,82 @@ impl AgentTerminalApplicationService {
         &self,
         request: OpenAgentTerminalRequest,
     ) -> Result<AgentTerminalSession, AgentRuntimeApplicationError> {
-        let session = self
-            .ports
-            .sessions
-            .find_session(&request.session_id)?
-            .ok_or(AgentRuntimeApplicationError::SessionNotFound(
-                request.session_id,
-            ))?;
+        let session = match self.ports.sessions.find_session(&request.session_id) {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                let error = AgentRuntimeApplicationError::SessionNotFound(request.session_id);
+                self.record_terminal_start_failure(&error, None, None);
+                return Err(error);
+            }
+            Err(error) => {
+                self.record_terminal_start_failure(&error, None, Some(&request.session_id));
+                return Err(error);
+            }
+        };
         if session.archived {
-            return Err(AgentRuntimeApplicationError::Validation(
+            let error = AgentRuntimeApplicationError::Validation(
                 "Archived sessions cannot start Agent terminals.".to_string(),
-            ));
+            );
+            self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
+            return Err(error);
         }
         if session.interaction_mode != InteractionMode::Cli {
-            return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
+            let error = AgentRuntimeApplicationError::UnsupportedInteractionMode(
                 session.interaction_mode.as_str().to_string(),
-            ));
+            );
+            self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
+            return Err(error);
         }
-        let agent = self
-            .ports
-            .registry
-            .find(&session.agent_id)?
-            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(session.agent_id.clone()))?;
+        let agent = match self.ports.registry.find(&session.agent_id) {
+            Ok(Some(agent)) => agent,
+            Ok(None) => {
+                let error = AgentRuntimeApplicationError::AgentNotFound(session.agent_id.clone());
+                self.record_terminal_start_failure(
+                    &error,
+                    Some(&session.agent_id),
+                    Some(&session.id),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                self.record_terminal_start_failure(
+                    &error,
+                    Some(&session.agent_id),
+                    Some(&session.id),
+                );
+                return Err(error);
+            }
+        };
         if !agent.supports(InteractionMode::Cli) {
-            return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
+            let error = AgentRuntimeApplicationError::UnsupportedInteractionMode(
                 InteractionMode::Cli.as_str().to_string(),
-            ));
+            );
+            self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
+            return Err(error);
         }
-        if agent.availability().state() != AgentAvailability::Available {
-            return Err(AgentRuntimeApplicationError::AgentUnavailable(
-                agent
-                    .availability()
-                    .reason()
-                    .unwrap_or("Agent is not available.")
-                    .to_string(),
-            ));
-        }
-        let profile = self
+        let profile = match self
             .ports
             .cli_profiles
-            .load_interactive(agent.id().as_str())?;
-        self.ports
+            .load_interactive(agent.id().as_str())
+        {
+            Ok(profile) => profile,
+            Err(error) => {
+                self.record_terminal_start_failure(
+                    &error,
+                    Some(&session.agent_id),
+                    Some(&session.id),
+                );
+                return Err(error);
+            }
+        };
+        if let Err(error) = self
+            .ports
             .sessions
-            .update_lifecycle(&session.id, AgentLifecycle::Starting)?;
+            .update_lifecycle(&session.id, AgentLifecycle::Starting)
+        {
+            self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
+            return Err(error);
+        }
         let terminal = match self
             .ports
             .terminals
@@ -685,10 +766,8 @@ impl AgentTerminalApplicationService {
                     .ports
                     .sessions
                     .update_lifecycle(&session.id, AgentLifecycle::Failed);
-                self.record_log(
-                    AgentLogLevel::Error,
-                    "agent.terminal",
-                    error.to_string(),
+                self.record_terminal_start_failure(
+                    &error,
                     Some(&session.agent_id),
                     Some(&session.id),
                 );
@@ -804,5 +883,20 @@ impl AgentTerminalApplicationService {
             operation_id: None,
             occurred_at: self.ports.clock.now(),
         });
+    }
+
+    fn record_terminal_start_failure(
+        &self,
+        error: &AgentRuntimeApplicationError,
+        agent_id: Option<&str>,
+        session_id: Option<&str>,
+    ) {
+        self.record_log(
+            AgentLogLevel::Error,
+            "session.agent_terminal",
+            format!("Agent terminal startup failed before process launch: {error}"),
+            agent_id,
+            session_id,
+        );
     }
 }

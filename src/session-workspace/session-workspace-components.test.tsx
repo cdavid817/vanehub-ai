@@ -25,7 +25,7 @@ describe("session workspace components", () => {
   });
   it("renders all tab labels and the terminal badge", () => {
     const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
-    expect(html).toContain("Agent Terminal");
+    expect(html).toContain("Workspace");
     expect(html).toContain("Changes");
     expect(html).toContain("Report");
     expect(html).toContain("1");
