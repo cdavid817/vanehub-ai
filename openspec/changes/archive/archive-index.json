@@ -817,6 +817,19 @@
                                               "native-runtime-architecture",
                                               "session-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-20",
+                         "changeName":  "fix-agent-terminal-retention",
+                         "path":  "openspec/changes/archive/2026-07-20-fix-agent-terminal-retention/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "native-runtime-architecture"
+                                          ]
                      }
                  ]
 }

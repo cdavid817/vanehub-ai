@@ -8,6 +8,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
+const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
+
 pub(crate) fn run() {
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -204,7 +206,8 @@ fn start_agent_terminal_cleanup_job(
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
         loop {
             interval.tick().await;
-            let _ = agent_runtime_api.cleanup_idle_agent_terminals(30 * 60);
+            let _ =
+                agent_runtime_api.cleanup_idle_agent_terminals(AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS);
         }
     });
 }

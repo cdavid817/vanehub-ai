@@ -178,6 +178,11 @@ pub(crate) trait AgentProcessEventSink: Send + Sync {
 }
 
 pub(crate) trait AgentTerminalGateway: Send + Sync {
+    fn attach_retained(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<AgentTerminalSession>, AgentRuntimeApplicationError>;
+
     fn open_or_attach(
         &self,
         request: AgentTerminalProcessRequest,

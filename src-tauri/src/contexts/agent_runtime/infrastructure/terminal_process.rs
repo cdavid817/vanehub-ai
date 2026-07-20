@@ -18,6 +18,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+const RETAINED_TERMINAL_TRANSCRIPT_BYTES: usize = 1_000_000;
+
 struct ManagedAgentTerminal {
     terminal_id: String,
     session_id: String,
@@ -28,6 +30,7 @@ struct ManagedAgentTerminal {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    transcript: String,
 }
 
 #[derive(Clone)]
@@ -68,19 +71,6 @@ impl PortablePtyAgentTerminalRuntime {
         )
     }
 
-    fn attach_existing(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<AgentTerminalSession>, AgentRuntimeApplicationError> {
-        let now = now_timestamp(self.clock.as_ref());
-        let mut terminals = self.lock_terminals()?;
-        let Some(terminal) = terminals.get_mut(session_id) else {
-            return Ok(None);
-        };
-        terminal.last_active_at = now;
-        Ok(Some(agent_terminal_session(terminal)))
-    }
-
     fn lock_terminals(
         &self,
     ) -> Result<
@@ -112,11 +102,51 @@ impl PortablePtyAgentTerminalRuntime {
 }
 
 impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
+    fn attach_retained(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<AgentTerminalSession>, AgentRuntimeApplicationError> {
+        let mut terminal_registry = self.lock_terminals()?;
+        if let Some(terminal) = terminal_registry.get_mut(session_id) {
+            terminal.last_active_at = now_timestamp(self.clock.as_ref());
+            let session = agent_terminal_session(terminal);
+            let transcript = terminal.transcript.clone();
+            let agent_id = terminal.agent_id.clone();
+            drop(terminal_registry);
+            self.record_log(
+                AgentLogLevel::Info,
+                "Attached retained Agent terminal process.".to_string(),
+                Some(&agent_id),
+                Some(session_id),
+            );
+            let _ = self.events.publish_terminal(AgentTerminalEvent::State {
+                terminal_id: session.terminal_id.clone(),
+                session_id: session.session_id.clone(),
+                state: AgentTerminalState::Running,
+                error: None,
+            });
+            if !transcript.is_empty() {
+                let _ = self.events.publish_terminal(AgentTerminalEvent::Output {
+                    terminal_id: session.terminal_id.clone(),
+                    session_id: session.session_id.clone(),
+                    content: transcript,
+                });
+            }
+            return Ok(Some(session));
+        }
+        Ok(None)
+    }
+
     fn open_or_attach(
         &self,
         request: AgentTerminalProcessRequest,
     ) -> Result<AgentTerminalSession, AgentRuntimeApplicationError> {
-        if let Some(session) = self.attach_existing(&request.session.id)? {
+        let mut terminal_registry = self.lock_terminals()?;
+        if let Some(terminal) = terminal_registry.get_mut(&request.session.id) {
+            terminal.last_active_at = now_timestamp(self.clock.as_ref());
+            let session = agent_terminal_session(terminal);
+            let transcript = terminal.transcript.clone();
+            drop(terminal_registry);
             self.record_log(
                 AgentLogLevel::Info,
                 "Attached retained Agent terminal process.".to_string(),
@@ -129,9 +159,15 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 state: AgentTerminalState::Running,
                 error: None,
             });
+            if !transcript.is_empty() {
+                let _ = self.events.publish_terminal(AgentTerminalEvent::Output {
+                    terminal_id: session.terminal_id.clone(),
+                    session_id: session.session_id.clone(),
+                    content: transcript,
+                });
+            }
             return Ok(session);
         }
-
         let agent_id_for_error = request.agent.id.clone();
         let session_id_for_error = request.session.id.clone();
         let executable =
@@ -255,10 +291,10 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             master: pair.master,
             writer,
             child: child.clone(),
+            transcript: String::new(),
         };
         let response = agent_terminal_session(&terminal);
-        self.lock_terminals()?
-            .insert(request.session.id.clone(), terminal);
+        terminal_registry.insert(request.session.id.clone(), terminal);
 
         let events = self.events.clone();
         let sessions = self.sessions.clone();
@@ -267,6 +303,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let terminals = self.terminals.clone();
         let session_id = request.session.id;
         let agent_id = request.agent.id;
+        drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
             let mut buffer = [0u8; 4096];
@@ -283,6 +320,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                         if let Ok(mut terminals) = terminals.lock() {
                             if let Some(terminal) = terminals.get_mut(&session_id) {
                                 terminal.last_active_at = now_timestamp(clock.as_ref());
+                                append_terminal_transcript(&mut terminal.transcript, &content);
                             }
                         }
                         for line in content.lines() {
@@ -507,6 +545,18 @@ fn agent_terminal_session(terminal: &ManagedAgentTerminal) -> AgentTerminalSessi
     }
 }
 
+fn append_terminal_transcript(transcript: &mut String, content: &str) {
+    transcript.push_str(content);
+    if transcript.len() <= RETAINED_TERMINAL_TRANSCRIPT_BYTES {
+        return;
+    }
+    let mut trim_to = transcript.len() - RETAINED_TERMINAL_TRANSCRIPT_BYTES;
+    while !transcript.is_char_boundary(trim_to) {
+        trim_to += 1;
+    }
+    transcript.drain(..trim_to);
+}
+
 fn terminal_size(size: &AgentTerminalSize) -> PtySize {
     PtySize {
         rows: size.rows.clamp(1, 200),
@@ -715,6 +765,7 @@ mod tests {
                 .master,
             writer: Box::new(Vec::<u8>::new()),
             child: Arc::new(Mutex::new(dummy_child())),
+            transcript: String::new(),
         };
 
         let session = agent_terminal_session(&terminal);
@@ -723,6 +774,20 @@ mod tests {
         assert_eq!(session.state, AgentTerminalState::Running);
         assert_eq!(session.capability, AgentTerminalCapability::Native);
         assert!(session.retained);
+    }
+
+    #[test]
+    fn terminal_transcript_retention_keeps_recent_utf8_content() {
+        let mut transcript = String::new();
+        append_terminal_transcript(&mut transcript, "older");
+        append_terminal_transcript(
+            &mut transcript,
+            &"好".repeat(RETAINED_TERMINAL_TRANSCRIPT_BYTES / "好".len() + 2),
+        );
+
+        assert!(transcript.len() <= RETAINED_TERMINAL_TRANSCRIPT_BYTES);
+        assert!(transcript.is_char_boundary(0));
+        assert!(!transcript.contains("older"));
     }
 
     fn dummy_child() -> Box<dyn Child + Send + Sync> {

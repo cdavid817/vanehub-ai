@@ -248,6 +248,13 @@ mod tests {
     }
 
     impl AgentTerminalGateway for TerminalWorld {
+        fn attach_retained(
+            &self,
+            _session_id: &str,
+        ) -> Result<Option<AgentTerminalSession>, AgentRuntimeApplicationError> {
+            Ok(self.terminal.lock().expect("terminal").clone())
+        }
+
         fn open_or_attach(
             &self,
             request: AgentTerminalProcessRequest,
@@ -566,7 +573,8 @@ mod tests {
             .expect("second");
 
         assert_eq!(first.terminal_id, second.terminal_id);
-        assert_eq!(world.terminal_requests.lock().expect("requests").len(), 2);
+        assert_eq!(world.terminal_requests.lock().expect("requests").len(), 1);
+        assert_eq!(*world.workflow_events.lock().expect("events"), 2);
     }
 
     #[test]
@@ -701,6 +709,26 @@ impl AgentTerminalApplicationService {
             self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
             return Err(error);
         }
+        if let Some(terminal) = self.ports.terminals.attach_retained(&session.id)? {
+            let _ = self
+                .ports
+                .terminal_events
+                .publish_terminal(AgentTerminalEvent::State {
+                    terminal_id: terminal.terminal_id.clone(),
+                    session_id: session.id.clone(),
+                    state: terminal.state,
+                    error: None,
+                });
+            self.publish_running_workflow(&session);
+            self.record_log(
+                AgentLogLevel::Info,
+                "agent.terminal",
+                "Agent terminal attached".to_string(),
+                Some(&session.agent_id),
+                Some(&session.id),
+            );
+            return Ok(terminal);
+        }
         let agent = match self.ports.registry.find(&session.agent_id) {
             Ok(Some(agent)) => agent,
             Ok(None) => {
@@ -786,15 +814,7 @@ impl AgentTerminalApplicationService {
                 state: terminal.state,
                 error: None,
             });
-        let _ = self
-            .ports
-            .events
-            .publish(super::AgentEvent::WorkflowChanged(super::WorkflowView {
-                active_agent_id: Some(session.agent_id.clone()),
-                active_interaction_mode: Some(InteractionMode::Cli),
-                lifecycle: AgentLifecycle::Running,
-                intent: "agent-terminal".to_string(),
-            }));
+        let _ = self.ports.events.publish(self.running_workflow(&session));
         self.record_log(
             AgentLogLevel::Info,
             "agent.terminal",
@@ -883,6 +903,19 @@ impl AgentTerminalApplicationService {
             operation_id: None,
             occurred_at: self.ports.clock.now(),
         });
+    }
+
+    fn publish_running_workflow(&self, session: &super::AgentSession) {
+        let _ = self.ports.events.publish(self.running_workflow(session));
+    }
+
+    fn running_workflow(&self, session: &super::AgentSession) -> super::AgentEvent {
+        super::AgentEvent::WorkflowChanged(super::WorkflowView {
+            active_agent_id: Some(session.agent_id.clone()),
+            active_interaction_mode: Some(InteractionMode::Cli),
+            lifecycle: AgentLifecycle::Running,
+            intent: "agent-terminal".to_string(),
+        })
     }
 
     fn record_terminal_start_failure(

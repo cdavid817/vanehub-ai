@@ -10,6 +10,9 @@ import type { AgentTerminalState, Session } from "../types/agent";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
+const retainedTerminalReplayBytes = 1_000_000;
+const replayBySession = new Map<string, string>();
+
 function semanticColor(name: string, fallback: string) {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value ? `hsl(${value})` : fallback;
@@ -22,6 +25,23 @@ function terminalTheme() {
     cursor: semanticColor("--primary", "#60a5fa"),
     selectionBackground: semanticColor("--accent", "#334155"),
   };
+}
+
+function readReplay(sessionId: string) {
+  return replayBySession.get(sessionId) ?? "";
+}
+
+function appendReplay(sessionId: string, content: string) {
+  const current = replayBySession.get(sessionId) ?? "";
+  let next = `${current}${content}`;
+  if (next.length > retainedTerminalReplayBytes) {
+    next = next.slice(next.length - retainedTerminalReplayBytes);
+  }
+  replayBySession.set(sessionId, next);
+}
+
+function clearReplay(sessionId: string) {
+  replayBySession.delete(sessionId);
 }
 
 export function AgentTerminalTab({ active, session }: { active: boolean; session: Session | null }) {
@@ -60,6 +80,9 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
     fit.fit();
     terminalRef.current = terminal;
     fitRef.current = fit;
+    const cachedReplay = readReplay(targetSessionId);
+    if (cachedReplay) terminal.write(cachedReplay);
+    let pendingServerReplayPrefix = cachedReplay;
 
     const inputDisposable = terminal.onData((content) => {
       const terminalId = terminalIdRef.current;
@@ -83,6 +106,20 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
         setState("starting");
         unsubscribe = await agentService.subscribeAgentTerminalEvents(targetSessionId, (event) => {
           if (event.type === "output") {
+            if (pendingServerReplayPrefix) {
+              const prefix = pendingServerReplayPrefix;
+              pendingServerReplayPrefix = "";
+              if (event.content === prefix) return;
+              if (event.content.startsWith(prefix)) {
+                const suffix = event.content.slice(prefix.length);
+                if (suffix) {
+                  appendReplay(targetSessionId, suffix);
+                  terminal.write(suffix);
+                }
+                return;
+              }
+            }
+            appendReplay(targetSessionId, event.content);
             terminal.write(event.content);
             return;
           }
@@ -90,7 +127,10 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
             terminalIdRef.current = event.terminalId;
             setState(event.state);
             void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-            if (event.state === "stopped" || event.state === "failed") terminalIdRef.current = null;
+            if (event.state === "stopped" || event.state === "failed") {
+              terminalIdRef.current = null;
+              clearReplay(targetSessionId);
+            }
             if (event.error) setError(workspaceErrorKey(event.error));
           }
         });
@@ -165,8 +205,8 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
         {simulated ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{t("sessionTabs.agentTerminal.simulated")}</span> : null}
         <span className="min-w-0 truncate text-muted-foreground">{session.agentId}</span>
         <div className="ml-auto flex gap-1">
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" onClick={() => terminalRef.current?.clear()} type="button">{t("sessionTabs.agentTerminal.clear")}</button>
-          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={!terminalIdRef.current} onClick={() => { const terminalId = terminalIdRef.current; if (!terminalId) return; terminalIdRef.current = null; setState("stopped"); void agentService.stopAgentTerminal(terminalId); }} type="button">{t("sessionTabs.agentTerminal.stop")}</button>
+          <button className="h-7 rounded border border-border px-2 hover:bg-muted" onClick={() => { if (sessionId) clearReplay(sessionId); terminalRef.current?.clear(); }} type="button">{t("sessionTabs.agentTerminal.clear")}</button>
+          <button className="h-7 rounded border border-border px-2 hover:bg-muted" disabled={!terminalIdRef.current} onClick={() => { const terminalId = terminalIdRef.current; if (!terminalId || !sessionId) return; terminalIdRef.current = null; clearReplay(sessionId); setState("stopped"); void agentService.stopAgentTerminal(terminalId); }} type="button">{t("sessionTabs.agentTerminal.stop")}</button>
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}

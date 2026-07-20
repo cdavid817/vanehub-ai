@@ -83,6 +83,8 @@ function webCliPackageOperationsMessage() {
   return tr("web.error.cliPackageOperations");
 }
 
+const webRetainedTerminalTranscriptBytes = 1_000_000;
+
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
 const cliParameterStorageKey = "vanehub.cli-parameter-profiles.v1";
@@ -118,6 +120,7 @@ const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => voi
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
+const terminalTranscriptsBySession = new Map<string, string>();
 const sessionEventSubscribers = new Set<(event: SessionStateEvent) => void>();
 const chatConfigStorageKey = "vanehub.session-chat-config.v1";
 let memoryChatConfigs: Record<string, ChatConfig> = {};
@@ -1014,9 +1017,24 @@ function publishChatEvent(event: ChatStreamEvent) {
   emitChatEvent(event);
 }
 
-function emitTerminalEvent(event: AgentTerminalEvent) {
+function emitTerminalEvent(event: AgentTerminalEvent, recordOutput = true) {
+  if (recordOutput && event.type === "output") {
+    terminalTranscriptsBySession.set(event.sessionId, appendTerminalTranscript(
+      terminalTranscriptsBySession.get(event.sessionId) ?? "",
+      event.content,
+    ));
+  }
   const subscribers = terminalSubscribersBySession.get(event.sessionId);
   subscribers?.forEach((handler) => handler(event));
+}
+
+function appendTerminalTranscript(current: string, content: string) {
+  let transcript = `${current}${content}`;
+  if (transcript.length <= webRetainedTerminalTranscriptBytes) {
+    return transcript;
+  }
+  transcript = transcript.slice(transcript.length - webRetainedTerminalTranscriptBytes);
+  return transcript;
 }
 
 function upsertTerminalSession(session: AgentTerminalSession) {
@@ -1643,6 +1661,20 @@ export const webAgentClient: AgentService = {
     const session = findSession(sessionId);
     const existing = terminalsBySession.get(sessionId);
     if (existing?.state === "running") {
+      const transcript = terminalTranscriptsBySession.get(sessionId) ?? "";
+      if (transcript) {
+        setTimeout(() => {
+          emitTerminalEvent(
+            {
+              type: "output",
+              terminalId: existing.terminalId,
+              sessionId,
+              content: transcript,
+            },
+            false,
+          );
+        }, 0);
+      }
       return existing;
     }
     const runtimeSessionId = session.runtimeSessionId ?? `web-runtime-${session.id}`;
@@ -1700,6 +1732,7 @@ export const webAgentClient: AgentService = {
     const terminal = [...terminalsBySession.values()].find((candidate) => candidate.terminalId === terminalId);
     if (!terminal) return false;
     terminalsBySession.delete(terminal.sessionId);
+    terminalTranscriptsBySession.delete(terminal.sessionId);
     updateSession(terminal.sessionId, { lifecycleState: "stopped" });
     emitTerminalEvent({
       type: "state",
