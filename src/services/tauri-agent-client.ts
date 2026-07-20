@@ -60,7 +60,7 @@ import type {
   SkillUpdateInput,
 } from "../types/skill";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
-import { normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
+import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -284,6 +284,11 @@ export const tauriAgentClient: AgentService = {
       range: input.range,
     });
     return normalizeTauriUsageStatistics(statistics, input.range);
+  },
+
+  async getSessionUsageSummary(sessionId: string) {
+    const summary = await invoke<unknown>("get_session_usage_summary", { sessionId });
+    return normalizeTauriSessionUsageSummary(summary);
   },
 
   async stopGeneration(sessionId: string) {

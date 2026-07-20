@@ -21,6 +21,7 @@ export type {
   RichInteractiveOption,
   RichMediaGalleryBlock,
   SendMessageInput,
+  SessionUsageSummary,
   TokenUsage,
   ToolUseBlock,
   UsageAgentBreakdown,

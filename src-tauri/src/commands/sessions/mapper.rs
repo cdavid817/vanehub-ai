@@ -314,6 +314,34 @@ pub(super) fn usage_statistics_to_dto(statistics: SessionUsageStatistics) -> dto
     }
 }
 
+pub(super) fn session_usage_summary_to_dto(
+    summary: crate::contexts::sessions::api::SessionUsageSummary,
+) -> dto::SessionUsageSummary {
+    dto::SessionUsageSummary {
+        session_id: summary.session_id,
+        reported: dto::ReportedTokenTotals {
+            input_tokens: summary.reported.input_tokens,
+            output_tokens: summary.reported.output_tokens,
+            cache_read_tokens: summary.reported.cache_read_tokens,
+            cache_creation_tokens: summary.reported.cache_creation_tokens,
+            total_tokens: summary.reported.total_tokens,
+        },
+        estimated: dto::EstimatedCharacterTotals {
+            input_characters: summary.estimated.input_characters,
+            output_characters: summary.estimated.output_characters,
+            total_characters: summary.estimated.total_characters,
+        },
+        coverage: dto::UsageCoverage {
+            reported_responses: summary.coverage.reported_responses,
+            estimated_responses: summary.coverage.estimated_responses,
+            total_responses: summary.coverage.total_responses,
+            reported_percent: summary.coverage.reported_percent,
+        },
+        response_count: summary.response_count,
+        generated_at: summary.generated_at,
+    }
+}
+
 fn interaction_mode(value: &str) -> Result<dto::InteractionMode, SessionsError> {
     match value {
         "browser" => Ok(dto::InteractionMode::Browser),
@@ -338,7 +366,8 @@ mod tests {
     use super::*;
     use crate::contexts::sessions::application::{
         EstimatedCharacterTotals, MessageTokenUsage, ReportedTokenTotals, SessionRemoteWorkspace,
-        SessionUsageAgentBreakdown, SessionUsageCoverage, SessionUsagePoint, SessionWorkspace,
+        SessionUsageAgentBreakdown, SessionUsageCoverage, SessionUsagePoint, SessionUsageSummary,
+        SessionWorkspace,
     };
     use crate::contexts::sessions::domain::{
         FileReference, FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionAggregate,
@@ -507,6 +536,43 @@ mod tests {
         assert_eq!(value["daily"][0]["responseCount"], 3);
         assert_eq!(value["byAgent"][0]["agentId"], "codex-cli");
         assert!(value.get("total_tokens").is_none());
+    }
+
+    #[test]
+    fn session_usage_summary_mapping_preserves_camel_case_accounting_contract() {
+        let summary = SessionUsageSummary {
+            session_id: "session-1".to_string(),
+            reported: ReportedTokenTotals {
+                input_tokens: 2,
+                output_tokens: 3,
+                cache_read_tokens: 5,
+                cache_creation_tokens: 7,
+                total_tokens: 17,
+            },
+            estimated: EstimatedCharacterTotals {
+                input_characters: 11,
+                output_characters: 13,
+                total_characters: 24,
+            },
+            coverage: SessionUsageCoverage {
+                reported_responses: 1,
+                estimated_responses: 2,
+                total_responses: 3,
+                reported_percent: 33.3,
+            },
+            response_count: 3,
+            generated_at: "2026-07-20T10:00:00+08:00".to_string(),
+        };
+
+        let value = serde_json::to_value(session_usage_summary_to_dto(summary))
+            .expect("serialize session usage summary");
+
+        assert_eq!(value["sessionId"], "session-1");
+        assert_eq!(value["reported"]["totalTokens"], 17);
+        assert_eq!(value["estimated"]["totalCharacters"], 24);
+        assert_eq!(value["coverage"]["reportedPercent"], 33.3);
+        assert_eq!(value["responseCount"], 3);
+        assert!(value.get("session_id").is_none());
     }
 
     #[test]

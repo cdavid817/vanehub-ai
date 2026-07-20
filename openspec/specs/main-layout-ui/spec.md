@@ -201,27 +201,6 @@ The information panel SHALL support smooth collapse and expand behavior while pr
 - **WHEN** the active information panel content exceeds the panel height
 - **THEN** the content area SHALL scroll inside the information panel without scrolling the whole workspace shell
 
-### Requirement: Information panel tabs
-The information panel SHALL provide keep-alive tabs for Basic Info, Files, Changes, and Logs.
-
-#### Scenario: Information panel tab set
-- **WHEN** the information panel renders for an active session
-- **THEN** the panel SHALL show tabs named Basic Info, Files, Changes, and Logs
-- **AND** the previous Agent Info tab content SHALL remain available under Basic Info
-
-#### Scenario: Switch tabs without unmounting content
-- **WHEN** the user switches between information panel tabs
-- **THEN** all tab contents SHALL remain mounted while only the selected tab content is visible
-
-#### Scenario: Show agent progress summary
-- **WHEN** the Basic Info tab is visible
-- **THEN** the tab SHALL show an independent progress bar with overall completion percentage and completed, in-progress, and pending task counts
-
-#### Scenario: Compact terminal logs are visible
-- **WHEN** the user opens the Logs tab in the information panel
-- **THEN** the panel SHALL show recent session log entries for Agent terminal diagnostics
-- **AND** startup and startup-failure records SHALL be visible without opening the detailed Logs workspace tab
-
 ### Requirement: Create-session dialog
 The main layout UI SHALL provide a create-session dialog with Agent mode selection, Agent choice for Single Agent sessions, project folder, project history, and optional Git worktree controls.
 
@@ -443,4 +422,46 @@ The main session context menu SHALL open near the user's right-click pointer and
 
 - **WHEN** the preferred pointer-adjacent menu position would overflow the viewport
 - **THEN** the menu SHALL flip or clamp using its measured rendered dimensions.
+
+### Requirement: Optimized information panel tabs
+The information panel SHALL provide keep-alive tabs for Basic Info, Token Usage, and Skill.
+
+#### Scenario: Information panel tab set
+- **WHEN** the information panel renders for an active session
+- **THEN** the panel SHALL show tabs named Basic Info, Token Usage, and Skill
+- **AND** the panel SHALL NOT show Files, Changes, or Logs tabs in the compact information panel
+
+#### Scenario: Switch tabs without unmounting content
+- **WHEN** the user switches between information panel tabs
+- **THEN** all tab contents SHALL remain mounted while only the selected tab content is visible
+
+#### Scenario: Show selected session model
+- **WHEN** the Basic Info tab is visible for an active session
+- **THEN** the tab SHALL show the active CLI identity, session lifecycle state, project or worktree context, and the model id from that session's chat configuration
+- **AND** it SHALL show a localized empty state when no model id is available
+
+#### Scenario: Show session token usage
+- **WHEN** the Token Usage tab is visible for an active session
+- **THEN** the tab SHALL show reported input, output, cache-read, cache-creation, and total token counts for that session when reported usage exists
+- **AND** it SHALL keep estimated character activity separate from reported token totals
+
+#### Scenario: Show no reported token fallback
+- **WHEN** the Token Usage tab is visible and the active session has no reported token totals
+- **THEN** the tab SHALL show a localized no-reported-token state
+- **AND** it SHALL include estimated response and character context when estimated usage exists
+
+#### Scenario: Show relevant Skills
+- **WHEN** the Skill tab is visible for an active session
+- **THEN** the tab SHALL show available Skills for the selected CLI separately from project Skills discovered for the active workspace
+- **AND** disabled project Skills SHALL be visually de-emphasized and SHALL NOT be included in the available Skills group
+
+#### Scenario: Localize optimized information panel
+- **WHEN** the optimized information panel renders in Simplified Chinese or English
+- **THEN** all user-visible labels, tab names, loading states, empty states, and section headings SHALL use the active locale resources
+- **AND** stable Agent ids, model ids, project paths, worktree names, and Skill ids MAY remain literal identifiers
+
+#### Scenario: Preserve compact panel behavior
+- **WHEN** the optimized information panel renders in `futuristic` or `minimal` style
+- **THEN** it SHALL use shared semantic panel, muted-panel, segmented-control, border, text, and status tokens
+- **AND** long labels, model ids, paths, and Skill names SHALL not overlap adjacent controls or resize the workspace grid
 

@@ -307,3 +307,14 @@ pub(crate) struct UsageStatistics {
     pub(crate) by_agent: Vec<UsageAgentBreakdown>,
     pub(crate) generated_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionUsageSummary {
+    pub(crate) session_id: String,
+    pub(crate) reported: ReportedTokenTotals,
+    pub(crate) estimated: EstimatedCharacterTotals,
+    pub(crate) coverage: UsageCoverage,
+    pub(crate) response_count: i64,
+    pub(crate) generated_at: String,
+}

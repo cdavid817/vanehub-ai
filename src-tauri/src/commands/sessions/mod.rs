@@ -12,6 +12,7 @@ mod events;
 pub(crate) mod export_session;
 pub(crate) mod get_active_session;
 pub(crate) mod get_session_chat_config;
+pub(crate) mod get_session_usage_summary;
 pub(crate) mod get_usage_statistics;
 pub(crate) mod list_archived_sessions;
 pub(crate) mod list_messages;

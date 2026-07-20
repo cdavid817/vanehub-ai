@@ -66,7 +66,7 @@ import {
   defaultCliParameterSelections,
   normalizeCliParameterSelections,
 } from "./cli-parameter-catalog";
-import { aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
+import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { defaultChatConfigForSession, normalizeChatConfigForSession } from "./chat-configuration";
 import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
@@ -1631,6 +1631,27 @@ export const webAgentClient: AgentService = {
 
   async getUsageStatistics(input) {
     return aggregateWebUsageStatistics(input.range);
+  },
+
+  async getSessionUsageSummary(sessionId: string) {
+    findSession(sessionId);
+    const generated = aggregateSessionUsageRecords(representativeUsageRecords, sessionId);
+    if (generated.responseCount > 0) return generated;
+    const messages = getSessionMessages(sessionId);
+    const records: UsageRecord[] = messages
+      .filter((message) => message.role === "assistant" && message.status === "completed" && message.tokenUsage)
+      .map((message) => ({
+        messageId: message.id,
+        sessionId,
+        agentId: findSession(sessionId).agentId,
+        accountingKind: "reported",
+        inputCount: message.tokenUsage?.input ?? 0,
+        outputCount: message.tokenUsage?.output ?? 0,
+        cacheReadCount: 0,
+        cacheCreationCount: 0,
+        occurredAt: message.updatedAt,
+      }));
+    return aggregateSessionUsageRecords(records, sessionId);
   },
 
   async stopGeneration(sessionId: string) {

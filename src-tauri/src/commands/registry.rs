@@ -39,6 +39,7 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::export_session::export_session,
         crate::commands::sessions::delete_session::delete_session,
         crate::commands::sessions::list_messages::list_messages,
+        crate::commands::sessions::get_session_usage_summary::get_session_usage_summary,
         crate::commands::sessions::get_usage_statistics::get_usage_statistics,
         crate::commands::sessions::scheduled_tasks::list_scheduled_tasks,
         crate::commands::sessions::scheduled_tasks::create_scheduled_task,

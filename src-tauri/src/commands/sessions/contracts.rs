@@ -5,7 +5,7 @@ use crate::commands::error::{map_command_error, CommandErrorCategory};
 use crate::contexts::sessions::api::SessionsError;
 use serde_json::{json, Value};
 
-const MIGRATED_SESSION_COMMANDS: [(&str, &str); 22] = [
+const MIGRATED_SESSION_COMMANDS: [(&str, &str); 23] = [
     ("create_session", include_str!("create_session.rs")),
     ("list_sessions", include_str!("list_sessions.rs")),
     (
@@ -51,6 +51,10 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 22] = [
     ("export_session", include_str!("export_session.rs")),
     ("delete_session", include_str!("delete_session.rs")),
     ("list_messages", include_str!("list_messages.rs")),
+    (
+        "get_session_usage_summary",
+        include_str!("get_session_usage_summary.rs"),
+    ),
     (
         "get_usage_statistics",
         include_str!("get_usage_statistics.rs"),
