@@ -60,5 +60,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-19 | redesign-cross-platform-app-icon | cross-platform-app-icon | `openspec/changes/archive/2026-07-19-redesign-cross-platform-app-icon/` |
 | 2026-07-19 | refactor-rust-ddd-architecture | native-runtime-architecture | `openspec/changes/archive/2026-07-19-refactor-rust-ddd-architecture/` |
 | 2026-07-19 | replace-chat-with-agent-terminal-session | agent-terminal-runtime, cli-parameter-management, main-layout-ui, native-runtime-architecture, session-management | `openspec/changes/archive/2026-07-19-replace-chat-with-agent-terminal-session/` |
+| 2026-07-20 | optimize-session-management-page | main-layout-ui, session-management | `openspec/changes/archive/2026-07-20-optimize-session-management-page/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

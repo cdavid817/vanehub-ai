@@ -817,6 +817,20 @@
                                               "native-runtime-architecture",
                                               "session-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-20",
+                         "changeName":  "optimize-session-management-page",
+                         "path":  "openspec/changes/archive/2026-07-20-optimize-session-management-page/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "session-management"
+                                          ]
                      }
                  ]
 }

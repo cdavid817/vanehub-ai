@@ -80,6 +80,20 @@ export function useMainLayoutModel() {
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
   const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions });
   const deleteSession = useMutation({ mutationFn: (sessionId: string) => agentService.deleteSession(sessionId), onSuccess: invalidateSessions });
+  const deleteSessions = useMutation({
+    mutationFn: async (targets: Session[]) => {
+      const results = await Promise.allSettled(targets.map((session) => agentService.deleteSession(session.id)));
+      return {
+        deleted: results.filter((result) => result.status === "fulfilled").length,
+        failed: results.filter((result) => result.status === "rejected").length,
+      };
+    },
+    onSuccess: (result) => {
+      if (result.deleted > 0) notify({ type: "success", title: t("layout.batchDeleteSuccessTitle"), message: t("layout.batchDeleteSuccessMessage", { count: result.deleted }), scope: { kind: "global" } });
+      if (result.failed > 0) notify({ type: "error", title: t("layout.batchDeleteFailedTitle"), message: t("layout.batchDeleteFailedMessage", { count: result.failed }), scope: { kind: "global" } });
+    },
+    onSettled: invalidateSessions,
+  });
   const createCategory = useMutation({ mutationFn: (name: string) => agentService.createSessionCategory({ name }), onSuccess: invalidateSessions });
   const assignCategory = useMutation({ mutationFn: ({ session, categoryId }: { session: Session; categoryId: string | null }) => agentService.assignSessionCategory({ sessionId: session.id, categoryId }), onSuccess: invalidateSessions });
   const exportSession = useMutation({
@@ -138,6 +152,8 @@ export function useMainLayoutModel() {
     chatConfig,
     createCategory: async (name: string): Promise<SessionCategory> => createCategory.mutateAsync(name),
     deleteSession: (session: Session) => deleteSession.mutate(session.id),
+    deleteSessions: (selectedSessions: Session[]) => deleteSessions.mutate(selectedSessions),
+    deletingSessions: deleteSessions.isPending,
     draft,
     exportSession: (session: Session, format: SessionExportFormat) => exportSession.mutate({ session, format }),
     fileReferenceCandidates,
