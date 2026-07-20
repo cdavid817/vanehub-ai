@@ -61,5 +61,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-19 | refactor-rust-ddd-architecture | native-runtime-architecture | `openspec/changes/archive/2026-07-19-refactor-rust-ddd-architecture/` |
 | 2026-07-19 | replace-chat-with-agent-terminal-session | agent-terminal-runtime, cli-parameter-management, main-layout-ui, native-runtime-architecture, session-management | `openspec/changes/archive/2026-07-19-replace-chat-with-agent-terminal-session/` |
 | 2026-07-20 | fix-agent-terminal-retention | agent-terminal-runtime, native-runtime-architecture | `openspec/changes/archive/2026-07-20-fix-agent-terminal-retention/` |
+| 2026-07-20 | optimize-session-info-panel | frontend-runtime-architecture, main-layout-ui, usage-statistics | `openspec/changes/archive/2026-07-20-optimize-session-info-panel/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

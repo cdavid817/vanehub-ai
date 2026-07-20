@@ -1,4 +1,4 @@
-import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 
 interface LegacyUsageStatistics {
   countedMessages: number;
@@ -29,6 +29,16 @@ function isLegacyUsageStatistics(value: unknown): value is LegacyUsageStatistics
     && typeof value.outputTokens === "number"
     && typeof value.countedMessages === "number"
     && typeof value.countedSessions === "number"
+    && typeof value.generatedAt === "string";
+}
+
+function isModernSessionUsageSummary(value: unknown): value is SessionUsageSummary {
+  return isRecord(value)
+    && typeof value.sessionId === "string"
+    && isRecord(value.reported)
+    && isRecord(value.estimated)
+    && isRecord(value.coverage)
+    && typeof value.responseCount === "number"
     && typeof value.generatedAt === "string";
 }
 
@@ -66,4 +76,9 @@ export function normalizeTauriUsageStatistics(
     byAgent: [],
     generatedAt: value.generatedAt,
   };
+}
+
+export function normalizeTauriSessionUsageSummary(value: unknown): SessionUsageSummary {
+  if (isModernSessionUsageSummary(value)) return value;
+  throw new Error("The desktop runtime returned an invalid session-usage response.");
 }

@@ -1,6 +1,7 @@
 import type {
   EstimatedCharacterTotals,
   ReportedTokenTotals,
+  SessionUsageSummary,
   UsageAgentBreakdown,
   UsageStatistics,
   UsageStatisticsPoint,
@@ -59,6 +60,42 @@ function addRecord(
   estimated.inputCharacters += record.inputCount;
   estimated.outputCharacters += record.outputCount;
   estimated.totalCharacters = estimated.inputCharacters + estimated.outputCharacters;
+}
+
+export function aggregateSessionUsageRecords(
+  records: UsageRecord[],
+  sessionId: string,
+  now = new Date(),
+): SessionUsageSummary {
+  const selected = records.filter((record) => record.sessionId === sessionId);
+  const reported = emptyReported();
+  const estimated = emptyEstimated();
+  let reportedResponses = 0;
+  let estimatedResponses = 0;
+
+  for (const record of selected) {
+    addRecord(reported, estimated, record);
+    if (record.accountingKind === "reported") {
+      reportedResponses += 1;
+    } else {
+      estimatedResponses += 1;
+    }
+  }
+
+  const totalResponses = reportedResponses + estimatedResponses;
+  return {
+    sessionId,
+    reported,
+    estimated,
+    coverage: {
+      reportedResponses,
+      estimatedResponses,
+      totalResponses,
+      reportedPercent: totalResponses === 0 ? 0 : (reportedResponses / totalResponses) * 100,
+    },
+    responseCount: totalResponses,
+    generatedAt: now.toISOString(),
+  };
 }
 
 export function usageRangeStart(range: UsageStatisticsRange, now = new Date()) {

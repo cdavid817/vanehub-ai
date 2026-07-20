@@ -84,6 +84,7 @@ type ChatAssertions = [
   Assert<Equal<ChatContracts.SendMessageInput, ChatTypes.SendMessageInput>>,
   Assert<Equal<ChatContracts.UsageStatisticsRange, ChatTypes.UsageStatisticsRange>>,
   Assert<Equal<ChatContracts.UsageStatistics, ChatTypes.UsageStatistics>>,
+  Assert<Equal<ChatContracts.SessionUsageSummary, ChatTypes.SessionUsageSummary>>,
 ];
 
 type McpAssertions = [

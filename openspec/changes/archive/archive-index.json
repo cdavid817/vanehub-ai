@@ -830,6 +830,21 @@
                                               "agent-terminal-runtime",
                                               "native-runtime-architecture"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-20",
+                         "changeName":  "optimize-session-info-panel",
+                         "path":  "openspec/changes/archive/2026-07-20-optimize-session-info-panel/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui",
+                                              "usage-statistics"
+                                          ]
                      }
                  ]
 }

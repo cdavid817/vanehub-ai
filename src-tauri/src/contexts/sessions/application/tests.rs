@@ -353,6 +353,36 @@ impl SessionUsageRepository for FakeStore {
             generated_at: generated_at.to_string(),
         })
     }
+
+    fn summary_for_session(
+        &self,
+        session_id: &str,
+        generated_at: &str,
+    ) -> Result<SessionUsageSummary, SessionsApplicationError> {
+        self.usage_queries.lock().expect("usage queries").push((
+            UsageStatisticsRange::All,
+            Some(session_id.to_string()),
+            generated_at.to_string(),
+        ));
+        Ok(SessionUsageSummary {
+            session_id: session_id.to_string(),
+            reported: ReportedTokenTotals {
+                input_tokens: 3,
+                output_tokens: 5,
+                total_tokens: 8,
+                ..Default::default()
+            },
+            estimated: EstimatedCharacterTotals::default(),
+            coverage: SessionUsageCoverage {
+                reported_responses: 1,
+                total_responses: 1,
+                reported_percent: 100.0,
+                ..Default::default()
+            },
+            response_count: 1,
+            generated_at: generated_at.to_string(),
+        })
+    }
 }
 
 impl SessionTransactionPort for FakeStore {
@@ -1461,6 +1491,43 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
             .1
             .as_deref(),
         Some("2026-07-12T16:00:00+00:00")
+    );
+
+    let session_usage = fixture
+        .service
+        .session_usage_summary("session-inactive")
+        .expect("session usage");
+    assert_eq!(session_usage.session_id, "session-inactive");
+    assert_eq!(session_usage.reported.total_tokens, 8);
+    assert_eq!(
+        fixture.store.usage_queries.lock().expect("usage queries")[1]
+            .1
+            .as_deref(),
+        Some("session-inactive")
+    );
+
+    let before_unknown_query_count = fixture
+        .store
+        .usage_queries
+        .lock()
+        .expect("usage queries")
+        .len();
+    let error = fixture
+        .service
+        .session_usage_summary("session-missing")
+        .expect_err("missing session");
+    assert_eq!(
+        error,
+        SessionsApplicationError::SessionNotFound("session-missing".to_string())
+    );
+    assert_eq!(
+        fixture
+            .store
+            .usage_queries
+            .lock()
+            .expect("usage queries")
+            .len(),
+        before_unknown_query_count
     );
 
     let result = fixture

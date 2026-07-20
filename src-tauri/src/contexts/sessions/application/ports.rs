@@ -3,7 +3,7 @@ use super::{
     MessageRecord, MessageUsageRecord, NewRemoteWorkspace, SessionApplicationLog,
     SessionChatConfiguration, SessionCreationOperation, SessionListScope, SessionProject,
     SessionRecord, SessionRemoteWorkspace, SessionSearchQuery, SessionSearchResult,
-    SessionUsageStatistics, SessionsApplicationError, UsageStatisticsRange,
+    SessionUsageStatistics, SessionUsageSummary, SessionsApplicationError, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     CategoryId, ChatPreferences, MessageId, SessionActivation, SessionId,
@@ -101,6 +101,12 @@ pub(crate) trait SessionUsageRepository: Send + Sync {
         range_start: Option<&str>,
         generated_at: &str,
     ) -> Result<SessionUsageStatistics, SessionsApplicationError>;
+
+    fn summary_for_session(
+        &self,
+        session_id: &str,
+        generated_at: &str,
+    ) -> Result<SessionUsageSummary, SessionsApplicationError>;
 }
 
 pub(crate) trait SessionTransactionPort: Send + Sync {

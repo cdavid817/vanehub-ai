@@ -481,6 +481,17 @@ pub(crate) struct SessionUsageStatistics {
     pub(crate) generated_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionUsageSummary {
+    pub(crate) session_id: String,
+    pub(crate) reported: ReportedTokenTotals,
+    pub(crate) estimated: EstimatedCharacterTotals,
+    pub(crate) coverage: SessionUsageCoverage,
+    pub(crate) response_count: i64,
+    pub(crate) generated_at: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ArchivalPolicy {
     pub(crate) enabled: bool,

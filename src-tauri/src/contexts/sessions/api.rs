@@ -7,8 +7,8 @@ pub(crate) use super::application::{
     SessionChatConfiguration, SessionCreationOperation, SessionExportFormat, SessionExportRequest,
     SessionExportResult, SessionListScope, SessionMaintenanceResult, SessionRecord,
     SessionSearchMatchKind, SessionSearchResult, SessionUsageAccountingKind,
-    SessionUsageStatistics, SessionUsageUnit, SessionsApplicationError as SessionsError,
-    UsageStatisticsRange,
+    SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
+    SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{SessionActivation, SessionLifecycle, SessionOwner};
 use serde_json::Value;
@@ -265,6 +265,13 @@ impl SessionsApi {
         range: UsageStatisticsRange,
     ) -> Result<SessionUsageStatistics, SessionsError> {
         self.service.usage_statistics(range)
+    }
+
+    pub(crate) fn session_usage_summary(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionUsageSummary, SessionsError> {
+        self.service.session_usage_summary(session_id)
     }
 
     pub(crate) fn run_maintenance(

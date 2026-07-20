@@ -10,8 +10,8 @@ use super::{
     SessionFileContentPort, SessionIdentityPort, SessionListScope, SessionLoggingPort,
     SessionMaintenanceResult, SessionMessageRepository, SessionOperationPort, SessionRecord,
     SessionRepository, SessionRuntimePort, SessionSearchQuery, SessionSearchResult,
-    SessionTransactionPort, SessionUsageRepository, SessionUsageStatistics, SessionWorkspace,
-    SessionsApplicationError, UsageStatisticsRange,
+    SessionTransactionPort, SessionUsageRepository, SessionUsageStatistics, SessionUsageSummary,
+    SessionWorkspace, SessionsApplicationError, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
@@ -742,6 +742,16 @@ impl SessionsApplicationService {
         self.ports
             .usage
             .statistics(range, range_start.as_deref(), &self.ports.clock.now())
+    }
+
+    pub(crate) fn session_usage_summary(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionUsageSummary, SessionsApplicationError> {
+        let session = self.load_session(session_id)?;
+        self.ports
+            .usage
+            .summary_for_session(session.id(), &self.ports.clock.now())
     }
 
     pub(crate) fn run_maintenance(

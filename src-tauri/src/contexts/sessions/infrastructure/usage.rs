@@ -2,7 +2,8 @@ use super::SqliteSessionsRepository;
 use crate::contexts::sessions::application::{
     EstimatedCharacterTotals, MessageUsageRecord, ReportedTokenTotals, SessionUsageAccountingKind,
     SessionUsageAgentBreakdown, SessionUsageCoverage, SessionUsagePoint, SessionUsageRepository,
-    SessionUsageStatistics, SessionUsageUnit, SessionsApplicationError, UsageStatisticsRange,
+    SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit, SessionsApplicationError,
+    UsageStatisticsRange,
 };
 use rusqlite::{params, params_from_iter, Connection, Row, Transaction};
 
@@ -172,6 +173,55 @@ impl SessionUsageRepository for SqliteSessionsRepository {
             counted_sessions,
             daily,
             by_agent,
+            generated_at: generated_at.to_string(),
+        })
+    }
+
+    fn summary_for_session(
+        &self,
+        session_id: &str,
+        generated_at: &str,
+    ) -> Result<SessionUsageSummary, SessionsApplicationError> {
+        let connection = self.connection()?;
+        let (reported, estimated, response_count, reported_responses, estimated_responses) =
+            connection
+                .query_row(
+                    &format!(
+                        "SELECT {AGGREGATE_COLUMNS},
+                            COALESCE(SUM(CASE WHEN accounting_kind = 'reported' THEN 1 ELSE 0 END), 0),
+                            COALESCE(SUM(CASE WHEN accounting_kind = 'estimated' THEN 1 ELSE 0 END), 0)
+                         FROM usage_records
+                         WHERE session_id = ?1"
+                    ),
+                    params![session_id],
+                    |row| {
+                        let (reported, estimated, response_count) = totals_from_row(row, 0)?;
+                        Ok((
+                            reported,
+                            estimated,
+                            response_count,
+                            row.get(7)?,
+                            row.get(8)?,
+                        ))
+                    },
+                )
+                .map_err(repository_error)?;
+        let reported_percent = if response_count == 0 {
+            0.0
+        } else {
+            (reported_responses as f64 / response_count as f64) * 100.0
+        };
+        Ok(SessionUsageSummary {
+            session_id: session_id.to_string(),
+            reported,
+            estimated,
+            coverage: SessionUsageCoverage {
+                reported_responses,
+                estimated_responses,
+                total_responses: response_count,
+                reported_percent,
+            },
+            response_count,
             generated_at: generated_at.to_string(),
         })
     }

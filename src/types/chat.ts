@@ -197,6 +197,15 @@ export interface UsageStatistics {
   generatedAt: string;
 }
 
+export interface SessionUsageSummary {
+  sessionId: string;
+  reported: ReportedTokenTotals;
+  estimated: EstimatedCharacterTotals;
+  coverage: UsageCoverage;
+  responseCount: number;
+  generatedAt: string;
+}
+
 export interface ChatMessage {
   id: string;
   sessionId: string;

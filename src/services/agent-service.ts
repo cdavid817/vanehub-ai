@@ -31,7 +31,7 @@ import type {
   ScheduledTask,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
   CreateShellInput,
@@ -121,6 +121,7 @@ export interface AgentService {
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
+  getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   stopGeneration(sessionId: string): Promise<void>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
