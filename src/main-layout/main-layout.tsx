@@ -126,7 +126,9 @@ export function MainLayout({
                 agentsAvailable={model.agentsAvailable}
                 archivedSessions={model.archivedSessions}
                 categories={model.categories}
+                deletingSessions={model.deletingSessions}
                 onAssignCategory={model.assignCategory}
+                onBatchDelete={model.deleteSessions}
                 onContextMenu={openContextMenu}
                 onNew={() => setCreateSessionOpen(true)}
                 onSearchChange={model.setSessionSearchQuery}
