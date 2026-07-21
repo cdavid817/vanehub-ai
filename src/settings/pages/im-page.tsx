@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import type { ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import { agentService } from "../../services/runtime-agent-client";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
@@ -35,25 +36,39 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
 
   const load = useCallback(async () => {
     setError(null);
+    setLoading(true);
     try {
-      const [views, routing, agentList, knownProjects] = await Promise.all([
+      const [viewsResult, routingResult, agentListResult, knownProjectsResult] = await Promise.allSettled([
         imService.listConnectors(), imService.getRouting(), agentService.listAgents(), agentService.listKnownProjects(),
       ]);
-      setConnectors(views);
-      setAgentId(routing?.agentId ?? "");
-      setProjectPath(routing?.projectPath ?? "");
-      setSavedRouting(routing);
+      const loadErrors = [viewsResult, routingResult, agentListResult, knownProjectsResult]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => imErrorMessage(result.reason, t));
+      if (viewsResult.status === "fulfilled") setConnectors(viewsResult.value);
+      else setConnectors([]);
+      if (routingResult.status === "fulfilled") {
+        setAgentId(routingResult.value?.agentId ?? "");
+        const normalizedProjectPath = routingResult.value?.projectPath ? normalizeDisplayPath(routingResult.value.projectPath) : "";
+        setProjectPath(normalizedProjectPath);
+        setSavedRouting(routingResult.value ? { ...routingResult.value, projectPath: normalizedProjectPath } : null);
+      } else {
+        setSavedRouting(null);
+      }
+      const agentList = agentListResult.status === "fulfilled" ? agentListResult.value : [];
       setAgents(agentList.filter((agent) => (
         agent.supportedInteractionModes.includes("cli")
         && (agent.availabilityState === "available" || isWebRuntime)
       )));
-      setProjects(knownProjects);
+      setProjects(knownProjectsResult.status === "fulfilled"
+        ? knownProjectsResult.value.map((project) => ({ ...project, path: normalizeDisplayPath(project.path) }))
+        : []);
+      setError(loadErrors[0] ?? null);
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(imErrorMessage(reason, t));
     } finally {
       setLoading(false);
     }
-  }, [isWebRuntime]);
+  }, [isWebRuntime, t]);
 
   useEffect(() => { void load(); }, [load]);
   const routingReady = useMemo(
@@ -71,7 +86,7 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
       setSavedRouting(await imService.saveRouting({ agentId, projectPath }));
       setNotice(t("im.notice.routingSaved"));
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(imErrorMessage(reason, t));
     } finally {
       setRoutingPending(false);
     }
@@ -79,10 +94,10 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
 
   async function browseProject() {
     const path = await agentService.selectProjectDirectory().catch((reason: unknown) => {
-      setError(errorMessage(reason));
+      setError(imErrorMessage(reason, t));
       return null;
     });
-    if (path) setProjectPath(path);
+    if (path) setProjectPath(normalizeDisplayPath(path));
   }
 
   async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>) {
@@ -99,7 +114,7 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
       setNotice(t(`im.notice.${action}`));
       setConnectors(await imService.listConnectors());
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(imErrorMessage(reason, t));
     } finally {
       setPending((current) => ({ ...current, [kind]: undefined }));
     }
@@ -117,7 +132,7 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
       }
       setConnectors(await imService.listConnectors());
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(imErrorMessage(reason, t));
     } finally {
       setAuthorizationPending(false);
     }
@@ -155,6 +170,9 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
   );
 }
 
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
+export function imErrorMessage(reason: unknown, t: ReturnType<typeof useTranslation>["t"]): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  if (message.includes("communications-repository-failed")) return t("im.errors.repositoryFailed");
+  if (message.includes("communications-repository-unavailable")) return t("im.errors.repositoryUnavailable");
+  return message;
 }

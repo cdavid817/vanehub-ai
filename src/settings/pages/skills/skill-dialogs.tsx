@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { normalizeDisplayPath } from "../../../lib/session-path";
 import type { Skill, SkillMetadata, SkillPreview, SkillScope, SkillSource } from "../../../types/skill";
 
 type DialogMode = "create" | "edit" | "import" | "restore" | null;
@@ -50,7 +51,7 @@ export function SkillDialogs({
   if (state.preview) {
     return (
       <Modal title={state.preview.id} onClose={onClose}>
-        <p className="mb-2 truncate text-xs text-muted-foreground">{state.preview.path}</p>
+        <p className="mb-2 truncate text-xs text-muted-foreground">{normalizeDisplayPath(state.preview.path)}</p>
         <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 text-xs">{state.preview.content}</pre>
       </Modal>
     );
@@ -63,7 +64,7 @@ export function SkillDialogs({
       <Modal title={t("skills.dialog.importTitle")} onClose={onClose}>
         <input
           className="w-full rounded-md border border-border px-3 py-2 text-sm"
-          onChange={(event) => setPath(event.target.value)}
+          onChange={(event) => setPath(normalizeDisplayPath(event.target.value))}
           placeholder={t("skills.dialog.externalDirectory")}
           value={path}
         />
@@ -107,7 +108,7 @@ export function SkillDialogs({
         <textarea className="mt-1 min-h-32 w-full rounded-md border border-border px-3 py-2 text-sm" onChange={(event) => setBody(event.target.value)} value={body} />
       </label>
       <p className="mt-2 text-xs text-muted-foreground">
-        {t("skills.dialog.scope")}: {t(`skills.scope.${scope}`)}{workspacePath ? ` (${workspacePath})` : ""}
+        {t("skills.dialog.scope")}: {t(`skills.scope.${scope}`)}{workspacePath ? ` (${normalizeDisplayPath(workspacePath)})` : ""}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose} variant="outline">{t("skills.dialog.cancel")}</Button>

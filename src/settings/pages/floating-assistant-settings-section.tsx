@@ -57,7 +57,7 @@ export function FloatingAssistantSettingsSection() {
   }
 
   return (
-    <SectionPanel title={t("floating.settingsTitle")} description={t("floating.settingsDescription")}>
+    <SectionPanel icon={Bot} title={t("floating.settingsTitle")} description={t("floating.settingsDescription")}>
       <div className="grid gap-4">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
           <span className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-primary">

@@ -53,6 +53,8 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError>
         );
         "#,
     )?;
+    ensure_connector_config_columns(connection)?;
+    ensure_credential_ref_columns(connection)?;
     migrate_legacy_wechat_id(connection)?;
     migrate_credential_refs(connection)?;
     Ok(())
@@ -108,6 +110,44 @@ fn migrate_legacy_wechat_id(connection: &Connection) -> Result<(), DatabaseError
         DELETE FROM im_connector_checkpoints WHERE connector = 'wechat';
         "#,
     )?;
+    Ok(())
+}
+
+fn ensure_connector_config_columns(connection: &Connection) -> Result<(), DatabaseError> {
+    if !table_has_column(connection, "im_connector_configs", "display_name")? {
+        connection.execute(
+            "ALTER TABLE im_connector_configs ADD COLUMN display_name TEXT",
+            [],
+        )?;
+    }
+    if !table_has_column(connection, "im_connector_configs", "public_config")? {
+        connection.execute(
+            "ALTER TABLE im_connector_configs ADD COLUMN public_config TEXT NOT NULL DEFAULT '{}'",
+            [],
+        )?;
+    }
+    if !table_has_column(connection, "im_connector_configs", "credential_ref")? {
+        connection.execute(
+            "ALTER TABLE im_connector_configs ADD COLUMN credential_ref TEXT",
+            [],
+        )?;
+    }
+    if !table_has_column(connection, "im_connector_configs", "updated_at")? {
+        connection.execute(
+            "ALTER TABLE im_connector_configs ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn ensure_credential_ref_columns(connection: &Connection) -> Result<(), DatabaseError> {
+    if !table_has_column(connection, "im_credential_refs", "updated_at")? {
+        connection.execute(
+            "ALTER TABLE im_credential_refs ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z'",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -177,5 +217,51 @@ mod tests {
         assert!(
             table_has_column(&connection, "im_connector_configs", "updated_at").expect("column")
         );
+    }
+
+    #[test]
+    fn migration_repairs_older_connector_tables_missing_later_columns() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE agents (id TEXT PRIMARY KEY);
+                CREATE TABLE sessions (id TEXT PRIMARY KEY);
+                CREATE TABLE im_connector_configs (
+                    connector TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE im_credential_refs (
+                    connector TEXT PRIMARY KEY,
+                    credential_ref TEXT NOT NULL
+                );
+                INSERT INTO im_connector_configs (connector, enabled)
+                VALUES ('telegram', 0);
+                "#,
+            )
+            .expect("old fixture");
+
+        apply_schema(&connection).expect("migration");
+
+        for column in [
+            "display_name",
+            "public_config",
+            "credential_ref",
+            "updated_at",
+        ] {
+            assert!(
+                table_has_column(&connection, "im_connector_configs", column).expect("column"),
+                "missing im_connector_configs.{column}",
+            );
+        }
+        assert!(table_has_column(&connection, "im_credential_refs", "updated_at").expect("column"));
+        let public_config: String = connection
+            .query_row(
+                "SELECT public_config FROM im_connector_configs WHERE connector = 'telegram'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("public config");
+        assert_eq!(public_config, "{}");
     }
 }

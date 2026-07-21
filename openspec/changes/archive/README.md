@@ -63,5 +63,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-20 | fix-agent-terminal-retention | agent-terminal-runtime, native-runtime-architecture | `openspec/changes/archive/2026-07-20-fix-agent-terminal-retention/` |
 | 2026-07-20 | optimize-session-info-panel | frontend-runtime-architecture, main-layout-ui, usage-statistics | `openspec/changes/archive/2026-07-20-optimize-session-info-panel/` |
 | 2026-07-20 | optimize-session-management-page | main-layout-ui, session-management | `openspec/changes/archive/2026-07-20-optimize-session-management-page/` |
+| 2026-07-21 | settings-about-page-layout | settings-center-ui | `openspec/changes/archive/2026-07-21-settings-about-page-layout/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

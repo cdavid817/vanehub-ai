@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Search, TestTube2, X } from "lucide-react";
+import { Eye, EyeOff, Network, Search, TestTube2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
@@ -125,14 +125,14 @@ export function NetworkProxySection() {
   };
 
   return (
-    <SectionPanel title={t("basic.proxy")} description={t("basic.proxyDesc")}>
+    <SectionPanel icon={Network} title={t("basic.proxy")} description={t("basic.proxyDesc")}>
       <div className="grid gap-4">
         {error ? <div className="rounded border p-3 text-xs ucd-status-danger">{error}</div> : null}
         {status ? <div className="rounded border p-3 text-xs ucd-status-success">{status}</div> : null}
-        <label className="grid gap-1 text-sm">
-          <span className="text-muted-foreground">{t("basic.proxyUrl")}</span>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium text-muted-foreground">{t("basic.proxyUrl")}</span>
           <input
-            className="ucd-input h-9 rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             disabled={disabled}
             onChange={(event) => setUrlDraft(event.target.value)}
             placeholder={t("basic.proxyUrlPlaceholder")}
@@ -140,19 +140,19 @@ export function NetworkProxySection() {
           />
         </label>
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t("basic.proxyUsername")}</span>
+          <label className="grid min-w-0 gap-1.5 text-sm">
+            <span className="font-medium text-muted-foreground">{t("basic.proxyUsername")}</span>
             <input
-              className="ucd-input h-9 rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               disabled={disabled}
               onChange={(event) => setUsernameDraft(event.target.value)}
               placeholder={t("basic.proxyUsernamePlaceholder")}
               value={usernameDraft}
             />
           </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-muted-foreground">{t("basic.proxyPassword")}</span>
-            <span className="relative">
+          <label className="grid min-w-0 gap-1.5 text-sm">
+            <span className="font-medium text-muted-foreground">{t("basic.proxyPassword")}</span>
+            <span className="relative block">
               <input
                 className="ucd-input h-9 w-full rounded px-3 pr-10 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={disabled}
@@ -173,10 +173,10 @@ export function NetworkProxySection() {
             </span>
           </label>
         </div>
-        <label className="grid gap-1 text-sm">
-          <span className="text-muted-foreground">{t("basic.proxyBypass")}</span>
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium text-muted-foreground">{t("basic.proxyBypass")}</span>
           <input
-            className="ucd-input h-9 rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             disabled={disabled}
             onChange={(event) => setBypassDraft(event.target.value)}
             placeholder={t("basic.proxyBypassPlaceholder")}
@@ -202,7 +202,7 @@ export function NetworkProxySection() {
             ))}
           </div>
         ) : null}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 border-t border-border/70 pt-4">
           <Button disabled={disabled || busyAction === "scan"} onClick={() => void scanProxies()} type="button" variant="outline">
             <Search className="h-4 w-4" aria-hidden="true" />
             {busyAction === "scan" ? t("basic.proxyScanning") : t("basic.proxyScan")}

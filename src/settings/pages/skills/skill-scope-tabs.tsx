@@ -1,6 +1,7 @@
 import { FolderOpen } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { normalizeDisplayPath } from "../../../lib/session-path";
 import type { SkillScope } from "../../../types/skill";
 
 export function SkillScopeTabs({
@@ -38,9 +39,9 @@ export function SkillScopeTabs({
         <div className="mt-3 flex flex-col gap-2 md:flex-row">
           <input
             className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
-            onChange={(event) => onWorkspacePathChange(event.target.value)}
+            onChange={(event) => onWorkspacePathChange(normalizeDisplayPath(event.target.value))}
             placeholder={t("skills.scope.workspacePlaceholder")}
-            value={workspacePath}
+            value={normalizeDisplayPath(workspacePath)}
           />
           <Button onClick={onBrowse} type="button" variant="outline">
             <FolderOpen className="h-4 w-4" aria-hidden="true" />
