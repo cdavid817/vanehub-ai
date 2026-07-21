@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import type { CliInstallation } from "../../types/agent";
 
 export function CliInstallationList({ installations }: { installations: CliInstallation[] }) {
@@ -31,7 +32,7 @@ export function CliInstallationList({ installations }: { installations: CliInsta
               {installation.version ?? t("cli.versionUnknown")}
             </span>
           </div>
-          <div className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{installation.path}</div>
+          <div className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{normalizeDisplayPath(installation.path)}</div>
           {installation.error ? <div className="mt-1 text-[11px] text-[hsl(var(--warning))]">{installation.error}</div> : null}
         </li>
       ))}

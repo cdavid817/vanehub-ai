@@ -15,8 +15,8 @@ describe("settingsPages", () => {
     expect(settingsPages[imIndex]).toMatchObject({
       labelKey: "settings.pages.im",
       searchPlaceholderKey: "settings.search.im",
-      badge: 5,
     });
+    expect(settingsPages[imIndex].badge).toBeUndefined();
   });
 
   it("registers Plugin Integrations after Extension Capabilities", () => {
@@ -28,8 +28,8 @@ describe("settingsPages", () => {
     expect(settingsPages[pluginsIndex]).toMatchObject({
       labelKey: "settings.pages.plugins",
       searchPlaceholderKey: "settings.search.plugins",
-      badge: 1,
     });
+    expect(settingsPages[pluginsIndex].badge).toBeUndefined();
   });
 
   it("registers Prompt Hooks after Skills", () => {
@@ -41,8 +41,8 @@ describe("settingsPages", () => {
     expect(settingsPages[promptHooksIndex]).toMatchObject({
       labelKey: "settings.pages.promptHooks",
       searchPlaceholderKey: "settings.search.promptHooks",
-      badge: 7,
     });
+    expect(settingsPages[promptHooksIndex].badge).toBeUndefined();
   });
 
   it("registers Usage Statistics before About", () => {

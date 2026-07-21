@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import { operationService } from "../../services/runtime-operation-client";
 import { sdkService } from "../../services/runtime-sdk-client";
 import { buildSdkVersionOptions, getSdkVersionAction, normalizeSdkVersion } from "../../services/sdk-versioning";
@@ -261,7 +262,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
           </div>
           <div className="text-right text-xs text-muted-foreground">
             <div>{sdk.npmPackage}</div>
-            <div>{sdk.installPath ?? "~/.vanehub/dependencies"}</div>
+            <div>{sdk.installPath ? normalizeDisplayPath(sdk.installPath) : "~/.vanehub/dependencies"}</div>
           </div>
         </div>
 
