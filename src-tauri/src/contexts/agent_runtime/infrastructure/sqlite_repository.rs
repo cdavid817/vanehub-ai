@@ -6,7 +6,7 @@ use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow, InteractionMode,
     LaunchMetadata,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ impl SqliteAgentRuntimeRepository {
         }
     }
 
-    fn connection(&self) -> Result<Connection, AgentRuntimeApplicationError> {
+    fn connection(&self) -> Result<PooledSqlite, AgentRuntimeApplicationError> {
         self.database
             .connection()
             .map_err(|error| AgentRuntimeApplicationError::Registry(error.to_string()))
@@ -81,7 +81,7 @@ impl AgentRegistryRepository for SqliteAgentRuntimeRepository {
         &self,
         agent_id: &str,
     ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
-        self.find_in(&self.connection()?, agent_id)
+        self.find_in(&*self.connection()?, agent_id)
     }
 }
 

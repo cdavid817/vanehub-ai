@@ -10,7 +10,7 @@ use crate::contexts::sessions::application::{
     SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult, SessionsApplicationError,
 };
 use crate::contexts::sessions::domain::{CategoryId, ChatPreferences, MessageId, SessionId};
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension};
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ impl SqliteSessionsRepository {
         Self { database }
     }
 
-    pub(super) fn connection(&self) -> Result<Connection, SessionsApplicationError> {
+    pub(super) fn connection(&self) -> Result<PooledSqlite, SessionsApplicationError> {
         self.database
             .connection()
             .map_err(|error| SessionsApplicationError::Repository(error.to_string()))
@@ -35,7 +35,7 @@ impl SessionRepository for SqliteSessionsRepository {
         &self,
         session_id: &SessionId,
     ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
-        load_session(&self.connection()?, session_id)
+        load_session(&*self.connection()?, session_id)
     }
 
     fn list(
@@ -218,7 +218,7 @@ impl SessionMessageRepository for SqliteSessionsRepository {
         &self,
         message_id: &MessageId,
     ) -> Result<Option<MessageRecord>, SessionsApplicationError> {
-        load_message(&self.connection()?, message_id)
+        load_message(&*self.connection()?, message_id)
     }
 
     fn insert(&self, message: &MessageRecord) -> Result<MessageRecord, SessionsApplicationError> {
@@ -360,7 +360,7 @@ impl SessionCategoryRepository for SqliteSessionsRepository {
         &self,
         category_id: &CategoryId,
     ) -> Result<Option<CategoryRecord>, SessionsApplicationError> {
-        load_category(&self.connection()?, category_id)
+        load_category(&*self.connection()?, category_id)
     }
 
     fn name_exists(
