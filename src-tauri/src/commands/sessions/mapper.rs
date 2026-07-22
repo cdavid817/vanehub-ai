@@ -20,6 +20,7 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
             project_path: input.project_path,
             remote_workspace: input.remote_workspace.map(|workspace| NewRemoteWorkspace {
                 host: workspace.host,
+                port: workspace.port,
                 user: workspace.user,
                 path: workspace.path,
                 display_name: workspace.display_name,
@@ -64,6 +65,7 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
         remote_workspace: session.workspace.remote_workspace.map(|workspace| {
             dto::RemoteWorkspace {
                 host: workspace.host,
+                port: workspace.port,
                 user: workspace.user,
                 path: workspace.path,
                 display_name: workspace.display_name,
@@ -392,6 +394,7 @@ mod tests {
                 folder: Some("ssh://dev@example.com/work/app".to_string()),
                 remote_workspace: Some(SessionRemoteWorkspace {
                     host: "example.com".to_string(),
+                    port: None,
                     user: Some("dev".to_string()),
                     path: "/work/app".to_string(),
                     display_name: "App".to_string(),

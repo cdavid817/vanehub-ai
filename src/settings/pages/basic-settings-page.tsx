@@ -1,7 +1,9 @@
-import { FolderOpen, RotateCcw, Settings } from "lucide-react";
+import { Cpu, FolderOpen, RotateCcw, ScrollText, Settings } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "../../types/settings";
@@ -11,6 +13,18 @@ import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-
 import { DataManagementSection } from "./data-management-section";
 import { StartupSettingsSection } from "./startup-settings-section";
 import { FolderOpenersSection } from "./folder-openers-section";
+
+function InfoBlock({ icon: Icon, label, value }: { icon?: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        {Icon ? <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" /> : null}
+        {label}
+      </div>
+      <div className="mt-1 break-all text-sm font-medium text-foreground">{value}</div>
+    </div>
+  );
+}
 
 function SelectField<T extends string>({
   disabled,
@@ -26,10 +40,10 @@ function SelectField<T extends string>({
   value: T;
 }) {
   return (
-    <label className="grid gap-1 text-sm">
-      <span className="text-muted-foreground">{label}</span>
+    <label className="grid gap-1.5 text-sm">
+      <span className="font-medium text-muted-foreground">{label}</span>
       <select
-        className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="ucd-input h-9 w-full rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         disabled={disabled}
         onChange={(event) => onChange(event.target.value as T)}
         value={value}
@@ -44,20 +58,35 @@ function SelectField<T extends string>({
   );
 }
 
+function NodeEnvironmentPanel({
+  nodeInfo,
+  t,
+}: {
+  nodeInfo: ReturnType<typeof useSettings>["nodeInfo"];
+  t: ReturnType<typeof useTranslation>["t"];
+}) {
+  return (
+    <SectionPanel icon={Cpu} title={t("basic.node")} description={t("basic.nodeDesc")}>
+      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <InfoBlock icon={Cpu} label={t("basic.nodeVersion")} value={nodeInfo?.version ?? t("basic.nodeUnavailable")} />
+        <InfoBlock icon={FolderOpen} label={t("basic.nodePath")} value={nodeInfo?.path ? normalizeDisplayPath(nodeInfo.path) : t("basic.nodeUnavailable")} />
+        {!nodeInfo?.available ? (
+          <div className="rounded border p-3 text-xs ucd-status-warning lg:col-span-2">{nodeInfo?.reason ?? t("basic.nodeUnavailableReason")}</div>
+        ) : null}
+      </div>
+    </SectionPanel>
+  );
+}
+
 export function BasicSettingsPage() {
   const { t } = useTranslation();
   const { error, loading, nodeInfo, openLogDirectory, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
-  const [folderDraft, setFolderDraft] = useState(settings.defaultFolderPath);
   const [logDirectoryDraft, setLogDirectoryDraft] = useState(settings.logDirectory);
   const [logError, setLogError] = useState<string | null>(null);
   const busy = loading || savingKey !== null;
 
   useEffect(() => {
-    setFolderDraft(settings.defaultFolderPath);
-  }, [settings.defaultFolderPath]);
-
-  useEffect(() => {
-    setLogDirectoryDraft(settings.logDirectory);
+    setLogDirectoryDraft(normalizeDisplayPath(settings.logDirectory));
   }, [settings.logDirectory]);
 
   return (
@@ -77,94 +106,75 @@ export function BasicSettingsPage() {
       {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
       {loading ? <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">{t("basic.loading")}</div> : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="grid gap-4">
-          <SectionPanel title={t("basic.appSettings")} description={t("basic.appSettingsDesc")}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <SelectField<AppLanguage>
+      <div className="grid gap-4">
+        <SectionPanel icon={Settings} title={t("basic.appSettings")} description={t("basic.appSettingsDesc")}>
+          <div className="grid gap-4 md:grid-cols-3">
+            <SelectField<AppLanguage>
+              disabled={busy}
+              label={t("basic.language")}
+              onChange={(value) => void saveSetting("applicationLanguage", value)}
+              options={appLanguages.map((language) => ({
+                label: language === "zh-CN" ? t("basic.language.zh") : t("basic.language.en"),
+                value: language,
+              }))}
+              value={settings.applicationLanguage}
+            />
+            <SelectField
+              disabled={busy}
+              label={t("basic.theme")}
+              onChange={(value) => void saveSetting("theme", value)}
+              options={ucdThemes.map((theme) => ({
+                label: theme.id === "futuristic" ? t("basic.theme.futuristic") : t("basic.theme.minimal"),
+                value: theme.id,
+              }))}
+              value={settings.theme}
+            />
+            <SelectField<AppFontSize>
+              disabled={busy}
+              label={t("basic.fontSize")}
+              onChange={(value) => void saveSetting("fontSize", value)}
+              options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
+              value={settings.fontSize}
+            />
+          </div>
+        </SectionPanel>
+
+        <StartupSettingsSection />
+
+        <FolderOpenersSection />
+
+        <SectionPanel icon={ScrollText} title={t("basic.logs")} description={t("basic.logsDesc")}>
+          <div className="grid gap-4">
+            {logError ? <div className="rounded border p-3 text-xs ucd-status-danger">{logError}</div> : null}
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium text-muted-foreground">{t("basic.logDirectory")}</span>
+              <input
+                className="ucd-input h-9 w-full rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={busy}
-                label={t("basic.language")}
-                onChange={(value) => void saveSetting("applicationLanguage", value)}
-                options={appLanguages.map((language) => ({
-                  label: language === "zh-CN" ? t("basic.language.zh") : t("basic.language.en"),
-                  value: language,
-                }))}
-                value={settings.applicationLanguage}
-              />
-              <SelectField<AppFontSize>
-                disabled={busy}
-                label={t("basic.fontSize")}
-                onChange={(value) => void saveSetting("fontSize", value)}
-                options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
-                value={settings.fontSize}
-              />
-              <SelectField
-                disabled={busy}
-                label={t("basic.theme")}
-                onChange={(value) => void saveSetting("theme", value)}
-                options={ucdThemes.map((theme) => ({
-                  label: theme.id === "futuristic" ? t("basic.theme.futuristic") : t("basic.theme.minimal"),
-                  value: theme.id,
-                }))}
-                value={settings.theme}
-              />
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">{t("basic.defaultFolder")}</span>
-                <input
-                  className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  disabled={busy}
-                  onBlur={() => {
-                    if (folderDraft !== settings.defaultFolderPath) {
-                      void saveSetting("defaultFolderPath", folderDraft);
-                    }
-                  }}
-                  onChange={(event) => setFolderDraft(event.target.value)}
-                  placeholder={t("basic.defaultFolderPlaceholder")}
-                  value={folderDraft}
-                />
-              </label>
-            </div>
-          </SectionPanel>
-
-          <StartupSettingsSection />
-
-          <FolderOpenersSection />
-
-          <DataManagementSection />
-
-          <NetworkProxySection />
-
-          <SectionPanel title={t("basic.logs")} description={t("basic.logsDesc")}>
-            <div className="grid gap-4">
-              {logError ? <div className="rounded border p-3 text-xs ucd-status-danger">{logError}</div> : null}
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">{t("basic.logDirectory")}</span>
-                <input
-                  className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  disabled={busy}
-                  onBlur={() => {
-                    if (logDirectoryDraft !== settings.logDirectory) {
-                      void saveSetting("logDirectory", logDirectoryDraft).catch((err) => {
-                        const message = err instanceof Error ? err.message : String(err);
-                        setLogError(message);
-                        void reportClientLogEvent({
-                          level: "error",
-                          kind: "critical-operation-failure",
-                          message,
-                          source: "BasicSettingsPage.saveLogDirectory",
-                          details: { requestedDirectory: logDirectoryDraft },
-                        });
+                onBlur={() => {
+                  if (logDirectoryDraft !== settings.logDirectory) {
+                    void saveSetting("logDirectory", logDirectoryDraft).catch((err) => {
+                      const message = err instanceof Error ? err.message : String(err);
+                      setLogError(message);
+                      void reportClientLogEvent({
+                        level: "error",
+                        kind: "critical-operation-failure",
+                        message,
+                        source: "BasicSettingsPage.saveLogDirectory",
+                        details: { requestedDirectory: logDirectoryDraft },
                       });
-                    }
-                  }}
-                  onChange={(event) => {
-                    setLogError(null);
-                    setLogDirectoryDraft(event.target.value);
-                  }}
-                  placeholder={t("basic.logDirectoryPlaceholder")}
-                  value={logDirectoryDraft}
-                />
-              </label>
+                    });
+                  }
+                }}
+                onChange={(event) => {
+                  setLogError(null);
+                  setLogDirectoryDraft(event.target.value);
+                }}
+                placeholder={t("basic.logDirectoryPlaceholder")}
+                value={logDirectoryDraft}
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 disabled={busy || !settings.loggingPolicy.canOpenDirectory}
                 onClick={() => {
@@ -186,60 +196,24 @@ export function BasicSettingsPage() {
                 <FolderOpen className="h-4 w-4" aria-hidden="true" />
                 {t("basic.openLogDirectory")}
               </Button>
-              <dl className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
-                <div>
-                  <dt>{t("basic.logRetention")}</dt>
-                  <dd className="font-medium text-foreground">{t("basic.logRetentionValue", { days: settings.loggingPolicy.retentionDays })}</dd>
-                </div>
-                <div>
-                  <dt>{t("basic.logArchive")}</dt>
-                  <dd className="font-medium text-foreground">{settings.loggingPolicy.archiveEnabled ? t("basic.enabled") : t("basic.disabled")}</dd>
-                </div>
-                <div>
-                  <dt>{t("basic.logRedaction")}</dt>
-                  <dd className="font-medium text-foreground">{settings.loggingPolicy.redactionEnabled ? t("basic.enabled") : t("basic.disabled")}</dd>
-                </div>
-                <div>
-                  <dt>{t("basic.logLevels")}</dt>
-                  <dd className="font-medium text-foreground">{settings.loggingPolicy.levels.join(" / ")}</dd>
-                </div>
-              </dl>
-              {!settings.loggingPolicy.canOpenDirectory ? (
-                <div className="rounded border p-3 text-xs ucd-status-warning">{t("basic.logOpenUnavailable")}</div>
-              ) : null}
             </div>
-          </SectionPanel>
-        </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+              <InfoBlock label={t("basic.logRetention")} value={t("basic.logRetentionValue", { days: settings.loggingPolicy.retentionDays })} />
+              <InfoBlock label={t("basic.logArchive")} value={settings.loggingPolicy.archiveEnabled ? t("basic.enabled") : t("basic.disabled")} />
+              <InfoBlock label={t("basic.logRedaction")} value={settings.loggingPolicy.redactionEnabled ? t("basic.enabled") : t("basic.disabled")} />
+              <InfoBlock label={t("basic.logLevels")} value={settings.loggingPolicy.levels.join(" / ")} />
+            </dl>
+            {!settings.loggingPolicy.canOpenDirectory ? (
+              <div className="rounded border p-3 text-xs ucd-status-warning">{t("basic.logOpenUnavailable")}</div>
+            ) : null}
+          </div>
+        </SectionPanel>
 
-        <div className="grid gap-4">
-          <SectionPanel title={t("basic.node")} description={t("basic.nodeDesc")}>
-            <div className="grid gap-4 text-sm">
-              <div>
-                <div className="text-muted-foreground">{t("basic.nodePath")}</div>
-                <div className="mt-1 break-all font-medium">
-                  {nodeInfo?.path ?? t("basic.nodeUnavailable")}
-                </div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">{t("basic.nodeVersion")}</div>
-                <div className="mt-1 font-medium">{nodeInfo?.version ?? t("basic.nodeUnavailable")}</div>
-              </div>
-              {!nodeInfo?.available ? (
-                <div className="rounded border p-3 text-xs ucd-status-warning">
-                  {nodeInfo?.reason ?? t("basic.nodeUnavailableReason")}
-                </div>
-              ) : null}
-            </div>
-          </SectionPanel>
+        <DataManagementSection />
 
-          <SectionPanel title={t("basic.storage")} description={t("basic.storageDesc")}>
-            <ul className="grid gap-2 text-sm text-muted-foreground">
-              <li>{t("basic.desktopStorage")}</li>
-              <li>{t("basic.webStorage")}</li>
-              <li>{t("basic.themeEntry")}</li>
-            </ul>
-          </SectionPanel>
-        </div>
+        <NodeEnvironmentPanel nodeInfo={nodeInfo} t={t} />
+
+        <NetworkProxySection />
       </div>
 
       <FloatingAssistantSettingsSection />

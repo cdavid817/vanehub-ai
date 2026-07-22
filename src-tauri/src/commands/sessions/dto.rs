@@ -34,6 +34,7 @@ pub(crate) enum SessionLifecycleState {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RemoteWorkspace {
     pub(crate) host: String,
+    pub(crate) port: Option<u16>,
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: String,
@@ -85,11 +86,23 @@ pub(crate) struct CreateSessionInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum ScheduledTaskFrequency {
-    Minutes { interval: i64 },
-    Hours { interval: i64 },
-    Daily { time_of_day: String },
-    Weekly { weekday: i64, time_of_day: String },
-    Monthly { day_of_month: i64, time_of_day: String },
+    Minutes {
+        interval: i64,
+    },
+    Hours {
+        interval: i64,
+    },
+    Daily {
+        time_of_day: String,
+    },
+    Weekly {
+        weekday: i64,
+        time_of_day: String,
+    },
+    Monthly {
+        day_of_month: i64,
+        time_of_day: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -130,6 +143,7 @@ pub(crate) struct SetScheduledTaskEnabledInput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateRemoteWorkspaceInput {
     pub(crate) host: String,
+    pub(crate) port: Option<u16>,
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: Option<String>,

@@ -13,6 +13,7 @@ import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import type { CliToolStatus } from "../../types/agent";
 import type { OperationTask } from "../../types/operation";
 import { deriveCliLifecycleGuidance, isManagedCliLifecycle, type CliVersionAction } from "./cli-management-utils";
@@ -120,7 +121,9 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
         </div>
         <div className="sm:col-span-2">
           <dt className="text-xs text-muted-foreground">{t("cli.activePath")}</dt>
-          <dd className="mt-1 break-all font-mono text-xs">{tool.activeInstallationPath ?? t("cli.notAvailable")}</dd>
+          <dd className="mt-1 break-all font-mono text-xs">
+            {tool.activeInstallationPath ? normalizeDisplayPath(tool.activeInstallationPath) : t("cli.notAvailable")}
+          </dd>
         </div>
       </dl>
 

@@ -32,8 +32,11 @@ The system SHALL provide primary settings navigation for basic configuration, CL
 
 #### Scenario: Display About product information
 - **WHEN** a user opens the About settings page in the Tauri desktop runtime or browser Web runtime
-- **THEN** the page SHALL display localized product identity, supported runtimes, supported AI coding agents, GitHub repository, changelog, update-check controls, and build metadata
+- **THEN** the page SHALL display localized product identity, build metadata, GitHub repository, changelog, update-check controls, and product positioning
+- **AND** the page SHALL group product identity, software metadata, repository links, and update status in one software details panel
+- **AND** the page SHALL group changelog and product positioning in one related information panel
 - **AND** product details SHALL render without requiring a backend call
+- **AND** the page SHALL NOT display removed runtime/agent or local CLI environment sections
 
 #### Scenario: Check updates from About page
 - **WHEN** a user activates the About page check-update action
@@ -277,3 +280,15 @@ The settings center SHALL use consistent rounded icon containers and semantic ic
 #### Scenario: Render desktop-control action icons
 - **WHEN** Basic Configuration renders reset, open-directory, startup, data-management, log, proxy, or floating-assistant actions
 - **THEN** actions SHALL use lucide or existing project icons where icons improve recognition
+
+### Requirement: SSH connection settings navigation
+The settings center SHALL include SSH connection management as a first-class settings page.
+
+#### Scenario: Display SSH connection navigation entry
+- **WHEN** the settings center navigation is rendered
+- **THEN** it SHALL include a localized SSH connection management entry with a stable icon
+- **AND** the About entry SHALL remain the final settings navigation item
+
+#### Scenario: Navigate to SSH connection settings
+- **WHEN** a user selects the SSH connection management entry
+- **THEN** the settings center SHALL render the SSH connection settings page while preserving mounted state for other stateful settings pages

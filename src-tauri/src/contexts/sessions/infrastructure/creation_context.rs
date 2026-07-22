@@ -100,6 +100,7 @@ impl SessionCreationContextPort for SessionCreationContextAdapter {
     ) -> Result<SessionRemoteWorkspace, SessionsApplicationError> {
         remote_workspace(workspace).map(|workspace| SessionRemoteWorkspace {
             host: workspace.host().to_string(),
+            port: Some(workspace.port()),
             user: workspace.user().map(str::to_string),
             path: workspace.path().to_string(),
             display_name: workspace.display_name().to_string(),
@@ -113,6 +114,7 @@ impl SessionCreationContextPort for SessionCreationContextAdapter {
     ) -> Result<(), SessionsApplicationError> {
         let workspace = RemoteWorkspace::new(
             &workspace.host,
+            workspace.port,
             workspace.user.as_deref(),
             &workspace.path,
             Some(&workspace.display_name),
@@ -160,6 +162,7 @@ fn remote_workspace(
 ) -> Result<RemoteWorkspace, SessionsApplicationError> {
     RemoteWorkspace::new(
         &workspace.host,
+        workspace.port,
         workspace.user.as_deref(),
         &workspace.path,
         workspace.display_name.as_deref(),

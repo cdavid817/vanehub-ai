@@ -1,10 +1,13 @@
 export type InteractionMode = "browser" | "native-desktop" | "cli";
 
-export type AvailabilityState = "available" | "unavailable" | "needs-auth" | "unknown";
+export type AvailabilityState =
+  "available" | "unavailable" | "needs-auth" | "unknown";
 
-export type SessionLifecycleState = "idle" | "starting" | "running" | "failed" | "stopped";
+export type SessionLifecycleState =
+  "idle" | "starting" | "running" | "failed" | "stopped";
 
-export type ImSessionConnector = "feishu" | "telegram" | "dingtalk" | "wecom" | "weixin";
+export type ImSessionConnector =
+  "feishu" | "telegram" | "dingtalk" | "wecom" | "weixin";
 
 export interface SessionSourceMetadata {
   kind: "desktop" | "im";
@@ -126,7 +129,8 @@ export type ScheduledTaskFrequency =
   | { kind: "weekly"; weekday: number; timeOfDay: string }
   | { kind: "monthly"; dayOfMonth: number; timeOfDay: string };
 
-export type ScheduledTaskLatestStatus = "never-run" | "running" | "succeeded" | "failed" | "skipped";
+export type ScheduledTaskLatestStatus =
+  "never-run" | "running" | "succeeded" | "failed" | "skipped";
 
 export interface ScheduledTask {
   id: string;
@@ -172,6 +176,7 @@ export interface ProjectInspection {
 
 export interface RemoteWorkspace {
   host: string;
+  port?: number | null;
   user: string | null;
   path: string;
   displayName: string;
@@ -190,6 +195,7 @@ export interface CreateSessionInput {
   projectPath?: string | null;
   remoteWorkspace?: {
     host: string;
+    port?: number | null;
     user?: string | null;
     path: string;
     displayName?: string | null;
@@ -255,11 +261,23 @@ export type AgentTerminalEvent =
       runtimeSessionId: string;
     };
 
-export type CliVersionCheckStatus = "unsupported" | "not-detected" | "succeeded" | "failed";
+export type CliVersionCheckStatus =
+  "unsupported" | "not-detected" | "succeeded" | "failed";
 export type CliEnvironmentType = "windows" | "macos" | "linux" | "unknown";
-export type CliInstallSource = "npm" | "winget" | "desktop" | "homebrew" | "volta" | "bun" | "vendor" | "system" | "unknown";
-export type CliConflictState = "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
-export type CliLifecycleEligibility = "npm" | "wget" | "winget" | "manual" | "unavailable";
+export type CliInstallSource =
+  | "npm"
+  | "winget"
+  | "desktop"
+  | "homebrew"
+  | "volta"
+  | "bun"
+  | "vendor"
+  | "system"
+  | "unknown";
+export type CliConflictState =
+  "none" | "multiple" | "version-mismatch" | "runnable-mismatch";
+export type CliLifecycleEligibility =
+  "npm" | "wget" | "winget" | "manual" | "unavailable";
 
 export interface CliInstallation {
   path: string;
@@ -300,7 +318,12 @@ export interface CliPackageOperationInput {
   confirmedActivePath?: string | null;
 }
 
-export const managedCliAgentIds = ["claude-code", "codex-cli", "gemini-cli", "opencode"] as const;
+export const managedCliAgentIds = [
+  "claude-code",
+  "codex-cli",
+  "gemini-cli",
+  "opencode",
+] as const;
 export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
 export type CliParameterControl = "enum" | "boolean" | "multi-enum";
 export type CliParameterValue = string | boolean | string[];

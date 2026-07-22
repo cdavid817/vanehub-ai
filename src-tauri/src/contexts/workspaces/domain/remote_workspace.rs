@@ -3,6 +3,7 @@ use super::WorkspaceDomainError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemoteWorkspace {
     host: String,
+    port: u16,
     user: Option<String>,
     path: String,
     display_name: String,
@@ -12,11 +13,13 @@ pub(crate) struct RemoteWorkspace {
 impl RemoteWorkspace {
     pub(crate) fn new(
         host: &str,
+        port: Option<u16>,
         user: Option<&str>,
         path: &str,
         display_name: Option<&str>,
     ) -> Result<Self, WorkspaceDomainError> {
         let host = host.trim().to_string();
+        let port = port.unwrap_or(22);
         let path = path.trim().to_string();
         let user = user
             .map(str::trim)
@@ -24,6 +27,9 @@ impl RemoteWorkspace {
             .map(str::to_string);
         if host.is_empty() || path.is_empty() {
             return Err(WorkspaceDomainError::RemoteWorkspaceIncomplete);
+        }
+        if port == 0 {
+            return Err(WorkspaceDomainError::InvalidRemoteWorkspace);
         }
         let contains_control = host
             .chars()
@@ -42,13 +48,19 @@ impl RemoteWorkspace {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .unwrap_or_else(|| format!("{host}:{}", display_name_for_remote_path(&path)));
+        let port_segment = if port == 22 {
+            String::new()
+        } else {
+            format!(":{port}")
+        };
         let uri = format!(
-            "ssh://{authority}{}{}",
+            "ssh://{authority}{port_segment}{}{}",
             if path.starts_with('/') { "" } else { "/" },
             path
         );
         Ok(Self {
             host,
+            port,
             user,
             path,
             display_name,
@@ -58,6 +70,10 @@ impl RemoteWorkspace {
 
     pub(crate) fn host(&self) -> &str {
         &self.host
+    }
+
+    pub(crate) fn port(&self) -> u16 {
+        self.port
     }
 
     pub(crate) fn user(&self) -> Option<&str> {
@@ -91,10 +107,12 @@ mod tests {
 
     #[test]
     fn remote_workspace_normalizes_identity_uri_and_default_name() {
-        let workspace = RemoteWorkspace::new("  example.com ", Some(" dev "), " work/app/ ", None)
-            .expect("remote workspace");
+        let workspace =
+            RemoteWorkspace::new("  example.com ", None, Some(" dev "), " work/app/ ", None)
+                .expect("remote workspace");
 
         assert_eq!(workspace.host(), "example.com");
+        assert_eq!(workspace.port(), 22);
         assert_eq!(workspace.user(), Some("dev"));
         assert_eq!(workspace.path(), "work/app/");
         assert_eq!(workspace.display_name(), "example.com:app");
@@ -103,9 +121,14 @@ mod tests {
 
     #[test]
     fn absolute_remote_paths_and_custom_names_keep_the_existing_contract() {
-        let workspace =
-            RemoteWorkspace::new("example.com", None, "/work/app", Some("  Example app  "))
-                .expect("remote workspace");
+        let workspace = RemoteWorkspace::new(
+            "example.com",
+            None,
+            None,
+            "/work/app",
+            Some("  Example app  "),
+        )
+        .expect("remote workspace");
 
         assert_eq!(workspace.user(), None);
         assert_eq!(workspace.display_name(), "Example app");
@@ -113,13 +136,23 @@ mod tests {
     }
 
     #[test]
+    fn non_default_ports_are_preserved_in_uri() {
+        let workspace =
+            RemoteWorkspace::new("example.com", Some(2222), Some("dev"), "/work/app", None)
+                .expect("remote workspace");
+
+        assert_eq!(workspace.port(), 2222);
+        assert_eq!(workspace.uri(), "ssh://dev@example.com:2222/work/app");
+    }
+
+    #[test]
     fn remote_workspace_rejects_missing_fields_separators_and_controls() {
         assert_eq!(
-            RemoteWorkspace::new("", None, "/work/app", None),
+            RemoteWorkspace::new("", None, None, "/work/app", None),
             Err(WorkspaceDomainError::RemoteWorkspaceIncomplete)
         );
         assert_eq!(
-            RemoteWorkspace::new("example.com", None, " ", None),
+            RemoteWorkspace::new("example.com", None, None, " ", None),
             Err(WorkspaceDomainError::RemoteWorkspaceIncomplete)
         );
         for (host, user, path) in [
@@ -129,7 +162,7 @@ mod tests {
             ("example.com", None, "/work/\napp"),
         ] {
             assert_eq!(
-                RemoteWorkspace::new(host, user, path, None),
+                RemoteWorkspace::new(host, None, user, path, None),
                 Err(WorkspaceDomainError::InvalidRemoteWorkspace)
             );
         }

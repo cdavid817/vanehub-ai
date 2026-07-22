@@ -1,6 +1,7 @@
 import { FolderOpen, Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { normalizeDisplayPath } from "../../../lib/session-path";
 import type { AgentRegistryEntry, KnownProject } from "../../../types/agent";
 import { SectionPanel } from "../page-parts";
 
@@ -45,10 +46,14 @@ export function ImRoutingSection(props: ImRoutingSectionProps) {
               value={props.projectPath}
             >
               <option value="">{t("im.routing.projectPlaceholder")}</option>
-              {props.projectPath && !props.projects.some((project) => project.path === props.projectPath) ? (
-                <option value={props.projectPath}>{props.projectPath}</option>
+              {props.projectPath && !props.projects.some((project) => normalizeDisplayPath(project.path) === normalizeDisplayPath(props.projectPath)) ? (
+                <option value={normalizeDisplayPath(props.projectPath)}>{normalizeDisplayPath(props.projectPath)}</option>
               ) : null}
-              {props.projects.map((project) => <option key={project.path} value={project.path}>{project.displayName} - {project.path}</option>)}
+              {props.projects.map((project) => (
+                <option key={project.path} value={normalizeDisplayPath(project.path)}>
+                  {project.displayName} - {normalizeDisplayPath(project.path)}
+                </option>
+              ))}
             </select>
             <Button aria-label={t("im.routing.browse")} onClick={props.onBrowse} size="icon" title={t("im.routing.browse")} type="button" variant="outline">
               <FolderOpen aria-hidden="true" />

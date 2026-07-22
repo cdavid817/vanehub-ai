@@ -4,6 +4,7 @@ import {
   Boxes,
   Cpu,
   Info,
+  KeyRound,
   MessagesSquare,
   Puzzle,
   Plug,
@@ -24,6 +25,7 @@ import { PluginIntegrationsPage } from "./pages/plugin-integrations-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SkillsPage } from "./pages/skills-page";
+import { SshConnectionsPage } from "./pages/ssh-connections-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
 export type SettingsPageId =
@@ -37,6 +39,7 @@ export type SettingsPageId =
   | "skills"
   | "prompt-hooks"
   | "im"
+  | "ssh-connections"
   | "usage"
   | "about";
 
@@ -69,7 +72,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.providers",
     crumbKey: "settings.pages.providers",
     icon: Terminal,
-    badge: 4,
     searchPlaceholderKey: "settings.search.providers",
     component: ProvidersPage,
   },
@@ -78,7 +80,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.cliParameters",
     crumbKey: "settings.pages.cliParameters",
     icon: SlidersHorizontal,
-    badge: 4,
     searchPlaceholderKey: "settings.search.cliParameters",
     component: CliParametersPage,
   },
@@ -87,7 +88,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.mcp",
     crumbKey: "settings.pages.mcp",
     icon: Boxes,
-    badge: 3,
     searchPlaceholderKey: "settings.search.mcp",
     component: McpPage,
   },
@@ -96,7 +96,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.agents",
     crumbKey: "settings.pages.agents",
     icon: Bot,
-    badge: 4,
     searchPlaceholderKey: "settings.search.agents",
     component: AgentsPage,
   },
@@ -105,7 +104,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.skills",
     crumbKey: "settings.pages.skills",
     icon: Puzzle,
-    badge: 8,
     searchPlaceholderKey: "settings.search.skills",
     component: SkillsPage,
   },
@@ -114,7 +112,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.promptHooks",
     crumbKey: "settings.pages.promptHooks",
     icon: Workflow,
-    badge: 7,
     searchPlaceholderKey: "settings.search.promptHooks",
     component: PromptHooksPage,
   },
@@ -123,16 +120,22 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.im",
     crumbKey: "settings.pages.im",
     icon: MessagesSquare,
-    badge: 5,
     searchPlaceholderKey: "settings.search.im",
     component: ImPage,
+  },
+  {
+    id: "ssh-connections",
+    labelKey: "settings.pages.sshConnections",
+    crumbKey: "settings.pages.sshConnections",
+    icon: KeyRound,
+    searchPlaceholderKey: "settings.search.sshConnections",
+    component: SshConnectionsPage,
   },
   {
     id: "extensions",
     labelKey: "settings.pages.extensions",
     crumbKey: "settings.pages.extensions",
     icon: Cpu,
-    badge: 3,
     searchPlaceholderKey: "settings.search.extensions",
     component: ExtensionsPage,
   },
@@ -141,7 +144,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     labelKey: "settings.pages.plugins",
     crumbKey: "settings.pages.plugins",
     icon: Plug,
-    badge: 1,
     searchPlaceholderKey: "settings.search.plugins",
     component: PluginIntegrationsPage,
   },

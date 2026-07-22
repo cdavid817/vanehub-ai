@@ -8,46 +8,66 @@ describe("settingsPages", () => {
 
   it("registers extensions below higher-frequency management pages", () => {
     const imIndex = settingsPages.findIndex((page) => page.id === "im");
-    const extensionsIndex = settingsPages.findIndex((page) => page.id === "extensions");
+    const sshIndex = settingsPages.findIndex(
+      (page) => page.id === "ssh-connections",
+    );
+    const extensionsIndex = settingsPages.findIndex(
+      (page) => page.id === "extensions",
+    );
 
     expect(imIndex).toBeGreaterThan(-1);
-    expect(extensionsIndex).toBe(imIndex + 1);
+    expect(sshIndex).toBe(imIndex + 1);
+    expect(extensionsIndex).toBe(sshIndex + 1);
     expect(settingsPages[imIndex]).toMatchObject({
       labelKey: "settings.pages.im",
       searchPlaceholderKey: "settings.search.im",
-      badge: 5,
     });
+    expect(settingsPages[sshIndex]).toMatchObject({
+      labelKey: "settings.pages.sshConnections",
+      searchPlaceholderKey: "settings.search.sshConnections",
+    });
+    expect(settingsPages[imIndex].badge).toBeUndefined();
   });
 
   it("registers Plugin Integrations after Extension Capabilities", () => {
-    const extensionsIndex = settingsPages.findIndex((page) => page.id === "extensions");
-    const pluginsIndex = settingsPages.findIndex((page) => page.id === "plugins");
+    const extensionsIndex = settingsPages.findIndex(
+      (page) => page.id === "extensions",
+    );
+    const pluginsIndex = settingsPages.findIndex(
+      (page) => page.id === "plugins",
+    );
 
     expect(pluginsIndex).toBeGreaterThan(-1);
     expect(pluginsIndex).toBe(extensionsIndex + 1);
     expect(settingsPages[pluginsIndex]).toMatchObject({
       labelKey: "settings.pages.plugins",
       searchPlaceholderKey: "settings.search.plugins",
-      badge: 1,
     });
+    expect(settingsPages[pluginsIndex].badge).toBeUndefined();
   });
 
   it("registers Prompt Hooks after Skills", () => {
     const skillsIndex = settingsPages.findIndex((page) => page.id === "skills");
-    const promptHooksIndex = settingsPages.findIndex((page) => page.id === "prompt-hooks");
+    const promptHooksIndex = settingsPages.findIndex(
+      (page) => page.id === "prompt-hooks",
+    );
 
     expect(skillsIndex).toBeGreaterThan(-1);
     expect(promptHooksIndex).toBe(skillsIndex + 1);
     expect(settingsPages[promptHooksIndex]).toMatchObject({
       labelKey: "settings.pages.promptHooks",
       searchPlaceholderKey: "settings.search.promptHooks",
-      badge: 7,
     });
+    expect(settingsPages[promptHooksIndex].badge).toBeUndefined();
   });
 
   it("registers Usage Statistics before About", () => {
-    const extensionsIndex = settingsPages.findIndex((page) => page.id === "extensions");
-    const pluginsIndex = settingsPages.findIndex((page) => page.id === "plugins");
+    const extensionsIndex = settingsPages.findIndex(
+      (page) => page.id === "extensions",
+    );
+    const pluginsIndex = settingsPages.findIndex(
+      (page) => page.id === "plugins",
+    );
     const usageIndex = settingsPages.findIndex((page) => page.id === "usage");
     const aboutIndex = settingsPages.findIndex((page) => page.id === "about");
 

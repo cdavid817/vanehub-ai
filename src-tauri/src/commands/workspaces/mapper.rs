@@ -20,6 +20,7 @@ pub(super) fn known_remote_workspace_to_dto(
 ) -> dto::KnownRemoteWorkspace {
     dto::KnownRemoteWorkspace {
         host: workspace.host,
+        port: workspace.port,
         user: workspace.user,
         path: workspace.path,
         display_name: workspace.display_name,
@@ -286,6 +287,7 @@ mod tests {
     fn remote_history_keeps_nullable_user_and_complete_identity_fields() {
         let remote = known_remote_workspace_to_dto(KnownRemoteWorkspace {
             host: "example.com".to_string(),
+            port: 22,
             user: None,
             path: "/work/app".to_string(),
             display_name: "example.com:app".to_string(),
@@ -297,6 +299,7 @@ mod tests {
             serde_json::to_value(remote).expect("remote DTO"),
             json!({
                 "host": "example.com",
+                "port": 22,
                 "user": null,
                 "path": "/work/app",
                 "displayName": "example.com:app",

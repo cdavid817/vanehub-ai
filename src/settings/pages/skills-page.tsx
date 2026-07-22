@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import { agentService } from "../../services/runtime-agent-client";
 import type { Skill, SkillMetadata, SkillScope, SkillScopeInput, SkillSource } from "../../types/skill";
 import { PageHeader } from "./page-parts";
@@ -133,7 +134,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
 
   async function browseWorkspace() {
     const selected = await agentService.selectWorkspaceDirectory();
-    if (selected) setWorkspacePath(selected);
+    if (selected) setWorkspacePath(normalizeDisplayPath(selected));
   }
 
   function toggleAgent(skill: Skill, agentId: string, checked: boolean) {

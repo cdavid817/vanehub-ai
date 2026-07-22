@@ -16,6 +16,9 @@ const checkedFiles = [
   "src/settings/pages/im/im-connector-row.tsx",
   "src/settings/pages/im/im-routing-section.tsx",
   "src/settings/pages/im/im-wechat-authorization.tsx",
+  "src/settings/pages/ssh-connections-page.tsx",
+  "src/settings/pages/ssh/ssh-connection-card.tsx",
+  "src/settings/pages/ssh/ssh-connection-form.tsx",
   "src/settings/pages/prompt-hooks-page.tsx",
   "src/settings/pages/prompt-hooks/prompt-hook-card-list.tsx",
   "src/settings/pages/prompt-hooks/prompt-hook-dialogs.tsx",
@@ -23,6 +26,7 @@ const checkedFiles = [
   "src/settings/pages/prompt-hooks/prompt-hook-stats-cards.tsx",
   "src/settings/pages/prompt-hooks/prompt-hook-trace-panel.tsx",
   "src/main-layout/create-session-dialog.tsx",
+  "src/main-layout/create-session-remote-workspace-section.tsx",
   "src/main-layout/main-layout.tsx",
   "src/main-layout/workspace-activity-bar.tsx",
   "src/components/chat/MessageItem.tsx",
@@ -69,7 +73,10 @@ describe("visible UI text i18n guardrail", () => {
     for (const file of checkedFiles) {
       const source = readFileSync(file, "utf8");
       for (const pattern of disallowedLiteralPatterns) {
-        expect(source, `${file} contains hard-coded visible text matching: ${pattern}`).not.toMatch(pattern);
+        expect(
+          source,
+          `${file} contains hard-coded visible text matching: ${pattern}`,
+        ).not.toMatch(pattern);
       }
     }
   });

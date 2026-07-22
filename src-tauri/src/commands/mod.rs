@@ -5,6 +5,7 @@ pub(crate) mod error;
 pub(crate) mod operations;
 mod registry;
 pub(crate) mod sessions;
+pub(crate) mod ssh_connections;
 pub(crate) mod tooling;
 pub(crate) mod workspaces;
 

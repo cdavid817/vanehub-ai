@@ -198,13 +198,13 @@ fn insert_session(
             INSERT INTO sessions (
                 id, title, agent_id, interaction_mode, lifecycle_state, folder,
                 project_path, worktree_path, worktree_name, worktree_branch,
-                remote_workspace_host, remote_workspace_user, remote_workspace_path,
-                remote_workspace_display_name, remote_workspace_uri, runtime_session_id,
+                remote_workspace_host, remote_workspace_port, remote_workspace_user,
+                remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id,
                 category_id, source_kind, source_connector, pinned, archived,
                 created_at, updated_at
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+                ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24
             )
             "#,
             params![
@@ -219,6 +219,7 @@ fn insert_session(
                 session.workspace.worktree_name,
                 session.workspace.worktree_branch,
                 remote.map(|workspace| workspace.host.as_str()),
+                remote.and_then(|workspace| workspace.port.map(i64::from)),
                 remote.and_then(|workspace| workspace.user.as_deref()),
                 remote.map(|workspace| workspace.path.as_str()),
                 remote.map(|workspace| workspace.display_name.as_str()),

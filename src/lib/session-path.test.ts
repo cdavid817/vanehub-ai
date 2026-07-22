@@ -4,6 +4,8 @@ import { defaultSessionTitleFromPath, folderNameFromPath, normalizeDisplayPath }
 describe("session path helpers", () => {
   it("normalizes Windows extended-length path prefixes for display", () => {
     expect(normalizeDisplayPath("\\\\?\\D:\\cdavid\\Documents\\code\\claude-code")).toBe("D:\\cdavid\\Documents\\code\\claude-code");
+    expect(normalizeDisplayPath("\\\\?\\UNC\\server\\share\\repo")).toBe("\\\\server\\share\\repo");
+    expect(normalizeDisplayPath("//?/UNC/server/share/repo")).toBe("//server/share/repo");
   });
 
   it("derives session names from the current folder and timestamp", () => {

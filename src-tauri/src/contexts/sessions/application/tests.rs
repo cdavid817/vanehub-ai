@@ -728,13 +728,18 @@ struct FakeCreationContext {
 impl SessionCreationContextPort for FakeCreationContext {
     fn remote_workspace_uri(&self, workspace: &NewRemoteWorkspace) -> Option<String> {
         Some(format!(
-            "ssh://{}{}{}",
+            "ssh://{}{}{}{}",
             workspace
                 .user
                 .as_deref()
                 .map(|user| format!("{user}@"))
                 .unwrap_or_default(),
             workspace.host,
+            workspace
+                .port
+                .filter(|port| *port != 22)
+                .map(|port| format!(":{port}"))
+                .unwrap_or_default(),
             workspace.path
         ))
     }
@@ -782,6 +787,7 @@ impl SessionCreationContextPort for FakeCreationContext {
             .expect("remote workspace uri");
         Ok(SessionRemoteWorkspace {
             host: workspace.host.clone(),
+            port: workspace.port,
             user: workspace.user.clone(),
             path: workspace.path.clone(),
             display_name: workspace

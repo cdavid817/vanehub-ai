@@ -23,6 +23,7 @@ pub(crate) struct ProjectInspection {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KnownRemoteWorkspace {
     pub(crate) host: String,
+    pub(crate) port: u16,
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: String,

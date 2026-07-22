@@ -95,6 +95,7 @@ struct SessionOperationPayload<'a> {
 #[serde(rename_all = "camelCase")]
 struct RemoteWorkspacePayload<'a> {
     host: &'a str,
+    port: &'a Option<u16>,
     user: &'a Option<String>,
     path: &'a str,
     display_name: &'a str,
@@ -126,6 +127,7 @@ impl<'a> From<&'a SessionRecord> for SessionOperationPayload<'a> {
                 .as_ref()
                 .map(|workspace| RemoteWorkspacePayload {
                     host: &workspace.host,
+                    port: &workspace.port,
                     user: &workspace.user,
                     path: &workspace.path,
                     display_name: &workspace.display_name,
@@ -190,6 +192,7 @@ mod tests {
                 folder: Some("ssh://dev@example.com/work/app".to_string()),
                 remote_workspace: Some(SessionRemoteWorkspace {
                     host: "example.com".to_string(),
+                    port: None,
                     user: Some("dev".to_string()),
                     path: "/work/app".to_string(),
                     display_name: "App".to_string(),

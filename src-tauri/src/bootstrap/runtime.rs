@@ -97,6 +97,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let skill_api = super::assemble_skill_api(database.clone(), fallback_log_directory.clone());
     let prompt_hook_api =
         super::assemble_prompt_hook_api(database.clone(), fallback_log_directory.clone());
+    let ssh_connections_api = super::assemble_ssh_connections_api(database.clone());
     let workspace_api = super::assemble_workspace_api(
         database.clone(),
         app.handle().clone(),
@@ -152,6 +153,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(plugin_integration_api);
     app.manage(skill_api);
     app.manage(prompt_hook_api);
+    app.manage(ssh_connections_api);
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());

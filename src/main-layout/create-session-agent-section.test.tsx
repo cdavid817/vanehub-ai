@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import "../i18n";
-import { SessionAgentModeSelector } from "./create-session-dialog";
+import { SessionAgentModeSelector } from "./session-agent-mode-selector";
 import { CreateSessionAgentSection } from "./create-session-agent-section";
 import type { AgentRegistryEntry } from "../types/agent";
 

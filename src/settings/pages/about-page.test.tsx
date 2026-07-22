@@ -13,8 +13,8 @@ describe("AboutPage", () => {
     expect(html).toContain("https://github.com/cdavid817/vanehub-ai");
     expect(html).toContain("最近变更");
     expect(html).toContain("检查更新");
-    expect(html).toContain("Claude Code");
-    expect(html).toContain("Tauri 2 Desktop");
-    expect(html).toContain("本地 CLI 环境");
+    expect(html).toContain("产品定位");
+    expect(html).toContain("软件详情");
+    expect(html).not.toContain("本地 CLI 环境");
   });
 });

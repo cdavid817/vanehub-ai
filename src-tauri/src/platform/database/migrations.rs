@@ -132,6 +132,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "scheduled-task-management",
         apply_scheduled_task_management_migration,
     )?;
+    apply_migration(
+        conn,
+        24,
+        "ssh-connection-management",
+        apply_ssh_connection_management_migration,
+    )?;
 
     Ok(())
 }
@@ -193,6 +199,23 @@ fn apply_remote_workspace_migration(conn: &Connection) -> Result<(), DatabaseErr
                 [],
             )?;
         }
+    }
+    Ok(())
+}
+
+fn apply_ssh_connection_management_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    crate::contexts::ssh_connections::apply_schema(conn)?;
+    if !table_has_column(conn, "known_remote_workspaces", "port")? {
+        conn.execute(
+            "ALTER TABLE known_remote_workspaces ADD COLUMN port INTEGER NOT NULL DEFAULT 22",
+            [],
+        )?;
+    }
+    if !table_has_column(conn, "sessions", "remote_workspace_port")? {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN remote_workspace_port INTEGER",
+            [],
+        )?;
     }
     Ok(())
 }

@@ -530,6 +530,7 @@ function displayNameForRemotePath(path: string) {
 
 function normalizeRemoteWorkspace(input: NonNullable<CreateSessionInput["remoteWorkspace"]>): RemoteWorkspace {
   const host = input.host.trim();
+  const port = input.port ?? 22;
   const path = input.path.trim();
   const user = input.user?.trim() || null;
   if (!host || !path) {
@@ -538,13 +539,18 @@ function normalizeRemoteWorkspace(input: NonNullable<CreateSessionInput["remoteW
   if (host.includes("/") || host.includes("\\") || /[\u0000-\u001f]/.test(`${host}${path}${user ?? ""}`)) {
     throw new Error("Invalid remote workspace");
   }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("Invalid remote workspace port");
+  }
   const authority = user ? `${user}@${host}` : host;
+  const portSegment = port === 22 ? "" : `:${port}`;
   return {
     host,
+    port,
     user,
     path,
     displayName: input.displayName?.trim() || `${host}:${displayNameForRemotePath(path)}`,
-    uri: `ssh://${authority}${path.startsWith("/") ? "" : "/"}${path}`,
+    uri: `ssh://${authority}${portSegment}${path.startsWith("/") ? "" : "/"}${path}`,
   };
 }
 
