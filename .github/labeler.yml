@@ -1,0 +1,27 @@
+area/frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**"
+          - "tests/e2e/**"
+          - "*.{js,mjs,ts,tsx,json}"
+
+area/native:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src-tauri/**"
+
+area/github:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+area/spec:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "openspec/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "docs/**"

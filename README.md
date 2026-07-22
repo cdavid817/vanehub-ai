@@ -19,6 +19,8 @@ Desktop-first workspace for managing and switching between AI coding agents.
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)
+[![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/cdavid817/vanehub-ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/codeql.yml)
 [![Package Desktop Apps](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
@@ -112,6 +114,7 @@ Project configuration is stored in the repository:
 - `src-tauri/tauri.conf.json`: Tauri product name, app identifier, window settings, bundle settings, and version `0.1.0`.
 - `tailwind.config.ts` and `src/styles.css`: theme tokens and UI styling.
 - `.github/workflows/package.yml`: manual and tag-triggered desktop packaging workflow.
+- `docs/release-signing.md`: release environment, signing, notarization, checksum, SBOM, and attestation guidance.
 
 Runtime state is created locally by the Tauri backend under `.vanehub/vanehub.sqlite` from the current working directory. No required environment variables were found in the repository.
 
@@ -148,10 +151,7 @@ ucd/
 
 ### Next steps
 
-No implementation change is currently open in `openspec/changes/`. The following are repository-level follow-ups rather than committed feature promises:
-
-- [ ] Add `CONTRIBUTING.md` with branch, test, and review expectations.
-- [ ] Decide whether release artifacts remain unsigned or gain Windows signing and macOS notarization.
+- [ ] Configure trusted macOS signing/notarization credentials and a Windows Authenticode provider in the protected `release` environment.
 - [ ] Add Japanese runtime UI resources if Japanese product localization is required; the repository currently ships English and Simplified Chinese UI resources.
 - [ ] Publish and prioritize the next feature proposals through OpenSpec before implementation.
 
@@ -175,9 +175,7 @@ openspec validate --specs --strict
 
 ## Contributing
 
-`CONTRIBUTING.md` is not present yet. Please confirm whether it should be generated with the repository's expected workflow, test commands, and review rules.
-
-Until then, keep changes scoped, run the relevant validation commands above, and preserve the `AgentService` boundary between React components and runtime-specific backends.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch, OpenSpec, validation, review, and security expectations.
 
 ## License
 
