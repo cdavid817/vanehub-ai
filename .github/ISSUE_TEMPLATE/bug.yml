@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible VaneHub AI defect
+title: "[Bug]: "
+labels:
+  - type/bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve VaneHub AI. Remove secrets and personal data before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: VaneHub AI version or commit
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Web/mock preview
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the actual and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Add relevant logs, screenshots, and agent CLI versions after removing sensitive data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I removed credentials, personal data, and other sensitive content.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

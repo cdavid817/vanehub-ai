@@ -122,22 +122,25 @@ impl FloatingAssistantWindowPort for TauriFloatingAssistantWindowAdapter {
         let (width, height) =
             crate::contexts::desktop::domain::FloatingAssistantSurfaceMode::Collapsed
                 .logical_size();
-        let window = WebviewWindowBuilder::new(
+        let builder = WebviewWindowBuilder::new(
             &self.app,
             FLOATING_ASSISTANT_LABEL,
             WebviewUrl::App("index.html?surface=floating-assistant".into()),
         )
         .title("VaneHub AI")
         .inner_size(width, height)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .resizable(false)
-        .shadow(false)
-        .visible(false)
-        .build()
-        .map_err(|error| self.runtime_error("build", error))?;
+        .decorations(false);
+        // The transparent native surface is Windows-only; macOS does not expose this builder API.
+        #[cfg(target_os = "windows")]
+        let builder = builder.transparent(true);
+        let window = builder
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .resizable(false)
+            .shadow(false)
+            .visible(false)
+            .build()
+            .map_err(|error| self.runtime_error("build", error))?;
         window
             .set_decorations(false)
             .map_err(|error| self.runtime_error("decorations", error))?;

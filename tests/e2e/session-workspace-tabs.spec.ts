@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createSession } from "./session-helpers";
 
-const tabNames = ["聊天", "变更", "文档", "文件", "终端记录", "Shell", "日志", "报告"];
+const tabNames = ["工作区", "变更", "文档", "文件", "终端记录", "Shell", "日志", "报告"];
 
 async function openWorkspace(page: Parameters<typeof createSession>[0], title = "工作区标签测试") {
   await page.goto("/");
@@ -15,15 +15,15 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByRole("tab")).toHaveCount(8);
     for (const name of tabNames) await expect(page.getByRole("tab", { name })).toBeVisible();
 
-    const chat = page.getByRole("tab", { name: "聊天" });
-    await chat.focus();
-    await chat.press("ArrowRight");
+    const workspace = page.getByRole("tab", { name: "工作区" });
+    await workspace.focus();
+    await workspace.press("ArrowRight");
     await expect(page.getByRole("tab", { name: "变更" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "变更" }).press("End");
     await expect(page.getByRole("tab", { name: "报告" })).toBeFocused();
     await expect(page.getByRole("tab", { name: "报告" })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "报告" }).press("Home");
-    await expect(chat).toBeFocused();
+    await expect(workspace).toBeFocused();
   });
 
   test("keeps the folder opener outside the tablist and exposes deterministic Web options", async ({ page }) => {
@@ -32,7 +32,7 @@ test.describe("session workspace tabs", () => {
 
     await expect(page.getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("button", { name: /使用 Visual Studio Code 打开文件夹/ })).toBeVisible();
-    await page.getByRole("button", { name: "选择文件夹打开方式" }).click();
+    await page.getByRole("button", { name: "选择工作区打开工具" }).click();
     await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeFocused();
     await expect(page.getByRole("menuitem", { name: /文件资源管理器/ })).toBeVisible();
@@ -40,10 +40,10 @@ test.describe("session workspace tabs", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     await page.getByRole("menuitem", { name: /Visual Studio Code/ }).press("Escape");
-    await expect(page.getByRole("button", { name: "选择文件夹打开方式" })).toBeFocused();
-    await page.getByRole("button", { name: "选择文件夹打开方式" }).click();
-    await page.getByRole("menuitem", { name: "管理打开方式" }).click();
-    await expect(page.getByRole("heading", { name: "文件夹打开方式" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "选择工作区打开工具" })).toBeFocused();
+    await page.getByRole("button", { name: "选择工作区打开工具" }).click();
+    await page.getByRole("menuitem", { name: "管理工作区打开工具" }).click();
+    await expect(page.getByRole("heading", { name: "打开工作区" })).toBeVisible();
     const gitBash = page.getByRole("checkbox", { name: /Git Bash/ });
     await expect(gitBash).toBeChecked();
     await gitBash.uncheck();
@@ -59,7 +59,7 @@ test.describe("session workspace tabs", () => {
 
   test("keeps mounted tab state and chat draft while switching tabs", async ({ page }) => {
     await openWorkspace(page);
-    const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
+    const composer = page.getByRole("textbox", { name: "工作区命令输入" });
     await composer.fill("保留这个草稿");
 
     await page.getByRole("tab", { name: "日志" }).click();
@@ -72,7 +72,7 @@ test.describe("session workspace tabs", () => {
     await expect(composer).toBeHidden();
     await page.getByRole("tab", { name: "日志" }).click();
     await expect(search).toHaveValue("runtime");
-    await page.getByRole("tab", { name: "聊天" }).click();
+    await page.getByRole("tab", { name: "工作区" }).click();
     await expect(composer).toHaveValue("保留这个草稿");
   });
 
@@ -97,25 +97,23 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByText("Web 预览模式不支持导出本地日志。")).toBeVisible();
 
     await page.getByRole("tab", { name: "Shell" }).click();
-    await expect(page.getByText("模拟环境", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tabpanel", { name: "Shell" }).getByText("模拟环境", { exact: true })).toBeVisible();
     await expect(page.getByLabel("会话交互式 Shell")).toBeVisible();
   });
 
-  test("shows Terminal badge/cards and Report after a mock response", async ({ page }) => {
+  test("shows simulated Agent terminal input and an honest empty report", async ({ page }) => {
     await openWorkspace(page);
-    await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("生成工具与报告数据");
-    await page.getByRole("button", { name: "发送" }).click();
+    await page.getByRole("textbox", { name: "工作区命令输入" }).fill("echo workspace data");
+    await page.getByRole("button", { name: "发送命令" }).click();
+    await expect(page.getByLabel("Agent CLI 工作区")).toContainText("echo workspace data");
 
     const terminal = page.getByRole("tab", { name: /终端记录/ });
-    await expect(terminal).toContainText("1");
+    await expect(terminal).toContainText("0");
     await terminal.click();
-    await expect(page.getByRole("heading", { name: "read_file" })).toBeVisible();
-    await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("README.md");
+    await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("当前会话尚未记录工具执行。");
 
     await page.getByRole("tab", { name: "报告" }).click();
-    await expect(page.getByText("工具排行")).toBeVisible();
-    await expect(page.getByText("read_file").last()).toBeVisible();
-    await expect(page.getByText("已报告输入 Token")).toBeVisible();
+    await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("发送消息后即可生成会话报告。");
   });
 
   test("resets mounted tabs and active tab when selecting another session", async ({ page }) => {
@@ -124,8 +122,8 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
 
     await createSession(page, "第二会话");
-    await expect(page.getByRole("tab", { name: "聊天" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByPlaceholder("输入指令，下发任务给当前 Agent...")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "工作区" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toBeVisible();
     await expect(page.getByRole("tabpanel")).toHaveCount(1);
   });
 

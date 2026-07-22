@@ -19,6 +19,7 @@
     "package:macos:arm64": "tauri build --target aarch64-apple-darwin",
     "package:linux:x64": "tauri build --target x86_64-unknown-linux-gnu",
     "package:linux:arm64": "tauri build --target aarch64-unknown-linux-gnu",
+    "version:check": "node scripts/check-version-sync.mjs",
     "test": "vitest run",
     "contracts:check": "vitest run src/contracts/contract-conformance.test.ts"
   },

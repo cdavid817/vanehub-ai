@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a product or repository improvement
+title: "[Feature]: "
+labels:
+  - type/feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the desired behavior without assuming a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and OpenSpec changes for related work.
+          required: true
+        - label: I understand implementation requires an accepted OpenSpec proposal.
+          required: true

@@ -65,6 +65,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-20 | optimize-session-management-page | main-layout-ui, session-management | `openspec/changes/archive/2026-07-20-optimize-session-management-page/` |
 | 2026-07-21 | settings-about-page-layout | settings-center-ui | `openspec/changes/archive/2026-07-21-settings-about-page-layout/` |
 | 2026-07-22 | add-ssh-connection-management | session-management, settings-center-ui, settings-ssh-connection-ui, ssh-connection-management, unified-log-management | `openspec/changes/archive/2026-07-22-add-ssh-connection-management/` |
+| 2026-07-22 | configure-github-repository | continuous-integration, desktop-release-delivery, repository-governance, software-supply-chain-security | `openspec/changes/archive/2026-07-22-configure-github-repository/` |
 | 2026-07-22 | enhance-session-resume-and-project-sidebar | agent-terminal-runtime, main-layout-ui, session-management | `openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/` |
 | 2026-07-22 | fix-ssh-connection-management-defects | session-management, settings-ssh-connection-ui, ssh-connection-management | `openspec/changes/archive/2026-07-22-fix-ssh-connection-management-defects/` |
 

@@ -892,6 +892,22 @@
                      },
                      {
                          "archivedOn":  "2026-07-22",
+                         "changeName":  "configure-github-repository",
+                         "path":  "openspec/changes/archive/2026-07-22-configure-github-repository/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "continuous-integration",
+                                              "desktop-release-delivery",
+                                              "repository-governance",
+                                              "software-supply-chain-security"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-22",
                          "changeName":  "enhance-session-resume-and-project-sidebar",
                          "path":  "openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/",
                          "artifacts":  [

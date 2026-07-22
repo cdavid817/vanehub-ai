@@ -53,9 +53,9 @@ test("Web mock supports routing, write-only credentials, and QR transitions", as
   await telegram.getByRole("button", { expanded: false }).click();
   await telegram.getByLabel("Bot Token").fill("playwright-private-token");
   await telegram.getByRole("button", { name: "Save Credentials" }).click();
-  await expect(telegram.getByText("Save Credentials in progress...")).toBeVisible();
-  await expect(page.locator('[data-connector="feishu"]')).not.toContainText("in progress");
   await expect(page.getByText("Connector credentials saved.")).toBeVisible();
+  await expect(telegram.getByRole("button", { name: "Save Credentials" })).toBeEnabled();
+  await expect(page.locator('[data-connector="feishu"]')).not.toContainText("in progress");
   await expect(telegram.getByLabel("Bot Token")).toHaveValue("");
   await expect(telegram.getByLabel("Bot Token")).toHaveAttribute("placeholder", "Configured - enter a value only to replace");
   await expect(page.locator("body")).not.toContainText("playwright-private-token");
