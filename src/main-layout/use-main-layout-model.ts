@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
+import { normalizeDisplayPath } from "../lib/session-path";
 import { applyChatEvent } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { settingsService } from "../services/runtime-settings-client";
@@ -100,7 +101,7 @@ export function useMainLayoutModel() {
     mutationFn: ({ session, format }: { session: Session; format: SessionExportFormat }) => agentService.exportSession({ sessionId: session.id, format }),
     onSuccess: (result, input) => {
       if (result.status === "exported") {
-        notify({ type: "success", title: t("notifications.sessionExported.title"), message: t("notifications.sessionExported.message", { title: input.session.title, path: result.path ?? "" }), scope: { kind: "session", sessionId: input.session.id } });
+        notify({ type: "success", title: t("notifications.sessionExported.title"), message: t("notifications.sessionExported.message", { title: input.session.title, path: result.path ? normalizeDisplayPath(result.path) : "" }), scope: { kind: "session", sessionId: input.session.id } });
         return;
       }
       notify({ type: "warning", title: t("notifications.sessionExportCancelled.title"), message: t("notifications.sessionExportCancelled.message"), scope: { kind: "session", sessionId: input.session.id } });

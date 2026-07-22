@@ -14,10 +14,11 @@ describe("BasicSettingsPage", () => {
 
     expect(html).toContain("日志管理");
     expect(html).toContain("启动与系统行为");
-    expect(html).toContain("数据管理");
+    expect(html).toContain("数据与存储");
+    expect(html).toContain("设置持久化与运行时说明");
     expect(html).toContain("开机自启");
     expect(html).toContain("网络代理");
-    expect(html).toContain("文件夹打开方式");
+    expect(html).toContain("打开工作区");
     expect(html).toContain("检测已安装程序");
     expect(html).toContain("NO_PROXY");
     expect(html).toContain("30 天");

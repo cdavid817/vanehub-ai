@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { normalizeDisplayPath } from "../../lib/session-path";
 import type { CliToolStatus } from "../../types/agent";
 import { CliInstallationList } from "./cli-installation-list";
 
@@ -37,7 +38,9 @@ export function CliConflictDialog({ tool, onCancel, onConfirm }: CliConflictDial
         </div>
         <div className="mt-4 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-xs">
           <div className="text-muted-foreground">{t("cli.confirm.target")}</div>
-          <div className="mt-1 break-all font-mono">{tool.activeInstallationPath ?? t("cli.notAvailable")}</div>
+          <div className="mt-1 break-all font-mono">
+            {tool.activeInstallationPath ? normalizeDisplayPath(tool.activeInstallationPath) : t("cli.notAvailable")}
+          </div>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel}>{t("cli.confirm.cancel")}</Button>

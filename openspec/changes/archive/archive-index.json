@@ -861,6 +861,19 @@
                                           ]
                      },
                      {
+                         "archivedOn":  "2026-07-21",
+                         "changeName":  "settings-about-page-layout",
+                         "path":  "openspec/changes/archive/2026-07-21-settings-about-page-layout/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-center-ui"
+                                          ]
+                     },
+                     {
                          "archivedOn":  "2026-07-22",
                          "changeName":  "add-ssh-connection-management",
                          "path":  "openspec/changes/archive/2026-07-22-add-ssh-connection-management/",

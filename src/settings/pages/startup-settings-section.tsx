@@ -23,21 +23,21 @@ export function StartupSettingsSection() {
   }
 
   return (
-    <SectionPanel title={t("basic.systemBehavior")} description={t("basic.systemBehaviorDesc")}>
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-primary">
+    <SectionPanel icon={Power} title={t("basic.systemBehavior")} description={t("basic.systemBehaviorDesc")}>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-4 sm:flex-row sm:items-center">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
           <Power className="h-5 w-5" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">{t("basic.launchOnStartup")}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
+          <div className="text-sm font-medium text-foreground">{t("basic.launchOnStartup")}</div>
+          <div className="mt-1 text-sm leading-6 text-muted-foreground">
             {nativeAvailable ? t("basic.launchOnStartupHint") : t("basic.launchOnStartupUnavailable")}
           </div>
         </div>
         <button
           aria-checked={enabled}
           aria-label={t("basic.launchOnStartup")}
-          className={`relative h-6 w-11 rounded-full transition-colors ${enabled ? "bg-primary" : "bg-muted-foreground/40"}`}
+          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${enabled ? "bg-primary" : "bg-muted-foreground/40"}`}
           disabled={busy || !nativeAvailable}
           onClick={toggle}
           role="switch"
