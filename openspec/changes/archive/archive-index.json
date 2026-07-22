@@ -859,6 +859,21 @@
                                               "main-layout-ui",
                                               "session-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-22",
+                         "changeName":  "enhance-session-resume-and-project-sidebar",
+                         "path":  "openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "main-layout-ui",
+                                              "session-management"
+                                          ]
                      }
                  ]
 }

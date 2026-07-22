@@ -2,8 +2,9 @@ import { renderToString } from "react-dom/server";
 import "../i18n";
 import { describe, expect, it, vi } from "vitest";
 import type { Session } from "../types/agent";
+import { clampSessionSidebarWidth } from "./main-layout";
 import { SessionSidebar } from "./session-sidebar";
-import { filterSearchResultsByAgent, filterSessionsByAgent, pruneSelectionToVisible } from "./session-sidebar-model";
+import { filterSearchResultsByAgent, filterSessionsByAgent, groupSessionsByProject, pruneSelectionToVisible } from "./session-sidebar-model";
 
 function session(agentId: string): Session {
   return {
@@ -56,11 +57,11 @@ describe("SessionSidebar CLI icons", () => {
     expect(html).toContain("批量管理");
     expect(html).toContain("列表");
     expect(html).toContain("分类");
+    expect(html).toContain("项目");
   });
-
 });
 
-describe("session sidebar filtering", () => {
+describe("session sidebar filtering and grouping", () => {
   it("filters sessions by stable managed agent id", () => {
     const sessions = [session("claude-code"), session("codex-cli"), session("gemini-cli")];
 
@@ -83,5 +84,28 @@ describe("session sidebar filtering", () => {
     const pruned = pruneSelectionToVisible(selected, [session("claude-code")]);
 
     expect([...pruned]).toEqual(["session-claude-code"]);
+  });
+
+  it("groups sessions by project metadata while preserving in-group order", () => {
+    const worktree = { ...session("codex-cli"), id: "worktree", worktreePath: "D:\\code\\demo-feature", worktreeName: "feature" };
+    const projectFirst = { ...session("claude-code"), id: "project-1", projectPath: "D:\\code\\demo" };
+    const projectSecond = { ...session("gemini-cli"), id: "project-2", projectPath: "D:\\code\\demo" };
+    const remote = { ...session("opencode"), id: "remote", remoteWorkspace: { host: "devbox", user: null, path: "/srv/app", displayName: "devbox:app", uri: "ssh://devbox/srv/app" } };
+    const ungrouped = { ...session("future-agent"), id: "ungrouped" };
+
+    const groups = groupSessionsByProject([worktree, projectFirst, projectSecond, remote, ungrouped], "No Project");
+
+    expect(groups.map((group) => [group.label, group.sessions.map((item) => item.id)])).toEqual([
+      ["feature", ["worktree"]],
+      ["demo", ["project-1", "project-2"]],
+      ["devbox:app", ["remote"]],
+      ["No Project", ["ungrouped"]],
+    ]);
+  });
+
+  it("clamps the resizable session sidebar width", () => {
+    expect(clampSessionSidebarWidth(120)).toBe(220);
+    expect(clampSessionSidebarWidth(300.4)).toBe(300);
+    expect(clampSessionSidebarWidth(900)).toBe(420);
   });
 });

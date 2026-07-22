@@ -1,8 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import ReactMarkdown from "react-markdown";
 import { beforeAll, describe, expect, it } from "vitest";
 import { i18n } from "../i18n";
+import { managedCliAgentIds } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
+import { agentTerminalInputClassName } from "./agent-terminal-tab";
 import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
 import { TerminalTab, toolUseCount } from "./terminal-tab";
@@ -46,5 +49,46 @@ describe("session workspace components", () => {
     const html = renderToStaticMarkup(<ReactMarkdown skipHtml>{"# Safe\n<script>alert('x')</script>"}</ReactMarkdown>);
     expect(html).toContain("Safe");
     expect(html).not.toContain("<script");
+  });
+
+  it("keeps all managed CLI terminal output readable", () => {
+    expect(agentTerminalInputClassName).toContain("ucd-agent-terminal-input");
+    const source = readFileSync(new URL("./agent-terminal-tab.tsx", import.meta.url), "utf8");
+    const sessionTabsSource = readFileSync(new URL("./session-tabs.tsx", import.meta.url), "utf8");
+    const themeSource = readFileSync(new URL("./terminal-theme.ts", import.meta.url), "utf8");
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(managedCliAgentIds).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+    expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
+    expect(source).not.toContain("bg-zinc-950");
+    expect(source).toContain("allowTransparency: true");
+    expect(themeSource).toContain("selectionForeground");
+    expect(themeSource).toContain('background: "rgba(0, 0, 0, 0)"');
+    expect(themeSource).toContain("black: foreground");
+    expect(styles).toContain(".ucd-agent-terminal .xterm-viewport");
+    expect(styles).toContain(".ucd-agent-terminal .xterm-bg-0");
+    expect(styles).toContain(".ucd-agent-terminal .xterm-bg-257");
+    expect(styles).toContain(".ucd-agent-terminal .xterm-fg-257");
+  });
+
+  it("keeps the ordinary shell readable for ANSI inverse output", () => {
+    const source = readFileSync(new URL("./shell-tab.tsx", import.meta.url), "utf8");
+    const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
+    expect(source).toContain("allowTransparency: true");
+    expect(source).toContain("createTerminalTheme()");
+    expect(source).toContain("ucd-shell-terminal");
+    expect(styles).toContain(".ucd-shell-terminal .xterm-viewport");
+    expect(styles).toContain(".ucd-shell-terminal .xterm-bg-0");
+    expect(styles).toContain(".ucd-shell-terminal .xterm-bg-257");
+    expect(styles).toContain(".ucd-shell-terminal .xterm-fg-257");
+  });
+
+  it("reconnects stopped agent terminals only after an explicit session activation", () => {
+    const source = readFileSync(new URL("./agent-terminal-tab.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("sessionActivationKey");
+    expect(source).toContain("state !== \"stopped\" && state !== \"failed\"");
+    expect(source).toContain("setConnectNonce");
   });
 });

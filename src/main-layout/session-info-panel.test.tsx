@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import { i18n } from "../i18n";
 import type { Session } from "../types/agent";
-import type { SessionUsageSummary } from "../types/chat";
+import type { ChatMessage, SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
 import { SessionInfoPanel } from "./session-info-panel";
 
@@ -62,8 +62,8 @@ function skill(id: string, enabled: boolean, boundAgentIds: string[], scope: "gl
   };
 }
 
-function renderPanel(usage: SessionUsageSummary) {
-  const activeSession = session();
+function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Session> = {}, messages: ChatMessage[] = []) {
+  const activeSession = { ...session(), ...overrideSession };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(["session-chat-config", activeSession.id], {
     agentId: "codex-cli",
@@ -91,7 +91,7 @@ function renderPanel(usage: SessionUsageSummary) {
 
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <SessionInfoPanel activeSession={activeSession} collapsed={false} onCollapsedChange={vi.fn()} />
+      <SessionInfoPanel activeSession={activeSession} collapsed={false} messages={messages} onCollapsedChange={vi.fn()} />
     </QueryClientProvider>,
   );
 }
@@ -134,6 +134,47 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("No reported tokens yet");
     expect(html).toContain("Estimated Responses");
     expect(html).toContain("2,000");
+  });
+
+  it("normalizes Windows extended-length workspace paths for display", () => {
+    const html = renderPanel({
+      sessionId: "session-info-fixture",
+      reported: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 },
+      estimated: { inputCharacters: 0, outputCharacters: 0, totalCharacters: 0 },
+      coverage: { reportedResponses: 0, estimatedResponses: 0, totalResponses: 0, reportedPercent: 0 },
+      responseCount: 0,
+      generatedAt: "2026-07-20T00:00:00.000Z",
+    }, {
+      projectPath: "\\\\?\\D:\\cdavid\\Documents\\code\\claude-code",
+      worktreePath: null,
+    });
+
+    expect(html).toContain("D:\\cdavid\\Documents\\code\\claude-code");
+    expect(html).not.toContain("\\\\?\\D:");
+  });
+
+  it("uses live message token usage while the session summary refreshes", () => {
+    const html = renderPanel({
+      sessionId: "session-info-fixture",
+      reported: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 },
+      estimated: { inputCharacters: 0, outputCharacters: 0, totalCharacters: 0 },
+      coverage: { reportedResponses: 0, estimatedResponses: 0, totalResponses: 0, reportedPercent: 0 },
+      responseCount: 0,
+      generatedAt: "2026-07-20T00:00:00.000Z",
+    }, {}, [{
+      id: "assistant-1",
+      sessionId: "session-info-fixture",
+      role: "assistant",
+      content: "done",
+      status: "completed",
+      tokenUsage: { input: 12, output: 34 },
+      createdAt: "2026-07-20T00:00:00.000Z",
+      updatedAt: "2026-07-20T00:00:01.000Z",
+    }]);
+
+    expect(html).toContain("12");
+    expect(html).toContain("34");
+    expect(html).toContain("46");
   });
 
   it("groups available CLI Skills separately from project Skills", () => {

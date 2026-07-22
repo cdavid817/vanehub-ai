@@ -522,7 +522,36 @@ mod tests {
                 .managed_args,
             vec!["--strict-config".to_string()]
         );
+        assert_eq!(
+            world
+                .session
+                .lock()
+                .expect("session")
+                .runtime_session_id
+                .as_deref(),
+            Some("runtime-1")
+        );
         assert_eq!(*world.workflow_events.lock().expect("events"), 1);
+    }
+
+    #[test]
+    fn stored_runtime_session_id_is_passed_to_terminal_start_for_resume() {
+        let mut persisted = session(false);
+        persisted.runtime_session_id = Some("provider-resume-1".to_string());
+        let world = TerminalWorld::new(persisted);
+
+        world
+            .service()
+            .open_or_attach(open_request())
+            .expect("open terminal");
+
+        assert_eq!(
+            world.terminal_requests.lock().expect("requests")[0]
+                .session
+                .runtime_session_id
+                .as_deref(),
+            Some("provider-resume-1")
+        );
     }
 
     #[test]
@@ -802,6 +831,15 @@ impl AgentTerminalApplicationService {
                 return Err(error);
             }
         };
+        if let Some(runtime_session_id) = terminal
+            .runtime_session_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            self.ports
+                .sessions
+                .update_runtime_session_id(&session.id, runtime_session_id)?;
+        }
         self.ports
             .sessions
             .update_lifecycle(&session.id, AgentLifecycle::Running)?;

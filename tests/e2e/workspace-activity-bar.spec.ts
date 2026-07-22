@@ -33,20 +33,68 @@ test.describe("workspace activity bar", () => {
     await expect(grid).toHaveAttribute("data-info-collapsed", "true");
   });
 
-  test("preserves group mode and expanded folders while keeping collapsed controls inert", async ({ page }) => {
+  test("resizes the session sidebar and restores the persisted width after collapse and reload", async ({ page }) => {
+    await page.addInitScript(() => {
+      if (window.localStorage.getItem("vanehub.session-sidebar.width.v1") === null) {
+        window.localStorage.setItem("vanehub.session-sidebar.width.v1", "300");
+      }
+    });
+    await page.goto("/");
+
+    const sessionSidebar = page.locator("#workspace-session-sidebar");
+    const resizeHandle = page.getByRole("button", { name: "调整会话栏宽度" });
+    await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBe(300);
+
+    const handleBox = await resizeHandle.boundingBox();
+    expect(handleBox).not.toBeNull();
+    if (!handleBox) throw new Error("Session sidebar resize handle is not visible.");
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x + handleBox.width / 2 + 90, handleBox.y + handleBox.height / 2);
+    await page.mouse.up();
+
+    await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBeGreaterThan(380);
+    const persistedWidth = await page.evaluate(() => Number(window.localStorage.getItem("vanehub.session-sidebar.width.v1")));
+    expect(persistedWidth).toBeGreaterThan(380);
+    expect(persistedWidth).toBeLessThanOrEqual(420);
+
+    await page.getByRole("button", { name: "折叠会话栏" }).click();
+    await expect(sessionSidebar).toHaveJSProperty("inert", true);
+    await page.getByRole("button", { name: "展开会话栏" }).click();
+    await expect(sessionSidebar).toHaveJSProperty("inert", false);
+    await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBe(persistedWidth);
+
+    await page.reload();
+    await expect.poll(async () => Math.round((await sessionSidebar.boundingBox())?.width ?? 0)).toBe(persistedWidth);
+  });
+
+  test("restores project grouping preferences and keeps the active session while toggling a group", async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("vanehub.session-sidebar.presentation.v1", "project");
+      window.localStorage.setItem(
+        "vanehub.session-sidebar.expanded-groups.v1",
+        JSON.stringify(["project:D:\\example-workspace"]),
+      );
+    });
     await page.goto("/");
     await createSession(page, "文件夹状态测试");
 
     const sessionSidebar = page.locator("#workspace-session-sidebar");
-    const groupMode = page.getByRole("button", { name: "分组", exact: true });
-    await groupMode.click();
-    await expect(groupMode).toHaveClass(/text-primary/);
+    const projectMode = page.getByRole("button", { name: "项目", exact: true });
+    await expect(projectMode).toHaveClass(/text-primary/);
 
-    const folder = page.getByRole("button", { name: /D:\\example-workspace.*1/ });
-    await folder.click();
+    const folder = page.getByRole("button", { name: /example-workspace.*1/ });
     const sessionCard = page.getByRole("button", { name: /文件夹状态测试/ });
     await expect(sessionCard).toBeVisible();
     await expect(sessionCard).toHaveClass(/border-primary/);
+
+    await folder.click();
+    await expect(sessionCard).toBeHidden();
+    expect(await page.evaluate(() => window.localStorage.getItem("vanehub.session-sidebar.expanded-groups.v1"))).toBe("[]");
+    await folder.click();
+    await expect(sessionCard).toBeVisible();
+    await expect(sessionCard).toHaveClass(/border-primary/);
+    expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem("vanehub.session-sidebar.expanded-groups.v1") ?? "[]"))).toContain("project:D:\\example-workspace");
 
     await page.getByRole("button", { name: "折叠会话栏" }).click();
     await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
@@ -56,7 +104,7 @@ test.describe("workspace activity bar", () => {
 
     await page.getByRole("button", { name: "展开会话栏" }).click();
     await expect(sessionSidebar).toHaveJSProperty("inert", false);
-    await expect(groupMode).toHaveClass(/text-primary/);
+    await expect(projectMode).toHaveClass(/text-primary/);
     await expect(folder).toBeVisible();
     await expect(sessionCard).toBeVisible();
     await expect(sessionCard).toHaveClass(/border-primary/);

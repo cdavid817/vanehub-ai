@@ -38,7 +38,7 @@ function formatDateTime(value: string | null, language: string) {
 
 function statusClass(status: ScheduledTask["latestStatus"]) {
   if (status === "failed") return "text-destructive";
-  if (status === "succeeded") return "text-emerald-500";
+  if (status === "succeeded") return "text-[hsl(var(--success))]";
   if (status === "running") return "text-primary";
   return "text-muted-foreground";
 }

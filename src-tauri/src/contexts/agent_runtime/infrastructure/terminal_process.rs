@@ -327,20 +327,19 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                             if let ProviderOutputEvent::SessionId(runtime_session_id) =
                                 parser.parse_line(line)
                             {
-                                let _ = sessions
-                                    .update_runtime_session_id(&session_id, &runtime_session_id);
-                                if let Ok(mut terminals) = terminals.lock() {
-                                    if let Some(terminal) = terminals.get_mut(&session_id) {
-                                        terminal.runtime_session_id =
-                                            Some(runtime_session_id.clone());
-                                    }
-                                }
-                                let _ =
-                                    events.publish_terminal(AgentTerminalEvent::RuntimeSessionId {
-                                        terminal_id: terminal_id.clone(),
-                                        session_id: session_id.clone(),
-                                        runtime_session_id,
-                                    });
+                                let event = record_runtime_session_id(
+                                    terminals.as_ref(),
+                                    &terminal_id,
+                                    &session_id,
+                                    runtime_session_id,
+                                    |session_id, runtime_session_id| {
+                                        let _ = sessions.update_runtime_session_id(
+                                            session_id,
+                                            runtime_session_id,
+                                        );
+                                    },
+                                );
+                                let _ = events.publish_terminal(event);
                             }
                         }
                     }
@@ -498,6 +497,26 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             }
         }
         Ok(stopped)
+    }
+}
+
+fn record_runtime_session_id(
+    terminals: &Mutex<HashMap<String, ManagedAgentTerminal>>,
+    terminal_id: &str,
+    session_id: &str,
+    runtime_session_id: String,
+    persist: impl FnOnce(&str, &str),
+) -> AgentTerminalEvent {
+    persist(session_id, &runtime_session_id);
+    if let Ok(mut terminals) = terminals.lock() {
+        if let Some(terminal) = terminals.get_mut(session_id) {
+            terminal.runtime_session_id = Some(runtime_session_id.clone());
+        }
+    }
+    AgentTerminalEvent::RuntimeSessionId {
+        terminal_id: terminal_id.to_string(),
+        session_id: session_id.to_string(),
+        runtime_session_id,
     }
 }
 
@@ -670,6 +689,24 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
 
+    fn managed_terminal(runtime_session_id: Option<&str>) -> ManagedAgentTerminal {
+        ManagedAgentTerminal {
+            terminal_id: "terminal-1".to_string(),
+            session_id: "session-1".to_string(),
+            agent_id: "codex-cli".to_string(),
+            runtime_session_id: runtime_session_id.map(str::to_string),
+            last_active_at: 1,
+            size: AgentTerminalSize { rows: 24, cols: 80 },
+            master: native_pty_system()
+                .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
+                .expect("pty")
+                .master,
+            writer: Box::new(Vec::<u8>::new()),
+            child: Arc::new(Mutex::new(dummy_child())),
+            transcript: String::new(),
+        }
+    }
+
     #[test]
     fn terminal_size_bounds_rows_and_cols_for_pty() {
         let size = terminal_size(&AgentTerminalSize { rows: 0, cols: 900 });
@@ -752,21 +789,7 @@ mod tests {
 
     #[test]
     fn agent_terminal_session_projection_uses_native_retained_running_state() {
-        let terminal = ManagedAgentTerminal {
-            terminal_id: "terminal-1".to_string(),
-            session_id: "session-1".to_string(),
-            agent_id: "codex-cli".to_string(),
-            runtime_session_id: Some("runtime-1".to_string()),
-            last_active_at: 1,
-            size: AgentTerminalSize { rows: 24, cols: 80 },
-            master: native_pty_system()
-                .openpty(terminal_size(&AgentTerminalSize { rows: 1, cols: 1 }))
-                .expect("pty")
-                .master,
-            writer: Box::new(Vec::<u8>::new()),
-            child: Arc::new(Mutex::new(dummy_child())),
-            transcript: String::new(),
-        };
+        let terminal = managed_terminal(Some("runtime-1"));
 
         let session = agent_terminal_session(&terminal);
 
@@ -774,6 +797,49 @@ mod tests {
         assert_eq!(session.state, AgentTerminalState::Running);
         assert_eq!(session.capability, AgentTerminalCapability::Native);
         assert!(session.retained);
+    }
+
+    #[test]
+    fn runtime_session_id_event_persists_refreshes_retained_terminal_and_publishes_latest_id() {
+        let terminals = Mutex::new(HashMap::from([(
+            "session-1".to_string(),
+            managed_terminal(Some("runtime-1")),
+        )]));
+        let persisted = Mutex::new(Vec::<(String, String)>::new());
+
+        let event = record_runtime_session_id(
+            &terminals,
+            "terminal-1",
+            "session-1",
+            "runtime-2".to_string(),
+            |session_id, runtime_session_id| {
+                persisted
+                    .lock()
+                    .expect("persisted ids")
+                    .push((session_id.to_string(), runtime_session_id.to_string()));
+            },
+        );
+
+        assert_eq!(
+            *persisted.lock().expect("persisted ids"),
+            vec![("session-1".to_string(), "runtime-2".to_string())]
+        );
+        assert_eq!(
+            terminals.lock().expect("terminals")["session-1"]
+                .runtime_session_id
+                .as_deref(),
+            Some("runtime-2")
+        );
+        assert!(matches!(
+            event,
+            AgentTerminalEvent::RuntimeSessionId {
+                terminal_id,
+                session_id,
+                runtime_session_id,
+            } if terminal_id == "terminal-1"
+                && session_id == "session-1"
+                && runtime_session_id == "runtime-2"
+        ));
     }
 
     #[test]

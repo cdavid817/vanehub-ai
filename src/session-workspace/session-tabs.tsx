@@ -17,11 +17,13 @@ export function SessionTabs({
   messages,
   messagesPartial,
   onOpenSettings,
+  sessionActivationKey,
 }: {
   activeSession: Session | null;
   messages: ChatMessage[];
   messagesPartial: boolean;
   onOpenSettings: () => void;
+  sessionActivationKey: number;
 }) {
   const sessionId = activeSession?.id ?? null;
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
@@ -50,7 +52,7 @@ export function SessionTabs({
             key={`${sessionId ?? "none"}-${id}`}
             role="tabpanel"
           >
-            {id === "chat" ? <AgentTerminalTab active={activeTab === "chat"} session={activeSession} /> : null}
+            {id === "chat" ? <AgentTerminalTab active={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} /> : null}
             {id === "changes" ? <ChangesTab sessionId={sessionId} /> : null}
             {id === "documents" ? <DocumentsTab sessionId={sessionId} /> : null}
             {id === "files" ? <FilesTab sessionId={sessionId} /> : null}

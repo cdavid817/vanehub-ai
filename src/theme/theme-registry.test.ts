@@ -43,4 +43,13 @@ describe("theme registry", () => {
       }
     }
   });
+
+  it("uses the matching native control color scheme for each style", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+    const futuristic = css.match(/:root\[data-theme="futuristic"\] \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    const minimal = css.match(/:root\[data-theme="minimal"\] \{([\s\S]*?)\n\}/)?.[1] ?? "";
+
+    expect(futuristic).toContain("color-scheme: dark");
+    expect(minimal).toContain("color-scheme: light");
+  });
 });

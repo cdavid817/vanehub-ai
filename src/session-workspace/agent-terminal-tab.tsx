@@ -7,25 +7,14 @@ import { Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentTerminalState, Session } from "../types/agent";
+import { createTerminalTheme } from "./terminal-theme";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
 const retainedTerminalReplayBytes = 1_000_000;
 const replayBySession = new Map<string, string>();
-
-function semanticColor(name: string, fallback: string) {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value ? `hsl(${value})` : fallback;
-}
-
-function terminalTheme() {
-  return {
-    background: semanticColor("--panel-muted", "#111827"),
-    foreground: semanticColor("--foreground", "#f3f4f6"),
-    cursor: semanticColor("--primary", "#60a5fa"),
-    selectionBackground: semanticColor("--accent", "#334155"),
-  };
-}
+export const agentTerminalInputClassName =
+  "ucd-agent-terminal-input min-h-20 w-full resize-none border-0 px-2 py-1 text-sm outline-none disabled:cursor-not-allowed";
 
 function readReplay(sessionId: string) {
   return replayBySession.get(sessionId) ?? "";
@@ -44,7 +33,7 @@ function clearReplay(sessionId: string) {
   replayBySession.delete(sessionId);
 }
 
-export function AgentTerminalTab({ active, session }: { active: boolean; session: Session | null }) {
+export function AgentTerminalTab({ active, session, sessionActivationKey }: { active: boolean; session: Session | null; sessionActivationKey: number }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const sessionId = session?.id ?? null;
@@ -53,7 +42,9 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
   const fitRef = useRef<FitAddon | null>(null);
   const terminalIdRef = useRef<string | null>(null);
   const activeRef = useRef(active);
+  const activationKeyRef = useRef(sessionActivationKey);
   const [state, setState] = useState<AgentTerminalState>("starting");
+  const [connectNonce, setConnectNonce] = useState(0);
   const [simulated, setSimulated] = useState(false);
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const [commandInput, setCommandInput] = useState("");
@@ -68,11 +59,12 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     const terminal = new XtermTerminal({
+      allowTransparency: true,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       fontSize: 13,
-      theme: terminalTheme(),
+      theme: createTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
@@ -96,7 +88,7 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
     });
     resizeObserver.observe(hostRef.current);
     const themeObserver = new MutationObserver(() => {
-      terminal.options.theme = terminalTheme();
+      terminal.options.theme = createTerminalTheme();
     });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
@@ -121,6 +113,11 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
             }
             appendReplay(targetSessionId, event.content);
             terminal.write(event.content);
+            return;
+          }
+          if (event.type === "runtime_session_id") {
+            terminalIdRef.current = event.terminalId;
+            void queryClient.invalidateQueries({ queryKey: ["sessions"] });
             return;
           }
           if (event.type === "state") {
@@ -167,7 +164,14 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [queryClient, sessionId, t]);
+  }, [connectNonce, queryClient, sessionId, t]);
+
+  useEffect(() => {
+    if (activationKeyRef.current === sessionActivationKey) return;
+    activationKeyRef.current = sessionActivationKey;
+    if (!active || !sessionId || terminalIdRef.current || (state !== "stopped" && state !== "failed")) return;
+    setConnectNonce((value) => value + 1);
+  }, [active, sessionActivationKey, sessionId, state]);
 
   useEffect(() => {
     if (!active) return;
@@ -210,12 +214,12 @@ export function AgentTerminalTab({ active, session }: { active: boolean; session
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
-      <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="min-h-0 flex-1 p-2" ref={hostRef} />
+      <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="ucd-agent-terminal min-h-0 flex-1 bg-[hsl(var(--panel-muted))] p-2" ref={hostRef} />
       <form className="shrink-0 border-t border-border bg-background/80 p-2" onSubmit={(event) => { event.preventDefault(); submitCommand(); }}>
         <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 shadow-sm focus-within:border-primary">
           <textarea
           aria-label={t("sessionTabs.agentTerminal.input")}
-          className="min-h-20 w-full resize-none border-0 bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          className={agentTerminalInputClassName}
           disabled={!canSubmitCommand}
           onKeyDown={handleComposerKeyDown}
           onChange={(event) => setCommandInput(event.target.value)}

@@ -15,10 +15,11 @@ import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { Button } from "../components/ui/button";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
+import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
-import type { SessionUsageSummary } from "../types/chat";
+import type { ChatMessage, SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
 
 type InfoTab = "basic" | "usage" | "skills";
@@ -78,6 +79,31 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <p className="rounded border border-border bg-background p-3 text-xs text-muted-foreground">{children}</p>;
 }
 
+function summaryWithLiveReportedTokens(summary: SessionUsageSummary | undefined, sessionId: string | null, messages: ChatMessage[]): SessionUsageSummary | undefined {
+  if (!summary || summary.reported.totalTokens > 0 || !sessionId) return summary;
+  const reportedMessages = messages.filter((message) => message.sessionId === sessionId && message.role === "assistant" && message.status === "completed" && message.tokenUsage);
+  if (reportedMessages.length === 0) return summary;
+  const reported = reportedMessages.reduce((totals, message) => {
+    totals.inputTokens += message.tokenUsage?.input ?? 0;
+    totals.outputTokens += message.tokenUsage?.output ?? 0;
+    return totals;
+  }, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 });
+  reported.totalTokens = reported.inputTokens + reported.outputTokens;
+  if (reported.totalTokens === 0) return summary;
+  const totalResponses = Math.max(summary.coverage.totalResponses, reportedMessages.length);
+  return {
+    ...summary,
+    reported,
+    coverage: {
+      ...summary.coverage,
+      reportedResponses: Math.max(summary.coverage.reportedResponses, reportedMessages.length),
+      totalResponses,
+      reportedPercent: totalResponses === 0 ? 0 : (Math.max(summary.coverage.reportedResponses, reportedMessages.length) / totalResponses) * 100,
+    },
+    responseCount: Math.max(summary.responseCount, reportedMessages.length),
+  };
+}
+
 function TokenUsagePane({ loading, summary }: { loading: boolean; summary: SessionUsageSummary | undefined }) {
   const { t } = useTranslation();
   if (loading) return <EmptyState>{t("layout.info.loading")}</EmptyState>;
@@ -125,14 +151,16 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
   );
 }
 
-export function SessionInfoPanel({ activeSession, collapsed, onCollapsedChange }: { activeSession: Session | null; collapsed: boolean; onCollapsedChange: (collapsed: boolean) => void }) {
+export function SessionInfoPanel({ activeSession, collapsed, messages = [], onCollapsedChange }: { activeSession: Session | null; collapsed: boolean; messages?: ChatMessage[]; onCollapsedChange: (collapsed: boolean) => void }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<InfoTab>("basic");
   const sessionId = activeSession?.id ?? null;
   const workspacePath = activeSession?.worktreePath ?? activeSession?.projectPath ?? null;
+  const workspaceDisplayPath = workspacePath ?? activeSession?.folder ?? null;
   const identity = getAgentVisualIdentity(activeSession?.agentId ?? "");
   const chatConfig = useQuery({ enabled: Boolean(sessionId), queryKey: ["session-chat-config", sessionId], queryFn: () => agentService.getSessionChatConfig(sessionId ?? "") });
   const usage = useQuery({ enabled: Boolean(sessionId), queryKey: ["session-usage-summary", sessionId], queryFn: () => agentService.getSessionUsageSummary(sessionId ?? "") });
+  const usageSummary = useMemo(() => summaryWithLiveReportedTokens(usage.data, sessionId, messages), [messages, sessionId, usage.data]);
   const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
   const workspaceSkills = useQuery({ enabled: Boolean(sessionId && workspacePath), queryKey: ["skills", "workspace", workspacePath], queryFn: () => agentService.listSkills({ scope: "workspace", workspacePath }) });
   const skillGroups = useMemo(() => {
@@ -157,11 +185,11 @@ export function SessionInfoPanel({ activeSession, collapsed, onCollapsedChange }
                 <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
                 <Field icon={<Activity className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.lifecycle")} value={activeSession ? t(`layout.lifecycle.${activeSession.lifecycleState}`) : t("layout.noSession")} />
                 <Field icon={<Brain className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.model")} value={chatConfig.data?.modelId ?? t("layout.info.modelUnavailable")} />
-                <Field icon={<FolderGit2 className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.workspace")} value={workspacePath ?? activeSession?.folder ?? t("layout.info.workspaceUnavailable")} />
+                <Field icon={<FolderGit2 className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.workspace")} value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")} />
               </section>
             </dl>
           </Pane>
-          <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
+          <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usageSummary} /></Pane>
           <Pane active={activeTab === "skills"}>
             <div className="grid gap-3">
               <section className="ucd-muted-panel rounded-lg p-3">

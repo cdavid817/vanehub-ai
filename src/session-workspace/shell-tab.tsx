@@ -5,22 +5,9 @@ import "@xterm/xterm/css/xterm.css";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { ShellConnectionState } from "../types/session-workspace";
+import { createTerminalTheme } from "./terminal-theme";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
-
-function semanticColor(name: string, fallback: string) {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value ? `hsl(${value})` : fallback;
-}
-
-function terminalTheme() {
-  return {
-    background: semanticColor("--panel-muted", "#111827"),
-    foreground: semanticColor("--foreground", "#f3f4f6"),
-    cursor: semanticColor("--primary", "#60a5fa"),
-    selectionBackground: semanticColor("--accent", "#334155"),
-  };
-}
 
 export function ShellTab({ active, sessionId }: { active: boolean; sessionId: string | null }) {
   const { t } = useTranslation();
@@ -41,11 +28,12 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     const terminal = new XtermTerminal({
+      allowTransparency: true,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       fontSize: 13,
-      theme: terminalTheme(),
+      theme: createTerminalTheme(),
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit); terminal.open(hostRef.current); fit.fit();
@@ -62,7 +50,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     });
     resizeObserver.observe(hostRef.current);
     const themeObserver = new MutationObserver(() => {
-      terminal.options.theme = terminalTheme();
+      terminal.options.theme = createTerminalTheme();
     });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
@@ -90,7 +78,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
       if (shellId) void agentService.killShell(shellId);
       terminalRef.current = null; fitRef.current = null;
     };
-  }, [sessionId]);
+  }, [sessionId, t]);
 
   useEffect(() => {
     if (!active) return;
@@ -115,7 +103,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
-      <div aria-label={t("sessionTabs.shell.terminal")} className="min-h-0 flex-1 p-2" ref={hostRef} />
+      <div aria-label={t("sessionTabs.shell.terminal")} className="ucd-shell-terminal min-h-0 flex-1 bg-[hsl(var(--panel-muted))] p-2" ref={hostRef} />
     </div>
   );
 }

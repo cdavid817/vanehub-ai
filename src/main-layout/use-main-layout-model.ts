@@ -124,6 +124,10 @@ export function useMainLayoutModel() {
     let cancelled = false;
     void agentService.subscribeMessageEvents(activeSessionId, (event) => {
       queryClient.setQueryData<ChatMessage[]>(messagesKey, (current) => applyChatEvent(current ?? [], event));
+      if (event.type === "completed" && event.tokenUsage) {
+        void queryClient.invalidateQueries({ queryKey: ["session-usage-summary", event.sessionId] });
+        void queryClient.invalidateQueries({ queryKey: ["usage-statistics"] });
+      }
       if (["completed", "failed", "cancelled"].includes(event.type)) invalidateSessions();
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => { cancelled = true; cleanup?.(); };
