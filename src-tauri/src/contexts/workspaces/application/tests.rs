@@ -381,7 +381,7 @@ fn history_queries_and_records_use_the_repository_and_injected_clock() {
     let inspection =
         ProjectInspection::from_probe("C:\\code\\app", Some("C:\\code\\app".to_string()))
             .expect("inspection");
-    let remote = RemoteWorkspace::new("example.com", Some("dev"), "/work/app", None)
+    let remote = RemoteWorkspace::new("example.com", None, Some("dev"), "/work/app", None)
         .expect("remote workspace");
 
     assert_eq!(service.list_known_projects().expect("projects").len(), 1);

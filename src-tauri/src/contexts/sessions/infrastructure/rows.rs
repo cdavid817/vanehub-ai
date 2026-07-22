@@ -10,7 +10,7 @@ use crate::contexts::sessions::domain::{
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
 
-pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions";
+pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions";
 pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
@@ -28,6 +28,7 @@ pub(super) struct SessionRow {
     worktree_name: Option<String>,
     worktree_branch: Option<String>,
     remote_workspace_host: Option<String>,
+    remote_workspace_port: Option<i64>,
     remote_workspace_user: Option<String>,
     remote_workspace_path: Option<String>,
     remote_workspace_display_name: Option<String>,
@@ -56,18 +57,19 @@ impl SessionRow {
             worktree_name: row.get(8)?,
             worktree_branch: row.get(9)?,
             remote_workspace_host: row.get(10)?,
-            remote_workspace_user: row.get(11)?,
-            remote_workspace_path: row.get(12)?,
-            remote_workspace_display_name: row.get(13)?,
-            remote_workspace_uri: row.get(14)?,
-            runtime_session_id: row.get(15)?,
-            category_id: row.get(16)?,
-            source_kind: row.get(17)?,
-            source_connector: row.get(18)?,
-            pinned: row.get::<_, i64>(19)? != 0,
-            archived: row.get::<_, i64>(20)? != 0,
-            created_at: row.get(21)?,
-            updated_at: row.get(22)?,
+            remote_workspace_port: row.get(11)?,
+            remote_workspace_user: row.get(12)?,
+            remote_workspace_path: row.get(13)?,
+            remote_workspace_display_name: row.get(14)?,
+            remote_workspace_uri: row.get(15)?,
+            runtime_session_id: row.get(16)?,
+            category_id: row.get(17)?,
+            source_kind: row.get(18)?,
+            source_connector: row.get(19)?,
+            pinned: row.get::<_, i64>(20)? != 0,
+            archived: row.get::<_, i64>(21)? != 0,
+            created_at: row.get(22)?,
+            updated_at: row.get(23)?,
         })
     }
 
@@ -81,6 +83,9 @@ impl SessionRow {
             (Some(host), Some(path), Some(display_name), Some(uri)) => {
                 Some(SessionRemoteWorkspace {
                     host,
+                    port: self
+                        .remote_workspace_port
+                        .and_then(|port| u16::try_from(port).ok()),
                     user: self.remote_workspace_user,
                     path,
                     display_name,

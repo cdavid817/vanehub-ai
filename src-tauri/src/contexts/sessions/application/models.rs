@@ -18,6 +18,7 @@ pub(crate) struct SessionWorkspace {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionRemoteWorkspace {
     pub(crate) host: String,
+    pub(crate) port: Option<u16>,
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: String,
@@ -97,6 +98,7 @@ pub(crate) struct NewSessionWorkspace {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NewRemoteWorkspace {
     pub(crate) host: String,
+    pub(crate) port: Option<u16>,
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: Option<String>,

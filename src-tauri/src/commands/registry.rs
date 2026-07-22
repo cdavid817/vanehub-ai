@@ -45,6 +45,12 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::scheduled_tasks::create_scheduled_task,
         crate::commands::sessions::scheduled_tasks::set_scheduled_task_enabled,
         crate::commands::sessions::scheduled_tasks::delete_scheduled_task,
+        // SSH Connections
+        crate::commands::ssh_connections::list_ssh_connections::list_ssh_connections,
+        crate::commands::ssh_connections::create_ssh_connection::create_ssh_connection,
+        crate::commands::ssh_connections::update_ssh_connection::update_ssh_connection,
+        crate::commands::ssh_connections::delete_ssh_connection::delete_ssh_connection,
+        crate::commands::ssh_connections::test_ssh_connection::test_ssh_connection,
         // Workspaces
         crate::commands::workspaces::list_known_projects::list_known_projects,
         crate::commands::workspaces::list_known_remote_workspaces::list_known_remote_workspaces,

@@ -859,6 +859,38 @@
                                               "main-layout-ui",
                                               "session-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-22",
+                         "changeName":  "add-ssh-connection-management",
+                         "path":  "openspec/changes/archive/2026-07-22-add-ssh-connection-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "session-management",
+                                              "settings-center-ui",
+                                              "settings-ssh-connection-ui",
+                                              "ssh-connection-management",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-22",
+                         "changeName":  "fix-ssh-connection-management-defects",
+                         "path":  "openspec/changes/archive/2026-07-22-fix-ssh-connection-management-defects/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "session-management",
+                                              "settings-ssh-connection-ui",
+                                              "ssh-connection-management"
+                                          ]
                      }
                  ]
 }

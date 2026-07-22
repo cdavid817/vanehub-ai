@@ -360,6 +360,7 @@ fn is_provider_token(token: &str) -> bool {
     normalized.starts_with("sk-")
         || normalized.starts_with("ghp_")
         || normalized.starts_with("github_pat_")
+        || normalized.starts_with("ssh-connection/")
 }
 
 fn token_without_punctuation(token: &str) -> &str {
@@ -376,7 +377,14 @@ fn is_sensitive_key(key: &str) -> bool {
         || normalized.contains("apikey")
         || normalized.contains("token")
         || normalized.contains("secret")
+        || normalized.contains("credential")
         || normalized.contains("authorization")
+        || normalized.contains("key_path")
+        || normalized.contains("key-path")
+        || normalized.contains("keypath")
+        || normalized.contains("private_key")
+        || normalized.contains("private-key")
+        || normalized.contains("privatekey")
         || normalized.contains("external_chat")
         || normalized.contains("external_user")
         || normalized.contains("sender_id")
@@ -428,6 +436,23 @@ mod tests {
             assert!(!redacted.contains(secret), "redaction leaked {secret}");
         }
         assert!(redacted.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn redacts_ssh_private_key_paths_and_credential_references() {
+        let redacted = redact_text(
+            "keyPath=C:\\Users\\dev\\.ssh\\id_ed25519 private_key_path:/home/dev/.ssh/id_rsa credentialRef=ssh-connection/secret",
+        );
+
+        assert!(!redacted.contains("id_ed25519"));
+        assert!(!redacted.contains("id_rsa"));
+        assert!(
+            !redacted.contains("ssh-connection/secret"),
+            "redacted output leaked credential reference: {redacted}"
+        );
+        assert!(redacted.contains("keyPath=[REDACTED]"));
+        assert!(redacted.contains("private_key_path:[REDACTED]"));
+        assert!(redacted.contains("credentialRef=[REDACTED]"));
     }
 
     #[test]

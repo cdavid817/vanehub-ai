@@ -3,6 +3,7 @@ use crate::contexts::communications::api::CommunicationsApplicationError;
 use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError};
 use crate::contexts::operations::application::ApplicationError;
 use crate::contexts::sessions::api::SessionsError;
+use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
@@ -320,6 +321,34 @@ impl From<SessionsError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
+        }
+    }
+}
+
+impl From<SshConnectionsError> for CommandError {
+    fn from(error: SshConnectionsError) -> Self {
+        match error {
+            SshConnectionsError::Domain(error) => Self::validation(error.to_string()),
+            SshConnectionsError::Validation(message) => Self::validation(message),
+            SshConnectionsError::NotFound(connection_id) => Self {
+                category: CommandErrorCategory::NotFound,
+                message: format!("SSH connection not found: {connection_id}"),
+            },
+            SshConnectionsError::Repository(message) => command_error_with_default(
+                CommandErrorCategory::Infrastructure,
+                message,
+                "database error: ",
+            ),
+            SshConnectionsError::Credential(message) => command_error_with_default(
+                CommandErrorCategory::Infrastructure,
+                message,
+                "storage error: ",
+            ),
+            SshConnectionsError::Test(message) => command_error_with_default(
+                CommandErrorCategory::Unavailable,
+                message,
+                "launch failed: ",
+            ),
         }
     }
 }

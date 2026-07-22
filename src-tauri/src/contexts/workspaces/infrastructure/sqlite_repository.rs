@@ -38,7 +38,7 @@ impl WorkspaceHistoryRepository for SqliteWorkspaceHistoryRepository {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
             .prepare(
-                "SELECT uri, host, user, path, display_name, last_opened_at FROM known_remote_workspaces ORDER BY last_opened_at DESC",
+                "SELECT uri, host, COALESCE(port, 22), user, path, display_name, last_opened_at FROM known_remote_workspaces ORDER BY last_opened_at DESC",
             )
             .map_err(database_error)?;
         let workspaces = statement
@@ -88,10 +88,11 @@ impl WorkspaceHistoryRepository for SqliteWorkspaceHistoryRepository {
             .execute(
                 r#"
                 INSERT INTO known_remote_workspaces
-                    (uri, host, user, path, display_name, last_opened_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    (uri, host, port, user, path, display_name, last_opened_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                 ON CONFLICT(uri) DO UPDATE SET
                     host = excluded.host,
+                    port = excluded.port,
                     user = excluded.user,
                     path = excluded.path,
                     display_name = excluded.display_name,
@@ -100,6 +101,7 @@ impl WorkspaceHistoryRepository for SqliteWorkspaceHistoryRepository {
                 params![
                     workspace.uri(),
                     workspace.host(),
+                    i64::from(workspace.port()),
                     workspace.user(),
                     workspace.path(),
                     workspace.display_name(),
@@ -124,10 +126,11 @@ fn read_known_remote_workspace(row: &Row<'_>) -> Result<KnownRemoteWorkspace, ru
     Ok(KnownRemoteWorkspace {
         uri: row.get(0)?,
         host: row.get(1)?,
-        user: row.get(2)?,
-        path: row.get(3)?,
-        display_name: row.get(4)?,
-        last_opened_at: row.get(5)?,
+        port: row.get::<_, i64>(2)? as u16,
+        user: row.get(3)?,
+        path: row.get(4)?,
+        display_name: row.get(5)?,
+        last_opened_at: row.get(6)?,
     })
 }
 
@@ -152,7 +155,7 @@ mod tests {
         let inspection =
             ProjectInspection::from_probe("C:\\code\\app", Some("C:\\code\\app".to_string()))
                 .expect("project");
-        let remote = RemoteWorkspace::new("example.com", Some("dev"), "/work/app", None)
+        let remote = RemoteWorkspace::new("example.com", None, Some("dev"), "/work/app", None)
             .expect("remote workspace");
 
         repository

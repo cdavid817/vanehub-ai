@@ -4,6 +4,7 @@ import {
   Boxes,
   Cpu,
   Info,
+  KeyRound,
   MessagesSquare,
   Puzzle,
   Plug,
@@ -24,6 +25,7 @@ import { PluginIntegrationsPage } from "./pages/plugin-integrations-page";
 import { ProvidersPage } from "./pages/providers-page";
 import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SkillsPage } from "./pages/skills-page";
+import { SshConnectionsPage } from "./pages/ssh-connections-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
 
 export type SettingsPageId =
@@ -37,6 +39,7 @@ export type SettingsPageId =
   | "skills"
   | "prompt-hooks"
   | "im"
+  | "ssh-connections"
   | "usage"
   | "about";
 
@@ -126,6 +129,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     badge: 5,
     searchPlaceholderKey: "settings.search.im",
     component: ImPage,
+  },
+  {
+    id: "ssh-connections",
+    labelKey: "settings.pages.sshConnections",
+    crumbKey: "settings.pages.sshConnections",
+    icon: KeyRound,
+    searchPlaceholderKey: "settings.search.sshConnections",
+    component: SshConnectionsPage,
   },
   {
     id: "extensions",
