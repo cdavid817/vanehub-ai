@@ -29,11 +29,11 @@
 
 - [x] 5.1 Enable dependency alerts, security updates, automated fixes, and private vulnerability reporting where supported
 - [x] 5.2 Apply squash-oriented merge settings, automatic branch deletion, and a least-privilege Actions allow policy
-- [ ] 5.3 Create and verify a default-branch ruleset after required check names are available without making a single-maintainer repository impossible to merge
+- [x] 5.3 Create and verify a default-branch ruleset after required check names are available without making a single-maintainer repository impossible to merge
 
 ## 6. Verification and Handoff
 
 - [x] 6.1 Run frontend lint, tests, contracts, build, and Playwright E2E validation
 - [x] 6.2 Run Rust fmt, check, Clippy, and tests
 - [x] 6.3 Run strict validation for both active changes and all main OpenSpec specifications
-- [ ] 6.4 Review local and remote diffs, record signing prerequisites, and verify GitHub settings through read-only API calls
+- [x] 6.4 Review local and remote diffs, record signing prerequisites, and verify GitHub settings through read-only API calls
