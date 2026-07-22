@@ -12,7 +12,7 @@ The repository SHALL enable dependency alerts and security updates and MUST revi
 
 #### Scenario: Pull request introduces a vulnerable dependency
 - **WHEN** a manifest or lockfile change introduces a dependency at or above the configured severity threshold
-- **THEN** the dependency-review check SHALL fail and prevent merge while it is required by the default-branch ruleset
+- **THEN** dependency review SHALL fail and prevent merge while it is required by the default-branch ruleset
 
 ### Requirement: Static security analysis
 The repository SHALL analyze JavaScript/TypeScript and Rust with CodeQL on pull requests, default-branch updates, and a recurring schedule.

@@ -11,17 +11,6 @@ The GitHub repository SHALL protect the default branch from deletion, force push
 - **WHEN** an actor attempts to delete `main` or update it with a non-fast-forward push
 - **THEN** the repository ruleset SHALL reject the operation
 
-### Requirement: Repository validation contract
-Repository CI MUST validate ESLint, the TypeScript/Vite build, full Vitest, contract conformance, strict OpenSpec specifications, Rust formatting, Cargo check, Clippy, Rust tests, and Playwright E2E behavior using least-privilege workflows.
-
-#### Scenario: Superseded pull request run
-- **WHEN** a newer commit is pushed to the same pull request
-- **THEN** CI SHALL cancel the superseded run and validate the newest commit
-
-#### Scenario: Validation failure
-- **WHEN** a required validation command fails
-- **THEN** its job SHALL fail and retain the diagnostics defined for that validation area
-
 ### Requirement: Public contribution guidance
 The repository SHALL publish ownership, contribution, conduct, support, vulnerability-reporting, issue, and pull-request guidance consistent with the project's OpenSpec and runtime-boundary rules.
 
@@ -39,3 +28,7 @@ The repository SHALL use a documented ownership map, squash-oriented merge behav
 #### Scenario: Pull request is merged
 - **WHEN** a feature pull request is merged
 - **THEN** GitHub SHALL allow the configured squash workflow and delete the merged head branch automatically
+
+#### Scenario: Repository area changes
+- **WHEN** a pull request modifies paths covered by the label configuration
+- **THEN** repository automation SHALL apply the corresponding project-area labels
