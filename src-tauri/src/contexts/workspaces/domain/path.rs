@@ -7,8 +7,12 @@ pub(crate) struct WorkspaceRelativePath(PathBuf);
 
 impl WorkspaceRelativePath {
     pub(crate) fn parse(value: &str) -> Result<Self, WorkspaceDomainError> {
-        let path = PathBuf::from(value);
-        if path.is_absolute() {
+        let normalized = value.replace('\\', "/");
+        let path = PathBuf::from(&normalized);
+        if path.is_absolute()
+            || normalized.starts_with('/')
+            || has_windows_drive_prefix(&normalized)
+        {
             return Err(WorkspaceDomainError::AbsoluteWorkspacePath);
         }
         for component in path.components() {
@@ -40,6 +44,11 @@ impl WorkspaceRelativePath {
     pub(crate) fn into_path_buf(self) -> PathBuf {
         self.0
     }
+}
+
+fn has_windows_drive_prefix(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 pub(crate) fn normalize_windows_extended_length_path(path: &str) -> String {
@@ -97,14 +106,17 @@ mod tests {
             WorkspaceRelativePath::parse(".git/config"),
             Err(WorkspaceDomainError::HiddenWorkspacePath)
         );
-        let absolute = if cfg!(windows) {
-            "C:\\secret".to_string()
-        } else {
-            "/secret".to_string()
-        };
         assert_eq!(
-            WorkspaceRelativePath::parse(&absolute),
+            WorkspaceRelativePath::parse("C:\\secret"),
             Err(WorkspaceDomainError::AbsoluteWorkspacePath)
+        );
+        assert_eq!(
+            WorkspaceRelativePath::parse("/secret"),
+            Err(WorkspaceDomainError::AbsoluteWorkspacePath)
+        );
+        assert_eq!(
+            WorkspaceRelativePath::parse("src\\..\\secret"),
+            Err(WorkspaceDomainError::WorkspacePathEscape)
         );
     }
 
