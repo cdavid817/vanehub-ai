@@ -13,6 +13,7 @@ use crate::contexts::agent_runtime::domain::{
 };
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationPorts {
@@ -555,9 +556,20 @@ struct GenerationEventHandler {
     state: Mutex<GenerationStreamState>,
 }
 
+// Streaming deltas are persisted for crash/live-reload durability only — the terminal
+// path rewrites the full message content anyway. Persisting every token meant an
+// O(N²) load-full-row + rewrite-full-content per token; instead we coalesce deltas and
+// flush at most this often (bounding the flush count by wall-clock, not token count) or
+// once the un-persisted buffer grows past the byte cap.
+const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
+const STREAM_FLUSH_MAX_PENDING_BYTES: usize = 8 * 1024;
+
 struct GenerationStreamState {
     response: String,
     phase: GenerationStreamPhase,
+    pending_content: String,
+    pending_thinking: String,
+    last_flush: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -573,7 +585,28 @@ impl Default for GenerationStreamState {
         Self {
             response: String::new(),
             phase: GenerationStreamPhase::Active,
+            pending_content: String::new(),
+            pending_thinking: String::new(),
+            last_flush: Instant::now(),
         }
+    }
+}
+
+impl GenerationStreamState {
+    fn should_flush(&self) -> bool {
+        self.last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+            || self.pending_content.len() >= STREAM_FLUSH_MAX_PENDING_BYTES
+            || self.pending_thinking.len() >= STREAM_FLUSH_MAX_PENDING_BYTES
+    }
+
+    fn take_pending_content(&mut self) -> String {
+        self.last_flush = Instant::now();
+        std::mem::take(&mut self.pending_content)
+    }
+
+    fn take_pending_thinking(&mut self) -> String {
+        self.last_flush = Instant::now();
+        std::mem::take(&mut self.pending_thinking)
     }
 }
 
@@ -601,7 +634,7 @@ impl GenerationEventHandler {
     }
 
     fn token(&self, delta: String) -> Result<(), AgentRuntimeApplicationError> {
-        let content_delta = {
+        let (content_delta, flushed) = {
             let mut state = self.state()?;
             if state.phase != GenerationStreamPhase::Active {
                 return Ok(());
@@ -612,11 +645,17 @@ impl GenerationEventHandler {
                 format!("\n{delta}")
             };
             state.response.push_str(&content_delta);
-            content_delta
+            state.pending_content.push_str(&content_delta);
+            let flushed = state.should_flush().then(|| state.take_pending_content());
+            (content_delta, flushed)
         };
-        self.ports
-            .sessions
-            .append_content(&self.message_id, &content_delta)?;
+        // The frontend accumulates from the per-token event, so live rendering is
+        // unaffected by how often we persist; the DB write is coalesced.
+        if let Some(pending) = flushed {
+            self.ports
+                .sessions
+                .append_content(&self.message_id, &pending)?;
+        }
         let _ = self.ports.events.publish(AgentEvent::MessageToken {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -626,12 +665,19 @@ impl GenerationEventHandler {
     }
 
     fn thinking(&self, content_delta: String) -> Result<(), AgentRuntimeApplicationError> {
-        if self.state()?.phase != GenerationStreamPhase::Active {
-            return Ok(());
+        let flushed = {
+            let mut state = self.state()?;
+            if state.phase != GenerationStreamPhase::Active {
+                return Ok(());
+            }
+            state.pending_thinking.push_str(&content_delta);
+            state.should_flush().then(|| state.take_pending_thinking())
+        };
+        if let Some(pending) = flushed {
+            self.ports
+                .sessions
+                .append_thinking(&self.message_id, &pending)?;
         }
-        self.ports
-            .sessions
-            .append_thinking(&self.message_id, &content_delta)?;
         let _ = self.ports.events.publish(AgentEvent::MessageThinking {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -786,12 +832,34 @@ impl GenerationEventHandler {
     }
 
     fn begin_terminal(&self) -> Result<Option<String>, AgentRuntimeApplicationError> {
-        let mut state = self.state()?;
-        if state.phase != GenerationStreamPhase::Active {
-            return Ok(None);
+        let (response, pending_content, pending_thinking) = {
+            let mut state = self.state()?;
+            if state.phase != GenerationStreamPhase::Active {
+                return Ok(None);
+            }
+            state.phase = GenerationStreamPhase::ApplyingTerminal;
+            (
+                state.response.clone(),
+                std::mem::take(&mut state.pending_content),
+                std::mem::take(&mut state.pending_thinking),
+            )
+        };
+        // Flush the coalesced tail on the way into the terminal phase. Best-effort: the
+        // success path rewrites full content via `complete_message`, but the failed path
+        // and `complete_message`'s read of `thinking_content` depend on these appends.
+        if !pending_content.is_empty() {
+            let _ = self
+                .ports
+                .sessions
+                .append_content(&self.message_id, &pending_content);
         }
-        state.phase = GenerationStreamPhase::ApplyingTerminal;
-        Ok(Some(state.response.clone()))
+        if !pending_thinking.is_empty() {
+            let _ = self
+                .ports
+                .sessions
+                .append_thinking(&self.message_id, &pending_thinking);
+        }
+        Ok(Some(response))
     }
 
     fn finish_terminal(&self, committed: bool) -> Result<(), AgentRuntimeApplicationError> {

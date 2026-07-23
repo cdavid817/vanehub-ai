@@ -798,6 +798,51 @@ fn send_message_reserves_before_writes_and_attaches_effective_prompt_process() {
 }
 
 #[test]
+fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
+    let world = test_world();
+    let service = service(world.clone());
+    let message = service
+        .send_message(SendMessageRequest {
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+    let persisted_content = || {
+        world.messages.lock().expect("messages")[&message.id]
+            .content
+            .clone()
+    };
+
+    sink.handle(GenerationProcessEvent::Token("alpha".to_string()))
+        .expect("token");
+    sink.handle(GenerationProcessEvent::Token("beta".to_string()))
+        .expect("token");
+
+    // Both small deltas arrive within the flush window, so persistence is coalesced
+    // rather than one full-content rewrite per token (the O(N²) path we removed).
+    assert!(
+        persisted_content().len() < "alpha\nbeta".len(),
+        "streaming deltas must not be persisted per token, got {:?}",
+        persisted_content()
+    );
+
+    sink.handle(GenerationProcessEvent::Completed)
+        .expect("completed");
+
+    // The terminal transition flushes the coalesced tail and the full content is durable.
+    assert_eq!(persisted_content(), "alpha\nbeta");
+}
+
+#[test]
 fn stream_events_persist_complete_usage_and_operation_once() {
     let world = test_world();
     let service = service(world.clone());
