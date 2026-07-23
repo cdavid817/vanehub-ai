@@ -14,7 +14,7 @@ const labels: WorkspaceActivityBarLabels = {
   help: "Help",
 };
 
-function groupButtons(element: ReactElement, groupIndex: number) {
+function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex: number) {
   const group = Children.toArray(element.props.children as ReactNode)[groupIndex];
   if (!isValidElement<{ children: ReactNode }>(group)) throw new Error("Expected activity group");
   return Children.toArray(group.props.children).map((child) => {
