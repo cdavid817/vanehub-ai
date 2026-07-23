@@ -5,6 +5,8 @@ use super::{
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageRecord, AgentView, CompleteAgentMessage, EffectivePromptGateway,
     GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
     MessageTokenUsage, NewAgentMessage, ReadinessView, SendMessageRequest, StopGenerationResult,
     WorkflowLaunchRequest, WorkflowView,
 };
@@ -28,6 +30,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) clock: Arc<dyn AgentClockPort>,
     pub(crate) events: Arc<dyn AgentEventPort>,
     pub(crate) generations: Arc<dyn AgentGenerationPort>,
+    pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
 }
 
 #[derive(Clone)]
@@ -38,6 +41,43 @@ pub(crate) struct AgentRuntimeApplicationService {
 impl AgentRuntimeApplicationService {
     pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
         Self { ports }
+    }
+
+    pub(crate) fn take_loop_role_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError> {
+        self.ports.loop_completions.take_for_session(session_id)
+    }
+
+    fn start_loop_role_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        let session = self.require_session(session_id)?;
+        if session.loop_ownership.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Loop role generation requires an owned role session.".to_string(),
+            ));
+        }
+        let message = self.send_message(SendMessageRequest {
+            session_id: session_id.to_string(),
+            content: prompt.to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: session.agent_id,
+                interaction_mode: InteractionMode::Cli,
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })?;
+        Ok(message.id)
     }
 
     pub(crate) fn list_agents(
@@ -201,10 +241,13 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let configuration = self
+        let mut configuration = self
             .ports
             .sessions
             .validate_configuration(&session, request.configuration)?;
+        if session.read_only {
+            configuration.permission_mode = "plan".to_string();
+        }
         let agent = self.require_agent(&session.agent_id)?;
         if !agent.supports(configuration.interaction_mode) {
             return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
@@ -439,6 +482,13 @@ impl AgentRuntimeApplicationService {
             message_id: assistant.id.clone(),
             error: safe_error.to_string(),
         });
+        self.deliver_loop_terminal(
+            session,
+            &assistant.id,
+            LoopRoleGenerationOutcome::Failed,
+            None,
+            Some(safe_error.to_string()),
+        )?;
         Ok(failed)
     }
 
@@ -496,11 +546,44 @@ impl AgentRuntimeApplicationService {
                 session_id: session_id.to_string(),
                 message_id: message_id.clone(),
             });
+            self.deliver_loop_terminal(
+                &session,
+                message_id,
+                LoopRoleGenerationOutcome::Cancelled,
+                None,
+                None,
+            )?;
         }
         Ok(StopGenerationResult {
             cancelled_message_ids: message_ids.into_iter().collect(),
             process_stopped,
         })
+    }
+
+    fn deliver_loop_terminal(
+        &self,
+        session: &AgentSession,
+        message_id: &str,
+        outcome: LoopRoleGenerationOutcome,
+        content: Option<String>,
+        error: Option<String>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(ownership) = &session.loop_ownership else {
+            return Ok(());
+        };
+        self.ports
+            .loop_completions
+            .deliver(LoopRoleGenerationTerminal {
+                run_id: ownership.run_id.clone(),
+                iteration_id: ownership.iteration_id.clone(),
+                role: ownership.role.clone(),
+                session_id: session.id.clone(),
+                message_id: message_id.to_string(),
+                outcome,
+                content,
+                error,
+            })?;
+        Ok(())
     }
 
     fn require_agent(
@@ -544,6 +627,32 @@ impl AgentRuntimeApplicationService {
     }
 }
 
+impl LoopWorkerGenerationPort for AgentRuntimeApplicationService {
+    fn start_worker_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.start_loop_role_generation(session_id, prompt)
+    }
+}
+
+impl LoopVerifierGenerationPort for AgentRuntimeApplicationService {
+    fn start_verifier_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.start_loop_role_generation(session_id, prompt)
+    }
+}
+
+impl LoopGenerationControlPort for AgentRuntimeApplicationService {
+    fn stop_loop_generation(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.stop_generation(session_id).map(|_| ())
+    }
+}
+
 struct GenerationEventHandler {
     ports: AgentRuntimeApplicationPorts,
     session_id: String,
@@ -553,6 +662,7 @@ struct GenerationEventHandler {
     safe_error: String,
     configuration: AgentChatConfiguration,
     input_count: usize,
+    loop_ownership: Option<super::LoopRoleGenerationOwnership>,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -629,6 +739,7 @@ impl GenerationEventHandler {
             safe_error: format!("{} command failed", agent.display_name()),
             configuration,
             input_count,
+            loop_ownership: session.loop_ownership.clone(),
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -749,7 +860,7 @@ impl GenerationEventHandler {
         self.ports.sessions.complete_message(CompleteAgentMessage {
             message_id: self.message_id.clone(),
             session_id: self.session_id.clone(),
-            content: response,
+            content: response.clone(),
             thinking_content: current.thinking_content,
             tool_use: current.tool_use,
             rich_blocks: current.rich_blocks,
@@ -771,6 +882,7 @@ impl GenerationEventHandler {
             message_id: self.message_id.clone(),
             token_usage: Some(token_usage),
         });
+        self.deliver_loop_terminal(LoopRoleGenerationOutcome::Completed, Some(response), None)?;
         Ok(())
     }
 
@@ -806,6 +918,11 @@ impl GenerationEventHandler {
             message_id: self.message_id.clone(),
             error: self.safe_error.clone(),
         });
+        self.deliver_loop_terminal(
+            LoopRoleGenerationOutcome::Failed,
+            None,
+            Some(self.safe_error.clone()),
+        )?;
         Ok(())
     }
 
@@ -815,6 +932,30 @@ impl GenerationEventHandler {
             .operations
             .append_log(&self.operation_id, diagnostic.clone());
         self.record_log(AgentLogLevel::Warn, diagnostic);
+    }
+
+    fn deliver_loop_terminal(
+        &self,
+        outcome: LoopRoleGenerationOutcome,
+        content: Option<String>,
+        error: Option<String>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(ownership) = &self.loop_ownership else {
+            return Ok(());
+        };
+        self.ports
+            .loop_completions
+            .deliver(LoopRoleGenerationTerminal {
+                run_id: ownership.run_id.clone(),
+                iteration_id: ownership.iteration_id.clone(),
+                role: ownership.role.clone(),
+                session_id: self.session_id.clone(),
+                message_id: self.message_id.clone(),
+                outcome,
+                content,
+                error,
+            })?;
+        Ok(())
     }
 
     fn current_message(&self) -> Result<AgentMessage, AgentRuntimeApplicationError> {

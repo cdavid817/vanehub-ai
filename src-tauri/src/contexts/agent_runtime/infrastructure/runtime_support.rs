@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentOperation,
-    AgentRuntimeApplicationError, AgentTaskPort,
+    AgentRuntimeApplicationError, AgentTaskPort, LoopLog, LoopLoggingPort, LoopOperationContext,
 };
 use crate::contexts::operations::api::{
     DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
@@ -49,6 +49,25 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
             agent_id,
             format!("Generating response for session {session_id} message {message_id}"),
         )
+    }
+
+    fn start_loop_operation(
+        &self,
+        context: &LoopOperationContext,
+        message: &str,
+    ) -> Result<AgentOperation, AgentRuntimeApplicationError> {
+        self.operations
+            .start(
+                OperationKind::Agent,
+                Some(context.run_id.clone()),
+                Some(format!("Loop {}: {message}", context.kind.as_str())),
+            )
+            .map(|operation| AgentOperation {
+                id: operation.id,
+                related_agent_id: operation.related_entity_id,
+                message: operation.message,
+            })
+            .map_err(operation_error)
     }
 
     fn append_log(
@@ -158,6 +177,44 @@ impl AgentLoggingPort for AgentRuntimeLoggingAdapter {
     }
 }
 
+impl LoopLoggingPort for AgentRuntimeLoggingAdapter {
+    fn record_loop(&self, log: LoopLog) -> Result<(), AgentRuntimeApplicationError> {
+        let severity = log_severity(log.level);
+        let mut context = BTreeMap::from([
+            ("occurredAt".to_string(), log.occurred_at),
+            ("runId".to_string(), log.context.run_id),
+            (
+                "loopOperation".to_string(),
+                log.context.kind.as_str().to_string(),
+            ),
+        ]);
+        if let Some(iteration_id) = log.context.iteration_id {
+            context.insert("iterationId".to_string(), iteration_id);
+        }
+        match log.operation_id {
+            Some(operation_id) => self
+                .operations
+                .write_operation(OperationLog {
+                    operation_id,
+                    severity,
+                    category: log.category,
+                    message: log.message,
+                    context,
+                })
+                .map_err(logging_error),
+            None => self
+                .diagnostics
+                .write_diagnostic(DiagnosticLog {
+                    severity,
+                    category: log.category,
+                    message: log.message,
+                    context,
+                })
+                .map_err(logging_error),
+        }
+    }
+}
+
 fn log_severity(level: AgentLogLevel) -> LogSeverity {
     match level {
         AgentLogLevel::Error => LogSeverity::Error,
@@ -230,6 +287,43 @@ mod tests {
         assert_eq!(
             logs[0].context.get("sessionId").map(String::as_str),
             Some("session-1")
+        );
+    }
+
+    #[test]
+    fn loop_logging_keeps_stable_run_iteration_and_operation_context() {
+        let captured = Arc::new(CapturedLogs::default());
+        let adapter = AgentRuntimeLoggingAdapter::new(captured.clone(), captured.clone());
+
+        adapter
+            .record_loop(LoopLog {
+                level: AgentLogLevel::Info,
+                category: "loop.verification".to_string(),
+                message: "check completed token=secret-value".to_string(),
+                context: LoopOperationContext {
+                    run_id: "run-1".to_string(),
+                    iteration_id: Some("iteration-2".to_string()),
+                    kind: crate::contexts::agent_runtime::application::LoopOperationKind::Verification,
+                },
+                operation_id: Some("operation-3".to_string()),
+                occurred_at: "2026-07-18T10:00:00Z".to_string(),
+            })
+            .expect("Loop operation log");
+
+        assert!(captured.diagnostics.lock().expect("diagnostics").is_empty());
+        let logs = captured.operations.lock().expect("operations");
+        assert_eq!(logs[0].operation_id, "operation-3");
+        assert_eq!(
+            logs[0].context.get("runId").map(String::as_str),
+            Some("run-1")
+        );
+        assert_eq!(
+            logs[0].context.get("iterationId").map(String::as_str),
+            Some("iteration-2")
+        );
+        assert_eq!(
+            logs[0].context.get("loopOperation").map(String::as_str),
+            Some("verification")
         );
     }
 }

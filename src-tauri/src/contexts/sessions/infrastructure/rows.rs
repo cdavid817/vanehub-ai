@@ -1,16 +1,17 @@
 use crate::contexts::sessions::application::{
-    CategoryRecord, ChatConfigurationValues, FileReferenceInput, MessageRecord, MessageTokenUsage,
-    SessionRecord, SessionRemoteWorkspace, SessionWorkspace, SessionsApplicationError,
+    CategoryRecord, ChatConfigurationValues, FileReferenceInput, LoopSessionOwnership,
+    MessageRecord, MessageTokenUsage, SessionRecord, SessionRemoteWorkspace, SessionWorkspace,
+    SessionsApplicationError,
 };
 use crate::contexts::sessions::domain::{
-    CategoryId, CategoryName, FileReference, FileReferenceSet, MessageId, MessageRole,
-    MessageStatus, SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage,
-    SessionOwner, SessionTitle,
+    CategoryId, CategoryName, FileReference, FileReferenceSet, LoopSessionRole, MessageId,
+    MessageRole, MessageStatus, SessionAggregate, SessionCategory, SessionId, SessionLifecycle,
+    SessionMessage, SessionOwner, SessionTitle,
 };
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
 
-pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at FROM sessions";
+pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role FROM sessions";
 pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
@@ -41,6 +42,9 @@ pub(super) struct SessionRow {
     archived: bool,
     created_at: String,
     updated_at: String,
+    loop_run_id: Option<String>,
+    loop_iteration_id: Option<String>,
+    loop_role: Option<String>,
 }
 
 impl SessionRow {
@@ -70,6 +74,9 @@ impl SessionRow {
             archived: row.get::<_, i64>(21)? != 0,
             created_at: row.get(22)?,
             updated_at: row.get(23)?,
+            loop_run_id: row.get(24)?,
+            loop_iteration_id: row.get(25)?,
+            loop_role: row.get(26)?,
         })
     }
 
@@ -103,6 +110,19 @@ impl SessionRow {
             self.pinned,
             self.archived,
         );
+        let loop_ownership = match (self.loop_run_id, self.loop_iteration_id, self.loop_role) {
+            (Some(run_id), Some(iteration_id), Some(role)) => Some(LoopSessionOwnership {
+                run_id,
+                iteration_id,
+                role: LoopSessionRole::parse(&role)?,
+            }),
+            (None, None, None) => None,
+            _ => {
+                return Err(SessionsApplicationError::Repository(
+                    "incomplete Loop session ownership metadata".to_string(),
+                ));
+            }
+        };
         Ok(SessionRecord {
             aggregate,
             agent_id: self.agent_id,
@@ -114,6 +134,7 @@ impl SessionRow {
                 worktree_name: self.worktree_name,
                 worktree_branch: self.worktree_branch,
                 remote_workspace,
+                loop_ownership,
             },
             runtime_session_id: self.runtime_session_id,
             created_at: self.created_at,

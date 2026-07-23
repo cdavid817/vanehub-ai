@@ -38,6 +38,18 @@ impl WorkspaceShellApplicationService {
         request: &CreateShellRequest,
     ) -> Result<ShellSession, WorkspaceApplicationError> {
         let workspace = self.contexts.load_shell_workspace(&request.session_id)?;
+        if workspace.read_only {
+            self.logging.write(ShellLog {
+                level: WorkspaceLogLevel::Warn,
+                session_id: request.session_id.clone(),
+                shell_id: "policy".to_string(),
+                message: "Verifier shell creation denied by read-only policy.".to_string(),
+            });
+            return Err(WorkspaceApplicationError::PolicyDenied {
+                session_id: request.session_id.clone(),
+                action: "create-shell".to_string(),
+            });
+        }
         if workspace.remote {
             return Err(WorkspaceApplicationError::Validation(
                 "Remote workspace shell is unsupported.".to_string(),

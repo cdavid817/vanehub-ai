@@ -935,6 +935,24 @@
                                               "settings-ssh-connection-ui",
                                               "ssh-connection-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-23",
+                         "changeName":  "add-loop-engineering-runtime",
+                         "path":  "openspec/changes/archive/2026-07-23-add-loop-engineering-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "loop-engineering-runtime",
+                                              "loop-management-ui",
+                                              "main-layout-ui",
+                                              "project-worktree-management",
+                                              "session-runtime-management"
+                                          ]
                      }
                  ]
 }

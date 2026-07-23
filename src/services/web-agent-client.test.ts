@@ -1,13 +1,49 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { seedWebImSessionForTest, webAgentClient } from "./web-agent-client";
+import {
+  resetWebLoopsForTest,
+  seedWebImSessionForTest,
+  simulateWebLoopRestartForTest,
+  webAgentClient,
+} from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
 import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
 import type { PromptHookMutationInput } from "../types/prompt-hook";
+import type { SaveLoopDefinitionInput } from "../types/loop";
+import { i18n } from "../i18n";
 
 afterEach(() => {
+  resetWebLoopsForTest();
   vi.useRealTimers();
 });
+
+const loopDefinitionInput: SaveLoopDefinitionInput = {
+  name: "Web Loop",
+  enabled: true,
+  projectPath: "D:/example/project",
+  baseBranch: "main",
+  goal: "Improve coverage",
+  acceptanceCriteria: ["Tests pass"],
+  allowedPaths: ["src"],
+  protectedPaths: [".git"],
+  workerAgentId: "codex-cli",
+  verifierAgentId: "claude-code",
+  verificationCommands: [{
+    id: "tests",
+    program: "npm",
+    args: ["test"],
+    workingDirectory: null,
+    timeoutSeconds: 60,
+    required: true,
+  }],
+  limits: {
+    maxIterations: 3,
+    stepTimeoutSeconds: 60,
+    totalTimeoutSeconds: 600,
+    maxConsecutiveRuntimeErrors: 2,
+    maxConsecutiveNoProgress: 2,
+  },
+};
 
 describe("webAgentClient", () => {
   async function createMockSession(input: CreateSessionInput): Promise<Session> {
@@ -18,6 +54,155 @@ describe("webAgentClient", () => {
     expect(completed.status).toBe("succeeded");
     return completed.result as unknown as Session;
   }
+
+  it("simulates fixed Loop phases, evidence, and human acceptance", async () => {
+    vi.useFakeTimers();
+    const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+    const started = await webAgentClient.startLoop(definition.id);
+
+    expect(started.run).toMatchObject({ status: "queued", phase: "preparing", simulated: true });
+    await vi.advanceTimersByTimeAsync(900);
+
+    const awaiting = await webAgentClient.getLoopRun(started.run.id);
+    expect(awaiting).toMatchObject({ status: "awaiting-acceptance", phase: "finalizing", simulated: true });
+    expect(awaiting.iterations[0].evidence.map((item) => item.kind)).toEqual([
+      "worker",
+      "verification",
+      "verifier",
+      "decision",
+    ]);
+    await expect(webAgentClient.acceptLoop(awaiting.id)).resolves.toMatchObject({
+      status: "succeeded",
+      terminalReason: "goal-met",
+    });
+  });
+
+  it("publishes cloned Loop events and releases the Web subscription boundary", async () => {
+    vi.useFakeTimers();
+    const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+    const started = await webAgentClient.startLoop(definition.id);
+    const events: string[] = [];
+    const unsubscribe = await webAgentClient.subscribeLoopEvents(started.run.id, (event) => {
+      events.push(`${event.kind}:${event.run.phase}`);
+      event.run.phase = "finalizing";
+    });
+
+    await vi.advanceTimersByTimeAsync(220);
+    expect(events).toContain("evidence-added:acting");
+    expect((await webAgentClient.getLoopRun(started.run.id)).phase).toBe("acting");
+
+    unsubscribe();
+    const eventCount = events.length;
+    await vi.advanceTimersByTimeAsync(700);
+    expect(events).toHaveLength(eventCount);
+  });
+
+  it("keeps Loop role sessions hidden while preserving direct inspection", async () => {
+    vi.useFakeTimers();
+    const activeBefore = await webAgentClient.getActiveSession();
+    const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+    const started = await webAgentClient.startLoop(definition.id);
+    await vi.advanceTimersByTimeAsync(900);
+
+    const run = await webAgentClient.getLoopRun(started.run.id);
+    const workerSessionId = run.iterations[0].workerSessionId ?? "";
+    const verifierSessionId = run.iterations[0].verifierSessionId ?? "";
+    await expect(webAgentClient.getSession(workerSessionId)).resolves.toMatchObject({
+      id: workerSessionId,
+      agentId: loopDefinitionInput.workerAgentId,
+      worktreePath: run.worktreePath,
+    });
+    await expect(webAgentClient.getSession(verifierSessionId)).resolves.toMatchObject({
+      id: verifierSessionId,
+      agentId: loopDefinitionInput.verifierAgentId,
+      worktreePath: run.worktreePath,
+    });
+    await expect(webAgentClient.listMessages({ sessionId: workerSessionId })).resolves.toEqual([]);
+    await expect(webAgentClient.getSessionUsageSummary(verifierSessionId)).resolves.toBeDefined();
+
+    const visibleIds = (await webAgentClient.listSessions()).map((session) => session.id);
+    const searchIds = (await webAgentClient.searchSessions({ query: "Web Loop" })).map((result) => result.session.id);
+    expect(visibleIds).not.toContain(workerSessionId);
+    expect(visibleIds).not.toContain(verifierSessionId);
+    expect(searchIds).not.toContain(workerSessionId);
+    expect(searchIds).not.toContain(verifierSessionId);
+    expect(await webAgentClient.getActiveSession()).toEqual(activeBefore);
+  });
+
+  it("localizes Web Loop evidence and control errors with the active locale", async () => {
+    vi.useFakeTimers();
+    const previousLanguage = i18n.resolvedLanguage ?? "en";
+    try {
+      await i18n.changeLanguage("zh-CN");
+      const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+      const started = await webAgentClient.startLoop(definition.id);
+      await vi.advanceTimersByTimeAsync(900);
+
+      const run = await webAgentClient.getLoopRun(started.run.id);
+      expect(run.iterations[0].workerSummary).toContain("模拟执行者");
+      expect(run.iterations[0].verifierFindings).toContain("必需的模拟检查均已通过。");
+      expect(run.iterations[0].decisionReason).toContain("独立验证者建议验收");
+      await expect(webAgentClient.pauseLoop(run.id)).rejects.toThrow("只能暂停活动循环");
+    } finally {
+      await i18n.changeLanguage(previousLanguage);
+    }
+  });
+
+  it("simulates pause, restart recovery, resume, and cancellation", async () => {
+    vi.useFakeTimers();
+    const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+    const started = await webAgentClient.startLoop(definition.id);
+    const recovered = simulateWebLoopRestartForTest(started.run.id);
+
+    expect(recovered).toMatchObject({ status: "paused", terminalReason: "recovery-required" });
+    const resumed = await webAgentClient.resumeLoop(recovered.id);
+    expect(resumed).toMatchObject({ status: "queued", terminalReason: null });
+    await vi.advanceTimersByTimeAsync(220);
+    await webAgentClient.pauseLoop(recovered.id);
+    await vi.advanceTimersByTimeAsync(220);
+    expect(await webAgentClient.getLoopRun(recovered.id)).toMatchObject({ status: "paused" });
+    await webAgentClient.resumeLoop(recovered.id);
+    await expect(webAgentClient.cancelLoop(recovered.id)).resolves.toMatchObject({
+      status: "cancelled",
+      terminalReason: "user-stopped",
+    });
+  });
+
+  it("continues an awaiting Loop with feedback in a fresh revision", async () => {
+    vi.useFakeTimers();
+    const definition = await webAgentClient.createLoopDefinition(loopDefinitionInput);
+    const started = await webAgentClient.startLoop(definition.id);
+    await vi.advanceTimersByTimeAsync(900);
+
+    const continued = await webAgentClient.continueLoop({
+      runId: started.run.id,
+      feedback: "Cover the boundary case",
+    });
+    expect(continued).toMatchObject({ status: "running", phase: "acting", currentIteration: 2 });
+    expect(continued.iterations[1].userFeedback).toBe("Cover the boundary case");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(await webAgentClient.getLoopRun(started.run.id)).toMatchObject({
+      status: "awaiting-acceptance",
+      currentIteration: 2,
+    });
+  });
+
+  it("fails when a required simulated verification command fails", async () => {
+    vi.useFakeTimers();
+    const definition = await webAgentClient.createLoopDefinition({
+      ...loopDefinitionInput,
+      verificationCommands: [{ ...loopDefinitionInput.verificationCommands[0], program: "false" }],
+    });
+    const started = await webAgentClient.startLoop(definition.id);
+    await vi.advanceTimersByTimeAsync(900);
+
+    const failed = await webAgentClient.getLoopRun(started.run.id);
+    expect(failed).toMatchObject({ status: "failed", terminalReason: "verification-failed" });
+    expect(failed.iterations[0].evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "verification", status: "failed", exitCode: 1 }),
+      expect.objectContaining({ kind: "decision", status: "failed" }),
+    ]));
+  });
 
   it("lists agents and filters by capability tag", async () => {
     const allAgents = await webAgentClient.listAgents();

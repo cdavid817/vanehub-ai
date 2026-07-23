@@ -1,31 +1,162 @@
-use super::application::{AgentRuntimeApplicationService, AgentTerminalApplicationService};
+use super::application::{
+    AgentRuntimeApplicationService, AgentTerminalApplicationService, LoopApplicationService,
+    LoopControlApplicationService, LoopRecoveryApplicationService,
+};
+use super::infrastructure::NativeLoopScheduler;
 
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
-    AgentView, LaunchWorkflowResult, OpenAgentTerminalRequest, ReadinessView,
-    ResizeAgentTerminalRequest, SendMessageRequest, StopAgentTerminalRequest, StopGenerationResult,
-    WorkflowView,
+    AgentView, ContinueLoopRequest, LaunchWorkflowResult, LoopDefinitionView,
+    LoopRoleGenerationTerminal, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
+    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SendMessageRequest, StartLoopResultView,
+    StopAgentTerminalRequest, StopGenerationResult, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
-pub(crate) use super::domain::{AgentAvailability, AgentLifecycle, InteractionMode};
+pub(crate) use super::domain::{
+    AgentAvailability, AgentLifecycle, InteractionMode, LoopLimits, LoopVerificationCommand,
+};
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApi {
     service: AgentRuntimeApplicationService,
     terminal_service: AgentTerminalApplicationService,
+    loops: LoopApplicationService,
+    loop_controls: LoopControlApplicationService,
+    loop_recovery: LoopRecoveryApplicationService,
+    loop_scheduler: NativeLoopScheduler,
 }
 
 impl AgentRuntimeApi {
     pub(crate) fn new(
         service: AgentRuntimeApplicationService,
         terminal_service: AgentTerminalApplicationService,
+        loops: LoopApplicationService,
+        loop_controls: LoopControlApplicationService,
+        loop_recovery: LoopRecoveryApplicationService,
+        loop_scheduler: NativeLoopScheduler,
     ) -> Self {
         Self {
             service,
             terminal_service,
+            loops,
+            loop_controls,
+            loop_recovery,
+            loop_scheduler,
         }
+    }
+
+    pub(crate) fn list_loop_definitions(
+        &self,
+    ) -> Result<Vec<LoopDefinitionView>, AgentRuntimeApplicationError> {
+        self.loops.list_definitions()
+    }
+
+    pub(crate) fn create_loop_definition(
+        &self,
+        request: SaveLoopDefinitionRequest,
+    ) -> Result<LoopDefinitionView, AgentRuntimeApplicationError> {
+        self.loops.create_definition(request)
+    }
+
+    pub(crate) fn update_loop_definition(
+        &self,
+        definition_id: &str,
+        request: SaveLoopDefinitionRequest,
+    ) -> Result<LoopDefinitionView, AgentRuntimeApplicationError> {
+        self.loops.update_definition(definition_id, request)
+    }
+
+    pub(crate) fn delete_loop_definition(
+        &self,
+        definition_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.loops.delete_definition(definition_id)
+    }
+
+    pub(crate) fn list_loop_runs(
+        &self,
+        definition_id: Option<&str>,
+    ) -> Result<Vec<LoopRunView>, AgentRuntimeApplicationError> {
+        self.loops.list_runs(definition_id)
+    }
+
+    pub(crate) fn get_loop_run(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn start_loop(
+        &self,
+        definition_id: &str,
+    ) -> Result<StartLoopResultView, AgentRuntimeApplicationError> {
+        let result = self.loops.start_manual(definition_id)?;
+        self.loop_scheduler.schedule(&result.run_id)?;
+        Ok(result)
+    }
+
+    pub(crate) fn pause_loop(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loop_controls.request_pause(run_id)?;
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn resume_loop(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loop_controls.resume(run_id)?;
+        self.loop_scheduler.schedule(run_id)?;
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn cancel_loop(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loop_controls.cancel(run_id)?;
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn accept_loop(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loop_controls.accept(run_id)?;
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn continue_loop(
+        &self,
+        request: ContinueLoopRequest,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        let run_id = request.run_id.clone();
+        self.loop_controls.continue_with_feedback(request)?;
+        self.loop_scheduler.schedule(&run_id)?;
+        self.loops.get_run(&run_id)
+    }
+
+    pub(crate) fn reject_loop(
+        &self,
+        run_id: &str,
+    ) -> Result<LoopRunView, AgentRuntimeApplicationError> {
+        self.loop_controls.reject(run_id)?;
+        self.loops.get_run(run_id)
+    }
+
+    pub(crate) fn reconcile_loop_startup(
+        &self,
+    ) -> Result<Vec<LoopRunView>, AgentRuntimeApplicationError> {
+        let recovered = self.loop_recovery.reconcile_startup()?;
+        recovered
+            .iter()
+            .map(|run| self.loops.get_run(run.id()))
+            .collect()
     }
 
     pub(crate) fn list_agents(
@@ -85,6 +216,13 @@ impl AgentRuntimeApi {
         session_id: &str,
     ) -> Result<StopGenerationResult, AgentRuntimeApplicationError> {
         self.service.stop_generation(session_id)
+    }
+
+    pub(crate) fn take_loop_role_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError> {
+        self.service.take_loop_role_completion(session_id)
     }
 
     pub(crate) fn open_agent_terminal(

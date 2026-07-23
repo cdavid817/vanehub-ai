@@ -127,6 +127,32 @@ impl WorkspaceGitPort for FakeGit {
             .push(format!("git:create:{project_path}:{target_path}:{branch}"));
         Ok(())
     }
+
+    fn validate_loop_worktree(
+        &self,
+        project_path: &str,
+        target_path: &str,
+        branch: &str,
+        base_branch: &str,
+    ) -> Result<(), WorkspaceApplicationError> {
+        self.calls.lock().expect("calls").push(format!(
+            "git:validate-loop:{project_path}:{target_path}:{branch}:{base_branch}"
+        ));
+        Ok(())
+    }
+
+    fn create_loop_worktree(
+        &self,
+        project_path: &str,
+        target_path: &str,
+        branch: &str,
+        base_branch: &str,
+    ) -> Result<(), WorkspaceApplicationError> {
+        self.calls.lock().expect("calls").push(format!(
+            "git:create-loop:{project_path}:{target_path}:{branch}:{base_branch}"
+        ));
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -430,6 +456,28 @@ fn worktree_creation_validates_and_orders_target_before_explicit_git_effect() {
     calls.lock().expect("calls").clear();
     assert!(service.create_worktree("C:\\code\\app", "../bad").is_err());
     assert!(calls.lock().expect("calls").is_empty());
+}
+
+#[test]
+fn loop_worktree_is_canonicalized_and_guarded_before_creation() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service(calls.clone());
+
+    let created = service
+        .create_guarded_loop_worktree(" C:\\code\\app ", "loop-42", "origin/main")
+        .expect("Loop worktree");
+
+    assert_eq!(created.branch, "vanehub/loop-42");
+    assert_eq!(
+        *calls.lock().expect("calls"),
+        vec![
+            "filesystem:canonicalize:C:\\code\\app",
+            "git:inspect:C:\\code\\app",
+            "filesystem:target:C:\\code\\app:loop-42",
+            "git:validate-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/loop-42:origin/main",
+            "git:create-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/loop-42:origin/main",
+        ]
+    );
 }
 
 #[test]

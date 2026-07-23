@@ -42,22 +42,14 @@ impl SessionRepository for SqliteSessionsRepository {
         &self,
         scope: SessionListScope,
     ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        let connection = self.connection()?;
-        let archived = i64::from(scope == SessionListScope::Archived);
-        let mut statement = connection
-            .prepare(&format!(
-                "{SESSION_SELECT} WHERE archived = ?1 ORDER BY pinned DESC, updated_at DESC"
-            ))
-            .map_err(repository_error)?;
-        let records = statement
-            .query_map([archived], SessionRow::read)
-            .map_err(repository_error)?
-            .map(|row| {
-                row.map_err(repository_error)
-                    .and_then(SessionRow::into_record)
-            })
-            .collect();
-        records
+        self.list_with_loop_visibility(scope, false)
+    }
+
+    fn list_including_loop_owned(
+        &self,
+        scope: SessionListScope,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.list_with_loop_visibility(scope, true)
     }
 
     fn search(
@@ -71,7 +63,8 @@ impl SessionRepository for SqliteSessionsRepository {
                 r#"
                 SELECT DISTINCT sessions.id
                 FROM sessions
-                WHERE sessions.title LIKE ?1 ESCAPE '\'
+                WHERE sessions.loop_run_id IS NULL
+                  AND (sessions.title LIKE ?1 ESCAPE '\'
                    OR COALESCE(sessions.project_path, '') LIKE ?1 ESCAPE '\'
                    OR COALESCE(sessions.folder, '') LIKE ?1 ESCAPE '\'
                    OR COALESCE(sessions.worktree_path, '') LIKE ?1 ESCAPE '\'
@@ -86,7 +79,7 @@ impl SessionRepository for SqliteSessionsRepository {
                         SELECT 1 FROM messages
                         WHERE messages.session_id = sessions.id
                           AND messages.content LIKE ?1 ESCAPE '\'
-                   )
+                   ))
                 ORDER BY sessions.updated_at DESC
                 LIMIT ?2
                 "#,
@@ -182,13 +175,41 @@ impl SessionRepository for SqliteSessionsRepository {
         cutoff: &str,
     ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
         self.query_sessions(
-            "WHERE archived = 0 AND pinned = 0 AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
+            "WHERE archived = 0 AND pinned = 0 AND loop_run_id IS NULL AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
             Some(cutoff),
         )
     }
 }
 
 impl SqliteSessionsRepository {
+    fn list_with_loop_visibility(
+        &self,
+        scope: SessionListScope,
+        include_loop_owned: bool,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        let connection = self.connection()?;
+        let archived = i64::from(scope == SessionListScope::Archived);
+        let loop_filter = if include_loop_owned {
+            ""
+        } else {
+            " AND loop_run_id IS NULL"
+        };
+        let mut statement = connection
+            .prepare(&format!(
+                "{SESSION_SELECT} WHERE archived = ?1{loop_filter} ORDER BY pinned DESC, updated_at DESC"
+            ))
+            .map_err(repository_error)?;
+        let records = statement
+            .query_map([archived], SessionRow::read)
+            .map_err(repository_error)?
+            .map(|row| {
+                row.map_err(repository_error)
+                    .and_then(SessionRow::into_record)
+            })
+            .collect();
+        records
+    }
+
     fn query_sessions(
         &self,
         condition: &str,

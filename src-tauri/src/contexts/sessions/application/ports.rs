@@ -18,6 +18,13 @@ pub(crate) trait SessionRepository: Send + Sync {
     fn list(&self, scope: SessionListScope)
         -> Result<Vec<SessionRecord>, SessionsApplicationError>;
 
+    fn list_including_loop_owned(
+        &self,
+        scope: SessionListScope,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.list(scope)
+    }
+
     fn search(
         &self,
         query: &SessionSearchQuery,

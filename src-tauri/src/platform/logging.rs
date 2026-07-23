@@ -510,6 +510,54 @@ mod tests {
     }
 
     #[test]
+    fn loop_operation_log_keeps_association_while_redacting_evidence() {
+        let dir = temp_dir("loop-operation-association");
+        let mut context = BTreeMap::new();
+        context.insert("operationId".to_string(), "operation-loop-1".to_string());
+        context.insert("runId".to_string(), "run-1".to_string());
+        context.insert("iterationId".to_string(), "iteration-2".to_string());
+        context.insert("loopOperation".to_string(), "verification".to_string());
+        context.insert("api_key".to_string(), "context-secret".to_string());
+
+        write_message(
+            &dir,
+            LogLevel::Warn,
+            "loop.verification",
+            "verification output token=message-secret",
+            context,
+        )
+        .expect("write Loop operation log");
+
+        let raw = fs::read_to_string(dir.join(LOG_FILE_NAME)).expect("read Loop log");
+        let entry: LogEntry = serde_json::from_str(raw.lines().next().expect("log line"))
+            .expect("deserialize Loop log");
+        assert_eq!(
+            entry.context.get("operationId").map(String::as_str),
+            Some("operation-loop-1")
+        );
+        assert_eq!(
+            entry.context.get("runId").map(String::as_str),
+            Some("run-1")
+        );
+        assert_eq!(
+            entry.context.get("iterationId").map(String::as_str),
+            Some("iteration-2")
+        );
+        assert_eq!(
+            entry.context.get("loopOperation").map(String::as_str),
+            Some("verification")
+        );
+        assert_eq!(
+            entry.context.get("api_key").map(String::as_str),
+            Some("[REDACTED]")
+        );
+        assert!(entry.message.contains("token=[REDACTED]"));
+        assert!(!raw.contains("context-secret"));
+        assert!(!raw.contains("message-secret"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn redacts_im_identity_content_and_protocol_context() {
         let dir = temp_dir("im-redaction");
         let mut context = BTreeMap::new();

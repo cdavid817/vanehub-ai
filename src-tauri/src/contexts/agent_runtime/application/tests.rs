@@ -34,6 +34,7 @@ struct FakeWorld {
     lifecycle_updates: Mutex<Vec<AgentLifecycle>>,
     generation_requests: Mutex<Vec<GenerationProcessRequest>>,
     generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
+    loop_terminals: Mutex<Vec<LoopRoleGenerationTerminal>>,
     stopped_processes: Mutex<Vec<String>>,
     launch_failure: AtomicBool,
     prompt_failure: AtomicBool,
@@ -55,6 +56,8 @@ impl FakeWorld {
             folder: Some("C:/workspace".to_string()),
             runtime_session_id: None,
             archived: false,
+            read_only: false,
+            loop_ownership: None,
         };
         Self {
             agents: Mutex::new(agents),
@@ -66,6 +69,7 @@ impl FakeWorld {
             lifecycle_updates: Mutex::new(Vec::new()),
             generation_requests: Mutex::new(Vec::new()),
             generation_sinks: Mutex::new(BTreeMap::new()),
+            loop_terminals: Mutex::new(Vec::new()),
             stopped_processes: Mutex::new(Vec::new()),
             launch_failure: AtomicBool::new(false),
             prompt_failure: AtomicBool::new(false),
@@ -472,6 +476,18 @@ impl AgentTaskPort for FakeWorld {
         })
     }
 
+    fn start_loop_operation(
+        &self,
+        context: &LoopOperationContext,
+        message: &str,
+    ) -> Result<AgentOperation, AgentRuntimeApplicationError> {
+        Ok(AgentOperation {
+            id: format!("loop-{}", context.kind.as_str()),
+            related_agent_id: Some(context.run_id.clone()),
+            message: Some(message.to_string()),
+        })
+    }
+
     fn append_log(
         &self,
         operation_id: &str,
@@ -643,6 +659,65 @@ fn chat_configuration() -> AgentChatConfiguration {
     }
 }
 
+impl LoopRoleGenerationCompletionPort for FakeWorld {
+    fn deliver(
+        &self,
+        terminal: LoopRoleGenerationTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let mut terminals = self.loop_terminals.lock().expect("loop terminals");
+        if terminals.iter().any(|existing| {
+            existing.session_id == terminal.session_id && existing.message_id == terminal.message_id
+        }) {
+            return Ok(false);
+        }
+        terminals.push(terminal);
+        Ok(true)
+    }
+
+    fn take_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError> {
+        let mut terminals = self.loop_terminals.lock().expect("loop terminals");
+        let Some(index) = terminals
+            .iter()
+            .position(|terminal| terminal.session_id == session_id)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(terminals.remove(index)))
+    }
+}
+
+#[test]
+fn verifier_generation_forces_read_only_permission_mode() {
+    let world = test_world();
+    world
+        .sessions
+        .lock()
+        .expect("sessions")
+        .get_mut("session-1")
+        .expect("session")
+        .read_only = true;
+    let service = service(world.clone());
+
+    service
+        .send_message(SendMessageRequest {
+            session_id: "session-1".to_string(),
+            content: "Inspect the current implementation.".to_string(),
+            file_references: Vec::new(),
+            configuration: chat_configuration(),
+        })
+        .expect("read-only generation");
+
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].configuration.permission_mode, "plan");
+}
+
 fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
     AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: world.clone(),
@@ -655,7 +730,8 @@ fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
         logging: world.clone(),
         clock: world.clone(),
         events: world.clone(),
-        generations: world,
+        generations: world.clone(),
+        loop_completions: world,
     })
 }
 
@@ -973,6 +1049,76 @@ fn stream_events_persist_complete_usage_and_operation_once() {
             .as_deref(),
         Some("generation-operation-1")
     );
+}
+
+#[test]
+fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_races() {
+    for cancelled in [false, true] {
+        let world = test_world();
+        world
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get_mut("session-1")
+            .expect("session")
+            .loop_ownership = Some(LoopRoleGenerationOwnership {
+            run_id: "run-1".to_string(),
+            iteration_id: "iteration-1".to_string(),
+            role: "worker".to_string(),
+        });
+        let service = service(world.clone());
+        let message = service
+            .send_message(SendMessageRequest {
+                session_id: "session-1".to_string(),
+                content: "implement".to_string(),
+                configuration: chat_configuration(),
+                file_references: Vec::new(),
+            })
+            .expect("send");
+        let sink = world
+            .generation_sinks
+            .lock()
+            .expect("generation sinks")
+            .get("process-1")
+            .cloned()
+            .expect("sink");
+
+        if cancelled {
+            service.stop_generation("session-1").expect("cancel");
+            sink.handle(GenerationProcessEvent::Failed("late failure".to_string()))
+                .expect("late failure ignored");
+        } else {
+            sink.handle(GenerationProcessEvent::Token("done".to_string()))
+                .expect("token");
+            sink.handle(GenerationProcessEvent::Completed)
+                .expect("complete");
+            sink.handle(GenerationProcessEvent::Completed)
+                .expect("duplicate complete ignored");
+        }
+
+        let terminal = service
+            .take_loop_role_completion("session-1")
+            .expect("take")
+            .expect("terminal");
+        assert_eq!(terminal.run_id, "run-1");
+        assert_eq!(terminal.iteration_id, "iteration-1");
+        assert_eq!(terminal.message_id, message.id);
+        assert_eq!(
+            terminal.outcome,
+            if cancelled {
+                LoopRoleGenerationOutcome::Cancelled
+            } else {
+                LoopRoleGenerationOutcome::Completed
+            }
+        );
+        assert_eq!(terminal.content.as_deref(), (!cancelled).then_some("done"));
+        assert_eq!(
+            service
+                .take_loop_role_completion("session-1")
+                .expect("second take"),
+            None
+        );
+    }
 }
 
 #[test]

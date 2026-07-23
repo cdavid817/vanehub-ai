@@ -34,6 +34,14 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
+  ContinueLoopInput,
+  LoopDefinition,
+  LoopEvent,
+  LoopRun,
+  SaveLoopDefinitionInput,
+  StartLoopResult,
+} from "../types/loop";
+import type {
   CreateShellInput,
   DirectoryListing,
   DocumentListing,
@@ -91,6 +99,7 @@ export interface AgentService {
   listSessions(): Promise<Session[]>;
   listArchivedSessions(): Promise<Session[]>;
   searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
+  getSession(sessionId: string): Promise<Session>;
   getActiveSession(): Promise<Session | null>;
   listSessionCategories(): Promise<SessionCategory[]>;
   createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
@@ -103,6 +112,20 @@ export interface AgentService {
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;
+  listLoopDefinitions(): Promise<LoopDefinition[]>;
+  createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
+  updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
+  deleteLoopDefinition(definitionId: string): Promise<void>;
+  listLoopRuns(definitionId?: string): Promise<LoopRun[]>;
+  getLoopRun(runId: string): Promise<LoopRun>;
+  startLoop(definitionId: string): Promise<StartLoopResult>;
+  pauseLoop(runId: string): Promise<LoopRun>;
+  resumeLoop(runId: string): Promise<LoopRun>;
+  cancelLoop(runId: string): Promise<LoopRun>;
+  acceptLoop(runId: string): Promise<LoopRun>;
+  continueLoop(input: ContinueLoopInput): Promise<LoopRun>;
+  rejectLoop(runId: string): Promise<LoopRun>;
+  subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void): Promise<() => void>;
   getSessionChatConfig(sessionId: string): Promise<ChatConfig>;
   saveSessionChatConfig(sessionId: string, config: ChatConfig): Promise<ChatConfig>;
   listKnownProjects(): Promise<KnownProject[]>;

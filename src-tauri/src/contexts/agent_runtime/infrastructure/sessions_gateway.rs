@@ -1,14 +1,15 @@
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
-    AgentSession, AgentSessionGateway, AgentUsageRecord, CompleteAgentMessage, MessageTokenUsage,
-    NewAgentMessage, ToolUseBlock,
+    AgentSession, AgentSessionGateway, AgentUsageRecord, CompleteAgentMessage, LoopRoleSessionPort,
+    LoopRoleSessionRequest, MessageTokenUsage, NewAgentMessage, ToolUseBlock,
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use crate::contexts::sessions::api::{
     ChatConfigurationValues, CompleteMessageRequest, CreateMessageRequest, FailMessageRequest,
-    FileReferenceInput, MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord,
-    RuntimeMessageSnapshot, SessionChatConfiguration, SessionLifecycle, SessionUsageAccountingKind,
-    SessionUsageUnit, SessionsApi, SessionsError,
+    FileReferenceInput, LoopRoleSessionRequest as SessionLoopRoleRequest, LoopSessionRole,
+    MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord, RuntimeMessageSnapshot,
+    SessionChatConfiguration, SessionLifecycle, SessionUsageAccountingKind, SessionUsageUnit,
+    SessionsApi, SessionsError,
 };
 use serde_json::{json, Value};
 
@@ -20,6 +21,48 @@ pub(crate) struct SessionsAgentRuntimeAdapter {
 impl SessionsAgentRuntimeAdapter {
     pub(crate) fn new(sessions: SessionsApi) -> Self {
         Self { sessions }
+    }
+}
+
+impl LoopRoleSessionPort for SessionsAgentRuntimeAdapter {
+    fn create_worker_session(
+        &self,
+        request: LoopRoleSessionRequest,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.sessions
+            .create_loop_role_session(SessionLoopRoleRequest {
+                run_id: request.run_id,
+                iteration_id: request.iteration_id,
+                role: LoopSessionRole::Worker,
+                agent_id: request.agent_id,
+                interaction_mode: InteractionMode::Cli.as_str().to_string(),
+                project_path: request.project_path,
+                worktree_path: request.worktree_path,
+                worktree_name: request.worktree_name,
+                worktree_branch: request.worktree_branch,
+            })
+            .map(|session| session.id().to_string())
+            .map_err(session_error)
+    }
+
+    fn create_verifier_session(
+        &self,
+        request: LoopRoleSessionRequest,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.sessions
+            .create_loop_role_session(SessionLoopRoleRequest {
+                run_id: request.run_id,
+                iteration_id: request.iteration_id,
+                role: LoopSessionRole::Verifier,
+                agent_id: request.agent_id,
+                interaction_mode: InteractionMode::Cli.as_str().to_string(),
+                project_path: request.project_path,
+                worktree_path: request.worktree_path,
+                worktree_name: request.worktree_name,
+                worktree_branch: request.worktree_branch,
+            })
+            .map(|session| session.id().to_string())
+            .map_err(session_error)
     }
 }
 
@@ -36,6 +79,16 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             return Ok(None);
         };
         let interaction_mode = InteractionMode::parse(&session.interaction_mode)?;
+        let loop_ownership = session.loop_ownership.map(|ownership| {
+            crate::contexts::agent_runtime::application::LoopRoleGenerationOwnership {
+                run_id: ownership.run_id,
+                iteration_id: ownership.iteration_id,
+                role: ownership.role.as_str().to_string(),
+            }
+        });
+        let read_only = loop_ownership
+            .as_ref()
+            .is_some_and(|ownership| ownership.role == "verifier");
         Ok(Some(AgentSession {
             id: session.id,
             agent_id: session.agent_id,
@@ -44,6 +97,8 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             folder: session.folder,
             runtime_session_id: session.runtime_session_id,
             archived: session.archived,
+            read_only,
+            loop_ownership,
         }))
     }
 

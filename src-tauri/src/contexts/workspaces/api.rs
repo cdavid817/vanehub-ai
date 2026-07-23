@@ -79,6 +79,16 @@ impl WorkspaceApi {
         self.service.create_worktree(project_path, name)
     }
 
+    pub(crate) fn create_guarded_loop_worktree(
+        &self,
+        project_path: &str,
+        name: &str,
+        base_branch: &str,
+    ) -> Result<CreatedWorktree, WorkspaceError> {
+        self.service
+            .create_guarded_loop_worktree(project_path, name, base_branch)
+    }
+
     pub(crate) fn list_session_directory(
         &self,
         session_id: &str,

@@ -47,9 +47,10 @@ fn process_failure_outcome(error: ProcessError) -> PluginIntegrationToolOutcome 
         ProcessError::Spawn(message) if indicates_missing_executable(&message) => {
             PluginIntegrationToolOutcome::MissingExecutable
         }
-        ProcessError::InvalidExecutable(_) | ProcessError::Spawn(_) | ProcessError::Wait(_) => {
-            PluginIntegrationToolOutcome::LaunchFailed
-        }
+        ProcessError::InvalidExecutable(_)
+        | ProcessError::Spawn(_)
+        | ProcessError::Wait(_)
+        | ProcessError::Cancelled { .. } => PluginIntegrationToolOutcome::LaunchFailed,
     }
 }
 
@@ -109,6 +110,7 @@ mod tests {
                 timeout_seconds: 10,
                 stdout: "token=secret".to_string(),
                 stderr: "private path".to_string(),
+                output_truncated: false,
             }),
             PluginIntegrationToolOutcome::TimedOut
         );
