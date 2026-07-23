@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { AlertTriangle, Bot, CheckCircle2, CircleStop, FileText, UserRound } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { useTranslation } from "react-i18next";
@@ -31,7 +32,10 @@ function formatTime(value: string, language: string) {
   }).format(new Date(value));
 }
 
-export function MessageItem({ message }: { message: ChatMessage }) {
+// Memoized because streaming appends a token at a time: applyChatEvent keeps stable
+// references for unchanged messages, so memo lets historical rows skip re-rendering
+// (and re-parsing markdown / mermaid) on every token — only the streaming row updates.
+export const MessageItem = memo(function MessageItem({ message }: { message: ChatMessage }) {
   const { i18n, t } = useTranslation();
   const isUser = message.role === "user";
   const Icon = isUser ? UserRound : Bot;
@@ -84,4 +88,4 @@ export function MessageItem({ message }: { message: ChatMessage }) {
       </div>
     </article>
   );
-}
+});
