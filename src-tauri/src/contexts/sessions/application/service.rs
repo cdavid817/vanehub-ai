@@ -277,6 +277,7 @@ impl SessionsApplicationService {
         self.ports.sessions.list(scope)
     }
 
+    #[cfg(test)]
     pub(crate) fn list_sessions_including_loop_owned(
         &self,
         scope: SessionListScope,

@@ -22,18 +22,19 @@ pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 pub(crate) use loop_models::{
     ContinueLoopRequest, LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView,
-    LoopGitStateView, LoopIterationView, LoopLimitsView, LoopRoleSessionRequest, LoopRunView,
-    LoopVerificationBatchResult, LoopVerificationCommandView, LoopVerifierResult,
-    PreparedLoopWorktree, RunLoopVerificationRequest, SaveLoopDefinitionRequest,
-    SaveLoopVerifierResultRequest, StartLoopResultView, StartLoopVerifierRequest,
-    StartLoopWorkerRequest, StartedLoopVerifierView, StartedLoopWorkerView,
+    LoopGitStateView, LoopIterationView, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationBatchResult, LoopVerifierResult, PreparedLoopWorktree,
+    RunLoopVerificationRequest, SaveLoopDefinitionRequest, SaveLoopVerifierResultRequest,
+    StartLoopResultView, StartLoopVerifierRequest, StartLoopWorkerRequest, StartedLoopVerifierView,
+    StartedLoopWorkerView,
 };
+#[cfg(test)]
+pub(crate) use loop_models::{LoopLimitsView, LoopVerificationCommandView};
 pub(crate) use loop_observability::{ActiveLoopOperation, LoopOperationObserver};
 pub(crate) use loop_orchestrator::{LoopOrchestratorApplicationService, LoopOrchestratorPorts};
-pub(crate) use loop_progress::{
-    fingerprint_loop_iteration, LoopProgressApplicationService, RecordLoopRevisionProgressRequest,
-    RecordedLoopRevisionProgress,
-};
+#[cfg(test)]
+pub(crate) use loop_progress::fingerprint_loop_iteration;
+pub(crate) use loop_progress::{LoopProgressApplicationService, RecordLoopRevisionProgressRequest};
 pub(crate) use loop_recovery::{LoopRecoveryApplicationPorts, LoopRecoveryApplicationService};
 pub(crate) use loop_service::{LoopApplicationPorts, LoopApplicationService};
 pub(crate) use loop_verification::{
@@ -73,6 +74,9 @@ pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalAp
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod terminal_service_tests;
 
 #[cfg(test)]
 mod loop_service_tests;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
@@ -33,7 +33,10 @@ export function useMainLayoutModel() {
   const agents = agentsQuery.data ?? [];
   const activeSession = activeQuery.data ?? null;
   const activeSessionId = activeSession?.id ?? null;
-  const messagesKey = ["messages", activeSessionId, messageLimit] as const;
+  const messagesKey = useMemo(
+    () => ["messages", activeSessionId, messageLimit] as const,
+    [activeSessionId, messageLimit],
+  );
   const messagesQuery = useQuery({
     enabled: Boolean(activeSessionId), queryKey: messagesKey,
     queryFn: () => activeSessionId ? agentService.listMessages({ sessionId: activeSessionId, limit: messageLimit }) : Promise.resolve([]),
@@ -132,7 +135,7 @@ export function useMainLayoutModel() {
       if (["completed", "failed", "cancelled"].includes(event.type)) invalidateSessions();
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => { cancelled = true; cleanup?.(); };
-  }, [activeSessionId, invalidateSessions, messageLimit, queryClient]);
+  }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
 
   useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); }, [activeSessionId]);
 

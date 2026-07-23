@@ -58,19 +58,24 @@ pub(crate) fn write_configuration(
 }
 
 pub(crate) fn try_run_from_process_args() -> bool {
-    let mut args = std::env::args_os();
+    match run_from_process_args(std::env::args_os()) {
+        Ok(is_relay) => is_relay,
+        Err(_) => std::process::exit(2),
+    }
+}
+
+fn run_from_process_args(
+    args: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<bool, String> {
+    let mut args = args.into_iter();
     let _ = args.next();
     if args.next().as_deref() != Some(std::ffi::OsStr::new(RELAY_FLAG)) {
-        return false;
+        return Ok(false);
     }
-    let result = args
-        .next()
+    args.next()
         .ok_or_else(|| "relay configuration path is required".to_string())
-        .and_then(|path| run_configuration(Path::new(&path)));
-    if result.is_err() {
-        std::process::exit(2);
-    }
-    true
+        .and_then(|path| run_configuration(Path::new(&path)))?;
+    Ok(true)
 }
 
 fn run_configuration(path: &Path) -> Result<(), String> {
@@ -187,14 +192,32 @@ fn relay_http(
     timeout: Duration,
     observer: Option<RelayObserver>,
 ) -> Result<(), String> {
+    relay_http_stream(
+        url,
+        headers,
+        traceparent,
+        timeout,
+        observer,
+        BufReader::new(std::io::stdin().lock()),
+        &mut std::io::stdout().lock(),
+    )
+}
+
+fn relay_http_stream(
+    url: &str,
+    headers: &BTreeMap<String, String>,
+    traceparent: &str,
+    timeout: Duration,
+    observer: Option<RelayObserver>,
+    input: impl BufRead,
+    output: &mut impl Write,
+) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .build()
         .map_err(|error| error.to_string())?;
     let mut session_id: Option<String> = None;
-    let input = BufReader::new(std::io::stdin().lock());
-    let mut output = std::io::stdout().lock();
     for line in input.lines() {
         let line = line.map_err(|error| error.to_string())?;
         let parsed = serde_json::from_str::<serde_json::Value>(&line)

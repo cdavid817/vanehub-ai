@@ -7,10 +7,10 @@ use super::infrastructure::NativeLoopScheduler;
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
-    AgentView, ContinueLoopRequest, LaunchWorkflowResult, LoopDefinitionView,
-    LoopRoleGenerationTerminal, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
-    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SendMessageRequest, StartLoopResultView,
-    StopAgentTerminalRequest, StopGenerationResult, WorkflowView,
+    AgentView, ContinueLoopRequest, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
+    OpenAgentTerminalRequest, ReadinessView, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult,
+    WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -216,13 +216,6 @@ impl AgentRuntimeApi {
         session_id: &str,
     ) -> Result<StopGenerationResult, AgentRuntimeApplicationError> {
         self.service.stop_generation(session_id)
-    }
-
-    pub(crate) fn take_loop_role_completion(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError> {
-        self.service.take_loop_role_completion(session_id)
     }
 
     pub(crate) fn open_agent_terminal(

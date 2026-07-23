@@ -45,6 +45,7 @@ impl SessionRepository for SqliteSessionsRepository {
         self.list_with_loop_visibility(scope, false)
     }
 
+    #[cfg(test)]
     fn list_including_loop_owned(
         &self,
         scope: SessionListScope,

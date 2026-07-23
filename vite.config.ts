@@ -19,5 +19,17 @@ export default defineConfig({
   },
   test: {
     exclude: ["node_modules/**", "dist/**", "src-tauri/**", "tests/e2e/**"],
+    setupFiles: ["./src/test/setup.ts"],
+    coverage: {
+      provider: "v8",
+      reportsDirectory: "./coverage/frontend",
+      reporter: ["text-summary", "json-summary", "lcov", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/**/*.d.ts",
+        "src/test/**",
+      ],
+    },
   },
 });

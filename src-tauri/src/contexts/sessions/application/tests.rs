@@ -69,6 +69,7 @@ impl SessionRepository for FakeStore {
             .collect())
     }
 
+    #[cfg(test)]
     fn list_including_loop_owned(
         &self,
         scope: SessionListScope,

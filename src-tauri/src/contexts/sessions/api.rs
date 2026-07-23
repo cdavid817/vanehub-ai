@@ -2,13 +2,13 @@ use super::application::SessionsApplicationService;
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
     CreateMessageRequest, FailMessageRequest, FileReferenceInput, LoopRoleSessionRequest,
-    LoopSessionOwnership, MessageRecord, MessageTokenUsage, MessageUsageRecord, NewRemoteWorkspace,
-    NewSessionRequest, NewSessionWorkspace, NewWorktree, PreparedNewSessionCreation,
-    RuntimeMessageSnapshot, RuntimeSessionSnapshot, SessionChatConfiguration,
-    SessionCreationOperation, SessionExportFormat, SessionExportRequest, SessionExportResult,
-    SessionListScope, SessionMaintenanceResult, SessionRecord, SessionSearchMatchKind,
-    SessionSearchResult, SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary,
-    SessionUsageUnit, SessionsApplicationError as SessionsError, UsageStatisticsRange,
+    MessageRecord, MessageTokenUsage, MessageUsageRecord, NewRemoteWorkspace, NewSessionRequest,
+    NewSessionWorkspace, NewWorktree, PreparedNewSessionCreation, RuntimeMessageSnapshot,
+    RuntimeSessionSnapshot, SessionChatConfiguration, SessionCreationOperation,
+    SessionExportFormat, SessionExportRequest, SessionExportResult, SessionListScope,
+    SessionMaintenanceResult, SessionRecord, SessionSearchMatchKind, SessionSearchResult,
+    SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
+    SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{
     LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner,
@@ -52,20 +52,6 @@ impl SessionsApi {
 
     pub(crate) fn list_archived(&self) -> Result<Vec<SessionRecord>, SessionsError> {
         self.service.list_sessions(SessionListScope::Archived)
-    }
-
-    pub(crate) fn list_current_including_loop_owned(
-        &self,
-    ) -> Result<Vec<SessionRecord>, SessionsError> {
-        self.service
-            .list_sessions_including_loop_owned(SessionListScope::Current)
-    }
-
-    pub(crate) fn list_archived_including_loop_owned(
-        &self,
-    ) -> Result<Vec<SessionRecord>, SessionsError> {
-        self.service
-            .list_sessions_including_loop_owned(SessionListScope::Archived)
     }
 
     pub(crate) fn search(

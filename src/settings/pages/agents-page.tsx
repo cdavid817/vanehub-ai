@@ -16,6 +16,7 @@ type AgentsOverview = {
   sessionDetails: SessionDetails;
 };
 
+const emptyAgents: AgentRegistryEntry[] = [];
 const agentsOverviewQueryKey = (capabilityFilter: string) => ["agents", "overview", capabilityFilter] as const;
 
 const modeIcons: Record<InteractionMode, typeof Terminal> = {
@@ -58,7 +59,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
     },
   });
 
-  const agents = agentsOverviewQuery.data?.agents ?? [];
+  const agents = agentsOverviewQuery.data?.agents ?? emptyAgents;
   const workflow = agentsOverviewQuery.data?.workflow ?? null;
   const sessionDetails = agentsOverviewQuery.data?.sessionDetails ?? null;
   const queryError = agentsOverviewQuery.error instanceof Error ? agentsOverviewQuery.error.message : agentsOverviewQuery.error ? String(agentsOverviewQuery.error) : null;
