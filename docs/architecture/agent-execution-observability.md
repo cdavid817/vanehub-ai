@@ -13,7 +13,7 @@ interactive Agent session.
 | `tracing-subscriber` | 0.3.22 | registry |
 | `tracing-opentelemetry` | 0.33.0 | trace bridge |
 | `opentelemetry` | 0.32.0 | trace, metrics, logs |
-| `opentelemetry_sdk` | 0.32.0 | trace, metrics, logs |
+| `opentelemetry_sdk` | 0.32.1 | trace, metrics, logs; includes bounded W3C Baggage parsing fix |
 | `opentelemetry-otlp` | 0.32.0 | HTTP/protobuf, blocking HTTP client, trace, metrics, logs |
 | `opentelemetry-appender-tracing` | 0.32.0 | tracing-to-OTel log bridge |
 | `opentelemetry-semantic-conventions` | 0.32.0 | experimental GenAI constants |

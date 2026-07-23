@@ -30,7 +30,7 @@ opentelemetry = { version = "=0.32.0", default-features = false, features = ["tr
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
 opentelemetry-semantic-conventions = { version = "=0.32.0", features = ["semconv_experimental"] }
-opentelemetry_sdk = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
 async-trait = "0.1"
@@ -52,6 +52,6 @@ tracing-opentelemetry = { version = "=0.33.0", default-features = false }
 tracing-subscriber = { version = "=0.3.22", default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
-opentelemetry_sdk = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs", "testing"] }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "testing"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
