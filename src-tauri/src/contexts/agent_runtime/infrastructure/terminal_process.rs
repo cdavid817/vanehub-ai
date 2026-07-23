@@ -974,7 +974,10 @@ mod tests {
         }
 
         assert_eq!(lines, 0, "no newline means no complete line");
-        assert!(line_buffer.len() <= MAX_PARSE_LINE_BYTES, "buffer stays bounded");
+        assert!(
+            line_buffer.len() <= MAX_PARSE_LINE_BYTES,
+            "buffer stays bounded"
+        );
     }
 
     #[test]
