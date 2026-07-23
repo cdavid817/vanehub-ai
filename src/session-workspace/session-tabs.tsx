@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
+import { LazyFeature } from "../components/lazy-feature";
+import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
-import { cn } from "../lib/utils";
 import { AgentTerminalTab } from "./agent-terminal-tab";
-import { ChangesTab } from "./changes-tab";
-import { DocumentsTab } from "./documents-tab";
-import { FilesTab } from "./files-tab";
-import { LogsTab } from "./logs-tab";
-import { ExecutionTimelineTab } from "./execution-timeline-tab";
-import { ReportTab } from "./report-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
-import { ShellTab } from "./shell-tab";
-import { TerminalTab, toolUseCount } from "./terminal-tab";
+import { toolUseCount } from "./terminal-utils";
+
+const loadChangesTab = () => import("./changes-tab").then((module) => ({ default: module.ChangesTab }));
+const loadDocumentsTab = () => import("./documents-tab").then((module) => ({ default: module.DocumentsTab }));
+const loadFilesTab = () => import("./files-tab").then((module) => ({ default: module.FilesTab }));
+const loadTerminalTab = () => import("./terminal-tab").then((module) => ({ default: module.TerminalTab }));
+const loadShellTab = () => import("./shell-tab").then((module) => ({ default: module.ShellTab }));
+const loadLogsTab = () => import("./logs-tab").then((module) => ({ default: module.LogsTab }));
+const loadExecutionTimelineTab = () => import("./execution-timeline-tab")
+  .then((module) => ({ default: module.ExecutionTimelineTab }));
+const loadReportTab = () => import("./report-tab").then((module) => ({ default: module.ReportTab }));
 
 export function SessionTabs({
   activeSession,
@@ -49,9 +53,33 @@ export function SessionTabs({
     setActiveTab(tab);
   }
 
+  function renderPanel(id: SessionTabId) {
+    if (id === "chat") {
+      return <AgentTerminalTab active={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
+    }
+    if (id === "changes") return <LazyFeature componentProps={{ sessionId }} loader={loadChangesTab} />;
+    if (id === "documents") return <LazyFeature componentProps={{ sessionId }} loader={loadDocumentsTab} />;
+    if (id === "files") return <LazyFeature componentProps={{ sessionId }} loader={loadFilesTab} />;
+    if (id === "terminal") {
+      return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadTerminalTab} />;
+    }
+    if (id === "shell") {
+      return <LazyFeature componentProps={{ active: activeTab === "shell", sessionId }} loader={loadShellTab} />;
+    }
+    if (id === "logs") return <LazyFeature componentProps={{ sessionId }} loader={loadLogsTab} />;
+    if (id === "traces") return <LazyFeature componentProps={{ sessionId }} loader={loadExecutionTimelineTab} />;
+    return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadReportTab} />;
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <SessionTabBar activeTab={activeTab} badges={{ terminal: terminalCount }} onActivate={activate} onOpenSettings={onOpenSettings} session={activeSession} />
+      <SessionTabBar
+        activeTab={activeTab}
+        badges={{ terminal: terminalCount }}
+        onActivate={activate}
+        onOpenSettings={onOpenSettings}
+        session={activeSession}
+      />
       <div className="min-h-0 flex-1 overflow-hidden">
         {sessionTabDefinitions.map(({ id }) => mountedTabs.has(id) ? (
           <section
@@ -61,19 +89,10 @@ export function SessionTabs({
             key={`${sessionId ?? "none"}-${id}`}
             role="tabpanel"
           >
-            {id === "chat" ? <AgentTerminalTab active={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} /> : null}
-            {id === "changes" ? <ChangesTab sessionId={sessionId} /> : null}
-            {id === "documents" ? <DocumentsTab sessionId={sessionId} /> : null}
-            {id === "files" ? <FilesTab sessionId={sessionId} /> : null}
-            {id === "terminal" ? <TerminalTab messages={messages} partial={messagesPartial} /> : null}
-            {id === "shell" ? <ShellTab active={activeTab === "shell"} sessionId={sessionId} /> : null}
-            {id === "logs" ? <LogsTab sessionId={sessionId} /> : null}
-            {id === "traces" ? <ExecutionTimelineTab sessionId={sessionId} /> : null}
-            {id === "report" ? <ReportTab messages={messages} partial={messagesPartial} /> : null}
+            {renderPanel(id)}
           </section>
         ) : null)}
       </div>
     </div>
   );
 }
-

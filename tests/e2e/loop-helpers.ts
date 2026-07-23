@@ -7,9 +7,10 @@ export async function openLoops(page: Page) {
 
 export async function createAndRunLoop(page: Page, name: string) {
   const create = page.getByRole("button", { name: "新建循环定义" });
-  if (!(await create.isVisible())) {
-    await page.getByRole("button", { name: "打开循环列表" }).click();
-  }
+  const openList = page.getByRole("button", { name: "打开循环列表" });
+  await expect(create.or(openList)).toBeVisible();
+  if (await openList.isVisible()) await openList.click();
+  await expect(create).toBeVisible();
   await create.click();
   await expect(page.getByRole("dialog", { name: "新建循环定义" })).toBeVisible();
   await page.getByLabel("名称").fill(name);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as Reac
 import { ArrowLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
+import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
@@ -20,12 +21,14 @@ import { useMainLayoutModel } from "./use-main-layout-model";
 import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
-import { LoopCenter } from "../loop-center/loop-center";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
 const maxSessionSidebarWidth = 420;
 const defaultSessionSidebarWidth = 220;
+type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
+const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
+  .then((module) => ({ default: module.LoopCenter }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -94,6 +97,7 @@ export function MainLayout({
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const [destination, setDestination] = useState<"sessions" | "loops">("sessions");
+  const [loopCenterVisited, setLoopCenterVisited] = useState(false);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
@@ -193,7 +197,10 @@ export function MainLayout({
               help: t("layout.activityBar.help"),
             }}
             onOpenSettings={onOpenSettings}
-            onLoops={() => setDestination("loops")}
+            onLoops={() => {
+              setLoopCenterVisited(true);
+              setDestination("loops");
+            }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onSessions={() => {
               if (destination === "loops") setDestination("sessions");
@@ -284,7 +291,13 @@ export function MainLayout({
             className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "loops" ? "flex" : "hidden")}
             id="loop-center"
           >
-            <LoopCenter onInspect={inspectLoopSession} />
+            {loopCenterVisited ? (
+              <LazyFeature
+                className="h-full min-h-0 flex-1"
+                componentProps={{ onInspect: inspectLoopSession }}
+                loader={loadLoopCenter}
+              />
+            ) : null}
           </section>
         </div>
         <StatusBar />
