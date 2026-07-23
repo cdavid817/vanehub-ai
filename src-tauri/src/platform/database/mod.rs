@@ -184,7 +184,9 @@ mod tests {
                         .expect("concurrent insert");
                     // A read on the same connection under WAL must not be locked out by writers.
                     connection
-                        .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get::<_, i64>(0))
+                        .query_row("SELECT COUNT(*) FROM agents", [], |row| {
+                            row.get::<_, i64>(0)
+                        })
                         .expect("concurrent read");
                 })
             })
@@ -206,6 +208,9 @@ mod tests {
             .expect("agent count");
 
         assert_eq!(written, workers as i64, "every concurrent writer committed");
-        assert_eq!(agents, 4, "registry seeding ran exactly once, not per connection");
+        assert_eq!(
+            agents, 4,
+            "registry seeding ran exactly once, not per connection"
+        );
     }
 }
