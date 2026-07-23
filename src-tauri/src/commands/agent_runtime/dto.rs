@@ -180,3 +180,134 @@ pub(crate) struct AgentTerminalSession {
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) retained: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CoordinationNodeInput {
+    pub(crate) id: String,
+    pub(crate) primary_agent_id: String,
+    #[serde(default)]
+    pub(crate) fallback_agent_ids: Vec<String>,
+    pub(crate) instruction: String,
+    #[serde(default)]
+    pub(crate) depends_on: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartCoordinationInput {
+    pub(crate) name: String,
+    pub(crate) project_path: Option<String>,
+    pub(crate) nodes: Vec<CoordinationNodeInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartCoordinationResult {
+    pub(crate) run_id: String,
+    pub(crate) operation_id: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CoordinationRunStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CoordinationNodeStatus {
+    Blocked,
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Skipped,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CoordinationAttemptStatus {
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CoordinationFailureKind {
+    Retryable,
+    NonRetryable,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CoordinationCandidateRole {
+    Primary,
+    Fallback,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CoordinationOutput {
+    pub(crate) source_node_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) attempt: u32,
+    pub(crate) content: String,
+    pub(crate) byte_count: usize,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CoordinationAttempt {
+    pub(crate) attempt: u32,
+    pub(crate) agent_id: String,
+    pub(crate) candidate_role: CoordinationCandidateRole,
+    pub(crate) status: CoordinationAttemptStatus,
+    pub(crate) failure_kind: Option<CoordinationFailureKind>,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: String,
+    pub(crate) completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CoordinationNodeRun {
+    pub(crate) id: String,
+    pub(crate) primary_agent_id: String,
+    pub(crate) fallback_agent_ids: Vec<String>,
+    pub(crate) instruction: String,
+    pub(crate) depends_on: Vec<String>,
+    pub(crate) status: CoordinationNodeStatus,
+    pub(crate) actual_agent_id: Option<String>,
+    pub(crate) output: Option<CoordinationOutput>,
+    pub(crate) attempts: Vec<CoordinationAttempt>,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CoordinationRun {
+    pub(crate) id: String,
+    pub(crate) operation_id: String,
+    pub(crate) name: String,
+    pub(crate) project_path: Option<String>,
+    pub(crate) status: CoordinationRunStatus,
+    pub(crate) nodes: Vec<CoordinationNodeRun>,
+    pub(crate) simulated: bool,
+    pub(crate) cancel_requested: bool,
+    pub(crate) created_at: String,
+    pub(crate) started_at: Option<String>,
+    pub(crate) updated_at: String,
+    pub(crate) completed_at: Option<String>,
+}

@@ -141,6 +141,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     agent_runtime_api
+        .reconcile_coordination_startup()
+        .map_err(boxed_message)?;
+    agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
     session_runtime_adapter

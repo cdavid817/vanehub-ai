@@ -69,6 +69,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-22 | enhance-session-resume-and-project-sidebar | agent-terminal-runtime, main-layout-ui, session-management | `openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/` |
 | 2026-07-22 | fix-ssh-connection-management-defects | session-management, settings-ssh-connection-ui, ssh-connection-management | `openspec/changes/archive/2026-07-22-fix-ssh-connection-management-defects/` |
 | 2026-07-23 | add-loop-engineering-runtime | loop-engineering-runtime, loop-management-ui, main-layout-ui, project-worktree-management, session-runtime-management | `openspec/changes/archive/2026-07-23-add-loop-engineering-runtime/` |
+| 2026-07-23 | add-multi-agent-coordination | agent-execution-observability, multi-agent-coordination | `openspec/changes/archive/2026-07-23-add-multi-agent-coordination/` |
 | 2026-07-23 | agent-execution-observability | agent-execution-observability, app-settings, contract-and-task-foundation, mcp-client-management, session-runtime-management, unified-log-management | `openspec/changes/archive/2026-07-23-agent-execution-observability/` |
 | 2026-07-23 | optimize-frontend-rendering-and-loading | frontend-runtime-architecture, main-layout-ui, session-log-viewer, session-workspace-tabs, settings-center-ui, settings-prompt-hooks-ui | `openspec/changes/archive/2026-07-23-optimize-frontend-rendering-and-loading/` |
 

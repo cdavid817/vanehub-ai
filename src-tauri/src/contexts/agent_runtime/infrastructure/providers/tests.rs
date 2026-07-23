@@ -4,7 +4,9 @@ use super::{
     output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderToolEvent,
     ProviderToolPhase,
 };
-use crate::contexts::agent_runtime::application::AgentChatConfiguration;
+use crate::contexts::agent_runtime::application::{
+    AgentChatConfiguration, GenerationProcessFailureKind,
+};
 use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde::Deserialize;
@@ -367,6 +369,24 @@ fn unsupported_invocation_is_explicit_and_unknown_output_is_lossless() {
         output_parser_for("unknown").parse_line("unstructured output"),
         ProviderOutputEvent::Token("unstructured output".to_string())
     );
+}
+
+#[test]
+fn structured_policy_failure_is_non_retryable_without_matching_diagnostic_text() {
+    let event = output_parser_for("codex-cli")
+        .parse_line(r#"{"type":"error","error":{"code":"permission_denied","message":"opaque"}}"#);
+    let ProviderOutputEvent::Failed(failure) = event else {
+        panic!("expected provider failure");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
+    assert_eq!(failure.diagnostic, "opaque");
+
+    let event = output_parser_for("codex-cli")
+        .parse_line(r#"{"type":"error","error":{"code":"transport_error","message":"opaque"}}"#);
+    let ProviderOutputEvent::Failed(failure) = event else {
+        panic!("expected provider failure");
+    };
+    assert_eq!(failure.kind, GenerationProcessFailureKind::Retryable);
 }
 
 fn assert_stable_agent_coverage<'a>(agent_ids: impl Iterator<Item = &'a str>) {

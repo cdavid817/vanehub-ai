@@ -1,6 +1,7 @@
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentOperation,
-    AgentRuntimeApplicationError, AgentTaskPort, LoopLog, LoopLoggingPort, LoopOperationContext,
+    AgentRuntimeApplicationError, AgentTaskPort, CoordinationIdPort, CoordinationOperationPort,
+    LoopLog, LoopLoggingPort, LoopOperationContext,
 };
 use crate::contexts::operations::api::{
     DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
@@ -112,6 +113,48 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
             .cancel(operation_id)
             .map(|_| ())
             .map_err(operation_error)
+    }
+}
+
+impl CoordinationOperationPort for AgentRuntimeOperationAdapter {
+    fn start(&self, run_id: &str, name: &str) -> Result<String, AgentRuntimeApplicationError> {
+        self.operations
+            .start(
+                OperationKind::Agent,
+                Some(run_id.to_string()),
+                Some(format!("Multi-Agent coordination: {name}")),
+            )
+            .map(|operation| operation.id)
+            .map_err(operation_error)
+    }
+
+    fn append_log(
+        &self,
+        operation_id: &str,
+        message: String,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        AgentTaskPort::append_log(self, operation_id, message)
+    }
+
+    fn complete(&self, operation_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        AgentTaskPort::complete(self, operation_id)
+    }
+
+    fn fail(&self, operation_id: &str, error: String) -> Result<(), AgentRuntimeApplicationError> {
+        AgentTaskPort::fail(self, operation_id, error)
+    }
+
+    fn cancel(&self, operation_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        AgentTaskPort::cancel(self, operation_id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct UuidCoordinationIds;
+
+impl CoordinationIdPort for UuidCoordinationIds {
+    fn next_id(&self, prefix: &str) -> String {
+        format!("{prefix}-{}", uuid::Uuid::new_v4())
     }
 }
 

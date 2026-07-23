@@ -956,6 +956,20 @@
                      },
                      {
                          "archivedOn":  "2026-07-23",
+                         "changeName":  "add-multi-agent-coordination",
+                         "path":  "openspec/changes/archive/2026-07-23-add-multi-agent-coordination/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "multi-agent-coordination"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-23",
                          "changeName":  "agent-execution-observability",
                          "path":  "openspec/changes/archive/2026-07-23-agent-execution-observability/",
                          "artifacts":  [

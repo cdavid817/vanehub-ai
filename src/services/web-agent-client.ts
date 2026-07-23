@@ -37,6 +37,17 @@ import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
+  CoordinationRun,
+  StartCoordinationInput,
+  StartCoordinationResult,
+} from "../types/coordination";
+import {
+  createCoordinationRun,
+  executeCoordinationRun,
+  requestCoordinationCancellation,
+  validateCoordinationInput,
+} from "./coordination-runtime";
+import type {
   ContinueLoopInput,
   LoopDefinition,
   LoopEvent,
@@ -57,7 +68,7 @@ import type {
   PromptHookTraceSummary,
   PromptHookUpdateInput,
 } from "../types/prompt-hook";
-import { createWebMockOperation } from "./web-operation-client";
+import { createWebMockOperation, settleWebOperation } from "./web-operation-client";
 import type {
   Skill,
   SkillAgentMountPath,
@@ -128,6 +139,10 @@ let loopRuns: LoopRun[] = [];
 let nextLoopDefinitionId = 1;
 let nextLoopRunId = 1;
 let nextLoopEvidenceId = 1;
+let coordinationRuns: CoordinationRun[] = [];
+let nextCoordinationRunId = 1;
+const coordinationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const coordinationAttempts = new Map<string, AbortController>();
 const loopSubscribers = new Map<string, Set<(event: LoopEvent) => void>>();
 const loopTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const loopRoleSessionIds = new Set<string>();
@@ -454,6 +469,26 @@ const webCliTools: CliToolStatus[] = [
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function waitForSimulatedCoordinationAttempt(signal: AbortSignal) {
+  return new Promise<boolean>((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const complete = () => {
+      signal.removeEventListener("abort", cancel);
+      resolve(true);
+    };
+    const timer = setTimeout(complete, 50);
+    const cancel = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", cancel);
+      resolve(false);
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+  });
 }
 
 function daysAgoIso(days: number) {
@@ -1199,15 +1234,21 @@ function addLoopEvidence(
 export function resetWebLoopsForTest() {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
+  coordinationTimers.forEach((timer) => clearTimeout(timer));
+  coordinationTimers.clear();
+  coordinationAttempts.forEach((controller) => controller.abort());
+  coordinationAttempts.clear();
   loopSubscribers.clear();
   sessions = sessions.filter((session) => !loopRoleSessionIds.has(session.id));
   loopRoleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
   loopRoleSessionIds.clear();
   loopDefinitions = [];
   loopRuns = [];
+  coordinationRuns = [];
   nextLoopDefinitionId = 1;
   nextLoopRunId = 1;
   nextLoopEvidenceId = 1;
+  nextCoordinationRunId = 1;
 }
 
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
@@ -1484,6 +1525,81 @@ export const webAgentClient: AgentService = {
     delete stored[agentId];
     writeCliParameterSelections(stored);
     return createCliParameterProfile(agentId, defaultCliParameterSelections(agentId));
+  },
+
+  async startCoordination(input: StartCoordinationInput): Promise<StartCoordinationResult> {
+    const order = validateCoordinationInput(input, new Set(mockAgents.map((agent) => agent.id)));
+    const timestamp = nowIso();
+    const runId = `web-coordination-${nextCoordinationRunId++}`;
+    const operationId = `web-coordination-operation-${runId}`;
+    const run = createCoordinationRun(input, runId, operationId, timestamp, true);
+    coordinationRuns = [run, ...coordinationRuns];
+    createWebMockOperation({
+      id: operationId,
+      relatedEntityId: runId,
+      message: `Simulating Multi-Agent coordination ${run.name}.`,
+      terminalStatus: "succeeded",
+      error: null,
+      result: { runId },
+    });
+    const timer = setTimeout(() => {
+      coordinationTimers.delete(runId);
+      const controller = new AbortController();
+      coordinationAttempts.set(runId, controller);
+      void executeCoordinationRun(run, order, async (request) => {
+        const completed = await waitForSimulatedCoordinationAttempt(controller.signal);
+        if (!completed) return { status: "cancelled", error: "Coordination was cancelled." };
+        const agent = mockAgents.find((candidate) => candidate.id === request.agentId);
+        if (!agent || agent.availabilityState === "unavailable" || agent.availabilityState === "needs-auth") {
+          return { status: "failed", kind: "retryable", error: `Agent unavailable: ${request.agentId}` };
+        }
+        const contextNote = request.prerequisiteContext
+          ? `\n\nReceived prerequisite context:\n${request.prerequisiteContext}`
+          : "";
+        return {
+          status: "succeeded",
+          content: `[Web mock ${request.agentId}] ${request.instruction}${contextNote}`,
+        };
+      }, nowIso).then(() => {
+        const error = run.status === "failed" ? "One or more coordination nodes failed." : null;
+        settleWebOperation(
+          operationId,
+          run.status === "succeeded" ? "succeeded" : run.status === "cancelled" ? "cancelled" : "failed",
+          error,
+          { runId },
+        );
+      }).finally(() => {
+        coordinationAttempts.delete(runId);
+      });
+    }, 100);
+    coordinationTimers.set(runId, timer);
+    return { runId, operationId };
+  },
+
+  async listCoordinationRuns() {
+    return structuredClone(coordinationRuns);
+  },
+
+  async getCoordinationRun(runId: string) {
+    const run = coordinationRuns.find((candidate) => candidate.id === runId);
+    if (!run) throw new Error(`Coordination run not found: ${runId}`);
+    return structuredClone(run);
+  },
+
+  async cancelCoordinationRun(runId: string) {
+    const run = coordinationRuns.find((candidate) => candidate.id === runId);
+    if (!run) throw new Error(`Coordination run not found: ${runId}`);
+    const timer = coordinationTimers.get(runId);
+    if (timer) {
+      clearTimeout(timer);
+      coordinationTimers.delete(runId);
+    }
+    requestCoordinationCancellation(run, nowIso());
+    coordinationAttempts.get(runId)?.abort();
+    if (run.status === "cancelled") {
+      settleWebOperation(run.operationId, "cancelled", "Coordination was cancelled.", { runId });
+    }
+    return structuredClone(run);
   },
 
   async getAgentById(agentId) {

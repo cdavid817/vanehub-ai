@@ -1232,7 +1232,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
         .expect("second terminal thread")
         .expect("second terminal");
     sink.handle(GenerationProcessEvent::Failed(
-        "late failure must be ignored".to_string(),
+        GenerationProcessFailure::retryable("late failure must be ignored"),
     ))
     .expect("late terminal");
 
@@ -1331,8 +1331,10 @@ fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_r
 
         if cancelled {
             service.stop_generation("session-1").expect("cancel");
-            sink.handle(GenerationProcessEvent::Failed("late failure".to_string()))
-                .expect("late failure ignored");
+            sink.handle(GenerationProcessEvent::Failed(
+                GenerationProcessFailure::retryable("late failure"),
+            ))
+            .expect("late failure ignored");
         } else {
             sink.handle(GenerationProcessEvent::Token("done".to_string()))
                 .expect("token");
@@ -1389,7 +1391,7 @@ fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
         .expect("sink");
 
     sink.handle(GenerationProcessEvent::Failed(
-        "provider diagnostic secret".to_string(),
+        GenerationProcessFailure::retryable("provider diagnostic secret"),
     ))
     .expect("failed");
 

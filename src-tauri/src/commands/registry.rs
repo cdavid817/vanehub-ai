@@ -17,6 +17,10 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,
         crate::commands::agent_runtime::resize_agent_terminal::resize_agent_terminal,
         crate::commands::agent_runtime::stop_agent_terminal::stop_agent_terminal,
+        crate::commands::agent_runtime::coordination::start_coordination::start_coordination,
+        crate::commands::agent_runtime::coordination::list_coordination_runs::list_coordination_runs,
+        crate::commands::agent_runtime::coordination::get_coordination_run::get_coordination_run,
+        crate::commands::agent_runtime::coordination::cancel_coordination_run::cancel_coordination_run,
         // Execution Observability
         crate::commands::execution_observability::get_observability_settings::get_observability_settings,
         crate::commands::execution_observability::update_observability_settings::update_observability_settings,

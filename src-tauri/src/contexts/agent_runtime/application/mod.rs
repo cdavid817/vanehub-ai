@@ -1,3 +1,4 @@
+mod coordination;
 mod error;
 mod loop_control;
 mod loop_models;
@@ -18,6 +19,12 @@ mod service;
 mod terminal_service;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
+pub(crate) use coordination::{
+    CoordinationApplicationPorts, CoordinationApplicationService, CoordinationExecutionOutput,
+    CoordinationExecutionRequest, CoordinationExecutionResult, CoordinationIdPort,
+    CoordinationNodeExecutor, CoordinationOperationPort, CoordinationRepository,
+    StartCoordinationRequest, StartCoordinationResultView,
+};
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 pub(crate) use loop_models::{
@@ -49,8 +56,9 @@ pub(crate) use models::{
     AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
     AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView,
     CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
-    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
-    LoopLog, LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
+    GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessFailureKind, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
+    LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
     LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
     MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, ProcessStopInitiator,
