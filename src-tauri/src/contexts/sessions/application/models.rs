@@ -1,6 +1,6 @@
 use crate::contexts::sessions::domain::{
-    ChatConfigurationRequest, ChatPreferences, FileReferenceSet, SessionActivation,
-    SessionAggregate, SessionCategory, SessionMessage, SessionOwner,
+    ChatConfigurationRequest, ChatPreferences, FileReferenceSet, LoopSessionRole,
+    SessionActivation, SessionAggregate, SessionCategory, SessionMessage, SessionOwner,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -13,6 +13,27 @@ pub(crate) struct SessionWorkspace {
     pub(crate) worktree_name: Option<String>,
     pub(crate) worktree_branch: Option<String>,
     pub(crate) remote_workspace: Option<SessionRemoteWorkspace>,
+    pub(crate) loop_ownership: Option<LoopSessionOwnership>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopSessionOwnership {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: String,
+    pub(crate) role: LoopSessionRole,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRoleSessionRequest {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: String,
+    pub(crate) role: LoopSessionRole,
+    pub(crate) agent_id: String,
+    pub(crate) interaction_mode: String,
+    pub(crate) project_path: String,
+    pub(crate) worktree_path: String,
+    pub(crate) worktree_name: String,
+    pub(crate) worktree_branch: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +72,7 @@ pub(crate) struct RuntimeSessionSnapshot {
     pub(crate) folder: Option<String>,
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) archived: bool,
+    pub(crate) loop_ownership: Option<LoopSessionOwnership>,
 }
 
 impl RuntimeSessionSnapshot {
@@ -63,6 +85,7 @@ impl RuntimeSessionSnapshot {
             folder: record.workspace.folder.clone(),
             runtime_session_id: record.runtime_session_id.clone(),
             archived: record.aggregate.is_archived(),
+            loop_ownership: record.workspace.loop_ownership.clone(),
         }
     }
 }

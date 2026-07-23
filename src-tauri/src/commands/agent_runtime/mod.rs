@@ -5,6 +5,7 @@ pub(crate) mod get_session_details;
 pub(crate) mod get_workflow_state;
 pub(crate) mod launch_active_workflow;
 pub(crate) mod list_agents;
+pub(crate) mod loops;
 mod mapper;
 pub(crate) mod open_agent_terminal;
 pub(crate) mod resize_agent_terminal;

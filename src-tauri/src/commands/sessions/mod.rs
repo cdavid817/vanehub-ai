@@ -11,6 +11,7 @@ pub(crate) mod dto;
 mod events;
 pub(crate) mod export_session;
 pub(crate) mod get_active_session;
+pub(crate) mod get_session;
 pub(crate) mod get_session_chat_config;
 pub(crate) mod get_session_usage_summary;
 pub(crate) mod get_usage_statistics;

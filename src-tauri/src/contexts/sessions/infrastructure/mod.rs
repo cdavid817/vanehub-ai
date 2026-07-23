@@ -9,7 +9,7 @@ mod sqlite_repository;
 mod transactions;
 mod usage;
 
-pub(crate) use schema::apply_configuration_schema;
+pub(crate) use schema::{apply_configuration_schema, apply_loop_ownership_schema};
 pub(crate) use sqlite_repository::SqliteSessionsRepository;
 pub(crate) use usage::apply_schema as apply_usage_schema;
 

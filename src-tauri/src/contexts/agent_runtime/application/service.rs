@@ -5,6 +5,8 @@ use super::{
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageRecord, AgentView, CompleteAgentMessage, EffectivePromptGateway,
     GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
     MessageTokenUsage, NewAgentMessage, ReadinessView, SendMessageRequest, StopGenerationResult,
     ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
 };
@@ -18,6 +20,7 @@ use crate::contexts::execution_observability::api::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationPorts {
@@ -35,6 +38,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) execution_ids: Arc<dyn ExecutionIdentityPort>,
     pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
+    pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
 }
 
 #[derive(Clone)]
@@ -67,6 +71,44 @@ fn generation_failure(
 impl AgentRuntimeApplicationService {
     pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
         Self { ports }
+    }
+
+    pub(crate) fn take_loop_role_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError> {
+        self.ports.loop_completions.take_for_session(session_id)
+    }
+
+    fn start_loop_role_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        let session = self.require_session(session_id)?;
+        if session.loop_ownership.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Loop role generation requires an owned role session.".to_string(),
+            ));
+        }
+        let message = self.send_message(SendMessageRequest {
+            session_id: session_id.to_string(),
+            content: prompt.to_string(),
+            source: super::AgentMessageSource::Desktop,
+            configuration: AgentChatConfiguration {
+                agent_id: session.agent_id,
+                interaction_mode: InteractionMode::Cli,
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })?;
+        Ok(message.id)
     }
 
     pub(crate) fn list_agents(
@@ -230,10 +272,13 @@ impl AgentRuntimeApplicationService {
                 "Archived sessions cannot accept messages.".to_string(),
             ));
         }
-        let configuration = self
+        let mut configuration = self
             .ports
             .sessions
             .validate_configuration(&session, request.configuration)?;
+        if session.read_only {
+            configuration.permission_mode = "plan".to_string();
+        }
         let agent = self.require_agent(&session.agent_id)?;
         if !agent.supports(configuration.interaction_mode) {
             return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
@@ -659,6 +704,7 @@ impl AgentRuntimeApplicationService {
                 input_count,
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
+                loop_ownership: session.loop_ownership.clone(),
             },
         ));
         if let Err(error) = self
@@ -733,6 +779,13 @@ impl AgentRuntimeApplicationService {
             message_id: assistant.id.clone(),
             error: failure.safe_error,
         });
+        self.deliver_loop_terminal(
+            session,
+            &assistant.id,
+            LoopRoleGenerationOutcome::Failed,
+            None,
+            Some(format!("{} command failed", session.agent_id)),
+        )?;
         Ok(failed)
     }
 
@@ -825,11 +878,44 @@ impl AgentRuntimeApplicationService {
                 session_id: session_id.to_string(),
                 message_id: message_id.clone(),
             });
+            self.deliver_loop_terminal(
+                &session,
+                message_id,
+                LoopRoleGenerationOutcome::Cancelled,
+                None,
+                None,
+            )?;
         }
         Ok(StopGenerationResult {
             cancelled_message_ids: message_ids.into_iter().collect(),
             process_stopped,
         })
+    }
+
+    fn deliver_loop_terminal(
+        &self,
+        session: &AgentSession,
+        message_id: &str,
+        outcome: LoopRoleGenerationOutcome,
+        content: Option<String>,
+        error: Option<String>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(ownership) = &session.loop_ownership else {
+            return Ok(());
+        };
+        self.ports
+            .loop_completions
+            .deliver(LoopRoleGenerationTerminal {
+                run_id: ownership.run_id.clone(),
+                iteration_id: ownership.iteration_id.clone(),
+                role: ownership.role.clone(),
+                session_id: session.id.clone(),
+                message_id: message_id.to_string(),
+                outcome,
+                content,
+                error,
+            })?;
+        Ok(())
     }
 
     fn require_agent(
@@ -876,6 +962,32 @@ impl AgentRuntimeApplicationService {
     }
 }
 
+impl LoopWorkerGenerationPort for AgentRuntimeApplicationService {
+    fn start_worker_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.start_loop_role_generation(session_id, prompt)
+    }
+}
+
+impl LoopVerifierGenerationPort for AgentRuntimeApplicationService {
+    fn start_verifier_generation(
+        &self,
+        session_id: &str,
+        prompt: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.start_loop_role_generation(session_id, prompt)
+    }
+}
+
+impl LoopGenerationControlPort for AgentRuntimeApplicationService {
+    fn stop_loop_generation(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.stop_generation(session_id).map(|_| ())
+    }
+}
+
 struct GenerationEventHandler {
     ports: AgentRuntimeApplicationPorts,
     session_id: String,
@@ -887,6 +999,7 @@ struct GenerationEventHandler {
     input_count: usize,
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
+    loop_ownership: Option<super::LoopRoleGenerationOwnership>,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -900,13 +1013,25 @@ struct GenerationEventHandlerInput {
     input_count: usize,
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
+    loop_ownership: Option<super::LoopRoleGenerationOwnership>,
 }
+
+// Streaming deltas are persisted for crash/live-reload durability only — the terminal
+// path rewrites the full message content anyway. Persisting every token meant an
+// O(N²) load-full-row + rewrite-full-content per token; instead we coalesce deltas and
+// flush at most this often (bounding the flush count by wall-clock, not token count) or
+// once the un-persisted buffer grows past the byte cap.
+const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(250);
+const STREAM_FLUSH_MAX_PENDING_BYTES: usize = 8 * 1024;
 
 struct GenerationStreamState {
     response: String,
     phase: GenerationStreamPhase,
     active_tool_spans: BTreeMap<String, crate::contexts::execution_observability::api::SpanId>,
     terminal_tool_calls: BTreeSet<String>,
+    pending_content: String,
+    pending_thinking: String,
+    last_flush: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -924,7 +1049,28 @@ impl Default for GenerationStreamState {
             phase: GenerationStreamPhase::Active,
             active_tool_spans: BTreeMap::new(),
             terminal_tool_calls: BTreeSet::new(),
+            pending_content: String::new(),
+            pending_thinking: String::new(),
+            last_flush: Instant::now(),
         }
+    }
+}
+
+impl GenerationStreamState {
+    fn should_flush(&self) -> bool {
+        self.last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+            || self.pending_content.len() >= STREAM_FLUSH_MAX_PENDING_BYTES
+            || self.pending_thinking.len() >= STREAM_FLUSH_MAX_PENDING_BYTES
+    }
+
+    fn take_pending_content(&mut self) -> String {
+        self.last_flush = Instant::now();
+        std::mem::take(&mut self.pending_content)
+    }
+
+    fn take_pending_thinking(&mut self) -> String {
+        self.last_flush = Instant::now();
+        std::mem::take(&mut self.pending_thinking)
     }
 }
 
@@ -941,12 +1087,13 @@ impl GenerationEventHandler {
             input_count: input.input_count,
             root_context: input.root_context,
             agent_context: input.agent_context,
+            loop_ownership: input.loop_ownership,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
 
     fn token(&self, delta: String) -> Result<(), AgentRuntimeApplicationError> {
-        let content_delta = {
+        let (content_delta, flushed) = {
             let mut state = self.state()?;
             if state.phase != GenerationStreamPhase::Active {
                 return Ok(());
@@ -957,11 +1104,17 @@ impl GenerationEventHandler {
                 format!("\n{delta}")
             };
             state.response.push_str(&content_delta);
-            content_delta
+            state.pending_content.push_str(&content_delta);
+            let flushed = state.should_flush().then(|| state.take_pending_content());
+            (content_delta, flushed)
         };
-        self.ports
-            .sessions
-            .append_content(&self.message_id, &content_delta)?;
+        // The frontend accumulates from the per-token event, so live rendering is
+        // unaffected by how often we persist; the DB write is coalesced.
+        if let Some(pending) = flushed {
+            self.ports
+                .sessions
+                .append_content(&self.message_id, &pending)?;
+        }
         let _ = self.ports.events.publish(AgentEvent::MessageToken {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -971,12 +1124,19 @@ impl GenerationEventHandler {
     }
 
     fn thinking(&self, content_delta: String) -> Result<(), AgentRuntimeApplicationError> {
-        if self.state()?.phase != GenerationStreamPhase::Active {
-            return Ok(());
+        let flushed = {
+            let mut state = self.state()?;
+            if state.phase != GenerationStreamPhase::Active {
+                return Ok(());
+            }
+            state.pending_thinking.push_str(&content_delta);
+            state.should_flush().then(|| state.take_pending_thinking())
+        };
+        if let Some(pending) = flushed {
+            self.ports
+                .sessions
+                .append_thinking(&self.message_id, &pending)?;
         }
-        self.ports
-            .sessions
-            .append_thinking(&self.message_id, &content_delta)?;
         let _ = self.ports.events.publish(AgentEvent::MessageThinking {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -1169,7 +1329,7 @@ impl GenerationEventHandler {
         self.ports.sessions.complete_message(CompleteAgentMessage {
             message_id: self.message_id.clone(),
             session_id: self.session_id.clone(),
-            content: response,
+            content: response.clone(),
             thinking_content: current.thinking_content,
             tool_use: current.tool_use,
             rich_blocks: current.rich_blocks,
@@ -1192,6 +1352,7 @@ impl GenerationEventHandler {
             message_id: self.message_id.clone(),
             token_usage: Some(token_usage),
         });
+        self.deliver_loop_terminal(LoopRoleGenerationOutcome::Completed, Some(response), None)?;
         Ok(())
     }
 
@@ -1231,6 +1392,11 @@ impl GenerationEventHandler {
             message_id: self.message_id.clone(),
             error: self.safe_error.clone(),
         });
+        self.deliver_loop_terminal(
+            LoopRoleGenerationOutcome::Failed,
+            None,
+            Some(self.safe_error.clone()),
+        )?;
         Ok(())
     }
 
@@ -1240,6 +1406,30 @@ impl GenerationEventHandler {
             .operations
             .append_log(&self.operation_id, diagnostic.clone());
         self.record_log(AgentLogLevel::Warn, diagnostic);
+    }
+
+    fn deliver_loop_terminal(
+        &self,
+        outcome: LoopRoleGenerationOutcome,
+        content: Option<String>,
+        error: Option<String>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let Some(ownership) = &self.loop_ownership else {
+            return Ok(());
+        };
+        self.ports
+            .loop_completions
+            .deliver(LoopRoleGenerationTerminal {
+                run_id: ownership.run_id.clone(),
+                iteration_id: ownership.iteration_id.clone(),
+                role: ownership.role.clone(),
+                session_id: self.session_id.clone(),
+                message_id: self.message_id.clone(),
+                outcome,
+                content,
+                error,
+            })?;
+        Ok(())
     }
 
     fn current_message(&self) -> Result<AgentMessage, AgentRuntimeApplicationError> {
@@ -1258,12 +1448,34 @@ impl GenerationEventHandler {
     }
 
     fn begin_terminal(&self) -> Result<Option<String>, AgentRuntimeApplicationError> {
-        let mut state = self.state()?;
-        if state.phase != GenerationStreamPhase::Active {
-            return Ok(None);
+        let (response, pending_content, pending_thinking) = {
+            let mut state = self.state()?;
+            if state.phase != GenerationStreamPhase::Active {
+                return Ok(None);
+            }
+            state.phase = GenerationStreamPhase::ApplyingTerminal;
+            (
+                state.response.clone(),
+                std::mem::take(&mut state.pending_content),
+                std::mem::take(&mut state.pending_thinking),
+            )
+        };
+        // Flush the coalesced tail on the way into the terminal phase. Best-effort: the
+        // success path rewrites full content via `complete_message`, but the failed path
+        // and `complete_message`'s read of `thinking_content` depend on these appends.
+        if !pending_content.is_empty() {
+            let _ = self
+                .ports
+                .sessions
+                .append_content(&self.message_id, &pending_content);
         }
-        state.phase = GenerationStreamPhase::ApplyingTerminal;
-        Ok(Some(state.response.clone()))
+        if !pending_thinking.is_empty() {
+            let _ = self
+                .ports
+                .sessions
+                .append_thinking(&self.message_id, &pending_thinking);
+        }
+        Ok(Some(response))
     }
 
     fn finish_terminal(&self, committed: bool) -> Result<(), AgentRuntimeApplicationError> {

@@ -5,7 +5,7 @@ use crate::contexts::tooling::extensions::domain::{
     definitions, EnablementPlan, ExtensionCapabilityId, ExtensionFrameworkId,
     ExtensionFrameworkState, ExtensionLifecycleStatus, ExtensionRuntimeObservation,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection};
 
 #[derive(Clone)]
@@ -18,7 +18,7 @@ impl SqliteExtensionRepository {
         Self { database }
     }
 
-    fn connection(&self) -> Result<Connection, ExtensionApplicationError> {
+    fn connection(&self) -> Result<PooledSqlite, ExtensionApplicationError> {
         self.database.connection().map_err(repository_error)
     }
 }
@@ -49,7 +49,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
         at: &str,
     ) -> Result<(), ExtensionApplicationError> {
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET lifecycle_status = ?1, last_operation_id = ?2, \
              last_error = NULL, updated_at = ?3 WHERE framework_id = ?4",
             params![status.as_str(), operation_id, at, framework_id.as_str()],
@@ -63,7 +63,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
         at: &str,
     ) -> Result<(), ExtensionApplicationError> {
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET lifecycle_status = 'installed', installed = 1, \
              enabled = 0, install_path = ?1, installed_version = ?2, last_error = NULL, \
              updated_at = ?3 WHERE framework_id = ?4",
@@ -82,7 +82,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
         at: &str,
     ) -> Result<(), ExtensionApplicationError> {
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET lifecycle_status = 'not-installed', installed = 0, \
              enabled = 0, install_path = NULL, installed_version = NULL, last_health_check = NULL, \
              last_error = NULL, updated_at = ?1 WHERE framework_id = ?2",
@@ -132,7 +132,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
             ExtensionLifecycleStatus::Installed
         };
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET lifecycle_status = ?1, last_health_check = ?2, \
              last_error = ?3, updated_at = ?2 WHERE framework_id = ?4",
             params![
@@ -150,7 +150,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
         checked_at: &str,
     ) -> Result<(), ExtensionApplicationError> {
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET last_health_check = ?1, last_error = NULL, \
              updated_at = ?1 WHERE framework_id = ?2",
             params![checked_at, framework_id.as_str()],
@@ -164,7 +164,7 @@ impl ExtensionRepository for SqliteExtensionRepository {
         at: &str,
     ) -> Result<(), ExtensionApplicationError> {
         update_one(
-            &self.connection()?,
+            &*self.connection()?,
             "UPDATE extension_framework_state SET lifecycle_status = 'error', last_error = ?1, \
              updated_at = ?2 WHERE framework_id = ?3",
             params![error, at, framework_id.as_str()],

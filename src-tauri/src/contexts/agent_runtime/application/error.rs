@@ -12,6 +12,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     AgentUnavailable(String),
     UnsupportedInteractionMode(String),
     GenerationConflict(String),
+    PolicyDenied { session_id: String, action: String },
     Registry(String),
     Workflow(String),
     Session(String),
@@ -19,6 +20,9 @@ pub(crate) enum AgentRuntimeApplicationError {
     Prompt(String),
     Process(String),
     Operation(String),
+    Loop(String),
+    VerificationPolicy(String),
+    VerificationProcess(String),
     Logging(String),
     Event(String),
     Generation(String),
@@ -45,6 +49,10 @@ impl fmt::Display for AgentRuntimeApplicationError {
                 formatter,
                 "A generation is already active for session {session_id}."
             ),
+            Self::PolicyDenied { session_id, action } => write!(
+                formatter,
+                "Verifier session {session_id} cannot perform Agent action: {action}"
+            ),
             Self::Registry(message) => write!(formatter, "agent registry error: {message}"),
             Self::Workflow(message) => write!(formatter, "agent workflow error: {message}"),
             Self::Session(message) => write!(formatter, "agent session error: {message}"),
@@ -52,6 +60,16 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Prompt(message) => write!(formatter, "effective prompt error: {message}"),
             Self::Process(message) => write!(formatter, "agent process error: {message}"),
             Self::Operation(message) => write!(formatter, "agent operation error: {message}"),
+            Self::Loop(message) => write!(formatter, "Loop runtime error: {message}"),
+            Self::VerificationPolicy(message) => {
+                write!(
+                    formatter,
+                    "verification policy rejected execution: {message}"
+                )
+            }
+            Self::VerificationProcess(message) => {
+                write!(formatter, "verification process failed: {message}")
+            }
             Self::Logging(message) => write!(formatter, "agent logging error: {message}"),
             Self::Event(message) => write!(formatter, "agent event error: {message}"),
             Self::Generation(message) => write!(formatter, "agent generation error: {message}"),

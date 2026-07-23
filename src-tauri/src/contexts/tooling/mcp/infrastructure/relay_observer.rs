@@ -26,9 +26,9 @@ impl RelayObserver {
     pub(super) fn new(observation: Option<&RelayObservation>) -> Option<Self> {
         let observation = observation?;
         Some(Self {
-            repository: SqliteExecutionTimelineRepository::new(NativeDatabase {
-                db_path: observation.database_path.clone(),
-            }),
+            repository: SqliteExecutionTimelineRepository::new(
+                NativeDatabase::new(observation.database_path.parent()?.to_path_buf()).ok()?,
+            ),
             run_id: ExecutionRunId::parse(&observation.run_id).ok()?,
             trace_id: TraceId::parse(&observation.trace_id).ok()?,
             parent_span_id: SpanId::parse(&observation.parent_span_id).ok()?,

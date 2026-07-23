@@ -8,12 +8,13 @@ const labels: WorkspaceActivityBarLabels = {
   sessions: "Sessions",
   expandSessions: "Expand sessions",
   collapseSessions: "Collapse sessions",
+  loops: "Loops",
   scheduledTasks: "Scheduled tasks",
   settings: "Settings",
   help: "Help",
 };
 
-function groupButtons(element: ReactElement, groupIndex: number) {
+function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex: number) {
   const group = Children.toArray(element.props.children as ReactNode)[groupIndex];
   if (!isValidElement<{ children: ReactNode }>(group)) throw new Error("Expected activity group");
   return Children.toArray(group.props.children).map((child) => {
@@ -25,7 +26,7 @@ function groupButtons(element: ReactElement, groupIndex: number) {
 describe("WorkspaceActivityBar", () => {
   it("renders icon-only primary and utility groups with accessible state", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceActivityBar labels={labels} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onToggleSessions={vi.fn()} sessionSidebarExpanded />,
+      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onLoops={vi.fn()} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} sessionSidebarExpanded />,
     );
 
     expect(html).toContain('aria-label="Workspace navigation"');
@@ -39,18 +40,21 @@ describe("WorkspaceActivityBar", () => {
   });
 
   it("exposes the collapsed action and forwards activity callbacks", () => {
-    const onToggleSessions = vi.fn();
+    const onSessions = vi.fn();
+    const onLoops = vi.fn();
     const onScheduledTasks = vi.fn();
     const onOpenSettings = vi.fn();
-    const element = WorkspaceActivityBar({ labels, onOpenSettings, onScheduledTasks, onToggleSessions, sessionSidebarExpanded: false });
+    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onLoops, onOpenSettings, onScheduledTasks, onSessions, sessionSidebarExpanded: false });
     const primaryButtons = groupButtons(element, 0);
     const utilityButtons = groupButtons(element, 1);
 
     primaryButtons[0].props.onClick?.({} as never);
     primaryButtons[1].props.onClick?.({} as never);
+    primaryButtons[2].props.onClick?.({} as never);
     utilityButtons[0].props.onClick?.({} as never);
 
-    expect(onToggleSessions).toHaveBeenCalledOnce();
+    expect(onSessions).toHaveBeenCalledOnce();
+    expect(onLoops).toHaveBeenCalledOnce();
     expect(onScheduledTasks).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');

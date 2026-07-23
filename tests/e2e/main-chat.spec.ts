@@ -1,47 +1,52 @@
 import { expect, test } from "@playwright/test";
 import { createSession } from "./session-helpers";
 
-test.describe("main chat experience", () => {
-  test("shows an empty chat state before a session is selected", async ({ page }) => {
+test.describe("main Agent workspace experience", () => {
+  test("shows an unavailable workspace state before a session is selected", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByText("请选择或新建会话")).toBeVisible();
-    await expect(page.getByPlaceholder("请选择会话后发送消息")).toBeDisabled();
+    await expect(page.getByRole("tabpanel", { name: "工作区" })).toContainText(
+      "请选择具有可用工作目录的会话后使用此标签页。",
+    );
+    await expect(page.getByRole("button", { name: "请先选择一个会话。" })).toBeDisabled();
   });
 
-  test("creates a session, sends a prompt, and renders the mock stream", async ({ page }) => {
+  test("creates a session and sends input to the simulated Agent terminal", async ({ page }) => {
     await page.goto("/");
 
     await createSession(page, "Playwright 会话");
 
-    await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("hello from playwright");
-    await page.getByRole("button", { name: "发送" }).click();
+    await page.getByRole("textbox", { name: "工作区命令输入" }).fill("hello from playwright");
+    await page.getByRole("button", { name: "发送命令" }).click();
 
-    await expect(page.getByText("hello from playwright")).toBeVisible();
-    await expect(page.getByText(/Mock .* response|Desktop preview response/)).toBeVisible();
+    await expect(page.getByLabel("Agent CLI 工作区")).toContainText("hello from playwright");
+    await expect(page.getByText("模拟环境", { exact: true })).toBeVisible();
   });
 
-  test("exposes stop while a response is streaming", async ({ page }) => {
+  test("exposes stop while the Agent terminal is connected", async ({ page }) => {
     await page.goto("/");
 
-    await createSession(page, "停止生成测试");
-    await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("please stream long enough to stop");
-    await page.getByRole("button", { name: "发送" }).click();
+    await createSession(page, "停止终端测试");
+    const stop = page.getByRole("button", { name: "停止", exact: true });
+    await expect(stop).toBeEnabled();
+    await stop.click();
 
-    await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("工作区", { exact: true }).getByText("已停止", { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toBeDisabled();
   });
 
-  test("keeps messages scoped to the active session", async ({ page }) => {
+  test("keeps terminal input scoped to the active session", async ({ page }) => {
     await page.goto("/");
 
     await createSession(page, "会话一");
-    await page.getByPlaceholder("输入指令，下发任务给当前 Agent...").fill("session one marker");
-    await page.getByRole("button", { name: "发送" }).click();
-    await expect(page.getByText("session one marker")).toBeVisible();
-    await expect(page.getByText(/Mock .* response|Desktop preview response/)).toBeVisible();
+    await page.getByRole("textbox", { name: "工作区命令输入" }).fill("session one marker");
+    await page.getByRole("button", { name: "发送命令" }).click();
+    await expect(page.getByLabel("Agent CLI 工作区")).toContainText("session one marker");
 
     await createSession(page, "会话二");
-    await expect(page.getByText("开始新的对话")).toBeVisible();
-    await expect(page.getByText("session one marker")).toBeHidden();
+    await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toHaveValue("");
+    await expect(page.getByLabel("Agent CLI 工作区")).not.toContainText("session one marker");
   });
 });

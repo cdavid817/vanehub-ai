@@ -7,7 +7,7 @@ use crate::contexts::execution_observability::application::{
 use crate::contexts::execution_observability::domain::{
     ExecutionEvent, ExecutionRun, ExecutionRunId, ExecutionSpan, ExecutionStatus, SpanId,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection};
 
 #[derive(Clone)]
@@ -20,7 +20,7 @@ impl SqliteExecutionTimelineRepository {
         Self { database }
     }
 
-    pub(super) fn connection(&self) -> Result<Connection, ExecutionTelemetryError> {
+    pub(super) fn connection(&self) -> Result<PooledSqlite, ExecutionTelemetryError> {
         self.database
             .connection()
             .map_err(|error| storage_error(error.to_string()))
@@ -145,8 +145,9 @@ impl ExecutionTelemetryPort for SqliteExecutionTimelineRepository {
         ended_at: &str,
         error_classification: Option<&str>,
     ) -> Result<(), ExecutionTelemetryError> {
+        let connection = self.connection()?;
         update_terminal(
-            &self.connection()?,
+            &connection,
             "execution_runs",
             run_id.as_str(),
             None,
@@ -168,8 +169,9 @@ impl ExecutionTelemetryPort for SqliteExecutionTimelineRepository {
         ended_at: &str,
         error_classification: Option<&str>,
     ) -> Result<(), ExecutionTelemetryError> {
+        let connection = self.connection()?;
         update_terminal(
-            &self.connection()?,
+            &connection,
             "execution_spans",
             run_id.as_str(),
             Some(span_id.as_str()),
@@ -191,7 +193,8 @@ impl ExecutionTelemetryPort for SqliteExecutionTimelineRepository {
                 params![
                     event.run_id.as_str(),
                     event.span_id.as_str(),
-                    event.sequence,
+                    i64::try_from(event.sequence)
+                        .map_err(|_| storage_error("event sequence exceeds SQLite range"))?,
                     event.name,
                     event.timestamp,
                     attributes_json(&event.attributes)?,

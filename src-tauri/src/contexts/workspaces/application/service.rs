@@ -4,7 +4,7 @@ use super::{
     WorkspaceHistoryRepository,
 };
 use crate::contexts::workspaces::domain::{
-    ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
+    GitReference, ProjectInspection, ProjectPath, RemoteWorkspace, WorktreeName,
 };
 use std::sync::Arc;
 
@@ -90,6 +90,34 @@ impl WorkspaceApplicationService {
         let branch = name.branch_name();
         self.git
             .create_worktree(project.as_str(), &target, &branch)?;
+        Ok(CreatedWorktree {
+            path: target,
+            name: name.as_str().to_string(),
+            branch,
+        })
+    }
+
+    pub(crate) fn create_guarded_loop_worktree(
+        &self,
+        project_path: &str,
+        name: &str,
+        base_branch: &str,
+    ) -> Result<CreatedWorktree, WorkspaceApplicationError> {
+        let requested = ProjectPath::parse(project_path.to_string())?;
+        let name = WorktreeName::parse(name.to_string())?;
+        let base_branch = GitReference::parse(base_branch.to_string())?;
+        let canonical = self.filesystem.canonicalize_project(&requested)?;
+        let root = self.git.repository_root(&canonical)?.ok_or_else(|| {
+            WorkspaceApplicationError::Validation(
+                "Loop worktrees require a local Git repository.".to_string(),
+            )
+        })?;
+        let target = self.filesystem.sibling_worktree_target(&root, &name)?;
+        let branch = name.branch_name();
+        self.git
+            .validate_loop_worktree(&root, &target, &branch, base_branch.as_str())?;
+        self.git
+            .create_loop_worktree(&root, &target, &branch, base_branch.as_str())?;
         Ok(CreatedWorktree {
             path: target,
             name: name.as_str().to_string(),

@@ -3,6 +3,33 @@ use super::WorkspaceDomainError;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct WorktreeName(String);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GitReference(String);
+
+impl GitReference {
+    pub(crate) fn parse(value: impl Into<String>) -> Result<Self, WorkspaceDomainError> {
+        let value = value.into();
+        let trimmed = value.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with('-')
+            || trimmed.ends_with(['/', '.'])
+            || trimmed.contains("..")
+            || trimmed.contains("@{")
+            || trimmed
+                .chars()
+                .any(|character| character.is_control() || " ~^:?*[\\".contains(character))
+        {
+            Err(WorkspaceDomainError::InvalidWorktreeName)
+        } else {
+            Ok(Self(trimmed.to_string()))
+        }
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl WorktreeName {
     pub(crate) fn parse(value: impl Into<String>) -> Result<Self, WorkspaceDomainError> {
         let value = value.into();
@@ -58,6 +85,19 @@ mod tests {
                 WorktreeName::parse(value),
                 Err(WorkspaceDomainError::InvalidWorktreeName)
             );
+        }
+    }
+
+    #[test]
+    fn git_reference_allows_remote_branches_and_rejects_option_like_values() {
+        assert_eq!(
+            GitReference::parse(" origin/main ")
+                .expect("reference")
+                .as_str(),
+            "origin/main"
+        );
+        for value in ["", "-main", "feature..main", "main~1", "bad branch"] {
+            assert!(GitReference::parse(value).is_err());
         }
     }
 

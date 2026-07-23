@@ -1,14 +1,33 @@
-//! App-owned SQLite location, connection setup, and migration orchestration.
+//! App-owned SQLite location, pooled connections, and migration orchestration.
 
 mod migrations;
 
-use rusqlite::Connection;
+use r2d2::{Pool, PooledConnection};
+use r2d2_sqlite::SqliteConnectionManager;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use thiserror::Error;
+
+/// How long a connection waits for a competing writer before surfacing `SQLITE_BUSY`.
+/// Writers are serialized by SQLite, so brief contention is expected and should block
+/// rather than fail (commands run on Tauri's blocking worker pool).
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Upper bound on live SQLite connections. WAL supports many concurrent readers against
+/// a single writer, so a small pool sized near the command worker-thread count is ample.
+const MAX_POOL_SIZE: u32 = 12;
+
+/// How long a caller waits for a free pooled connection before failing, rather than
+/// opening an unbounded number of handles.
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) use migrations::{migrate, table_has_column};
 
 const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
+
+/// A checked-out pooled connection. Dereferences to `rusqlite::Connection`, so existing
+/// call sites keep using `prepare` / `execute` / `transaction` unchanged.
+pub(crate) type PooledSqlite = PooledConnection<SqliteConnectionManager>;
 
 #[derive(Debug, Error)]
 pub(crate) enum DatabaseError {
@@ -18,26 +37,48 @@ pub(crate) enum DatabaseError {
     Storage(String),
 }
 
+impl From<r2d2::Error> for DatabaseError {
+    fn from(error: r2d2::Error) -> Self {
+        DatabaseError::Storage(error.to_string())
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct NativeDatabase {
     pub(crate) db_path: PathBuf,
+    pool: Pool<SqliteConnectionManager>,
 }
 
 impl NativeDatabase {
     pub(crate) fn new(data_dir: PathBuf) -> Result<Self, DatabaseError> {
         std::fs::create_dir_all(&data_dir)
             .map_err(|error| DatabaseError::Storage(error.to_string()))?;
-        Ok(Self {
-            db_path: database_path(&data_dir),
-        })
-    }
-
-    pub(crate) fn connection(&self) -> Result<Connection, DatabaseError> {
-        let connection = Connection::open(&self.db_path)?;
-        connection.pragma_update(None, "foreign_keys", "ON")?;
+        let db_path = database_path(&data_dir);
+        // Every physical connection is configured once here instead of on every checkout:
+        // WAL lets readers proceed without blocking the writer, and the busy-timeout makes
+        // contended access wait rather than fail immediately.
+        let manager = SqliteConnectionManager::file(&db_path).with_init(|connection| {
+            connection.busy_timeout(BUSY_TIMEOUT)?;
+            connection.query_row("PRAGMA journal_mode=WAL", [], |_row| Ok(()))?;
+            connection.pragma_update(None, "foreign_keys", "ON")?;
+            Ok(())
+        });
+        let pool = Pool::builder()
+            .max_size(MAX_POOL_SIZE)
+            .min_idle(Some(1))
+            .connection_timeout(CONNECTION_TIMEOUT)
+            .build(manager)?;
+        // Migration and seeding are one-time work. `new` runs once during bootstrap,
+        // before the pool is shared, so this happens exactly once for the database.
+        let connection = pool.get()?;
         migrate(&connection)?;
         crate::contexts::agent_runtime::infrastructure::seed_registry(&connection)?;
-        Ok(connection)
+        drop(connection);
+        Ok(Self { db_path, pool })
+    }
+
+    pub(crate) fn connection(&self) -> Result<PooledSqlite, DatabaseError> {
+        Ok(self.pool.get()?)
     }
 }
 
@@ -81,7 +122,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM skills", [], |row| row.get(0))
             .expect("Skill table query");
 
-        assert_eq!(migration_count, 25);
+        assert_eq!(migration_count, 26);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 4);
         assert_eq!(skill_table_exists, 0);
@@ -116,6 +157,60 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 25);
+        assert_eq!(migration_count, 26);
+    }
+
+    #[test]
+    fn pooled_connections_serve_concurrent_readers_and_writers() {
+        use std::thread;
+
+        let directory = TempDirectory::new("native-database-concurrent");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+
+        // More workers than MAX_POOL_SIZE, so this also exercises checkout back-pressure:
+        // excess threads wait for a returned connection instead of opening unbounded handles.
+        let workers = (MAX_POOL_SIZE as usize) + 4;
+        let handles: Vec<_> = (0..workers)
+            .map(|index| {
+                let database = database.clone();
+                thread::spawn(move || {
+                    let connection = database.connection().expect("checkout");
+                    connection
+                        .execute(
+                            "INSERT OR REPLACE INTO settings (key, value, created_at, updated_at) \
+                             VALUES (?1, ?2, ?3, ?3)",
+                            params![format!("concurrent-{index}"), "ok", "1700000000"],
+                        )
+                        .expect("concurrent insert");
+                    // A read on the same connection under WAL must not be locked out by writers.
+                    connection
+                        .query_row("SELECT COUNT(*) FROM agents", [], |row| {
+                            row.get::<_, i64>(0)
+                        })
+                        .expect("concurrent read");
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("worker thread");
+        }
+
+        let connection = database.connection().expect("final checkout");
+        let written: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key LIKE 'concurrent-%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("written count");
+        let agents: i64 = connection
+            .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
+            .expect("agent count");
+
+        assert_eq!(written, workers as i64, "every concurrent writer committed");
+        assert_eq!(
+            agents, 4,
+            "registry seeding ran exactly once, not per connection"
+        );
     }
 }

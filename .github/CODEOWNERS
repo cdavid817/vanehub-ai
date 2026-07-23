@@ -1,0 +1,7 @@
+# Repository-wide ownership
+* @cdavid817
+
+# High-risk configuration and native runtime
+/.github/ @cdavid817
+/src-tauri/ @cdavid817
+/openspec/ @cdavid817

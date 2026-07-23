@@ -13,6 +13,8 @@ import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
 import type * as OperationTypes from "../types/operation";
 import type * as ObservabilityTypes from "../types/execution-observability";
+import type * as LoopContracts from "./loop";
+import type * as LoopTypes from "../types/loop";
 import type * as SessionWorkspaceContracts from "./session-workspace";
 import type * as SessionWorkspaceTypes from "../types/session-workspace";
 
@@ -146,6 +148,27 @@ type ObservabilityAssertions = [
   Assert<Equal<ObservabilityContracts.ObservabilityCommandError, ObservabilityTypes.ObservabilityCommandError>>,
 ];
 
+type LoopAssertions = [
+  Assert<Equal<LoopContracts.LoopRunStatus, LoopTypes.LoopRunStatus>>,
+  Assert<Equal<LoopContracts.LoopRunPhase, LoopTypes.LoopRunPhase>>,
+  Assert<Equal<LoopContracts.LoopTerminalReason, LoopTypes.LoopTerminalReason>>,
+  Assert<Equal<LoopContracts.LoopRole, LoopTypes.LoopRole>>,
+  Assert<Equal<LoopContracts.LoopVerifierRecommendation, LoopTypes.LoopVerifierRecommendation>>,
+  Assert<Equal<LoopContracts.LoopEvidenceKind, LoopTypes.LoopEvidenceKind>>,
+  Assert<Equal<LoopContracts.LoopEvidenceStatus, LoopTypes.LoopEvidenceStatus>>,
+  Assert<Equal<LoopContracts.LoopVerificationCommand, LoopTypes.LoopVerificationCommand>>,
+  Assert<Equal<LoopContracts.LoopLimits, LoopTypes.LoopLimits>>,
+  Assert<Equal<LoopContracts.LoopDefinition, LoopTypes.LoopDefinition>>,
+  Assert<Equal<LoopContracts.SaveLoopDefinitionInput, LoopTypes.SaveLoopDefinitionInput>>,
+  Assert<Equal<LoopContracts.LoopEvidence, LoopTypes.LoopEvidence>>,
+  Assert<Equal<LoopContracts.LoopIteration, LoopTypes.LoopIteration>>,
+  Assert<Equal<LoopContracts.LoopRun, LoopTypes.LoopRun>>,
+  Assert<Equal<LoopContracts.StartLoopResult, LoopTypes.StartLoopResult>>,
+  Assert<Equal<LoopContracts.LoopEventKind, LoopTypes.LoopEventKind>>,
+  Assert<Equal<LoopContracts.LoopEvent, LoopTypes.LoopEvent>>,
+  Assert<Equal<LoopContracts.ContinueLoopInput, LoopTypes.ContinueLoopInput>>,
+];
+
 type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillScope, SkillTypes.SkillScope>>,
   Assert<Equal<SkillContracts.SkillSource, SkillTypes.SkillSource>>,
@@ -187,6 +210,7 @@ void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
 void (0 as unknown as ObservabilityAssertions);
+void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 

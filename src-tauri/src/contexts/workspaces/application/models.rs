@@ -208,6 +208,7 @@ pub(crate) struct ShellWorkspace {
     pub(crate) agent_id: String,
     pub(crate) root: Option<String>,
     pub(crate) remote: bool,
+    pub(crate) read_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

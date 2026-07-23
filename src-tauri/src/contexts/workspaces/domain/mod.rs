@@ -13,4 +13,4 @@ pub(crate) use path::{
 pub(crate) use project::{ensure_git_worktree_available, ProjectInspection, ProjectPath};
 pub(crate) use remote_workspace::RemoteWorkspace;
 pub(crate) use shell::{reset_directory_command, ShellHost, TerminalDimensions};
-pub(crate) use worktree::{ensure_worktree_compatible, WorktreeName};
+pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};

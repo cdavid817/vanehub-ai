@@ -602,6 +602,30 @@ mod tests {
     }
 
     #[test]
+    fn verifier_session_is_rejected_before_terminal_process_start() {
+        let mut verifier = session(false);
+        verifier.read_only = true;
+        let world = TerminalWorld::new(verifier);
+
+        let error = world
+            .service()
+            .open_or_attach(open_request())
+            .expect_err("verifier terminal rejected");
+
+        assert_eq!(
+            error,
+            AgentRuntimeApplicationError::PolicyDenied {
+                session_id: "session-1".to_string(),
+                action: "open-terminal".to_string(),
+            }
+        );
+        assert!(world.terminal_requests.lock().expect("requests").is_empty());
+        assert!(world.logs.lock().expect("logs").iter().any(|log| {
+            log.level == AgentLogLevel::Error && log.message.contains("open-terminal")
+        }));
+    }
+
+    #[test]
     fn repeated_open_attaches_existing_terminal_without_duplicate_live_state() {
         let world = TerminalWorld::new(session(false));
         let first = world
@@ -693,6 +717,8 @@ mod tests {
             folder: Some("D:/work/demo".to_string()),
             runtime_session_id: None,
             archived,
+            read_only: false,
+            loop_ownership: None,
         }
     }
 
@@ -740,6 +766,14 @@ impl AgentTerminalApplicationService {
             let error = AgentRuntimeApplicationError::Validation(
                 "Archived sessions cannot start Agent terminals.".to_string(),
             );
+            self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
+            return Err(error);
+        }
+        if session.read_only {
+            let error = AgentRuntimeApplicationError::PolicyDenied {
+                session_id: session.id.clone(),
+                action: "open-terminal".to_string(),
+            };
             self.record_terminal_start_failure(&error, Some(&session.agent_id), Some(&session.id));
             return Err(error);
         }

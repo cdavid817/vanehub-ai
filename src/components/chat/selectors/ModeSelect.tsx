@@ -1,9 +1,10 @@
 import { Bot, CheckCircle2, ListChecks, Wand2 } from "lucide-react";
+import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 import type { PermissionMode } from "../../../types/chat";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
 
-const modeIcons: Record<PermissionMode, JSX.Element> = {
+const modeIcons: Record<PermissionMode, ReactElement> = {
   default: <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />,
   plan: <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />,
   agent: <Bot className="h-3.5 w-3.5" aria-hidden="true" />,

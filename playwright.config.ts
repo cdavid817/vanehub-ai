@@ -4,12 +4,16 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 60_000,
   workers: 2,
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   expect: {
     timeout: 10_000,
   },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:5174",
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
   },
   webServer: {
     command: "npm run dev",

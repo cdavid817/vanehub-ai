@@ -19,6 +19,8 @@ Desktop-first workspace for managing and switching between AI coding agents.
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB.svg)](package.json)
+[![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/cdavid817/vanehub-ai/actions/workflows/codeql.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/codeql.yml)
 [![Package Desktop Apps](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/package.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
@@ -28,14 +30,17 @@ VaneHub AI is a Tauri desktop application with a React UI for coordinating AI co
 
 ## What is implemented
 
-- **Multi-agent CLI management:** detects Claude Code, Codex CLI, Gemini CLI, and OpenCode installations; shows versions and conflicts; and supports safe npm-managed install, update, and removal flows.
-- **Agent sessions and chat:** creates, switches, pins, archives, restores, and deletes sessions; persists session state in SQLite; and routes CLI chat execution, streaming output, cancellation, and failures through the native runtime.
-- **Developer workspace:** combines chat with terminal/shell, files, documents, Git status and diffs, logs, reports, and configurable workspace tabs for the active session.
-- **Tool and integration settings:** manages SDK dependencies, provider/model configuration, CLI parameters, MCP servers (including connection tests and import/export), scoped skills, and local extensions.
-- **Desktop and communication features:** provides a background-capable floating assistant, desktop notifications, scheduled-task entry points, IM connector configuration and routing, and network-proxy settings.
-- **Operations and observability:** includes usage statistics, a unified redacted log pipeline, long-running-operation feedback, and in-app notifications.
-- **Consistent UI/runtime architecture:** keeps React behind service contracts that have web/mock and Tauri implementations, with `futuristic` and `minimal` visual styles and English/Simplified Chinese UI resources.
-- **Packaging:** includes local and GitHub Actions Tauri packaging for Windows, macOS, and Linux targets.
+- **Multi-agent CLI management:** detects Claude Code, Codex CLI, Gemini CLI, and OpenCode; shows current/latest versions and conflicts; runs a local environment health check; and supports safe npm-managed install, update, and removal.
+- **Agent sessions:** create, switch, pin, archive, restore, delete, search, and categorize sessions; export to JSON/Markdown; and crash recovery — all persisted in SQLite.
+- **CLI chat runtime:** routes CLI execution, streaming output, cancellation, and failures through the native runtime, backed by an interactive agent terminal.
+- **Rich chat experience:** structured Rich Block rendering, Mermaid diagrams, Markdown, and tool-use / thinking blocks.
+- **Developer workspace:** per-session tabs for terminal/shell, files, documents, Git status and diffs, logs, and reports, plus a workspace activity bar and "open folder in VS Code / File Explorer / terminal / Git Bash / IDE" openers.
+- **Remote workspace:** SSH connection management (password / key / agent auth, connectivity tests, encrypted storage) and remote working directories for sessions.
+- **Settings center:** SDK dependencies, provider/model and CLI parameters, MCP servers (with connection tests and import/export), scoped Skills, Prompt Hooks, local Extensions, GitHub plugin integration, usage statistics, network proxy, IM connectors, the floating assistant, data management, and an About page.
+- **Desktop and communication:** a background-capable floating assistant, desktop notifications, startup controls, scheduled tasks (cron / interval / once), and IM connector routing.
+- **Operations and observability:** usage/token statistics, a unified redacted log pipeline, long-running-operation feedback, and in-app notifications.
+- **Consistent UI/runtime architecture:** React behind web/mock and Tauri service contracts, with `futuristic` and `minimal` visual styles and English / Simplified Chinese UI resources.
+- **Packaging and supply chain:** local and GitHub Actions Tauri packaging for Windows, macOS, and Linux, with CI, CodeQL, and dependency/supply-chain hardening.
 
 ## Architecture and Stack
 
@@ -112,6 +117,7 @@ Project configuration is stored in the repository:
 - `src-tauri/tauri.conf.json`: Tauri product name, app identifier, window settings, bundle settings, and version `0.1.0`.
 - `tailwind.config.ts` and `src/styles.css`: theme tokens and UI styling.
 - `.github/workflows/package.yml`: manual and tag-triggered desktop packaging workflow.
+- `docs/release-signing.md`: release environment, signing, notarization, checksum, SBOM, and attestation guidance.
 
 Runtime state is created locally by the Tauri backend under `.vanehub/vanehub.sqlite` from the current working directory. No required environment variables were found in the repository.
 
@@ -140,20 +146,25 @@ ucd/
 
 ### Delivered
 
-- [x] Tauri + React desktop application, SQLite-backed state, and service-contract web/mock and native adapters.
-- [x] CLI environment discovery and lifecycle management for Claude Code, Codex CLI, Gemini CLI, and OpenCode.
-- [x] Session lifecycle management, CLI chat runtime, streaming/cancellation, and a multi-tab developer workspace.
-- [x] Settings for agents, providers, SDKs, CLI parameters, MCP, skills, extensions, usage, proxy, IM connectors, and the floating assistant.
-- [x] Unified redacted logging, notifications, desktop background lifecycle, and cross-platform packaging workflows.
+- [x] Tauri + React desktop app, SQLite-backed state, and web/mock + native service-contract adapters.
+- [x] CLI environment discovery, health checks, and lifecycle management for Claude Code, Codex CLI, Gemini CLI, and OpenCode.
+- [x] Session lifecycle, search, categorization, export, and crash recovery; CLI chat runtime with streaming/cancellation and an interactive agent terminal.
+- [x] Rich Block + Mermaid chat rendering and a multi-tab developer workspace with folder openers.
+- [x] SSH remote workspaces and connection management.
+- [x] Settings for agents, providers, SDKs, CLI parameters, MCP, Skills, Prompt Hooks, extensions, GitHub plugin, usage, proxy, IM connectors, and the floating assistant.
+- [x] Scheduled tasks, unified redacted logging, notifications, desktop background lifecycle, and cross-platform packaging with CI, CodeQL, and supply-chain hardening.
 
-### Next steps
+### Planned
 
-No implementation change is currently open in `openspec/changes/`. The following are repository-level follow-ups rather than committed feature promises:
-
-- [ ] Add `CONTRIBUTING.md` with branch, test, and review expectations.
-- [ ] Decide whether release artifacts remain unsigned or gain Windows signing and macOS notarization.
-- [ ] Add Japanese runtime UI resources if Japanese product localization is required; the repository currently ships English and Simplified Chinese UI resources.
-- [ ] Publish and prioritize the next feature proposals through OpenSpec before implementation.
+- [ ] **Multi-agent orchestration** — multi-agent management and multi-repository development.
+- [ ] **Custom agents** — OnePiece (a coding multi-agent for decomposition, design, coding, testing, review, and repair) and Allmate (a general-purpose assistant for Q&A, office tasks, knowledge retrieval, and tool calls).
+- [ ] **Agent memory** — persistent memory across sessions.
+- [ ] **Plugin marketplace** — install and manage Skills/plugins such as Superpowers, OpenSpec, and Oh My OpenCode.
+- [ ] **Extended local capabilities** — bundled OCR, speech recognition, and speech synthesis on top of the extension framework.
+- [ ] **SuperCLI**, an in-app **to-do list**, **@-file references** and role-based session tags in chat, and **loop-engineering** automation.
+- [ ] **Security and authorization prompts**, plus reliability/DFX testing hardening.
+- [ ] Configure trusted macOS signing/notarization and a Windows Authenticode provider in the protected `release` environment.
+- [ ] Add Japanese runtime UI resources (the app currently ships English and Simplified Chinese UI resources).
 
 ## Development
 
@@ -175,9 +186,7 @@ openspec validate --specs --strict
 
 ## Contributing
 
-`CONTRIBUTING.md` is not present yet. Please confirm whether it should be generated with the repository's expected workflow, test commands, and review rules.
-
-Until then, keep changes scoped, run the relevant validation commands above, and preserve the `AgentService` boundary between React components and runtime-specific backends.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch, OpenSpec, validation, review, and security expectations.
 
 ## License
 

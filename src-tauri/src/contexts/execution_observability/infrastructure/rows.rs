@@ -163,7 +163,10 @@ impl EventRow {
         Ok(Self {
             run_id: row.get(0)?,
             span_id: row.get(1)?,
-            sequence: row.get(2)?,
+            sequence: row
+                .get::<_, i64>(2)?
+                .try_into()
+                .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, -1))?,
             name: row.get(3)?,
             timestamp: row.get(4)?,
             attributes_json: row.get(5)?,

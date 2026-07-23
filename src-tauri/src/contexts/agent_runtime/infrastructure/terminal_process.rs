@@ -20,6 +20,15 @@ use std::thread;
 
 const RETAINED_TERMINAL_TRANSCRIPT_BYTES: usize = 1_000_000;
 
+/// Larger reads coalesce bursty PTY output into fewer IPC events without adding latency:
+/// a read still returns as soon as any bytes are available, so interactive echo is
+/// unaffected, while a flood of build output emits far fewer events than a 4 KiB buffer.
+const TERMINAL_READ_BUFFER_BYTES: usize = 64 * 1024;
+
+/// Upper bound on an unterminated parse line, so newline-less output (e.g. `\r` progress
+/// bars) cannot grow the session-id parse buffer without bound.
+const MAX_PARSE_LINE_BYTES: usize = 256 * 1024;
+
 struct ManagedAgentTerminal {
     terminal_id: String,
     session_id: String,
@@ -309,12 +318,26 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
-            let mut buffer = [0u8; 4096];
+            let mut buffer = [0u8; TERMINAL_READ_BUFFER_BYTES];
+            // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence
+            // (中文 / emoji / TUI box-drawing) can be split across two reads. Carry the
+            // incomplete trailing bytes until the next read completes them, otherwise
+            // `from_utf8_lossy` would emit U+FFFD in the middle of valid output.
+            let mut pending: Vec<u8> = Vec::new();
+            // The provider parser only recognises whole `\n`-terminated lines (a session
+            // marker is line-delimited JSON), so accumulate across reads and keep the
+            // trailing partial line until its newline arrives — otherwise a marker split
+            // across two reads is silently dropped.
+            let mut line_buffer = String::new();
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => {
-                        let content = String::from_utf8_lossy(&buffer[..count]).to_string();
+                        pending.extend_from_slice(&buffer[..count]);
+                        let content = take_decodable_utf8(&mut pending);
+                        if content.is_empty() {
+                            continue;
+                        }
                         let _ = events.publish_terminal(AgentTerminalEvent::Output {
                             terminal_id: terminal_id.clone(),
                             session_id: session_id.clone(),
@@ -326,7 +349,8 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                 append_terminal_transcript(&mut terminal.transcript, &content);
                             }
                         }
-                        for line in content.lines() {
+                        line_buffer.push_str(&content);
+                        drain_complete_lines(&mut line_buffer, |line| {
                             if let ProviderOutputEvent::SessionId(runtime_session_id) =
                                 parser.parse_line(line)
                             {
@@ -344,7 +368,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                 );
                                 let _ = events.publish_terminal(event);
                             }
-                        }
+                        });
                     }
                     Err(_) => break,
                 }
@@ -567,6 +591,41 @@ fn agent_terminal_session(terminal: &ManagedAgentTerminal) -> AgentTerminalSessi
         size: terminal.size.clone(),
         runtime_session_id: terminal.runtime_session_id.clone(),
         retained: true,
+    }
+}
+
+/// Splits off the longest valid UTF-8 prefix of `pending`, leaving any incomplete
+/// trailing multi-byte sequence in place for the next read to complete. A genuinely
+/// invalid byte (not just a truncated tail) is decoded lossily so the reader never
+/// wedges on malformed output.
+fn take_decodable_utf8(pending: &mut Vec<u8>) -> String {
+    let valid_up_to = match std::str::from_utf8(pending) {
+        Ok(_) => pending.len(),
+        // `error_len() == None` means the bytes after `valid_up_to` are an incomplete
+        // sequence at the end of the buffer — keep them for the next read.
+        Err(error) if error.error_len().is_none() => error.valid_up_to(),
+        Err(_) => {
+            let content = String::from_utf8_lossy(pending).to_string();
+            pending.clear();
+            return content;
+        }
+    };
+    let tail = pending.split_off(valid_up_to);
+    let head = std::mem::replace(pending, tail);
+    // `head` is guaranteed valid UTF-8 by the check above; fall back rather than panic.
+    String::from_utf8(head).unwrap_or_default()
+}
+
+/// Invokes `on_line` for each complete `\n`-terminated line in `line_buffer` (trailing
+/// CR/LF stripped), leaving any unterminated remainder for the next read to finish.
+/// An oversized newline-less remainder is discarded to keep the buffer bounded.
+fn drain_complete_lines(line_buffer: &mut String, mut on_line: impl FnMut(&str)) {
+    while let Some(newline) = line_buffer.find('\n') {
+        let line: String = line_buffer.drain(..=newline).collect();
+        on_line(line.trim_end_matches(['\n', '\r']));
+    }
+    if line_buffer.len() > MAX_PARSE_LINE_BYTES {
+        line_buffer.clear();
     }
 }
 
@@ -849,6 +908,85 @@ mod tests {
     }
 
     #[test]
+    fn split_multibyte_utf8_is_buffered_until_the_sequence_completes() {
+        // "好" is E5 A5 BD; a read that ends after E5 A5 must not emit a replacement char.
+        let bytes = "已好".as_bytes().to_vec();
+        let split = bytes.len() - 1;
+        let mut pending = bytes[..split].to_vec();
+
+        let first = take_decodable_utf8(&mut pending);
+        assert_eq!(first, "已");
+        assert!(!first.contains('\u{FFFD}'));
+        assert!(!pending.is_empty(), "incomplete tail is retained");
+
+        pending.extend_from_slice(&bytes[split..]);
+        let second = take_decodable_utf8(&mut pending);
+        assert_eq!(second, "好");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn complete_utf8_is_returned_whole_and_drains_pending() {
+        let mut pending = "ready ✅".as_bytes().to_vec();
+
+        assert_eq!(take_decodable_utf8(&mut pending), "ready ✅");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn drain_yields_complete_lines_strips_crlf_and_retains_partial() {
+        let mut line_buffer = String::from("one\r\ntwo\nthr");
+        let mut lines: Vec<String> = Vec::new();
+
+        drain_complete_lines(&mut line_buffer, |line| lines.push(line.to_string()));
+
+        assert_eq!(lines, vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(line_buffer, "thr", "unterminated remainder is retained");
+    }
+
+    #[test]
+    fn session_marker_split_across_reads_is_parsed_once_the_newline_arrives() {
+        let parser = output_parser_for("codex-cli");
+        let mut line_buffer = String::new();
+        let mut session_ids: Vec<String> = Vec::new();
+
+        // First read cuts the JSON marker in half — nothing parseable yet.
+        line_buffer.push_str("{\"type\":\"session_init\",\"sessi");
+        drain_complete_lines(&mut line_buffer, |line| {
+            if let ProviderOutputEvent::SessionId(id) = parser.parse_line(line) {
+                session_ids.push(id);
+            }
+        });
+        assert!(session_ids.is_empty());
+
+        // Second read completes the line; the marker is now recovered.
+        line_buffer.push_str("on_id\":\"codex-session\"}\n");
+        drain_complete_lines(&mut line_buffer, |line| {
+            if let ProviderOutputEvent::SessionId(id) = parser.parse_line(line) {
+                session_ids.push(id);
+            }
+        });
+        assert_eq!(session_ids, vec!["codex-session".to_string()]);
+        assert!(line_buffer.is_empty());
+    }
+
+    #[test]
+    fn newline_less_output_is_bounded_and_never_yields_a_line() {
+        let mut line_buffer = String::new();
+        let mut lines = 0_usize;
+        for _ in 0..8 {
+            line_buffer.push_str(&"progress\r".repeat(MAX_PARSE_LINE_BYTES / 4));
+            drain_complete_lines(&mut line_buffer, |_| lines += 1);
+        }
+
+        assert_eq!(lines, 0, "no newline means no complete line");
+        assert!(
+            line_buffer.len() <= MAX_PARSE_LINE_BYTES,
+            "buffer stays bounded"
+        );
+    }
+
+    #[test]
     fn terminal_transcript_retention_keeps_recent_utf8_content() {
         let mut transcript = String::new();
         append_terminal_transcript(&mut transcript, "older");
@@ -888,6 +1026,8 @@ mod tests {
                     folder: None,
                     runtime_session_id: None,
                     archived: false,
+                    read_only: false,
+                    loop_ownership: None,
                 },
                 agent: crate::contexts::agent_runtime::application::AgentView {
                     id: "codex-cli".to_string(),

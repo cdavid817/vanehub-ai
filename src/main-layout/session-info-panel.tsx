@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -22,7 +22,7 @@ import type { Session } from "../types/agent";
 import type { ChatMessage, SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
 
-type InfoTab = "basic" | "usage" | "skills";
+export type InfoTab = "basic" | "usage" | "skills";
 
 const tabs: Array<{ key: InfoTab; labelKey: string }> = [
   { key: "basic", labelKey: "layout.infoTab.basic" },
@@ -151,7 +151,19 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
   );
 }
 
-export function SessionInfoPanel({ activeSession, collapsed, messages = [], onCollapsedChange }: { activeSession: Session | null; collapsed: boolean; messages?: ChatMessage[]; onCollapsedChange: (collapsed: boolean) => void }) {
+export function SessionInfoPanel({
+  activeSession,
+  collapsed,
+  messages = [],
+  onCollapsedChange,
+  requestedTab,
+}: {
+  activeSession: Session | null;
+  collapsed: boolean;
+  messages?: ChatMessage[];
+  onCollapsedChange: (collapsed: boolean) => void;
+  requestedTab?: InfoTab | null;
+}) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<InfoTab>("basic");
   const sessionId = activeSession?.id ?? null;
@@ -163,6 +175,11 @@ export function SessionInfoPanel({ activeSession, collapsed, messages = [], onCo
   const usageSummary = useMemo(() => summaryWithLiveReportedTokens(usage.data, sessionId, messages), [messages, sessionId, usage.data]);
   const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
   const workspaceSkills = useQuery({ enabled: Boolean(sessionId && workspacePath), queryKey: ["skills", "workspace", workspacePath], queryFn: () => agentService.listSkills({ scope: "workspace", workspacePath }) });
+
+  useEffect(() => {
+    if (requestedTab) setActiveTab(requestedTab);
+  }, [requestedTab, sessionId]);
+
   const skillGroups = useMemo(() => {
     const allSkills = [...(globalSkills.data?.skills ?? []), ...(workspaceSkills.data?.skills ?? [])];
     const available = allSkills.filter((skill) => activeSession ? skill.enabled && skillMatchesAgent(skill, activeSession.agentId) : false);

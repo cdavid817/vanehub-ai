@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use super::WorkspaceDomainError;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -21,11 +19,10 @@ impl ProjectPath {
     }
 
     pub(crate) fn display_name(&self) -> String {
-        Path::new(&self.0)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
+        self.0
+            .split(['/', '\\'])
+            .rfind(|segment| !segment.is_empty())
+            .map(str::to_owned)
             .unwrap_or_else(|| self.0.clone())
     }
 }
@@ -95,6 +92,9 @@ mod tests {
         let project = ProjectPath::parse("  work/vanehub-ai  ").expect("project path");
         assert_eq!(project.as_str(), "work/vanehub-ai");
         assert_eq!(project.display_name(), "vanehub-ai");
+
+        let windows_project = ProjectPath::parse(r"C:\code\vanehub-ai").expect("Windows path");
+        assert_eq!(windows_project.display_name(), "vanehub-ai");
     }
 
     #[test]
