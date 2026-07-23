@@ -42,4 +42,23 @@ describe("applyChatEvent", () => {
 
     expect(message?.richBlocks).toEqual([{ id: "card-1", kind: "card", v: 1, title: "After", tone: "success" }]);
   });
+
+  it("preserves references for non-target messages so memoized rows skip re-render", () => {
+    const earlier: ChatMessage = { ...baseMessage, id: "assistant-0", content: "earlier" };
+    const target: ChatMessage = { ...baseMessage, id: "assistant-1" };
+
+    const next = applyChatEvent([earlier, target], {
+      type: "token",
+      sessionId: "session-1",
+      messageId: "assistant-1",
+      contentDelta: "hi",
+    });
+
+    // Unchanged message keeps its identity — this is what lets React.memo(MessageItem)
+    // avoid re-parsing markdown/mermaid for every historical message on every token.
+    expect(next[0]).toBe(earlier);
+    // Only the streaming target is rebuilt, with the token appended.
+    expect(next[1]).not.toBe(target);
+    expect(next[1]?.content).toBe("hi");
+  });
 });
