@@ -129,7 +129,17 @@ fn append_field(output: &mut String, value: &str) {
 }
 
 fn sha256(value: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(value))
+    bytes_to_hex(&Sha256::digest(value))
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 #[cfg(test)]
