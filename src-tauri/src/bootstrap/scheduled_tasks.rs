@@ -56,7 +56,13 @@ fn run_due_tasks(
     let tasks = match scheduled_tasks::due_tasks(database, Utc::now()) {
         Ok(tasks) => tasks,
         Err(error) => {
-            log_scheduled_task(fallback_log_directory, LogSeverity::Error, "scheduled-tasks.scan", &error.to_string(), None);
+            log_scheduled_task(
+                fallback_log_directory,
+                LogSeverity::Error,
+                "scheduled-tasks.scan",
+                &error.to_string(),
+                None,
+            );
             return;
         }
     };
@@ -70,22 +76,54 @@ fn run_due_tasks(
                 Some(&task.id),
             );
         }
-        log_scheduled_task(fallback_log_directory, LogSeverity::Info, "scheduled-tasks.run.start", &task.name, Some(&task.id));
+        log_scheduled_task(
+            fallback_log_directory,
+            LogSeverity::Info,
+            "scheduled-tasks.run.start",
+            &task.name,
+            Some(&task.id),
+        );
         if let Err(error) = scheduled_tasks::mark_task_running(database, &task.id) {
-            log_scheduled_task(fallback_log_directory, LogSeverity::Warn, "scheduled-tasks.run.skipped", &error.to_string(), Some(&task.id));
+            log_scheduled_task(
+                fallback_log_directory,
+                LogSeverity::Warn,
+                "scheduled-tasks.run.skipped",
+                &error.to_string(),
+                Some(&task.id),
+            );
             continue;
         }
         match run_one_task(sessions, agents, &task) {
             Ok(session_id) => {
-                if let Err(error) = scheduled_tasks::mark_task_succeeded(database, &task, &session_id) {
-                    log_scheduled_task(fallback_log_directory, LogSeverity::Warn, "scheduled-tasks.run.state", &error.to_string(), Some(&task.id));
+                if let Err(error) =
+                    scheduled_tasks::mark_task_succeeded(database, &task, &session_id)
+                {
+                    log_scheduled_task(
+                        fallback_log_directory,
+                        LogSeverity::Warn,
+                        "scheduled-tasks.run.state",
+                        &error.to_string(),
+                        Some(&task.id),
+                    );
                 }
-                log_scheduled_task(fallback_log_directory, LogSeverity::Info, "scheduled-tasks.run.complete", &session_id, Some(&task.id));
+                log_scheduled_task(
+                    fallback_log_directory,
+                    LogSeverity::Info,
+                    "scheduled-tasks.run.complete",
+                    &session_id,
+                    Some(&task.id),
+                );
             }
             Err(error) => {
                 let message = error.to_string();
                 let _ = scheduled_tasks::mark_task_failed(database, &task, &message);
-                log_scheduled_task(fallback_log_directory, LogSeverity::Error, "scheduled-tasks.run.failed", &message, Some(&task.id));
+                log_scheduled_task(
+                    fallback_log_directory,
+                    LogSeverity::Error,
+                    "scheduled-tasks.run.failed",
+                    &message,
+                    Some(&task.id),
+                );
             }
         }
     }
@@ -106,6 +144,9 @@ fn run_one_task(
     })?;
     let session = sessions.execute_creation(prepared)?;
     agents.send_message(SendMessageRequest {
+        source: crate::contexts::agent_runtime::application::AgentMessageSource::Scheduled {
+            task_id: task.id.clone(),
+        },
         session_id: session.id().to_string(),
         content: task.content.clone(),
         configuration: AgentChatConfiguration {

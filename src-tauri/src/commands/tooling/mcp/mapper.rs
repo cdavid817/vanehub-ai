@@ -121,6 +121,8 @@ pub(super) fn export_bundle_to_dto(bundle: ImportBundle) -> McpImportExport {
 pub(super) fn started_operation_to_dto(operation: &StartedOperation) -> OperationTask {
     OperationTask {
         id: operation.id.clone(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Mcp,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),

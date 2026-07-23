@@ -1,13 +1,16 @@
 use crate::contexts::operations::application::{
-    ApplicationError, DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationLog, OperationLogPort,
+    ApplicationError, DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity,
+    OperationLog, OperationLogPort,
 };
 use crate::platform::logging;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct UnifiedLoggingAdapter {
     log_directory: LogDirectory,
+    external: Arc<RwLock<Option<Arc<dyn ExternalLogExportPort>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,12 +27,20 @@ impl UnifiedLoggingAdapter {
     pub(crate) fn new(log_dir: PathBuf) -> Self {
         Self {
             log_directory: LogDirectory::Fixed(log_dir),
+            external: Arc::new(RwLock::new(None)),
         }
     }
 
     pub(crate) fn active(fallback: PathBuf) -> Self {
         Self {
             log_directory: LogDirectory::Active { fallback },
+            external: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub(crate) fn attach_external_exporter(&self, exporter: Arc<dyn ExternalLogExportPort>) {
+        if let Ok(mut current) = self.external.write() {
+            *current = Some(exporter);
         }
     }
 
@@ -58,13 +69,30 @@ impl UnifiedLoggingAdapter {
         message: &str,
         context: BTreeMap<String, String>,
     ) -> Result<(), ApplicationError> {
-        self.write_legacy(to_legacy_level(severity), category, message, context)
-            .map_err(|_| {
-                ApplicationError::infrastructure(
-                    "logging",
-                    "The diagnostic log could not be persisted.",
-                )
-            })
+        self.write_legacy(
+            to_legacy_level(severity),
+            category,
+            message,
+            context.clone(),
+        )
+        .map_err(|_| {
+            ApplicationError::infrastructure(
+                "logging",
+                "The diagnostic log could not be persisted.",
+            )
+        })?;
+        if let Ok(exporter) = self.external.read() {
+            if let Some(exporter) = exporter.as_ref() {
+                let (message, context) = logging::redact_log_fields(message, context);
+                let _ = exporter.export_log(&DiagnosticLog {
+                    severity,
+                    category: category.to_string(),
+                    message,
+                    context,
+                });
+            }
+        }
+        Ok(())
     }
 }
 
@@ -96,6 +124,19 @@ mod tests {
     use super::*;
     use crate::test_support::TempDirectory;
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct CapturingExternalLogs {
+        logs: Mutex<Vec<DiagnosticLog>>,
+    }
+
+    impl ExternalLogExportPort for CapturingExternalLogs {
+        fn export_log(&self, log: &DiagnosticLog) -> Result<(), ApplicationError> {
+            self.logs.lock().expect("logs").push(log.clone());
+            Ok(())
+        }
+    }
 
     #[test]
     fn adapter_preserves_levels_and_operation_association_with_redaction_parity() {
@@ -172,5 +213,49 @@ mod tests {
             "The diagnostic log could not be persisted."
         );
         assert!(!error.to_string().contains("not-a-directory"));
+    }
+
+    #[test]
+    fn jsonl_and_external_export_receive_the_same_redacted_content() {
+        let directory = TempDirectory::new("unified-log-external-redaction");
+        let adapter = UnifiedLoggingAdapter::new(directory.path().to_path_buf());
+        let external = Arc::new(CapturingExternalLogs::default());
+        adapter.attach_external_exporter(external.clone());
+        adapter
+            .write_diagnostic(DiagnosticLog {
+                severity: LogSeverity::Error,
+                category: "execution.test".to_string(),
+                message: "Bearer message-secret at C:\\Users\\developer\\private.json".to_string(),
+                context: BTreeMap::from([
+                    (
+                        "authorization".to_string(),
+                        "Bearer header-secret".to_string(),
+                    ),
+                    (
+                        "detail".to_string(),
+                        "password=context-secret /home/developer/private.env".to_string(),
+                    ),
+                ]),
+            })
+            .expect("write");
+
+        let jsonl =
+            std::fs::read_to_string(directory.path().join(logging::LOG_FILE_NAME)).expect("jsonl");
+        let exported = external.logs.lock().expect("logs");
+        let external_rendered = format!("{:?}", exported[0]);
+        for secret in [
+            "message-secret",
+            "header-secret",
+            "context-secret",
+            "developer",
+            "private.json",
+            "private.env",
+        ] {
+            assert!(!jsonl.contains(secret), "JSONL leaked {secret}");
+            assert!(
+                !external_rendered.contains(secret),
+                "export leaked {secret}"
+            );
+        }
     }
 }

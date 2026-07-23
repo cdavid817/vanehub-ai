@@ -82,6 +82,8 @@ pub(super) fn optional_id_from_dto(sdk_id: Option<dto::SdkId>) -> Option<SdkId> 
 pub(super) fn started_operation_to_dto(operation: &StartedSdkOperation) -> OperationTask {
     OperationTask {
         id: operation.id.clone(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Sdk,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),

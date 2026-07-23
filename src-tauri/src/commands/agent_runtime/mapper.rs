@@ -85,6 +85,7 @@ pub(super) fn send_message_request(
     file_references: Option<Vec<dto::ChatFileReference>>,
 ) -> SendMessageRequest {
     SendMessageRequest {
+        source: crate::contexts::agent_runtime::application::AgentMessageSource::Desktop,
         session_id,
         content,
         configuration: AgentChatConfiguration {

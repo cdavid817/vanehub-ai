@@ -76,6 +76,18 @@ impl OperationService {
         self.repository.update(operation_id, &mut mutation)
     }
 
+    pub(crate) fn correlate_execution(
+        &self,
+        operation_id: &str,
+        run_id: String,
+        trace_id: String,
+    ) -> Result<OperationTask, ApplicationError> {
+        let mut mutation = |operation: &mut OperationTask| {
+            operation.correlate_execution(run_id.clone(), trace_id.clone());
+        };
+        self.repository.update(operation_id, &mut mutation)
+    }
+
     pub(crate) fn complete(
         &self,
         operation_id: &str,

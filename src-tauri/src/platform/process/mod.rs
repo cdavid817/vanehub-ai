@@ -11,6 +11,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
+pub(crate) fn spawn_piped(
+    executable: &str,
+    args: &[String],
+    environment: &BTreeMap<String, String>,
+) -> Result<std::process::Child, ProcessError> {
+    Command::new(executable)
+        .args(args)
+        .envs(environment)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| ProcessError::Spawn(error.to_string()))
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum ProcessError {
     #[error("{0}")]

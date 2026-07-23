@@ -67,5 +67,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-22 | add-ssh-connection-management | session-management, settings-center-ui, settings-ssh-connection-ui, ssh-connection-management, unified-log-management | `openspec/changes/archive/2026-07-22-add-ssh-connection-management/` |
 | 2026-07-22 | enhance-session-resume-and-project-sidebar | agent-terminal-runtime, main-layout-ui, session-management | `openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/` |
 | 2026-07-22 | fix-ssh-connection-management-defects | session-management, settings-ssh-connection-ui, ssh-connection-management | `openspec/changes/archive/2026-07-22-fix-ssh-connection-management-defects/` |
+| 2026-07-23 | agent-execution-observability | agent-execution-observability, app-settings, contract-and-task-foundation, mcp-client-management, session-runtime-management, unified-log-management | `openspec/changes/archive/2026-07-23-agent-execution-observability/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

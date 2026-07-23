@@ -8,6 +8,7 @@ import {
   Shell,
   TerminalSquare,
   BarChart3,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,7 @@ export type SessionTabId =
   | "terminal"
   | "shell"
   | "logs"
+  | "traces"
   | "report";
 
 interface TabDefinition {
@@ -38,6 +40,7 @@ export const sessionTabDefinitions: TabDefinition[] = [
   { id: "terminal", icon: TerminalSquare },
   { id: "shell", icon: Shell },
   { id: "logs", icon: ScrollText },
+  { id: "traces", icon: Activity },
   { id: "report", icon: BarChart3 },
 ];
 

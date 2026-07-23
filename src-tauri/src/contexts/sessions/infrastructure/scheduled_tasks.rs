@@ -170,11 +170,7 @@ fn load_task(
 fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<dto::ScheduledTask> {
     let raw_frequency: String = row.get(4)?;
     let frequency = serde_json::from_str(&raw_frequency).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            4,
-            rusqlite::types::Type::Text,
-            Box::new(error),
-        )
+        rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(error))
     })?;
     Ok(dto::ScheduledTask {
         id: row.get(0)?,
@@ -273,7 +269,13 @@ pub(crate) fn mark_task_succeeded(
     session_id: &str,
 ) -> Result<(), CommandError> {
     let next_run_at = compute_next_run(&task.frequency, Local::now())?;
-    update_task_run_metadata(database, &task.id, "succeeded", Some(session_id), Some(next_run_at))
+    update_task_run_metadata(
+        database,
+        &task.id,
+        "succeeded",
+        Some(session_id),
+        Some(next_run_at),
+    )
 }
 
 pub(crate) fn mark_task_failed(
@@ -322,9 +324,8 @@ fn update_task_run_metadata(
 }
 
 fn parse_time(value: &str) -> Result<NaiveTime, CommandError> {
-    NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| {
-        CommandError::validation("Invalid scheduled time.")
-    })
+    NaiveTime::parse_from_str(value, "%H:%M")
+        .map_err(|_| CommandError::validation("Invalid scheduled time."))
 }
 
 fn next_daily(from: DateTime<Local>, time: NaiveTime) -> DateTime<Local> {
@@ -412,8 +413,9 @@ mod tests {
 
     fn insert_task(database: &NativeDatabase, id: &str, enabled: bool, next_run_at: &str) {
         let connection = database.connection().expect("connection");
-        let frequency = serde_json::to_string(&dto::ScheduledTaskFrequency::Minutes { interval: 5 })
-            .expect("frequency");
+        let frequency =
+            serde_json::to_string(&dto::ScheduledTaskFrequency::Minutes { interval: 5 })
+                .expect("frequency");
         connection
             .execute(
                 r#"
@@ -435,11 +437,8 @@ mod tests {
             .single()
             .expect("local date");
 
-        let next = compute_next_run(
-            &dto::ScheduledTaskFrequency::Minutes { interval: 15 },
-            from,
-        )
-        .expect("next run");
+        let next = compute_next_run(&dto::ScheduledTaskFrequency::Minutes { interval: 15 }, from)
+            .expect("next run");
 
         assert!(next > from.with_timezone(&Utc).to_rfc3339());
     }
@@ -516,7 +515,10 @@ mod tests {
         mark_task_succeeded(&database, &task, "session-1").expect("succeeded");
         let succeeded = list_scheduled_tasks(&database).expect("tasks").remove(0);
         assert_eq!(succeeded.latest_status, "succeeded");
-        assert_eq!(succeeded.latest_run_session_id.as_deref(), Some("session-1"));
+        assert_eq!(
+            succeeded.latest_run_session_id.as_deref(),
+            Some("session-1")
+        );
         assert!(succeeded.latest_error.is_none());
         assert!(succeeded.next_run_at > task.next_run_at);
 

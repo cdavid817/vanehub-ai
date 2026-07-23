@@ -5,12 +5,14 @@ import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
 import type * as SkillContracts from "./skill";
 import type * as OperationContracts from "./operation";
+import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
 import type * as ChatTypes from "../types/chat";
 import type * as McpTypes from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
 import type * as OperationTypes from "../types/operation";
+import type * as ObservabilityTypes from "../types/execution-observability";
 import type * as SessionWorkspaceContracts from "./session-workspace";
 import type * as SessionWorkspaceTypes from "../types/session-workspace";
 
@@ -126,6 +128,24 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
 ];
 
+type ObservabilityAssertions = [
+  Assert<Equal<ObservabilityContracts.CapturePolicy, ObservabilityTypes.CapturePolicy>>,
+  Assert<Equal<ObservabilityContracts.OtlpProtocol, ObservabilityTypes.OtlpProtocol>>,
+  Assert<Equal<ObservabilityContracts.ObservabilitySettings, ObservabilityTypes.ObservabilitySettings>>,
+  Assert<Equal<ObservabilityContracts.ExecutionStatus, ObservabilityTypes.ExecutionStatus>>,
+  Assert<Equal<ObservabilityContracts.ExecutionFidelity, ObservabilityTypes.ExecutionFidelity>>,
+  Assert<Equal<ObservabilityContracts.ExecutionSource, ObservabilityTypes.ExecutionSource>>,
+  Assert<Equal<ObservabilityContracts.SafeAttribute, ObservabilityTypes.SafeAttribute>>,
+  Assert<Equal<ObservabilityContracts.ExecutionRunSummary, ObservabilityTypes.ExecutionRunSummary>>,
+  Assert<Equal<ObservabilityContracts.ExecutionSpanSummary, ObservabilityTypes.ExecutionSpanSummary>>,
+  Assert<Equal<ObservabilityContracts.ExecutionEvent, ObservabilityTypes.ExecutionEvent>>,
+  Assert<Equal<ObservabilityContracts.ExecutionTimeline, ObservabilityTypes.ExecutionTimeline>>,
+  Assert<Equal<ObservabilityContracts.PageRequest, ObservabilityTypes.PageRequest>>,
+  Assert<Equal<ObservabilityContracts.ExecutionRunPage, ObservabilityTypes.ExecutionRunPage>>,
+  Assert<Equal<ObservabilityContracts.ObservabilityErrorCode, ObservabilityTypes.ObservabilityErrorCode>>,
+  Assert<Equal<ObservabilityContracts.ObservabilityCommandError, ObservabilityTypes.ObservabilityCommandError>>,
+];
+
 type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillScope, SkillTypes.SkillScope>>,
   Assert<Equal<SkillContracts.SkillSource, SkillTypes.SkillSource>>,
@@ -166,6 +186,7 @@ void (0 as unknown as ChatAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as SkillAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 

@@ -24,8 +24,13 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 rmcp = { version = "2.2.0", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 http = "1"
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
+opentelemetry-semantic-conventions = { version = "=0.32.0", features = ["semconv_experimental"] }
+opentelemetry_sdk = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
-reqwest = { version = "0.13", features = ["json", "socks"] }
+reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
 async-trait = "0.1"
 base64 = "0.22"
 futures-util = "0.3"
@@ -40,7 +45,11 @@ url = "2"
 webpki-roots = "1"
 zeroize = "1"
 portable-pty = "0.9.0"
+tracing = { version = "=0.1.41", features = ["attributes", "std"] }
+tracing-opentelemetry = { version = "=0.33.0", default-features = false }
+tracing-subscriber = { version = "=0.3.22", default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
+opentelemetry_sdk = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs", "testing"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "2", features = ["full", "visit"] }

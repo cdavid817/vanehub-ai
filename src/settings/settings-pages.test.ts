@@ -73,11 +73,25 @@ describe("settingsPages", () => {
 
     expect(usageIndex).toBeGreaterThan(-1);
     expect(extensionsIndex).toBeLessThan(usageIndex);
-    expect(pluginsIndex).toBe(usageIndex - 1);
+    const observabilityIndex = settingsPages.findIndex(
+      (page) => page.id === "observability",
+    );
+    expect(observabilityIndex).toBe(usageIndex - 1);
+    expect(pluginsIndex).toBe(observabilityIndex - 1);
     expect(usageIndex).toBe(aboutIndex - 1);
     expect(settingsPages[usageIndex]).toMatchObject({
       labelKey: "settings.pages.usage",
       searchPlaceholderKey: "settings.search.usage",
+    });
+  });
+
+  it("registers execution observability before usage statistics", () => {
+    const observabilityIndex = settingsPages.findIndex(
+      (page) => page.id === "observability",
+    );
+    expect(settingsPages[observabilityIndex]).toMatchObject({
+      labelKey: "settings.pages.observability",
+      searchPlaceholderKey: "settings.search.observability",
     });
   });
 

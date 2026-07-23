@@ -16,7 +16,9 @@ pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
-pub(crate) use process_adapter::RuntimeAgentProcessAdapter;
+pub(crate) use process_adapter::{
+    ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
+};
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,

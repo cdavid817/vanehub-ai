@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createSession } from "./session-helpers";
 
-const tabNames = ["聊天", "变更", "文档", "文件", "终端记录", "Shell", "日志", "报告"];
+const tabNames = ["聊天", "变更", "文档", "文件", "终端记录", "Shell", "日志", "链路", "报告"];
 
 async function openWorkspace(page: Parameters<typeof createSession>[0], title = "工作区标签测试") {
   await page.goto("/");
@@ -9,10 +9,10 @@ async function openWorkspace(page: Parameters<typeof createSession>[0], title = 
 }
 
 test.describe("session workspace tabs", () => {
-  test("exposes eight accessible tabs and supports keyboard navigation", async ({ page }) => {
+  test("exposes nine accessible tabs and supports keyboard navigation", async ({ page }) => {
     await openWorkspace(page);
 
-    await expect(page.getByRole("tab")).toHaveCount(8);
+    await expect(page.getByRole("tab")).toHaveCount(9);
     for (const name of tabNames) await expect(page.getByRole("tab", { name })).toBeVisible();
 
     const chat = page.getByRole("tab", { name: "聊天" });
@@ -30,7 +30,7 @@ test.describe("session workspace tabs", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWorkspace(page, "文件夹打开方式测试");
 
-    await expect(page.getByRole("tab")).toHaveCount(8);
+    await expect(page.getByRole("tab")).toHaveCount(9);
     await expect(page.getByRole("button", { name: /使用 Visual Studio Code 打开文件夹/ })).toBeVisible();
     await page.getByRole("button", { name: "选择文件夹打开方式" }).click();
     await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeVisible();

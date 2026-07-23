@@ -1,16 +1,41 @@
-use crate::contexts::agent_runtime::application::ToolUseBlock;
+use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProviderOutputEvent {
     Token(String),
     Thinking(String),
-    ToolUse(ToolUseBlock),
+    ToolLifecycle(Box<ProviderToolEvent>),
     RichBlock(Value),
     SessionId(String),
     Completed,
     Failed(String),
     Empty,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderToolPhase {
+    Started,
+    Updated,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ProviderToolEvent {
+    pub(crate) call_id: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) input: Option<Value>,
+    pub(crate) output: Option<Value>,
+    pub(crate) phase: ProviderToolPhase,
+    pub(crate) provider_timestamp: Option<String>,
+    pub(crate) status: String,
+    pub(crate) fidelity: ExecutionFidelity,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) parent_trace_id: Option<String>,
+    pub(crate) parent_span_id: Option<String>,
+    pub(crate) delegation_id: Option<String>,
+    pub(crate) attempt: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,13 +130,9 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
                 ProviderOutputEvent::Thinking(text.to_string())
             }
         }
-        "tool_use" => ProviderOutputEvent::ToolUse(ToolUseBlock {
-            id: string_field(&value, "id", "tool"),
-            name: string_field(&value, "name", "tool"),
-            input: value.get("input").cloned(),
-            output: value.get("output").cloned(),
-            status: string_field(&value, "status", "running"),
-        }),
+        "tool_use" | "tool_result" | "tool_error" | "tool_failure" => {
+            ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)))
+        }
         "result" | "complete" | "completed" => ProviderOutputEvent::Completed,
         "error" | "failed" => ProviderOutputEvent::Failed(
             value
@@ -191,37 +212,8 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
             .map(ProviderOutputEvent::RichBlock)
             .unwrap_or(ProviderOutputEvent::Empty);
     }
-    if matches!(
-        event_type,
-        "tool_use"
-            | "tool"
-            | "tool_call"
-            | "tool.start"
-            | "item.started"
-            | "tool_call_start"
-            | "tool-call-start"
-    ) {
-        return ProviderOutputEvent::ToolUse(ToolUseBlock {
-            id: first_string_field(&value, &["/id", "/tool/id", "/part/id"], "tool"),
-            name: first_string_field(
-                &value,
-                &["/name", "/tool/name", "/part/tool", "/part/name"],
-                "tool",
-            ),
-            input: value
-                .get("input")
-                .or_else(|| value.pointer("/tool/input"))
-                .or_else(|| value.pointer("/part/input"))
-                .or_else(|| value.pointer("/item/input"))
-                .cloned(),
-            output: value
-                .get("output")
-                .or_else(|| value.pointer("/tool/output"))
-                .or_else(|| value.pointer("/part/output"))
-                .or_else(|| value.pointer("/item/output"))
-                .cloned(),
-            status: string_field(&value, "status", "running"),
-        });
+    if is_tool_event(&value, event_type) {
+        return ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)));
     }
     text_value(&value)
         .map(ProviderOutputEvent::Token)
@@ -316,18 +308,150 @@ fn valid_rich_block(block: &Value) -> bool {
         && block.get("v").and_then(Value::as_i64) == Some(1)
 }
 
-fn string_field(value: &Value, field: &str, fallback: &str) -> String {
-    value
-        .get(field)
-        .and_then(Value::as_str)
-        .unwrap_or(fallback)
-        .to_string()
-}
-
-fn first_string_field(value: &Value, pointers: &[&str], fallback: &str) -> String {
+fn first_string_field(value: &Value, pointers: &[&str]) -> Option<String> {
     pointers
         .iter()
         .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
-        .unwrap_or(fallback)
-        .to_string()
+        .map(str::to_string)
+        .filter(|field| !field.trim().is_empty())
+}
+
+fn is_tool_event(value: &Value, event_type: &str) -> bool {
+    if matches!(
+        event_type,
+        "tool_use"
+            | "tool_result"
+            | "tool_error"
+            | "tool_failure"
+            | "tool"
+            | "tool_call"
+            | "tool.start"
+            | "tool.update"
+            | "tool.completed"
+            | "tool.failed"
+            | "tool_call_start"
+            | "tool_call_end"
+            | "tool_call_error"
+            | "tool-call-start"
+            | "tool-call-end"
+            | "tool-call-error"
+    ) {
+        return true;
+    }
+    matches!(
+        event_type,
+        "item.started" | "item.updated" | "item.completed"
+    ) && first_string_field(value, &["/item/type", "/part/type"]).is_some_and(|kind| {
+        matches!(
+            kind.as_str(),
+            "tool" | "tool_call" | "function_call" | "command_execution" | "mcp_tool_call"
+        )
+    })
+}
+
+fn parse_tool_event(value: &Value, event_type: &str) -> ProviderToolEvent {
+    let reported_status = first_string_field(
+        value,
+        &["/status", "/tool/status", "/item/status", "/part/status"],
+    );
+    let phase = tool_phase(event_type, reported_status.as_deref());
+    let call_id = first_string_field(
+        value,
+        &[
+            "/id",
+            "/call_id",
+            "/callId",
+            "/tool_use_id",
+            "/tool/id",
+            "/tool/call_id",
+            "/item/id",
+            "/item/call_id",
+            "/part/id",
+            "/part/callID",
+        ],
+    );
+    ProviderToolEvent {
+        fidelity: if call_id.is_some() {
+            ExecutionFidelity::Inferred
+        } else {
+            ExecutionFidelity::Opaque
+        },
+        call_id,
+        name: first_string_field(
+            value,
+            &[
+                "/name",
+                "/tool/name",
+                "/item/name",
+                "/part/tool",
+                "/part/name",
+            ],
+        ),
+        input: value
+            .get("input")
+            .or_else(|| value.pointer("/tool/input"))
+            .or_else(|| value.pointer("/part/input"))
+            .or_else(|| value.pointer("/item/input"))
+            .cloned(),
+        output: value
+            .get("output")
+            .or_else(|| value.pointer("/tool/output"))
+            .or_else(|| value.pointer("/part/output"))
+            .or_else(|| value.pointer("/item/output"))
+            .or_else(|| value.get("content"))
+            .cloned(),
+        phase,
+        provider_timestamp: provider_timestamp(value),
+        parent_run_id: first_string_field(value, &["/parent_run_id", "/parent/run_id"]),
+        parent_trace_id: first_string_field(value, &["/parent_trace_id", "/parent/trace_id"]),
+        parent_span_id: first_string_field(value, &["/parent_span_id", "/parent/span_id"]),
+        delegation_id: first_string_field(value, &["/delegation_id", "/delegation/id"]),
+        attempt: value
+            .get("attempt")
+            .or_else(|| value.pointer("/delegation/attempt"))
+            .and_then(Value::as_u64)
+            .and_then(|attempt| u32::try_from(attempt).ok()),
+        status: match phase {
+            ProviderToolPhase::Started | ProviderToolPhase::Updated => "running",
+            ProviderToolPhase::Completed => "completed",
+            ProviderToolPhase::Failed => "failed",
+        }
+        .to_string(),
+    }
+}
+
+fn tool_phase(event_type: &str, status: Option<&str>) -> ProviderToolPhase {
+    let status = status.unwrap_or_default().to_ascii_lowercase();
+    if matches!(status.as_str(), "failed" | "error" | "cancelled")
+        || matches!(
+            event_type,
+            "tool_error" | "tool_failure" | "tool.failed" | "tool_call_error" | "tool-call-error"
+        )
+    {
+        ProviderToolPhase::Failed
+    } else if matches!(
+        status.as_str(),
+        "completed" | "complete" | "success" | "succeeded"
+    ) || matches!(
+        event_type,
+        "tool_result" | "tool.completed" | "tool_call_end" | "tool-call-end" | "item.completed"
+    ) {
+        ProviderToolPhase::Completed
+    } else if matches!(event_type, "tool.update" | "item.updated") {
+        ProviderToolPhase::Updated
+    } else {
+        ProviderToolPhase::Started
+    }
+}
+
+fn provider_timestamp(value: &Value) -> Option<String> {
+    value
+        .get("timestamp")
+        .or_else(|| value.get("created_at"))
+        .or_else(|| value.pointer("/metadata/timestamp"))
+        .and_then(|timestamp| match timestamp {
+            Value::String(value) => Some(value.clone()),
+            Value::Number(value) => Some(value.to_string()),
+            _ => None,
+        })
 }

@@ -10,6 +10,6 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     McpClockPort, McpConnectionPort, McpLoggingPort, McpOperationPort, McpProjectPathPort,
-    McpServerRepository,
+    McpServerRepository, McpTelemetryPort,
 };
 pub(crate) use service::McpApplicationService;

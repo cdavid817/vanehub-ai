@@ -417,7 +417,11 @@ mod tests {
             unused()
         }
 
-        fn stop_generation(&self, _process_id: &str) -> Result<bool, AgentRuntimeApplicationError> {
+        fn stop_generation(
+            &self,
+            _process_id: &str,
+            _initiator: super::super::ProcessStopInitiator,
+        ) -> Result<bool, AgentRuntimeApplicationError> {
             unused()
         }
     }
@@ -470,6 +474,14 @@ mod tests {
             &self,
             _session_id: &str,
         ) -> Result<GenerationLease, AgentRuntimeApplicationError> {
+            unused()
+        }
+
+        fn correlate(
+            &self,
+            _lease: &GenerationLease,
+            _execution_context: &crate::contexts::execution_observability::api::ExecutionContext,
+        ) -> Result<(), AgentRuntimeApplicationError> {
             unused()
         }
 
@@ -939,6 +951,9 @@ impl AgentTerminalApplicationService {
             agent_id: agent_id.map(str::to_string),
             session_id: session_id.map(str::to_string),
             operation_id: None,
+            run_id: None,
+            trace_id: None,
+            span_id: None,
             occurred_at: self.ports.clock.now(),
         });
     }

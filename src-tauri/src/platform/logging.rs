@@ -277,6 +277,11 @@ pub fn redact_text(input: &str) -> String {
     let mut redacted = Vec::new();
     let mut index = 0;
     while index < tokens.len() {
+        if looks_like_private_path(tokens[index]) {
+            redacted.push("[REDACTED_PATH]".to_string());
+            index += 1;
+            continue;
+        }
         if token_without_punctuation(tokens[index]).eq_ignore_ascii_case("bearer")
             && index + 1 < tokens.len()
         {
@@ -338,6 +343,32 @@ fn redact_entry(mut entry: LogEntry) -> LogEntry {
         })
         .collect();
     entry
+}
+
+fn looks_like_private_path(token: &str) -> bool {
+    let normalized = token.trim_matches(['\"', '\'', ',', '(', ')', '[', ']', '{', '}']);
+    let bytes = normalized.as_bytes();
+    (bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/'))
+        || normalized.starts_with("/home/")
+        || normalized.starts_with("/Users/")
+        || normalized.starts_with("file:///")
+}
+
+pub(crate) fn redact_log_fields(
+    message: &str,
+    context: BTreeMap<String, String>,
+) -> (String, BTreeMap<String, String>) {
+    let entry = redact_entry(LogEntry {
+        timestamp: String::new(),
+        level: LogLevel::Info,
+        category: String::new(),
+        message: message.to_string(),
+        context,
+    });
+    (entry.message, entry.context)
 }
 
 fn redact_inline_sensitive_token(token: &str) -> Option<(String, bool)> {
@@ -453,6 +484,17 @@ mod tests {
         assert!(redacted.contains("keyPath=[REDACTED]"));
         assert!(redacted.contains("private_key_path:[REDACTED]"));
         assert!(redacted.contains("credentialRef=[REDACTED]"));
+    }
+
+    #[test]
+    fn redacts_private_paths_even_without_a_sensitive_context_key() {
+        let redacted = redact_text(
+            "failed at C:\\Users\\developer\\private\\config.json and /home/developer/private.env",
+        );
+        assert!(!redacted.contains("developer"));
+        assert!(!redacted.contains("config.json"));
+        assert!(!redacted.contains("private.env"));
+        assert_eq!(redacted.matches("[REDACTED_PATH]").count(), 2);
     }
 
     #[test]

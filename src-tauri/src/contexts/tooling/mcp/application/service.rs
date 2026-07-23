@@ -1,7 +1,7 @@
 use super::{
     ConnectionTestResult, ExportBundle, ImportBundle, ImportEntry, ImportResult,
     McpApplicationError, McpClockPort, McpConnectionPort, McpLoggingPort, McpOperationPort,
-    McpProjectPathPort, McpServerRepository, PreparedConnectionTest, ServerPatch,
+    McpProjectPathPort, McpServerRepository, McpTelemetryPort, PreparedConnectionTest, ServerPatch,
 };
 use crate::contexts::tooling::mcp::domain::{
     ConnectionOutcome, Scope, ServerConfiguration, ServerConfigurationDraft, ServerName,
@@ -18,6 +18,7 @@ pub(crate) struct McpApplicationService {
     clock: Arc<dyn McpClockPort>,
     logging: Arc<dyn McpLoggingPort>,
     project_path: Arc<dyn McpProjectPathPort>,
+    telemetry: Arc<dyn McpTelemetryPort>,
 }
 
 impl McpApplicationService {
@@ -28,6 +29,7 @@ impl McpApplicationService {
         clock: Arc<dyn McpClockPort>,
         logging: Arc<dyn McpLoggingPort>,
         project_path: Arc<dyn McpProjectPathPort>,
+        telemetry: Arc<dyn McpTelemetryPort>,
     ) -> Self {
         Self {
             repository,
@@ -36,6 +38,7 @@ impl McpApplicationService {
             clock,
             logging,
             project_path,
+            telemetry,
         }
     }
 
@@ -198,7 +201,20 @@ impl McpApplicationService {
     ) -> Result<PreparedConnectionTest, McpApplicationError> {
         let server = self.load_server(name)?;
         let operation = self.operations.start_connection_test(name)?;
-        Ok(PreparedConnectionTest { operation, server })
+        let observation_id = self
+            .telemetry
+            .start_connection_test(
+                &operation.id,
+                server.name().as_str(),
+                server.transport_type(),
+                &self.clock.now(),
+            )
+            .ok();
+        Ok(PreparedConnectionTest {
+            operation,
+            server,
+            observation_id,
+        })
     }
 
     pub(crate) async fn execute_connection_test(
@@ -208,6 +224,11 @@ impl McpApplicationService {
         let operation_id = prepared.operation.id.clone();
         let server_name = prepared.server.name().as_str().to_string();
         let outcome = self.connection.test(&prepared.server).await;
+        if let Some(observation_id) = &prepared.observation_id {
+            let _ =
+                self.telemetry
+                    .finish_connection_test(observation_id, &outcome, &self.clock.now());
+        }
         let result = ConnectionTestResult::from_outcome(operation_id.clone(), &outcome);
         let persistence = self
             .repository
@@ -470,6 +491,29 @@ mod tests {
         }
     }
 
+    struct FakeTelemetry;
+
+    impl McpTelemetryPort for FakeTelemetry {
+        fn start_connection_test(
+            &self,
+            operation_id: &str,
+            _server_name: &str,
+            _transport: TransportType,
+            _started_at: &str,
+        ) -> Result<String, McpApplicationError> {
+            Ok(format!("observation-{operation_id}"))
+        }
+
+        fn finish_connection_test(
+            &self,
+            _observation_id: &str,
+            _outcome: &ConnectionOutcome,
+            _ended_at: &str,
+        ) -> Result<(), McpApplicationError> {
+            Ok(())
+        }
+    }
+
     fn server_draft(scope: Scope) -> ServerConfigurationDraft {
         ServerConfigurationDraft {
             name: "fixture-tools".to_string(),
@@ -499,6 +543,7 @@ mod tests {
             Arc::new(FakeClock),
             logging,
             Arc::new(FakeProjectPath),
+            Arc::new(FakeTelemetry),
         )
     }
 

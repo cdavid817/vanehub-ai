@@ -1,8 +1,6 @@
 use super::dto;
 use crate::commands::error::CommandError;
-use crate::contexts::sessions::infrastructure::scheduled_tasks::{
-    self, ScheduledTaskLogDirectory,
-};
+use crate::contexts::sessions::infrastructure::scheduled_tasks::{self, ScheduledTaskLogDirectory};
 use crate::platform::database::NativeDatabase;
 use tauri::State;
 

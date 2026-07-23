@@ -11,5 +11,8 @@ mod migration_fixture_tests;
 mod test_support;
 
 pub fn run() {
+    if contexts::tooling::mcp::infrastructure::try_run_from_process_args() {
+        return;
+    }
     bootstrap::run();
 }

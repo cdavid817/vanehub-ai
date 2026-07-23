@@ -9,15 +9,15 @@ pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentLogLevel, AgentMessage,
-    AgentOperation, AgentSession, AgentSessionDetails, AgentTerminalCapability, AgentTerminalEvent,
-    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView, CliProfileSnapshot,
-    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult, MessageTokenUsage,
-    NewAgentMessage, OpenAgentTerminalRequest, PromptTrace, ReadinessView,
-    ResizeAgentTerminalRequest, SendMessageRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, StopGenerationResult, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, WorkflowView,
+    AgentMessageSource, AgentOperation, AgentSession, AgentSessionDetails, AgentTerminalCapability,
+    AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView,
+    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, ProcessStopInitiator,
+    PromptTrace, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult, ToolLifecycleEvent,
+    ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,

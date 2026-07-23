@@ -42,6 +42,8 @@ pub(super) fn status_to_dto(status: CliToolStatus) -> CliToolStatusDto {
 pub(super) fn started_operation_to_dto(operation: &StartedCliOperation) -> OperationTask {
     OperationTask {
         id: operation.id.clone(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Agent,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),

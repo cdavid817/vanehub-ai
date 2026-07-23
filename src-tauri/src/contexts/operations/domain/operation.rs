@@ -33,6 +33,10 @@ pub struct OperationLogEntry {
 #[serde(rename_all = "camelCase")]
 pub struct OperationTask {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
     pub kind: OperationKind,
     pub status: OperationStatus,
     pub related_entity_id: Option<String>,
@@ -54,6 +58,8 @@ impl OperationTask {
     ) -> Self {
         Self {
             id,
+            execution_run_id: None,
+            trace_id: None,
             kind,
             status: OperationStatus::Running,
             related_entity_id,
@@ -64,6 +70,11 @@ impl OperationTask {
             created_at: now.clone(),
             updated_at: now,
         }
+    }
+
+    pub(crate) fn correlate_execution(&mut self, run_id: String, trace_id: String) {
+        self.execution_run_id = Some(run_id);
+        self.trace_id = Some(trace_id);
     }
 
     pub(crate) fn append_log(&mut self, line: String, log_timestamp: String, updated_at: String) {
@@ -160,5 +171,31 @@ mod tests {
         assert_eq!(operation.status, OperationStatus::Cancelled);
         assert_eq!(operation.updated_at, "301");
         assert!(operation.error.is_none());
+    }
+
+    #[test]
+    fn execution_correlation_does_not_replace_operation_identity() {
+        let mut operation = OperationTask::start(
+            "op-fixed-4".to_string(),
+            OperationKind::Agent,
+            Some("session-1".to_string()),
+            None,
+            "400".to_string(),
+        );
+
+        operation.correlate_execution(
+            "018f0f17-4d6a-7e20-b41d-66c5271a28d0".to_string(),
+            "4bf92f3577b34da6a3ce929d0e0e4736".to_string(),
+        );
+
+        assert_eq!(operation.id, "op-fixed-4");
+        assert_eq!(
+            operation.execution_run_id.as_deref(),
+            Some("018f0f17-4d6a-7e20-b41d-66c5271a28d0")
+        );
+        assert_eq!(
+            operation.trace_id.as_deref(),
+            Some("4bf92f3577b34da6a3ce929d0e0e4736")
+        );
     }
 }

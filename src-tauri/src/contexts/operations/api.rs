@@ -1,10 +1,10 @@
 use crate::contexts::operations::application::{ApplicationError, OperationService};
 use serde_json::Value;
 
-#[cfg(test)]
 pub(crate) use crate::contexts::operations::application::ApplicationError as OperationsError;
 pub(crate) use crate::contexts::operations::application::{
-    DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationLog, OperationLogPort,
+    DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
+    OperationLogPort,
 };
 pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
 
@@ -33,6 +33,16 @@ impl OperationsApi {
         line: String,
     ) -> Result<OperationTask, ApplicationError> {
         self.service.append_log(operation_id, line)
+    }
+
+    pub(crate) fn correlate_execution(
+        &self,
+        operation_id: &str,
+        run_id: String,
+        trace_id: String,
+    ) -> Result<OperationTask, ApplicationError> {
+        self.service
+            .correlate_execution(operation_id, run_id, trace_id)
     }
 
     pub(crate) fn complete(

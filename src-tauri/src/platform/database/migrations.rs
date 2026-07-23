@@ -138,6 +138,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "ssh-connection-management",
         apply_ssh_connection_management_migration,
     )?;
+    apply_migration(
+        conn,
+        25,
+        "agent-execution-observability",
+        crate::contexts::execution_observability::infrastructure::apply_schema,
+    )?;
 
     Ok(())
 }

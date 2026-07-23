@@ -2,6 +2,7 @@ use crate::contexts::agent_runtime::application::{
     AgentGenerationPort, AgentRuntimeApplicationError, GenerationCancellation, GenerationLease,
 };
 use crate::contexts::agent_runtime::domain::GenerationAttempt;
+use crate::contexts::execution_observability::api::ExecutionContext;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,6 +18,7 @@ struct CoordinatedGeneration {
     attempt: GenerationAttempt,
     process_id: Option<String>,
     operation_id: Option<String>,
+    execution_context: Option<ExecutionContext>,
 }
 
 impl AgentGenerationPort for InMemoryGenerationCoordinator {
@@ -39,12 +41,23 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
                 attempt,
                 process_id: None,
                 operation_id: None,
+                execution_context: None,
             },
         );
         Ok(GenerationLease {
             session_id: session_id.to_string(),
             lease_id,
         })
+    }
+
+    fn correlate(
+        &self,
+        lease: &GenerationLease,
+        execution_context: &ExecutionContext,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut active = self.active()?;
+        require_lease(&mut active, lease)?.execution_context = Some(execution_context.clone());
+        Ok(())
     }
 
     fn attach(
@@ -82,6 +95,7 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
             message_id: cancellation.message_id,
             process_id: generation.process_id,
             operation_id: generation.operation_id,
+            execution_context: generation.execution_context,
         }))
     }
 

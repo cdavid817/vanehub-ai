@@ -38,6 +38,8 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
 pub(super) fn creation_operation_to_dto(operation: &SessionCreationOperation) -> OperationTask {
     OperationTask {
         id: operation.id.clone(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Workspace,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),

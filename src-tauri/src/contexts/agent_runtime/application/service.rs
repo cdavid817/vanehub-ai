@@ -6,12 +6,17 @@ use super::{
     AgentTaskPort, AgentUsageRecord, AgentView, CompleteAgentMessage, EffectivePromptGateway,
     GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
     MessageTokenUsage, NewAgentMessage, ReadinessView, SendMessageRequest, StopGenerationResult,
-    WorkflowLaunchRequest, WorkflowView,
+    ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
 };
-use std::collections::BTreeSet;
+use crate::contexts::execution_observability::api::{
+    ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
+    ExecutionRunId, ExecutionSettingsPort, ExecutionSource, ExecutionSpan, ExecutionStatus,
+    ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes, SpanId, TraceId,
+};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -27,11 +32,36 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) clock: Arc<dyn AgentClockPort>,
     pub(crate) events: Arc<dyn AgentEventPort>,
     pub(crate) generations: Arc<dyn AgentGenerationPort>,
+    pub(crate) execution_ids: Arc<dyn ExecutionIdentityPort>,
+    pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
+    pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
 }
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
     ports: AgentRuntimeApplicationPorts,
+}
+
+struct MessageGenerationInput {
+    source: super::AgentMessageSource,
+    configuration: AgentChatConfiguration,
+    content: String,
+    file_references: Vec<super::AgentFileReference>,
+}
+
+struct GenerationFailure {
+    safe_error: String,
+    diagnostic: String,
+}
+
+fn generation_failure(
+    safe_error: impl Into<String>,
+    diagnostic: impl Into<String>,
+) -> GenerationFailure {
+    GenerationFailure {
+        safe_error: safe_error.into(),
+        diagnostic: diagnostic.into(),
+    }
 }
 
 impl AgentRuntimeApplicationService {
@@ -214,9 +244,12 @@ impl AgentRuntimeApplicationService {
         let result = self.start_message_generation(
             &session,
             &agent,
-            configuration,
-            content,
-            request.file_references,
+            MessageGenerationInput {
+                source: request.source,
+                configuration,
+                content,
+                file_references: request.file_references,
+            },
             &lease,
         );
         if result.is_err() {
@@ -229,29 +262,165 @@ impl AgentRuntimeApplicationService {
         &self,
         session: &AgentSession,
         agent: &AgentDefinition,
-        configuration: AgentChatConfiguration,
-        content: String,
-        file_references: Vec<super::AgentFileReference>,
+        input: MessageGenerationInput,
         lease: &GenerationLease,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        let prompt = self
-            .ports
-            .sessions
-            .compose_prompt(&session.id, &content, &file_references)?;
-        self.ports.sessions.create_message(NewAgentMessage {
+        let MessageGenerationInput {
+            source,
+            configuration,
+            content,
+            file_references,
+        } = input;
+        let settings = self.ports.execution_settings.load_settings().map_err(|_| {
+            AgentRuntimeApplicationError::Process(
+                "execution observability settings are unavailable".to_string(),
+            )
+        })?;
+        let root_context = self.ports.execution_ids.next_context(
+            settings.capture_policy,
+            settings.sampling_ratio,
+            settings.mcp_relay_enabled,
+        );
+        let started_at = self.ports.clock.now();
+        let mut run = ExecutionRun {
+            context: root_context.clone(),
+            source: execution_source(source),
+            status: ExecutionStatus::Running,
+            started_at: started_at.clone(),
+            ended_at: None,
+            error_classification: None,
+            session_id: Some(session.id.clone()),
+            user_message_id: None,
+            assistant_message_id: None,
+            operation_id: None,
+            agent_id: Some(agent.id().as_str().to_string()),
+            provider_session_id: session.runtime_session_id.clone(),
+            attributes: safe_attributes([
+                (
+                    "vanehub.stage".to_string(),
+                    SafeAttributeValue::String("task_execution".to_string()),
+                ),
+                (
+                    "vanehub.agent.id".to_string(),
+                    SafeAttributeValue::String(agent.id().as_str().to_string()),
+                ),
+            ]),
+            links: Vec::new(),
+        };
+        let root_span = ExecutionSpan {
+            context: root_context.clone(),
+            parent_span_id: None,
+            name: "vanehub.task.execute".to_string(),
+            status: ExecutionStatus::Running,
+            fidelity: ExecutionFidelity::Native,
+            started_at: started_at.clone(),
+            ended_at: None,
+            error_classification: None,
+            attributes: safe_attributes([
+                (
+                    "vanehub.stage".to_string(),
+                    SafeAttributeValue::String("task_execution".to_string()),
+                ),
+                (
+                    "vanehub.agent.id".to_string(),
+                    SafeAttributeValue::String(agent.id().as_str().to_string()),
+                ),
+            ]),
+            links: Vec::new(),
+        };
+        let _ = self.ports.telemetry.start_run(&run);
+        let _ = self.ports.telemetry.start_span(&root_span);
+        if let Err(error) = self.ports.generations.correlate(lease, &root_context) {
+            self.finish_execution_root(
+                &root_context,
+                ExecutionStatus::Failed,
+                Some("generation_correlation_failed"),
+            );
+            return Err(error);
+        }
+
+        let prompt_context = child_context(&root_context, self.ports.execution_ids.next_span_id());
+        let prompt_span = ExecutionSpan {
+            context: prompt_context.clone(),
+            parent_span_id: Some(root_context.span_id.clone()),
+            name: "vanehub.prompt.assemble".to_string(),
+            status: ExecutionStatus::Running,
+            fidelity: ExecutionFidelity::Native,
+            started_at: self.ports.clock.now(),
+            ended_at: None,
+            error_classification: None,
+            attributes: safe_attributes([(
+                "vanehub.stage".to_string(),
+                SafeAttributeValue::String("prompt_assembly".to_string()),
+            )]),
+            links: Vec::new(),
+        };
+        let _ = self.ports.telemetry.start_span(&prompt_span);
+        let prompt =
+            match self
+                .ports
+                .sessions
+                .compose_prompt(&session.id, &content, &file_references)
+            {
+                Ok(prompt) => prompt,
+                Err(error) => {
+                    let ended_at = self.ports.clock.now();
+                    let _ = self.ports.telemetry.finish_span(
+                        &prompt_context.run_id,
+                        &prompt_context.span_id,
+                        ExecutionStatus::Failed,
+                        &ended_at,
+                        Some("prompt_compose_failed"),
+                    );
+                    self.finish_execution_root(
+                        &root_context,
+                        ExecutionStatus::Failed,
+                        Some("prompt_compose_failed"),
+                    );
+                    return Err(error);
+                }
+            };
+        let _ = self.ports.telemetry.finish_span(
+            &prompt_context.run_id,
+            &prompt_context.span_id,
+            ExecutionStatus::Succeeded,
+            &self.ports.clock.now(),
+            None,
+        );
+        let user_message = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
             role: "user".to_string(),
             status: "completed".to_string(),
             content,
             file_references,
-        })?;
-        let assistant = self.ports.sessions.create_message(NewAgentMessage {
+        }) {
+            Ok(message) => message,
+            Err(error) => {
+                self.finish_execution_root(
+                    &root_context,
+                    ExecutionStatus::Failed,
+                    Some("user_message_persistence_failed"),
+                );
+                return Err(error);
+            }
+        };
+        let assistant = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
             role: "assistant".to_string(),
             status: "streaming".to_string(),
             content: String::new(),
             file_references: Vec::new(),
-        })?;
+        }) {
+            Ok(message) => message,
+            Err(error) => {
+                self.finish_execution_root(
+                    &root_context,
+                    ExecutionStatus::Failed,
+                    Some("assistant_message_persistence_failed"),
+                );
+                return Err(error);
+            }
+        };
         let operation = match self.ports.operations.start_agent_generation(
             agent.id().as_str(),
             &session.id,
@@ -260,25 +429,65 @@ impl AgentRuntimeApplicationService {
             Ok(operation) => operation,
             Err(error) => {
                 return self.fail_prepared_message(
+                    &root_context,
                     session,
                     &assistant,
                     lease,
                     None,
-                    &format!("{} command failed", agent.display_name()),
-                    &error.to_string(),
+                    generation_failure(
+                        format!("{} command failed", agent.display_name()),
+                        error.to_string(),
+                    ),
                 );
             }
         };
-        self.ports
+        run.user_message_id = Some(user_message.id);
+        run.assistant_message_id = Some(assistant.id.clone());
+        run.operation_id = Some(operation.id.clone());
+        let _ = self.ports.telemetry.start_run(&run);
+        let _ = self.ports.operations.correlate_execution(
+            &operation.id,
+            root_context.run_id.as_str(),
+            root_context.trace_id.as_str(),
+        );
+        if let Err(error) = self
+            .ports
             .sessions
-            .update_lifecycle(&session.id, AgentLifecycle::Starting)?;
+            .update_lifecycle(&session.id, AgentLifecycle::Starting)
+        {
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                lease,
+                Some(&operation.id),
+                generation_failure(
+                    format!("{} command failed", agent.display_name()),
+                    error.to_string(),
+                ),
+            );
+        }
         let _ = self.ports.events.publish(AgentEvent::MessageStarted {
             session_id: session.id.clone(),
             message_id: assistant.id.clone(),
         });
-        self.ports
+        if let Err(error) = self
+            .ports
             .sessions
-            .update_lifecycle(&session.id, AgentLifecycle::Running)?;
+            .update_lifecycle(&session.id, AgentLifecycle::Running)
+        {
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                lease,
+                Some(&operation.id),
+                generation_failure(
+                    format!("{} command failed", agent.display_name()),
+                    error.to_string(),
+                ),
+            );
+        }
 
         let effective_prompt =
             match self
@@ -289,12 +498,12 @@ impl AgentRuntimeApplicationService {
                 Ok(prompt) => prompt,
                 Err(error) => {
                     return self.fail_prepared_message(
+                        &root_context,
                         session,
                         &assistant,
                         lease,
                         Some(&operation.id),
-                        "Prompt Hook assembly failed",
-                        &error.to_string(),
+                        generation_failure("Prompt Hook assembly failed", error.to_string()),
                     );
                 }
             };
@@ -326,20 +535,60 @@ impl AgentRuntimeApplicationService {
             Ok(profile) => profile,
             Err(error) => {
                 return self.fail_prepared_message(
+                    &root_context,
                     session,
                     &assistant,
                     lease,
                     Some(&operation.id),
-                    &format!("{} command failed", agent.display_name()),
-                    &error.to_string(),
+                    generation_failure(
+                        format!("{} command failed", agent.display_name()),
+                        error.to_string(),
+                    ),
                 );
             }
         };
         let input_count = effective_prompt.content.chars().count();
+        let agent_context = child_context(&root_context, self.ports.execution_ids.next_span_id());
+        let mut agent_attributes = vec![
+            (
+                "gen_ai.operation.name".to_string(),
+                SafeAttributeValue::String("invoke_agent".to_string()),
+            ),
+            (
+                "vanehub.agent.id".to_string(),
+                SafeAttributeValue::String(agent.id().as_str().to_string()),
+            ),
+        ];
+        if let Some(provider_id) = &configuration.provider_id {
+            agent_attributes.push((
+                "gen_ai.provider.name".to_string(),
+                SafeAttributeValue::String(provider_id.clone()),
+            ));
+        }
+        if let Some(model_id) = &configuration.model_id {
+            agent_attributes.push((
+                "gen_ai.request.model".to_string(),
+                SafeAttributeValue::String(model_id.clone()),
+            ));
+        }
+        let agent_span = ExecutionSpan {
+            context: agent_context.clone(),
+            parent_span_id: Some(root_context.span_id.clone()),
+            name: format!("invoke_agent {}", agent.id().as_str()),
+            status: ExecutionStatus::Running,
+            fidelity: ExecutionFidelity::Native,
+            started_at: self.ports.clock.now(),
+            ended_at: None,
+            error_classification: None,
+            attributes: safe_attributes(agent_attributes),
+            links: Vec::new(),
+        };
+        let _ = self.ports.telemetry.start_span(&agent_span);
         let started = match self
             .ports
             .processes
             .start_generation(GenerationProcessRequest {
+                execution_context: agent_context.clone(),
                 session: session.clone(),
                 agent: AgentView::from(agent),
                 message_id: assistant.id.clone(),
@@ -350,13 +599,23 @@ impl AgentRuntimeApplicationService {
             }) {
             Ok(started) => started,
             Err(error) => {
+                let _ = self.ports.telemetry.finish_span(
+                    &agent_context.run_id,
+                    &agent_context.span_id,
+                    ExecutionStatus::Failed,
+                    &self.ports.clock.now(),
+                    Some("process_start_failed"),
+                );
                 return self.fail_prepared_message(
+                    &root_context,
                     session,
                     &assistant,
                     lease,
                     Some(&operation.id),
-                    &format!("{} command failed", agent.display_name()),
-                    &error.to_string(),
+                    generation_failure(
+                        format!("{} command failed", agent.display_name()),
+                        error.to_string(),
+                    ),
                 );
             }
         };
@@ -365,38 +624,69 @@ impl AgentRuntimeApplicationService {
                 .generations
                 .attach(lease, &assistant.id, &started.process_id, &operation.id)
         {
-            let _ = self.ports.processes.stop_generation(&started.process_id);
+            let _ = self.ports.processes.stop_generation(
+                &started.process_id,
+                super::ProcessStopInitiator::RuntimeCleanup,
+            );
+            let _ = self.ports.telemetry.finish_span(
+                &agent_context.run_id,
+                &agent_context.span_id,
+                ExecutionStatus::Failed,
+                &self.ports.clock.now(),
+                Some("generation_attach_failed"),
+            );
             return self.fail_prepared_message(
+                &root_context,
                 session,
                 &assistant,
                 lease,
                 Some(&operation.id),
-                &format!("{} command failed", agent.display_name()),
-                &error.to_string(),
+                generation_failure(
+                    format!("{} command failed", agent.display_name()),
+                    error.to_string(),
+                ),
             );
         }
         let sink: Arc<dyn AgentProcessEventSink> = Arc::new(GenerationEventHandler::new(
             self.ports.clone(),
-            session,
-            agent,
-            &assistant,
-            &operation.id,
-            configuration,
-            input_count,
+            GenerationEventHandlerInput {
+                session_id: session.id.clone(),
+                agent_id: agent.id().as_str().to_string(),
+                message_id: assistant.id.clone(),
+                operation_id: operation.id.clone(),
+                safe_error: format!("{} command failed", agent.display_name()),
+                configuration,
+                input_count,
+                root_context: root_context.clone(),
+                agent_context: agent_context.clone(),
+            },
         ));
         if let Err(error) = self
             .ports
             .processes
             .monitor_generation(&started.process_id, sink)
         {
-            let _ = self.ports.processes.stop_generation(&started.process_id);
+            let _ = self.ports.processes.stop_generation(
+                &started.process_id,
+                super::ProcessStopInitiator::RuntimeCleanup,
+            );
+            let _ = self.ports.telemetry.finish_span(
+                &agent_context.run_id,
+                &agent_context.span_id,
+                ExecutionStatus::Failed,
+                &self.ports.clock.now(),
+                Some("generation_monitor_failed"),
+            );
             return self.fail_prepared_message(
+                &root_context,
                 session,
                 &assistant,
                 lease,
                 Some(&operation.id),
-                &format!("{} command failed", agent.display_name()),
-                &error.to_string(),
+                generation_failure(
+                    format!("{} command failed", agent.display_name()),
+                    error.to_string(),
+                ),
             );
         }
         Ok(assistant)
@@ -404,25 +694,30 @@ impl AgentRuntimeApplicationService {
 
     fn fail_prepared_message(
         &self,
+        execution_context: &ExecutionContext,
         session: &AgentSession,
         assistant: &AgentMessage,
         lease: &GenerationLease,
         operation_id: Option<&str>,
-        safe_error: &str,
-        diagnostic: &str,
+        failure: GenerationFailure,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+        self.finish_execution_root(
+            execution_context,
+            ExecutionStatus::Failed,
+            Some("agent_generation_failed"),
+        );
         self.record_log(
             AgentLogLevel::Error,
             "session.runtime",
-            diagnostic.to_string(),
+            failure.diagnostic,
             Some(&session.agent_id),
             Some(&session.id),
             operation_id,
         );
-        let failed = self
-            .ports
-            .sessions
-            .fail_message(&assistant.id, &session.id, safe_error)?;
+        let failed =
+            self.ports
+                .sessions
+                .fail_message(&assistant.id, &session.id, &failure.safe_error)?;
         self.ports
             .sessions
             .update_lifecycle(&session.id, AgentLifecycle::Failed)?;
@@ -431,14 +726,36 @@ impl AgentRuntimeApplicationService {
             let _ = self
                 .ports
                 .operations
-                .fail(operation_id, safe_error.to_string());
+                .fail(operation_id, failure.safe_error.clone());
         }
         let _ = self.ports.events.publish(AgentEvent::MessageFailed {
             session_id: session.id.clone(),
             message_id: assistant.id.clone(),
-            error: safe_error.to_string(),
+            error: failure.safe_error,
         });
         Ok(failed)
+    }
+
+    fn finish_execution_root(
+        &self,
+        context: &ExecutionContext,
+        status: ExecutionStatus,
+        error_classification: Option<&str>,
+    ) {
+        let ended_at = self.ports.clock.now();
+        let _ = self.ports.telemetry.finish_span(
+            &context.run_id,
+            &context.span_id,
+            status,
+            &ended_at,
+            error_classification,
+        );
+        let _ = self.ports.telemetry.finish_run(
+            &context.run_id,
+            status,
+            &ended_at,
+            error_classification,
+        );
     }
 
     pub(crate) fn stop_generation(
@@ -487,9 +804,22 @@ impl AgentRuntimeApplicationService {
             .as_ref()
             .and_then(|outcome| outcome.process_id.as_deref())
         {
-            Some(process_id) => self.ports.processes.stop_generation(process_id)?,
+            Some(process_id) => self
+                .ports
+                .processes
+                .stop_generation(process_id, super::ProcessStopInitiator::User)?,
             None => false,
         };
+        if let Some(execution_context) = cancellation
+            .as_ref()
+            .and_then(|outcome| outcome.execution_context.as_ref())
+        {
+            self.finish_execution_root(
+                execution_context,
+                ExecutionStatus::Cancelled,
+                Some("user_cancelled"),
+            );
+        }
         for message_id in &message_ids {
             let _ = self.ports.events.publish(AgentEvent::MessageCancelled {
                 session_id: session_id.to_string(),
@@ -538,6 +868,9 @@ impl AgentRuntimeApplicationService {
             agent_id: agent_id.map(str::to_string),
             session_id: session_id.map(str::to_string),
             operation_id: operation_id.map(str::to_string),
+            run_id: None,
+            trace_id: None,
+            span_id: None,
             occurred_at: self.ports.clock.now(),
         });
     }
@@ -552,12 +885,28 @@ struct GenerationEventHandler {
     safe_error: String,
     configuration: AgentChatConfiguration,
     input_count: usize,
+    root_context: ExecutionContext,
+    agent_context: ExecutionContext,
     state: Mutex<GenerationStreamState>,
+}
+
+struct GenerationEventHandlerInput {
+    session_id: String,
+    agent_id: String,
+    message_id: String,
+    operation_id: String,
+    safe_error: String,
+    configuration: AgentChatConfiguration,
+    input_count: usize,
+    root_context: ExecutionContext,
+    agent_context: ExecutionContext,
 }
 
 struct GenerationStreamState {
     response: String,
     phase: GenerationStreamPhase,
+    active_tool_spans: BTreeMap<String, crate::contexts::execution_observability::api::SpanId>,
+    terminal_tool_calls: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -573,29 +922,25 @@ impl Default for GenerationStreamState {
         Self {
             response: String::new(),
             phase: GenerationStreamPhase::Active,
+            active_tool_spans: BTreeMap::new(),
+            terminal_tool_calls: BTreeSet::new(),
         }
     }
 }
 
 impl GenerationEventHandler {
-    fn new(
-        ports: AgentRuntimeApplicationPorts,
-        session: &AgentSession,
-        agent: &AgentDefinition,
-        assistant: &AgentMessage,
-        operation_id: &str,
-        configuration: AgentChatConfiguration,
-        input_count: usize,
-    ) -> Self {
+    fn new(ports: AgentRuntimeApplicationPorts, input: GenerationEventHandlerInput) -> Self {
         Self {
             ports,
-            session_id: session.id.clone(),
-            agent_id: agent.id().as_str().to_string(),
-            message_id: assistant.id.clone(),
-            operation_id: operation_id.to_string(),
-            safe_error: format!("{} command failed", agent.display_name()),
-            configuration,
-            input_count,
+            session_id: input.session_id,
+            agent_id: input.agent_id,
+            message_id: input.message_id,
+            operation_id: input.operation_id,
+            safe_error: input.safe_error,
+            configuration: input.configuration,
+            input_count: input.input_count,
+            root_context: input.root_context,
+            agent_context: input.agent_context,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -641,16 +986,131 @@ impl GenerationEventHandler {
     }
 
     fn tool_use(&self, tool_use: super::ToolUseBlock) -> Result<(), AgentRuntimeApplicationError> {
-        if self.state()?.phase != GenerationStreamPhase::Active {
+        let phase = match tool_terminal_status(&tool_use.status) {
+            Some(ExecutionStatus::Succeeded) => ToolLifecyclePhase::Completed,
+            Some(_) => ToolLifecyclePhase::Failed,
+            None => ToolLifecyclePhase::Started,
+        };
+        self.tool_lifecycle(ToolLifecycleEvent {
+            call_id: tool_use.id.clone(),
+            phase,
+            provider_timestamp: None,
+            fidelity: ExecutionFidelity::Inferred,
+            parent_run_id: None,
+            parent_trace_id: None,
+            parent_span_id: None,
+            delegation_id: None,
+            attempt: None,
+            tool_use,
+        })
+    }
+
+    fn tool_lifecycle(
+        &self,
+        event: ToolLifecycleEvent,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let is_terminal = matches!(
+            event.phase,
+            ToolLifecyclePhase::Completed | ToolLifecyclePhase::Failed
+        );
+        let (span_id, is_new) = {
+            let mut state = self.state()?;
+            if state.phase != GenerationStreamPhase::Active {
+                return Ok(());
+            }
+            if state.terminal_tool_calls.contains(&event.call_id) {
+                return Ok(());
+            }
+            match state.active_tool_spans.get(&event.call_id) {
+                Some(span_id) => (span_id.clone(), false),
+                None => {
+                    let span_id = self.ports.execution_ids.next_span_id();
+                    state
+                        .active_tool_spans
+                        .insert(event.call_id.clone(), span_id.clone());
+                    (span_id, true)
+                }
+            }
+        };
+        if is_new {
+            let context = child_context(&self.agent_context, span_id.clone());
+            let fidelity = if is_terminal {
+                ExecutionFidelity::Opaque
+            } else {
+                event.fidelity
+            };
+            let mut attributes = vec![
+                (
+                    "gen_ai.tool.name".to_string(),
+                    SafeAttributeValue::String(event.tool_use.name.clone()),
+                ),
+                (
+                    "vanehub.tool.duration_known".to_string(),
+                    SafeAttributeValue::Boolean(!is_terminal),
+                ),
+            ];
+            if let Some(delegation_id) = &event.delegation_id {
+                attributes.push((
+                    "vanehub.delegation.id".to_string(),
+                    SafeAttributeValue::String(delegation_id.clone()),
+                ));
+            }
+            if let Some(attempt) = event.attempt {
+                attributes.push((
+                    "vanehub.execution.attempt".to_string(),
+                    SafeAttributeValue::Integer(i64::from(attempt)),
+                ));
+            }
+            let links = provider_parent_link(&event);
+            let _ = self.ports.telemetry.start_span(&ExecutionSpan {
+                context,
+                parent_span_id: Some(self.agent_context.span_id.clone()),
+                name: format!("execute_tool {}", event.tool_use.name),
+                status: ExecutionStatus::Running,
+                fidelity,
+                started_at: event
+                    .provider_timestamp
+                    .clone()
+                    .unwrap_or_else(|| self.ports.clock.now()),
+                ended_at: None,
+                error_classification: None,
+                attributes: safe_attributes(attributes),
+                links,
+            });
+        }
+        if !is_new && event.phase == ToolLifecyclePhase::Started {
             return Ok(());
+        }
+        let terminal_status = match event.phase {
+            ToolLifecyclePhase::Completed => Some(ExecutionStatus::Succeeded),
+            ToolLifecyclePhase::Failed => Some(ExecutionStatus::Failed),
+            ToolLifecyclePhase::Started | ToolLifecyclePhase::Updated => None,
+        };
+        if let Some(status) = terminal_status {
+            let error_classification =
+                (status == ExecutionStatus::Failed).then_some("provider_tool_failed");
+            let ended_at = event
+                .provider_timestamp
+                .clone()
+                .unwrap_or_else(|| self.ports.clock.now());
+            let _ = self.ports.telemetry.finish_span(
+                &self.agent_context.run_id,
+                &span_id,
+                status,
+                &ended_at,
+                error_classification,
+            );
+            let mut state = self.state()?;
+            state.active_tool_spans.remove(&event.call_id);
+            state.terminal_tool_calls.insert(event.call_id.clone());
         }
         self.ports
             .sessions
-            .append_tool_use(&self.message_id, tool_use.clone())?;
+            .append_tool_use(&self.message_id, event.tool_use.clone())?;
         let _ = self.ports.events.publish(AgentEvent::MessageToolUse {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
-            tool_use,
+            tool_use: event.tool_use,
         });
         Ok(())
     }
@@ -675,6 +1135,12 @@ impl GenerationEventHandler {
             return Ok(());
         };
         let result = self.complete_claimed(response);
+        if result.is_err() {
+            self.finish_execution(
+                ExecutionStatus::Failed,
+                Some("completion_persistence_failed"),
+            );
+        }
         self.finish_terminal(result.is_ok())?;
         result
     }
@@ -719,6 +1185,7 @@ impl GenerationEventHandler {
             .operations
             .append_log(&self.operation_id, "generation completed".to_string());
         let _ = self.ports.operations.complete(&self.operation_id);
+        self.finish_execution(ExecutionStatus::Succeeded, None);
         self.record_log(AgentLogLevel::Info, "generation completed".to_string());
         let _ = self.ports.events.publish(AgentEvent::MessageCompleted {
             session_id: self.session_id.clone(),
@@ -733,6 +1200,9 @@ impl GenerationEventHandler {
             return Ok(());
         }
         let result = self.fail_claimed(diagnostic);
+        if result.is_err() {
+            self.finish_execution(ExecutionStatus::Failed, Some("failure_persistence_failed"));
+        }
         self.finish_terminal(result.is_ok())?;
         result
     }
@@ -755,6 +1225,7 @@ impl GenerationEventHandler {
             .ports
             .operations
             .fail(&self.operation_id, self.safe_error.clone());
+        self.finish_execution(ExecutionStatus::Failed, Some("agent_generation_failed"));
         let _ = self.ports.events.publish(AgentEvent::MessageFailed {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
@@ -780,6 +1251,7 @@ impl GenerationEventHandler {
 
     fn mark_cancelled(&self) {
         let _ = self.ports.operations.cancel(&self.operation_id);
+        self.finish_execution(ExecutionStatus::Cancelled, Some("user_cancelled"));
         if let Ok(mut state) = self.state() {
             state.phase = GenerationStreamPhase::Terminal;
         }
@@ -814,8 +1286,46 @@ impl GenerationEventHandler {
             agent_id: Some(self.agent_id.clone()),
             session_id: Some(self.session_id.clone()),
             operation_id: Some(self.operation_id.clone()),
+            run_id: Some(self.root_context.run_id.as_str().to_string()),
+            trace_id: Some(self.root_context.trace_id.as_str().to_string()),
+            span_id: Some(self.agent_context.span_id.as_str().to_string()),
             occurred_at: self.ports.clock.now(),
         });
+    }
+
+    fn finish_execution(&self, status: ExecutionStatus, error_classification: Option<&str>) {
+        let ended_at = self.ports.clock.now();
+        if let Ok(mut state) = self.state() {
+            for span_id in std::mem::take(&mut state.active_tool_spans).into_values() {
+                let _ = self.ports.telemetry.finish_span(
+                    &self.root_context.run_id,
+                    &span_id,
+                    ExecutionStatus::Incomplete,
+                    &ended_at,
+                    Some("provider_boundary_missing"),
+                );
+            }
+        }
+        let _ = self.ports.telemetry.finish_span(
+            &self.agent_context.run_id,
+            &self.agent_context.span_id,
+            status,
+            &ended_at,
+            error_classification,
+        );
+        let _ = self.ports.telemetry.finish_span(
+            &self.root_context.run_id,
+            &self.root_context.span_id,
+            status,
+            &ended_at,
+            error_classification,
+        );
+        let _ = self.ports.telemetry.finish_run(
+            &self.root_context.run_id,
+            status,
+            &ended_at,
+            error_classification,
+        );
     }
 
     fn state(
@@ -828,12 +1338,33 @@ impl GenerationEventHandler {
     }
 }
 
+fn provider_parent_link(event: &ToolLifecycleEvent) -> Vec<ExecutionLink> {
+    let (Some(run_id), Some(trace_id)) = (&event.parent_run_id, &event.parent_trace_id) else {
+        return Vec::new();
+    };
+    let (Ok(run_id), Ok(trace_id)) = (ExecutionRunId::parse(run_id), TraceId::parse(trace_id))
+    else {
+        return Vec::new();
+    };
+    let span_id = event
+        .parent_span_id
+        .as_deref()
+        .and_then(|value| SpanId::parse(value).ok());
+    vec![ExecutionLink {
+        run_id,
+        trace_id,
+        span_id,
+        relationship: "delegated_from".to_string(),
+    }]
+}
+
 impl AgentProcessEventSink for GenerationEventHandler {
     fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError> {
         match event {
             GenerationProcessEvent::Token(delta) => self.token(delta),
             GenerationProcessEvent::Thinking(content_delta) => self.thinking(content_delta),
             GenerationProcessEvent::ToolUse(tool_use) => self.tool_use(tool_use),
+            GenerationProcessEvent::ToolLifecycle(event) => self.tool_lifecycle(event),
             GenerationProcessEvent::RichBlock(block) => self.rich_block(block),
             GenerationProcessEvent::RuntimeSessionId(runtime_session_id) => self
                 .ports
@@ -851,4 +1382,43 @@ impl AgentProcessEventSink for GenerationEventHandler {
 
 fn bounded_count(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn child_context(
+    parent: &ExecutionContext,
+    span_id: crate::contexts::execution_observability::api::SpanId,
+) -> ExecutionContext {
+    ExecutionContext {
+        run_id: parent.run_id.clone(),
+        trace_id: parent.trace_id.clone(),
+        span_id,
+        capture_policy: parent.capture_policy,
+        sampling_per_million: parent.sampling_per_million,
+        mcp_relay_enabled: parent.mcp_relay_enabled,
+    }
+}
+
+fn safe_attributes(
+    entries: impl IntoIterator<Item = (String, SafeAttributeValue)>,
+) -> SafeAttributes {
+    SafeAttributes::try_from_entries(entries).unwrap_or_default()
+}
+
+fn execution_source(source: super::AgentMessageSource) -> ExecutionSource {
+    match source {
+        super::AgentMessageSource::Desktop => ExecutionSource::Desktop,
+        super::AgentMessageSource::InstantMessage { connector_id } => {
+            ExecutionSource::InstantMessage { connector_id }
+        }
+        super::AgentMessageSource::Scheduled { task_id } => ExecutionSource::Scheduled { task_id },
+    }
+}
+
+fn tool_terminal_status(value: &str) -> Option<ExecutionStatus> {
+    match value {
+        "completed" | "succeeded" | "success" => Some(ExecutionStatus::Succeeded),
+        "failed" | "error" => Some(ExecutionStatus::Failed),
+        "cancelled" => Some(ExecutionStatus::Cancelled),
+        _ => None,
+    }
 }

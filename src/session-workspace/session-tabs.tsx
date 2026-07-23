@@ -7,6 +7,7 @@ import { ChangesTab } from "./changes-tab";
 import { DocumentsTab } from "./documents-tab";
 import { FilesTab } from "./files-tab";
 import { LogsTab } from "./logs-tab";
+import { ExecutionTimelineTab } from "./execution-timeline-tab";
 import { ReportTab } from "./report-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
 import { ShellTab } from "./shell-tab";
@@ -59,6 +60,7 @@ export function SessionTabs({
             {id === "terminal" ? <TerminalTab messages={messages} partial={messagesPartial} /> : null}
             {id === "shell" ? <ShellTab active={activeTab === "shell"} sessionId={sessionId} /> : null}
             {id === "logs" ? <LogsTab sessionId={sessionId} /> : null}
+            {id === "traces" ? <ExecutionTimelineTab sessionId={sessionId} /> : null}
             {id === "report" ? <ReportTab messages={messages} partial={messagesPartial} /> : null}
           </section>
         ) : null)}

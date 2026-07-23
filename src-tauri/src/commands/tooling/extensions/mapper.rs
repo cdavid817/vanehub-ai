@@ -65,6 +65,8 @@ pub(super) fn enable_action(enabled: bool) -> ExtensionAction {
 pub(super) fn started_operation_to_dto(operation: &StartedExtensionOperation) -> OperationTask {
     OperationTask {
         id: operation.id.clone(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Extension,
         status: OperationStatus::Running,
         related_entity_id: operation.related_entity_id.clone(),

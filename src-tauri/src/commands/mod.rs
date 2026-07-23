@@ -2,6 +2,7 @@ pub(crate) mod agent_runtime;
 pub(crate) mod communications;
 pub(crate) mod desktop;
 pub(crate) mod error;
+pub(crate) mod execution_observability;
 pub(crate) mod operations;
 mod registry;
 pub(crate) mod sessions;
