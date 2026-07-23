@@ -739,6 +739,7 @@ fn verifier_generation_forces_read_only_permission_mode() {
 
     service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "Inspect the current implementation.".to_string(),
             file_references: Vec::new(),
@@ -1121,6 +1122,7 @@ fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),
@@ -1312,6 +1314,7 @@ fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_r
         let service = service(world.clone());
         let message = service
             .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
                 session_id: "session-1".to_string(),
                 content: "implement".to_string(),
                 configuration: chat_configuration(),

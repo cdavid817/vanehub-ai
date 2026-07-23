@@ -8,14 +8,25 @@ test.describe("execution observability", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByRole("button", { name: /执行可观测性|Execution Observability/ }).click();
 
-    await expect(page.getByRole("heading", { name: /执行可观测性|Execution Observability/ })).toBeVisible();
-    await expect(page.getByText(/仅元数据|Metadata only/)).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        level: 2,
+        name: /执行可观测性|Execution Observability/,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: /采集策略|Collection policy/ }),
+    ).toHaveValue("metadata_only");
     await expect(page.getByRole("checkbox", { name: /调用级 MCP 中继|invocation-scoped MCP relay/ })).toBeDisabled();
 
     const retention = page.getByRole("spinbutton", { name: /保留天数|Retention/ });
     await retention.fill("0");
     await expect(page.getByText(/保留天数必须是 1 到 90|Retention must be an integer from 1 to 90/)).toBeVisible();
-    await expect(page.getByRole("button", { name: /^保存$|^Save$/ })).toBeDisabled();
+    await expect(
+      page.getByRole("button", {
+        name: /保存可观测性设置|Save observability settings/,
+      }),
+    ).toBeDisabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
@@ -28,8 +39,8 @@ test.describe("execution observability", () => {
     await expect(page.getByRole("heading", { name: /执行时间线|Execution timeline/ })).toBeVisible();
     await expect(page.getByText(/execute_tool search/)).toBeVisible();
     await expect(page.getByText(/mcp.client request/)).toBeVisible();
-    await expect(page.getByText(/推断|Inferred/)).toBeVisible();
-    await expect(page.getByText(/不可见|Opaque/)).toBeVisible();
+    await expect(page.getByText(/^推断$|^Inferred$/)).toBeVisible();
+    await expect(page.getByText(/^不可见$|^Opaque$/)).toBeVisible();
     await expect(page.getByText(/观测缺口|Observation gap/).first()).toBeVisible();
 
     await page.getByText(/^失败$|^Failed$/).first().click();
