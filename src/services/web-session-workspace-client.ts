@@ -7,6 +7,7 @@ import type {
   GitStatusResult,
   SessionDocument,
   SessionLogEntry,
+  SessionLogLevel,
   ShellEvent,
   ShellSession,
 } from "../types/session-workspace";
@@ -106,6 +107,7 @@ const diffFixture: GitDiffResult = {
   truncated: false,
 };
 
+const fixtureLogLevels: SessionLogLevel[] = ["info", "debug", "warn", "error"];
 const logFixtures: SessionLogEntry[] = [
   {
     id: "web-log-3",
@@ -131,6 +133,18 @@ const logFixtures: SessionLogEntry[] = [
     message: "Web preview session initialized.",
     context: { runtime: "web-mock" },
   },
+  ...Array.from({ length: 597 }, (_, index): SessionLogEntry => {
+    const sequence = 600 - index;
+    const level = fixtureLogLevels[index % fixtureLogLevels.length];
+    return {
+      id: `web-log-${sequence}-history`,
+      timestamp: new Date(Date.parse("2026-07-17T08:00:00.000Z") - index * 60_000).toISOString(),
+      level,
+      category: "session.history",
+      message: `Deterministic Agent output ${sequence}.`,
+      context: { fixture: "virtual-scroll", sequence: String(sequence) },
+    };
+  }),
 ];
 
 let nextShellId = 1;

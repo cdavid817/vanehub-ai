@@ -971,6 +971,24 @@
                                               "session-runtime-management",
                                               "unified-log-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-23",
+                         "changeName":  "optimize-frontend-rendering-and-loading",
+                         "path":  "openspec/changes/archive/2026-07-23-optimize-frontend-rendering-and-loading/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui",
+                                              "session-log-viewer",
+                                              "session-workspace-tabs",
+                                              "settings-center-ui",
+                                              "settings-prompt-hooks-ui"
+                                          ]
                      }
                  ]
 }

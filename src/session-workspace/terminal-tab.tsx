@@ -2,10 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatMessage } from "../types/chat";
 import { cn } from "../lib/utils";
 import { PartialNotice, WorkspaceState } from "./workspace-state";
-
-export function toolUseCount(messages: ChatMessage[]) {
-  return messages.reduce((total, message) => total + (message.toolUse?.length ?? 0), 0);
-}
+export { toolUseCount } from "./terminal-utils";
 
 export function TerminalTab({ messages, partial }: { messages: ChatMessage[]; partial: boolean }) {
   const { i18n, t } = useTranslation();

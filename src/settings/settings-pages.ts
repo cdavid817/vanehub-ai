@@ -15,8 +15,8 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactElement } from "react";
-import { AgentsPage } from "./pages/agents-page";
+import type { ComponentType } from "react";
+import type { LazyFeatureLoader } from "../components/lazy-feature";
 import { AboutPage } from "./pages/about-page";
 import { BasicSettingsPage } from "./pages/basic-settings-page";
 import { CliParametersPage } from "./pages/cli-parameters-page";
@@ -25,7 +25,6 @@ import { McpPage } from "./pages/mcp-page";
 import { ImPage } from "./pages/im-page";
 import { PluginIntegrationsPage } from "./pages/plugin-integrations-page";
 import { ProvidersPage } from "./pages/providers-page";
-import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SkillsPage } from "./pages/skills-page";
 import { SshConnectionsPage } from "./pages/ssh-connections-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
@@ -59,8 +58,14 @@ export interface SettingsPageDefinition {
   icon: LucideIcon;
   badge?: number;
   searchPlaceholderKey: string;
-  component: (props: SettingsPageContext) => ReactElement;
+  component?: ComponentType<SettingsPageContext>;
+  loader?: LazyFeatureLoader<SettingsPageContext>;
 }
+
+const loadAgentsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agents-page")
+  .then((module) => ({ default: module.AgentsPage }));
+const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
+  .then((module) => ({ default: module.PromptHooksPage }));
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
@@ -101,7 +106,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.agents",
     icon: Bot,
     searchPlaceholderKey: "settings.search.agents",
-    component: AgentsPage,
+    loader: loadAgentsPage,
   },
   {
     id: "skills",
@@ -117,7 +122,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.promptHooks",
     icon: Workflow,
     searchPlaceholderKey: "settings.search.promptHooks",
-    component: PromptHooksPage,
+    loader: loadPromptHooksPage,
   },
   {
     id: "im",
