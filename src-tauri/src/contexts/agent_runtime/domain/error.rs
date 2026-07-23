@@ -22,4 +22,12 @@ pub(crate) enum AgentRuntimeDomainError {
     GenerationMessageRequired,
     #[error("Cannot transition generation from '{from}' to '{to}'.")]
     InvalidGenerationTransition { from: String, to: String },
+    #[error("invalid Loop {0}.")]
+    InvalidLoopValue(&'static str),
+    #[error("invalid Loop limit: {0}.")]
+    InvalidLoopLimit(&'static str),
+    #[error("Cannot transition Loop from '{from}' to '{to}'.")]
+    InvalidLoopTransition { from: String, to: String },
+    #[error("Loop limit reached: {0}.")]
+    LoopLimitReached(&'static str),
 }

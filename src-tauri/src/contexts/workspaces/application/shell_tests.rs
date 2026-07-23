@@ -157,6 +157,7 @@ fn shell_creation_validates_workspace_bounds_dimensions_and_logs_after_open() {
         agent_id: "codex-cli".to_string(),
         root: Some("C:\\code\\app".to_string()),
         remote: false,
+        read_only: false,
     });
 
     let session = service
@@ -191,6 +192,7 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 agent_id: "codex-cli".to_string(),
                 root: None,
                 remote: true,
+                read_only: false,
             },
             "Remote workspace shell is unsupported.",
         ),
@@ -199,6 +201,7 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 agent_id: "codex-cli".to_string(),
                 root: None,
                 remote: false,
+                read_only: false,
             },
             "Session workspace is unavailable.",
         ),
@@ -226,6 +229,7 @@ fn shell_routes_and_cleanup_preserve_idempotence_events_and_bounds() {
         agent_id: "codex-cli".to_string(),
         root: Some("C:\\code\\app".to_string()),
         remote: false,
+        read_only: false,
     });
 
     service
@@ -264,4 +268,38 @@ fn shell_routes_and_cleanup_preserve_idempotence_events_and_bounds() {
         .expect("logs")
         .iter()
         .all(|log| log.message == "Shell disconnected."));
+}
+
+#[test]
+fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
+    let (service, runtime, _, logs, calls) = shell_service(ShellWorkspace {
+        agent_id: "codex-cli".to_string(),
+        root: Some("C:\\code\\app".to_string()),
+        remote: false,
+        read_only: true,
+    });
+
+    let error = service
+        .create_shell(&CreateShellRequest {
+            session_id: "verifier-session".to_string(),
+            rows: 24,
+            cols: 80,
+        })
+        .expect_err("verifier shell rejected");
+
+    assert_eq!(
+        error,
+        WorkspaceApplicationError::PolicyDenied {
+            session_id: "verifier-session".to_string(),
+            action: "create-shell".to_string(),
+        }
+    );
+    assert!(runtime.launches.lock().expect("launches").is_empty());
+    assert_eq!(
+        *calls.lock().expect("calls"),
+        vec!["context:verifier-session"]
+    );
+    let log = &logs.logs.lock().expect("logs")[0];
+    assert_eq!(log.level, WorkspaceLogLevel::Warn);
+    assert!(log.message.contains("read-only policy"));
 }

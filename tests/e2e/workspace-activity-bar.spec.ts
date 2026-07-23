@@ -116,6 +116,8 @@ test.describe("workspace activity bar", () => {
     const scheduledTasks = page.getByRole("button", { name: "定时任务" });
     await page.getByRole("button", { name: "折叠会话栏" }).focus();
     await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "循环工程" })).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();
     await scheduledTasks.click();
     await expect(page).toHaveURL(/\/workspace$/);

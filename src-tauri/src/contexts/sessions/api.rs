@@ -1,16 +1,18 @@
 use super::application::SessionsApplicationService;
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
-    CreateMessageRequest, FailMessageRequest, FileReferenceInput, MessageRecord, MessageTokenUsage,
-    MessageUsageRecord, NewRemoteWorkspace, NewSessionRequest, NewSessionWorkspace, NewWorktree,
-    PreparedNewSessionCreation, RuntimeMessageSnapshot, RuntimeSessionSnapshot,
-    SessionChatConfiguration, SessionCreationOperation, SessionExportFormat, SessionExportRequest,
-    SessionExportResult, SessionListScope, SessionMaintenanceResult, SessionRecord,
-    SessionSearchMatchKind, SessionSearchResult, SessionUsageAccountingKind,
-    SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
-    SessionsApplicationError as SessionsError, UsageStatisticsRange,
+    CreateMessageRequest, FailMessageRequest, FileReferenceInput, LoopRoleSessionRequest,
+    LoopSessionOwnership, MessageRecord, MessageTokenUsage, MessageUsageRecord, NewRemoteWorkspace,
+    NewSessionRequest, NewSessionWorkspace, NewWorktree, PreparedNewSessionCreation,
+    RuntimeMessageSnapshot, RuntimeSessionSnapshot, SessionChatConfiguration,
+    SessionCreationOperation, SessionExportFormat, SessionExportRequest, SessionExportResult,
+    SessionListScope, SessionMaintenanceResult, SessionRecord, SessionSearchMatchKind,
+    SessionSearchResult, SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary,
+    SessionUsageUnit, SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
-pub(crate) use super::domain::{SessionActivation, SessionLifecycle, SessionOwner};
+pub(crate) use super::domain::{
+    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner,
+};
 use serde_json::Value;
 
 #[derive(Clone)]
@@ -37,12 +39,33 @@ impl SessionsApi {
         self.service.execute_new_session_creation(prepared)
     }
 
+    pub(crate) fn create_loop_role_session(
+        &self,
+        request: LoopRoleSessionRequest,
+    ) -> Result<SessionRecord, SessionsError> {
+        self.service.create_loop_role_session(request)
+    }
+
     pub(crate) fn list_current(&self) -> Result<Vec<SessionRecord>, SessionsError> {
         self.service.list_sessions(SessionListScope::Current)
     }
 
     pub(crate) fn list_archived(&self) -> Result<Vec<SessionRecord>, SessionsError> {
         self.service.list_sessions(SessionListScope::Archived)
+    }
+
+    pub(crate) fn list_current_including_loop_owned(
+        &self,
+    ) -> Result<Vec<SessionRecord>, SessionsError> {
+        self.service
+            .list_sessions_including_loop_owned(SessionListScope::Current)
+    }
+
+    pub(crate) fn list_archived_including_loop_owned(
+        &self,
+    ) -> Result<Vec<SessionRecord>, SessionsError> {
+        self.service
+            .list_sessions_including_loop_owned(SessionListScope::Archived)
     }
 
     pub(crate) fn search(
@@ -55,6 +78,10 @@ impl SessionsApi {
 
     pub(crate) fn active(&self) -> Result<Option<SessionRecord>, SessionsError> {
         self.service.active_session()
+    }
+
+    pub(crate) fn find(&self, session_id: &str) -> Result<Option<SessionRecord>, SessionsError> {
+        self.service.find_session(session_id)
     }
 
     pub(crate) fn switch(&self, session_id: &str) -> Result<SessionRecord, SessionsError> {

@@ -1020,6 +1020,8 @@ mod tests {
                     folder: None,
                     runtime_session_id: None,
                     archived: false,
+                    read_only: false,
+                    loop_ownership: None,
                 },
                 agent: crate::contexts::agent_runtime::application::AgentView {
                     id: "codex-cli".to_string(),

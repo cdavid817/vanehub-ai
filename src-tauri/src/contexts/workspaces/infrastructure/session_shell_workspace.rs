@@ -29,7 +29,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
         let workspace = connection
             .query_row(
                 "SELECT agent_id, folder, project_path, worktree_path, remote_workspace_host, \
-                 remote_workspace_path, remote_workspace_display_name, remote_workspace_uri \
+                 remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, loop_role \
                  FROM sessions WHERE id = ?1",
                 params![session_id],
                 |row| {
@@ -41,6 +41,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
                     let remote_path = row.get::<_, Option<String>>(5)?;
                     let remote_display_name = row.get::<_, Option<String>>(6)?;
                     let remote_uri = row.get::<_, Option<String>>(7)?;
+                    let loop_role = row.get::<_, Option<String>>(8)?;
                     Ok((
                         agent_id,
                         worktree_path.or(folder).or(project_path),
@@ -48,6 +49,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
                             && remote_path.is_some()
                             && remote_display_name.is_some()
                             && remote_uri.is_some(),
+                        loop_role.as_deref() == Some("verifier"),
                     ))
                 },
             )
@@ -65,6 +67,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
             agent_id: workspace.0,
             root,
             remote: workspace.2,
+            read_only: workspace.3,
         })
     }
 }

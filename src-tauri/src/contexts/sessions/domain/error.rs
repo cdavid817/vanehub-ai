@@ -15,6 +15,7 @@ pub(crate) enum SessionsDomainError {
     CategoryNameRequired,
     ConnectorRequired,
     ConnectorCannotActivate,
+    InvalidLoopRole(String),
     ArchivedSession {
         session_id: String,
         action: ArchivedSessionAction,
@@ -62,6 +63,7 @@ impl fmt::Display for SessionsDomainError {
             Self::ConnectorCannotActivate => {
                 formatter.write_str("Connector-owned sessions cannot replace the active session.")
             }
+            Self::InvalidLoopRole(role) => write!(formatter, "Unsupported Loop role: {role}"),
             Self::ArchivedSession { session_id, action } => match action {
                 ArchivedSessionAction::Activate => {
                     write!(formatter, "Cannot switch to archived session: {session_id}")

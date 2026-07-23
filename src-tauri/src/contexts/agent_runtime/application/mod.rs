@@ -1,10 +1,46 @@
 mod error;
+mod loop_control;
+mod loop_models;
+mod loop_observability;
+mod loop_orchestrator;
+mod loop_orchestrator_decision;
+mod loop_orchestrator_support;
+mod loop_progress;
+mod loop_recovery;
+mod loop_service;
+mod loop_verification;
+mod loop_verifier;
+mod loop_worker;
+mod loop_worker_prompt;
 mod models;
 mod ports;
 mod service;
 mod terminal_service;
 
+pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use error::AgentRuntimeApplicationError;
+pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
+pub(crate) use loop_models::{
+    ContinueLoopRequest, LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView,
+    LoopGitStateView, LoopIterationView, LoopLimitsView, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationBatchResult, LoopVerificationCommandView, LoopVerifierResult,
+    PreparedLoopWorktree, RunLoopVerificationRequest, SaveLoopDefinitionRequest,
+    SaveLoopVerifierResultRequest, StartLoopResultView, StartLoopVerifierRequest,
+    StartLoopWorkerRequest, StartedLoopVerifierView, StartedLoopWorkerView,
+};
+pub(crate) use loop_observability::{ActiveLoopOperation, LoopOperationObserver};
+pub(crate) use loop_orchestrator::{LoopOrchestratorApplicationService, LoopOrchestratorPorts};
+pub(crate) use loop_progress::{
+    fingerprint_loop_iteration, LoopProgressApplicationService, RecordLoopRevisionProgressRequest,
+    RecordedLoopRevisionProgress,
+};
+pub(crate) use loop_recovery::{LoopRecoveryApplicationPorts, LoopRecoveryApplicationService};
+pub(crate) use loop_service::{LoopApplicationPorts, LoopApplicationService};
+pub(crate) use loop_verification::{
+    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+};
+pub(crate) use loop_verifier::{LoopVerifierApplicationPorts, LoopVerifierApplicationService};
+pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationService};
 #[cfg(test)]
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
@@ -13,8 +49,11 @@ pub(crate) use models::{
     AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
     AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView, CliProfileSnapshot,
     CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult, MessageTokenUsage,
-    NewAgentMessage, OpenAgentTerminalRequest, PromptTrace, ReadinessView,
+    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
+    LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
+    LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
+    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, PromptTrace, ReadinessView,
     ResizeAgentTerminalRequest, SendMessageRequest, StartedGenerationProcess,
     StopAgentTerminalRequest, StopGenerationResult, ToolUseBlock, WorkflowLaunchOutcome,
     WorkflowLaunchRequest, WorkflowView,
@@ -24,9 +63,37 @@ pub(crate) use ports::{
     AgentGenerationPort, AgentLoggingPort, AgentProcessEventSink, AgentProcessGateway,
     AgentRegistryRepository, AgentSessionGateway, AgentTaskPort, AgentTerminalEventPort,
     AgentTerminalGateway, AgentWorkflowRepository, EffectivePromptGateway,
+    LoopExecutionControlPort, LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort,
+    LoopIterationRepository, LoopLoggingPort, LoopProjectPort, LoopRepository,
+    LoopRoleGenerationCompletionPort, LoopRoleSessionPort, LoopVerificationProcessPort,
+    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod loop_service_tests;
+
+#[cfg(test)]
+mod loop_control_tests;
+
+#[cfg(test)]
+mod loop_progress_tests;
+
+#[cfg(test)]
+mod loop_orchestrator_tests;
+
+#[cfg(test)]
+mod loop_recovery_tests;
+
+#[cfg(test)]
+mod loop_verification_tests;
+
+#[cfg(test)]
+mod loop_verifier_tests;
+
+#[cfg(test)]
+mod loop_worker_tests;

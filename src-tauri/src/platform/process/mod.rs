@@ -7,6 +7,8 @@ use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -24,6 +26,13 @@ pub(crate) enum ProcessError {
         timeout_seconds: u64,
         stdout: String,
         stderr: String,
+        output_truncated: bool,
+    },
+    #[error("command was cancelled")]
+    Cancelled {
+        stdout: String,
+        stderr: String,
+        output_truncated: bool,
     },
 }
 
@@ -34,6 +43,26 @@ pub(crate) struct ProcessOutput {
     pub(crate) stderr: String,
     pub(crate) stdout_bytes: Vec<u8>,
     pub(crate) stderr_bytes: Vec<u8>,
+    pub(crate) output_truncated: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProcessCancellation {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ProcessCancellation {
+    pub(crate) fn from_signal(cancelled: Arc<AtomicBool>) -> Self {
+        Self { cancelled }
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 impl ProcessOutput {
@@ -56,6 +85,8 @@ pub(crate) struct ProcessRequest {
     current_dir: Option<PathBuf>,
     environment: BTreeMap<OsString, OsString>,
     timeout: Duration,
+    cancellation: Option<ProcessCancellation>,
+    output_limit: Option<usize>,
 }
 
 impl ProcessRequest {
@@ -66,6 +97,8 @@ impl ProcessRequest {
             current_dir: None,
             environment: BTreeMap::new(),
             timeout: Duration::from_secs(30),
+            cancellation: None,
+            output_limit: None,
         }
     }
 
@@ -94,6 +127,16 @@ impl ProcessRequest {
         self
     }
 
+    pub(crate) fn cancellation(mut self, cancellation: ProcessCancellation) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    pub(crate) fn output_limit(mut self, output_limit: usize) -> Self {
+        self.output_limit = Some(output_limit);
+        self
+    }
+
     pub(crate) fn command(&self) -> Result<Command, ProcessError> {
         let executable = self.executable.to_string_lossy();
         let mut command = std_command(&executable)?;
@@ -112,7 +155,12 @@ pub(crate) struct ProcessAdapter;
 impl ProcessAdapter {
     pub(crate) fn execute(&self, request: &ProcessRequest) -> Result<ProcessOutput, ProcessError> {
         let mut command = request.command()?;
-        output_with_timeout(&mut command, request.timeout)
+        output_with_control(
+            &mut command,
+            request.timeout,
+            request.cancellation.as_ref(),
+            request.output_limit,
+        )
     }
 }
 
@@ -210,6 +258,15 @@ pub(crate) fn output_with_timeout(
     command: &mut Command,
     timeout: Duration,
 ) -> Result<ProcessOutput, ProcessError> {
+    output_with_control(command, timeout, None, None)
+}
+
+fn output_with_control(
+    command: &mut Command,
+    timeout: Duration,
+    cancellation: Option<&ProcessCancellation>,
+    output_limit: Option<usize>,
+) -> Result<ProcessOutput, ProcessError> {
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -223,22 +280,35 @@ pub(crate) fn output_with_timeout(
         .stderr
         .take()
         .ok_or_else(|| ProcessError::Wait("stderr pipe is unavailable".to_string()))?;
-    let stdout_reader = thread::spawn(move || read_pipe(stdout));
-    let stderr_reader = thread::spawn(move || read_pipe(stderr));
+    let limit = output_limit.unwrap_or(usize::MAX);
+    let stdout_reader = thread::spawn(move || read_pipe(stdout, limit));
+    let stderr_reader = thread::spawn(move || read_pipe(stderr, limit));
     let start = Instant::now();
 
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
+            Ok(None) if cancellation.is_some_and(ProcessCancellation::is_cancelled) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
+                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
+                return Err(ProcessError::Cancelled {
+                    stdout: decode_output(stdout),
+                    stderr: decode_output(stderr),
+                    output_truncated: stdout_truncated || stderr_truncated,
+                });
+            }
             Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let stdout = join_reader(stdout_reader)?;
-                let stderr = join_reader(stderr_reader)?;
+                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
+                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
                 return Err(ProcessError::TimedOut {
                     timeout_seconds: timeout.as_secs(),
                     stdout: decode_output(stdout),
                     stderr: decode_output(stderr),
+                    output_truncated: stdout_truncated || stderr_truncated,
                 });
             }
             Ok(None) => thread::sleep(Duration::from_millis(50)),
@@ -246,26 +316,37 @@ pub(crate) fn output_with_timeout(
         }
     };
 
-    let stdout_bytes = join_reader(stdout_reader)?;
-    let stderr_bytes = join_reader(stderr_reader)?;
+    let (stdout_bytes, stdout_truncated) = join_reader(stdout_reader)?;
+    let (stderr_bytes, stderr_truncated) = join_reader(stderr_reader)?;
     Ok(ProcessOutput {
         status,
         stdout: decode_output(stdout_bytes.clone()),
         stderr: decode_output(stderr_bytes.clone()),
         stdout_bytes,
         stderr_bytes,
+        output_truncated: stdout_truncated || stderr_truncated,
     })
 }
 
-fn read_pipe(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    pipe.read_to_end(&mut bytes)?;
-    Ok(bytes)
+fn read_pipe(mut pipe: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
+    let mut retained = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    let mut truncated = false;
+    loop {
+        let count = pipe.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(retained.len());
+        retained.extend_from_slice(&buffer[..count.min(remaining)]);
+        truncated |= count > remaining;
+    }
+    Ok((retained, truncated))
 }
 
 fn join_reader(
-    reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
-) -> Result<Vec<u8>, ProcessError> {
+    reader: thread::JoinHandle<std::io::Result<(Vec<u8>, bool)>>,
+) -> Result<(Vec<u8>, bool), ProcessError> {
     reader
         .join()
         .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?
@@ -313,9 +394,49 @@ mod tests {
     }
 
     #[test]
+    fn adapter_bounds_output_and_honors_cancellation() {
+        let output_request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_output_child_fixture",
+                "--nocapture",
+            ])
+            .output_limit(64);
+        let output = ProcessAdapter
+            .execute(&output_request)
+            .expect("bounded output");
+        assert!(output.output_truncated);
+        assert!(output.stdout.len() <= 64);
+
+        let cancellation = ProcessCancellation::default();
+        let cancel_request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_timeout_child_fixture",
+            ])
+            .timeout(Duration::from_secs(10))
+            .cancellation(cancellation.clone());
+        let running = thread::spawn(move || ProcessAdapter.execute(&cancel_request));
+        thread::sleep(Duration::from_millis(100));
+        cancellation.cancel();
+        assert!(matches!(
+            running.join().expect("process thread"),
+            Err(ProcessError::Cancelled { .. })
+        ));
+    }
+
+    #[test]
     #[ignore = "spawned only by the timeout adapter test"]
     fn process_timeout_child_fixture() {
         thread::sleep(Duration::from_secs(5));
+    }
+
+    #[test]
+    #[ignore = "spawned only by the bounded output adapter test"]
+    fn process_output_child_fixture() {
+        print!("{}", "x".repeat(4096));
     }
 
     #[test]

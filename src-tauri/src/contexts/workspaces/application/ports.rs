@@ -50,6 +50,22 @@ pub(crate) trait WorkspaceGitPort: Send + Sync {
         target_path: &str,
         branch: &str,
     ) -> Result<(), WorkspaceApplicationError>;
+
+    fn validate_loop_worktree(
+        &self,
+        project_path: &str,
+        target_path: &str,
+        branch: &str,
+        base_branch: &str,
+    ) -> Result<(), WorkspaceApplicationError>;
+
+    fn create_loop_worktree(
+        &self,
+        project_path: &str,
+        target_path: &str,
+        branch: &str,
+        base_branch: &str,
+    ) -> Result<(), WorkspaceApplicationError>;
 }
 
 pub(crate) trait ProjectDirectorySelectionPort: Send + Sync {

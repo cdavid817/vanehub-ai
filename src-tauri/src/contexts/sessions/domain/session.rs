@@ -67,6 +67,29 @@ pub(crate) enum SessionActivation {
     PreserveActive,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopSessionRole {
+    Worker,
+    Verifier,
+}
+
+impl LoopSessionRole {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Worker => "worker",
+            Self::Verifier => "verifier",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Result<Self, SessionsDomainError> {
+        match value {
+            "worker" => Ok(Self::Worker),
+            "verifier" => Ok(Self::Verifier),
+            _ => Err(SessionsDomainError::InvalidLoopRole(value.to_string())),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SessionOwner {
     Desktop,

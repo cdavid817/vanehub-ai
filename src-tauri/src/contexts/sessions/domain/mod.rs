@@ -16,5 +16,6 @@ pub(crate) use message::{
     FileReference, FileReferenceSet, MessageRole, MessageStatus, SessionMessage,
 };
 pub(crate) use session::{
-    SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner, SessionTitle,
+    LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,
+    SessionTitle,
 };

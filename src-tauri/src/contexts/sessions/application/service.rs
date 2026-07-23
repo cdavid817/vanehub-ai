@@ -2,21 +2,21 @@ use super::models::CreateSessionRequest;
 use super::ports::configuration_from_preferences;
 use super::{
     ArchivalPolicy, CategoryRecord, CompleteMessageRequest, CreateMessageRequest,
-    FailMessageRequest, FileReferenceInput, MessagePageQuery, MessageRecord, MessageUsageRecord,
-    NewSessionRequest, NewSessionWorkspace, PreparedNewSessionCreation, SessionApplicationLog,
-    SessionApplicationLogLevel, SessionCategoryRepository, SessionChatConfiguration,
-    SessionChatProfilePort, SessionClockPort, SessionConfigurationRepository,
-    SessionCreationContextPort, SessionExportFormat, SessionExportRequest, SessionExportResult,
-    SessionFileContentPort, SessionIdentityPort, SessionListScope, SessionLoggingPort,
-    SessionMaintenanceResult, SessionMessageRepository, SessionOperationPort, SessionRecord,
-    SessionRepository, SessionRuntimePort, SessionSearchQuery, SessionSearchResult,
-    SessionTransactionPort, SessionUsageRepository, SessionUsageStatistics, SessionUsageSummary,
-    SessionWorkspace, SessionsApplicationError, UsageStatisticsRange,
+    FailMessageRequest, FileReferenceInput, LoopRoleSessionRequest, LoopSessionOwnership,
+    MessagePageQuery, MessageRecord, MessageUsageRecord, NewSessionRequest, NewSessionWorkspace,
+    PreparedNewSessionCreation, SessionApplicationLog, SessionApplicationLogLevel,
+    SessionCategoryRepository, SessionChatConfiguration, SessionChatProfilePort, SessionClockPort,
+    SessionConfigurationRepository, SessionCreationContextPort, SessionExportFormat,
+    SessionExportRequest, SessionExportResult, SessionFileContentPort, SessionIdentityPort,
+    SessionListScope, SessionLoggingPort, SessionMaintenanceResult, SessionMessageRepository,
+    SessionOperationPort, SessionRecord, SessionRepository, SessionRuntimePort, SessionSearchQuery,
+    SessionSearchResult, SessionTransactionPort, SessionUsageRepository, SessionUsageStatistics,
+    SessionUsageSummary, SessionWorkspace, SessionsApplicationError, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
     FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
-    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionTitle,
+    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -75,6 +75,46 @@ impl SessionsApplicationService {
         let operation_id = prepared.operation.id.clone();
         let result = self.create_new_session_record(prepared.request);
         self.finish_session_creation(&operation_id, result)
+    }
+
+    pub(crate) fn create_loop_role_session(
+        &self,
+        request: LoopRoleSessionRequest,
+    ) -> Result<SessionRecord, SessionsApplicationError> {
+        for (value, label) in [
+            (&request.run_id, "Loop run id"),
+            (&request.iteration_id, "Loop iteration id"),
+            (&request.project_path, "Loop project path"),
+            (&request.worktree_path, "Loop worktree path"),
+            (&request.worktree_name, "Loop worktree name"),
+            (&request.worktree_branch, "Loop worktree branch"),
+        ] {
+            required_value(value, label)?;
+        }
+        self.ports
+            .creation
+            .ensure_agent_supports(&request.agent_id, &request.interaction_mode)?;
+        let role = request.role;
+        self.create_session_record(CreateSessionRequest {
+            agent_id: request.agent_id,
+            interaction_mode: request.interaction_mode,
+            title: Some(format!("Loop {}", role.as_str())),
+            workspace: SessionWorkspace {
+                folder: Some(request.worktree_path.clone()),
+                project_path: Some(request.project_path),
+                worktree_path: Some(request.worktree_path),
+                worktree_name: Some(request.worktree_name),
+                worktree_branch: Some(request.worktree_branch),
+                remote_workspace: None,
+                loop_ownership: Some(LoopSessionOwnership {
+                    run_id: request.run_id,
+                    iteration_id: request.iteration_id,
+                    role,
+                }),
+            },
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::PreserveActive,
+        })
     }
 
     fn finish_session_creation(
@@ -235,6 +275,13 @@ impl SessionsApplicationService {
         scope: SessionListScope,
     ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
         self.ports.sessions.list(scope)
+    }
+
+    pub(crate) fn list_sessions_including_loop_owned(
+        &self,
+        scope: SessionListScope,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.ports.sessions.list_including_loop_owned(scope)
     }
 
     pub(crate) fn search_sessions(
