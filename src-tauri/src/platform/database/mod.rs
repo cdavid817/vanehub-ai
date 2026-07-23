@@ -4,7 +4,14 @@ mod migrations;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use thiserror::Error;
+
+/// How long a connection waits for a competing writer before surfacing `SQLITE_BUSY`.
+/// Every operation opens its own connection, so brief contention is expected and
+/// should block rather than fail (commands run on Tauri's blocking worker pool).
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(crate) use migrations::{migrate, table_has_column};
 
@@ -21,6 +28,12 @@ pub(crate) enum DatabaseError {
 #[derive(Clone)]
 pub(crate) struct NativeDatabase {
     pub(crate) db_path: PathBuf,
+    // Schema migration and registry seeding are one-time, process-wide work. Running
+    // them on every `connection()` added ~50 redundant statements to every query. The
+    // flag is shared across clones so the app-owned database is prepared exactly once;
+    // the mutex also serializes the first init so racing connections cannot double-insert
+    // into `schema_migrations`.
+    initialized: Arc<Mutex<bool>>,
 }
 
 impl NativeDatabase {
@@ -29,14 +42,26 @@ impl NativeDatabase {
             .map_err(|error| DatabaseError::Storage(error.to_string()))?;
         Ok(Self {
             db_path: database_path(&data_dir),
+            initialized: Arc::new(Mutex::new(false)),
         })
     }
 
     pub(crate) fn connection(&self) -> Result<Connection, DatabaseError> {
         let connection = Connection::open(&self.db_path)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        // WAL lets readers proceed without blocking the writer, which matters because
+        // every operation opens its own connection against the shared database file.
+        connection.query_row("PRAGMA journal_mode=WAL", [], |_row| Ok(()))?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
-        migrate(&connection)?;
-        crate::contexts::agent_runtime::infrastructure::seed_registry(&connection)?;
+        let mut initialized = self
+            .initialized
+            .lock()
+            .map_err(|error| DatabaseError::Storage(error.to_string()))?;
+        if !*initialized {
+            migrate(&connection)?;
+            crate::contexts::agent_runtime::infrastructure::seed_registry(&connection)?;
+            *initialized = true;
+        }
         Ok(connection)
     }
 }
