@@ -174,6 +174,7 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
         onPreview={(hook) => previewMutation.mutate(hook)}
         onToggleAgent={toggleAgentBinding}
         onToggleEnabled={(hook, value) => enabledMutation.mutate({ hook, value })}
+        resetKey={JSON.stringify([agent, category, enabled, query, searchTerm, source])}
       />
       <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
         {t("promptHooks.showing", { visible: visibleHooks.length, total: hooks.length })}

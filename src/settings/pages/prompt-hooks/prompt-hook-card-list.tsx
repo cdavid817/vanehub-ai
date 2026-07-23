@@ -1,11 +1,30 @@
 import { Eye, Link2, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  MeasuredVirtualList,
+  type MeasuredVirtualListHandle,
+} from "../../../components/measured-virtual-list";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { useMediaQuery } from "../../../hooks/use-media-query";
+import { chunkItems, shouldVirtualizePromptHooks } from "../../../lib/virtual-list";
 import type { AgentRegistryEntry, ManagedCliAgentId } from "../../../types/agent";
 import type { PromptHook } from "../../../types/prompt-hook";
 
 type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
+
+interface PromptHookCardListProps {
+  agents: ManagedAgent[];
+  busyHookId: string | null;
+  hooks: PromptHook[];
+  onDelete: (hook: PromptHook) => void;
+  onEdit: (hook: PromptHook) => void;
+  onPreview: (hook: PromptHook) => void;
+  onToggleAgent: (hook: PromptHook, agentId: string, checked: boolean) => void;
+  onToggleEnabled: (hook: PromptHook, enabled: boolean) => void;
+  resetKey: string;
+}
 
 export function PromptHookCardList({
   hooks,
@@ -16,26 +35,96 @@ export function PromptHookCardList({
   onPreview,
   onEdit,
   onDelete,
-}: {
-  hooks: PromptHook[];
-  agents: ManagedAgent[];
-  busyHookId: string | null;
-  onToggleEnabled: (hook: PromptHook, enabled: boolean) => void;
-  onToggleAgent: (hook: PromptHook, agentId: string, checked: boolean) => void;
-  onPreview: (hook: PromptHook) => void;
-  onEdit: (hook: PromptHook) => void;
-  onDelete: (hook: PromptHook) => void;
-}) {
+  resetKey,
+}: PromptHookCardListProps) {
   const { t } = useTranslation();
+  const wideLayout = useMediaQuery("(min-width: 1280px)");
+  const columnCount = wideLayout ? 2 : 1;
+  const virtualListRef = useRef<MeasuredVirtualListHandle>(null);
+  const rows = useMemo(() => chunkItems(hooks, columnCount), [columnCount, hooks]);
+
+  useEffect(() => {
+    virtualListRef.current?.measure();
+    virtualListRef.current?.scrollToStart();
+  }, [columnCount, resetKey]);
 
   if (hooks.length === 0) {
     return <div className="ucd-panel rounded-lg p-6 text-sm text-muted-foreground">{t("promptHooks.noMatching")}</div>;
   }
 
+  const cardProps = {
+    agents,
+    busyHookId,
+    onDelete,
+    onEdit,
+    onPreview,
+    onToggleAgent,
+    onToggleEnabled,
+    total: hooks.length,
+  };
+
+  if (shouldVirtualizePromptHooks(hooks.length)) {
+    return (
+      <MeasuredVirtualList
+        ariaLabel={t("promptHooks.inventory")}
+        className="h-[min(70vh,48rem)] rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2"
+        estimateSize={() => 420}
+        getItemKey={(row) => row.map((hook) => hook.id).join(":")}
+        itemClassName="px-1 pb-4"
+        items={rows}
+        overscan={4}
+        ref={virtualListRef}
+        renderItem={(row, rowIndex) => (
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            {row.map((hook, columnIndex) => (
+              <PromptHookCard
+                {...cardProps}
+                hook={hook}
+                key={hook.id}
+                position={rowIndex * columnCount + columnIndex + 1}
+              />
+            ))}
+          </div>
+        )}
+        testId="prompt-hook-virtual-list"
+      />
+    );
+  }
+
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-2">
-      {hooks.map((hook) => (
-        <section className="ucd-panel grid min-h-[20rem] gap-4 rounded-lg p-4" key={hook.id}>
+    <div aria-label={t("promptHooks.inventory")} className="grid items-start gap-4 xl:grid-cols-2" role="list">
+      {hooks.map((hook, index) => (
+        <PromptHookCard {...cardProps} hook={hook} key={hook.id} position={index + 1} />
+      ))}
+    </div>
+  );
+}
+
+function PromptHookCard({
+  agents,
+  busyHookId,
+  hook,
+  onDelete,
+  onEdit,
+  onPreview,
+  onToggleAgent,
+  onToggleEnabled,
+  position,
+  total,
+}: Omit<PromptHookCardListProps, "hooks" | "resetKey"> & {
+  hook: PromptHook;
+  position: number;
+  total: number;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <section
+      aria-posinset={position}
+      aria-setsize={total}
+      className="ucd-panel grid min-h-[20rem] gap-4 rounded-lg p-4"
+      role="listitem"
+    >
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
             <div className="min-w-0">
               <h3 className="truncate text-base font-semibold leading-6">{hook.name}</h3>
@@ -105,9 +194,7 @@ export function PromptHookCardList({
               ))}
             </div>
           </div>
-        </section>
-      ))}
-    </div>
+    </section>
   );
 }
 

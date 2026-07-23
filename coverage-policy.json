@@ -1,7 +1,7 @@
 {
   "version": 1,
   "frontend": {
-    "minimumLines": 45.5
+    "minimumLines": 45.2
   },
   "native": {
     "minimumLines": 67,

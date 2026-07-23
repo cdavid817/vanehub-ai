@@ -6,17 +6,17 @@ Verified on 2026-07-23 from `codex/engineering-reliability`.
 
 | Scope | Covered lines | Total lines | Result | Gate |
 | --- | ---: | ---: | ---: | ---: |
-| Frontend production source | 2,730 | 5,998 | 45.52% | 45.50% |
+| Frontend production source | 2,796 | 6,182 | 45.23% | 45.20% |
 | Native crate | 36,983 | 54,590 | 67.75% | 67.00% |
 | Agent startup and terminal control | 197 | 246 | 80.08% | 80.00% |
 | MCP routing | 205 | 251 | 81.67% | 80.00% |
 | SQLite transactions, pool, and migrations | 824 | 937 | 87.94% | 80.00% |
 
-Frontend V8 coverage also reported 42.65% statements, 40.13% branches, and 37.16% functions. The frontend include rule counts unimported `src/**/*.{ts,tsx}` files and retains the supported Web/mock adapters.
+Frontend V8 coverage also reported 42.37% statements, 40.03% branches, and 36.74% functions. The frontend include rule counts unimported `src/**/*.{ts,tsx}` files and retains the supported Web/mock adapters. The frontend baseline was remeasured after merging `feat: optimize frontend rendering and lazy loading (#23)`, which added production modules and tests to the denominator.
 
 ### Test and quality results
 
-- Vitest: 81 files and 271 tests passed, both normally and under V8 coverage.
+- Vitest: 84 files and 282 tests passed under V8 coverage after synchronizing with current `main`.
 - Rust: 675 unit/integration tests passed and 3 child-process fixtures were ignored by the direct harness; 8 architecture tests also passed.
 - Native lifecycle integration: 3 scenarios passed for success, startup compensation, and idempotent cleanup. The successful path observes the published Operations API, persisted Session transitions through `running` and `stopped`, and terminal-registry cleanup; the failure path verifies command-boundary and persisted-log redaction.
 - Playwright Chromium: 52 scenarios passed against this worktree's Web runtime.

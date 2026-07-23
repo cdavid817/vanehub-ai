@@ -42,7 +42,7 @@ test.describe("floating assistant web preview", () => {
     await page.getByPlaceholder("向当前会话发送消息…").fill("mini chat message");
     await page.getByRole("button", { name: "发送" }).click();
 
-    await expect(page.getByText("mini chat message")).toBeVisible();
+    await expect(page.getByText("mini chat message", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
     await expect(page.getByText(/正在生成回复/)).toBeVisible();
     await expect(page.getByPlaceholder("向当前会话发送消息…")).toBeDisabled();
