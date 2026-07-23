@@ -131,9 +131,9 @@ fn select_candidates(
 
 fn candidate_key(path: &Path) -> String {
     let normalized = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let mut key_path = normalized.clone();
     #[cfg(target_os = "windows")]
-    {
+    let key_path = {
+        let mut key_path = normalized.clone();
         let extension = normalized
             .extension()
             .and_then(|value| value.to_str())
@@ -142,7 +142,10 @@ fn candidate_key(path: &Path) -> String {
         if extension == "cmd" || extension == "ps1" || extension.is_empty() {
             key_path.set_extension("");
         }
-    }
+        key_path
+    };
+    #[cfg(not(target_os = "windows"))]
+    let key_path = normalized;
     let key = key_path.to_string_lossy().replace('\\', "/");
     if cfg!(target_os = "windows") {
         key.to_ascii_lowercase()
