@@ -1,7 +1,7 @@
 use super::*;
 use crate::contexts::agent_runtime::domain::{
-    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
-    LoopVerificationCommand,
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
+    LoopRunStatus, LoopVerificationCommand,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -19,17 +19,17 @@ impl OrchestratorWorld {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             run: Mutex::new(
-                LoopRun::rehydrate(
-                    "run-1".to_string(),
-                    "loop-1".to_string(),
-                    LoopRunStatus::Running,
-                    LoopRunPhase::Deciding,
-                    None,
-                    1,
-                    0,
-                    0,
-                    false,
-                )
+                LoopRun::rehydrate(LoopRunSnapshot {
+                    id: "run-1".to_string(),
+                    definition_id: "loop-1".to_string(),
+                    status: LoopRunStatus::Running,
+                    phase: LoopRunPhase::Deciding,
+                    terminal_reason: None,
+                    current_iteration: 1,
+                    consecutive_runtime_errors: 0,
+                    consecutive_no_progress: 0,
+                    pause_requested: false,
+                })
                 .expect("run"),
             ),
             definition: definition(),

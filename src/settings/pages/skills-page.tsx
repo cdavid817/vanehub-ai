@@ -15,6 +15,8 @@ import { SkillFilterToolbar } from "./skills/skill-filter-toolbar";
 import { SkillScopeTabs } from "./skills/skill-scope-tabs";
 import { SkillStatsCards } from "./skills/skill-stats-cards";
 
+const emptySkills: Skill[] = [];
+
 export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -118,7 +120,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
     onSuccess: () => void invalidate(),
   });
 
-  const skills = skillsQuery.data?.skills ?? [];
+  const skills = skillsQuery.data?.skills ?? emptySkills;
   const stats = skillsQuery.data?.stats ?? { total: 0, enabled: 0, mounted: 0 };
   const categories = useMemo(() => ["__all__", ...Array.from(new Set(skills.map((skill) => skill.metadata.category)))], [skills]);
   const visibleSkills = useMemo(() => {

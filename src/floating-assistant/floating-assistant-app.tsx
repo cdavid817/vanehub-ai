@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Bot, GripHorizontal, Home, LogOut, MessageSquare, Minimize2, Plus, Send, Settings, Sparkles, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -61,22 +61,22 @@ export function FloatingAssistantApp() {
     queryKey: ["session-chat-config", sessionId],
     queryFn: () => sessionId ? agentService.getSessionChatConfig(sessionId) : Promise.reject(new Error("No session")),
   });
-  const messages = messagesQuery.data ?? [];
+  const messages = useMemo(() => messagesQuery.data ?? [], [messagesQuery.data]);
   const isStreaming = messages.some((message) => message.status === "streaming");
   const assistantStatus = resolveFloatingAssistantStatus(activeSession, messages);
   const statusText = t(`floating.status.${assistantStatus}`);
 
-  function reportFailure(source: string, cause: unknown) {
+  const reportFailure = useCallback((source: string, cause: unknown) => {
     const message = cause instanceof Error ? cause.message : String(cause);
     setError(message);
     void reportClientLogEvent({ level: "error", kind: "critical-operation-failure", message, source });
-  }
+  }, [reportClientLogEvent]);
 
-  function changeMode(nextMode: FloatingAssistantSurfaceMode) {
+  const changeMode = useCallback((nextMode: FloatingAssistantSurfaceMode) => {
     setError(null);
     setMode(nextMode);
     void floatingAssistantService.setSurfaceMode(nextMode).catch((cause) => reportFailure("FloatingAssistantApp.changeMode", cause));
-  }
+  }, [reportFailure]);
 
   function openMain(action: FloatingAssistantMainAction) {
     void floatingAssistantService.showMainWindow(action)
@@ -158,7 +158,7 @@ export function FloatingAssistantApp() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [mode]);
+  }, [changeMode, mode]);
 
   if (mode === "collapsed") {
     return (

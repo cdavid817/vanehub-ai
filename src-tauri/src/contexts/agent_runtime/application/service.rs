@@ -73,6 +73,7 @@ impl AgentRuntimeApplicationService {
         Self { ports }
     }
 
+    #[cfg(test)]
     pub(crate) fn take_loop_role_completion(
         &self,
         session_id: &str,

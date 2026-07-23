@@ -45,6 +45,9 @@ export function useChatConfig({
     () => agents.find((agent) => agent.id === activeSession?.agentId) ?? agents[0] ?? null,
     [activeSession?.agentId, agents],
   );
+  const activeSessionId = activeSession?.id ?? null;
+  const activeSessionAgentId = activeSession?.agentId ?? null;
+  const activeInteractionMode = activeSession?.interactionMode ?? "cli";
   const initialProviderId = providerIdFromAgent(sessionAgent);
   const initialModel = defaultModelForProvider(initialProviderId);
   const [providerId, setProviderId] = useState(initialProviderId);
@@ -63,32 +66,32 @@ export function useChatConfig({
     const nextModel = defaultModelForProvider(nextProviderId);
     loadedSessionRef.current = null;
     setProviderId(nextProviderId);
-    setAgentId(activeSession?.agentId ?? sessionAgent?.id ?? "");
+    setAgentId(activeSessionAgentId ?? sessionAgent?.id ?? "");
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, "high"));
     setLongContext(nextModel.supportsLongContext);
     setPermissionMode(modesForProvider(nextProviderId)[0] ?? "default");
-    if (!activeSession) return () => {
+    if (!activeSessionId || !activeSessionAgentId) return () => {
       cancelled = true;
     };
-    void agentService.getSessionChatConfig(activeSession.id).then((persisted) => {
+    void agentService.getSessionChatConfig(activeSessionId).then((persisted) => {
       if (cancelled) return;
       setProviderId(persisted.providerId ?? nextProviderId);
-      setAgentId(activeSession.agentId);
+      setAgentId(activeSessionAgentId);
       setModelId(persisted.modelId ?? nextModel.id);
       setPermissionMode(persisted.permissionMode);
       setReasoningDepth(persisted.reasoningDepth ?? "low");
       setStreaming(persisted.streaming);
       setThinking(persisted.thinking);
       setLongContext(persisted.longContext);
-      loadedSessionRef.current = activeSession.id;
+      loadedSessionRef.current = activeSessionId;
     }).catch(() => {
-      if (!cancelled) loadedSessionRef.current = activeSession.id;
+      if (!cancelled) loadedSessionRef.current = activeSessionId;
     });
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.id, activeSession?.agentId, sessionAgent]);
+  }, [activeSessionAgentId, activeSessionId, sessionAgent]);
 
   const availableAgents = useMemo(
     () => agents.filter((agent) => providerIdFromAgent(agent) === providerId),
@@ -140,9 +143,9 @@ export function useChatConfig({
     }
   }
 
-  const config: ChatConfig = {
+  const config = useMemo<ChatConfig>(() => ({
     agentId,
-    interactionMode: activeSession?.interactionMode ?? "cli",
+    interactionMode: activeInteractionMode,
     permissionMode,
     providerId,
     modelId,
@@ -150,17 +153,17 @@ export function useChatConfig({
     streaming,
     thinking,
     longContext,
-  };
+  }), [activeInteractionMode, agentId, longContext, modelId, permissionMode, providerId, reasoningDepth, selectedModel.supportsReasoning, streaming, thinking]);
 
   useEffect(() => {
-    if (!activeSession || loadedSessionRef.current !== activeSession.id) return;
+    if (!activeSessionId || loadedSessionRef.current !== activeSessionId) return;
     const timeoutId = window.setTimeout(() => {
-      void agentService.saveSessionChatConfig(activeSession.id, config).catch((error: unknown) => {
+      void agentService.saveSessionChatConfig(activeSessionId, config).catch((error: unknown) => {
         onPersistError?.(error);
       });
     }, 120);
     return () => window.clearTimeout(timeoutId);
-  }, [activeSession?.id, activeSession?.interactionMode, agentId, longContext, modelId, onPersistError, permissionMode, providerId, reasoningDepth, streaming, thinking]);
+  }, [activeSessionId, config, onPersistError]);
 
   return {
     availableAgents,

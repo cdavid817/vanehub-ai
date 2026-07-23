@@ -6,3 +6,4 @@ src-tauri/target/
 *.log
 test-results/
 playwright-report/
+coverage/

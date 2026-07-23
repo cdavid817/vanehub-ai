@@ -42,6 +42,7 @@ impl LoopControlApplicationService {
         Ok(run)
     }
 
+    #[cfg(test)]
     pub(crate) fn pause_at_boundary(
         &self,
         run_id: &str,

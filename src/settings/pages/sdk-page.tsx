@@ -20,6 +20,7 @@ import type {
 import { PageHeader, SectionPanel, StatCard, StatusPill, TagList } from "./page-parts";
 
 type SelectedVersions = Partial<Record<SdkId, string>>;
+const emptyVersions = {} as SdkVersionMap;
 type SdkOverview = {
   statuses: SdkStatusMap;
   versions: SdkVersionMap;
@@ -56,7 +57,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
   });
 
   const statuses = sdkOverviewQuery.data?.statuses ?? null;
-  const versions = sdkOverviewQuery.data?.versions ?? ({} as SdkVersionMap);
+  const versions = sdkOverviewQuery.data?.versions ?? emptyVersions;
   const environment = sdkOverviewQuery.data?.environment ?? null;
 
   useEffect(() => {
@@ -146,8 +147,18 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
     setLogs(operation.logs);
     if (operation.status === "queued" || operation.status === "running") return;
     setHandledOperationId(operation.id);
-    handleOperationFinished(operation);
-  }, [activeOperationQuery.data, handledOperationId]);
+    if (operation.status === "failed") {
+      setError(operation.error ?? t("sdk.error.operationFailed"));
+      return;
+    }
+    const result = sdkOperationResult(operation.result);
+    if (!result?.success) {
+      setError(result?.error ?? t("sdk.error.operationFailed"));
+      return;
+    }
+    setNotice(t("sdk.notice.operationCompleted"));
+    void queryClient.invalidateQueries({ queryKey: sdkOverviewQueryKey });
+  }, [activeOperationQuery.data, handledOperationId, queryClient, t]);
 
   const sdkList = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -197,24 +208,6 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
     setActiveOperationId(operation.id);
     setHandledOperationId(null);
     setLogs(operation.logs);
-  }
-
-  function handleOperationFinished(operation: OperationTask) {
-    if (operation.status === "failed") {
-      setError(operation.error ?? t("sdk.error.operationFailed"));
-      return;
-    }
-    const result = sdkOperationResult(operation.result);
-    if (!result) {
-      setError(t("sdk.error.operationFailed"));
-      return;
-    }
-    if (!result.success) {
-      setError(result.error ?? t("sdk.error.operationFailed"));
-      return;
-    }
-    setNotice(t("sdk.notice.operationCompleted"));
-    void queryClient.invalidateQueries({ queryKey: sdkOverviewQueryKey });
   }
 
   function actionLabel(sdk: SdkStatus) {

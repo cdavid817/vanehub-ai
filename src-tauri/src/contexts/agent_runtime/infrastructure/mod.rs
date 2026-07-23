@@ -34,7 +34,7 @@ pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
 pub(crate) use coordination_schema::apply_coordination_schema;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
-pub(crate) use loop_execution_coordinator::{InMemoryLoopExecutionCoordinator, LoopExecutionLease};
+pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
 pub(crate) use loop_generation_completions::InMemoryLoopRoleGenerationCompletions;
 pub(crate) use loop_project::WorkspaceLoopProjectAdapter;
 pub(crate) use loop_repository::SqliteLoopRepository;
