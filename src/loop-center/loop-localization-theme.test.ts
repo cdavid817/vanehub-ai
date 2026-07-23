@@ -64,7 +64,7 @@ describe("Loop Center localization and themes", () => {
   });
 
   it("keeps frontend-owned copy behind localization resources", () => {
-    expect(componentSource).not.toMatch(/<[a-z][^>]*>\s*[A-Za-z][A-Za-z0-9 ,.'!?-]*\s*<\/[a-z]/);
+    expect(componentSource).not.toMatch(/<[a-z][^>]*>\s*[A-Za-z][A-Za-z0-9 ,.'!?-]*\s*<\/[a-z]/i);
     expect(componentSource).not.toMatch(/(?:aria-label|placeholder|title)=["'][^"']+["']/);
   });
 
