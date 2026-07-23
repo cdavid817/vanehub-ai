@@ -106,7 +106,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM skills", [], |row| row.get(0))
             .expect("Skill table query");
 
-        assert_eq!(migration_count, 24);
+        assert_eq!(migration_count, 25);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 4);
         assert_eq!(skill_table_exists, 0);
@@ -141,6 +141,6 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 24);
+        assert_eq!(migration_count, 25);
     }
 }

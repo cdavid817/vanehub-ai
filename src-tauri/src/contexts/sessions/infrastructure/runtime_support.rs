@@ -249,6 +249,11 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
                 "A generation is already active for session {session_id}."
             ))
         }
+        AgentRuntimeApplicationError::PolicyDenied { session_id, action } => {
+            SessionsApplicationError::Validation(format!(
+                "Verifier session {session_id} cannot perform Agent action: {action}"
+            ))
+        }
         AgentRuntimeApplicationError::AgentNotFound(agent_id) => {
             SessionsApplicationError::AgentNotFound(agent_id)
         }
@@ -264,6 +269,9 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         AgentRuntimeApplicationError::Process(message) => {
             SessionsApplicationError::RuntimeLaunch(message)
         }
+        AgentRuntimeApplicationError::VerificationPolicy(message) => {
+            SessionsApplicationError::Validation(message)
+        }
         AgentRuntimeApplicationError::NoActiveAgent => {
             SessionsApplicationError::Runtime("No active agent selected.".to_string())
         }
@@ -274,6 +282,8 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         | AgentRuntimeApplicationError::CliProfile(message)
         | AgentRuntimeApplicationError::Prompt(message)
         | AgentRuntimeApplicationError::Operation(message)
+        | AgentRuntimeApplicationError::Loop(message)
+        | AgentRuntimeApplicationError::VerificationProcess(message)
         | AgentRuntimeApplicationError::Logging(message)
         | AgentRuntimeApplicationError::Event(message)
         | AgentRuntimeApplicationError::Generation(message) => {
@@ -289,6 +299,11 @@ fn workspace_error(error: WorkspaceError) -> SessionsApplicationError {
         WorkspaceError::LaunchFailed(message) => SessionsApplicationError::WorkspaceLaunch(message),
         WorkspaceError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)
+        }
+        WorkspaceError::PolicyDenied { session_id, action } => {
+            SessionsApplicationError::Validation(format!(
+                "Verifier session {session_id} cannot perform workspace action: {action}"
+            ))
         }
         WorkspaceError::Repository(message)
         | WorkspaceError::Selection(message)

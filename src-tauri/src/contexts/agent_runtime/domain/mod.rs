@@ -1,6 +1,9 @@
 mod catalog;
 mod error;
 mod generation;
+mod loop_decision;
+mod loop_engineering;
+mod loop_progress;
 mod workflow;
 
 pub(crate) use catalog::{
@@ -9,6 +12,18 @@ pub(crate) use catalog::{
 };
 pub(crate) use error::AgentRuntimeDomainError;
 pub(crate) use generation::GenerationAttempt;
+pub(crate) use loop_decision::{
+    decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome,
+    LoopVerifierRecommendation,
+};
+pub(crate) use loop_engineering::{
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
+    LoopTerminalReason, LoopVerificationCommand,
+};
+pub(crate) use loop_progress::{
+    assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
+    LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
+};
 pub(crate) use workflow::{AgentLifecycle, AgentReadiness, AgentWorkflow};
 
 #[cfg(test)]

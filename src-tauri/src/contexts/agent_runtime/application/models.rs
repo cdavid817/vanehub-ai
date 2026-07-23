@@ -1,9 +1,12 @@
+use super::loop_models::LoopVerificationCommandView;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow,
     InteractionMode,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentLaunchView {
@@ -108,6 +111,126 @@ pub(crate) struct AgentSession {
     pub(crate) folder: Option<String>,
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) archived: bool,
+    pub(crate) read_only: bool,
+    pub(crate) loop_ownership: Option<LoopRoleGenerationOwnership>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRoleGenerationOwnership {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: String,
+    pub(crate) role: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopRoleGenerationOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRoleGenerationTerminal {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: String,
+    pub(crate) role: String,
+    pub(crate) session_id: String,
+    pub(crate) message_id: String,
+    pub(crate) outcome: LoopRoleGenerationOutcome,
+    pub(crate) content: Option<String>,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LoopVerificationCancellation {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl Default for LoopVerificationCancellation {
+    fn default() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl LoopVerificationCancellation {
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn signal(&self) -> Arc<AtomicBool> {
+        self.cancelled.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LoopVerificationProcessRequest {
+    pub(crate) worktree_root: String,
+    pub(crate) command: LoopVerificationCommandView,
+    pub(crate) cancellation: LoopVerificationCancellation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopVerificationProcessStatus {
+    Passed,
+    Failed,
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopVerificationProcessResult {
+    pub(crate) status: LoopVerificationProcessStatus,
+    pub(crate) exit_code: Option<i32>,
+    pub(crate) duration_ms: u64,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) output_truncated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopOperationKind {
+    Worktree,
+    RoleGeneration,
+    Verification,
+    Decision,
+    Cancellation,
+    Recovery,
+}
+
+impl LoopOperationKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Worktree => "worktree",
+            Self::RoleGeneration => "role-generation",
+            Self::Verification => "verification",
+            Self::Decision => "decision",
+            Self::Cancellation => "cancellation",
+            Self::Recovery => "recovery",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopOperationContext {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: Option<String>,
+    pub(crate) kind: LoopOperationKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopLog {
+    pub(crate) level: AgentLogLevel,
+    pub(crate) category: String,
+    pub(crate) message: String,
+    pub(crate) context: LoopOperationContext,
+    pub(crate) operation_id: Option<String>,
+    pub(crate) occurred_at: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

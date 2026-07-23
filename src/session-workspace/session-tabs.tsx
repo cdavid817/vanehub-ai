@@ -17,12 +17,14 @@ export function SessionTabs({
   messages,
   messagesPartial,
   onOpenSettings,
+  requestedTab,
   sessionActivationKey,
 }: {
   activeSession: Session | null;
   messages: ChatMessage[];
   messagesPartial: boolean;
   onOpenSettings: () => void;
+  requestedTab?: SessionTabId | null;
   sessionActivationKey: number;
 }) {
   const sessionId = activeSession?.id ?? null;
@@ -34,6 +36,12 @@ export function SessionTabs({
     setActiveTab("chat");
     setMountedTabs(new Set(["chat"]));
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!requestedTab) return;
+    setMountedTabs((current) => new Set(current).add(requestedTab));
+    setActiveTab(requestedTab);
+  }, [requestedTab, sessionId]);
 
   function activate(tab: SessionTabId) {
     setMountedTabs((current) => new Set(current).add(tab));

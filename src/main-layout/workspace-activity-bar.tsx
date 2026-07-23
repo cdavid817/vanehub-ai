@@ -1,4 +1,4 @@
-import { CalendarClock, CircleHelp, MessagesSquare, Settings } from "lucide-react";
+import { CalendarClock, CircleHelp, MessagesSquare, Repeat2, Settings } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface WorkspaceActivityBarLabels {
@@ -6,16 +6,19 @@ export interface WorkspaceActivityBarLabels {
   sessions: string;
   expandSessions: string;
   collapseSessions: string;
+  loops: string;
   scheduledTasks: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
+  activeDestination: "sessions" | "loops";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
+  onLoops: () => void;
+  onSessions: () => void;
   onScheduledTasks: () => void;
-  onToggleSessions: () => void;
   sessionSidebarExpanded: boolean;
 }
 
@@ -23,10 +26,12 @@ const activityButtonClass =
   "ucd-interactive flex h-10 w-10 items-center justify-center rounded-lg border border-transparent text-muted-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 export function WorkspaceActivityBar({
+  activeDestination,
   labels,
   onOpenSettings,
+  onLoops,
+  onSessions,
   onScheduledTasks,
-  onToggleSessions,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
@@ -38,12 +43,22 @@ export function WorkspaceActivityBar({
           aria-controls="workspace-session-sidebar"
           aria-expanded={sessionSidebarExpanded}
           aria-label={sessionsLabel}
-          className={cn(activityButtonClass, sessionSidebarExpanded && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
-          onClick={onToggleSessions}
+          className={cn(activityButtonClass, activeDestination === "sessions" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
+          onClick={onSessions}
           title={sessionsLabel}
           type="button"
         >
           <MessagesSquare aria-hidden="true" className="h-5 w-5" />
+        </button>
+        <button
+          aria-controls="loop-center"
+          aria-label={labels.loops}
+          className={cn(activityButtonClass, activeDestination === "loops" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
+          onClick={onLoops}
+          title={labels.loops}
+          type="button"
+        >
+          <Repeat2 aria-hidden="true" className="h-5 w-5" />
         </button>
         <button aria-label={labels.scheduledTasks} className={activityButtonClass} onClick={onScheduledTasks} title={labels.scheduledTasks} type="button">
           <CalendarClock aria-hidden="true" className="h-5 w-5" />

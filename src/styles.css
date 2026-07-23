@@ -91,6 +91,8 @@
   --ring: 221 83% 53%;
   --primary: 221 83% 53%;
   --primary-foreground: 0 0% 100%;
+  --destructive: 0 72% 44%;
+  --destructive-foreground: 0 0% 100%;
   --panel: 0 0% 100%;
   --panel-foreground: 221 39% 11%;
   --panel-muted: 220 14% 96%;

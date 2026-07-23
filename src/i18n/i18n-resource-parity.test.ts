@@ -18,6 +18,9 @@ describe("i18n resources", () => {
     expect(i18n.t("im.platform.weixin.name")).toBe("个人微信");
     expect(i18n.t("im.routing.title")).toBe("默认路由");
     expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("定时任务");
+    expect(i18n.t("loops.title")).toBe("循环工程");
+    expect(i18n.t("loops.inspection.back")).toBe("返回循环工程");
+    expect(i18n.t("loops.web.evidence.decisionReady")).toContain("独立验证者建议验收");
 
     await i18n.changeLanguage("en");
     expect(i18n.t("agents.title")).toBe("Agent Management");
@@ -28,5 +31,8 @@ describe("i18n resources", () => {
     expect(i18n.t("im.platform.weixin.name")).toBe("Personal WeChat");
     expect(i18n.t("im.routing.title")).toBe("Default Routing");
     expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("Scheduled tasks");
+    expect(i18n.t("loops.title")).toBe("Loops");
+    expect(i18n.t("loops.inspection.back")).toBe("Back to Loop Center");
+    expect(i18n.t("loops.web.evidence.decisionReady")).toContain("independent Verifier recommends acceptance");
   });
 });

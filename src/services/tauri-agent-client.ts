@@ -37,6 +37,14 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
+  ContinueLoopInput,
+  LoopDefinition,
+  LoopEvent,
+  LoopRun,
+  SaveLoopDefinitionInput,
+  StartLoopResult,
+} from "../types/loop";
+import type {
   PromptAssemblyPreviewInput,
   PromptHook,
   PromptHookListResult,
@@ -61,6 +69,7 @@ import type {
 } from "../types/skill";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
+import { subscribeLoopRunPolling } from "./loop-run-polling";
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -138,6 +147,10 @@ export const tauriAgentClient: AgentService = {
     });
   },
 
+  getSession(sessionId: string) {
+    return invoke<Session>("get_session", { sessionId });
+  },
+
   getActiveSession() {
     return invoke<Session | null>("get_active_session");
   },
@@ -190,6 +203,62 @@ export const tauriAgentClient: AgentService = {
 
   async deleteScheduledTask(taskId: string) {
     await invoke<void>("delete_scheduled_task", { taskId });
+  },
+
+  listLoopDefinitions() {
+    return invoke<LoopDefinition[]>("list_loop_definitions");
+  },
+
+  createLoopDefinition(input: SaveLoopDefinitionInput) {
+    return invoke<LoopDefinition>("create_loop_definition", { input });
+  },
+
+  updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput) {
+    return invoke<LoopDefinition>("update_loop_definition", { definitionId, input });
+  },
+
+  async deleteLoopDefinition(definitionId: string) {
+    await invoke<void>("delete_loop_definition", { definitionId });
+  },
+
+  listLoopRuns(definitionId?: string) {
+    return invoke<LoopRun[]>("list_loop_runs", { definitionId: definitionId ?? null });
+  },
+
+  getLoopRun(runId: string) {
+    return invoke<LoopRun>("get_loop_run", { runId });
+  },
+
+  startLoop(definitionId: string) {
+    return invoke<StartLoopResult>("start_loop", { definitionId });
+  },
+
+  pauseLoop(runId: string) {
+    return invoke<LoopRun>("pause_loop", { runId });
+  },
+
+  resumeLoop(runId: string) {
+    return invoke<LoopRun>("resume_loop", { runId });
+  },
+
+  cancelLoop(runId: string) {
+    return invoke<LoopRun>("cancel_loop", { runId });
+  },
+
+  acceptLoop(runId: string) {
+    return invoke<LoopRun>("accept_loop", { runId });
+  },
+
+  continueLoop(input: ContinueLoopInput) {
+    return invoke<LoopRun>("continue_loop", { input });
+  },
+
+  rejectLoop(runId: string) {
+    return invoke<LoopRun>("reject_loop", { runId });
+  },
+
+  async subscribeLoopEvents(runId: string, handler: (event: LoopEvent) => void) {
+    return subscribeLoopRunPolling(() => invoke<LoopRun>("get_loop_run", { runId }), handler);
   },
 
   getSessionChatConfig(sessionId) {

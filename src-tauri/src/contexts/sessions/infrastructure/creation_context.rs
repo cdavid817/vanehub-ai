@@ -182,6 +182,11 @@ fn workspace_error(error: WorkspaceError) -> SessionsApplicationError {
         WorkspaceError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)
         }
+        WorkspaceError::PolicyDenied { session_id, action } => {
+            SessionsApplicationError::Validation(format!(
+                "Verifier session {session_id} cannot perform workspace action: {action}"
+            ))
+        }
         WorkspaceError::Repository(message)
         | WorkspaceError::Selection(message)
         | WorkspaceError::Filesystem(message)
