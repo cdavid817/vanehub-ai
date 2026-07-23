@@ -35,7 +35,7 @@ keyring = "4.1.5"
 prost = "0.14"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 rand = "0.10"
-sha2 = "0.10"
+sha2 = "0.11"
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 tokio-rustls = "0.26"
 url = "2"
