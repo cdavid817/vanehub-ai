@@ -11,6 +11,7 @@ pub(crate) enum WorkspaceApplicationError {
     Storage(String),
     LaunchFailed(String),
     SessionNotFound(String),
+    PolicyDenied { session_id: String, action: String },
 }
 
 impl fmt::Display for WorkspaceApplicationError {
@@ -26,6 +27,10 @@ impl fmt::Display for WorkspaceApplicationError {
             Self::SessionNotFound(session_id) => {
                 write!(formatter, "workspace session not found: {session_id}")
             }
+            Self::PolicyDenied { session_id, action } => write!(
+                formatter,
+                "Verifier session {session_id} cannot perform workspace action: {action}"
+            ),
         }
     }
 }

@@ -138,6 +138,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "ssh-connection-management",
         apply_ssh_connection_management_migration,
     )?;
+    apply_migration(conn, 25, "loop-engineering-runtime", |connection| {
+        crate::contexts::agent_runtime::infrastructure::apply_loop_schema(connection)?;
+        crate::contexts::sessions::infrastructure::apply_loop_ownership_schema(connection)
+    })?;
 
     Ok(())
 }

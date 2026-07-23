@@ -168,6 +168,12 @@ impl From<AgentRuntimeApplicationError> for CommandError {
                     "validation error: A generation is already active for session {session_id}."
                 ),
             },
+            AgentRuntimeApplicationError::PolicyDenied { session_id, action } => Self {
+                category: CommandErrorCategory::Unsupported,
+                message: format!(
+                    "Verifier session {session_id} cannot perform Agent action: {action}"
+                ),
+            },
             AgentRuntimeApplicationError::Registry(message)
             | AgentRuntimeApplicationError::Workflow(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
@@ -177,10 +183,19 @@ impl From<AgentRuntimeApplicationError> for CommandError {
                 category: CommandErrorCategory::Unavailable,
                 message: format!("launch failed: {message}"),
             },
+            AgentRuntimeApplicationError::VerificationPolicy(message) => Self {
+                category: CommandErrorCategory::Unsupported,
+                message: format!("verification policy rejected execution: {message}"),
+            },
+            AgentRuntimeApplicationError::VerificationProcess(message) => Self {
+                category: CommandErrorCategory::Unavailable,
+                message: format!("verification process failed: {message}"),
+            },
             AgentRuntimeApplicationError::Session(message)
             | AgentRuntimeApplicationError::CliProfile(message)
             | AgentRuntimeApplicationError::Prompt(message)
             | AgentRuntimeApplicationError::Operation(message)
+            | AgentRuntimeApplicationError::Loop(message)
             | AgentRuntimeApplicationError::Logging(message)
             | AgentRuntimeApplicationError::Event(message)
             | AgentRuntimeApplicationError::Generation(message) => Self::storage(message),
@@ -262,6 +277,12 @@ impl From<WorkspaceError> for CommandError {
             WorkspaceError::SessionNotFound(session_id) => Self {
                 category: CommandErrorCategory::NotFound,
                 message: format!("session not found: {session_id}"),
+            },
+            WorkspaceError::PolicyDenied { session_id, action } => Self {
+                category: CommandErrorCategory::Unsupported,
+                message: format!(
+                    "Verifier session {session_id} cannot perform workspace action: {action}"
+                ),
             },
         }
     }

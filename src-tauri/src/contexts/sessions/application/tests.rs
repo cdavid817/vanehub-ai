@@ -1,8 +1,8 @@
 use super::*;
 use crate::contexts::sessions::domain::{
-    CategoryId, CategoryName, FileReferenceSet, MessageId, MessageRole, MessageStatus,
-    SessionActivation, SessionAggregate, SessionCategory, SessionId, SessionLifecycle,
-    SessionMessage, SessionOwner, SessionTitle,
+    CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
+    MessageStatus, SessionActivation, SessionAggregate, SessionCategory, SessionId,
+    SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,6 +63,23 @@ impl SessionRepository for FakeStore {
             .values()
             .filter(|session| {
                 session.aggregate.is_archived() == (scope == SessionListScope::Archived)
+                    && session.workspace.loop_ownership.is_none()
+            })
+            .cloned()
+            .collect())
+    }
+
+    fn list_including_loop_owned(
+        &self,
+        scope: SessionListScope,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        Ok(self
+            .sessions
+            .lock()
+            .expect("sessions")
+            .values()
+            .filter(|session| {
+                session.aggregate.is_archived() == (scope == SessionListScope::Archived)
             })
             .cloned()
             .collect())
@@ -81,6 +98,7 @@ impl SessionRepository for FakeStore {
             .lock()
             .expect("sessions")
             .values()
+            .filter(|session| session.workspace.loop_ownership.is_none())
             .take(query.limit)
             .cloned()
             .map(|session| SessionSearchResult {
@@ -961,6 +979,86 @@ fn reference(path: &str) -> FileReferenceInput {
         size_bytes: Some(12),
         content_hash: Some("hash".to_string()),
     }
+}
+
+#[test]
+fn loop_role_sessions_preserve_active_session_and_are_hidden_by_default() {
+    let fixture = fixture();
+    let active = session_record("session-active", "codex-cli", SessionLifecycle::Idle, false);
+    fixture.store.seed_session(active.clone());
+    *fixture
+        .store
+        .active_session_id
+        .lock()
+        .expect("active session") = Some(active.id().to_string());
+
+    let role_session = fixture
+        .service
+        .create_loop_role_session(LoopRoleSessionRequest {
+            run_id: "run-1".to_string(),
+            iteration_id: "iteration-1".to_string(),
+            role: LoopSessionRole::Verifier,
+            agent_id: "claude-code".to_string(),
+            interaction_mode: "interactive".to_string(),
+            project_path: "D:\\code\\project".to_string(),
+            worktree_path: "D:\\code\\project-loop-1".to_string(),
+            worktree_name: "loop-1".to_string(),
+            worktree_branch: "vanehub/loop-1".to_string(),
+        })
+        .expect("role session");
+
+    assert_eq!(
+        fixture
+            .store
+            .active_session_id
+            .lock()
+            .expect("active session")
+            .as_deref(),
+        Some("session-active")
+    );
+    let ownership = role_session
+        .workspace
+        .loop_ownership
+        .as_ref()
+        .expect("Loop ownership");
+    assert_eq!(ownership.run_id, "run-1");
+    assert_eq!(ownership.iteration_id, "iteration-1");
+    assert_eq!(ownership.role, LoopSessionRole::Verifier);
+    assert_eq!(
+        role_session.workspace.folder.as_deref(),
+        Some("D:\\code\\project-loop-1")
+    );
+    assert_eq!(
+        fixture
+            .service
+            .list_sessions(SessionListScope::Current)
+            .expect("normal sessions")
+            .len(),
+        1
+    );
+    assert_eq!(
+        fixture
+            .service
+            .list_sessions_including_loop_owned(SessionListScope::Current)
+            .expect("all sessions")
+            .len(),
+        2
+    );
+    assert!(fixture
+        .service
+        .find_session(role_session.id())
+        .expect("find role session")
+        .is_some());
+    assert_eq!(
+        fixture
+            .store
+            .events
+            .lock()
+            .expect("events")
+            .last()
+            .map(String::as_str),
+        Some("create:session-created:PreserveActive")
+    );
 }
 
 #[test]

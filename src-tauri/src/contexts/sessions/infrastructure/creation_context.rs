@@ -6,7 +6,7 @@ use crate::contexts::workspaces::api::{
     ensure_git_worktree_available, ensure_worktree_compatible, RemoteWorkspace, WorkspaceApi,
     WorkspaceError,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::OptionalExtension;
 
 #[derive(Clone)]
@@ -150,7 +150,7 @@ impl SessionCreationContextPort for SessionCreationContextAdapter {
 }
 
 impl SessionCreationContextAdapter {
-    fn connection(&self) -> Result<rusqlite::Connection, SessionsApplicationError> {
+    fn connection(&self) -> Result<PooledSqlite, SessionsApplicationError> {
         self.database
             .connection()
             .map_err(|error| SessionsApplicationError::Repository(error.to_string()))
@@ -181,6 +181,11 @@ fn workspace_error(error: WorkspaceError) -> SessionsApplicationError {
         WorkspaceError::LaunchFailed(message) => SessionsApplicationError::WorkspaceLaunch(message),
         WorkspaceError::SessionNotFound(session_id) => {
             SessionsApplicationError::SessionNotFound(session_id)
+        }
+        WorkspaceError::PolicyDenied { session_id, action } => {
+            SessionsApplicationError::Validation(format!(
+                "Verifier session {session_id} cannot perform workspace action: {action}"
+            ))
         }
         WorkspaceError::Repository(message)
         | WorkspaceError::Selection(message)

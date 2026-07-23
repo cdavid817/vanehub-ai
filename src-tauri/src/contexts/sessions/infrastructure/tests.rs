@@ -1,16 +1,17 @@
 use super::*;
 use crate::contexts::sessions::application::{
-    CategoryRecord, ChatConfigurationValues, FileReferenceInput, MessagePageQuery, MessageRecord,
-    MessageTokenUsage, MessageUsageRecord, SessionCategoryRepository,
-    SessionConfigurationRepository, SessionListScope, SessionMessageRepository, SessionRecord,
-    SessionRepository, SessionSearchMatchKind, SessionSearchQuery, SessionTransactionPort,
-    SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit, SessionWorkspace,
-    UsageStatisticsRange,
+    CategoryRecord, ChatConfigurationValues, FileReferenceInput, LoopSessionOwnership,
+    MessagePageQuery, MessageRecord, MessageTokenUsage, MessageUsageRecord,
+    SessionCategoryRepository, SessionConfigurationRepository, SessionListScope,
+    SessionMessageRepository, SessionRecord, SessionRepository, SessionSearchMatchKind,
+    SessionSearchQuery, SessionTransactionPort, SessionUsageAccountingKind, SessionUsageRepository,
+    SessionUsageUnit, SessionWorkspace, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, CategoryId, CategoryName, ChatConfigurationRequest, FileReference,
-    FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
-    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    FileReferenceSet, LoopSessionRole, MessageId, MessageRole, MessageStatus, SessionActivation,
+    SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
+    SessionTitle,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -114,6 +115,57 @@ fn usage_record(message_id: &str, session_id: &str, agent_id: &str) -> MessageUs
         source: "provider".to_string(),
         occurred_at: "2026-07-18T10:00:00+00:00".to_string(),
     }
+}
+
+#[test]
+fn loop_owned_sessions_round_trip_but_stay_out_of_default_navigation() {
+    let fixture = fixture("sessions-loop-ownership");
+    let repository = &fixture.repository;
+    let normal = session_record(
+        "session-normal",
+        SessionLifecycle::Idle,
+        "Normal session",
+        "2026-07-18T10:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(repository, &normal, SessionActivation::PreserveActive)
+        .expect("normal session");
+    let mut role = session_record(
+        "session-loop-verifier",
+        SessionLifecycle::Idle,
+        "Loop verifier",
+        "2026-07-18T11:00:00+00:00",
+    );
+    role.workspace.loop_ownership = Some(LoopSessionOwnership {
+        run_id: "run-1".to_string(),
+        iteration_id: "iteration-1".to_string(),
+        role: LoopSessionRole::Verifier,
+    });
+    SessionTransactionPort::create_session(repository, &role, SessionActivation::PreserveActive)
+        .expect("role session");
+
+    let default_list =
+        SessionRepository::list(repository, SessionListScope::Current).expect("default sessions");
+    assert_eq!(default_list.len(), 1);
+    assert_eq!(default_list[0].id(), "session-normal");
+    let all = SessionRepository::list_including_loop_owned(repository, SessionListScope::Current)
+        .expect("all sessions");
+    assert_eq!(all.len(), 2);
+    let loaded = SessionRepository::find(repository, role.aggregate.id())
+        .expect("find role")
+        .expect("role");
+    assert_eq!(
+        loaded.workspace.loop_ownership.expect("ownership").role,
+        LoopSessionRole::Verifier
+    );
+    let search = SessionRepository::search(
+        repository,
+        &SessionSearchQuery {
+            text: "Loop verifier".to_string(),
+            limit: 10,
+        },
+    )
+    .expect("search");
+    assert!(search.is_empty());
 }
 
 #[test]

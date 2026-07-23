@@ -68,5 +68,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-22 | configure-github-repository | continuous-integration, desktop-release-delivery, repository-governance, software-supply-chain-security | `openspec/changes/archive/2026-07-22-configure-github-repository/` |
 | 2026-07-22 | enhance-session-resume-and-project-sidebar | agent-terminal-runtime, main-layout-ui, session-management | `openspec/changes/archive/2026-07-22-enhance-session-resume-and-project-sidebar/` |
 | 2026-07-22 | fix-ssh-connection-management-defects | session-management, settings-ssh-connection-ui, ssh-connection-management | `openspec/changes/archive/2026-07-22-fix-ssh-connection-management-defects/` |
+| 2026-07-23 | add-loop-engineering-runtime | loop-engineering-runtime, loop-management-ui, main-layout-ui, project-worktree-management, session-runtime-management | `openspec/changes/archive/2026-07-23-add-loop-engineering-runtime/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

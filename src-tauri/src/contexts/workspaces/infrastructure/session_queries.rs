@@ -7,7 +7,7 @@ use crate::contexts::workspaces::application::{
 };
 use crate::contexts::workspaces::domain::{CanonicalPathBoundary, WorkspaceRelativePath};
 use crate::platform;
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use crate::platform::logging;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::{BTreeMap, HashSet};
@@ -36,7 +36,7 @@ impl SessionWorkspaceQueryAdapter {
         Self { database, app }
     }
 
-    fn connection(&self) -> Result<Connection, AppError> {
+    fn connection(&self) -> Result<PooledSqlite, AppError> {
         self.database
             .connection()
             .map_err(|error| AppError::Repository(error.to_string()))
@@ -45,28 +45,28 @@ impl SessionWorkspaceQueryAdapter {
 
 impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
     fn resolve_session_root(&self, session_id: &str) -> Result<Option<String>, AppError> {
-        resolve_session_root(&self.connection()?, session_id)
+        resolve_session_root(&*self.connection()?, session_id)
             .map(|root| root.map(|path| path.to_string_lossy().to_string()))
     }
 
     fn list_directory(&self, session_id: &str, path: &str) -> Result<DirectoryListing, AppError> {
-        list_session_directory(&self.connection()?, session_id, path)
+        list_session_directory(&*self.connection()?, session_id, path)
     }
 
     fn list_documents(&self, session_id: &str) -> Result<DocumentListing, AppError> {
-        list_session_documents(&self.connection()?, session_id)
+        list_session_documents(&*self.connection()?, session_id)
     }
 
     fn read_file(&self, session_id: &str, path: &str) -> Result<FileContent, AppError> {
-        read_session_file(&self.connection()?, session_id, path)
+        read_session_file(&*self.connection()?, session_id, path)
     }
 
     fn read_text_file(&self, session_id: &str, path: &str) -> Result<FileContent, AppError> {
-        read_session_text_file(&self.connection()?, session_id, path)
+        read_session_text_file(&*self.connection()?, session_id, path)
     }
 
     fn git_status(&self, session_id: &str) -> Result<GitStatusResult, AppError> {
-        get_session_git_status(&self.connection()?, session_id)
+        get_session_git_status(&*self.connection()?, session_id)
     }
 
     fn git_diff(
@@ -75,15 +75,15 @@ impl WorkspaceSessionQueryPort for SessionWorkspaceQueryAdapter {
         path: &str,
         source: GitDiffSource,
     ) -> Result<GitDiffResult, AppError> {
-        get_session_git_diff(&self.connection()?, session_id, path, source)
+        get_session_git_diff(&*self.connection()?, session_id, path, source)
     }
 
     fn list_logs(&self, query: &SessionLogQuery) -> Result<SessionLogPage, AppError> {
-        list_session_logs(&self.connection()?, query)
+        list_session_logs(&*self.connection()?, query)
     }
 
     fn export_logs(&self, query: &SessionLogQuery) -> Result<SessionLogExportResult, AppError> {
-        export_session_logs(&self.app, &self.connection()?, query)
+        export_session_logs(&self.app, &*self.connection()?, query)
     }
 }
 

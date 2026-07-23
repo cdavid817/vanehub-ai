@@ -1,5 +1,5 @@
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -672,7 +672,7 @@ impl CliParametersApi {
         &self,
         agent_id: &str,
     ) -> Result<BTreeMap<String, Value>, CliParametersError> {
-        load_selections_with_logging(&self.connection()?, agent_id, Some(self.logging.as_ref()))
+        load_selections_with_logging(&*self.connection()?, agent_id, Some(self.logging.as_ref()))
     }
 
     pub(crate) fn normalize_selections(
@@ -692,7 +692,7 @@ impl CliParametersApi {
         preview_args(agent_id, selections, scope)
     }
 
-    fn connection(&self) -> Result<Connection, CliParametersError> {
+    fn connection(&self) -> Result<PooledSqlite, CliParametersError> {
         self.database
             .connection()
             .map_err(|error| CliParametersError::Repository(error.to_string()))
