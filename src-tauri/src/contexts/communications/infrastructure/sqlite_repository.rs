@@ -5,8 +5,8 @@ use crate::contexts::communications::domain::{
     ChatBinding, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
     ConnectorKind, InboundEventIdentity, RoutingSettings,
 };
-use crate::platform::database::NativeDatabase;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use crate::platform::database::{NativeDatabase, PooledSqlite};
+use rusqlite::{params, OptionalExtension, Row};
 use sha2::{Digest, Sha256};
 
 const CONNECTOR_SELECT: &str = r#"
@@ -26,7 +26,7 @@ impl SqliteCommunicationsRepository {
         Self { database }
     }
 
-    fn connection(&self) -> Result<Connection, CommunicationsApplicationError> {
+    fn connection(&self) -> Result<PooledSqlite, CommunicationsApplicationError> {
         self.database
             .connection()
             .map_err(|_| repository_unavailable())

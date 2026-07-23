@@ -6,7 +6,7 @@ use crate::contexts::agent_runtime::domain::{
     LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
     LoopTerminalReason, LoopVerificationCommand,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
@@ -669,7 +669,7 @@ impl LoopIterationRepository for SqliteLoopRepository {
 }
 
 impl SqliteLoopRepository {
-    fn connection(&self) -> Result<rusqlite::Connection, AgentRuntimeApplicationError> {
+    fn connection(&self) -> Result<PooledSqlite, AgentRuntimeApplicationError> {
         self.database.connection().map_err(loop_error)
     }
 }
