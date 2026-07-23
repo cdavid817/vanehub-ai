@@ -1588,7 +1588,7 @@ impl AgentProcessEventSink for GenerationEventHandler {
                 Ok(())
             }
             GenerationProcessEvent::Completed => self.completed(),
-            GenerationProcessEvent::Failed(diagnostic) => self.failed(diagnostic),
+            GenerationProcessEvent::Failed(failure) => self.failed(failure.diagnostic),
         }
     }
 }

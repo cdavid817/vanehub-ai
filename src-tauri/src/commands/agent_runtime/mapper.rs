@@ -2,7 +2,15 @@ use super::dto;
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMessage,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
-    AgentTerminalSize as ApiAgentTerminalSize, AgentView, InteractionMode, LaunchWorkflowResult,
+    AgentTerminalSize as ApiAgentTerminalSize, AgentView,
+    CoordinationAttempt as ApiCoordinationAttempt,
+    CoordinationAttemptStatus as ApiCoordinationAttemptStatus,
+    CoordinationCandidateRole as ApiCoordinationCandidateRole,
+    CoordinationFailureKind as ApiCoordinationFailureKind,
+    CoordinationNodeInput as ApiCoordinationNodeInput,
+    CoordinationNodeStatus as ApiCoordinationNodeStatus,
+    CoordinationOutput as ApiCoordinationOutput, CoordinationRun as ApiCoordinationRun,
+    CoordinationRunStatus as ApiCoordinationRunStatus, InteractionMode, LaunchWorkflowResult,
     OpenAgentTerminalRequest, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
     StopAgentTerminalRequest, WorkflowView,
 };
@@ -13,6 +21,130 @@ use crate::contexts::agent_runtime::application::{
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
     agents.into_iter().map(agent_to_dto).collect()
+}
+
+pub(super) fn start_coordination_request(
+    input: dto::StartCoordinationInput,
+) -> crate::contexts::agent_runtime::application::StartCoordinationRequest {
+    crate::contexts::agent_runtime::application::StartCoordinationRequest {
+        name: input.name,
+        project_path: input.project_path,
+        nodes: input
+            .nodes
+            .into_iter()
+            .map(|node| ApiCoordinationNodeInput {
+                id: node.id,
+                primary_agent_id: node.primary_agent_id,
+                fallback_agent_ids: node.fallback_agent_ids,
+                instruction: node.instruction,
+                depends_on: node.depends_on,
+            })
+            .collect(),
+    }
+}
+
+pub(super) fn coordination_run_to_dto(run: ApiCoordinationRun) -> dto::CoordinationRun {
+    dto::CoordinationRun {
+        id: run.id,
+        operation_id: run.operation_id,
+        name: run.plan.name,
+        project_path: run.plan.project_path,
+        status: coordination_run_status_to_dto(run.status),
+        nodes: run
+            .nodes
+            .into_iter()
+            .map(coordination_node_to_dto)
+            .collect(),
+        simulated: false,
+        cancel_requested: run.cancel_requested,
+        created_at: run.created_at,
+        started_at: run.started_at,
+        updated_at: run.updated_at,
+        completed_at: run.completed_at,
+    }
+}
+
+fn coordination_node_to_dto(
+    node: crate::contexts::agent_runtime::api::CoordinationNodeRun,
+) -> dto::CoordinationNodeRun {
+    dto::CoordinationNodeRun {
+        id: node.definition.id,
+        primary_agent_id: node.definition.primary_agent_id,
+        fallback_agent_ids: node.definition.fallback_agent_ids,
+        instruction: node.definition.instruction,
+        depends_on: node.definition.depends_on,
+        status: coordination_node_status_to_dto(node.status),
+        actual_agent_id: node.actual_agent_id,
+        output: node.output.map(coordination_output_to_dto),
+        attempts: node
+            .attempts
+            .into_iter()
+            .map(coordination_attempt_to_dto)
+            .collect(),
+        error: node.error,
+        started_at: node.started_at,
+        completed_at: node.completed_at,
+    }
+}
+
+fn coordination_output_to_dto(output: ApiCoordinationOutput) -> dto::CoordinationOutput {
+    dto::CoordinationOutput {
+        source_node_id: output.source_node_id,
+        agent_id: output.agent_id,
+        attempt: output.attempt,
+        content: output.content,
+        byte_count: output.byte_count,
+        truncated: output.truncated,
+    }
+}
+
+fn coordination_attempt_to_dto(attempt: ApiCoordinationAttempt) -> dto::CoordinationAttempt {
+    dto::CoordinationAttempt {
+        attempt: attempt.attempt,
+        agent_id: attempt.agent_id,
+        candidate_role: match attempt.candidate_role {
+            ApiCoordinationCandidateRole::Primary => dto::CoordinationCandidateRole::Primary,
+            ApiCoordinationCandidateRole::Fallback => dto::CoordinationCandidateRole::Fallback,
+        },
+        status: match attempt.status {
+            ApiCoordinationAttemptStatus::Running => dto::CoordinationAttemptStatus::Running,
+            ApiCoordinationAttemptStatus::Succeeded => dto::CoordinationAttemptStatus::Succeeded,
+            ApiCoordinationAttemptStatus::Failed => dto::CoordinationAttemptStatus::Failed,
+            ApiCoordinationAttemptStatus::Cancelled => dto::CoordinationAttemptStatus::Cancelled,
+        },
+        failure_kind: attempt.failure_kind.map(|kind| match kind {
+            ApiCoordinationFailureKind::Retryable => dto::CoordinationFailureKind::Retryable,
+            ApiCoordinationFailureKind::NonRetryable => dto::CoordinationFailureKind::NonRetryable,
+            ApiCoordinationFailureKind::Cancelled => dto::CoordinationFailureKind::Cancelled,
+        }),
+        error: attempt.error,
+        started_at: attempt.started_at,
+        completed_at: attempt.completed_at,
+    }
+}
+
+fn coordination_run_status_to_dto(status: ApiCoordinationRunStatus) -> dto::CoordinationRunStatus {
+    match status {
+        ApiCoordinationRunStatus::Queued => dto::CoordinationRunStatus::Queued,
+        ApiCoordinationRunStatus::Running => dto::CoordinationRunStatus::Running,
+        ApiCoordinationRunStatus::Succeeded => dto::CoordinationRunStatus::Succeeded,
+        ApiCoordinationRunStatus::Failed => dto::CoordinationRunStatus::Failed,
+        ApiCoordinationRunStatus::Cancelled => dto::CoordinationRunStatus::Cancelled,
+    }
+}
+
+fn coordination_node_status_to_dto(
+    status: ApiCoordinationNodeStatus,
+) -> dto::CoordinationNodeStatus {
+    match status {
+        ApiCoordinationNodeStatus::Blocked => dto::CoordinationNodeStatus::Blocked,
+        ApiCoordinationNodeStatus::Queued => dto::CoordinationNodeStatus::Queued,
+        ApiCoordinationNodeStatus::Running => dto::CoordinationNodeStatus::Running,
+        ApiCoordinationNodeStatus::Succeeded => dto::CoordinationNodeStatus::Succeeded,
+        ApiCoordinationNodeStatus::Failed => dto::CoordinationNodeStatus::Failed,
+        ApiCoordinationNodeStatus::Skipped => dto::CoordinationNodeStatus::Skipped,
+        ApiCoordinationNodeStatus::Cancelled => dto::CoordinationNodeStatus::Cancelled,
+    }
 }
 
 pub(super) fn agent_to_dto(agent: AgentView) -> dto::AgentRegistryEntry {
@@ -399,5 +531,77 @@ mod tests {
         assert_eq!(value["state"], "running");
         assert_eq!(value["capability"], "native");
         assert!(value.get("terminal_id").is_none());
+    }
+
+    #[test]
+    fn coordination_contract_preserves_graph_attempt_and_output_shapes() {
+        use crate::contexts::agent_runtime::domain::{
+            CoordinationAttempt, CoordinationAttemptStatus, CoordinationCandidateRole,
+            CoordinationNodeStatus, CoordinationOutput, CoordinationPlan, CoordinationPlanInput,
+            CoordinationRun,
+        };
+        use std::collections::BTreeSet;
+
+        let input = serde_json::from_value::<dto::StartCoordinationInput>(serde_json::json!({
+            "name": "pipeline",
+            "projectPath": "D:\\project",
+            "nodes": [{
+                "id": "implement",
+                "primaryAgentId": "codex-cli",
+                "fallbackAgentIds": ["claude-code"],
+                "instruction": "implement",
+                "dependsOn": []
+            }]
+        }))
+        .expect("coordination input");
+        let request = start_coordination_request(input);
+        assert_eq!(request.nodes[0].fallback_agent_ids, vec!["claude-code"]);
+
+        let plan = CoordinationPlan::new(
+            CoordinationPlanInput {
+                name: request.name,
+                project_path: request.project_path,
+                nodes: request.nodes,
+            },
+            &BTreeSet::from(["claude-code".to_string(), "codex-cli".to_string()]),
+        )
+        .expect("plan");
+        let mut run = CoordinationRun::new(
+            "coordination-run-1".to_string(),
+            "operation-1".to_string(),
+            plan,
+            "2026-07-23T00:00:00Z".to_string(),
+        )
+        .expect("run");
+        let node = run.node_mut("implement").expect("node");
+        node.status = CoordinationNodeStatus::Succeeded;
+        node.actual_agent_id = Some("claude-code".to_string());
+        node.output = Some(CoordinationOutput::bounded(
+            "implement".to_string(),
+            "claude-code".to_string(),
+            2,
+            "done".to_string(),
+        ));
+        node.attempts.push(CoordinationAttempt {
+            attempt: 2,
+            agent_id: "claude-code".to_string(),
+            candidate_role: CoordinationCandidateRole::Fallback,
+            status: CoordinationAttemptStatus::Succeeded,
+            failure_kind: None,
+            error: None,
+            started_at: "2026-07-23T00:00:01Z".to_string(),
+            completed_at: Some("2026-07-23T00:00:02Z".to_string()),
+        });
+
+        let value = serde_json::to_value(coordination_run_to_dto(run)).expect("serialize run");
+        assert_eq!(value["operationId"], "operation-1");
+        assert_eq!(value["nodes"][0]["fallbackAgentIds"][0], "claude-code");
+        assert_eq!(
+            value["nodes"][0]["attempts"][0]["candidateRole"],
+            "fallback"
+        );
+        assert_eq!(value["nodes"][0]["output"]["sourceNodeId"], "implement");
+        assert_eq!(value["simulated"], false);
+        assert!(value.get("operation_id").is_none());
     }
 }

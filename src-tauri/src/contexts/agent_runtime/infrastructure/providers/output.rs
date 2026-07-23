@@ -1,3 +1,4 @@
+use crate::contexts::agent_runtime::application::GenerationProcessFailure;
 use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde_json::Value;
 
@@ -9,7 +10,7 @@ pub(crate) enum ProviderOutputEvent {
     RichBlock(Value),
     SessionId(String),
     Completed,
-    Failed(String),
+    Failed(GenerationProcessFailure),
     Empty,
 }
 
@@ -134,14 +135,9 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
             ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)))
         }
         "result" | "complete" | "completed" => ProviderOutputEvent::Completed,
-        "error" | "failed" => ProviderOutputEvent::Failed(
-            value
-                .get("message")
-                .or_else(|| value.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("Agent output reported an error.")
-                .to_string(),
-        ),
+        "error" | "failed" => {
+            ProviderOutputEvent::Failed(provider_failure(&value, "Agent output reported an error."))
+        }
         _ => parse_generic_line(line),
     }
 }
@@ -164,9 +160,10 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
         event_type,
         "error" | "failed" | "failure" | "turn.failed" | "run_error"
     ) {
-        return ProviderOutputEvent::Failed(
-            error_value(&value).unwrap_or_else(|| "Agent CLI reported an error.".to_string()),
-        );
+        return ProviderOutputEvent::Failed(provider_failure(
+            &value,
+            "Agent CLI reported an error.",
+        ));
     }
     if matches!(
         event_type,
@@ -294,6 +291,62 @@ fn error_value(value: &Value) -> Option<String> {
         .or_else(|| value.pointer("/error/message").and_then(Value::as_str))
         .map(str::to_string)
         .filter(|message| !message.is_empty())
+}
+
+fn provider_failure(value: &Value, fallback: &str) -> GenerationProcessFailure {
+    let diagnostic = error_value(value).unwrap_or_else(|| fallback.to_string());
+    if structured_error_codes(value)
+        .into_iter()
+        .any(|code| is_non_retryable_error_code(&code))
+    {
+        GenerationProcessFailure::non_retryable(diagnostic)
+    } else {
+        GenerationProcessFailure::retryable(diagnostic)
+    }
+}
+
+fn structured_error_codes(value: &Value) -> Vec<String> {
+    [
+        "/code",
+        "/status",
+        "/reason",
+        "/error/code",
+        "/error/status",
+        "/error/type",
+        "/error/reason",
+    ]
+    .into_iter()
+    .filter_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
+    .map(normalize_error_code)
+    .collect()
+}
+
+fn normalize_error_code(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', '.', ' '], "_")
+}
+
+fn is_non_retryable_error_code(code: &str) -> bool {
+    matches!(
+        code,
+        "invalid_request"
+            | "invalid_argument"
+            | "bad_request"
+            | "permission_denied"
+            | "forbidden"
+            | "unauthorized"
+            | "unauthenticated"
+            | "authentication_error"
+            | "authorization_error"
+            | "policy_rejection"
+            | "policy_violation"
+            | "content_policy_violation"
+            | "context_length_exceeded"
+            | "configuration_error"
+            | "unsupported"
+    )
 }
 
 fn valid_rich_block(block: &Value) -> bool {

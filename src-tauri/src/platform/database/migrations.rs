@@ -148,6 +148,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "agent-execution-observability",
         crate::contexts::execution_observability::infrastructure::apply_schema,
     )?;
+    apply_migration(
+        conn,
+        27,
+        "multi-agent-coordination",
+        crate::contexts::agent_runtime::infrastructure::apply_coordination_schema,
+    )?;
 
     Ok(())
 }

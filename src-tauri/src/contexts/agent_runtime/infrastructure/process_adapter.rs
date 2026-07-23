@@ -5,8 +5,9 @@ use super::providers::{
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
     AgentProcessGateway, AgentRuntimeApplicationError, GenerationProcessEvent,
-    GenerationProcessRequest, StartedGenerationProcess, ToolLifecycleEvent, ToolLifecyclePhase,
-    ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    GenerationProcessFailure, GenerationProcessRequest, StartedGenerationProcess,
+    ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
 use crate::contexts::execution_observability::api::{
@@ -629,7 +630,9 @@ impl ProcessMonitor {
                     ProviderOutputEvent::Completed | ProviderOutputEvent::Empty => None,
                 },
                 Err(error) => {
-                    terminal_error = Some(format!("Failed to read Agent CLI output: {error}"));
+                    terminal_error = Some(GenerationProcessFailure::retryable(format!(
+                        "Failed to read Agent CLI output: {error}"
+                    )));
                     break;
                 }
             };
@@ -646,8 +649,9 @@ impl ProcessMonitor {
                     });
                 }
                 if let Err(error) = sink.handle(event) {
-                    terminal_error =
-                        Some(format!("Agent generation event handling failed: {error}"));
+                    terminal_error = Some(GenerationProcessFailure::retryable(format!(
+                        "Agent generation event handling failed: {error}"
+                    )));
                     break;
                 }
             }
@@ -681,14 +685,16 @@ impl ProcessMonitor {
         let terminal = match (terminal_error, exit_status) {
             (Some(error), _) => GenerationProcessEvent::Failed(error),
             (None, Ok(status)) if status.success() => GenerationProcessEvent::Completed,
-            (None, Ok(status)) => {
-                GenerationProcessEvent::Failed(if stderr_output.trim().is_empty() {
+            (None, Ok(status)) => GenerationProcessEvent::Failed(
+                GenerationProcessFailure::retryable(if stderr_output.trim().is_empty() {
                     format!("Agent CLI exited with status {status}.")
                 } else {
                     stderr_output.trim().to_string()
-                })
+                }),
+            ),
+            (None, Err(error)) => {
+                GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(error))
             }
-            (None, Err(error)) => GenerationProcessEvent::Failed(error),
         };
         let (process_status, process_error) = match &terminal {
             GenerationProcessEvent::Completed => (ExecutionStatus::Succeeded, None),

@@ -17,6 +17,29 @@ function updateWebOperation(operationId: string, updates: Partial<OperationTask>
   );
 }
 
+export function settleWebOperation(
+  operationId: string,
+  status: Extract<OperationTask["status"], "succeeded" | "failed" | "cancelled">,
+  error: string | null,
+  result: Record<string, unknown> | null = null,
+) {
+  const current = mockOperations.find((item) => item.id === operationId);
+  if (!current || ["succeeded", "failed", "cancelled"].includes(current.status)) return;
+  updateWebOperation(operationId, {
+    status,
+    result,
+    error,
+    logs: [
+      ...current.logs,
+      {
+        operationId,
+        line: error ?? `Operation ${status}.`,
+        timestamp: nowIso(),
+      },
+    ],
+  });
+}
+
 export function createWebMockOperation(input: {
   id: string;
   kind?: OperationTask["kind"];
@@ -41,6 +64,8 @@ export function createWebMockOperation(input: {
   };
   registerWebOperation(operation);
   setTimeout(() => {
+    const current = mockOperations.find((item) => item.id === input.id);
+    if (!current || ["succeeded", "failed", "cancelled"].includes(current.status)) return;
     updateWebOperation(input.id, {
       status: "running",
       logs: [
@@ -55,6 +80,7 @@ export function createWebMockOperation(input: {
   }, 50);
   setTimeout(() => {
     const current = mockOperations.find((item) => item.id === input.id);
+    if (!current || ["succeeded", "failed", "cancelled"].includes(current.status)) return;
     updateWebOperation(input.id, {
       status: input.terminalStatus,
       result: input.result ?? null,

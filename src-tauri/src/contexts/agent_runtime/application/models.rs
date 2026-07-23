@@ -472,7 +472,35 @@ pub(crate) enum GenerationProcessEvent {
     RuntimeSessionId(String),
     Stderr(String),
     Completed,
-    Failed(String),
+    Failed(GenerationProcessFailure),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenerationProcessFailureKind {
+    Retryable,
+    NonRetryable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GenerationProcessFailure {
+    pub(crate) kind: GenerationProcessFailureKind,
+    pub(crate) diagnostic: String,
+}
+
+impl GenerationProcessFailure {
+    pub(crate) fn retryable(diagnostic: impl Into<String>) -> Self {
+        Self {
+            kind: GenerationProcessFailureKind::Retryable,
+            diagnostic: diagnostic.into(),
+        }
+    }
+
+    pub(crate) fn non_retryable(diagnostic: impl Into<String>) -> Self {
+        Self {
+            kind: GenerationProcessFailureKind::NonRetryable,
+            diagnostic: diagnostic.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,5 +1,9 @@
 mod availability;
 mod cli_profile;
+mod coordination_executor;
+mod coordination_repository;
+mod coordination_scheduler;
+mod coordination_schema;
 mod events;
 mod generation_coordinator;
 mod loop_execution_coordinator;
@@ -24,6 +28,10 @@ mod terminal_wrapper;
 
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
+pub(crate) use coordination_executor::NativeCoordinationNodeExecutor;
+pub(crate) use coordination_repository::SqliteCoordinationRepository;
+pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
+pub(crate) use coordination_schema::apply_coordination_schema;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
@@ -39,6 +47,7 @@ pub(crate) use process_adapter::{
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
+    UuidCoordinationIds,
 };
 pub(crate) use schema::seed_registry;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;

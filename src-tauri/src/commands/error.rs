@@ -197,6 +197,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Prompt(message)
             | AgentRuntimeApplicationError::Operation(message)
             | AgentRuntimeApplicationError::Loop(message)
+            | AgentRuntimeApplicationError::Coordination(message)
             | AgentRuntimeApplicationError::Logging(message)
             | AgentRuntimeApplicationError::Event(message)
             | AgentRuntimeApplicationError::Generation(message) => Self::storage(message),

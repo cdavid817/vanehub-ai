@@ -30,4 +30,6 @@ pub(crate) enum AgentRuntimeDomainError {
     InvalidLoopTransition { from: String, to: String },
     #[error("Loop limit reached: {0}.")]
     LoopLimitReached(&'static str),
+    #[error("invalid Multi-Agent coordination: {0}.")]
+    InvalidCoordination(String),
 }

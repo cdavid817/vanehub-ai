@@ -1,4 +1,5 @@
 pub(crate) mod check_browser_readiness;
+pub(crate) mod coordination;
 mod dto;
 pub(crate) mod get_agent_by_id;
 pub(crate) mod get_session_details;
