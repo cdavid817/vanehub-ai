@@ -14,6 +14,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
+import type { ReactElement } from "react";
 import { AgentsPage } from "./pages/agents-page";
 import { AboutPage } from "./pages/about-page";
 import { BasicSettingsPage } from "./pages/basic-settings-page";
@@ -55,7 +56,7 @@ export interface SettingsPageDefinition {
   icon: LucideIcon;
   badge?: number;
   searchPlaceholderKey: string;
-  component: (props: SettingsPageContext) => JSX.Element;
+  component: (props: SettingsPageContext) => ReactElement;
 }
 
 export const settingsPages: SettingsPageDefinition[] = [
