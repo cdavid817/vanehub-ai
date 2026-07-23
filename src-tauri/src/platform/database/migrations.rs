@@ -142,6 +142,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         crate::contexts::agent_runtime::infrastructure::apply_loop_schema(connection)?;
         crate::contexts::sessions::infrastructure::apply_loop_ownership_schema(connection)
     })?;
+    apply_migration(
+        conn,
+        26,
+        "agent-execution-observability",
+        crate::contexts::execution_observability::infrastructure::apply_schema,
+    )?;
 
     Ok(())
 }

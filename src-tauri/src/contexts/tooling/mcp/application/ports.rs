@@ -88,3 +88,20 @@ pub(crate) trait McpLoggingPort: Send + Sync {
 pub(crate) trait McpProjectPathPort: Send + Sync {
     fn current_project_path(&self) -> Result<String, McpApplicationError>;
 }
+
+pub(crate) trait McpTelemetryPort: Send + Sync {
+    fn start_connection_test(
+        &self,
+        operation_id: &str,
+        server_name: &str,
+        transport: crate::contexts::tooling::mcp::domain::TransportType,
+        started_at: &str,
+    ) -> Result<String, McpApplicationError>;
+
+    fn finish_connection_test(
+        &self,
+        observation_id: &str,
+        outcome: &ConnectionOutcome,
+        ended_at: &str,
+    ) -> Result<(), McpApplicationError>;
+}

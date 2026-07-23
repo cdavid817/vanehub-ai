@@ -6,6 +6,7 @@ import {
   Info,
   KeyRound,
   MessagesSquare,
+  Activity,
   Puzzle,
   Plug,
   Settings,
@@ -28,6 +29,7 @@ import { PromptHooksPage } from "./pages/prompt-hooks-page";
 import { SkillsPage } from "./pages/skills-page";
 import { SshConnectionsPage } from "./pages/ssh-connections-page";
 import { UsageStatisticsPage } from "./pages/usage-statistics-page";
+import { ObservabilitySettingsPage } from "./pages/observability-settings-page";
 
 export type SettingsPageId =
   | "basic"
@@ -41,6 +43,7 @@ export type SettingsPageId =
   | "prompt-hooks"
   | "im"
   | "ssh-connections"
+  | "observability"
   | "usage"
   | "about";
 
@@ -147,6 +150,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Plug,
     searchPlaceholderKey: "settings.search.plugins",
     component: PluginIntegrationsPage,
+  },
+  {
+    id: "observability",
+    labelKey: "settings.pages.observability",
+    crumbKey: "settings.pages.observability",
+    icon: Activity,
+    searchPlaceholderKey: "settings.search.observability",
+    component: ObservabilitySettingsPage,
   },
   {
     id: "usage",

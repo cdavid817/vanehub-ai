@@ -3,6 +3,10 @@ use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow,
     AvailabilityAssessment, InteractionMode, LaunchMetadata,
 };
+use crate::contexts::execution_observability::api::{
+    CapturedTelemetryRecord, CapturingExecutionTelemetry, ExecutionFidelity, ExecutionSettingsPort,
+    ExecutionStatus, ExecutionTelemetryError, ObservabilitySettings, RandomExecutionIdentity,
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -22,6 +26,7 @@ type ActiveGeneration = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<crate::contexts::execution_observability::api::ExecutionContext>,
 );
 
 struct FakeWorld {
@@ -433,7 +438,11 @@ impl AgentProcessGateway for FakeWorld {
         Ok(())
     }
 
-    fn stop_generation(&self, process_id: &str) -> Result<bool, AgentRuntimeApplicationError> {
+    fn stop_generation(
+        &self,
+        process_id: &str,
+        _initiator: ProcessStopInitiator,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
         self.stopped_processes
             .lock()
             .expect("stopped processes")
@@ -557,8 +566,26 @@ impl AgentGenerationPort for FakeWorld {
             session_id: session_id.to_string(),
             lease_id: "lease-1".to_string(),
         };
-        *active = Some((lease.clone(), None, None, None));
+        *active = Some((lease.clone(), None, None, None, None));
         Ok(lease)
+    }
+
+    fn correlate(
+        &self,
+        lease: &GenerationLease,
+        execution_context: &crate::contexts::execution_observability::api::ExecutionContext,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut active = self.active_generation.lock().expect("active generation");
+        let current = active.as_mut().ok_or_else(|| {
+            AgentRuntimeApplicationError::Generation("reservation missing".to_string())
+        })?;
+        if current.0 != *lease {
+            return Err(AgentRuntimeApplicationError::Generation(
+                "lease mismatch".to_string(),
+            ));
+        }
+        current.4 = Some(execution_context.clone());
+        Ok(())
     }
 
     fn attach(
@@ -601,10 +628,13 @@ impl AgentGenerationPort for FakeWorld {
             .expect("active generation")
             .take()
             .map(
-                |(_, message_id, process_id, operation_id)| GenerationCancellation {
-                    message_id,
-                    process_id,
-                    operation_id,
+                |(_, message_id, process_id, operation_id, execution_context)| {
+                    GenerationCancellation {
+                        message_id,
+                        process_id,
+                        operation_id,
+                        execution_context,
+                    }
                 },
             ))
     }
@@ -617,6 +647,12 @@ impl AgentGenerationPort for FakeWorld {
     fn fail(&self, _session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         *self.active_generation.lock().expect("active generation") = None;
         Ok(())
+    }
+}
+
+impl ExecutionSettingsPort for FakeWorld {
+    fn load_settings(&self) -> Result<ObservabilitySettings, ExecutionTelemetryError> {
+        Ok(ObservabilitySettings::default())
     }
 }
 
@@ -703,6 +739,7 @@ fn verifier_generation_forces_read_only_permission_mode() {
 
     service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "Inspect the current implementation.".to_string(),
             file_references: Vec::new(),
@@ -719,7 +756,14 @@ fn verifier_generation_forces_read_only_permission_mode() {
 }
 
 fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
-    AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
+    service_with_telemetry(world).0
+}
+
+fn service_with_telemetry(
+    world: Arc<FakeWorld>,
+) -> (AgentRuntimeApplicationService, CapturingExecutionTelemetry) {
+    let telemetry = CapturingExecutionTelemetry::default();
+    let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: world.clone(),
         workflows: world.clone(),
         sessions: world.clone(),
@@ -731,8 +775,12 @@ fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
         clock: world.clone(),
         events: world.clone(),
         generations: world.clone(),
+        execution_ids: Arc::new(RandomExecutionIdentity),
+        execution_settings: world.clone(),
+        telemetry: Arc::new(telemetry.clone()),
         loop_completions: world,
-    })
+    });
+    (service, telemetry)
 }
 
 fn test_world() -> Arc<FakeWorld> {
@@ -834,6 +882,7 @@ fn send_message_reserves_before_writes_and_attaches_effective_prompt_process() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "  explain this  ".to_string(),
             configuration: chat_configuration(),
@@ -871,6 +920,200 @@ fn send_message_reserves_before_writes_and_attaches_effective_prompt_process() {
         .expect("attached generation");
     assert_eq!(active.1.as_deref(), Some("message-2"));
     assert_eq!(active.2.as_deref(), Some("process-1"));
+    let coordinated_context = active.4.expect("coordinated execution context");
+    let process_context = world
+        .generation_requests
+        .lock()
+        .expect("generation requests")[0]
+        .execution_context
+        .clone();
+    assert_eq!(coordinated_context.run_id, process_context.run_id);
+    assert_eq!(coordinated_context.trace_id, process_context.trace_id);
+}
+
+#[test]
+fn execution_telemetry_preserves_task_agent_and_tool_topology() {
+    let world = test_world();
+    let (service, telemetry) = service_with_telemetry(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "secret prompt must not be captured".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+    for status in ["running", "completed"] {
+        sink.handle(GenerationProcessEvent::ToolUse(ToolUseBlock {
+            id: "provider-call-1".to_string(),
+            name: "read".to_string(),
+            input: None,
+            output: None,
+            status: status.to_string(),
+        }))
+        .expect("tool lifecycle");
+    }
+    sink.handle(GenerationProcessEvent::Completed)
+        .expect("complete");
+
+    let records = telemetry.records().expect("telemetry records");
+    let run = records
+        .iter()
+        .find_map(|record| match record {
+            CapturedTelemetryRecord::RunStarted(run) => Some(run),
+            _ => None,
+        })
+        .expect("run");
+    let spans = records
+        .iter()
+        .filter_map(|record| match record {
+            CapturedTelemetryRecord::SpanStarted(span) => Some(span),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let root = spans
+        .iter()
+        .find(|span| span.name == "vanehub.task.execute")
+        .expect("root span");
+    let prompt = spans
+        .iter()
+        .find(|span| span.name == "vanehub.prompt.assemble")
+        .expect("prompt span");
+    let agent = spans
+        .iter()
+        .find(|span| span.name.starts_with("invoke_agent "))
+        .expect("agent span");
+    let tool = spans
+        .iter()
+        .find(|span| span.name == "execute_tool read")
+        .expect("tool span");
+
+    assert_eq!(root.context, run.context);
+    assert_eq!(prompt.parent_span_id.as_ref(), Some(&root.context.span_id));
+    assert_eq!(agent.parent_span_id.as_ref(), Some(&root.context.span_id));
+    assert_eq!(tool.parent_span_id.as_ref(), Some(&agent.context.span_id));
+    assert_eq!(tool.fidelity, ExecutionFidelity::Inferred);
+    assert!(spans
+        .iter()
+        .all(|span| span.context.trace_id == run.context.trace_id));
+    assert!(records.iter().any(|record| matches!(
+        record,
+        CapturedTelemetryRecord::RunFinished {
+            status: ExecutionStatus::Succeeded,
+            ..
+        }
+    )));
+    assert!(!format!("{records:?}").contains("secret prompt must not be captured"));
+}
+
+#[test]
+fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
+    let world = test_world();
+    let (service, telemetry) = service_with_telemetry(world.clone());
+    let message = service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "observe tools".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+    let event = |call_id: &str, phase: ToolLifecyclePhase, status: &str| {
+        GenerationProcessEvent::ToolLifecycle(ToolLifecycleEvent {
+            call_id: call_id.to_string(),
+            phase,
+            provider_timestamp: None,
+            fidelity: ExecutionFidelity::Inferred,
+            parent_run_id: None,
+            parent_trace_id: None,
+            parent_span_id: None,
+            delegation_id: None,
+            attempt: None,
+            tool_use: ToolUseBlock {
+                id: call_id.to_string(),
+                name: "read".to_string(),
+                input: None,
+                output: None,
+                status: status.to_string(),
+            },
+        })
+    };
+
+    sink.handle(event(
+        "completion-only",
+        ToolLifecyclePhase::Completed,
+        "completed",
+    ))
+    .expect("completion-only");
+    sink.handle(event(
+        "completion-only",
+        ToolLifecyclePhase::Started,
+        "running",
+    ))
+    .expect("late start");
+    sink.handle(event("duplicate", ToolLifecyclePhase::Started, "running"))
+        .expect("start");
+    sink.handle(event("duplicate", ToolLifecyclePhase::Started, "running"))
+        .expect("duplicate start");
+    sink.handle(event("duplicate", ToolLifecyclePhase::Failed, "failed"))
+        .expect("failed");
+    sink.handle(event("unfinished", ToolLifecyclePhase::Started, "running"))
+        .expect("unfinished");
+    sink.handle(GenerationProcessEvent::Completed)
+        .expect("agent complete");
+
+    let records = telemetry.records().expect("telemetry records");
+    let tool_spans = records
+        .iter()
+        .filter_map(|record| match record {
+            CapturedTelemetryRecord::SpanStarted(span)
+                if span.name.starts_with("execute_tool ") =>
+            {
+                Some(span)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tool_spans.len(), 3);
+    assert_eq!(tool_spans[0].fidelity, ExecutionFidelity::Opaque);
+    assert!(records.iter().any(|record| matches!(
+        record,
+        CapturedTelemetryRecord::SpanFinished {
+            status: ExecutionStatus::Failed,
+            error_classification: Some(classification),
+            ..
+        } if classification == "provider_tool_failed"
+    )));
+    assert!(records.iter().any(|record| matches!(
+        record,
+        CapturedTelemetryRecord::SpanFinished {
+            status: ExecutionStatus::Incomplete,
+            error_classification: Some(classification),
+            ..
+        } if classification == "provider_boundary_missing"
+    )));
+    assert_eq!(
+        world.messages.lock().expect("messages")[&message.id]
+            .tool_use
+            .len(),
+        4
+    );
 }
 
 #[test]
@@ -879,6 +1122,7 @@ fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),
@@ -924,6 +1168,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),
@@ -1069,6 +1314,7 @@ fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_r
         let service = service(world.clone());
         let message = service
             .send_message(SendMessageRequest {
+                source: AgentMessageSource::Desktop,
                 session_id: "session-1".to_string(),
                 content: "implement".to_string(),
                 configuration: chat_configuration(),
@@ -1127,6 +1373,7 @@ fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),
@@ -1179,6 +1426,7 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
     failed_world.prompt_failure.store(true, Ordering::SeqCst);
     let failed = service(failed_world.clone())
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),
@@ -1197,6 +1445,7 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
     let service = service(world.clone());
     let message = service
         .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
             session_id: "session-1".to_string(),
             content: "hello".to_string(),
             configuration: chat_configuration(),

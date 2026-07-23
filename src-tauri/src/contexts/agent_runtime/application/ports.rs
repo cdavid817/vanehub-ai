@@ -408,7 +408,11 @@ pub(crate) trait AgentProcessGateway: Send + Sync {
         sink: std::sync::Arc<dyn AgentProcessEventSink>,
     ) -> Result<(), AgentRuntimeApplicationError>;
 
-    fn stop_generation(&self, process_id: &str) -> Result<bool, AgentRuntimeApplicationError>;
+    fn stop_generation(
+        &self,
+        process_id: &str,
+        initiator: super::ProcessStopInitiator,
+    ) -> Result<bool, AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait AgentProcessEventSink: Send + Sync {
@@ -484,6 +488,15 @@ pub(crate) trait AgentTaskPort: Send + Sync {
         line: String,
     ) -> Result<(), AgentRuntimeApplicationError>;
 
+    fn correlate_execution(
+        &self,
+        _operation_id: &str,
+        _run_id: &str,
+        _trace_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
     fn complete(&self, operation_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 
     fn fail(&self, operation_id: &str, error: String) -> Result<(), AgentRuntimeApplicationError>;
@@ -528,6 +541,12 @@ pub(crate) trait LoopVerificationProcessPort: Send + Sync {
 
 pub(crate) trait AgentGenerationPort: Send + Sync {
     fn reserve(&self, session_id: &str) -> Result<GenerationLease, AgentRuntimeApplicationError>;
+
+    fn correlate(
+        &self,
+        lease: &GenerationLease,
+        execution_context: &crate::contexts::execution_observability::api::ExecutionContext,
+    ) -> Result<(), AgentRuntimeApplicationError>;
 
     fn attach(
         &self,

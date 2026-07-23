@@ -105,6 +105,9 @@ impl PortablePtyAgentTerminalRuntime {
             agent_id: agent_id.map(str::to_string),
             session_id: session_id.map(str::to_string),
             operation_id: None,
+            run_id: None,
+            trace_id: None,
+            span_id: None,
             occurred_at: self.clock.now(),
         });
     }
@@ -413,6 +416,9 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 agent_id: Some(agent_id),
                 session_id: Some(session_id),
                 operation_id: None,
+                run_id: None,
+                trace_id: None,
+                span_id: None,
                 occurred_at: clock.now(),
             });
         });

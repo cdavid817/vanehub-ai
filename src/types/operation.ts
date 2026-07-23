@@ -10,6 +10,8 @@ export interface OperationLogEntry {
 
 export interface OperationTask {
   id: string;
+  executionRunId?: string | null;
+  traceId?: string | null;
   kind: OperationKind;
   status: OperationStatus;
   relatedEntityId?: string | null;

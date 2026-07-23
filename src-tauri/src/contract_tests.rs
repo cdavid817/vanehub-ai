@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 fn operation_contract_keeps_lowercase_enums_and_camel_case_fields() {
     let value = serde_json::to_value(OperationTask {
         id: "operation-1".to_string(),
+        execution_run_id: None,
+        trace_id: None,
         kind: OperationKind::Mcp,
         status: OperationStatus::Running,
         related_entity_id: Some("server-1".to_string()),
@@ -26,6 +28,30 @@ fn operation_contract_keeps_lowercase_enums_and_camel_case_fields() {
     assert_eq!(value["status"], "running");
     assert_eq!(value["relatedEntityId"], "server-1");
     assert!(value.get("related_entity_id").is_none());
+    assert!(value.get("executionRunId").is_none());
+    assert!(value.get("traceId").is_none());
+}
+
+#[test]
+fn operation_contract_exposes_optional_execution_correlation() {
+    let mut operation = OperationTask::start(
+        "operation-2".to_string(),
+        OperationKind::Agent,
+        Some("session-1".to_string()),
+        None,
+        "2026-01-01T00:00:00Z".to_string(),
+    );
+    operation.correlate_execution(
+        "018f0f17-4d6a-7e20-b41d-66c5271a28d0".to_string(),
+        "4bf92f3577b34da6a3ce929d0e0e4736".to_string(),
+    );
+
+    let value = serde_json::to_value(operation).expect("serialize correlated operation");
+    assert_eq!(
+        value["executionRunId"],
+        "018f0f17-4d6a-7e20-b41d-66c5271a28d0"
+    );
+    assert_eq!(value["traceId"], "4bf92f3577b34da6a3ce929d0e0e4736");
 }
 
 #[test]

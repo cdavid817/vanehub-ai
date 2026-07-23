@@ -52,6 +52,7 @@ pub(crate) struct StartedOperation {
 pub(crate) struct PreparedConnectionTest {
     pub(crate) operation: StartedOperation,
     pub(super) server: ServerConfiguration,
+    pub(super) observation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

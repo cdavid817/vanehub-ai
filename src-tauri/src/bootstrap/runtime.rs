@@ -20,14 +20,28 @@ pub(crate) fn run() {
         .setup(setup)
         .on_window_event(crate::contexts::desktop::infrastructure::handle_main_window_event)
         .invoke_handler(crate::commands::invoke_handler())
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        write_bootstrap_log(
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit)
+                && app
+                    .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
+                    .is_some_and(|lifecycle| lifecycle.shutdown().is_err())
+            {
+                write_bootstrap_log(
+                    &logging::fallback_log_dir(),
+                    LogSeverity::Warn,
+                    "execution_observability.shutdown",
+                    "Execution telemetry did not flush completely before the bounded shutdown deadline",
+                );
+            }
+        }),
+        Err(error) => write_bootstrap_log(
             &logging::fallback_log_dir(),
             LogSeverity::Error,
             "runtime.failure",
             &error.to_string(),
-        );
+        ),
     }
 }
 
@@ -110,7 +124,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         cli_parameters_api.clone(),
         fallback_log_directory.clone(),
     );
-    let agent_runtime_api = super::assemble_agent_runtime_api(super::AgentRuntimeDependencies {
+    let super::AgentRuntimeAssembly {
+        api: agent_runtime_api,
+        telemetry_lifecycle,
+    } = super::assemble_agent_runtime_api(super::AgentRuntimeDependencies {
         database: database.clone(),
         app: app.handle().clone(),
         operations: operations_api.clone(),
@@ -122,6 +139,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         workspaces: workspace_api.clone(),
         fallback_log_directory: fallback_log_directory.clone(),
     });
+    let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
@@ -130,6 +148,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .map_err(boxed_message)?;
 
     let scheduled_task_database = database.clone();
+    let execution_retention_database = database.clone();
     app.manage(database.clone());
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),
@@ -161,6 +180,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
+    app.manage(telemetry_lifecycle);
+    app.manage(execution_observability_api);
     app.manage(communications_api.clone());
     app.manage(wechat_authorization_api);
     app.manage(desktop_settings_api.clone());
@@ -170,6 +191,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         scheduled_task_database,
         sessions_api.clone(),
         agent_runtime_api.clone(),
+        fallback_log_directory.clone(),
+    );
+    super::start_execution_retention_job(
+        execution_retention_database,
         fallback_log_directory.clone(),
     );
     super::start_session_maintenance_jobs(

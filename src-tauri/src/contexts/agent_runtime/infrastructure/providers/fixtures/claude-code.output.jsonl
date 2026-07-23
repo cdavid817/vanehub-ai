@@ -2,5 +2,7 @@
 {"type":"content_block_delta","delta":{"text":"hello from claude"}}
 {"type":"thinking_delta","delta":{"thinking":"inspect first"}}
 {"type":"tool_use","id":"claude-tool","name":"Read","input":{"path":"src/main.rs"},"status":"running"}
+{"type":"tool_result","tool_use_id":"claude-tool","name":"Read","output":{"bytes":12}}
+{"type":"tool_error","tool_use_id":"claude-failed","name":"Shell"}
 {"type":"rich_block","block":{"id":"claude-card","kind":"card","v":1,"title":"Summary"}}
 {"type":"result"}

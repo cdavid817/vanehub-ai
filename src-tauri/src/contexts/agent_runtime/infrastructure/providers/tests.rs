@@ -1,15 +1,71 @@
 use super::invocation::ProviderInvocationError;
 use super::{
     apply_configuration_overrides, build_interactive_invocation, build_invocation,
-    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery,
+    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderToolEvent,
+    ProviderToolPhase,
 };
-use crate::contexts::agent_runtime::application::{AgentChatConfiguration, ToolUseBlock};
+use crate::contexts::agent_runtime::application::AgentChatConfiguration;
 use crate::contexts::agent_runtime::domain::InteractionMode;
+use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 const STABLE_AGENT_IDS: [&str; 4] = ["claude-code", "codex-cli", "gemini-cli", "opencode"];
+
+fn running_tool(id: &str, name: &str, input: Value) -> ProviderOutputEvent {
+    ProviderOutputEvent::ToolLifecycle(Box::new(ProviderToolEvent {
+        call_id: Some(id.to_string()),
+        name: Some(name.to_string()),
+        input: Some(input),
+        output: None,
+        phase: ProviderToolPhase::Started,
+        provider_timestamp: None,
+        status: "running".to_string(),
+        fidelity: ExecutionFidelity::Inferred,
+        parent_run_id: None,
+        parent_trace_id: None,
+        parent_span_id: None,
+        delegation_id: None,
+        attempt: None,
+    }))
+}
+
+fn completed_tool(id: &str, name: &str, output: Value) -> ProviderOutputEvent {
+    ProviderOutputEvent::ToolLifecycle(Box::new(ProviderToolEvent {
+        call_id: Some(id.to_string()),
+        name: Some(name.to_string()),
+        input: None,
+        output: Some(output),
+        phase: ProviderToolPhase::Completed,
+        provider_timestamp: None,
+        status: "completed".to_string(),
+        fidelity: ExecutionFidelity::Inferred,
+        parent_run_id: None,
+        parent_trace_id: None,
+        parent_span_id: None,
+        delegation_id: None,
+        attempt: None,
+    }))
+}
+
+fn failed_tool(id: &str, name: &str) -> ProviderOutputEvent {
+    ProviderOutputEvent::ToolLifecycle(Box::new(ProviderToolEvent {
+        call_id: Some(id.to_string()),
+        name: Some(name.to_string()),
+        input: None,
+        output: None,
+        phase: ProviderToolPhase::Failed,
+        provider_timestamp: None,
+        status: "failed".to_string(),
+        fidelity: ExecutionFidelity::Inferred,
+        parent_run_id: None,
+        parent_trace_id: None,
+        parent_span_id: None,
+        delegation_id: None,
+        attempt: None,
+    }))
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,13 +230,13 @@ fn output_fixtures_cover_every_stable_provider() {
                 ProviderOutputEvent::SessionId("claude-session".to_string()),
                 ProviderOutputEvent::Token("hello from claude".to_string()),
                 ProviderOutputEvent::Thinking("inspect first".to_string()),
-                ProviderOutputEvent::ToolUse(ToolUseBlock {
-                    id: "claude-tool".to_string(),
-                    name: "Read".to_string(),
-                    input: Some(serde_json::json!({"path":"src/main.rs"})),
-                    output: None,
-                    status: "running".to_string(),
-                }),
+                running_tool(
+                    "claude-tool",
+                    "Read",
+                    serde_json::json!({"path":"src/main.rs"}),
+                ),
+                completed_tool("claude-tool", "Read", serde_json::json!({"bytes":12})),
+                failed_tool("claude-failed", "Shell"),
                 ProviderOutputEvent::RichBlock(serde_json::json!({
                     "id":"claude-card","kind":"card","v":1,"title":"Summary"
                 })),
@@ -194,13 +250,13 @@ fn output_fixtures_cover_every_stable_provider() {
                 ProviderOutputEvent::SessionId("codex-session".to_string()),
                 ProviderOutputEvent::Token("hello from codex".to_string()),
                 ProviderOutputEvent::Thinking("checking files".to_string()),
-                ProviderOutputEvent::ToolUse(ToolUseBlock {
-                    id: "codex-tool".to_string(),
-                    name: "read_file".to_string(),
-                    input: Some(serde_json::json!({"path":"Cargo.toml"})),
-                    output: None,
-                    status: "running".to_string(),
-                }),
+                running_tool(
+                    "codex-tool",
+                    "read_file",
+                    serde_json::json!({"path":"Cargo.toml"}),
+                ),
+                completed_tool("codex-tool", "read_file", serde_json::json!({"bytes":20})),
+                failed_tool("codex-failed", "shell"),
                 ProviderOutputEvent::Completed,
                 ProviderOutputEvent::SessionId("codex-thread".to_string()),
                 ProviderOutputEvent::Token("hello from current codex".to_string()),
@@ -212,13 +268,13 @@ fn output_fixtures_cover_every_stable_provider() {
             vec![
                 ProviderOutputEvent::SessionId("gemini-session".to_string()),
                 ProviderOutputEvent::Token("hello from gemini".to_string()),
-                ProviderOutputEvent::ToolUse(ToolUseBlock {
-                    id: "gemini-tool".to_string(),
-                    name: "read_file".to_string(),
-                    input: Some(serde_json::json!({"path":"README.md"})),
-                    output: None,
-                    status: "running".to_string(),
-                }),
+                running_tool(
+                    "gemini-tool",
+                    "read_file",
+                    serde_json::json!({"path":"README.md"}),
+                ),
+                completed_tool("gemini-tool", "read_file", serde_json::json!({"bytes":30})),
+                failed_tool("gemini-failed", "shell"),
                 ProviderOutputEvent::Completed,
             ],
         ),
@@ -228,13 +284,13 @@ fn output_fixtures_cover_every_stable_provider() {
             vec![
                 ProviderOutputEvent::SessionId("opencode-session".to_string()),
                 ProviderOutputEvent::Token("hello from opencode".to_string()),
-                ProviderOutputEvent::ToolUse(ToolUseBlock {
-                    id: "opencode-tool".to_string(),
-                    name: "read".to_string(),
-                    input: Some(serde_json::json!({"path":"src/lib.rs"})),
-                    output: None,
-                    status: "running".to_string(),
-                }),
+                running_tool(
+                    "opencode-tool",
+                    "read",
+                    serde_json::json!({"path":"src/lib.rs"}),
+                ),
+                completed_tool("opencode-tool", "read", serde_json::json!({"bytes":40})),
+                failed_tool("opencode-failed", "shell"),
                 ProviderOutputEvent::Completed,
                 ProviderOutputEvent::SessionId("opencode-current-session".to_string()),
                 ProviderOutputEvent::Token("hello from current opencode".to_string()),
@@ -252,6 +308,51 @@ fn output_fixtures_cover_every_stable_provider() {
             .collect::<Vec<_>>();
         assert_eq!(parsed, expected, "{agent_id}");
     }
+}
+
+#[test]
+fn tool_lifecycle_fixture_preserves_ids_phases_timestamps_and_opaque_gaps() {
+    let parser = output_parser_for("codex-cli");
+    let tools = include_str!("fixtures/tool-lifecycle.output.jsonl")
+        .lines()
+        .map(|line| parser.parse_line(line))
+        .map(|event| match event {
+            ProviderOutputEvent::ToolLifecycle(tool) => tool,
+            unexpected => panic!("expected tool lifecycle event, got {unexpected:?}"),
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(tools.len(), 10);
+    assert_eq!(tools[0].phase, ProviderToolPhase::Started);
+    assert_eq!(
+        tools[0].provider_timestamp.as_deref(),
+        Some("2026-07-23T00:00:00Z")
+    );
+    assert_eq!(tools[1].call_id, tools[0].call_id);
+    assert_eq!(tools[2].phase, ProviderToolPhase::Completed);
+    assert_eq!(tools[3].phase, ProviderToolPhase::Completed);
+    assert_eq!(tools[4].phase, ProviderToolPhase::Started);
+    assert_eq!(tools[5].phase, ProviderToolPhase::Failed);
+    assert_eq!(tools[6].call_id, None);
+    assert_eq!(tools[6].fidelity, ExecutionFidelity::Opaque);
+    assert_eq!(tools[7].name, None);
+    assert_ne!(tools[8].call_id, tools[9].call_id);
+}
+
+#[test]
+fn provider_delegation_metadata_is_preserved_when_reported() {
+    let event = output_parser_for("codex-cli").parse_line(
+        r#"{"type":"tool_call","id":"call-1","name":"delegate","parent_run_id":"018f0f17-4d6a-7e20-b41d-66c5271a28d0","parent_trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","parent_span_id":"00f067aa0ba902b7","delegation_id":"delegation-1","attempt":2}"#,
+    );
+    let ProviderOutputEvent::ToolLifecycle(tool) = event else {
+        panic!("expected tool lifecycle event");
+    };
+    assert_eq!(tool.delegation_id.as_deref(), Some("delegation-1"));
+    assert_eq!(tool.attempt, Some(2));
+    assert_eq!(
+        tool.parent_trace_id.as_deref(),
+        Some("4bf92f3577b34da6a3ce929d0e0e4736")
+    );
 }
 
 #[test]

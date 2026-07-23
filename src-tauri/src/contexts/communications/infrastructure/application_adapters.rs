@@ -114,6 +114,9 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
         let message = self
             .agents
             .send_message(SendMessageRequest {
+                source: crate::contexts::agent_runtime::application::AgentMessageSource::InstantMessage {
+                    connector_id: "managed-im".to_string(),
+                },
                 session_id: request.session_id.clone(),
                 content: request.text,
                 configuration,

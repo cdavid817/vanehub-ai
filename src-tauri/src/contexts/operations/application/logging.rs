@@ -34,6 +34,10 @@ pub(crate) trait OperationLogPort: Send + Sync {
     fn write_operation(&self, log: OperationLog) -> Result<(), ApplicationError>;
 }
 
+pub(crate) trait ExternalLogExportPort: Send + Sync {
+    fn export_log(&self, log: &DiagnosticLog) -> Result<(), ApplicationError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

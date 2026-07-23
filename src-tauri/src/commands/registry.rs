@@ -17,6 +17,13 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,
         crate::commands::agent_runtime::resize_agent_terminal::resize_agent_terminal,
         crate::commands::agent_runtime::stop_agent_terminal::stop_agent_terminal,
+        // Execution Observability
+        crate::commands::execution_observability::get_observability_settings::get_observability_settings,
+        crate::commands::execution_observability::update_observability_settings::update_observability_settings,
+        crate::commands::execution_observability::list_execution_runs::list_execution_runs,
+        crate::commands::execution_observability::get_execution_run::get_execution_run,
+        crate::commands::execution_observability::get_execution_timeline::get_execution_timeline,
+        crate::commands::execution_observability::get_execution_observation_capabilities::get_execution_observation_capabilities,
         crate::commands::agent_runtime::loops::list_loop_definitions::list_loop_definitions,
         crate::commands::agent_runtime::loops::create_loop_definition::create_loop_definition,
         crate::commands::agent_runtime::loops::update_loop_definition::update_loop_definition,

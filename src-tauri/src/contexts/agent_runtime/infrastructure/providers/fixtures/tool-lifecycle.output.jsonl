@@ -1,0 +1,10 @@
+{"type":"tool.start","id":"call-complete","name":"read","input":{"path":"README.md"},"timestamp":"2026-07-23T00:00:00Z"}
+{"type":"tool.start","id":"call-complete","name":"read","input":{"path":"README.md"},"timestamp":"2026-07-23T00:00:00Z"}
+{"type":"tool.completed","id":"call-complete","name":"read","output":{"bytes":42},"timestamp":"2026-07-23T00:00:01Z"}
+{"type":"tool.completed","id":"call-out-of-order","name":"write","status":"completed"}
+{"type":"tool.start","id":"call-out-of-order","name":"write"}
+{"type":"tool.failed","id":"call-failed","name":"shell","status":"failed"}
+{"type":"tool.start","name":"missing_id"}
+{"type":"tool.start","id":"missing-name"}
+{"type":"tool.start","id":"concurrent-a","name":"read"}
+{"type":"tool.start","id":"concurrent-b","name":"read"}

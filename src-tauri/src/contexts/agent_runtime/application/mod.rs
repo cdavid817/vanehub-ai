@@ -45,18 +45,18 @@ pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationSe
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentLogLevel, AgentMessage,
-    AgentOperation, AgentSession, AgentSessionDetails, AgentTerminalCapability, AgentTerminalEvent,
-    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView, CliProfileSnapshot,
-    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
-    LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
+    AgentMessageSource, AgentOperation, AgentSession, AgentSessionDetails, AgentTerminalCapability,
+    AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView,
+    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopLog, LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
     LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
-    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, PromptTrace, ReadinessView,
-    ResizeAgentTerminalRequest, SendMessageRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, StopGenerationResult, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, WorkflowView,
+    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, ProcessStopInitiator,
+    PromptTrace, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult, ToolLifecycleEvent,
+    ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,

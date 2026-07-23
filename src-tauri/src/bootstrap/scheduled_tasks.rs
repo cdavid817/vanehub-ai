@@ -144,6 +144,9 @@ fn run_one_task(
     })?;
     let session = sessions.execute_creation(prepared)?;
     agents.send_message(SendMessageRequest {
+        source: crate::contexts::agent_runtime::application::AgentMessageSource::Scheduled {
+            task_id: task.id.clone(),
+        },
         session_id: session.id().to_string(),
         content: task.content.clone(),
         configuration: AgentChatConfiguration {

@@ -5,7 +5,9 @@ mod cli;
 mod cli_parameters;
 mod communications;
 mod desktop;
+mod execution_observability;
 mod extensions;
+mod managed_mcp_relay;
 mod mcp;
 mod operations;
 mod plugin_integrations;
@@ -19,13 +21,18 @@ mod ssh_connections;
 mod workspaces;
 
 pub(crate) use crate::contexts::sessions::infrastructure::scheduled_tasks::ScheduledTaskLogDirectory;
-pub(crate) use agent_runtime::{assemble_agent_runtime_api, AgentRuntimeDependencies};
+pub(crate) use agent_runtime::{
+    assemble_agent_runtime_api, AgentRuntimeAssembly, AgentRuntimeDependencies,
+};
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_parameters::assemble_cli_parameters_api;
 pub(crate) use communications::{assemble_communications, CommunicationsDependencies};
 pub(crate) use desktop::{
     assemble_desktop_lifecycle_api, assemble_desktop_settings_api, assemble_floating_assistant_api,
     initialize_desktop_runtime,
+};
+pub(crate) use execution_observability::{
+    assemble_execution_observability_api, start_execution_retention_job,
 };
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;

@@ -81,6 +81,18 @@ impl AgentTaskPort for AgentRuntimeOperationAdapter {
             .map_err(operation_error)
     }
 
+    fn correlate_execution(
+        &self,
+        operation_id: &str,
+        run_id: &str,
+        trace_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.operations
+            .correlate_execution(operation_id, run_id.to_string(), trace_id.to_string())
+            .map(|_| ())
+            .map_err(operation_error)
+    }
+
     fn complete(&self, operation_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         self.operations
             .complete(operation_id, None)
@@ -152,6 +164,15 @@ impl AgentLoggingPort for AgentRuntimeLoggingAdapter {
         }
         if let Some(session_id) = log.session_id {
             context.insert("sessionId".to_string(), session_id);
+        }
+        if let Some(run_id) = log.run_id {
+            context.insert("runId".to_string(), run_id);
+        }
+        if let Some(trace_id) = log.trace_id {
+            context.insert("traceId".to_string(), trace_id);
+        }
+        if let Some(span_id) = log.span_id {
+            context.insert("spanId".to_string(), span_id);
         }
         match log.operation_id {
             Some(operation_id) => self
@@ -271,6 +292,9 @@ mod tests {
                 agent_id: Some("codex-cli".to_string()),
                 session_id: Some("session-1".to_string()),
                 operation_id: Some("operation-1".to_string()),
+                run_id: Some("run-1".to_string()),
+                trace_id: Some("trace-1".to_string()),
+                span_id: Some("span-1".to_string()),
                 occurred_at: "2026-07-18T10:00:00Z".to_string(),
             })
             .expect("operation log");
@@ -287,6 +311,10 @@ mod tests {
         assert_eq!(
             logs[0].context.get("sessionId").map(String::as_str),
             Some("session-1")
+        );
+        assert_eq!(
+            logs[0].context.get("traceId").map(String::as_str),
+            Some("trace-1")
         );
     }
 

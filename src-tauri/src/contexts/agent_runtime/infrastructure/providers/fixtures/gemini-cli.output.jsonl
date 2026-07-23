@@ -1,4 +1,6 @@
 {"type":"session","sessionId":"gemini-session"}
 {"type":"message","content":"hello from gemini"}
 {"type":"tool_call","tool":{"id":"gemini-tool","name":"read_file","input":{"path":"README.md"}}}
+{"type":"tool.completed","tool":{"id":"gemini-tool","name":"read_file","output":{"bytes":30}}}
+{"type":"tool.failed","tool":{"id":"gemini-failed","name":"shell"},"status":"failed"}
 {"type":"done"}

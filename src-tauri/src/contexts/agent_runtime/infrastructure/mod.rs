@@ -33,7 +33,9 @@ pub(crate) use loop_repository::SqliteLoopRepository;
 pub(crate) use loop_scheduler::NativeLoopScheduler;
 pub(crate) use loop_schema::apply_loop_schema;
 pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
-pub(crate) use process_adapter::RuntimeAgentProcessAdapter;
+pub(crate) use process_adapter::{
+    ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
+};
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,

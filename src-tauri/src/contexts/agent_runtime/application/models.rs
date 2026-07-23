@@ -3,6 +3,7 @@ use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow,
     InteractionMode,
 };
+use crate::contexts::execution_observability::api::ExecutionContext;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -449,6 +450,7 @@ pub(crate) struct WorkflowLaunchOutcome {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GenerationProcessRequest {
+    pub(crate) execution_context: ExecutionContext,
     pub(crate) session: AgentSession,
     pub(crate) agent: AgentView,
     pub(crate) message_id: String,
@@ -462,7 +464,10 @@ pub(crate) struct GenerationProcessRequest {
 pub(crate) enum GenerationProcessEvent {
     Token(String),
     Thinking(String),
+    // Kept for compatibility with legacy event sinks while providers migrate to lifecycle events.
+    #[allow(dead_code)]
     ToolUse(ToolUseBlock),
+    ToolLifecycle(ToolLifecycleEvent),
     RichBlock(Value),
     RuntimeSessionId(String),
     Stderr(String),
@@ -470,9 +475,46 @@ pub(crate) enum GenerationProcessEvent {
     Failed(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolLifecyclePhase {
+    Started,
+    Updated,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ToolLifecycleEvent {
+    pub(crate) call_id: String,
+    pub(crate) phase: ToolLifecyclePhase,
+    pub(crate) provider_timestamp: Option<String>,
+    pub(crate) fidelity: crate::contexts::execution_observability::api::ExecutionFidelity,
+    pub(crate) parent_run_id: Option<String>,
+    pub(crate) parent_trace_id: Option<String>,
+    pub(crate) parent_span_id: Option<String>,
+    pub(crate) delegation_id: Option<String>,
+    pub(crate) attempt: Option<u32>,
+    pub(crate) tool_use: ToolUseBlock,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StartedGenerationProcess {
     pub(crate) process_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProcessStopInitiator {
+    User,
+    RuntimeCleanup,
+}
+
+impl ProcessStopInitiator {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::RuntimeCleanup => "runtime_cleanup",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -486,6 +528,7 @@ pub(crate) struct GenerationCancellation {
     pub(crate) message_id: Option<String>,
     pub(crate) process_id: Option<String>,
     pub(crate) operation_id: Option<String>,
+    pub(crate) execution_context: Option<ExecutionContext>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -511,6 +554,9 @@ pub(crate) struct AgentLog {
     pub(crate) agent_id: Option<String>,
     pub(crate) session_id: Option<String>,
     pub(crate) operation_id: Option<String>,
+    pub(crate) run_id: Option<String>,
+    pub(crate) trace_id: Option<String>,
+    pub(crate) span_id: Option<String>,
     pub(crate) occurred_at: String,
 }
 
@@ -559,10 +605,18 @@ pub(crate) enum AgentEvent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SendMessageRequest {
+    pub(crate) source: AgentMessageSource,
     pub(crate) session_id: String,
     pub(crate) content: String,
     pub(crate) configuration: AgentChatConfiguration,
     pub(crate) file_references: Vec<AgentFileReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentMessageSource {
+    Desktop,
+    InstantMessage { connector_id: String },
+    Scheduled { task_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

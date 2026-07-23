@@ -953,6 +953,24 @@
                                               "project-worktree-management",
                                               "session-runtime-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-23",
+                         "changeName":  "agent-execution-observability",
+                         "path":  "openspec/changes/archive/2026-07-23-agent-execution-observability/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "app-settings",
+                                              "contract-and-task-foundation",
+                                              "mcp-client-management",
+                                              "session-runtime-management",
+                                              "unified-log-management"
+                                          ]
                      }
                  ]
 }
