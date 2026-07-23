@@ -175,9 +175,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd # v2
-        with:
-          tool: cargo-llvm-cov@0.8.7
+        run: cargo install cargo-llvm-cov --version 0.8.7 --locked
 
       - name: Generate native coverage
         run: npm run coverage:native
