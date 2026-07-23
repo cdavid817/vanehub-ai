@@ -10,6 +10,7 @@ import { buildCliParameterPreviewFromDefinitions } from "../../services/cli-para
 import { agentService } from "../../services/runtime-agent-client";
 import type {
   CliParameterDefinition,
+  CliParameterProfile,
   CliParameterSelections,
   CliParameterValue,
   ManagedCliAgentId,
@@ -18,6 +19,7 @@ import type {
 import { PageHeader, SectionPanel } from "./page-parts";
 
 const profilesQueryKey = ["cli-parameter-profiles"] as const;
+const emptyProfiles: CliParameterProfile[] = [];
 
 function ParameterControl({
   definition,
@@ -89,7 +91,7 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
     queryKey: profilesQueryKey,
     queryFn: () => agentService.listCliParameterProfiles(),
   });
-  const profiles = profilesQuery.data ?? [];
+  const profiles = profilesQuery.data ?? emptyProfiles;
 
   useEffect(() => {
     if (profiles.length === 0) return;

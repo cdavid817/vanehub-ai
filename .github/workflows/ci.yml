@@ -32,13 +32,45 @@ jobs:
         run: npm ci
 
       - name: ESLint
-        run: npm run lint
+        run: npm run lint:ci
 
       - name: TypeScript and Vite build
         run: npm run build
 
-      - name: Vitest
-        run: npm run test
+      - name: Coverage policy regression tests
+        run: npm run coverage:policy:test
+
+      - name: Vitest with coverage
+        run: npm run test:coverage
+
+      - name: Enforce frontend coverage policy
+        run: npm run coverage:check:frontend
+
+      - name: Upload frontend coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-coverage-${{ github.run_id }}
+          path: coverage/frontend/
+          if-no-files-found: warn
+          retention-days: 14
+
+  contracts:
+    name: Contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
 
       - name: Vitest contract checks
         run: npm run contracts:check
@@ -105,10 +137,62 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  native-coverage:
+    name: Native Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf \
+            wget
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@c44f6b046f1c29ae5918b1e0bfdbb2f1813836fd # v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+
+      - name: Generate native coverage
+        run: npm run coverage:native
+
+      - name: Enforce native coverage policy
+        run: npm run coverage:check:native
+
+      - name: Upload native coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-coverage-${{ github.run_id }}
+          path: coverage/native/
+          if-no-files-found: warn
+          retention-days: 14
 
   native-platform-check:
     name: Native Check (${{ matrix.os }})

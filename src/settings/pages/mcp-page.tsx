@@ -15,6 +15,7 @@ import { McpServerForm } from "./mcp/mcp-server-form";
 type StatusMap = Record<string, McpServerStatus>;
 
 const mcpServersQueryKey = ["mcp", "servers"] as const;
+const emptyServers: McpServerConfig[] = [];
 
 async function loadMcpServersAndStatuses() {
   const servers = await mcpService.listServers();
@@ -91,7 +92,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
   });
 
-  const servers = serversQuery.data?.servers ?? [];
+  const servers = serversQuery.data?.servers ?? emptyServers;
   const statuses = serversQuery.data?.statuses ?? {};
   const activeTestStatus = activeTestOperationQuery.data?.status;
   const testingName = testServerMutation.isPending

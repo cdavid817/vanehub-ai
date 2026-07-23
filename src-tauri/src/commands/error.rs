@@ -14,6 +14,7 @@ use crate::contexts::tooling::sdk::api::SdkError;
 use crate::contexts::tooling::skills::api::{SkillDomainError, SkillError};
 use crate::contexts::workspaces::api::WorkspaceError;
 use crate::platform::error::InfrastructureError;
+use crate::platform::logging::redact_text;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +182,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             },
             AgentRuntimeApplicationError::Process(message) => Self {
                 category: CommandErrorCategory::Unavailable,
-                message: format!("launch failed: {message}"),
+                message: format!("launch failed: {}", redact_text(&message)),
             },
             AgentRuntimeApplicationError::VerificationPolicy(message) => Self {
                 category: CommandErrorCategory::Unsupported,
@@ -915,6 +916,9 @@ mod tests {
         let launch = map_command_error(AgentRuntimeApplicationError::Process(
             "Command 'codex' was not found on PATH.".to_string(),
         ));
+        let redacted_launch = map_command_error(AgentRuntimeApplicationError::Process(
+            "token=private-launch-token".to_string(),
+        ));
 
         assert_eq!(missing.message(), "agent not found: missing-agent");
         assert_eq!(missing.category(), CommandErrorCategory::NotFound);
@@ -930,6 +934,7 @@ mod tests {
             launch.message(),
             "launch failed: Command 'codex' was not found on PATH."
         );
+        assert_eq!(redacted_launch.message(), "launch failed: token=[REDACTED]");
     }
 
     #[test]

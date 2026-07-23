@@ -1,10 +1,12 @@
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationError, LoopEvidenceView, LoopIterationRepository, LoopIterationView,
-    LoopRepository, LoopVerifierRecommendation, LoopVerifierResult, SaveLoopVerifierResultRequest,
+    LoopRepository, SaveLoopVerifierResultRequest,
 };
+#[cfg(test)]
+use crate::contexts::agent_runtime::application::{LoopVerifierRecommendation, LoopVerifierResult};
 use crate::contexts::agent_runtime::domain::{
-    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
-    LoopTerminalReason, LoopVerificationCommand,
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
+    LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
@@ -823,20 +825,21 @@ fn read_definition(row: &Row<'_>) -> rusqlite::Result<LoopDefinition> {
 }
 
 fn read_run(row: &Row<'_>) -> rusqlite::Result<LoopRun> {
-    LoopRun::rehydrate(
-        row.get(0)?,
-        row.get(1)?,
-        LoopRunStatus::parse(&row.get::<_, String>(2)?).map_err(to_sql_error)?,
-        LoopRunPhase::parse(&row.get::<_, String>(3)?).map_err(to_sql_error)?,
-        row.get::<_, Option<String>>(4)?
+    LoopRun::rehydrate(LoopRunSnapshot {
+        id: row.get(0)?,
+        definition_id: row.get(1)?,
+        status: LoopRunStatus::parse(&row.get::<_, String>(2)?).map_err(to_sql_error)?,
+        phase: LoopRunPhase::parse(&row.get::<_, String>(3)?).map_err(to_sql_error)?,
+        terminal_reason: row
+            .get::<_, Option<String>>(4)?
             .map(|value| LoopTerminalReason::parse(&value))
             .transpose()
             .map_err(to_sql_error)?,
-        row.get::<_, i64>(5)? as u16,
-        row.get::<_, i64>(6)? as u16,
-        row.get::<_, i64>(7)? as u16,
-        row.get(8)?,
-    )
+        current_iteration: row.get::<_, i64>(5)? as u16,
+        consecutive_runtime_errors: row.get::<_, i64>(6)? as u16,
+        consecutive_no_progress: row.get::<_, i64>(7)? as u16,
+        pause_requested: row.get(8)?,
+    })
     .map_err(to_sql_error)
 }
 

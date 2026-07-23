@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import type { AgentService } from "../../services/agent-service";
 import { agentService } from "../../services/runtime-agent-client";
 import { managedCliAgentIds, type AgentRegistryEntry, type ManagedCliAgentId } from "../../types/agent";
 import type { PromptHook, PromptHookMutationInput } from "../../types/prompt-hook";
@@ -16,7 +17,7 @@ import { PromptHookTracePanel } from "./prompt-hooks/prompt-hook-trace-panel";
 type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
 const emptyHooks: PromptHook[] = [];
 
-export function PromptHooksPage({ searchTerm }: { searchTerm: string }) {
+export function PromptHooksPage({ searchTerm, service = agentService }: { searchTerm: string; service?: AgentService }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [category, setCategory] = useState("__all__");
@@ -26,9 +27,9 @@ export function PromptHooksPage({ searchTerm }: { searchTerm: string }) {
   const [query, setQuery] = useState(searchTerm);
   const [dialog, setDialog] = useState<PromptHookDialogState>({ mode: null, hook: null, preview: null });
 
-  const agentsQuery = useQuery({ queryKey: ["agents", "prompt-hooks"], queryFn: () => agentService.listAgents() });
-  const hooksQuery = useQuery({ queryKey: ["prompt-hooks"], queryFn: () => agentService.listPromptHooks() });
-  const tracesQuery = useQuery({ queryKey: ["prompt-hook-traces"], queryFn: () => agentService.listPromptHookTraces(20) });
+  const agentsQuery = useQuery({ queryKey: ["agents", "prompt-hooks"], queryFn: () => service.listAgents() });
+  const hooksQuery = useQuery({ queryKey: ["prompt-hooks"], queryFn: () => service.listPromptHooks() });
+  const tracesQuery = useQuery({ queryKey: ["prompt-hook-traces"], queryFn: () => service.listPromptHookTraces(20) });
 
   const invalidate = async () => {
     await Promise.all([
@@ -38,15 +39,15 @@ export function PromptHooksPage({ searchTerm }: { searchTerm: string }) {
   };
 
   const enabledMutation = useMutation({
-    mutationFn: ({ hook, value }: { hook: PromptHook; value: boolean }) => agentService.setPromptHookEnabled(hook.id, value),
+    mutationFn: ({ hook, value }: { hook: PromptHook; value: boolean }) => service.setPromptHookEnabled(hook.id, value),
     onSuccess: () => void invalidate(),
   });
   const bindingMutation = useMutation({
-    mutationFn: ({ hook, agentIds }: { hook: PromptHook; agentIds: ManagedCliAgentId[] }) => agentService.setPromptHookCliBindings(hook.id, agentIds),
+    mutationFn: ({ hook, agentIds }: { hook: PromptHook; agentIds: ManagedCliAgentId[] }) => service.setPromptHookCliBindings(hook.id, agentIds),
     onSuccess: () => void invalidate(),
   });
   const createMutation = useMutation({
-    mutationFn: (input: PromptHookMutationInput) => agentService.createPromptHook(input),
+    mutationFn: (input: PromptHookMutationInput) => service.createPromptHook(input),
     onSuccess: () => {
       setDialog({ mode: null, hook: null, preview: null });
       void invalidate();
@@ -54,28 +55,28 @@ export function PromptHooksPage({ searchTerm }: { searchTerm: string }) {
   });
   const updateMutation = useMutation({
     mutationFn: ({ hook, input }: { hook: PromptHook; input: PromptHookMutationInput }) =>
-      agentService.updatePromptHook(hook.id, { ...input, version: hook.version }),
+      service.updatePromptHook(hook.id, { ...input, version: hook.version }),
     onSuccess: () => {
       setDialog({ mode: null, hook: null, preview: null });
       void invalidate();
     },
   });
   const deleteMutation = useMutation({
-    mutationFn: (hook: PromptHook) => agentService.deletePromptHook(hook.id),
+    mutationFn: (hook: PromptHook) => service.deletePromptHook(hook.id),
     onSuccess: () => {
       setDialog({ mode: null, hook: null, preview: null });
       void invalidate();
     },
   });
   const previewMutation = useMutation({
-    mutationFn: (hook: PromptHook) => agentService.previewPromptHook({ hookId: hook.id, agentId: firstAgentId(agentsQuery.data) }),
+    mutationFn: (hook: PromptHook) => service.previewPromptHook({ hookId: hook.id, agentId: firstAgentId(agentsQuery.data) }),
     onSuccess: (preview) => {
       setDialog({ mode: null, hook: null, preview });
       void invalidate();
     },
   });
   const assemblyPreviewMutation = useMutation({
-    mutationFn: () => agentService.previewPromptAssembly({ agentId: firstAgentId(agentsQuery.data), sampleInput: t("promptHooks.preview.sample") }),
+    mutationFn: () => service.previewPromptAssembly({ agentId: firstAgentId(agentsQuery.data), sampleInput: t("promptHooks.preview.sample") }),
     onSuccess: (preview) => {
       setDialog({ mode: null, hook: null, preview });
       void invalidate();

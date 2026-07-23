@@ -314,6 +314,19 @@ impl LoopDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopRunSnapshot {
+    pub(crate) id: String,
+    pub(crate) definition_id: String,
+    pub(crate) status: LoopRunStatus,
+    pub(crate) phase: LoopRunPhase,
+    pub(crate) terminal_reason: Option<LoopTerminalReason>,
+    pub(crate) current_iteration: u16,
+    pub(crate) consecutive_runtime_errors: u16,
+    pub(crate) consecutive_no_progress: u16,
+    pub(crate) pause_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoopRun {
     id: String,
     definition_id: String,
@@ -341,17 +354,18 @@ impl LoopRun {
         })
     }
 
-    pub(crate) fn rehydrate(
-        id: String,
-        definition_id: String,
-        status: LoopRunStatus,
-        phase: LoopRunPhase,
-        terminal_reason: Option<LoopTerminalReason>,
-        current_iteration: u16,
-        consecutive_runtime_errors: u16,
-        consecutive_no_progress: u16,
-        pause_requested: bool,
-    ) -> Result<Self, AgentRuntimeDomainError> {
+    pub(crate) fn rehydrate(snapshot: LoopRunSnapshot) -> Result<Self, AgentRuntimeDomainError> {
+        let LoopRunSnapshot {
+            id,
+            definition_id,
+            status,
+            phase,
+            terminal_reason,
+            current_iteration,
+            consecutive_runtime_errors,
+            consecutive_no_progress,
+            pause_requested,
+        } = snapshot;
         if current_iteration == 0
             || !Self::is_valid_state(status, phase, terminal_reason, pause_requested)
         {
@@ -752,17 +766,17 @@ mod tests {
         ];
 
         for (status, phase, reason) in invalid_states {
-            assert!(LoopRun::rehydrate(
-                "run-1".to_string(),
-                "loop-1".to_string(),
+            assert!(LoopRun::rehydrate(LoopRunSnapshot {
+                id: "run-1".to_string(),
+                definition_id: "loop-1".to_string(),
                 status,
                 phase,
-                reason,
-                1,
-                0,
-                0,
-                false,
-            )
+                terminal_reason: reason,
+                current_iteration: 1,
+                consecutive_runtime_errors: 0,
+                consecutive_no_progress: 0,
+                pause_requested: false,
+            })
             .is_err());
         }
     }
@@ -807,17 +821,17 @@ mod tests {
                     | LoopRunStatus::Cancelled => phase == LoopRunPhase::Finalizing,
                 };
 
-                let result = LoopRun::rehydrate(
-                    format!("{}-{}", status.as_str(), phase.as_str()),
-                    "loop-1".to_string(),
+                let result = LoopRun::rehydrate(LoopRunSnapshot {
+                    id: format!("{}-{}", status.as_str(), phase.as_str()),
+                    definition_id: "loop-1".to_string(),
                     status,
                     phase,
-                    reason,
-                    1,
-                    0,
-                    0,
-                    false,
-                );
+                    terminal_reason: reason,
+                    current_iteration: 1,
+                    consecutive_runtime_errors: 0,
+                    consecutive_no_progress: 0,
+                    pause_requested: false,
+                });
                 assert_eq!(
                     result.is_ok(),
                     expected,
@@ -951,17 +965,17 @@ mod tests {
     #[test]
     fn revision_at_max_iteration_terminates_with_stable_reason() {
         let limits = limits();
-        let mut run = LoopRun::rehydrate(
-            "run-1".to_string(),
-            "loop-1".to_string(),
-            LoopRunStatus::Running,
-            LoopRunPhase::Deciding,
-            None,
-            limits.max_iterations(),
-            0,
-            0,
-            false,
-        )
+        let mut run = LoopRun::rehydrate(LoopRunSnapshot {
+            id: "run-1".to_string(),
+            definition_id: "loop-1".to_string(),
+            status: LoopRunStatus::Running,
+            phase: LoopRunPhase::Deciding,
+            terminal_reason: None,
+            current_iteration: limits.max_iterations(),
+            consecutive_runtime_errors: 0,
+            consecutive_no_progress: 0,
+            pause_requested: false,
+        })
         .expect("run");
 
         assert!(!run.try_begin_revision(&limits).expect("iteration limit"));

@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "frontend": {
+    "minimumLines": 45.5
+  },
+  "native": {
+    "minimumLines": 67,
+    "criticalGroups": [
+      {
+        "name": "agent-startup-and-terminal-control",
+        "minimumLines": 80,
+        "patterns": [
+          "src-tauri/src/contexts/agent_runtime/application/terminal_service.rs"
+        ]
+      },
+      {
+        "name": "mcp-routing",
+        "minimumLines": 80,
+        "patterns": [
+          "src-tauri/src/contexts/tooling/mcp/infrastructure/relay.rs"
+        ]
+      },
+      {
+        "name": "sqlite-transactions",
+        "minimumLines": 80,
+        "patterns": [
+          "src-tauri/src/contexts/sessions/infrastructure/transactions.rs",
+          "src-tauri/src/platform/database/mod.rs",
+          "src-tauri/src/platform/database/migrations.rs"
+        ]
+      }
+    ]
+  }
+}

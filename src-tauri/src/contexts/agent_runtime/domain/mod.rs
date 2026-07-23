@@ -17,8 +17,8 @@ pub(crate) use loop_decision::{
     LoopVerifierRecommendation,
 };
 pub(crate) use loop_engineering::{
-    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
-    LoopTerminalReason, LoopVerificationCommand,
+    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
+    LoopRunStatus, LoopTerminalReason, LoopVerificationCommand,
 };
 pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,

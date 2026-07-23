@@ -21,18 +21,18 @@ export function LogsTab({ sessionId }: { sessionId: string | null }) {
   const [error, setError] = useState<WorkspaceErrorKey | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
-  const load = useCallback(async (append: boolean) => {
+  const load = useCallback(async (append: boolean, pageCursor: string | null) => {
     if (!sessionId) return;
     setLoading(true); setError(null);
     try {
-      const page = await agentService.listSessionLogs({ sessionId, levels, search, cursor: append ? cursor : null });
+      const page = await agentService.listSessionLogs({ sessionId, levels, search, cursor: append ? pageCursor : null });
       setEntries((current) => append ? [...current, ...page.items.filter((entry) => !current.some((item) => item.id === entry.id))] : page.items);
       setCursor(page.nextCursor); setHasMore(page.truncated);
     } catch (reason) { setError(workspaceErrorKey(reason)); }
     finally { setLoading(false); }
-  }, [cursor, levels, search, sessionId]);
+  }, [levels, search, sessionId]);
 
-  useEffect(() => { setEntries([]); setCursor(null); setHasMore(false); setExportMessage(null); void load(false); }, [levels, search, sessionId]);
+  useEffect(() => { setEntries([]); setCursor(null); setHasMore(false); setExportMessage(null); void load(false, null); }, [load]);
 
   function toggleLevel(level: SessionLogLevel) {
     setLevels((current) => current.includes(level) ? current.filter((item) => item !== level) : [...current, level]);
@@ -59,7 +59,7 @@ export function LogsTab({ sessionId }: { sessionId: string | null }) {
       </div>
       {exportMessage ? <p className="rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground">{exportMessage}</p> : null}
       <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
-        {error ? <WorkspaceState kind="error" message={t(error)} /> : entries.length === 0 && loading ? <WorkspaceState kind="loading" /> : entries.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.logs.empty")} /> : <div className="grid gap-2">{entries.map((entry) => <article className="rounded border border-border bg-background p-2" key={entry.id}><div className="flex items-center justify-between gap-2 text-xs"><span className={cn("font-semibold uppercase", entry.level === "error" && "text-destructive", entry.level === "warn" && "text-primary")}>{entry.level}</span><time className="text-muted-foreground">{new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "medium" }).format(new Date(entry.timestamp))}</time></div><p className="mt-1 text-xs text-muted-foreground">{entry.category}</p><p className="mt-1 whitespace-pre-wrap text-sm">{entry.message}</p>{Object.keys(entry.context).length > 0 ? <pre className="mt-2 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(entry.context, null, 2)}</pre> : null}</article>)}{hasMore ? <button className="mx-auto h-8 rounded border border-border px-3 text-xs hover:bg-muted" disabled={loading} onClick={() => void load(true)} type="button">{loading ? t("sessionTabs.state.loading") : t("sessionTabs.logs.loadMore")}</button> : null}</div>}
+        {error ? <WorkspaceState kind="error" message={t(error)} /> : entries.length === 0 && loading ? <WorkspaceState kind="loading" /> : entries.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.logs.empty")} /> : <div className="grid gap-2">{entries.map((entry) => <article className="rounded border border-border bg-background p-2" key={entry.id}><div className="flex items-center justify-between gap-2 text-xs"><span className={cn("font-semibold uppercase", entry.level === "error" && "text-destructive", entry.level === "warn" && "text-primary")}>{entry.level}</span><time className="text-muted-foreground">{new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "medium" }).format(new Date(entry.timestamp))}</time></div><p className="mt-1 text-xs text-muted-foreground">{entry.category}</p><p className="mt-1 whitespace-pre-wrap text-sm">{entry.message}</p>{Object.keys(entry.context).length > 0 ? <pre className="mt-2 overflow-auto rounded bg-muted p-2 text-xs">{JSON.stringify(entry.context, null, 2)}</pre> : null}</article>)}{hasMore ? <button className="mx-auto h-8 rounded border border-border px-3 text-xs hover:bg-muted" disabled={loading} onClick={() => void load(true, cursor)} type="button">{loading ? t("sessionTabs.state.loading") : t("sessionTabs.logs.loadMore")}</button> : null}</div>}
       </div>
     </div>
   );
