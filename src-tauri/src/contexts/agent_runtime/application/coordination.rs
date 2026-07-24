@@ -1,3 +1,9 @@
+//! Application contracts and use cases for durable Multi-Agent coordination.
+//!
+//! The application service validates and persists complete plan snapshots before scheduling work.
+//! It propagates bounded prerequisite context, classifies fallback eligibility, coordinates
+//! cancellation, and records only redacted lifecycle diagnostics through injected ports.
+
 use super::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentRegistryRepository,
     AgentRuntimeApplicationError,
@@ -12,6 +18,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Runtime-independent request accepted by the coordination application service.
 pub(crate) struct StartCoordinationRequest {
     pub(crate) name: String,
     pub(crate) project_path: Option<String>,
@@ -19,12 +26,14 @@ pub(crate) struct StartCoordinationRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Stable identities returned after a coordination run and its operation are persisted.
 pub(crate) struct StartCoordinationResultView {
     pub(crate) run_id: String,
     pub(crate) operation_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Complete provider-execution request with bounded prerequisite context and attempt provenance.
 pub(crate) struct CoordinationExecutionRequest {
     pub(crate) run_id: String,
     pub(crate) node_id: String,
@@ -38,6 +47,7 @@ pub(crate) struct CoordinationExecutionRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Provider outcome classified for durable success or policy-controlled fallback.
 pub(crate) enum CoordinationExecutionResult {
     Succeeded(CoordinationExecutionOutput),
     Failed {
@@ -47,12 +57,14 @@ pub(crate) enum CoordinationExecutionResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Bounded provider output retained for dependent nodes and final review.
 pub(crate) struct CoordinationExecutionOutput {
     pub(crate) content: String,
     pub(crate) byte_count: usize,
     pub(crate) truncated: bool,
 }
 
+/// Durable plan/run persistence required by the coordination use cases.
 pub(crate) trait CoordinationRepository: Send + Sync {
     fn insert(&self, run: &CoordinationRun) -> Result<(), AgentRuntimeApplicationError>;
     fn save(&self, run: &CoordinationRun) -> Result<(), AgentRuntimeApplicationError>;
@@ -67,6 +79,7 @@ pub(crate) trait CoordinationRepository: Send + Sync {
     fn list_recoverable(&self) -> Result<Vec<CoordinationRun>, AgentRuntimeApplicationError>;
 }
 
+/// Provider-execution boundary for one coordination node attempt.
 pub(crate) trait CoordinationNodeExecutor: Send + Sync {
     fn start_coordination(
         &self,
@@ -85,10 +98,12 @@ pub(crate) trait CoordinationNodeExecutor: Send + Sync {
     ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Stable identity source for plans, runs, attempts, and observable operations.
 pub(crate) trait CoordinationIdPort: Send + Sync {
     fn next_id(&self, prefix: &str) -> String;
 }
 
+/// Observable-operation boundary for coordination lifecycle reporting.
 pub(crate) trait CoordinationOperationPort: Send + Sync {
     fn start(&self, run_id: &str, name: &str) -> Result<String, AgentRuntimeApplicationError>;
     fn append_log(
@@ -102,6 +117,7 @@ pub(crate) trait CoordinationOperationPort: Send + Sync {
 }
 
 #[derive(Clone)]
+/// Dependency bundle for the coordination application service.
 pub(crate) struct CoordinationApplicationPorts {
     pub(crate) repository: Arc<dyn CoordinationRepository>,
     pub(crate) registry: Arc<dyn AgentRegistryRepository>,
@@ -113,6 +129,7 @@ pub(crate) struct CoordinationApplicationPorts {
 }
 
 #[derive(Clone)]
+/// Orchestrates plan creation, scheduling transitions, fallback, cancellation, and recovery.
 pub(crate) struct CoordinationApplicationService {
     ports: CoordinationApplicationPorts,
 }

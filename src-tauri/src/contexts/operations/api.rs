@@ -1,3 +1,8 @@
+//! Published in-process facade for observable operations and unified logging contracts.
+//!
+//! Native contexts use this boundary to start and finish operations, append page-visible output,
+//! correlate execution traces, and emit redacted diagnostics without owning the logging storage.
+
 use crate::contexts::operations::application::{ApplicationError, OperationService};
 use serde_json::Value;
 
@@ -9,6 +14,7 @@ pub(crate) use crate::contexts::operations::application::{
 pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
 
 #[derive(Clone)]
+/// Application facade for operation lifecycle and correlation.
 pub(crate) struct OperationsApi {
     service: OperationService,
 }
