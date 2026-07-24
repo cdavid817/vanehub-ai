@@ -157,6 +157,9 @@ fn shell_creation_validates_workspace_bounds_dimensions_and_logs_after_open() {
         agent_id: "codex-cli".to_string(),
         root: Some("C:\\code\\app".to_string()),
         remote: false,
+        remote_endpoint: None,
+        ssh_binding: None,
+        policy: ShellWorkspacePolicy { requires_host_trust: false },
         read_only: false,
     });
 
@@ -192,15 +195,21 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 agent_id: "codex-cli".to_string(),
                 root: None,
                 remote: true,
+                remote_endpoint: None,
+                ssh_binding: None,
+                policy: ShellWorkspacePolicy { requires_host_trust: false },
                 read_only: false,
             },
-            "Remote workspace shell is unsupported.",
+            "Session workspace is unavailable.",
         ),
         (
             ShellWorkspace {
                 agent_id: "codex-cli".to_string(),
                 root: None,
                 remote: false,
+                remote_endpoint: None,
+                ssh_binding: None,
+                policy: ShellWorkspacePolicy { requires_host_trust: false },
                 read_only: false,
             },
             "Session workspace is unavailable.",
@@ -229,6 +238,9 @@ fn shell_routes_and_cleanup_preserve_idempotence_events_and_bounds() {
         agent_id: "codex-cli".to_string(),
         root: Some("C:\\code\\app".to_string()),
         remote: false,
+        remote_endpoint: None,
+        ssh_binding: None,
+        policy: ShellWorkspacePolicy { requires_host_trust: false },
         read_only: false,
     });
 
@@ -276,6 +288,9 @@ fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
         agent_id: "codex-cli".to_string(),
         root: Some("C:\\code\\app".to_string()),
         remote: false,
+        remote_endpoint: None,
+        ssh_binding: None,
+        policy: ShellWorkspacePolicy { requires_host_trust: false },
         read_only: true,
     });
 

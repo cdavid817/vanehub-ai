@@ -10,8 +10,9 @@ use super::{
     SessionExportRequest, SessionExportResult, SessionFileContentPort, SessionIdentityPort,
     SessionListScope, SessionLoggingPort, SessionMaintenanceResult, SessionMessageRepository,
     SessionOperationPort, SessionRecord, SessionRepository, SessionRuntimePort, SessionSearchQuery,
-    SessionSearchResult, SessionTransactionPort, SessionUsageRepository, SessionUsageStatistics,
-    SessionUsageSummary, SessionWorkspace, SessionsApplicationError, UsageStatisticsRange,
+    SessionSearchResult, SessionSshBinding, SessionTransactionPort, SessionUsageRepository,
+    SessionUsageStatistics, SessionUsageSummary, SessionWorkspace, SessionsApplicationError,
+    UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
@@ -106,6 +107,7 @@ impl SessionsApplicationService {
                 worktree_name: Some(request.worktree_name),
                 worktree_branch: Some(request.worktree_branch),
                 remote_workspace: None,
+                remote_ssh_binding: None,
                 loop_ownership: Some(LoopSessionOwnership {
                     run_id: request.run_id,
                     iteration_id: request.iteration_id,
@@ -208,6 +210,18 @@ impl SessionsApplicationService {
         if let Some(workspace) = &remote_workspace {
             self.ports.creation.remember_remote_workspace(workspace)?;
         }
+        let remote_ssh_binding = match (
+            remote_workspace.as_ref(),
+            request
+                .remote_workspace
+                .as_ref()
+                .and_then(|workspace| workspace.ssh_connection_id.as_deref()),
+        ) {
+            (Some(workspace), Some(connection_id)) => {
+                Some(self.resolve_ssh_binding(workspace, connection_id)?)
+            }
+            _ => None,
+        };
 
         let mut workspace = SessionWorkspace {
             folder: project
@@ -221,6 +235,7 @@ impl SessionsApplicationService {
                 .or_else(|| request.folder.clone()),
             project_path: project.as_ref().map(|project| project.path.clone()),
             remote_workspace,
+            remote_ssh_binding,
             ..Default::default()
         };
         if worktree_enabled {
@@ -240,6 +255,40 @@ impl SessionsApplicationService {
             workspace.worktree_branch = Some(worktree.branch);
         }
         Ok(workspace)
+    }
+
+    fn resolve_ssh_binding(
+        &self,
+        workspace: &super::SessionRemoteWorkspace,
+        connection_id: &str,
+    ) -> Result<SessionSshBinding, SessionsApplicationError> {
+        let connection_id = connection_id.trim();
+        if connection_id.is_empty() {
+            return Err(SessionsApplicationError::Validation(
+                "SSH connection id cannot be empty.".to_string(),
+            ));
+        }
+        let profile = self
+            .ports
+            .creation
+            .find_ssh_profile(connection_id)?
+            .ok_or_else(|| {
+                SessionsApplicationError::Validation(format!(
+                    "SSH connection not found: {connection_id}"
+                ))
+            })?;
+        let endpoint_matches = profile.host == workspace.host
+            && profile.port == workspace.port.unwrap_or(22)
+            && workspace.user.as_deref() == Some(profile.user.as_str());
+        if !endpoint_matches {
+            return Err(SessionsApplicationError::Validation(
+                "SSH connection endpoint does not match the remote workspace snapshot.".to_string(),
+            ));
+        }
+        Ok(SessionSshBinding {
+            connection_id: profile.connection_id,
+            revision: profile.revision,
+        })
     }
 
     fn create_session_record(
@@ -500,6 +549,59 @@ impl SessionsApplicationService {
     ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
         let session_id = SessionId::parse(session_id)?;
         self.ports.sessions.find(&session_id)
+    }
+
+    pub(crate) fn rebind_remote_session(
+        &self,
+        session_id: &str,
+        connection_id: &str,
+    ) -> Result<SessionRecord, SessionsApplicationError> {
+        let mut session = self.load_session(session_id)?;
+        let workspace = session.workspace.remote_workspace.as_ref().ok_or_else(|| {
+            SessionsApplicationError::Validation(
+                "Only remote workspace sessions can bind an SSH connection.".to_string(),
+            )
+        })?;
+        session.workspace.remote_ssh_binding =
+            Some(self.resolve_ssh_binding(workspace, connection_id)?);
+        session.updated_at = self.ports.clock.now();
+        self.ports.sessions.save(&session)
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "remote Shell routing consumes this binding guard in task 4.1"
+        )
+    )]
+    pub(crate) fn require_current_remote_ssh_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionSshBinding, SessionsApplicationError> {
+        let session = self.load_session(session_id)?;
+        let workspace = session.workspace.remote_workspace.as_ref().ok_or_else(|| {
+            SessionsApplicationError::Validation(
+                "Session does not use a remote workspace.".to_string(),
+            )
+        })?;
+        let binding = session
+            .workspace
+            .remote_ssh_binding
+            .as_ref()
+            .ok_or_else(|| {
+                SessionsApplicationError::Validation(
+                    "Remote session requires an SSH connection binding.".to_string(),
+                )
+            })?;
+        let current = self.resolve_ssh_binding(workspace, &binding.connection_id)?;
+        if current.revision != binding.revision {
+            return Err(SessionsApplicationError::Validation(
+                "Remote session SSH connection binding is stale; explicit rebind is required."
+                    .to_string(),
+            ));
+        }
+        Ok(current)
     }
 
     pub(crate) fn find_message(

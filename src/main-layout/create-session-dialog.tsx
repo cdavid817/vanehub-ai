@@ -246,6 +246,7 @@ export function CreateSessionDialog({
           remotePort,
           remoteUser,
           saveSshConnection,
+          selectedSshConnectionId,
           selectedAgent,
           setCreateOperationId,
           setError,

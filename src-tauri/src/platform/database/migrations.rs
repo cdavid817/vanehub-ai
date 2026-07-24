@@ -154,6 +154,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "multi-agent-coordination",
         crate::contexts::agent_runtime::infrastructure::apply_coordination_schema,
     )?;
+    apply_migration(
+        conn,
+        28,
+        "remote-terminal-management",
+        crate::contexts::workspaces::infrastructure::apply_remote_terminal_schema,
+    )?;
 
     Ok(())
 }

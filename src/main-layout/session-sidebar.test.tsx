@@ -19,6 +19,8 @@ function session(agentId: string): Session {
     worktreeName: null,
     worktreeBranch: null,
     remoteWorkspace: null,
+    remoteSshConnectionId: null,
+    remoteSshConnectionRevision: null,
     runtimeSessionId: null,
     categoryId: null,
     pinned: false,

@@ -11,7 +11,8 @@ pub(crate) use models::{
     FileContent, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
     GitStatusEntry, GitStatusResult, KnownProject, KnownRemoteWorkspace, ResizeShellRequest,
     SessionDocument, SessionLogEntry, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    SessionWorkspaceContext, ShellEvent, ShellLaunch, ShellLog, ShellSession, ShellWorkspace,
+    SessionWorkspaceContext, ShellEvent, ShellLaunch, ShellLog, ShellRemoteEndpoint,
+    ShellSession, ShellSshBinding, ShellWorkspace, ShellWorkspacePolicy,
     WorkspaceLogLevel,
 };
 pub(crate) use ports::{

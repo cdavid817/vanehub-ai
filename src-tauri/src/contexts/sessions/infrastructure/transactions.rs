@@ -199,13 +199,14 @@ fn insert_session(
                 id, title, agent_id, interaction_mode, lifecycle_state, folder,
                 project_path, worktree_path, worktree_name, worktree_branch,
                 remote_workspace_host, remote_workspace_port, remote_workspace_user,
-                remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id,
+                remote_workspace_path, remote_workspace_display_name, remote_workspace_uri,
+                remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id,
                 category_id, source_kind, source_connector, pinned, archived,
                 created_at, updated_at, loop_run_id, loop_iteration_id, loop_role
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
                 ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
-                ?24, ?25, ?26, ?27
+                ?24, ?25, ?26, ?27, ?28, ?29
             )
             "#,
             params![
@@ -225,6 +226,16 @@ fn insert_session(
                 remote.map(|workspace| workspace.path.as_str()),
                 remote.map(|workspace| workspace.display_name.as_str()),
                 remote.map(|workspace| workspace.uri.as_str()),
+                session
+                    .workspace
+                    .remote_ssh_binding
+                    .as_ref()
+                    .map(|binding| binding.connection_id.as_str()),
+                session
+                    .workspace
+                    .remote_ssh_binding
+                    .as_ref()
+                    .map(|binding| binding.revision),
                 session.runtime_session_id,
                 session.aggregate.category_id().map(CategoryId::as_str),
                 session.aggregate.owner().kind(),

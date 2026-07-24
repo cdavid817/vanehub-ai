@@ -70,6 +70,26 @@ impl SessionsApi {
         self.service.find_session(session_id)
     }
 
+    pub(crate) fn rebind_remote_ssh_connection(
+        &self,
+        session_id: &str,
+        connection_id: &str,
+    ) -> Result<SessionRecord, SessionsError> {
+        self.service
+            .rebind_remote_session(session_id, connection_id)
+    }
+
+    #[expect(
+        dead_code,
+        reason = "remote Shell routing consumes this binding guard in task 4.1"
+    )]
+    pub(crate) fn require_current_remote_ssh_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<super::application::SessionSshBinding, SessionsError> {
+        self.service.require_current_remote_ssh_binding(session_id)
+    }
+
     pub(crate) fn switch(&self, session_id: &str) -> Result<SessionRecord, SessionsError> {
         self.service.switch_session(session_id)
     }

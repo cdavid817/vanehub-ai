@@ -57,6 +57,7 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::save_session_chat_config::save_session_chat_config,
         crate::commands::sessions::switch_session::switch_session,
         crate::commands::sessions::rename_session::rename_session,
+        crate::commands::sessions::rebind_remote_session_ssh_connection::rebind_remote_session_ssh_connection,
         crate::commands::sessions::pin_session::pin_session,
         crate::commands::sessions::unpin_session::unpin_session,
         crate::commands::sessions::archive_session::archive_session,
@@ -76,6 +77,8 @@ pub(crate) fn invoke_handler(
         crate::commands::ssh_connections::update_ssh_connection::update_ssh_connection,
         crate::commands::ssh_connections::delete_ssh_connection::delete_ssh_connection,
         crate::commands::ssh_connections::test_ssh_connection::test_ssh_connection,
+        crate::commands::ssh_connections::get_pending_ssh_host_key::get_pending_ssh_host_key,
+        crate::commands::ssh_connections::confirm_ssh_host_key::confirm_ssh_host_key,
         // Workspaces
         crate::commands::workspaces::list_known_projects::list_known_projects,
         crate::commands::workspaces::list_known_remote_workspaces::list_known_remote_workspaces,

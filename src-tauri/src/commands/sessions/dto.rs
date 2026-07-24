@@ -62,6 +62,8 @@ pub(crate) struct Session {
     pub(crate) worktree_name: Option<String>,
     pub(crate) worktree_branch: Option<String>,
     pub(crate) remote_workspace: Option<RemoteWorkspace>,
+    pub(crate) remote_ssh_connection_id: Option<String>,
+    pub(crate) remote_ssh_connection_revision: Option<i64>,
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) category_id: Option<String>,
     pub(crate) source: SessionSource,
@@ -147,6 +149,7 @@ pub(crate) struct CreateRemoteWorkspaceInput {
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: Option<String>,
+    pub(crate) ssh_connection_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

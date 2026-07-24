@@ -72,6 +72,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-23 | add-multi-agent-coordination | agent-execution-observability, multi-agent-coordination | `openspec/changes/archive/2026-07-23-add-multi-agent-coordination/` |
 | 2026-07-23 | agent-execution-observability | agent-execution-observability, app-settings, contract-and-task-foundation, mcp-client-management, session-runtime-management, unified-log-management | `openspec/changes/archive/2026-07-23-agent-execution-observability/` |
 | 2026-07-23 | optimize-frontend-rendering-and-loading | frontend-runtime-architecture, main-layout-ui, session-log-viewer, session-workspace-tabs, settings-center-ui, settings-prompt-hooks-ui | `openspec/changes/archive/2026-07-23-optimize-frontend-rendering-and-loading/` |
+| 2026-07-24 | add-remote-terminal-management | remote-terminal-runtime, session-management, session-shell, ssh-connection-management, terminal-command-management, terminal-output-search, unified-log-management | `openspec/changes/archive/2026-07-24-add-remote-terminal-management/` |
 | 2026-07-24 | enhance-prompt-library-advanced-features | chat-experience, frontend-runtime-architecture, native-runtime-architecture, prompt-hook-management, settings-prompt-hooks-ui | `openspec/changes/archive/2026-07-24-enhance-prompt-library-advanced-features/` |
 | 2026-07-24 | optimize-rust-build-and-release | continuous-integration, native-app-packaging, native-build-optimization | `openspec/changes/archive/2026-07-24-optimize-rust-build-and-release/` |
 

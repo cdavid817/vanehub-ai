@@ -391,6 +391,16 @@ impl SessionIdentityPort for LifecycleDoubles {
 }
 
 impl SessionCreationContextPort for LifecycleDoubles {
+    fn find_ssh_profile(
+        &self,
+        _connection_id: &str,
+    ) -> Result<
+        Option<crate::contexts::sessions::application::SessionSshProfile>,
+        SessionsApplicationError,
+    > {
+        Ok(None)
+    }
+
     fn remote_workspace_uri(&self, _workspace: &NewRemoteWorkspace) -> Option<String> {
         None
     }

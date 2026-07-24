@@ -10,6 +10,8 @@ mod migration_fixture_tests;
 #[cfg(test)]
 mod native_lifecycle_tests;
 #[cfg(test)]
+mod remote_terminal_migration_tests;
+#[cfg(test)]
 mod test_support;
 
 pub fn run() {

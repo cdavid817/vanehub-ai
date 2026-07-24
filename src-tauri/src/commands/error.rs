@@ -4,6 +4,7 @@ use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError
 use crate::contexts::operations::application::ApplicationError;
 use crate::contexts::sessions::api::SessionsError;
 use crate::contexts::ssh_connections::api::SshConnectionsError;
+use crate::contexts::ssh_connections::api::SshRuntimeError;
 use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
@@ -372,6 +373,33 @@ impl From<SshConnectionsError> for CommandError {
                 message,
                 "launch failed: ",
             ),
+        }
+    }
+}
+
+impl From<SshRuntimeError> for CommandError {
+    fn from(error: SshRuntimeError) -> Self {
+        match error {
+            SshRuntimeError::ProfileNotFound => Self {
+                category: CommandErrorCategory::NotFound,
+                message: "SSH connection not found.".to_string(),
+            },
+            SshRuntimeError::StaleProfile
+            | SshRuntimeError::TrustChallengeNotFound
+            | SshRuntimeError::TrustConfirmationMismatch
+            | SshRuntimeError::HostKeyRequired(_) => Self::validation(error.to_string()),
+            SshRuntimeError::MissingAuthenticationMaterial
+            | SshRuntimeError::HostKeyVerificationFailed
+            | SshRuntimeError::AuthenticationFailed
+            | SshRuntimeError::ConnectionFailed
+            | SshRuntimeError::ConnectionTimedOut
+            | SshRuntimeError::TransportClosed
+            | SshRuntimeError::ChannelFailed
+            | SshRuntimeError::TrustPersistenceFailed
+            | SshRuntimeError::PoolAtCapacity => Self {
+                category: CommandErrorCategory::Unavailable,
+                message: format!("launch failed: {error}"),
+            },
         }
     }
 }

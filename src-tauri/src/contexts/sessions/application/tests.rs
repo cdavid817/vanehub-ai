@@ -763,6 +763,26 @@ impl SessionCreationContextPort for FakeCreationContext {
         ))
     }
 
+    fn find_ssh_profile(
+        &self,
+        connection_id: &str,
+    ) -> Result<Option<SessionSshProfile>, SessionsApplicationError> {
+        if connection_id == "ssh-deleted" {
+            return Ok(None);
+        }
+        Ok(Some(SessionSshProfile {
+            connection_id: connection_id.to_string(),
+            revision: i64::from(connection_id == "ssh-stale") + 1,
+            host: if connection_id == "ssh-other" {
+                "other.example.test".to_string()
+            } else {
+                "remote.example.test".to_string()
+            },
+            port: 22,
+            user: "dev".to_string(),
+        }))
+    }
+
     fn ensure_agent_supports(
         &self,
         agent_id: &str,
@@ -1205,6 +1225,104 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
             "worktree:D:\\code\\project:feature-one".to_string(),
         ]
     );
+}
+
+#[test]
+fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
+    let fixture = fixture();
+    let prepared = fixture
+        .service
+        .prepare_new_session_creation(NewSessionRequest {
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: "cli".to_string(),
+            title: Some("Remote".to_string()),
+            workspace: NewSessionWorkspace {
+                remote_workspace: Some(NewRemoteWorkspace {
+                    host: "remote.example.test".to_string(),
+                    port: Some(22),
+                    user: Some("dev".to_string()),
+                    path: "/work/app".to_string(),
+                    display_name: Some("Remote App".to_string()),
+                    ssh_connection_id: Some("ssh-current".to_string()),
+                }),
+                ..Default::default()
+            },
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::Activate,
+        })
+        .expect("prepare remote creation");
+
+    let session = fixture
+        .service
+        .execute_new_session_creation(prepared)
+        .expect("create bound remote session");
+
+    assert_eq!(
+        session.workspace.remote_ssh_binding,
+        Some(SessionSshBinding {
+            connection_id: "ssh-current".to_string(),
+            revision: 1,
+        })
+    );
+    let snapshot = session
+        .workspace
+        .remote_workspace
+        .expect("remote workspace snapshot");
+    assert_eq!(snapshot.host, "remote.example.test");
+    assert_eq!(snapshot.path, "/work/app");
+}
+
+#[test]
+fn remote_binding_requires_explicit_compatible_rebind_and_detects_stale_profiles() {
+    let fixture = fixture();
+    let mut session = session_record("session-remote", "codex-cli", SessionLifecycle::Idle, false);
+    session.workspace.remote_workspace = Some(SessionRemoteWorkspace {
+        host: "remote.example.test".to_string(),
+        port: Some(22),
+        user: Some("dev".to_string()),
+        path: "/work/app".to_string(),
+        display_name: "Remote App".to_string(),
+        uri: "ssh://dev@remote.example.test/work/app".to_string(),
+    });
+    session.workspace.remote_ssh_binding = Some(SessionSshBinding {
+        connection_id: "ssh-stale".to_string(),
+        revision: 1,
+    });
+    fixture.store.seed_session(session.clone());
+
+    let stale = fixture
+        .service
+        .require_current_remote_ssh_binding(session.id())
+        .expect_err("stale binding");
+    assert!(stale.to_string().contains("stale"));
+
+    let rebound = fixture
+        .service
+        .rebind_remote_session(session.id(), "ssh-current")
+        .expect("explicit rebind");
+    assert_eq!(
+        rebound.workspace.remote_workspace,
+        session.workspace.remote_workspace
+    );
+    assert_eq!(
+        rebound.workspace.remote_ssh_binding,
+        Some(SessionSshBinding {
+            connection_id: "ssh-current".to_string(),
+            revision: 1,
+        })
+    );
+
+    let mut deleted = rebound;
+    deleted.workspace.remote_ssh_binding = Some(SessionSshBinding {
+        connection_id: "ssh-deleted".to_string(),
+        revision: 1,
+    });
+    fixture.store.seed_session(deleted);
+    let missing = fixture
+        .service
+        .require_current_remote_ssh_binding(session.id())
+        .expect_err("deleted profile invalidates binding");
+    assert!(missing.to_string().contains("not found"));
 }
 
 #[test]

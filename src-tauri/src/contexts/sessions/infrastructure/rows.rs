@@ -11,7 +11,7 @@ use crate::contexts::sessions::domain::{
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
 
-pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role FROM sessions";
+pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role FROM sessions";
 pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
@@ -34,6 +34,8 @@ pub(super) struct SessionRow {
     remote_workspace_path: Option<String>,
     remote_workspace_display_name: Option<String>,
     remote_workspace_uri: Option<String>,
+    remote_ssh_connection_id: Option<String>,
+    remote_ssh_connection_revision: Option<i64>,
     runtime_session_id: Option<String>,
     category_id: Option<String>,
     source_kind: String,
@@ -66,17 +68,19 @@ impl SessionRow {
             remote_workspace_path: row.get(13)?,
             remote_workspace_display_name: row.get(14)?,
             remote_workspace_uri: row.get(15)?,
-            runtime_session_id: row.get(16)?,
-            category_id: row.get(17)?,
-            source_kind: row.get(18)?,
-            source_connector: row.get(19)?,
-            pinned: row.get::<_, i64>(20)? != 0,
-            archived: row.get::<_, i64>(21)? != 0,
-            created_at: row.get(22)?,
-            updated_at: row.get(23)?,
-            loop_run_id: row.get(24)?,
-            loop_iteration_id: row.get(25)?,
-            loop_role: row.get(26)?,
+            remote_ssh_connection_id: row.get(16)?,
+            remote_ssh_connection_revision: row.get(17)?,
+            runtime_session_id: row.get(18)?,
+            category_id: row.get(19)?,
+            source_kind: row.get(20)?,
+            source_connector: row.get(21)?,
+            pinned: row.get::<_, i64>(22)? != 0,
+            archived: row.get::<_, i64>(23)? != 0,
+            created_at: row.get(24)?,
+            updated_at: row.get(25)?,
+            loop_run_id: row.get(26)?,
+            loop_iteration_id: row.get(27)?,
+            loop_role: row.get(28)?,
         })
     }
 
@@ -123,6 +127,23 @@ impl SessionRow {
                 ));
             }
         };
+        let remote_ssh_binding = match (
+            self.remote_ssh_connection_id,
+            self.remote_ssh_connection_revision,
+        ) {
+            (Some(connection_id), Some(revision)) => {
+                Some(crate::contexts::sessions::application::SessionSshBinding {
+                    connection_id,
+                    revision,
+                })
+            }
+            (None, None) => None,
+            _ => {
+                return Err(SessionsApplicationError::Repository(
+                    "incomplete remote SSH binding metadata".to_string(),
+                ));
+            }
+        };
         Ok(SessionRecord {
             aggregate,
             agent_id: self.agent_id,
@@ -134,6 +155,7 @@ impl SessionRow {
                 worktree_name: self.worktree_name,
                 worktree_branch: self.worktree_branch,
                 remote_workspace,
+                remote_ssh_binding,
                 loop_ownership,
             },
             runtime_session_id: self.runtime_session_id,

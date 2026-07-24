@@ -139,3 +139,10 @@ bootstrap ------------------> outer implementations for construction only
 - A temporary architecture exception MUST be narrow, justified in `src-tauri/ARCHITECTURE.md`, tied to an unchecked migration task, and removed before that context's migration is complete. Blanket or permanent allowlists are prohibited.
 - The implemented boundary refinements and their rationale are recorded as ADRs in `src-tauri/ARCHITECTURE.md`; changes to those decisions require updating that document in the same proposal.
 - Native refactoring MUST preserve Tauri command names, request/response serialization, supported SQLite data, frontend service interfaces, and Web/mock runtime behavior unless another approved OpenSpec change explicitly modifies them.
+
+### Remote Terminal architecture
+
+- SSH runtime is isolated behind application ports; native infrastructure owns russh transport, credential loading, host-key callbacks, PTY/exec channels, keepalive, and close lifecycle.
+- Connection pooling is keyed by `(connection_id, revision)`, uses single-flight connection establishment, leases, bounded capacity, health state, draining, idle eviction, and shutdown cleanup.
+- Terminal output is normalized into bounded UTF-8-safe chunks. Capture uses a non-blocking bounded queue, SQLite persistence, transactional FTS5 indexing, retention and capacity maintenance, and one gap marker for dropped content.
+- Command templates and immutable command runs are stored in SQLite; deleting a template preserves run snapshots. Web/mock adapters simulate template execution, capture, search, cancellation, retention, and purge without native side effects.

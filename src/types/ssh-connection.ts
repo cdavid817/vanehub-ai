@@ -1,6 +1,14 @@
 export type SshAuthMode = "password" | "key";
 export type SshConnectionTestStatus = "not-tested" | "succeeded" | "failed";
 
+export interface SshHostTrustMetadata {
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+  confirmedAt: string;
+}
+
 export interface SshConnection {
   id: string;
   name: string;
@@ -11,6 +19,8 @@ export interface SshConnection {
   authMode: SshAuthMode;
   keyPath: string | null;
   hasPassword: boolean;
+  revision: number;
+  hostTrust: SshHostTrustMetadata | null;
   testStatus: SshConnectionTestStatus;
   lastConnectedAt: string | null;
   lastError: string | null;

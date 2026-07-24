@@ -15,9 +15,9 @@ pub(crate) use models::{
     SessionExportFormat, SessionExportRequest, SessionExportResult, SessionListScope,
     SessionMaintenanceResult, SessionProject, SessionRecord, SessionRemoteWorkspace,
     SessionSearchMatch, SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult,
-    SessionUsageAccountingKind, SessionUsageAgentBreakdown, SessionUsageCoverage,
-    SessionUsagePoint, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
-    SessionWorkspace, UsageStatisticsRange,
+    SessionSshBinding, SessionSshProfile, SessionUsageAccountingKind, SessionUsageAgentBreakdown,
+    SessionUsageCoverage, SessionUsagePoint, SessionUsageStatistics, SessionUsageSummary,
+    SessionUsageUnit, SessionWorkspace, UsageStatisticsRange,
 };
 pub(crate) use ports::{
     SessionCategoryRepository, SessionChatProfilePort, SessionClockPort,
