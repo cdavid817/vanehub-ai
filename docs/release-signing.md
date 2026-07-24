@@ -13,6 +13,16 @@ The `Package Desktop Apps` workflow uses an unprivileged `build-preview` environ
 
 The publish job cannot run until all Windows, macOS, and Linux jobs finish successfully. It uses short-lived GitHub OIDC identity for attestations and does not require a stored GitHub token.
 
+## Native build profile
+
+Desktop packages use the shared Cargo release profile declared in `src-tauri/Cargo.toml`: optimization level 3, ThinLTO, one codegen unit, and debuginfo stripping. ThinLTO and a single codegen unit can extend release link time while enabling whole-program optimization and changing distributable size; they do not guarantee a smaller package on every target.
+
+Windows x64 builds use the Rust-toolchain-provided LLD linker. Linux x64 builds require Clang and mold; the package workflow verifies both before compilation. Other targets retain their platform-default linker unless a target-specific policy is added and validated.
+
+Debuginfo stripping does not remove VaneHub's operational `debug` log level. Release builds continue to persist redacted `error`, `warn`, `info`, and `debug` events through unified logging. Build prerequisites, verification commands, worktree cache behavior, and measurement evidence are documented in `docs/build-performance.md`.
+
+The current measurement record contains optimized Windows executable, MSI, and NSIS sizes but no comparable pre-change package artifacts because the baseline package was interrupted by an external Rust toolchain update. Those absolute sizes do not establish a measured size reduction.
+
 ## GitHub environment secrets
 
 Store credentials only as secrets on the `release` environment. Never place their values in repository variables, workflow files, issues, logs, or artifacts.

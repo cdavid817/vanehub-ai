@@ -632,6 +632,21 @@ mod tests {
     }
 
     #[test]
+    fn serializes_every_production_log_level() {
+        for (level, expected) in [
+            (LogLevel::Error, "\"error\""),
+            (LogLevel::Warn, "\"warn\""),
+            (LogLevel::Info, "\"info\""),
+            (LogLevel::Debug, "\"debug\""),
+        ] {
+            assert_eq!(
+                serde_json::to_string(&level).expect("serialize production log level"),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn writes_redacted_client_log_event() {
         let dir = temp_dir("client");
         let mut details = BTreeMap::new();
