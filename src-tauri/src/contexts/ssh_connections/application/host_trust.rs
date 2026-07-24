@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use super::runtime::{HostKeyVerification, RemoteSshError, RemoteSshHostKeyVerifierPort};
 use super::{SshConnectionClock, SshConnectionRepository};
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};

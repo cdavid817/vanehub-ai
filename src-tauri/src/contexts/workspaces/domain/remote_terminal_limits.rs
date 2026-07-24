@@ -17,6 +17,7 @@ pub(crate) const TERMINAL_SEARCH_MAX_QUERY_BYTES: usize = 512;
 pub(crate) const TERMINAL_SEARCH_MAX_CURSOR_BYTES: usize = 512;
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
 

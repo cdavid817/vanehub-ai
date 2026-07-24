@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use super::super::domain::runtime::{
     HostKeyChallenge, HostKeyEvidence, RemotePtyRequest, RemoteSshChannelEvent,
 };
@@ -54,6 +56,7 @@ pub(crate) trait RemoteSshChannelPort: Send + Sync {
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[allow(clippy::result_large_err)]
 pub(crate) enum RemoteSshError {
     #[error("SSH profile is missing required authentication material.")]
     MissingAuthenticationMaterial,

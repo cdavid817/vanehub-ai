@@ -22,6 +22,7 @@ impl SqliteTerminalOutputSearch {
     pub(crate) fn new(database: NativeDatabase) -> Self {
         Self { database }
     }
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn search(
         &self,
         query: &str,

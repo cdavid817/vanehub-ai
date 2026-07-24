@@ -9,10 +9,10 @@ mod remote_workspace;
 mod shell;
 mod worktree;
 
-pub(crate) use command_run::{CommandRun, CommandRunError, CommandRunStatus};
+pub(crate) use command_run::{CommandRun, CommandRunStatus};
 pub(crate) use command_template::{CommandTemplate, CommandTemplateError, CommandTemplateScope};
 pub(crate) use error::WorkspaceDomainError;
-pub(crate) use output_chunk::{TerminalOutputChunk, TerminalOutputError, TerminalOutputSource};
+pub(crate) use output_chunk::{TerminalOutputChunk, TerminalOutputSource};
 #[allow(unused_imports)]
 pub(crate) use path::{
     normalize_windows_extended_length_path, CanonicalPathBoundary, WorkspaceRelativePath,

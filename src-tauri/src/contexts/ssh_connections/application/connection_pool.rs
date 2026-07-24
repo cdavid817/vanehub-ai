@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock, clippy::result_large_err)]
+
 use super::runtime::{RemoteSshConnectorPort, RemoteSshError, RemoteSshTransportPort};
 use crate::contexts::ssh_connections::domain::runtime::RemoteSshConnectionKey;
 use crate::contexts::ssh_connections::domain::SshConnectionProfile;

@@ -1,3 +1,5 @@
+#![allow(dead_code, clippy::result_large_err)]
+
 use super::application::connection_pool::{
     RemoteSshConnectionPool, RemoteSshLease, RemoteSshPoolEntrySnapshot,
 };
@@ -13,9 +15,7 @@ use super::domain::SshConnectionProfile;
 pub(crate) use super::application::runtime::RemoteSshError as SshRuntimeError;
 pub(crate) use super::application::SshConnectionError as SshConnectionsError;
 pub(crate) use super::application::SshConnectionMutation as SaveSshConnectionRequest;
-pub(crate) use super::domain::runtime::{
-    HostKeyChallengeKind, RemotePtyRequest, RemoteSshChannelEvent,
-};
+pub(crate) use super::domain::runtime::HostKeyChallengeKind;
 pub(crate) use super::domain::{SshAuthMode, SshConnectionTestStatus};
 
 #[derive(Clone)]

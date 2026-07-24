@@ -24,6 +24,7 @@ pub(crate) struct CommandRun {
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum CommandRunError {
     #[error("command run requires a non-empty immutable command snapshot")]
     InvalidCommand,

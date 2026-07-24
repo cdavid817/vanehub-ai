@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::contexts::ssh_connections::application::runtime::{
     HostKeyVerification, RemoteSshConnectorPort, RemoteSshError, RemoteSshHostKeyVerifierPort,
     RemoteSshTransportPort,

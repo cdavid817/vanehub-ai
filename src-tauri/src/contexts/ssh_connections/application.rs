@@ -1,6 +1,5 @@
 use super::domain::{
-    SshAuthMode, SshConnectionDomainError, SshConnectionDraft, SshConnectionProfile,
-    SshConnectionTestStatus,
+    SshAuthMode, SshConnectionDomainError, SshConnectionProfile, SshConnectionTestStatus,
 };
 use std::sync::Arc;
 use thiserror::Error;
