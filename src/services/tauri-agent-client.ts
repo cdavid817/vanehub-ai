@@ -58,6 +58,13 @@ import type {
   PromptHookPreviewInput,
   PromptHookTraceSummary,
   PromptHookUpdateInput,
+  PromptHookDraft,
+  PromptHookVariableDefinition,
+  PromptHookVersion,
+  PromptHookVersionHistory,
+  PublishPromptHookInput,
+  RollbackPromptHookInput,
+  SavePromptHookDraftInput,
 } from "../types/prompt-hook";
 import type {
   Skill,
@@ -510,6 +517,26 @@ export const tauriAgentClient: AgentService = {
 
   listPromptHookTraces(limit?: number) {
     return invoke<PromptHookTraceSummary[]>("list_prompt_hook_traces", { limit: limit ?? null });
+  },
+
+  listPromptHookVariables() {
+    return invoke<PromptHookVariableDefinition[]>("list_prompt_hook_variables");
+  },
+
+  savePromptHookDraft(input: SavePromptHookDraftInput) {
+    return invoke<PromptHookDraft>("save_prompt_hook_draft", { input });
+  },
+
+  publishPromptHook(input: PublishPromptHookInput) {
+    return invoke<PromptHookVersion>("publish_prompt_hook", { input });
+  },
+
+  getPromptHookVersionHistory(hookId: string) {
+    return invoke<PromptHookVersionHistory>("get_prompt_hook_version_history", { hookId });
+  },
+
+  rollbackPromptHook(input: RollbackPromptHookInput) {
+    return invoke<PromptHookVersion>("rollback_prompt_hook", { input });
   },
 
   selectWorkspaceDirectory() {

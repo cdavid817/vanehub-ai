@@ -32,6 +32,15 @@ impl ManagedCliAgentId {
             Self::OpenCode => "opencode",
         }
     }
+
+    pub(crate) fn display_name(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "Claude Code",
+            Self::CodexCli => "Codex CLI",
+            Self::GeminiCli => "Gemini CLI",
+            Self::OpenCode => "OpenCode",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

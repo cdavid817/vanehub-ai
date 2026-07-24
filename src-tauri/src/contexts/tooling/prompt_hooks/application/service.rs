@@ -1,15 +1,18 @@
 use super::{
     EffectivePromptRequest, PromptAssemblyResult, PromptHookApplicationError, PromptHookClockPort,
-    PromptHookCreateRequest, PromptHookGovernance, PromptHookListResult, PromptHookLogAction,
-    PromptHookLogEvent, PromptHookLogLevel, PromptHookLoggingPort, PromptHookOverride,
-    PromptHookPreview, PromptHookPreviewRequest, PromptHookRecord, PromptHookRepository,
+    PromptHookCreateRequest, PromptHookDraft, PromptHookExecutionObservation, PromptHookGovernance,
+    PromptHookListResult, PromptHookLogAction, PromptHookLogEvent, PromptHookLogLevel,
+    PromptHookLoggingPort, PromptHookOverride, PromptHookPreview, PromptHookPreviewRequest,
+    PromptHookPublicationKind, PromptHookRecord, PromptHookRepository, PromptHookSnapshot,
     PromptHookStats, PromptHookTrace, PromptHookTraceIdPort, PromptHookTraceStatus,
-    PromptHookUpdateRequest,
+    PromptHookUpdateRequest, PromptHookVariable, PromptHookVersion, PromptHookVersionHistory,
+    PublishPromptHookRequest, RollbackPromptHookRequest, SavePromptHookDraftRequest,
 };
 use crate::contexts::tooling::prompt_hooks::domain::{
     builtin_prompt_hooks, compare_prompt_hook_order, ensure_content_editable, ensure_deletable,
     ensure_enablement, ensure_identity_unchanged, ensure_order_available, ManagedCliAgentId,
     PromptHookBindings, PromptHookId, PromptHookManifest, PromptHookOrderSlot, PromptHookSource,
+    PromptHookVariableDefinition, PROMPT_HOOK_VARIABLES,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -127,6 +130,178 @@ impl PromptHookApplicationService {
         self.repository.list_traces(limit.clamp(1, 100) as usize)
     }
 
+    pub(crate) fn list_variables(&self) -> Vec<PromptHookVariable> {
+        let variables: &[PromptHookVariableDefinition] = &PROMPT_HOOK_VARIABLES;
+        variables
+            .iter()
+            .map(|definition| PromptHookVariable {
+                name: definition.name.to_string(),
+                token: format!("{{{{{}}}}}", definition.name),
+                description_key: definition.description_key.to_string(),
+                availability_key: definition.availability_key.to_string(),
+                example: definition.example.to_string(),
+                aliases: match definition.name {
+                    "agent_id" => vec!["agentId".to_string()],
+                    "sample_input" => vec!["sampleInput".to_string()],
+                    _ => Vec::new(),
+                },
+            })
+            .collect()
+    }
+
+    pub(crate) fn save_draft(
+        &self,
+        request: SavePromptHookDraftRequest,
+    ) -> Result<PromptHookDraft, PromptHookApplicationError> {
+        let hooks = self.effective_hooks()?;
+        let current = find_record(&hooks, &request.hook_id)?;
+        ensure_content_editable(current.source)?;
+        ensure_identity_unchanged(
+            request.hook_id.as_str(),
+            request.snapshot.manifest.id().as_str(),
+        )?;
+        ensure_manifest_order_available(
+            &request.snapshot.manifest,
+            &hooks,
+            Some(&request.hook_id),
+        )?;
+        let previous = self.repository.get_draft(&request.hook_id)?;
+        if previous.as_ref().map(|draft| draft.revision) != request.expected_revision {
+            return Err(PromptHookApplicationError::Conflict(format!(
+                "{}:stale-revision",
+                request.hook_id.as_str()
+            )));
+        }
+        let now = self.clock.now();
+        let draft = PromptHookDraft {
+            hook_id: request.hook_id,
+            revision: previous.as_ref().map_or(1, |draft| draft.revision + 1),
+            snapshot: request.snapshot,
+            created_at: previous.map_or_else(|| now.clone(), |draft| draft.created_at),
+            updated_at: now,
+        };
+        self.repository
+            .save_draft(&draft, request.expected_revision)?;
+        Ok(draft)
+    }
+
+    pub(crate) fn publish(
+        &self,
+        request: PublishPromptHookRequest,
+    ) -> Result<PromptHookVersion, PromptHookApplicationError> {
+        let hooks = self.effective_hooks()?;
+        let current = find_record(&hooks, &request.hook_id)?;
+        ensure_content_editable(current.source)?;
+        let draft = self
+            .repository
+            .get_draft(&request.hook_id)?
+            .ok_or_else(|| {
+                PromptHookApplicationError::NotFound(format!("{}:draft", request.hook_id.as_str()))
+            })?;
+        if draft.revision != request.expected_draft_revision {
+            return Err(PromptHookApplicationError::Conflict(format!(
+                "{}:stale-revision",
+                request.hook_id.as_str()
+            )));
+        }
+        draft.snapshot.manifest.template().validate_variables()?;
+        let next_version = self
+            .repository
+            .list_versions(&request.hook_id, 1)?
+            .first()
+            .map_or(current.version.max(0) + 1, |version| version.version + 1);
+        let version = PromptHookVersion {
+            hook_id: request.hook_id,
+            version: next_version,
+            content_hash: snapshot_hash(&draft.snapshot),
+            snapshot: draft.snapshot,
+            publication_kind: PromptHookPublicationKind::Publish,
+            rollback_from_version: None,
+            published_at: self.clock.now(),
+        };
+        self.repository.publish_draft(
+            &version,
+            request.expected_draft_revision,
+            request.expected_published_version,
+        )?;
+        Ok(version)
+    }
+
+    pub(crate) fn version_history(
+        &self,
+        hook_id: PromptHookId,
+    ) -> Result<PromptHookVersionHistory, PromptHookApplicationError> {
+        let hooks = self.effective_hooks()?;
+        let current = find_record(&hooks, &hook_id)?;
+        if current.source == PromptHookSource::Builtin {
+            let version = PromptHookVersion {
+                hook_id: hook_id.clone(),
+                version: current.version,
+                snapshot: snapshot_from_record(current),
+                content_hash: snapshot_hash(&snapshot_from_record(current)),
+                publication_kind: PromptHookPublicationKind::Publish,
+                rollback_from_version: None,
+                published_at: current.updated_at.clone(),
+            };
+            return Ok(PromptHookVersionHistory {
+                hook_id,
+                published_version: Some(current.version),
+                draft: None,
+                versions: vec![version],
+                evaluations: self.repository.evaluation_summaries(current.id(), 100)?,
+            });
+        }
+        Ok(PromptHookVersionHistory {
+            hook_id: hook_id.clone(),
+            published_version: (current.version > 0).then_some(current.version),
+            draft: self.repository.get_draft(&hook_id)?,
+            versions: self.repository.list_versions(&hook_id, 100)?,
+            evaluations: self.repository.evaluation_summaries(&hook_id, 100)?,
+        })
+    }
+
+    pub(crate) fn rollback(
+        &self,
+        request: RollbackPromptHookRequest,
+    ) -> Result<PromptHookVersion, PromptHookApplicationError> {
+        let hooks = self.effective_hooks()?;
+        let current = find_record(&hooks, &request.hook_id)?;
+        ensure_content_editable(current.source)?;
+        let versions = self.repository.list_versions(&request.hook_id, 100)?;
+        let target = versions
+            .iter()
+            .find(|version| version.version == request.version)
+            .ok_or_else(|| {
+                PromptHookApplicationError::NotFound(format!(
+                    "{}:version-{}",
+                    request.hook_id.as_str(),
+                    request.version
+                ))
+            })?;
+        target.snapshot.manifest.template().validate_variables()?;
+        let version = PromptHookVersion {
+            hook_id: request.hook_id,
+            version: versions
+                .first()
+                .map_or(current.version.max(0) + 1, |version| version.version + 1),
+            snapshot: target.snapshot.clone(),
+            content_hash: target.content_hash.clone(),
+            publication_kind: PromptHookPublicationKind::Rollback,
+            rollback_from_version: Some(target.version),
+            published_at: self.clock.now(),
+        };
+        self.repository
+            .publish_rollback(&version, request.expected_published_version)?;
+        Ok(version)
+    }
+
+    pub(crate) fn record_execution_observations(
+        &self,
+        observations: &[PromptHookExecutionObservation],
+    ) -> Result<(), PromptHookApplicationError> {
+        self.repository.save_execution_observations(observations)
+    }
+
     fn create_hook_work(
         &self,
         request: PromptHookCreateRequest,
@@ -139,18 +314,33 @@ impl PromptHookApplicationService {
         }
         ensure_manifest_order_available(&request.manifest, &hooks, None)?;
         let now = self.clock.now();
+        let snapshot = PromptHookSnapshot {
+            manifest: request.manifest.clone(),
+            description: request.description.trim().to_string(),
+            enabled: request.enabled,
+            governance: request.governance.clone(),
+        };
         let record = PromptHookRecord {
             manifest: request.manifest,
             description: request.description.trim().to_string(),
-            version: 1,
+            version: 0,
             source: PromptHookSource::User,
-            enabled: request.enabled,
+            enabled: false,
             disableable: true,
             governance: request.governance,
             created_at: now.clone(),
-            updated_at: now,
+            updated_at: now.clone(),
         };
-        self.repository.create_user_hook(&record)?;
+        self.repository.create_user_draft(
+            &record,
+            &PromptHookDraft {
+                hook_id: record.id().clone(),
+                revision: 1,
+                snapshot,
+                created_at: now.clone(),
+                updated_at: now,
+            },
+        )?;
         Ok(record)
     }
 
@@ -163,19 +353,25 @@ impl PromptHookApplicationService {
         let current = find_record(&hooks, &request.hook_id)?.clone();
         ensure_content_editable(current.source)?;
         ensure_manifest_order_available(&request.manifest, &hooks, Some(&request.hook_id))?;
-        let record = PromptHookRecord {
-            manifest: request.manifest,
-            description: request.description.trim().to_string(),
-            version: request.version,
-            source: PromptHookSource::User,
-            enabled: request.enabled,
-            disableable: true,
-            governance: request.governance,
-            created_at: current.created_at,
-            updated_at: self.clock.now(),
+        let previous = self.repository.get_draft(&request.hook_id)?;
+        let now = self.clock.now();
+        let draft = PromptHookDraft {
+            hook_id: request.hook_id,
+            revision: previous.as_ref().map_or(1, |draft| draft.revision + 1),
+            snapshot: PromptHookSnapshot {
+                manifest: request.manifest,
+                description: request.description.trim().to_string(),
+                enabled: request.enabled,
+                governance: request.governance,
+            },
+            created_at: previous
+                .as_ref()
+                .map_or_else(|| now.clone(), |draft| draft.created_at.clone()),
+            updated_at: now,
         };
-        self.repository.update_user_hook(&record)?;
-        Ok(record)
+        self.repository
+            .save_draft(&draft, previous.map(|draft| draft.revision))?;
+        Ok(current)
     }
 
     fn delete_hook_work(&self, hook_id: &PromptHookId) -> Result<(), PromptHookApplicationError> {
@@ -249,10 +445,16 @@ impl PromptHookApplicationService {
         let sample_input = request
             .sample_input
             .unwrap_or_else(|| "Preview request".to_string());
-        let rendered_content = hook
-            .manifest
-            .template()
-            .render(request.agent_id.as_str(), &sample_input);
+        let current_time = self.clock.now();
+        let rendered_content = hook.manifest.template().render(
+            crate::contexts::tooling::prompt_hooks::domain::PromptHookTemplateContext {
+                agent_id: request.agent_id.as_str(),
+                agent_name: request.agent_id.display_name(),
+                current_time: &current_time,
+                sample_input: &sample_input,
+                session_id: "session-preview",
+            },
+        )?;
         let (status, content, reason) = if hook.enabled {
             (
                 PromptHookTraceStatus::Fired,
@@ -280,7 +482,19 @@ impl PromptHookApplicationService {
         let hooks = self.effective_hooks()?;
         let mut rendered_parts = Vec::new();
         let mut traces = Vec::with_capacity(hooks.len());
+        let current_time = self.clock.now();
         for hook in &hooks {
+            if hook.source == PromptHookSource::User && hook.version <= 0 {
+                traces.push(self.trace_for_hook(
+                    hook,
+                    PromptHookTraceStatus::Skipped,
+                    None,
+                    request.agent_id,
+                    request.session_id.as_deref(),
+                    Some("unpublished"),
+                ));
+                continue;
+            }
             if !hook.enabled {
                 traces.push(self.trace_for_hook(
                     hook,
@@ -303,10 +517,15 @@ impl PromptHookApplicationService {
                 ));
                 continue;
             }
-            let content = hook
-                .manifest
-                .template()
-                .render(request.agent_id.as_str(), &request.user_prompt);
+            let content = hook.manifest.template().render(
+                crate::contexts::tooling::prompt_hooks::domain::PromptHookTemplateContext {
+                    agent_id: request.agent_id.as_str(),
+                    agent_name: request.agent_id.display_name(),
+                    current_time: &current_time,
+                    sample_input: &request.user_prompt,
+                    session_id: request.session_id.as_deref().unwrap_or_default(),
+                },
+            )?;
             traces.push(self.trace_for_hook(
                 hook,
                 PromptHookTraceStatus::Fired,
@@ -505,6 +724,29 @@ fn hash_content(content: &str) -> String {
     hasher.update(content.as_bytes());
     let digest = hasher.finalize();
     bytes_to_hex(&digest).chars().take(16).collect()
+}
+
+fn snapshot_from_record(record: &PromptHookRecord) -> PromptHookSnapshot {
+    PromptHookSnapshot {
+        manifest: record.manifest.clone(),
+        description: record.description.clone(),
+        enabled: record.enabled,
+        governance: record.governance.clone(),
+    }
+}
+
+fn snapshot_hash(snapshot: &PromptHookSnapshot) -> String {
+    hash_content(&format!(
+        "{}\u{001f}{}\u{001f}{}\u{001f}{}\u{001f}{}\u{001f}{}\u{001f}{}\u{001f}{}",
+        snapshot.manifest.id().as_str(),
+        snapshot.manifest.name().as_str(),
+        snapshot.description,
+        snapshot.manifest.category().as_str(),
+        snapshot.manifest.stage().as_str(),
+        snapshot.manifest.order().value(),
+        snapshot.manifest.template().as_str(),
+        snapshot.enabled,
+    ))
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {

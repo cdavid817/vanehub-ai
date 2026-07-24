@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct RepositoryState {
     users: BTreeMap<PromptHookId, PromptHookRecord>,
+    drafts: BTreeMap<PromptHookId, PromptHookDraft>,
     overrides: BTreeMap<PromptHookId, PromptHookOverride>,
     traces: Vec<PromptHookTrace>,
     trace_query_limits: Vec<usize>,
@@ -101,14 +102,16 @@ impl PromptHookRepository for FakeRepository {
         Ok(())
     }
 
-    fn update_user_hook(
+    fn create_user_draft(
         &self,
         record: &PromptHookRecord,
+        draft: &PromptHookDraft,
     ) -> Result<(), PromptHookApplicationError> {
         self.check_write()?;
         let mut state = self.state.lock().expect("repository state");
-        state.calls.push(format!("update:{}", record.id().as_str()));
+        state.calls.push(format!("create:{}", record.id().as_str()));
         state.users.insert(record.id().clone(), record.clone());
+        state.drafts.insert(draft.hook_id.clone(), draft.clone());
         Ok(())
     }
 
@@ -192,6 +195,33 @@ impl PromptHookRepository for FakeRepository {
         let mut state = self.state.lock().expect("repository state");
         state.trace_query_limits.push(limit);
         Ok(state.traces.iter().rev().take(limit).cloned().collect())
+    }
+
+    fn get_draft(
+        &self,
+        hook_id: &PromptHookId,
+    ) -> Result<Option<PromptHookDraft>, PromptHookApplicationError> {
+        Ok(self
+            .state
+            .lock()
+            .expect("repository state")
+            .drafts
+            .get(hook_id)
+            .cloned())
+    }
+
+    fn save_draft(
+        &self,
+        draft: &PromptHookDraft,
+        _expected_revision: Option<i64>,
+    ) -> Result<(), PromptHookApplicationError> {
+        self.check_write()?;
+        self.state
+            .lock()
+            .expect("repository state")
+            .drafts
+            .insert(draft.hook_id.clone(), draft.clone());
+        Ok(())
     }
 }
 
@@ -346,6 +376,23 @@ fn listing_merges_catalog_overrides_and_users_with_stable_stats_and_order() {
 }
 
 #[test]
+fn variable_catalog_exposes_service_backed_availability_and_examples() {
+    let fixture = Fixture::new();
+
+    let variables = fixture.service.list_variables();
+    let agent_name = variables
+        .iter()
+        .find(|variable| variable.name == "agent_name")
+        .expect("agent_name variable");
+
+    assert_eq!(
+        agent_name.availability_key,
+        "promptHooks.variables.availability.agent"
+    );
+    assert_eq!(agent_name.example, "Codex CLI");
+}
+
+#[test]
 fn create_persists_normalized_record_and_rejects_an_occupied_order_slot() {
     let fixture = Fixture::new();
 
@@ -355,8 +402,17 @@ fn create_persists_normalized_record_and_rejects_an_occupied_order_slot() {
         .expect("create");
 
     assert_eq!(created.description, "User description");
+    assert_eq!(created.version, 0);
+    assert!(!created.enabled);
     assert_eq!(created.created_at, "2026-07-18T12:00:00Z");
     assert_eq!(fixture.repository.user(&id("user-focus")), Some(created));
+    let draft = fixture
+        .repository
+        .get_draft(&id("user-focus"))
+        .expect("draft")
+        .expect("created draft");
+    assert_eq!(draft.revision, 1);
+    assert!(draft.snapshot.enabled);
     let error = fixture
         .service
         .create_hook(create_request("other-focus", 450))
@@ -417,7 +473,7 @@ fn update_enforces_identity_and_builtin_content_immutability_before_writing() {
 }
 
 #[test]
-fn successful_update_preserves_creation_time_and_persists_the_validated_manifest() {
+fn compatibility_update_saves_a_draft_without_mutating_the_published_record() {
     let fixture = Fixture::new();
     fixture
         .repository
@@ -435,20 +491,25 @@ fn successful_update_preserves_creation_time_and_persists_the_validated_manifest
         })
         .expect("update");
 
-    assert_eq!(updated.description, "Updated description");
-    assert_eq!(updated.version, 2);
+    assert_eq!(updated.description, "User hook");
+    assert_eq!(updated.version, 1);
     assert_eq!(updated.created_at, "2026-07-17T00:00:00Z");
-    assert_eq!(updated.updated_at, "2026-07-18T12:00:00Z");
-    assert_eq!(updated.manifest.bindings().to_strings(), ["gemini-cli"]);
+    assert_eq!(updated.updated_at, "2026-07-17T00:00:00Z");
+    assert_eq!(updated.manifest.bindings().to_strings(), ["codex-cli"]);
     assert_eq!(fixture.repository.user(&id("user-focus")), Some(updated));
+    let draft = fixture
+        .repository
+        .get_draft(&id("user-focus"))
+        .expect("draft")
+        .expect("saved draft");
+    assert_eq!(draft.snapshot.description, "Updated description");
     assert_eq!(
-        fixture
-            .repository
-            .state
-            .lock()
-            .expect("repository state")
-            .calls,
-        ["update:user-focus"]
+        draft.snapshot.manifest.bindings().to_strings(),
+        ["gemini-cli"]
+    );
+    assert_eq!(
+        draft.snapshot.manifest.template().as_str(),
+        "Updated {{agentId}}"
     );
 }
 

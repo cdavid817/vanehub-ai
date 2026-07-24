@@ -62,8 +62,9 @@ pub(crate) use models::{
     LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
     LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
-    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, ProcessStopInitiator,
-    PromptTrace, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
+    MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, PendingPromptExecution,
+    ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
+    PromptVersionReference, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
     StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult, ToolLifecycleEvent,
     ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
 };

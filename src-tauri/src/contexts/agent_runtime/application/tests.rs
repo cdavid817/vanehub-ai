@@ -27,6 +27,7 @@ type ActiveGeneration = (
     Option<String>,
     Option<String>,
     Option<crate::contexts::execution_observability::api::ExecutionContext>,
+    Option<PendingPromptExecution>,
 );
 
 struct FakeWorld {
@@ -43,9 +44,11 @@ struct FakeWorld {
     stopped_processes: Mutex<Vec<String>>,
     launch_failure: AtomicBool,
     prompt_failure: AtomicBool,
+    no_prompt_versions: AtomicBool,
     events: Mutex<Vec<AgentEvent>>,
     logs: Mutex<Vec<AgentLog>>,
     operations: Mutex<Vec<OperationEvent>>,
+    prompt_reports: Mutex<Vec<PromptExecutionReport>>,
     active_generation: Mutex<Option<ActiveGeneration>>,
     streaming_message_ids: Mutex<Vec<String>>,
     next_message_id: AtomicUsize,
@@ -78,9 +81,11 @@ impl FakeWorld {
             stopped_processes: Mutex::new(Vec::new()),
             launch_failure: AtomicBool::new(false),
             prompt_failure: AtomicBool::new(false),
+            no_prompt_versions: AtomicBool::new(false),
             events: Mutex::new(Vec::new()),
             logs: Mutex::new(Vec::new()),
             operations: Mutex::new(Vec::new()),
+            prompt_reports: Mutex::new(Vec::new()),
             active_generation: Mutex::new(None),
             streaming_message_ids: Mutex::new(Vec::new()),
             next_message_id: AtomicUsize::new(0),
@@ -386,14 +391,40 @@ impl EffectivePromptGateway for FakeWorld {
         }
         Ok(EffectivePrompt {
             content: format!("effective::{user_prompt}"),
-            trace: vec![PromptTrace {
-                hook_id: "system-context".to_string(),
-                status: "applied".to_string(),
-                content_hash: Some("hash".to_string()),
-                token_estimate: Some(10),
-                reason: None,
-            }],
+            trace: if self.no_prompt_versions.load(Ordering::SeqCst) {
+                Vec::new()
+            } else {
+                vec![
+                    PromptTrace {
+                        hook_id: "system-context".to_string(),
+                        status: "applied".to_string(),
+                        version: Some(1),
+                        content_hash: Some("hash".to_string()),
+                        token_estimate: Some(10),
+                        reason: None,
+                    },
+                    PromptTrace {
+                        hook_id: "review-focus".to_string(),
+                        status: "fired".to_string(),
+                        version: Some(2),
+                        content_hash: Some("review-hash".to_string()),
+                        token_estimate: Some(4),
+                        reason: None,
+                    },
+                ]
+            },
         })
+    }
+
+    fn record_execution(
+        &self,
+        report: PromptExecutionReport,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.prompt_reports
+            .lock()
+            .expect("prompt reports")
+            .push(report);
+        Ok(())
     }
 }
 
@@ -566,7 +597,7 @@ impl AgentGenerationPort for FakeWorld {
             session_id: session_id.to_string(),
             lease_id: "lease-1".to_string(),
         };
-        *active = Some((lease.clone(), None, None, None, None));
+        *active = Some((lease.clone(), None, None, None, None, None));
         Ok(lease)
     }
 
@@ -610,6 +641,24 @@ impl AgentGenerationPort for FakeWorld {
         Ok(())
     }
 
+    fn correlate_prompt(
+        &self,
+        lease: &GenerationLease,
+        execution: &PendingPromptExecution,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut active = self.active_generation.lock().expect("active generation");
+        let current = active.as_mut().ok_or_else(|| {
+            AgentRuntimeApplicationError::Generation("reservation missing".to_string())
+        })?;
+        if current.0 != *lease {
+            return Err(AgentRuntimeApplicationError::Generation(
+                "lease mismatch".to_string(),
+            ));
+        }
+        current.5 = Some(execution.clone());
+        Ok(())
+    }
+
     fn release(&self, lease: &GenerationLease) -> Result<(), AgentRuntimeApplicationError> {
         let mut active = self.active_generation.lock().expect("active generation");
         if active.as_ref().is_some_and(|current| current.0 == *lease) {
@@ -628,12 +677,13 @@ impl AgentGenerationPort for FakeWorld {
             .expect("active generation")
             .take()
             .map(
-                |(_, message_id, process_id, operation_id, execution_context)| {
+                |(_, message_id, process_id, operation_id, execution_context, prompt_execution)| {
                     GenerationCancellation {
                         message_id,
                         process_id,
                         operation_id,
                         execution_context,
+                        prompt_execution,
                     }
                 },
             ))
@@ -1283,6 +1333,23 @@ fn stream_events_persist_complete_usage_and_operation_once() {
             .count(),
         1
     );
+    let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
+    assert_eq!(prompt_reports.len(), 1);
+    assert_eq!(
+        prompt_reports[0].versions,
+        [
+            PromptVersionReference {
+                hook_id: "system-context".to_string(),
+                version: 1,
+            },
+            PromptVersionReference {
+                hook_id: "review-focus".to_string(),
+                version: 2,
+            }
+        ]
+    );
+    assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Succeeded);
+    drop(prompt_reports);
     assert_eq!(
         world
             .logs
@@ -1420,6 +1487,13 @@ fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
         .contains(&OperationEvent::Failed(
             "generation-operation-1".to_string()
         )));
+    let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
+    assert_eq!(prompt_reports.len(), 1);
+    assert_eq!(prompt_reports[0].invocation_id, "generation-operation-1");
+    assert_eq!(prompt_reports[0].agent_id, "codex-cli");
+    assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Failed);
+    assert_eq!(prompt_reports[0].versions.len(), 2);
+    assert!(prompt_reports[0].elapsed_ms >= 0);
 }
 
 #[test]
@@ -1487,4 +1561,37 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
         .contains(&OperationEvent::Cancelled(
             "generation-operation-1".to_string()
         )));
+    let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
+    assert_eq!(prompt_reports.len(), 1);
+    assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Cancelled);
+}
+
+#[test]
+fn prompt_execution_without_fired_versions_records_no_observation() {
+    let world = test_world();
+    world.no_prompt_versions.store(true, Ordering::SeqCst);
+    service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink")
+        .handle(GenerationProcessEvent::Completed)
+        .expect("complete");
+
+    assert!(world
+        .prompt_reports
+        .lock()
+        .expect("prompt reports")
+        .is_empty());
 }

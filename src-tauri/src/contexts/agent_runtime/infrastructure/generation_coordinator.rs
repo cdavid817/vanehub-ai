@@ -1,5 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     AgentGenerationPort, AgentRuntimeApplicationError, GenerationCancellation, GenerationLease,
+    PendingPromptExecution,
 };
 use crate::contexts::agent_runtime::domain::GenerationAttempt;
 use crate::contexts::execution_observability::api::ExecutionContext;
@@ -19,6 +20,7 @@ struct CoordinatedGeneration {
     process_id: Option<String>,
     operation_id: Option<String>,
     execution_context: Option<ExecutionContext>,
+    prompt_execution: Option<PendingPromptExecution>,
 }
 
 impl AgentGenerationPort for InMemoryGenerationCoordinator {
@@ -42,6 +44,7 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
                 process_id: None,
                 operation_id: None,
                 execution_context: None,
+                prompt_execution: None,
             },
         );
         Ok(GenerationLease {
@@ -75,6 +78,16 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
         Ok(())
     }
 
+    fn correlate_prompt(
+        &self,
+        lease: &GenerationLease,
+        execution: &PendingPromptExecution,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut active = self.active()?;
+        require_lease(&mut active, lease)?.prompt_execution = Some(execution.clone());
+        Ok(())
+    }
+
     fn release(&self, lease: &GenerationLease) -> Result<(), AgentRuntimeApplicationError> {
         let mut active = self.active()?;
         require_lease(&mut active, lease)?;
@@ -96,6 +109,7 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
             process_id: generation.process_id,
             operation_id: generation.operation_id,
             execution_context: generation.execution_context,
+            prompt_execution: generation.prompt_execution,
         }))
     }
 

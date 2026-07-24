@@ -1,4 +1,4 @@
-import { Eye, Link2, Pencil, Trash2 } from "lucide-react";
+import { Eye, History, Link2, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -20,6 +20,7 @@ interface PromptHookCardListProps {
   hooks: PromptHook[];
   onDelete: (hook: PromptHook) => void;
   onEdit: (hook: PromptHook) => void;
+  onAdvanced: (hook: PromptHook) => void;
   onPreview: (hook: PromptHook) => void;
   onToggleAgent: (hook: PromptHook, agentId: string, checked: boolean) => void;
   onToggleEnabled: (hook: PromptHook, enabled: boolean) => void;
@@ -34,6 +35,7 @@ export function PromptHookCardList({
   onToggleAgent,
   onPreview,
   onEdit,
+  onAdvanced,
   onDelete,
   resetKey,
 }: PromptHookCardListProps) {
@@ -57,6 +59,7 @@ export function PromptHookCardList({
     busyHookId,
     onDelete,
     onEdit,
+    onAdvanced,
     onPreview,
     onToggleAgent,
     onToggleEnabled,
@@ -106,6 +109,7 @@ function PromptHookCard({
   hook,
   onDelete,
   onEdit,
+  onAdvanced,
   onPreview,
   onToggleAgent,
   onToggleEnabled,
@@ -133,6 +137,14 @@ function PromptHookCard({
             <div className="flex shrink-0 flex-wrap justify-end gap-1">
               <Badge tone={hook.source === "builtin" ? "default" : "muted"}>{t(`promptHooks.source.${hook.source}`)}</Badge>
               <Badge tone={hook.enabled ? "success" : "muted"}>{hook.enabled ? t("promptHooks.enabled") : t("promptHooks.disabled")}</Badge>
+              {hook.source === "user" && hook.publishedVersion == null ? (
+                <Badge tone="muted">{t("promptHooks.lifecycle.unpublished")}</Badge>
+              ) : null}
+              {hook.hasDraft ? (
+                <Badge tone="default">
+                  {t("promptHooks.lifecycle.draftRevision", { revision: hook.draftRevision })}
+                </Badge>
+              ) : null}
             </div>
           </div>
           <p className="line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">{hook.description}</p>
@@ -143,7 +155,12 @@ function PromptHookCard({
           </div>
           <div className="grid grid-cols-2 gap-2 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3 text-xs text-muted-foreground md:grid-cols-4">
             <Metric label={t("promptHooks.card.order")} value={String(hook.order)} />
-            <Metric label={t("promptHooks.card.version")} value={`v${hook.version}`} />
+            <Metric
+              label={t("promptHooks.card.version")}
+              value={hook.publishedVersion == null && hook.source === "user"
+                ? t("promptHooks.lifecycle.unpublished")
+                : `v${hook.publishedVersion ?? hook.version}`}
+            />
             <Metric label={t("promptHooks.card.hash")} value={hook.templateBody ? t("promptHooks.card.previewOnly") : "-"} />
             <Metric label={t("promptHooks.card.tokens")} value={t("promptHooks.card.previewOnly")} />
           </div>
@@ -165,6 +182,9 @@ function PromptHookCard({
                 </Button>
                 {hook.source === "user" ? (
                   <>
+                    <Button aria-label={t("promptHooks.actions.advanced")} onClick={() => onAdvanced(hook)} size="icon" variant="outline">
+                      <History className="h-4 w-4" aria-hidden="true" />
+                    </Button>
                     <Button aria-label={t("promptHooks.actions.edit")} onClick={() => onEdit(hook)} size="icon" variant="outline">
                       <Pencil className="h-4 w-4" aria-hidden="true" />
                     </Button>

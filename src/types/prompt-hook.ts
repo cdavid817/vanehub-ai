@@ -30,6 +30,9 @@ export interface PromptHook {
   templateBody?: string;
   createdAt: string;
   updatedAt: string;
+  publishedVersion?: number | null;
+  hasDraft?: boolean;
+  draftRevision?: number | null;
 }
 
 export interface PromptHookListResult {
@@ -90,5 +93,73 @@ export interface PromptHookPreview {
   agentId: ManagedCliAgentId;
   renderedContent: string;
   trace: PromptHookTraceSummary[];
+}
+
+export interface PromptHookVariableDefinition {
+  name: "agent_id" | "agent_name" | "current_time" | "sample_input" | "session_id";
+  token: string;
+  descriptionKey: string;
+  availabilityKey: string;
+  example: string;
+  aliases: string[];
+}
+
+export interface PromptHookDraft {
+  hookId: string;
+  revision: number;
+  input: PromptHookMutationInput;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SavePromptHookDraftInput {
+  hookId: string;
+  expectedRevision?: number | null;
+  draft: PromptHookMutationInput;
+}
+
+export interface PublishPromptHookInput {
+  hookId: string;
+  expectedDraftRevision: number;
+  expectedPublishedVersion?: number | null;
+}
+
+export type PromptHookPublicationKind = "publish" | "rollback";
+
+export interface PromptHookVersion {
+  hookId: string;
+  version: number;
+  contentHash: string;
+  publicationKind: PromptHookPublicationKind;
+  rollbackFromVersion?: number | null;
+  publishedAt: string;
+  templateBody?: string;
+}
+
+export interface PromptHookEvaluationSummary {
+  hookId: string;
+  version: number;
+  executionCount: number;
+  succeededCount: number;
+  failedCount: number;
+  cancelledCount: number;
+  successRate?: number | null;
+  averageElapsedMs?: number | null;
+  minimumElapsedMs?: number | null;
+  maximumElapsedMs?: number | null;
+}
+
+export interface PromptHookVersionHistory {
+  hookId: string;
+  publishedVersion?: number | null;
+  draft?: PromptHookDraft | null;
+  versions: PromptHookVersion[];
+  evaluations: PromptHookEvaluationSummary[];
+}
+
+export interface RollbackPromptHookInput {
+  hookId: string;
+  version: number;
+  expectedPublishedVersion?: number | null;
 }
 
