@@ -24,6 +24,7 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
                 user: workspace.user,
                 path: workspace.path,
                 display_name: workspace.display_name,
+                ssh_connection_id: workspace.ssh_connection_id,
             }),
             worktree: input.worktree.map(|worktree| NewWorktree {
                 enabled: worktree.enabled,
@@ -74,6 +75,16 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
                 uri: workspace.uri,
             }
         }),
+        remote_ssh_connection_id: session
+            .workspace
+            .remote_ssh_binding
+            .as_ref()
+            .map(|binding| binding.connection_id.clone()),
+        remote_ssh_connection_revision: session
+            .workspace
+            .remote_ssh_binding
+            .as_ref()
+            .map(|binding| binding.revision),
         runtime_session_id: session.runtime_session_id,
         category_id: session
             .aggregate
@@ -402,6 +413,12 @@ mod tests {
                     display_name: "App".to_string(),
                     uri: "ssh://dev@example.com/work/app".to_string(),
                 }),
+                remote_ssh_binding: Some(
+                    crate::contexts::sessions::application::SessionSshBinding {
+                        connection_id: "ssh-fixture".to_string(),
+                        revision: 4,
+                    },
+                ),
                 ..Default::default()
             },
             runtime_session_id: None,
@@ -416,6 +433,8 @@ mod tests {
         assert_eq!(value["lifecycleState"], "running");
         assert_eq!(value["source"]["connector"], "ding-talk");
         assert_eq!(value["remoteWorkspace"]["displayName"], "App");
+        assert_eq!(value["remoteSshConnectionId"], "ssh-fixture");
+        assert_eq!(value["remoteSshConnectionRevision"], 4);
         assert!(value.get("interaction_mode").is_none());
     }
 

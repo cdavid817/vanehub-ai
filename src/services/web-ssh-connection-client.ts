@@ -9,6 +9,11 @@ let nextConnectionId = 1;
 let connections: SshConnection[] = [];
 const passwordPresence = new Set<string>();
 
+export function findWebSshConnection(connectionId: string): SshConnection | null {
+  const connection = connections.find((candidate) => candidate.id === connectionId);
+  return connection ? { ...connection } : null;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -43,6 +48,16 @@ function toConnection(
 ): SshConnection {
   validate(input, previous);
   const timestamp = nowIso();
+  const endpointChanged =
+    previous !== undefined &&
+    (previous.host !== input.host.trim() || previous.port !== input.port);
+  const compatibilityChanged =
+    previous !== undefined &&
+    (endpointChanged ||
+      previous.user !== input.user.trim() ||
+      previous.authMode !== input.authMode ||
+      (previous.keyPath ?? "") !== (input.keyPath?.trim() ?? "") ||
+      Boolean(input.password?.trim()));
   if (input.authMode === "password" && input.password?.trim())
     passwordPresence.add(id);
   if (input.authMode === "key") passwordPresence.delete(id);
@@ -58,6 +73,11 @@ function toConnection(
     hasPassword:
       input.authMode === "password" &&
       (passwordPresence.has(id) || Boolean(previous?.hasPassword)),
+    revision:
+      previous === undefined
+        ? 1
+        : previous.revision + (compatibilityChanged ? 1 : 0),
+    hostTrust: endpointChanged ? null : (previous?.hostTrust ?? null),
     testStatus: previous?.testStatus ?? "not-tested",
     lastConnectedAt: previous?.lastConnectedAt ?? null,
     lastError: previous?.lastError ?? null,

@@ -13,7 +13,23 @@ pub(crate) struct SessionWorkspace {
     pub(crate) worktree_name: Option<String>,
     pub(crate) worktree_branch: Option<String>,
     pub(crate) remote_workspace: Option<SessionRemoteWorkspace>,
+    pub(crate) remote_ssh_binding: Option<SessionSshBinding>,
     pub(crate) loop_ownership: Option<LoopSessionOwnership>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionSshBinding {
+    pub(crate) connection_id: String,
+    pub(crate) revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionSshProfile {
+    pub(crate) connection_id: String,
+    pub(crate) revision: i64,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) user: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +141,7 @@ pub(crate) struct NewRemoteWorkspace {
     pub(crate) user: Option<String>,
     pub(crate) path: String,
     pub(crate) display_name: Option<String>,
+    pub(crate) ssh_connection_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

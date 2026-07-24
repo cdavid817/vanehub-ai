@@ -208,7 +208,31 @@ pub(crate) struct ShellWorkspace {
     pub(crate) agent_id: String,
     pub(crate) root: Option<String>,
     pub(crate) remote: bool,
+    pub(crate) remote_endpoint: Option<ShellRemoteEndpoint>,
+    pub(crate) ssh_binding: Option<ShellSshBinding>,
+    pub(crate) policy: ShellWorkspacePolicy,
     pub(crate) read_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShellRemoteEndpoint {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) user: String,
+    pub(crate) path: String,
+    pub(crate) display_name: String,
+    pub(crate) uri: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShellSshBinding {
+    pub(crate) connection_id: String,
+    pub(crate) revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShellWorkspacePolicy {
+    pub(crate) requires_host_trust: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +241,8 @@ pub(crate) struct ShellLaunch {
     pub(crate) session_id: String,
     pub(crate) root: String,
     pub(crate) dimensions: TerminalDimensions,
+    pub(crate) remote_endpoint: Option<ShellRemoteEndpoint>,
+    pub(crate) ssh_binding: Option<ShellSshBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

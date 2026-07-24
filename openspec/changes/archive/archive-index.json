@@ -1006,6 +1006,25 @@
                      },
                      {
                          "archivedOn":  "2026-07-24",
+                         "changeName":  "add-remote-terminal-management",
+                         "path":  "openspec/changes/archive/2026-07-24-add-remote-terminal-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "remote-terminal-runtime",
+                                              "session-management",
+                                              "session-shell",
+                                              "ssh-connection-management",
+                                              "terminal-command-management",
+                                              "terminal-output-search",
+                                              "unified-log-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-24",
                          "changeName":  "enhance-prompt-library-advanced-features",
                          "path":  "openspec/changes/archive/2026-07-24-enhance-prompt-library-advanced-features/",
                          "artifacts":  [

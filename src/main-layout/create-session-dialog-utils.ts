@@ -102,6 +102,7 @@ export async function submitCreateSession({
   remotePort,
   remoteUser,
   saveSshConnection,
+  selectedSshConnectionId,
   selectedAgent,
   setCreateOperationId,
   setError,
@@ -123,6 +124,7 @@ export async function submitCreateSession({
   remotePort: string;
   remoteUser: string;
   saveSshConnection: boolean;
+  selectedSshConnectionId: string;
   selectedAgent: AgentRegistryEntry | null;
   setCreateOperationId: (value: string | null) => void;
   setError: (value: string | null) => void;
@@ -172,6 +174,7 @@ export async function submitCreateSession({
             user: remoteUser || null,
             path: remotePath,
             displayName: remoteDisplayName || null,
+            sshConnectionId: selectedSshConnectionId || null,
           }
         : null,
     worktree:
@@ -182,7 +185,7 @@ export async function submitCreateSession({
 
   try {
     if (workspaceMode === "remote" && saveSshConnection) {
-      await sshConnectionService.createConnection({
+      const connection = await sshConnectionService.createConnection({
         ...sshConnectionDraft,
         name:
           sshConnectionDraft.name.trim() ||
@@ -193,6 +196,9 @@ export async function submitCreateSession({
         user: remoteUser,
         defaultPath: remotePath,
       });
+      if (input.remoteWorkspace) {
+        input.remoteWorkspace.sshConnectionId = connection.id;
+      }
     }
     const operation = await agentService.createSession(input);
     setCreateOperationId(operation.id);

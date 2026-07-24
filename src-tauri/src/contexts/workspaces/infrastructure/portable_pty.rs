@@ -6,7 +6,7 @@ use crate::contexts::workspaces::domain::{
     normalize_windows_extended_length_path, reset_directory_command, ShellHost, TerminalDimensions,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -20,9 +20,12 @@ struct ManagedShell {
     child: Box<dyn Child + Send + Sync>,
 }
 
+const TRANSCRIPT_LIMIT_BYTES: usize = 1024 * 1024;
+
 #[derive(Clone)]
 pub(crate) struct PortablePtyShellRuntime {
     shells: Arc<Mutex<HashMap<String, ManagedShell>>>,
+    transcripts: Arc<Mutex<HashMap<String, VecDeque<u8>>>>,
     events: Arc<dyn WorkspaceShellEventPort>,
     logging: Arc<dyn WorkspaceShellLogPort>,
 }
@@ -34,6 +37,7 @@ impl PortablePtyShellRuntime {
     ) -> Self {
         Self {
             shells: Arc::new(Mutex::new(HashMap::new())),
+            transcripts: Arc::new(Mutex::new(HashMap::new())),
             events,
             logging,
         }
@@ -162,6 +166,10 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             .map_err(|error| AppError::Storage(error.to_string()))?;
 
         let events = self.events.clone();
+        let transcripts = self.transcripts.clone();
+        if let Ok(mut stored) = self.transcripts.lock() {
+            stored.insert(launch.shell_id.clone(), VecDeque::new());
+        }
         let reader_shell_id = launch.shell_id.clone();
         let reader_session_id = launch.session_id.clone();
         thread::spawn(move || {
@@ -169,11 +177,21 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
-                    Ok(count) => events.publish(ShellEvent::Output {
-                        shell_id: reader_shell_id.clone(),
-                        session_id: reader_session_id.clone(),
-                        content: String::from_utf8_lossy(&buffer[..count]).to_string(),
-                    }),
+                    Ok(count) => {
+                        if let Ok(mut all) = transcripts.lock() {
+                            if let Some(transcript) = all.get_mut(&reader_shell_id) {
+                                transcript.extend(&buffer[..count]);
+                                while transcript.len() > TRANSCRIPT_LIMIT_BYTES {
+                                    transcript.pop_front();
+                                }
+                            }
+                        }
+                        events.publish(ShellEvent::Output {
+                            shell_id: reader_shell_id.clone(),
+                            session_id: reader_session_id.clone(),
+                            content: String::from_utf8_lossy(&buffer[..count]).to_string(),
+                        })
+                    }
                     Err(_) => break,
                 }
             }
@@ -286,6 +304,9 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let Some(mut shell) = shell else {
             return Ok(None);
         };
+        if let Ok(mut transcripts) = self.transcripts.lock() {
+            transcripts.remove(shell_id);
+        }
         terminate_child(
             &mut *shell.child,
             self.logging.as_ref(),

@@ -1,6 +1,8 @@
+pub(crate) mod confirm_ssh_host_key;
 pub(crate) mod create_ssh_connection;
 pub(crate) mod delete_ssh_connection;
 pub(crate) mod dto;
+pub(crate) mod get_pending_ssh_host_key;
 pub(crate) mod list_ssh_connections;
 pub(crate) mod mapper;
 pub(crate) mod test_ssh_connection;

@@ -50,32 +50,43 @@ impl WorkspaceShellApplicationService {
                 action: "create-shell".to_string(),
             });
         }
-        if workspace.remote {
-            return Err(WorkspaceApplicationError::Validation(
-                "Remote workspace shell is unsupported.".to_string(),
-            ));
-        }
-        let root = workspace.root.ok_or_else(|| {
-            WorkspaceApplicationError::Validation("Session workspace is unavailable.".to_string())
-        })?;
+        let root = workspace
+            .root
+            .or_else(|| {
+                workspace
+                    .remote_endpoint
+                    .as_ref()
+                    .map(|endpoint| endpoint.path.clone())
+            })
+            .ok_or_else(|| {
+                WorkspaceApplicationError::Validation(
+                    "Session workspace is unavailable.".to_string(),
+                )
+            })?;
         let shell_id = self.ids.next_shell_id();
         self.runtime.open_shell(&ShellLaunch {
             shell_id: shell_id.clone(),
             session_id: request.session_id.clone(),
             root,
             dimensions: TerminalDimensions::bounded(request.rows, request.cols),
+            remote_endpoint: workspace.remote_endpoint.clone(),
+            ssh_binding: workspace.ssh_binding.clone(),
         })?;
         self.logging.write(ShellLog {
             level: WorkspaceLogLevel::Info,
             session_id: request.session_id.clone(),
             shell_id: shell_id.clone(),
-            message: format!("Shell connected for agent {}.", workspace.agent_id),
+            message: if workspace.remote {
+                format!("Remote shell connected for agent {}.", workspace.agent_id)
+            } else {
+                format!("Shell connected for agent {}.", workspace.agent_id)
+            },
         });
         Ok(ShellSession {
             shell_id,
             session_id: request.session_id.clone(),
             state: "connected",
-            capability: "native",
+            capability: if workspace.remote { "remote" } else { "native" },
         })
     }
 

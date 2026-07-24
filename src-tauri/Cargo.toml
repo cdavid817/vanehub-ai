@@ -33,6 +33,7 @@ opentelemetry-semantic-conventions = { version = "=0.32.0", features = ["semconv
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
+russh = { version = "=0.62.4", default-features = false, features = ["ring"] }
 async-trait = "0.1"
 base64 = "0.22"
 futures-util = "0.3"

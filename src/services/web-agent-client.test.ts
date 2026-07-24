@@ -6,6 +6,7 @@ import {
   webAgentClient,
 } from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
+import { webSshConnectionClient } from "./web-ssh-connection-client";
 import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
 import type { PromptHookMutationInput } from "../types/prompt-hook";
@@ -489,6 +490,67 @@ describe("webAgentClient", () => {
 
     const results = await webAgentClient.searchSessions({ query: "remote.example.test" });
     expect(results.some((result) => result.session.id === session.id && result.matches.some((match) => match.kind === "project"))).toBe(true);
+  });
+
+  it("binds and explicitly rebinds remote sessions without changing snapshots", async () => {
+    const connection = await webSshConnectionClient.createConnection({
+      name: "Remote",
+      host: "binding.example.test",
+      port: 22,
+      user: "dev",
+      defaultPath: "/work/app",
+      authMode: "key",
+      keyPath: "/keys/dev",
+    });
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      remoteWorkspace: {
+        host: connection.host,
+        port: connection.port,
+        user: connection.user,
+        path: "/work/app",
+        displayName: "Bound remote",
+        sshConnectionId: connection.id,
+      },
+    });
+    expect(session.remoteSshConnectionId).toBe(connection.id);
+    expect(session.remoteSshConnectionRevision).toBe(1);
+
+    const changed = await webSshConnectionClient.updateConnection(
+      connection.id,
+      {
+        name: connection.name,
+        host: connection.host,
+        port: connection.port,
+        user: connection.user,
+        defaultPath: connection.defaultPath,
+        authMode: "password",
+        password: "replacement-secret",
+      },
+    );
+    expect(changed.revision).toBe(2);
+    expect(
+      (await webAgentClient.getSession(session.id)).remoteSshConnectionRevision,
+    ).toBe(1);
+
+    const rebound = await webAgentClient.rebindRemoteSessionSshConnection(
+      session.id,
+      connection.id,
+    );
+    expect(rebound.remoteSshConnectionRevision).toBe(2);
+    expect(rebound.remoteWorkspace).toEqual(session.remoteWorkspace);
+
+    await webSshConnectionClient.deleteConnection(connection.id);
+    expect(
+      (await webAgentClient.getSession(session.id)).remoteWorkspace,
+    ).toEqual(session.remoteWorkspace);
+    await expect(
+      webAgentClient.rebindRemoteSessionSshConnection(
+        session.id,
+        connection.id,
+      ),
+    ).rejects.toThrow("SSH connection not found");
   });
 
   it("rejects invalid or unavailable mock worktree requests", async () => {

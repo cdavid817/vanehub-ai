@@ -21,6 +21,7 @@ pub(crate) mod list_session_categories;
 pub(crate) mod list_sessions;
 mod mapper;
 pub(crate) mod pin_session;
+pub(crate) mod rebind_remote_session_ssh_connection;
 pub(crate) mod rename_session;
 pub(crate) mod rename_session_category;
 pub(crate) mod save_session_chat_config;

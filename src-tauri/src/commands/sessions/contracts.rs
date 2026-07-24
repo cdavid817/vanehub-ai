@@ -5,7 +5,7 @@ use crate::commands::error::{map_command_error, CommandErrorCategory};
 use crate::contexts::sessions::api::SessionsError;
 use serde_json::{json, Value};
 
-const MIGRATED_SESSION_COMMANDS: [(&str, &str); 24] = [
+const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
     ("create_session", include_str!("create_session.rs")),
     ("list_sessions", include_str!("list_sessions.rs")),
     (
@@ -45,6 +45,10 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 24] = [
     ),
     ("switch_session", include_str!("switch_session.rs")),
     ("rename_session", include_str!("rename_session.rs")),
+    (
+        "rebind_remote_session_ssh_connection",
+        include_str!("rebind_remote_session_ssh_connection.rs"),
+    ),
     ("pin_session", include_str!("pin_session.rs")),
     ("unpin_session", include_str!("unpin_session.rs")),
     ("archive_session", include_str!("archive_session.rs")),
@@ -97,20 +101,22 @@ fn session_command_input_dtos_keep_existing_serde_shapes() {
             "host": "dev.example",
             "user": "developer",
             "path": "/workspace",
-            "displayName": "Remote fixture"
+            "displayName": "Remote fixture",
+            "sshConnectionId": "ssh-fixture"
         },
         "worktree": { "enabled": false, "name": null }
     }))
     .expect("deserialize create session");
     assert_eq!(input.agent_id, "codex-cli");
     assert_eq!(input.interaction_mode, InteractionMode::Cli);
+    let remote_workspace = input.remote_workspace.expect("remote workspace");
     assert_eq!(
-        input
-            .remote_workspace
-            .expect("remote workspace")
-            .display_name
-            .as_deref(),
+        remote_workspace.display_name.as_deref(),
         Some("Remote fixture")
+    );
+    assert_eq!(
+        remote_workspace.ssh_connection_id.as_deref(),
+        Some("ssh-fixture")
     );
 
     let config: ChatConfig = serde_json::from_value(json!({

@@ -52,6 +52,8 @@ export interface Session {
   worktreeName: string | null;
   worktreeBranch: string | null;
   remoteWorkspace: RemoteWorkspace | null;
+  remoteSshConnectionId: string | null;
+  remoteSshConnectionRevision: number | null;
   runtimeSessionId: string | null;
   categoryId: string | null;
   source?: SessionSourceMetadata;
@@ -199,6 +201,7 @@ export interface CreateSessionInput {
     user?: string | null;
     path: string;
     displayName?: string | null;
+    sshConnectionId?: string | null;
   } | null;
   worktree?: {
     enabled: boolean;

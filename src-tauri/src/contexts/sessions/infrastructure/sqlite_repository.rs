@@ -140,8 +140,9 @@ impl SessionRepository for SqliteSessionsRepository {
                 r#"
                 UPDATE sessions
                 SET title = ?1, lifecycle_state = ?2, runtime_session_id = ?3,
-                    category_id = ?4, pinned = ?5, archived = ?6, updated_at = ?7
-                WHERE id = ?8
+                    category_id = ?4, pinned = ?5, archived = ?6, updated_at = ?7,
+                    remote_ssh_connection_id = ?8, remote_ssh_connection_revision = ?9
+                WHERE id = ?10
                 "#,
                 params![
                     session.aggregate.title().as_str(),
@@ -151,6 +152,16 @@ impl SessionRepository for SqliteSessionsRepository {
                     i64::from(session.aggregate.is_pinned()),
                     i64::from(session.aggregate.is_archived()),
                     session.updated_at,
+                    session
+                        .workspace
+                        .remote_ssh_binding
+                        .as_ref()
+                        .map(|binding| binding.connection_id.as_str()),
+                    session
+                        .workspace
+                        .remote_ssh_binding
+                        .as_ref()
+                        .map(|binding| binding.revision),
                     session.id(),
                 ],
             )

@@ -32,6 +32,7 @@ import type {
   ImSessionConnector,
 } from "../types/agent";
 import { managedCliAgentIds } from "../types/agent";
+import { findWebSshConnection } from "./web-ssh-connection-client";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -208,6 +209,8 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     worktreeName: null,
     worktreeBranch: null,
     remoteWorkspace: null,
+    remoteSshConnectionId: null,
+    remoteSshConnectionRevision: null,
     runtimeSessionId: null,
     categoryId: null,
     source: { kind: "im", connector },
@@ -1336,6 +1339,8 @@ function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration, role: 
     worktreeName: run.worktreeName,
     worktreeBranch: run.worktreeBranch,
     remoteWorkspace: null,
+    remoteSshConnectionId: null,
+    remoteSshConnectionRevision: null,
     runtimeSessionId: null,
     categoryId: null,
     source: { kind: "desktop", connector: null },
@@ -2016,6 +2021,23 @@ export const webAgentClient: AgentService = {
       throw new Error(`${agent.displayName} does not support ${input.interactionMode}.`);
     }
     const remoteWorkspace = input.remoteWorkspace ? normalizeRemoteWorkspace(input.remoteWorkspace) : null;
+    const sshConnection = input.remoteWorkspace?.sshConnectionId
+      ? findWebSshConnection(input.remoteWorkspace.sshConnectionId)
+      : null;
+    if (input.remoteWorkspace?.sshConnectionId && !sshConnection) {
+      throw new Error(`SSH connection not found: ${input.remoteWorkspace.sshConnectionId}`);
+    }
+    if (
+      sshConnection &&
+      remoteWorkspace &&
+      (sshConnection.host !== remoteWorkspace.host ||
+        sshConnection.port !== (remoteWorkspace.port ?? 22) ||
+        sshConnection.user !== (remoteWorkspace.user ?? ""))
+    ) {
+      throw new Error(
+        "SSH connection endpoint does not match the remote workspace snapshot.",
+      );
+    }
     if (remoteWorkspace && input.worktree?.enabled) {
       throw new Error("Remote workspace cannot use Git worktree");
     }
@@ -2054,6 +2076,8 @@ export const webAgentClient: AgentService = {
       worktreeName,
       worktreeBranch,
       remoteWorkspace,
+      remoteSshConnectionId: sshConnection?.id ?? null,
+      remoteSshConnectionRevision: sshConnection?.revision ?? null,
       runtimeSessionId: null,
       categoryId: null,
       pinned: false,
@@ -2119,6 +2143,35 @@ export const webAgentClient: AgentService = {
       throw new Error(tr("web.error.sessionTitleRequired"));
     }
     return updateSession(sessionId, { title: trimmedTitle });
+  },
+
+  async rebindRemoteSessionSshConnection(
+    sessionId: string,
+    connectionId: string,
+  ) {
+    const session = findSession(sessionId);
+    if (!session.remoteWorkspace) {
+      throw new Error(
+        "Only remote workspace sessions can bind an SSH connection.",
+      );
+    }
+    const connection = findWebSshConnection(connectionId);
+    if (!connection) {
+      throw new Error(`SSH connection not found: ${connectionId}`);
+    }
+    if (
+      connection.host !== session.remoteWorkspace.host ||
+      connection.port !== (session.remoteWorkspace.port ?? 22) ||
+      connection.user !== (session.remoteWorkspace.user ?? "")
+    ) {
+      throw new Error(
+        "SSH connection endpoint does not match the remote workspace snapshot.",
+      );
+    }
+    return updateSession(sessionId, {
+      remoteSshConnectionId: connection.id,
+      remoteSshConnectionRevision: connection.revision,
+    });
   },
 
   async pinSession(sessionId: string) {

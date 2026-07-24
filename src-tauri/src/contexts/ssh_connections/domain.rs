@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+pub(crate) mod runtime;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SshAuthMode {
     Password,
@@ -50,6 +52,15 @@ impl SshConnectionTestStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SshHostTrustMetadata {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) algorithm: String,
+    pub(crate) fingerprint: String,
+    pub(crate) confirmed_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SshConnectionProfile {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -60,6 +71,8 @@ pub(crate) struct SshConnectionProfile {
     pub(crate) auth_mode: SshAuthMode,
     pub(crate) key_path: Option<String>,
     pub(crate) credential_ref: Option<String>,
+    pub(crate) revision: i64,
+    pub(crate) host_trust: Option<SshHostTrustMetadata>,
     pub(crate) test_status: SshConnectionTestStatus,
     pub(crate) last_connected_at: Option<String>,
     pub(crate) last_error: Option<String>,
@@ -75,6 +88,17 @@ impl SshConnectionProfile {
         validate_required(&self.user, "user")?;
         validate_required(&self.default_path, "default path")?;
         validate_port(self.port)?;
+        if self.revision < 1 {
+            return Err(SshConnectionDomainError::InvalidRevision);
+        }
+        if let Some(trust) = &self.host_trust {
+            if trust.host != self.host || trust.port != self.port {
+                return Err(SshConnectionDomainError::HostTrustEndpointMismatch);
+            }
+            validate_required(&trust.algorithm, "host key algorithm")?;
+            validate_required(&trust.fingerprint, "host key fingerprint")?;
+            validate_required(&trust.confirmed_at, "host key confirmation time")?;
+        }
         match self.auth_mode {
             SshAuthMode::Password => {
                 if self
@@ -147,6 +171,10 @@ pub(crate) enum SshConnectionDomainError {
     InvalidAuthMode,
     #[error("SSH test status is invalid.")]
     InvalidTestStatus,
+    #[error("SSH profile revision is invalid.")]
+    InvalidRevision,
+    #[error("SSH host trust does not match the profile endpoint.")]
+    HostTrustEndpointMismatch,
     #[error("SSH key path cannot be set for password authentication.")]
     KeyPathForPasswordAuth,
 }

@@ -1,5 +1,7 @@
 use super::application::*;
-use super::domain::{SshAuthMode, SshConnectionProfile, SshConnectionTestStatus};
+use super::domain::{
+    SshAuthMode, SshConnectionProfile, SshConnectionTestStatus, SshHostTrustMetadata,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use zeroize::Zeroizing;
@@ -119,6 +121,14 @@ fn profile(auth_mode: SshAuthMode) -> SshConnectionProfile {
         key_path: (auth_mode == SshAuthMode::Key).then(|| "C:\\keys\\dev".to_string()),
         credential_ref: (auth_mode == SshAuthMode::Password)
             .then(|| "ssh-connection/ssh-fixture".to_string()),
+        revision: 1,
+        host_trust: Some(SshHostTrustMetadata {
+            host: "host".to_string(),
+            port: 22,
+            algorithm: "ssh-ed25519".to_string(),
+            fingerprint: "SHA256:fixture".to_string(),
+            confirmed_at: "2026-07-22T00:00:00Z".to_string(),
+        }),
         test_status: SshConnectionTestStatus::NotTested,
         last_connected_at: None,
         last_error: None,
@@ -131,7 +141,7 @@ fn mutation(auth_mode: SshAuthMode, password: Option<&str>) -> SshConnectionMuta
     SshConnectionMutation {
         name: "Updated".to_string(),
         host: "host".to_string(),
-        port: 2222,
+        port: 22,
         user: "dev".to_string(),
         default_path: "/work".to_string(),
         auth_mode,
@@ -151,6 +161,65 @@ fn service(
         Arc::new(FakeClock),
         Arc::new(FakeIdentity),
     )
+}
+
+#[test]
+fn rename_preserves_revision_and_host_trust() {
+    let repository = Arc::new(FakeRepository::default());
+    *repository.profile.lock().expect("profile") = Some(profile(SshAuthMode::Key));
+    let credentials = Arc::new(FakeCredentials::default());
+
+    let updated = service(repository, credentials)
+        .update("ssh-fixture", mutation(SshAuthMode::Key, None))
+        .expect("rename profile");
+
+    assert_eq!(updated.name, "Updated");
+    assert_eq!(updated.revision, 1);
+    assert!(updated.host_trust.is_some());
+}
+
+#[test]
+fn endpoint_and_credential_changes_increment_revision() {
+    let endpoint_repository = Arc::new(FakeRepository::default());
+    *endpoint_repository.profile.lock().expect("profile") = Some(profile(SshAuthMode::Key));
+    let endpoint_credentials = Arc::new(FakeCredentials::default());
+    let mut endpoint_mutation = mutation(SshAuthMode::Key, None);
+    endpoint_mutation.host = "other-host".to_string();
+
+    let endpoint_updated = service(endpoint_repository, endpoint_credentials)
+        .update("ssh-fixture", endpoint_mutation)
+        .expect("change endpoint");
+
+    assert_eq!(endpoint_updated.revision, 2);
+    assert_eq!(endpoint_updated.host_trust, None);
+
+    let password_repository = Arc::new(FakeRepository::default());
+    *password_repository.profile.lock().expect("profile") = Some(profile(SshAuthMode::Password));
+    let password_credentials = Arc::new(FakeCredentials::default());
+    password_credentials
+        .passwords
+        .lock()
+        .expect("passwords")
+        .insert("ssh-fixture".to_string(), "old-secret".to_string());
+
+    let password_updated = service(password_repository, password_credentials.clone())
+        .update(
+            "ssh-fixture",
+            mutation(SshAuthMode::Password, Some("replacement-secret")),
+        )
+        .expect("replace credential");
+
+    assert_eq!(password_updated.revision, 2);
+    assert!(password_updated.host_trust.is_some());
+    assert_eq!(
+        password_credentials
+            .passwords
+            .lock()
+            .expect("passwords")
+            .get("ssh-fixture")
+            .map(String::as_str),
+        Some("replacement-secret")
+    );
 }
 
 #[test]
@@ -205,5 +274,12 @@ fn failed_credential_delete_restores_deleted_profile() {
     let result = service(repository.clone(), credentials).delete("ssh-fixture");
 
     assert!(matches!(result, Err(SshConnectionError::Credential(_))));
-    assert!(repository.profile.lock().expect("profile").is_some());
+    let restored = repository
+        .profile
+        .lock()
+        .expect("profile")
+        .clone()
+        .expect("restored profile");
+    assert_eq!(restored.revision, 1);
+    assert!(restored.host_trust.is_some());
 }

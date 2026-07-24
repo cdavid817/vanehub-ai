@@ -1,5 +1,6 @@
 use crate::contexts::workspaces::application::{
-    ShellWorkspace, WorkspaceApplicationError, WorkspaceShellContextPort,
+    ShellRemoteEndpoint, ShellSshBinding, ShellWorkspace, ShellWorkspacePolicy,
+    WorkspaceApplicationError, WorkspaceShellContextPort,
 };
 use crate::contexts::workspaces::domain::normalize_windows_extended_length_path;
 use crate::platform::{database::NativeDatabase, filesystem};
@@ -29,7 +30,9 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
         let workspace = connection
             .query_row(
                 "SELECT agent_id, folder, project_path, worktree_path, remote_workspace_host, \
-                 remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, loop_role \
+                 remote_workspace_port, remote_workspace_user, remote_workspace_path, \
+                 remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, \
+                 remote_ssh_connection_revision, loop_role \
                  FROM sessions WHERE id = ?1",
                 params![session_id],
                 |row| {
@@ -38,17 +41,51 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
                     let project_path = row.get::<_, Option<String>>(2)?;
                     let worktree_path = row.get::<_, Option<String>>(3)?;
                     let remote_host = row.get::<_, Option<String>>(4)?;
-                    let remote_path = row.get::<_, Option<String>>(5)?;
-                    let remote_display_name = row.get::<_, Option<String>>(6)?;
-                    let remote_uri = row.get::<_, Option<String>>(7)?;
-                    let loop_role = row.get::<_, Option<String>>(8)?;
+                    let remote_port = row.get::<_, Option<u16>>(5)?;
+                    let remote_user = row.get::<_, Option<String>>(6)?;
+                    let remote_path = row.get::<_, Option<String>>(7)?;
+                    let remote_display_name = row.get::<_, Option<String>>(8)?;
+                    let remote_uri = row.get::<_, Option<String>>(9)?;
+                    let binding_id = row.get::<_, Option<String>>(10)?;
+                    let binding_revision = row
+                        .get::<_, Option<String>>(11)?
+                        .and_then(|value| value.parse::<i64>().ok());
+                    let loop_role = row.get::<_, Option<String>>(12)?;
+                    let endpoint = match (
+                        remote_host,
+                        remote_port,
+                        remote_user,
+                        remote_path,
+                        remote_display_name,
+                        remote_uri,
+                    ) {
+                        (
+                            Some(host),
+                            Some(port),
+                            Some(user),
+                            Some(path),
+                            Some(display_name),
+                            Some(uri),
+                        ) => Some(ShellRemoteEndpoint {
+                            host,
+                            port,
+                            user,
+                            path,
+                            display_name,
+                            uri,
+                        }),
+                        _ => None,
+                    };
                     Ok((
                         agent_id,
                         worktree_path.or(folder).or(project_path),
-                        remote_host.is_some()
-                            && remote_path.is_some()
-                            && remote_display_name.is_some()
-                            && remote_uri.is_some(),
+                        endpoint,
+                        binding_id
+                            .zip(binding_revision)
+                            .map(|(connection_id, revision)| ShellSshBinding {
+                                connection_id,
+                                revision,
+                            }),
                         loop_role.as_deref() == Some("verifier"),
                     ))
                 },
@@ -56,7 +93,7 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
             .optional()
             .map_err(|error| WorkspaceApplicationError::Repository(error.to_string()))?
             .ok_or_else(|| WorkspaceApplicationError::SessionNotFound(session_id.to_string()))?;
-        let root = if workspace.2 {
+        let root = if workspace.2.is_some() {
             None
         } else {
             filesystem::canonical_directory_if_available(workspace.1.as_deref().map(Path::new))
@@ -66,8 +103,13 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
         Ok(ShellWorkspace {
             agent_id: workspace.0,
             root,
-            remote: workspace.2,
-            read_only: workspace.3,
+            remote: workspace.2.is_some(),
+            remote_endpoint: workspace.2,
+            ssh_binding: workspace.3,
+            policy: ShellWorkspacePolicy {
+                requires_host_trust: false,
+            },
+            read_only: workspace.4,
         })
     }
 }
@@ -84,9 +126,9 @@ mod tests {
             .execute(
                 "INSERT INTO sessions \
                  (id, title, agent_id, interaction_mode, lifecycle_state, folder, \
-                  remote_workspace_host, remote_workspace_path, remote_workspace_display_name, \
+                  remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, \
                   remote_workspace_uri, pinned, archived, created_at, updated_at) \
-                 VALUES (?1, 'Shell fixture', 'codex-cli', 'cli', 'idle', ?2, ?3, ?4, ?5, ?6, \
+                 VALUES (?1, 'Shell fixture', 'codex-cli', 'cli', 'idle', ?2, ?3, 22, 'developer', ?4, ?5, ?6, \
                          0, 0, '2026-07-18T12:00:00Z', '2026-07-18T12:00:00Z')",
                 params![
                     id,
@@ -133,6 +175,13 @@ mod tests {
         assert!(!local.remote);
         assert!(remote.remote);
         assert_eq!(remote.root, None);
+        assert_eq!(
+            remote
+                .remote_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.host.as_str()),
+            Some("example.com")
+        );
         assert_eq!(
             missing,
             WorkspaceApplicationError::SessionNotFound("missing".to_string())

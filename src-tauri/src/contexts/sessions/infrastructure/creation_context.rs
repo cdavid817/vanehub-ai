@@ -1,6 +1,6 @@
 use crate::contexts::sessions::application::{
     CreatedSessionWorktree, NewRemoteWorkspace, SessionCreationContextPort, SessionProject,
-    SessionRemoteWorkspace, SessionsApplicationError,
+    SessionRemoteWorkspace, SessionSshProfile, SessionsApplicationError,
 };
 use crate::contexts::workspaces::api::{
     ensure_git_worktree_available, ensure_worktree_compatible, RemoteWorkspace, WorkspaceApi,
@@ -29,6 +29,28 @@ impl SessionCreationContextPort for SessionCreationContextAdapter {
         remote_workspace(workspace)
             .ok()
             .map(|workspace| workspace.uri().to_string())
+    }
+
+    fn find_ssh_profile(
+        &self,
+        connection_id: &str,
+    ) -> Result<Option<SessionSshProfile>, SessionsApplicationError> {
+        self.connection()?
+            .query_row(
+                "SELECT id, revision, host, port, user FROM ssh_connections WHERE id = ?1",
+                [connection_id],
+                |row| {
+                    Ok(SessionSshProfile {
+                        connection_id: row.get(0)?,
+                        revision: row.get(1)?,
+                        host: row.get(2)?,
+                        port: row.get(3)?,
+                        user: row.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(repository_error)
     }
 
     fn ensure_agent_supports(

@@ -23,7 +23,7 @@ fn empty_fixture_migrates_to_latest_schema() {
 
     migrate(&conn).expect("migrate empty fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=27).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=28).collect::<Vec<_>>());
     assert!(table_has_column(&conn, "sessions", "remote_workspace_uri")
         .expect("remote workspace column"));
     assert!(table_has_column(&conn, "messages", "rich_blocks").expect("rich block column"));
@@ -40,6 +40,19 @@ fn empty_fixture_migrates_to_latest_schema() {
     assert!(table_has_column(&conn, "sessions", "loop_role").expect("Loop role column"));
     assert!(table_has_column(&conn, "coordination_runs", "run_snapshot")
         .expect("coordination run table"));
+    assert!(
+        table_has_column(&conn, "ssh_connections", "revision").expect("SSH connection revision")
+    );
+    assert!(
+        table_has_column(&conn, "sessions", "remote_ssh_connection_id")
+            .expect("remote SSH session binding")
+    );
+    assert!(
+        table_has_column(&conn, "terminal_command_templates", "scope")
+            .expect("command template table")
+    );
+    assert!(table_has_column(&conn, "terminal_output_fts", "content")
+        .expect("terminal output FTS table"));
 }
 
 #[test]
@@ -50,7 +63,7 @@ fn legacy_v1_fixture_upgrades_without_losing_records() {
 
     migrate(&conn).expect("migrate legacy fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=27).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=28).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("managed SDK column")
     );
@@ -90,7 +103,7 @@ fn current_v20_fixture_is_idempotent_and_readable() {
 
     migrate(&conn).expect("repeat current migration");
 
-    assert_eq!(applied_versions(&conn), (1..=27).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=28).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "sdk_operation_logs", "operation_id")
             .expect("SDK operation log column")

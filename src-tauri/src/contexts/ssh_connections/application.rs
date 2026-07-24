@@ -1,11 +1,18 @@
 use super::domain::{
-    SshAuthMode, SshConnectionDomainError, SshConnectionDraft, SshConnectionProfile,
-    SshConnectionTestStatus,
+    SshAuthMode, SshConnectionDomainError, SshConnectionProfile, SshConnectionTestStatus,
 };
 use std::sync::Arc;
 use thiserror::Error;
 use zeroize::Zeroizing;
 
+pub(crate) mod connection_pool;
+pub(crate) mod host_trust;
+#[cfg(test)]
+mod host_trust_tests;
+mod mutation;
+pub(crate) mod runtime;
+
+use mutation::{draft_from_mutation, normalized_optional};
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum SshConnectionError {
     #[error("{0}")]
@@ -130,6 +137,8 @@ impl SshConnectionApplicationService {
             auth_mode: draft.auth_mode,
             key_path: draft.key_path.map(|value| value.trim().to_string()),
             credential_ref,
+            revision: 1,
+            host_trust: None,
             test_status: SshConnectionTestStatus::NotTested,
             last_connected_at: None,
             last_error: None,
@@ -178,6 +187,13 @@ impl SshConnectionApplicationService {
                 "SSH password is required for password authentication.".to_string(),
             ));
         }
+        let endpoint_changed = current.host != draft.host.trim() || current.port != draft.port;
+        let compatibility_changed = endpoint_changed
+            || current.user != draft.user.trim()
+            || current.auth_mode != draft.auth_mode
+            || normalized_optional(current.key_path.as_deref())
+                != normalized_optional(draft.key_path.as_deref())
+            || wrote_password;
         let mut updated = current;
         updated.name = draft.name.trim().to_string();
         updated.host = draft.host.trim().to_string();
@@ -187,6 +203,14 @@ impl SshConnectionApplicationService {
         updated.auth_mode = draft.auth_mode;
         updated.key_path = draft.key_path.map(|value| value.trim().to_string());
         updated.credential_ref = credential_ref;
+        if compatibility_changed {
+            updated.revision = updated.revision.checked_add(1).ok_or_else(|| {
+                SshConnectionError::Validation("SSH profile revision overflowed.".to_string())
+            })?;
+        }
+        if endpoint_changed {
+            updated.host_trust = None;
+        }
         updated.updated_at = self.clock.now();
         updated.validate()?;
         if let Err(error) = self.repository.update(&updated) {
@@ -263,25 +287,5 @@ impl SshConnectionApplicationService {
             self.credentials.delete(id)?;
         }
         Ok(())
-    }
-}
-
-fn draft_from_mutation(mutation: &SshConnectionMutation) -> SshConnectionDraft {
-    SshConnectionDraft {
-        name: mutation.name.clone(),
-        host: mutation.host.clone(),
-        port: mutation.port,
-        user: mutation.user.clone(),
-        default_path: mutation.default_path.clone(),
-        auth_mode: mutation.auth_mode,
-        key_path: mutation.key_path.clone(),
-    }
-}
-
-pub(crate) struct UuidSshConnectionIdentity;
-
-impl SshConnectionIdentity for UuidSshConnectionIdentity {
-    fn next_id(&self) -> String {
-        format!("ssh-{}", uuid::Uuid::new_v4().simple())
     }
 }

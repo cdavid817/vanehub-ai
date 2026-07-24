@@ -332,6 +332,13 @@ export const tauriAgentClient: AgentService = {
     return invoke<Session>("rename_session", { sessionId, title });
   },
 
+  rebindRemoteSessionSshConnection(sessionId: string, connectionId: string) {
+    return invoke<Session>("rebind_remote_session_ssh_connection", {
+      sessionId,
+      connectionId,
+    });
+  },
+
   pinSession(sessionId: string) {
     return invoke<Session>("pin_session", { sessionId });
   },

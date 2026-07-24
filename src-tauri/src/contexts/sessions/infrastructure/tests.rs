@@ -3,9 +3,10 @@ use crate::contexts::sessions::application::{
     CategoryRecord, ChatConfigurationValues, FileReferenceInput, LoopSessionOwnership,
     MessagePageQuery, MessageRecord, MessageTokenUsage, MessageUsageRecord,
     SessionCategoryRepository, SessionConfigurationRepository, SessionListScope,
-    SessionMessageRepository, SessionRecord, SessionRepository, SessionSearchMatchKind,
-    SessionSearchQuery, SessionTransactionPort, SessionUsageAccountingKind, SessionUsageRepository,
-    SessionUsageUnit, SessionWorkspace, UsageStatisticsRange,
+    SessionMessageRepository, SessionRecord, SessionRemoteWorkspace, SessionRepository,
+    SessionSearchMatchKind, SessionSearchQuery, SessionSshBinding, SessionTransactionPort,
+    SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit, SessionWorkspace,
+    UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, CategoryId, CategoryName, ChatConfigurationRequest, FileReference,
@@ -97,6 +98,59 @@ fn message_record(
         created_at: "2026-07-18T10:00:00+00:00".to_string(),
         updated_at: "2026-07-18T10:00:00+00:00".to_string(),
     }
+}
+
+#[test]
+fn remote_ssh_binding_round_trips_and_updates_without_mutating_snapshot() {
+    let fixture = fixture("session-remote-ssh-binding");
+    let mut session = session_record(
+        "session-remote-binding",
+        SessionLifecycle::Idle,
+        "Remote",
+        "2026-07-24T00:00:00Z",
+    );
+    session.workspace.remote_workspace = Some(SessionRemoteWorkspace {
+        host: "remote.example.test".to_string(),
+        port: Some(22),
+        user: Some("dev".to_string()),
+        path: "/work/app".to_string(),
+        display_name: "Remote App".to_string(),
+        uri: "ssh://dev@remote.example.test/work/app".to_string(),
+    });
+    session.workspace.remote_ssh_binding = Some(SessionSshBinding {
+        connection_id: "ssh-first".to_string(),
+        revision: 3,
+    });
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create remote session");
+
+    let mut loaded = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find remote session")
+        .expect("remote session");
+    assert_eq!(
+        loaded.workspace.remote_ssh_binding,
+        session.workspace.remote_ssh_binding
+    );
+    let snapshot = loaded.workspace.remote_workspace.clone();
+    loaded.workspace.remote_ssh_binding = Some(SessionSshBinding {
+        connection_id: "ssh-second".to_string(),
+        revision: 7,
+    });
+    let rebound =
+        SessionRepository::save(&fixture.repository, &loaded).expect("save rebound session");
+
+    assert_eq!(rebound.workspace.remote_workspace, snapshot);
+    assert_eq!(
+        rebound.workspace.remote_ssh_binding,
+        Some(SessionSshBinding {
+            connection_id: "ssh-second".to_string(),
+            revision: 7,
+        })
+    );
 }
 
 fn usage_record(message_id: &str, session_id: &str, agent_id: &str) -> MessageUsageRecord {

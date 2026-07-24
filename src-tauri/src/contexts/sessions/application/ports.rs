@@ -3,7 +3,8 @@ use super::{
     MessageRecord, MessageUsageRecord, NewRemoteWorkspace, SessionApplicationLog,
     SessionChatConfiguration, SessionCreationOperation, SessionListScope, SessionProject,
     SessionRecord, SessionRemoteWorkspace, SessionSearchQuery, SessionSearchResult,
-    SessionUsageStatistics, SessionUsageSummary, SessionsApplicationError, UsageStatisticsRange,
+    SessionSshProfile, SessionUsageStatistics, SessionUsageSummary, SessionsApplicationError,
+    UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     CategoryId, ChatPreferences, MessageId, SessionActivation, SessionId,
@@ -189,6 +190,11 @@ pub(crate) trait SessionIdentityPort: Send + Sync {
 
 pub(crate) trait SessionCreationContextPort: Send + Sync {
     fn remote_workspace_uri(&self, workspace: &NewRemoteWorkspace) -> Option<String>;
+
+    fn find_ssh_profile(
+        &self,
+        connection_id: &str,
+    ) -> Result<Option<SessionSshProfile>, SessionsApplicationError>;
 
     fn ensure_agent_supports(
         &self,
