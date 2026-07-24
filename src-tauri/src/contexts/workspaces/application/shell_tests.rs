@@ -159,7 +159,9 @@ fn shell_creation_validates_workspace_bounds_dimensions_and_logs_after_open() {
         remote: false,
         remote_endpoint: None,
         ssh_binding: None,
-        policy: ShellWorkspacePolicy { requires_host_trust: false },
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
         read_only: false,
     });
 
@@ -197,7 +199,9 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 remote: true,
                 remote_endpoint: None,
                 ssh_binding: None,
-                policy: ShellWorkspacePolicy { requires_host_trust: false },
+                policy: ShellWorkspacePolicy {
+                    requires_host_trust: false,
+                },
                 read_only: false,
             },
             "Session workspace is unavailable.",
@@ -209,7 +213,9 @@ fn remote_and_unavailable_workspaces_stop_before_runtime_effects() {
                 remote: false,
                 remote_endpoint: None,
                 ssh_binding: None,
-                policy: ShellWorkspacePolicy { requires_host_trust: false },
+                policy: ShellWorkspacePolicy {
+                    requires_host_trust: false,
+                },
                 read_only: false,
             },
             "Session workspace is unavailable.",
@@ -240,7 +246,9 @@ fn shell_routes_and_cleanup_preserve_idempotence_events_and_bounds() {
         remote: false,
         remote_endpoint: None,
         ssh_binding: None,
-        policy: ShellWorkspacePolicy { requires_host_trust: false },
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
         read_only: false,
     });
 
@@ -290,7 +298,9 @@ fn verifier_shell_is_rejected_before_runtime_open_and_logged() {
         remote: false,
         remote_endpoint: None,
         ssh_binding: None,
-        policy: ShellWorkspacePolicy { requires_host_trust: false },
+        policy: ShellWorkspacePolicy {
+            requires_host_trust: false,
+        },
         read_only: true,
     });
 

@@ -191,7 +191,7 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
                             session_id: reader_session_id.clone(),
                             content: String::from_utf8_lossy(&buffer[..count]).to_string(),
                         })
-                    },
+                    }
                     Err(_) => break,
                 }
             }

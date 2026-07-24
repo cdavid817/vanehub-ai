@@ -329,7 +329,9 @@ impl PoolInner {
         }
         drop(state);
         if let Some(transport) = closing {
-            tokio::spawn(async move { let _ = transport.close().await; });
+            tokio::spawn(async move {
+                let _ = transport.close().await;
+            });
         }
     }
 }
@@ -424,40 +426,97 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Clock;
-    impl RemoteSshPoolClockPort for Clock { fn now(&self) -> Instant { Instant::now() } }
-
-    struct Transport { closes: Arc<AtomicUsize> }
-    #[async_trait]
-    impl RemoteSshTransportPort for Transport {
-        async fn open_pty(&self, _: crate::contexts::ssh_connections::domain::runtime::RemotePtyRequest) -> Result<Arc<dyn super::super::runtime::RemoteSshChannelPort>, RemoteSshError> { Err(RemoteSshError::ChannelFailed) }
-        async fn open_exec(&self, _: &[u8]) -> Result<Arc<dyn super::super::runtime::RemoteSshChannelPort>, RemoteSshError> { Err(RemoteSshError::ChannelFailed) }
-        async fn keepalive(&self) -> Result<(), RemoteSshError> { Ok(()) }
-        async fn close(&self) -> Result<(), RemoteSshError> { self.closes.fetch_add(1, Ordering::SeqCst); Ok(()) }
-        fn is_healthy(&self) -> bool { true }
+    impl RemoteSshPoolClockPort for Clock {
+        fn now(&self) -> Instant {
+            Instant::now()
+        }
     }
 
-    struct Connector { connects: Arc<AtomicUsize>, closes: Arc<AtomicUsize> }
+    struct Transport {
+        closes: Arc<AtomicUsize>,
+    }
+    #[async_trait]
+    impl RemoteSshTransportPort for Transport {
+        async fn open_pty(
+            &self,
+            _: crate::contexts::ssh_connections::domain::runtime::RemotePtyRequest,
+        ) -> Result<Arc<dyn super::super::runtime::RemoteSshChannelPort>, RemoteSshError> {
+            Err(RemoteSshError::ChannelFailed)
+        }
+        async fn open_exec(
+            &self,
+            _: &[u8],
+        ) -> Result<Arc<dyn super::super::runtime::RemoteSshChannelPort>, RemoteSshError> {
+            Err(RemoteSshError::ChannelFailed)
+        }
+        async fn keepalive(&self) -> Result<(), RemoteSshError> {
+            Ok(())
+        }
+        async fn close(&self) -> Result<(), RemoteSshError> {
+            self.closes.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn is_healthy(&self) -> bool {
+            true
+        }
+    }
+
+    struct Connector {
+        connects: Arc<AtomicUsize>,
+        closes: Arc<AtomicUsize>,
+    }
     #[async_trait]
     impl RemoteSshConnectorPort for Connector {
-        async fn connect(&self, _: &SshConnectionProfile) -> Result<Arc<dyn RemoteSshTransportPort>, RemoteSshError> {
+        async fn connect(
+            &self,
+            _: &SshConnectionProfile,
+        ) -> Result<Arc<dyn RemoteSshTransportPort>, RemoteSshError> {
             self.connects.fetch_add(1, Ordering::SeqCst);
-            Ok(Arc::new(Transport { closes: self.closes.clone() }))
+            Ok(Arc::new(Transport {
+                closes: self.closes.clone(),
+            }))
         }
     }
 
     fn profile(id: &str, revision: i64) -> SshConnectionProfile {
-        SshConnectionProfile { id: id.into(), name: id.into(), host: "host.example".into(), port: 22, user: "user".into(), default_path: "/work".into(), auth_mode: SshAuthMode::Password, key_path: None, credential_ref: Some("ref".into()), revision, host_trust: None, test_status: SshConnectionTestStatus::NotTested, last_connected_at: None, last_error: None, created_at: "now".into(), updated_at: "now".into() }
+        SshConnectionProfile {
+            id: id.into(),
+            name: id.into(),
+            host: "host.example".into(),
+            port: 22,
+            user: "user".into(),
+            default_path: "/work".into(),
+            auth_mode: SshAuthMode::Password,
+            key_path: None,
+            credential_ref: Some("ref".into()),
+            revision,
+            host_trust: None,
+            test_status: SshConnectionTestStatus::NotTested,
+            last_connected_at: None,
+            last_error: None,
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        }
     }
 
     #[tokio::test]
     async fn reuses_compatible_revision_and_isolates_revision_changes() {
         let connects = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
-        let pool = RemoteSshConnectionPool::new(Arc::new(Connector { connects: connects.clone(), closes: closes.clone() }), Arc::new(Clock), 2, Duration::from_secs(60));
+        let pool = RemoteSshConnectionPool::new(
+            Arc::new(Connector {
+                connects: connects.clone(),
+                closes: closes.clone(),
+            }),
+            Arc::new(Clock),
+            2,
+            Duration::from_secs(60),
+        );
         let first = pool.acquire(&profile("one", 1)).await.expect("first");
         let second = pool.acquire(&profile("one", 1)).await.expect("second");
         assert_eq!(connects.load(Ordering::SeqCst), 1);
-        drop(first); drop(second);
+        drop(first);
+        drop(second);
         let changed = pool.acquire(&profile("one", 2)).await.expect("changed");
         assert_eq!(connects.load(Ordering::SeqCst), 2);
         drop(changed);
@@ -466,7 +525,15 @@ mod tests {
     #[tokio::test]
     async fn draining_closes_after_last_lease_and_failed_capacity_is_reported() {
         let closes = Arc::new(AtomicUsize::new(0));
-        let pool = RemoteSshConnectionPool::new(Arc::new(Connector { connects: Arc::new(AtomicUsize::new(0)), closes: closes.clone() }), Arc::new(Clock), 1, Duration::from_secs(60));
+        let pool = RemoteSshConnectionPool::new(
+            Arc::new(Connector {
+                connects: Arc::new(AtomicUsize::new(0)),
+                closes: closes.clone(),
+            }),
+            Arc::new(Clock),
+            1,
+            Duration::from_secs(60),
+        );
         let lease = pool.acquire(&profile("one", 1)).await.expect("lease");
         pool.drain("one");
         drop(lease);

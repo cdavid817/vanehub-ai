@@ -50,11 +50,19 @@ impl WorkspaceShellApplicationService {
                 action: "create-shell".to_string(),
             });
         }
-        let root = workspace.root.or_else(|| {
-            workspace.remote_endpoint.as_ref().map(|endpoint| endpoint.path.clone())
-        }).ok_or_else(|| {
-            WorkspaceApplicationError::Validation("Session workspace is unavailable.".to_string())
-        })?;
+        let root = workspace
+            .root
+            .or_else(|| {
+                workspace
+                    .remote_endpoint
+                    .as_ref()
+                    .map(|endpoint| endpoint.path.clone())
+            })
+            .ok_or_else(|| {
+                WorkspaceApplicationError::Validation(
+                    "Session workspace is unavailable.".to_string(),
+                )
+            })?;
         let shell_id = self.ids.next_shell_id();
         self.runtime.open_shell(&ShellLaunch {
             shell_id: shell_id.clone(),

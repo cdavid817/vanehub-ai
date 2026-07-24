@@ -1,15 +1,18 @@
+mod command_run;
+mod command_template;
 mod error;
+mod output_chunk;
 mod path;
 mod project;
 mod remote_terminal_limits;
 mod remote_workspace;
-mod command_template;
-mod command_run;
-mod output_chunk;
 mod shell;
 mod worktree;
 
+pub(crate) use command_run::{CommandRun, CommandRunError, CommandRunStatus};
+pub(crate) use command_template::{CommandTemplate, CommandTemplateError, CommandTemplateScope};
 pub(crate) use error::WorkspaceDomainError;
+pub(crate) use output_chunk::{TerminalOutputChunk, TerminalOutputError, TerminalOutputSource};
 #[allow(unused_imports)]
 pub(crate) use path::{
     normalize_windows_extended_length_path, CanonicalPathBoundary, WorkspaceRelativePath,
@@ -26,8 +29,5 @@ pub(crate) use remote_terminal_limits::{
     TERMINAL_SEARCH_MAX_QUERY_BYTES,
 };
 pub(crate) use remote_workspace::RemoteWorkspace;
-pub(crate) use command_template::{CommandTemplate, CommandTemplateError, CommandTemplateScope};
-pub(crate) use command_run::{CommandRun, CommandRunError, CommandRunStatus};
-pub(crate) use output_chunk::{TerminalOutputChunk, TerminalOutputError, TerminalOutputSource};
 pub(crate) use shell::{reset_directory_command, ShellHost, TerminalDimensions};
 pub(crate) use worktree::{ensure_worktree_compatible, GitReference, WorktreeName};

@@ -51,15 +51,41 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
                         .get::<_, Option<String>>(11)?
                         .and_then(|value| value.parse::<i64>().ok());
                     let loop_role = row.get::<_, Option<String>>(12)?;
-                    let endpoint = match (remote_host, remote_port, remote_user, remote_path, remote_display_name, remote_uri) {
-                        (Some(host), Some(port), Some(user), Some(path), Some(display_name), Some(uri)) => Some(ShellRemoteEndpoint { host, port, user, path, display_name, uri }),
+                    let endpoint = match (
+                        remote_host,
+                        remote_port,
+                        remote_user,
+                        remote_path,
+                        remote_display_name,
+                        remote_uri,
+                    ) {
+                        (
+                            Some(host),
+                            Some(port),
+                            Some(user),
+                            Some(path),
+                            Some(display_name),
+                            Some(uri),
+                        ) => Some(ShellRemoteEndpoint {
+                            host,
+                            port,
+                            user,
+                            path,
+                            display_name,
+                            uri,
+                        }),
                         _ => None,
                     };
                     Ok((
                         agent_id,
                         worktree_path.or(folder).or(project_path),
                         endpoint,
-                        binding_id.zip(binding_revision).map(|(connection_id, revision)| ShellSshBinding { connection_id, revision }),
+                        binding_id
+                            .zip(binding_revision)
+                            .map(|(connection_id, revision)| ShellSshBinding {
+                                connection_id,
+                                revision,
+                            }),
                         loop_role.as_deref() == Some("verifier"),
                     ))
                 },
@@ -80,7 +106,9 @@ impl WorkspaceShellContextPort for SqliteShellWorkspaceAdapter {
             remote: workspace.2.is_some(),
             remote_endpoint: workspace.2,
             ssh_binding: workspace.3,
-            policy: ShellWorkspacePolicy { requires_host_trust: false },
+            policy: ShellWorkspacePolicy {
+                requires_host_trust: false,
+            },
             read_only: workspace.4,
         })
     }
@@ -147,7 +175,13 @@ mod tests {
         assert!(!local.remote);
         assert!(remote.remote);
         assert_eq!(remote.root, None);
-        assert_eq!(remote.remote_endpoint.as_ref().map(|endpoint| endpoint.host.as_str()), Some("example.com"));
+        assert_eq!(
+            remote
+                .remote_endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.host.as_str()),
+            Some("example.com")
+        );
         assert_eq!(
             missing,
             WorkspaceApplicationError::SessionNotFound("missing".to_string())
