@@ -1,6 +1,8 @@
 use crate::contexts::tooling::prompt_hooks::application::{
-    PromptHookApplicationError, PromptHookGovernance, PromptHookOverride, PromptHookRecord,
-    PromptHookRepository, PromptHookTrace, PromptHookTraceStatus,
+    PromptHookApplicationError, PromptHookDraft, PromptHookEvaluationSummary,
+    PromptHookExecutionObservation, PromptHookGovernance, PromptHookOverride,
+    PromptHookPublicationKind, PromptHookRecord, PromptHookRepository, PromptHookSnapshot,
+    PromptHookTrace, PromptHookTraceStatus, PromptHookVersion,
 };
 use crate::contexts::tooling::prompt_hooks::domain::{
     ManagedCliAgentId, PromptHookBindings, PromptHookCategory, PromptHookId, PromptHookManifest,
@@ -80,48 +82,6 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         }
     }
 
-    fn update_user_hook(
-        &self,
-        record: &PromptHookRecord,
-    ) -> Result<(), PromptHookApplicationError> {
-        let connection = self.database.connection().map_err(app_error)?;
-        let bindings = json_string(&record.manifest.bindings().to_strings())?;
-        let governance = json_string(&PersistedGovernance::from(&record.governance))?;
-        let changed = connection
-            .execute(
-                r#"
-                UPDATE prompt_hooks_user
-                SET name = ?1, description = ?2, category = ?3, stage = ?4, hook_order = ?5,
-                    version = ?6, enabled = ?7, disableable = ?8, cli_bindings = ?9,
-                    governance = ?10, template_body = ?11, updated_at = ?12
-                WHERE id = ?13
-                "#,
-                params![
-                    record.manifest.name().as_str(),
-                    record.description,
-                    record.manifest.category().as_str(),
-                    record.manifest.stage().as_str(),
-                    record.manifest.order().value(),
-                    record.version,
-                    bool_to_i64(record.enabled),
-                    bool_to_i64(record.disableable),
-                    bindings,
-                    governance,
-                    record.manifest.template().as_str(),
-                    record.updated_at,
-                    record.id().as_str(),
-                ],
-            )
-            .map_err(repository_error)?;
-        if changed == 0 {
-            Err(PromptHookApplicationError::NotFound(
-                record.id().as_str().to_string(),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
     fn delete_user_hook(&self, hook_id: &PromptHookId) -> Result<(), PromptHookApplicationError> {
         let mut connection = self.database.connection().map_err(app_error)?;
         let transaction = connection.transaction().map_err(repository_error)?;
@@ -134,6 +94,24 @@ impl PromptHookRepository for SqlitePromptHookRepository {
         transaction
             .execute(
                 "DELETE FROM prompt_hook_overrides WHERE hook_id = ?1",
+                params![hook_id.as_str()],
+            )
+            .map_err(repository_error)?;
+        transaction
+            .execute(
+                "DELETE FROM prompt_hook_drafts WHERE hook_id = ?1",
+                params![hook_id.as_str()],
+            )
+            .map_err(repository_error)?;
+        transaction
+            .execute(
+                "DELETE FROM prompt_hook_versions WHERE hook_id = ?1",
+                params![hook_id.as_str()],
+            )
+            .map_err(repository_error)?;
+        transaction
+            .execute(
+                "DELETE FROM prompt_hook_executions WHERE hook_id = ?1",
                 params![hook_id.as_str()],
             )
             .map_err(repository_error)?;
@@ -249,6 +227,280 @@ impl PromptHookRepository for SqlitePromptHookRepository {
             .collect();
         traces
     }
+
+    fn get_draft(
+        &self,
+        hook_id: &PromptHookId,
+    ) -> Result<Option<PromptHookDraft>, PromptHookApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT hook_id, revision, name, description, category, stage, hook_order,
+                       enabled, cli_bindings, governance, template_body, created_at, updated_at
+                FROM prompt_hook_drafts
+                WHERE hook_id = ?1
+                "#,
+            )
+            .map_err(repository_error)?;
+        match statement.query_row(params![hook_id.as_str()], DraftRow::read) {
+            Ok(row) => row.into_draft().map(Some),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(repository_error(error)),
+        }
+    }
+
+    fn create_user_draft(
+        &self,
+        record: &PromptHookRecord,
+        draft: &PromptHookDraft,
+    ) -> Result<(), PromptHookApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        insert_user_hook(&transaction, record).map_err(|error| match error {
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.code == ErrorCode::ConstraintViolation =>
+            {
+                PromptHookApplicationError::Conflict(record.id().as_str().to_string())
+            }
+            other => repository_error(other),
+        })?;
+        insert_draft(&transaction, draft).map_err(repository_error)?;
+        transaction.commit().map_err(repository_error)
+    }
+
+    fn save_draft(
+        &self,
+        draft: &PromptHookDraft,
+        expected_revision: Option<i64>,
+    ) -> Result<(), PromptHookApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let bindings = json_string(&draft.snapshot.manifest.bindings().to_strings())?;
+        let governance = json_string(&PersistedGovernance::from(&draft.snapshot.governance))?;
+        let changed = if let Some(expected) = expected_revision {
+            connection
+                .execute(
+                    r#"
+                    UPDATE prompt_hook_drafts
+                    SET revision = ?1, name = ?2, description = ?3, category = ?4, stage = ?5,
+                        hook_order = ?6, enabled = ?7, cli_bindings = ?8, governance = ?9,
+                        template_body = ?10, updated_at = ?11
+                    WHERE hook_id = ?12 AND revision = ?13
+                    "#,
+                    params![
+                        draft.revision,
+                        draft.snapshot.manifest.name().as_str(),
+                        draft.snapshot.description,
+                        draft.snapshot.manifest.category().as_str(),
+                        draft.snapshot.manifest.stage().as_str(),
+                        draft.snapshot.manifest.order().value(),
+                        bool_to_i64(draft.snapshot.enabled),
+                        bindings,
+                        governance,
+                        draft.snapshot.manifest.template().as_str(),
+                        draft.updated_at,
+                        draft.hook_id.as_str(),
+                        expected,
+                    ],
+                )
+                .map_err(repository_error)?
+        } else {
+            connection
+                .execute(
+                    r#"
+                    INSERT OR IGNORE INTO prompt_hook_drafts (
+                        hook_id, revision, name, description, category, stage, hook_order,
+                        enabled, cli_bindings, governance, template_body, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                    "#,
+                    params![
+                        draft.hook_id.as_str(),
+                        draft.revision,
+                        draft.snapshot.manifest.name().as_str(),
+                        draft.snapshot.description,
+                        draft.snapshot.manifest.category().as_str(),
+                        draft.snapshot.manifest.stage().as_str(),
+                        draft.snapshot.manifest.order().value(),
+                        bool_to_i64(draft.snapshot.enabled),
+                        bindings,
+                        governance,
+                        draft.snapshot.manifest.template().as_str(),
+                        draft.created_at,
+                        draft.updated_at,
+                    ],
+                )
+                .map_err(repository_error)?
+        };
+        if changed == 1 {
+            Ok(())
+        } else {
+            Err(stale_revision(&draft.hook_id))
+        }
+    }
+
+    fn publish_draft(
+        &self,
+        version: &PromptHookVersion,
+        expected_draft_revision: i64,
+        expected_published_version: Option<i64>,
+    ) -> Result<(), PromptHookApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        verify_current_version(&transaction, &version.hook_id, expected_published_version)?;
+        let draft_revision: i64 = transaction
+            .query_row(
+                "SELECT revision FROM prompt_hook_drafts WHERE hook_id = ?1",
+                params![version.hook_id.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => stale_revision(&version.hook_id),
+                other => repository_error(other),
+            })?;
+        if draft_revision != expected_draft_revision {
+            return Err(stale_revision(&version.hook_id));
+        }
+        insert_version(&transaction, version)?;
+        update_published_user_hook(&transaction, version)?;
+        let removed = transaction
+            .execute(
+                "DELETE FROM prompt_hook_drafts WHERE hook_id = ?1 AND revision = ?2",
+                params![version.hook_id.as_str(), expected_draft_revision],
+            )
+            .map_err(repository_error)?;
+        if removed != 1 {
+            return Err(stale_revision(&version.hook_id));
+        }
+        transaction.commit().map_err(repository_error)
+    }
+
+    fn list_versions(
+        &self,
+        hook_id: &PromptHookId,
+        limit: usize,
+    ) -> Result<Vec<PromptHookVersion>, PromptHookApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT hook_id, version, name, description, category, stage, hook_order,
+                       enabled, cli_bindings, governance, template_body, content_hash,
+                       publication_kind, rollback_from_version, published_at
+                FROM prompt_hook_versions
+                WHERE hook_id = ?1
+                ORDER BY version DESC
+                LIMIT ?2
+                "#,
+            )
+            .map_err(repository_error)?;
+        let versions = statement
+            .query_map(params![hook_id.as_str(), limit as i64], VersionRow::read)
+            .map_err(repository_error)?
+            .map(|row| {
+                row.map_err(repository_error)
+                    .and_then(VersionRow::into_version)
+            })
+            .collect();
+        versions
+    }
+
+    fn publish_rollback(
+        &self,
+        version: &PromptHookVersion,
+        expected_published_version: Option<i64>,
+    ) -> Result<(), PromptHookApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        verify_current_version(&transaction, &version.hook_id, expected_published_version)?;
+        insert_version(&transaction, version)?;
+        update_published_user_hook(&transaction, version)?;
+        transaction.commit().map_err(repository_error)
+    }
+
+    fn save_execution_observations(
+        &self,
+        observations: &[PromptHookExecutionObservation],
+    ) -> Result<(), PromptHookApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        for observation in observations {
+            transaction
+                .execute(
+                    r#"
+                    INSERT OR IGNORE INTO prompt_hook_executions (
+                        invocation_id, hook_id, version, outcome, elapsed_ms, agent_id, created_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    "#,
+                    params![
+                        observation.invocation_id,
+                        observation.hook_id.as_str(),
+                        observation.version,
+                        observation.outcome.as_str(),
+                        observation.elapsed_ms,
+                        observation.agent_id.as_str(),
+                        observation.created_at,
+                    ],
+                )
+                .map_err(repository_error)?;
+        }
+        transaction.commit().map_err(repository_error)
+    }
+
+    fn evaluation_summaries(
+        &self,
+        hook_id: &PromptHookId,
+        limit: usize,
+    ) -> Result<Vec<PromptHookEvaluationSummary>, PromptHookApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT hook_id, version,
+                       COUNT(*) AS execution_count,
+                       SUM(CASE WHEN outcome = 'succeeded' THEN 1 ELSE 0 END) AS succeeded_count,
+                       SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                       SUM(CASE WHEN outcome = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_count,
+                       AVG(CASE WHEN outcome != 'cancelled' THEN elapsed_ms END) AS average_elapsed_ms,
+                       MIN(CASE WHEN outcome != 'cancelled' THEN elapsed_ms END) AS minimum_elapsed_ms,
+                       MAX(CASE WHEN outcome != 'cancelled' THEN elapsed_ms END) AS maximum_elapsed_ms
+                FROM prompt_hook_executions
+                WHERE hook_id = ?1
+                GROUP BY hook_id, version
+                ORDER BY version DESC
+                LIMIT ?2
+                "#,
+            )
+            .map_err(repository_error)?;
+        let summaries = statement
+            .query_map(params![hook_id.as_str(), limit as i64], |row| {
+                let succeeded_count: i64 = row.get(3)?;
+                let failed_count: i64 = row.get(4)?;
+                let evaluated_count = succeeded_count + failed_count;
+                Ok(PromptHookEvaluationSummary {
+                    hook_id: PromptHookId::parse(row.get::<_, String>(0)?).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+                    version: row.get(1)?,
+                    execution_count: row.get(2)?,
+                    succeeded_count,
+                    failed_count,
+                    cancelled_count: row.get(5)?,
+                    success_rate: (evaluated_count > 0)
+                        .then_some(succeeded_count as f64 / evaluated_count as f64),
+                    average_elapsed_ms: row.get(6)?,
+                    minimum_elapsed_ms: row.get(7)?,
+                    maximum_elapsed_ms: row.get(8)?,
+                })
+            })
+            .map_err(repository_error)?
+            .map(|row| row.map_err(repository_error))
+            .collect();
+        summaries
+    }
 }
 
 pub(crate) fn apply_schema(
@@ -297,6 +549,66 @@ pub(crate) fn apply_schema(
 
         CREATE INDEX IF NOT EXISTS idx_prompt_hook_traces_created
             ON prompt_hook_traces(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS prompt_hook_drafts (
+            hook_id TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            hook_order INTEGER NOT NULL,
+            enabled INTEGER NOT NULL,
+            cli_bindings TEXT NOT NULL,
+            governance TEXT NOT NULL,
+            template_body TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS prompt_hook_versions (
+            hook_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category TEXT NOT NULL,
+            stage TEXT NOT NULL,
+            hook_order INTEGER NOT NULL,
+            enabled INTEGER NOT NULL,
+            cli_bindings TEXT NOT NULL,
+            governance TEXT NOT NULL,
+            template_body TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            publication_kind TEXT NOT NULL,
+            rollback_from_version INTEGER,
+            published_at TEXT NOT NULL,
+            PRIMARY KEY (hook_id, version)
+        );
+
+        CREATE TABLE IF NOT EXISTS prompt_hook_executions (
+            invocation_id TEXT NOT NULL,
+            hook_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            elapsed_ms INTEGER NOT NULL CHECK (elapsed_ms >= 0),
+            agent_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (invocation_id, hook_id, version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_prompt_hook_executions_hook_version
+            ON prompt_hook_executions(hook_id, version);
+
+        INSERT OR IGNORE INTO prompt_hook_versions (
+            hook_id, version, name, description, category, stage, hook_order, enabled,
+            cli_bindings, governance, template_body, content_hash, publication_kind,
+            rollback_from_version, published_at
+        )
+        SELECT id, version, name, description, category, stage, hook_order, enabled,
+               cli_bindings, governance, template_body, 'legacy-' || id || '-' || version,
+               'publish', NULL, updated_at
+        FROM prompt_hooks_user
+        WHERE version > 0;
         "#,
     )?;
     Ok(())
@@ -360,6 +672,295 @@ fn insert_trace(transaction: &Transaction<'_>, trace: &PromptHookTrace) -> rusql
         ],
     )?;
     Ok(())
+}
+
+fn insert_draft(connection: &Connection, draft: &PromptHookDraft) -> rusqlite::Result<()> {
+    let bindings = serde_json::to_string(&draft.snapshot.manifest.bindings().to_strings())
+        .map_err(json_to_sql_error)?;
+    let governance = serde_json::to_string(&PersistedGovernance::from(&draft.snapshot.governance))
+        .map_err(json_to_sql_error)?;
+    connection.execute(
+        r#"
+        INSERT INTO prompt_hook_drafts (
+            hook_id, revision, name, description, category, stage, hook_order,
+            enabled, cli_bindings, governance, template_body, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        "#,
+        params![
+            draft.hook_id.as_str(),
+            draft.revision,
+            draft.snapshot.manifest.name().as_str(),
+            draft.snapshot.description,
+            draft.snapshot.manifest.category().as_str(),
+            draft.snapshot.manifest.stage().as_str(),
+            draft.snapshot.manifest.order().value(),
+            bool_to_i64(draft.snapshot.enabled),
+            bindings,
+            governance,
+            draft.snapshot.manifest.template().as_str(),
+            draft.created_at,
+            draft.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_version(
+    transaction: &Transaction<'_>,
+    version: &PromptHookVersion,
+) -> Result<(), PromptHookApplicationError> {
+    transaction
+        .execute(
+            r#"
+            INSERT INTO prompt_hook_versions (
+                hook_id, version, name, description, category, stage, hook_order, enabled,
+                cli_bindings, governance, template_body, content_hash, publication_kind,
+                rollback_from_version, published_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            "#,
+            params![
+                version.hook_id.as_str(),
+                version.version,
+                version.snapshot.manifest.name().as_str(),
+                version.snapshot.description,
+                version.snapshot.manifest.category().as_str(),
+                version.snapshot.manifest.stage().as_str(),
+                version.snapshot.manifest.order().value(),
+                bool_to_i64(version.snapshot.enabled),
+                json_string(&version.snapshot.manifest.bindings().to_strings())?,
+                json_string(&PersistedGovernance::from(&version.snapshot.governance))?,
+                version.snapshot.manifest.template().as_str(),
+                version.content_hash,
+                version.publication_kind.as_str(),
+                version.rollback_from_version,
+                version.published_at,
+            ],
+        )
+        .map_err(repository_error)?;
+    Ok(())
+}
+
+fn update_published_user_hook(
+    transaction: &Transaction<'_>,
+    version: &PromptHookVersion,
+) -> Result<(), PromptHookApplicationError> {
+    let changed = transaction
+        .execute(
+            r#"
+            UPDATE prompt_hooks_user
+            SET name = ?1, description = ?2, category = ?3, stage = ?4, hook_order = ?5,
+                version = ?6, enabled = ?7, cli_bindings = ?8, governance = ?9,
+                template_body = ?10, updated_at = ?11
+            WHERE id = ?12
+            "#,
+            params![
+                version.snapshot.manifest.name().as_str(),
+                version.snapshot.description,
+                version.snapshot.manifest.category().as_str(),
+                version.snapshot.manifest.stage().as_str(),
+                version.snapshot.manifest.order().value(),
+                version.version,
+                bool_to_i64(version.snapshot.enabled),
+                json_string(&version.snapshot.manifest.bindings().to_strings())?,
+                json_string(&PersistedGovernance::from(&version.snapshot.governance))?,
+                version.snapshot.manifest.template().as_str(),
+                version.published_at,
+                version.hook_id.as_str(),
+            ],
+        )
+        .map_err(repository_error)?;
+    changed_or_not_found(changed, &version.hook_id)
+}
+
+fn verify_current_version(
+    transaction: &Transaction<'_>,
+    hook_id: &PromptHookId,
+    expected_version: Option<i64>,
+) -> Result<(), PromptHookApplicationError> {
+    let current = transaction
+        .query_row(
+            "SELECT version FROM prompt_hooks_user WHERE id = ?1",
+            params![hook_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => {
+                PromptHookApplicationError::NotFound(hook_id.as_str().to_string())
+            }
+            other => repository_error(other),
+        })?;
+    let current = (current > 0).then_some(current);
+    if current == expected_version {
+        Ok(())
+    } else {
+        Err(stale_revision(hook_id))
+    }
+}
+
+fn stale_revision(hook_id: &PromptHookId) -> PromptHookApplicationError {
+    PromptHookApplicationError::Conflict(format!("{}:stale-revision", hook_id.as_str()))
+}
+
+struct DraftRow {
+    hook_id: String,
+    revision: i64,
+    name: String,
+    description: String,
+    category: String,
+    stage: String,
+    order: i64,
+    enabled: bool,
+    bindings_json: String,
+    governance_json: String,
+    template_body: String,
+    created_at: String,
+    updated_at: String,
+}
+
+impl DraftRow {
+    fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            hook_id: row.get(0)?,
+            revision: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            category: row.get(4)?,
+            stage: row.get(5)?,
+            order: row.get(6)?,
+            enabled: row.get::<_, i64>(7)? != 0,
+            bindings_json: row.get(8)?,
+            governance_json: row.get(9)?,
+            template_body: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        })
+    }
+
+    fn into_draft(self) -> Result<PromptHookDraft, PromptHookApplicationError> {
+        let hook_id = PromptHookId::parse(self.hook_id).map_err(invalid_data)?;
+        Ok(PromptHookDraft {
+            hook_id: hook_id.clone(),
+            revision: self.revision,
+            snapshot: snapshot_from_parts(
+                hook_id.as_str().to_string(),
+                self.name,
+                self.description,
+                self.category,
+                self.stage,
+                self.order,
+                self.enabled,
+                self.bindings_json,
+                self.governance_json,
+                self.template_body,
+            )?,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        })
+    }
+}
+
+struct VersionRow {
+    hook_id: String,
+    version: i64,
+    name: String,
+    description: String,
+    category: String,
+    stage: String,
+    order: i64,
+    enabled: bool,
+    bindings_json: String,
+    governance_json: String,
+    template_body: String,
+    content_hash: String,
+    publication_kind: String,
+    rollback_from_version: Option<i64>,
+    published_at: String,
+}
+
+impl VersionRow {
+    fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            hook_id: row.get(0)?,
+            version: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            category: row.get(4)?,
+            stage: row.get(5)?,
+            order: row.get(6)?,
+            enabled: row.get::<_, i64>(7)? != 0,
+            bindings_json: row.get(8)?,
+            governance_json: row.get(9)?,
+            template_body: row.get(10)?,
+            content_hash: row.get(11)?,
+            publication_kind: row.get(12)?,
+            rollback_from_version: row.get(13)?,
+            published_at: row.get(14)?,
+        })
+    }
+
+    fn into_version(self) -> Result<PromptHookVersion, PromptHookApplicationError> {
+        let hook_id = PromptHookId::parse(self.hook_id).map_err(invalid_data)?;
+        Ok(PromptHookVersion {
+            hook_id: hook_id.clone(),
+            version: self.version,
+            snapshot: snapshot_from_parts(
+                hook_id.as_str().to_string(),
+                self.name,
+                self.description,
+                self.category,
+                self.stage,
+                self.order,
+                self.enabled,
+                self.bindings_json,
+                self.governance_json,
+                self.template_body,
+            )?,
+            content_hash: self.content_hash,
+            publication_kind: PromptHookPublicationKind::parse(&self.publication_kind)
+                .ok_or_else(|| invalid_data("unknown Prompt Hook publication kind"))?,
+            rollback_from_version: self.rollback_from_version,
+            published_at: self.published_at,
+        })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn snapshot_from_parts(
+    hook_id: String,
+    name: String,
+    description: String,
+    category: String,
+    stage: String,
+    order: i64,
+    enabled: bool,
+    bindings_json: String,
+    governance_json: String,
+    template_body: String,
+) -> Result<PromptHookSnapshot, PromptHookApplicationError> {
+    let category = PromptHookCategory::parse(&category)
+        .ok_or_else(|| invalid_data("unknown Prompt Hook category"))?;
+    let stage =
+        PromptHookStage::parse(&stage).ok_or_else(|| invalid_data("unknown Prompt Hook stage"))?;
+    let bindings = serde_json::from_str::<Vec<String>>(&bindings_json).unwrap_or_default();
+    let manifest = PromptHookManifest::new(
+        hook_id,
+        name,
+        category,
+        stage,
+        order,
+        template_body,
+        &bindings,
+    )
+    .map_err(invalid_data)?;
+    let governance = serde_json::from_str::<PersistedGovernance>(&governance_json)
+        .unwrap_or_else(|_| PersistedGovernance::fallback_user())
+        .into();
+    Ok(PromptHookSnapshot {
+        manifest,
+        description,
+        enabled,
+        governance,
+    })
 }
 
 struct UserHookRow {
@@ -608,6 +1209,7 @@ fn invalid_data(error: impl std::fmt::Display) -> PromptHookApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::tooling::prompt_hooks::application::PromptHookExecutionOutcome;
     use crate::test_support::TempDirectory;
 
     fn repository() -> (TempDirectory, NativeDatabase, SqlitePromptHookRepository) {
@@ -663,6 +1265,58 @@ mod tests {
             agent_id: Some(ManagedCliAgentId::CodexCli),
             session_id: Some("session-1".to_string()),
             created_at: "2026-07-18T00:00:00Z".to_string(),
+        }
+    }
+
+    fn snapshot(value: &str, template: &str) -> PromptHookSnapshot {
+        PromptHookSnapshot {
+            manifest: PromptHookManifest::new(
+                value,
+                "Fixture Hook",
+                PromptHookCategory::Dynamic,
+                PromptHookStage::PerTurn,
+                450,
+                template,
+                &["codex-cli".to_string()],
+            )
+            .expect("manifest"),
+            description: "Fixture description".to_string(),
+            enabled: true,
+            governance: governance(),
+        }
+    }
+
+    fn version(
+        value: &str,
+        number: i64,
+        publication_kind: PromptHookPublicationKind,
+        rollback_from_version: Option<i64>,
+    ) -> PromptHookVersion {
+        PromptHookVersion {
+            hook_id: PromptHookId::parse(value).expect("hook id"),
+            version: number,
+            snapshot: snapshot(value, &format!("Version {number} {{{{agent_name}}}}")),
+            content_hash: format!("hash-{number}"),
+            publication_kind,
+            rollback_from_version,
+            published_at: format!("2026-07-18T0{number}:00:00Z"),
+        }
+    }
+
+    fn observation(
+        invocation_id: &str,
+        version: i64,
+        outcome: PromptHookExecutionOutcome,
+        elapsed_ms: i64,
+    ) -> PromptHookExecutionObservation {
+        PromptHookExecutionObservation {
+            invocation_id: invocation_id.to_string(),
+            hook_id: PromptHookId::parse("fixture-hook").expect("hook id"),
+            version,
+            outcome,
+            elapsed_ms,
+            agent_id: ManagedCliAgentId::CodexCli,
+            created_at: "2026-07-18T12:00:00Z".to_string(),
         }
     }
 
@@ -835,5 +1489,117 @@ mod tests {
         assert_eq!(hooks[0].manifest.category(), PromptHookCategory::Routing);
         assert_eq!(hooks[0].manifest.stage(), PromptHookStage::SessionInit);
         assert_eq!(hooks[0].manifest.bindings().to_strings(), ["opencode"]);
+
+        apply_schema(&connection).expect("backfill versions");
+        let versions = repository
+            .list_versions(&PromptHookId::parse("legacy-hook").expect("hook id"), 10)
+            .expect("legacy versions");
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, 3);
+        assert_eq!(versions[0].content_hash, "legacy-legacy-hook-3");
+    }
+
+    #[test]
+    fn draft_publish_rollback_and_evaluation_are_atomic_and_idempotent() {
+        let (_directory, _database, repository) = repository();
+        let fixture = record("fixture-hook");
+        repository
+            .create_user_hook(&fixture)
+            .expect("create user hook");
+        let draft = PromptHookDraft {
+            hook_id: fixture.id().clone(),
+            revision: 1,
+            snapshot: snapshot("fixture-hook", "Draft {{agent_name}}"),
+            created_at: "2026-07-18T01:00:00Z".to_string(),
+            updated_at: "2026-07-18T01:00:00Z".to_string(),
+        };
+        repository.save_draft(&draft, None).expect("save draft");
+        repository
+            .publish_draft(
+                &version("fixture-hook", 3, PromptHookPublicationKind::Publish, None),
+                1,
+                Some(2),
+            )
+            .expect("publish draft");
+        assert!(repository.get_draft(fixture.id()).expect("draft").is_none());
+
+        let preserved_draft = PromptHookDraft {
+            hook_id: fixture.id().clone(),
+            revision: 1,
+            snapshot: snapshot("fixture-hook", "Future {{current_time}}"),
+            created_at: "2026-07-18T04:00:00Z".to_string(),
+            updated_at: "2026-07-18T04:00:00Z".to_string(),
+        };
+        repository
+            .save_draft(&preserved_draft, None)
+            .expect("save future draft");
+        repository
+            .publish_rollback(
+                &version(
+                    "fixture-hook",
+                    4,
+                    PromptHookPublicationKind::Rollback,
+                    Some(3),
+                ),
+                Some(3),
+            )
+            .expect("publish rollback");
+        assert_eq!(
+            repository.get_draft(fixture.id()).expect("draft"),
+            Some(preserved_draft)
+        );
+        let versions = repository
+            .list_versions(fixture.id(), 10)
+            .expect("versions");
+        assert_eq!(
+            versions.iter().map(|item| item.version).collect::<Vec<_>>(),
+            [4, 3]
+        );
+        assert_eq!(versions[0].rollback_from_version, Some(3));
+
+        let succeeded = observation(
+            "invocation-success",
+            3,
+            PromptHookExecutionOutcome::Succeeded,
+            100,
+        );
+        repository
+            .save_execution_observations(&[
+                succeeded.clone(),
+                succeeded,
+                observation(
+                    "invocation-failed",
+                    3,
+                    PromptHookExecutionOutcome::Failed,
+                    300,
+                ),
+                observation(
+                    "invocation-cancelled",
+                    3,
+                    PromptHookExecutionOutcome::Cancelled,
+                    900,
+                ),
+                observation(
+                    "rollback-cancelled",
+                    4,
+                    PromptHookExecutionOutcome::Cancelled,
+                    700,
+                ),
+            ])
+            .expect("observations");
+        let summaries = repository
+            .evaluation_summaries(fixture.id(), 10)
+            .expect("summaries");
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].version, 4);
+        assert_eq!(summaries[0].execution_count, 1);
+        assert_eq!(summaries[0].success_rate, None);
+        assert_eq!(summaries[0].average_elapsed_ms, None);
+        assert_eq!(summaries[1].version, 3);
+        assert_eq!(summaries[1].execution_count, 3);
+        assert_eq!(summaries[1].success_rate, Some(0.5));
+        assert_eq!(summaries[1].average_elapsed_ms, Some(200.0));
+        assert_eq!(summaries[1].minimum_elapsed_ms, Some(100));
+        assert_eq!(summaries[1].maximum_elapsed_ms, Some(300));
     }
 }

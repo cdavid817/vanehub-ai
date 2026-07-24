@@ -42,6 +42,51 @@ pub(super) fn update_request(
     })
 }
 
+pub(super) fn save_draft_request(
+    input: dto::SavePromptHookDraftInput,
+) -> Result<prompt::SavePromptHookDraftRequest, prompt::PromptHookError> {
+    let hook_id = prompt::PromptHookId::parse(input.hook_id)?;
+    let draft = input.draft;
+    Ok(prompt::SavePromptHookDraftRequest {
+        hook_id,
+        expected_revision: input.expected_revision,
+        snapshot: prompt::PromptHookSnapshot {
+            manifest: manifest(
+                draft.id,
+                draft.name,
+                draft.category,
+                draft.stage,
+                draft.order,
+                draft.template_body,
+                draft.cli_bindings,
+            )?,
+            description: draft.description,
+            enabled: draft.enabled,
+            governance: governance_to_application(draft.governance),
+        },
+    })
+}
+
+pub(super) fn publish_request(
+    input: dto::PublishPromptHookInput,
+) -> Result<prompt::PublishPromptHookRequest, prompt::PromptHookError> {
+    Ok(prompt::PublishPromptHookRequest {
+        hook_id: prompt::PromptHookId::parse(input.hook_id)?,
+        expected_draft_revision: input.expected_draft_revision,
+        expected_published_version: input.expected_published_version,
+    })
+}
+
+pub(super) fn rollback_request(
+    input: dto::RollbackPromptHookInput,
+) -> Result<prompt::RollbackPromptHookRequest, prompt::PromptHookError> {
+    Ok(prompt::RollbackPromptHookRequest {
+        hook_id: prompt::PromptHookId::parse(input.hook_id)?,
+        version: input.version,
+        expected_published_version: input.expected_published_version,
+    })
+}
+
 pub(super) fn hook_id(value: String) -> Result<prompt::PromptHookId, prompt::PromptHookError> {
     prompt::PromptHookId::parse(value).map_err(Into::into)
 }
@@ -121,6 +166,71 @@ pub(super) fn traces_to_dto(
     traces.into_iter().map(trace_to_dto).collect()
 }
 
+pub(super) fn variables_to_dto(
+    variables: Vec<prompt::PromptHookVariable>,
+) -> Vec<dto::PromptHookVariableDefinition> {
+    variables
+        .into_iter()
+        .map(|variable| dto::PromptHookVariableDefinition {
+            name: variable.name,
+            token: variable.token,
+            description_key: variable.description_key,
+            availability_key: variable.availability_key,
+            example: variable.example,
+            aliases: variable.aliases,
+        })
+        .collect()
+}
+
+pub(super) fn draft_to_dto(draft: prompt::PromptHookDraft) -> dto::PromptHookDraft {
+    dto::PromptHookDraft {
+        hook_id: draft.hook_id.as_str().to_string(),
+        revision: draft.revision,
+        input: snapshot_to_mutation(draft.snapshot),
+        created_at: draft.created_at,
+        updated_at: draft.updated_at,
+    }
+}
+
+pub(super) fn version_to_dto(version: prompt::PromptHookVersion) -> dto::PromptHookVersion {
+    dto::PromptHookVersion {
+        hook_id: version.hook_id.as_str().to_string(),
+        version: version.version,
+        content_hash: version.content_hash,
+        publication_kind: version.publication_kind.as_str().to_string(),
+        rollback_from_version: version.rollback_from_version,
+        published_at: version.published_at,
+        template_body: None,
+    }
+}
+
+pub(super) fn history_to_dto(
+    history: prompt::PromptHookVersionHistory,
+) -> dto::PromptHookVersionHistory {
+    dto::PromptHookVersionHistory {
+        hook_id: history.hook_id.as_str().to_string(),
+        published_version: history.published_version,
+        draft: history.draft.map(draft_to_dto),
+        versions: history.versions.into_iter().map(version_to_dto).collect(),
+        evaluations: history
+            .evaluations
+            .into_iter()
+            .map(|summary| dto::PromptHookEvaluationSummary {
+                hook_id: summary.hook_id.as_str().to_string(),
+                version: summary.version,
+                execution_count: summary.execution_count,
+                succeeded_count: summary.succeeded_count,
+                failed_count: summary.failed_count,
+                cancelled_count: summary.cancelled_count,
+                success_rate: summary.success_rate,
+                average_elapsed_ms: summary.average_elapsed_ms,
+                minimum_elapsed_ms: summary.minimum_elapsed_ms,
+                maximum_elapsed_ms: summary.maximum_elapsed_ms,
+            })
+            .collect(),
+    }
+}
+
 fn trace_to_dto(trace: prompt::PromptHookTrace) -> dto::PromptHookTraceSummary {
     dto::PromptHookTraceSummary {
         id: trace.id,
@@ -135,6 +245,21 @@ fn trace_to_dto(trace: prompt::PromptHookTrace) -> dto::PromptHookTraceSummary {
         agent_id: trace.agent_id.map(|agent_id| agent_id.as_str().to_string()),
         session_id: trace.session_id,
         created_at: trace.created_at,
+    }
+}
+
+fn snapshot_to_mutation(snapshot: prompt::PromptHookSnapshot) -> dto::PromptHookMutationInput {
+    dto::PromptHookMutationInput {
+        id: snapshot.manifest.id().as_str().to_string(),
+        name: snapshot.manifest.name().as_str().to_string(),
+        description: snapshot.description,
+        category: category_to_dto(snapshot.manifest.category()),
+        stage: stage_to_dto(snapshot.manifest.stage()),
+        order: snapshot.manifest.order().value(),
+        template_body: snapshot.manifest.template().as_str().to_string(),
+        enabled: snapshot.enabled,
+        cli_bindings: snapshot.manifest.bindings().to_strings(),
+        governance: governance_to_dto(snapshot.governance),
     }
 }
 

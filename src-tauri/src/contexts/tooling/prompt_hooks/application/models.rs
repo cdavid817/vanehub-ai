@@ -70,6 +70,139 @@ pub(crate) struct PromptHookUpdateRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptHookSnapshot {
+    pub(crate) manifest: PromptHookManifest,
+    pub(crate) description: String,
+    pub(crate) enabled: bool,
+    pub(crate) governance: PromptHookGovernance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptHookDraft {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) revision: i64,
+    pub(crate) snapshot: PromptHookSnapshot,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptHookPublicationKind {
+    Publish,
+    Rollback,
+}
+
+impl PromptHookPublicationKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Publish => "publish",
+            Self::Rollback => "rollback",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "publish" => Some(Self::Publish),
+            "rollback" => Some(Self::Rollback),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptHookVersion {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) version: i64,
+    pub(crate) snapshot: PromptHookSnapshot,
+    pub(crate) content_hash: String,
+    pub(crate) publication_kind: PromptHookPublicationKind,
+    pub(crate) rollback_from_version: Option<i64>,
+    pub(crate) published_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptHookExecutionOutcome {
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+impl PromptHookExecutionOutcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptHookExecutionObservation {
+    pub(crate) invocation_id: String,
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) version: i64,
+    pub(crate) outcome: PromptHookExecutionOutcome,
+    pub(crate) elapsed_ms: i64,
+    pub(crate) agent_id: ManagedCliAgentId,
+    pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PromptHookEvaluationSummary {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) version: i64,
+    pub(crate) execution_count: i64,
+    pub(crate) succeeded_count: i64,
+    pub(crate) failed_count: i64,
+    pub(crate) cancelled_count: i64,
+    pub(crate) success_rate: Option<f64>,
+    pub(crate) average_elapsed_ms: Option<f64>,
+    pub(crate) minimum_elapsed_ms: Option<i64>,
+    pub(crate) maximum_elapsed_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PromptHookVersionHistory {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) published_version: Option<i64>,
+    pub(crate) draft: Option<PromptHookDraft>,
+    pub(crate) versions: Vec<PromptHookVersion>,
+    pub(crate) evaluations: Vec<PromptHookEvaluationSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SavePromptHookDraftRequest {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) expected_revision: Option<i64>,
+    pub(crate) snapshot: PromptHookSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PublishPromptHookRequest {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) expected_draft_revision: i64,
+    pub(crate) expected_published_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RollbackPromptHookRequest {
+    pub(crate) hook_id: PromptHookId,
+    pub(crate) version: i64,
+    pub(crate) expected_published_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptHookVariable {
+    pub(crate) name: String,
+    pub(crate) token: String,
+    pub(crate) description_key: String,
+    pub(crate) availability_key: String,
+    pub(crate) example: String,
+    pub(crate) aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PromptHookPreviewRequest {
     pub(crate) hook_id: PromptHookId,
     pub(crate) agent_id: ManagedCliAgentId,

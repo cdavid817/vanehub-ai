@@ -1,6 +1,6 @@
 import { Play, Plus, RefreshCw, Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import type { AgentService } from "../../services/agent-service";
@@ -13,6 +13,7 @@ import { PromptHookDialogs, type PromptHookDialogState } from "./prompt-hooks/pr
 import { PromptHookFilterToolbar } from "./prompt-hooks/prompt-hook-filter-toolbar";
 import { PromptHookStatsCards } from "./prompt-hooks/prompt-hook-stats-cards";
 import { PromptHookTracePanel } from "./prompt-hooks/prompt-hook-trace-panel";
+import { PromptHookLifecyclePanel } from "./prompt-hooks/prompt-hook-lifecycle-panel";
 
 type ManagedAgent = AgentRegistryEntry & { id: ManagedCliAgentId };
 const emptyHooks: PromptHook[] = [];
@@ -26,14 +27,27 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
   const [agent, setAgent] = useState("__all__");
   const [query, setQuery] = useState(searchTerm);
   const [dialog, setDialog] = useState<PromptHookDialogState>({ mode: null, hook: null, preview: null });
+  const [lifecycleHook, setLifecycleHook] = useState<PromptHook | null>(null);
 
   const agentsQuery = useQuery({ queryKey: ["agents", "prompt-hooks"], queryFn: () => service.listAgents() });
   const hooksQuery = useQuery({ queryKey: ["prompt-hooks"], queryFn: () => service.listPromptHooks() });
   const tracesQuery = useQuery({ queryKey: ["prompt-hook-traces"], queryFn: () => service.listPromptHookTraces(20) });
+  const rawHooks = hooksQuery.data?.hooks ?? emptyHooks;
+  const userHookIds = useMemo(
+    () => rawHooks.filter((hook) => hook.source === "user").map((hook) => hook.id),
+    [rawHooks],
+  );
+  const lifecycleQueries = useQueries({
+    queries: userHookIds.map((hookId) => ({
+      queryKey: ["prompt-hook-history", hookId],
+      queryFn: () => service.getPromptHookVersionHistory(hookId),
+    })),
+  });
 
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["prompt-hooks"] }),
+      queryClient.invalidateQueries({ queryKey: ["prompt-hook-history"] }),
       queryClient.invalidateQueries({ queryKey: ["prompt-hook-traces"] }),
     ]);
   };
@@ -54,8 +68,14 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
     },
   });
   const updateMutation = useMutation({
-    mutationFn: ({ hook, input }: { hook: PromptHook; input: PromptHookMutationInput }) =>
-      service.updatePromptHook(hook.id, { ...input, version: hook.version }),
+    mutationFn: async ({ hook, input }: { hook: PromptHook; input: PromptHookMutationInput }) => {
+      const history = await service.getPromptHookVersionHistory(hook.id);
+      return service.savePromptHookDraft({
+        hookId: hook.id,
+        expectedRevision: history.draft?.revision ?? null,
+        draft: input,
+      });
+    },
     onSuccess: () => {
       setDialog({ mode: null, hook: null, preview: null });
       void invalidate();
@@ -83,7 +103,21 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
     },
   });
 
-  const hooks = hooksQuery.data?.hooks ?? emptyHooks;
+  const hooks = useMemo(() => {
+    const histories = new Map(
+      userHookIds.map((hookId, index) => [hookId, lifecycleQueries[index]?.data]),
+    );
+    return rawHooks.map((hook) => {
+      const history = histories.get(hook.id);
+      if (!history) return hook;
+      return {
+        ...hook,
+        publishedVersion: history.publishedVersion ?? null,
+        hasDraft: history.draft !== null && history.draft !== undefined,
+        draftRevision: history.draft?.revision ?? null,
+      };
+    });
+  }, [lifecycleQueries, rawHooks, userHookIds]);
   const stats = hooksQuery.data?.stats ?? { total: 0, enabled: 0, builtin: 0, user: 0 };
   const agents = useMemo(() => (agentsQuery.data ?? []).filter(isManagedAgent), [agentsQuery.data]);
   const categories = useMemo(() => ["__all__", ...Array.from(new Set(hooks.map((hook) => hook.category)))], [hooks]);
@@ -170,6 +204,7 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
         busyHookId={enabledMutation.variables?.hook.id ?? bindingMutation.variables?.hook.id ?? null}
         hooks={visibleHooks}
         onDelete={(hook) => openDialog({ mode: "delete", hook, preview: null })}
+        onAdvanced={setLifecycleHook}
         onEdit={(hook) => openDialog({ mode: "edit", hook, preview: null })}
         onPreview={(hook) => previewMutation.mutate(hook)}
         onToggleAgent={toggleAgentBinding}
@@ -188,6 +223,14 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
         onDelete={(hook) => deleteMutation.mutate(hook)}
         onUpdate={(hook, input) => updateMutation.mutate({ hook, input })}
       />
+      {lifecycleHook ? (
+        <PromptHookLifecyclePanel
+          hook={lifecycleHook}
+          onChanged={() => void invalidate()}
+          onClose={() => setLifecycleHook(null)}
+          service={service}
+        />
+      ) : null}
     </div>
   );
 }

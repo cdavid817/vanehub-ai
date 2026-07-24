@@ -67,7 +67,23 @@ import type {
   PromptHookPreviewInput,
   PromptHookTraceSummary,
   PromptHookUpdateInput,
+  PromptHookDraft,
+  PromptHookVariableDefinition,
+  PromptHookVersion,
+  PromptHookVersionHistory,
+  PublishPromptHookInput,
+  RollbackPromptHookInput,
+  SavePromptHookDraftInput,
 } from "../types/prompt-hook";
+import {
+  deleteWebPromptHookVersionState,
+  publishWebPromptHook,
+  renderWebPromptHookTemplate,
+  rollbackWebPromptHook,
+  saveWebPromptHookDraft,
+  webPromptHookHistory,
+  webPromptHookVariables,
+} from "./web-prompt-hook-versions";
 import { createWebMockOperation, settleWebOperation } from "./web-operation-client";
 import type {
   Skill,
@@ -928,10 +944,13 @@ function promptHookStats(hooks: PromptHook[]): PromptHookListResult["stats"] {
 }
 
 function renderPromptHookTemplate(template: string, input: { agentId: ManagedCliAgentId; sampleInput: string }) {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
-    if (key === "agentId") return input.agentId;
-    if (key === "sampleInput") return input.sampleInput;
-    return match;
+  const agentName = mockAgents.find((agent) => agent.id === input.agentId)?.displayName ?? input.agentId;
+  return renderWebPromptHookTemplate(template, {
+    agentId: input.agentId,
+    agentName,
+    currentTime: nowIso(),
+    sampleInput: input.sampleInput,
+    sessionId: "session-preview",
   });
 }
 
@@ -963,6 +982,10 @@ function assemblePromptHooks(input: PromptAssemblyPreviewInput): PromptHookPrevi
   const traces: PromptHookTraceSummary[] = [];
   const rendered: string[] = [];
   for (const hook of listEffectivePromptHooks()) {
+    if (hook.source === "user" && hook.version <= 0) {
+      traces.push(traceForHook(hook, "skipped", null, input.agentId, "unpublished"));
+      continue;
+    }
     if (!hook.enabled) {
       traces.push(traceForHook(hook, "disabled", null, input.agentId, "disabled"));
       continue;
@@ -2582,8 +2605,21 @@ export const webAgentClient: AgentService = {
     if (listEffectivePromptHooks().some((hook) => hook.id === input.id)) {
       throw new Error(`Prompt Hook already exists: ${input.id}`);
     }
-    const hook = mutationToPromptHook(input);
+    const created = mutationToPromptHook(input);
+    const hook: PromptHook = {
+      ...created,
+      version: 0,
+      publishedVersion: null,
+      hasDraft: true,
+      draftRevision: 1,
+      enabled: false,
+    };
     writeStoredPromptHooks({ ...stored, [hook.id]: hook });
+    saveWebPromptHookDraft({
+      hookId: hook.id,
+      expectedRevision: null,
+      draft: input,
+    });
     return hook;
   },
 
@@ -2596,19 +2632,16 @@ export const webAgentClient: AgentService = {
       throw new Error("Prompt Hook id cannot be changed");
     }
     validatePromptHookInput(input);
+    const history = webPromptHookHistory(current);
+    const draft = saveWebPromptHookDraft({
+      hookId,
+      expectedRevision: history.draft?.revision ?? null,
+      draft: input,
+    });
     const updated: PromptHook = {
       ...current,
-      name: input.name.trim(),
-      description: input.description.trim(),
-      category: input.category,
-      stage: input.stage,
-      order: input.order,
-      version: input.version,
-      enabled: input.enabled,
-      cliBindings: [...input.cliBindings],
-      governance: input.governance,
-      templateBody: input.templateBody,
-      updatedAt: nowIso(),
+      hasDraft: true,
+      draftRevision: draft.revision,
     };
     writeStoredPromptHooks({ ...readStoredPromptHooks(), [hookId]: updated });
     return updated;
@@ -2622,6 +2655,7 @@ export const webAgentClient: AgentService = {
     const stored = { ...readStoredPromptHooks() };
     delete stored[hookId];
     writeStoredPromptHooks(stored);
+    deleteWebPromptHookVersionState(hookId);
   },
 
   async setPromptHookEnabled(hookId: string, enabled: boolean): Promise<PromptHook> {
@@ -2661,6 +2695,72 @@ export const webAgentClient: AgentService = {
 
   async listPromptHookTraces(limit = 25): Promise<PromptHookTraceSummary[]> {
     return readPromptHookTraces().slice(0, limit);
+  },
+
+  async listPromptHookVariables(): Promise<PromptHookVariableDefinition[]> {
+    return webPromptHookVariables.map((variable) => ({ ...variable, aliases: [...variable.aliases] }));
+  },
+
+  async savePromptHookDraft(input: SavePromptHookDraftInput): Promise<PromptHookDraft> {
+    const current = findPromptHook(input.hookId);
+    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
+    return saveWebPromptHookDraft(input);
+  },
+
+  async publishPromptHook(input: PublishPromptHookInput): Promise<PromptHookVersion> {
+    const current = findPromptHook(input.hookId);
+    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
+    const result = publishWebPromptHook(input, current);
+    const updated: PromptHook = {
+      ...current,
+      ...result.published,
+      version: result.version.version,
+      publishedVersion: result.version.version,
+      hasDraft: false,
+      draftRevision: null,
+      updatedAt: result.version.publishedAt,
+    };
+    writeStoredPromptHooks({ ...readStoredPromptHooks(), [current.id]: updated });
+    return result.version;
+  },
+
+  async getPromptHookVersionHistory(hookId: string): Promise<PromptHookVersionHistory> {
+    const current = findPromptHook(hookId);
+    if (current.source === "builtin") {
+      return {
+        hookId,
+        publishedVersion: current.version,
+        draft: null,
+        versions: [{
+          hookId,
+          version: current.version,
+          contentHash: `builtin-${hookId}-${current.version}`,
+          publicationKind: "publish",
+          rollbackFromVersion: null,
+          publishedAt: current.updatedAt,
+        }],
+        evaluations: [],
+      };
+    }
+    return webPromptHookHistory(current);
+  },
+
+  async rollbackPromptHook(input: RollbackPromptHookInput): Promise<PromptHookVersion> {
+    const current = findPromptHook(input.hookId);
+    if (current.source === "builtin") throw new Error("Built-in Prompt Hook content cannot be edited");
+    const result = rollbackWebPromptHook(input, current);
+    const history = webPromptHookHistory(current);
+    const updated: PromptHook = {
+      ...current,
+      ...result.published,
+      version: result.version.version,
+      publishedVersion: result.version.version,
+      hasDraft: history.draft !== null,
+      draftRevision: history.draft?.revision ?? null,
+      updatedAt: result.version.publishedAt,
+    };
+    writeStoredPromptHooks({ ...readStoredPromptHooks(), [current.id]: updated });
+    return result.version;
   },
 
   async selectWorkspaceDirectory() {

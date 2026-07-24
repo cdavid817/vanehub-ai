@@ -417,9 +417,41 @@ pub(crate) struct CompleteAgentMessage {
 pub(crate) struct PromptTrace {
     pub(crate) hook_id: String,
     pub(crate) status: String,
+    pub(crate) version: Option<i64>,
     pub(crate) content_hash: Option<String>,
     pub(crate) token_estimate: Option<usize>,
     pub(crate) reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptVersionReference {
+    pub(crate) hook_id: String,
+    pub(crate) version: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptExecutionOutcome {
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PromptExecutionReport {
+    pub(crate) invocation_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) versions: Vec<PromptVersionReference>,
+    pub(crate) outcome: PromptExecutionOutcome,
+    pub(crate) elapsed_ms: i64,
+    pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingPromptExecution {
+    pub(crate) invocation_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) versions: Vec<PromptVersionReference>,
+    pub(crate) started_at: std::time::Instant,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -557,6 +589,7 @@ pub(crate) struct GenerationCancellation {
     pub(crate) process_id: Option<String>,
     pub(crate) operation_id: Option<String>,
     pub(crate) execution_context: Option<ExecutionContext>,
+    pub(crate) prompt_execution: Option<PendingPromptExecution>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

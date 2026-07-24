@@ -190,6 +190,11 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::prompt_hooks::preview_prompt_hook::preview_prompt_hook,
         crate::commands::tooling::prompt_hooks::preview_prompt_assembly::preview_prompt_assembly,
         crate::commands::tooling::prompt_hooks::list_prompt_hook_traces::list_prompt_hook_traces,
+        crate::commands::tooling::prompt_hooks::list_prompt_hook_variables::list_prompt_hook_variables,
+        crate::commands::tooling::prompt_hooks::save_prompt_hook_draft::save_prompt_hook_draft,
+        crate::commands::tooling::prompt_hooks::publish_prompt_hook::publish_prompt_hook,
+        crate::commands::tooling::prompt_hooks::get_prompt_hook_version_history::get_prompt_hook_version_history,
+        crate::commands::tooling::prompt_hooks::rollback_prompt_hook::rollback_prompt_hook,
         // Tooling: Extensions
         crate::commands::tooling::extensions::get_extension_overview::get_extension_overview,
         crate::commands::tooling::extensions::refresh_extension_health::refresh_extension_health,

@@ -6,6 +6,7 @@ pub(crate) enum PromptHookDomainError {
     NameRequired,
     NegativeOrder,
     UnsupportedControlCharacter,
+    UnknownVariables(Vec<String>),
     UnsupportedAgent(String),
     DuplicateOrder,
     IdentityChanged,
@@ -22,6 +23,13 @@ impl fmt::Display for PromptHookDomainError {
             Self::NegativeOrder => formatter.write_str("Prompt Hook order must be non-negative."),
             Self::UnsupportedControlCharacter => {
                 formatter.write_str("Prompt Hook content contains unsupported control characters.")
+            }
+            Self::UnknownVariables(variables) => {
+                write!(
+                    formatter,
+                    "Prompt Hook contains unsupported variables: {}",
+                    variables.join(", ")
+                )
             }
             Self::UnsupportedAgent(agent_id) => {
                 write!(formatter, "Unsupported Prompt Hook CLI binding: {agent_id}")

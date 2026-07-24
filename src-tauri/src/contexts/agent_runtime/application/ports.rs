@@ -389,6 +389,14 @@ pub(crate) trait EffectivePromptGateway: Send + Sync {
         session_id: &str,
         user_prompt: &str,
     ) -> Result<EffectivePrompt, AgentRuntimeApplicationError>;
+
+    fn record_execution(
+        &self,
+        report: super::PromptExecutionReport,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let _ = report;
+        Ok(())
+    }
 }
 
 pub(crate) trait AgentProcessGateway: Send + Sync {
@@ -547,6 +555,15 @@ pub(crate) trait AgentGenerationPort: Send + Sync {
         lease: &GenerationLease,
         execution_context: &crate::contexts::execution_observability::api::ExecutionContext,
     ) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn correlate_prompt(
+        &self,
+        lease: &GenerationLease,
+        execution: &super::PendingPromptExecution,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let _ = (lease, execution);
+        Ok(())
+    }
 
     fn attach(
         &self,

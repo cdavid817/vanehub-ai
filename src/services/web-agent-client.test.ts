@@ -788,7 +788,13 @@ describe("webAgentClient", () => {
       },
     };
     const created = await webAgentClient.createPromptHook(input);
-    expect(created.source).toBe("user");
+    expect(created).toMatchObject({ source: "user", version: 0, hasDraft: true });
+    const creationHistory = await webAgentClient.getPromptHookVersionHistory(created.id);
+    await webAgentClient.publishPromptHook({
+      hookId: created.id,
+      expectedDraftRevision: creationHistory.draft?.revision ?? 0,
+      expectedPublishedVersion: null,
+    });
 
     const preview = await webAgentClient.previewPromptHook({
       hookId: created.id,
@@ -815,11 +821,91 @@ describe("webAgentClient", () => {
       version: 2,
       name: "Review Focus Updated",
     });
-    expect(updated.version).toBe(2);
-    expect(updated.name).toBe("Review Focus Updated");
+    expect(updated.version).toBe(1);
+    expect(updated.name).toBe("Review Focus");
+    expect(updated.hasDraft).toBe(true);
+    expect((await webAgentClient.getPromptHookVersionHistory(created.id)).draft?.input.name)
+      .toBe("Review Focus Updated");
 
     await webAgentClient.deletePromptHook(created.id);
     expect((await webAgentClient.listPromptHooks()).hooks.some((hook) => hook.id === created.id)).toBe(false);
+  });
+
+  it("keeps Prompt Hook drafts isolated, publishes immutable versions, and preserves drafts on rollback", async () => {
+    const input: PromptHookMutationInput = {
+      id: "user-version-lifecycle",
+      name: "Version Lifecycle",
+      description: "Exercises advanced Prompt Hook behavior.",
+      category: "dynamic",
+      stage: "per-turn",
+      order: 455,
+      templateBody: "{{agent_name}} handles {{sample_input}} at {{current_time}}",
+      enabled: true,
+      cliBindings: ["codex-cli"],
+      governance: {
+        safetyTier: "editable",
+        transparencyTier: "visible-by-default",
+        governanceTier: "human-gated",
+      },
+    };
+    const created = await webAgentClient.createPromptHook(input);
+    expect(created).toMatchObject({ version: 0, publishedVersion: null, hasDraft: true });
+    const variables = await webAgentClient.listPromptHookVariables();
+    expect(variables.map((variable) => variable.name)).toEqual(
+      expect.arrayContaining(["agent_name", "current_time", "session_id"]),
+    );
+    expect(variables.find((variable) => variable.name === "agent_name")).toMatchObject({
+      availabilityKey: "promptHooks.variables.availability.agent",
+      example: "Codex CLI",
+    });
+
+    const draft = await webAgentClient.savePromptHookDraft({
+      hookId: created.id,
+      expectedRevision: 1,
+      draft: { ...input, templateBody: "draft-only {{agent_name}}" },
+    });
+    expect((await webAgentClient.previewPromptHook({
+      hookId: created.id,
+      agentId: "codex-cli",
+    })).renderedContent).not.toContain("draft-only");
+
+    const published = await webAgentClient.publishPromptHook({
+      hookId: created.id,
+      expectedDraftRevision: draft.revision,
+      expectedPublishedVersion: null,
+    });
+    expect(published.version).toBe(1);
+    expect((await webAgentClient.previewPromptHook({
+      hookId: created.id,
+      agentId: "codex-cli",
+    })).renderedContent).toContain("draft-only Codex CLI");
+
+    const preserved = await webAgentClient.savePromptHookDraft({
+      hookId: created.id,
+      expectedRevision: null,
+      draft: { ...input, templateBody: "future {{session_id}}" },
+    });
+    const rolledBack = await webAgentClient.rollbackPromptHook({
+      hookId: created.id,
+      version: published.version,
+      expectedPublishedVersion: published.version,
+    });
+    const history = await webAgentClient.getPromptHookVersionHistory(created.id);
+    expect(rolledBack).toMatchObject({ publicationKind: "rollback", rollbackFromVersion: published.version });
+    expect(history.draft?.revision).toBe(preserved.revision);
+    expect(history.evaluations[0]).toMatchObject({ hookId: created.id });
+
+    await expect(webAgentClient.savePromptHookDraft({
+      hookId: created.id,
+      expectedRevision: preserved.revision,
+      draft: { ...input, templateBody: "{{unknown_runtime_value}}" },
+    }).then((unknownDraft) => webAgentClient.publishPromptHook({
+      hookId: created.id,
+      expectedDraftRevision: unknownDraft.revision,
+      expectedPublishedVersion: rolledBack.version,
+    }))).rejects.toThrow("Unsupported Prompt Hook variables");
+
+    await webAgentClient.deletePromptHook(created.id);
   });
 
   it("simulates Agent Terminal without writing terminal output to chat messages", async () => {

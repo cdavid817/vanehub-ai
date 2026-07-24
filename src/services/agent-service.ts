@@ -83,6 +83,13 @@ import type {
   PromptHookPreviewInput,
   PromptHookTraceSummary,
   PromptHookUpdateInput,
+  PromptHookDraft,
+  PromptHookVariableDefinition,
+  PromptHookVersion,
+  PromptHookVersionHistory,
+  PublishPromptHookInput,
+  RollbackPromptHookInput,
+  SavePromptHookDraftInput,
 } from "../types/prompt-hook";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
 
@@ -209,6 +216,11 @@ export interface AgentService {
   previewPromptHook(input: PromptHookPreviewInput): Promise<PromptHookPreview>;
   previewPromptAssembly(input: PromptAssemblyPreviewInput): Promise<PromptHookPreview>;
   listPromptHookTraces(limit?: number): Promise<PromptHookTraceSummary[]>;
+  listPromptHookVariables(): Promise<PromptHookVariableDefinition[]>;
+  savePromptHookDraft(input: SavePromptHookDraftInput): Promise<PromptHookDraft>;
+  publishPromptHook(input: PublishPromptHookInput): Promise<PromptHookVersion>;
+  getPromptHookVersionHistory(hookId: string): Promise<PromptHookVersionHistory>;
+  rollbackPromptHook(input: RollbackPromptHookInput): Promise<PromptHookVersion>;
   selectWorkspaceDirectory(): Promise<string | null>;
 }
 

@@ -70,7 +70,7 @@ pub(crate) struct PromptHookStats {
     pub(crate) user: usize,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PromptHookMutationInput {
     pub(crate) id: String,
@@ -140,4 +140,87 @@ pub(crate) struct PromptHookPreview {
     pub(crate) agent_id: String,
     pub(crate) rendered_content: String,
     pub(crate) trace: Vec<PromptHookTraceSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SavePromptHookDraftInput {
+    pub(crate) hook_id: String,
+    pub(crate) expected_revision: Option<i64>,
+    pub(crate) draft: PromptHookMutationInput,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublishPromptHookInput {
+    pub(crate) hook_id: String,
+    pub(crate) expected_draft_revision: i64,
+    pub(crate) expected_published_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RollbackPromptHookInput {
+    pub(crate) hook_id: String,
+    pub(crate) version: i64,
+    pub(crate) expected_published_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptHookVariableDefinition {
+    pub(crate) name: String,
+    pub(crate) token: String,
+    pub(crate) description_key: String,
+    pub(crate) availability_key: String,
+    pub(crate) example: String,
+    pub(crate) aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptHookDraft {
+    pub(crate) hook_id: String,
+    pub(crate) revision: i64,
+    pub(crate) input: PromptHookMutationInput,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptHookVersion {
+    pub(crate) hook_id: String,
+    pub(crate) version: i64,
+    pub(crate) content_hash: String,
+    pub(crate) publication_kind: String,
+    pub(crate) rollback_from_version: Option<i64>,
+    pub(crate) published_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) template_body: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptHookEvaluationSummary {
+    pub(crate) hook_id: String,
+    pub(crate) version: i64,
+    pub(crate) execution_count: i64,
+    pub(crate) succeeded_count: i64,
+    pub(crate) failed_count: i64,
+    pub(crate) cancelled_count: i64,
+    pub(crate) success_rate: Option<f64>,
+    pub(crate) average_elapsed_ms: Option<f64>,
+    pub(crate) minimum_elapsed_ms: Option<i64>,
+    pub(crate) maximum_elapsed_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptHookVersionHistory {
+    pub(crate) hook_id: String,
+    pub(crate) published_version: Option<i64>,
+    pub(crate) draft: Option<PromptHookDraft>,
+    pub(crate) versions: Vec<PromptHookVersion>,
+    pub(crate) evaluations: Vec<PromptHookEvaluationSummary>,
 }

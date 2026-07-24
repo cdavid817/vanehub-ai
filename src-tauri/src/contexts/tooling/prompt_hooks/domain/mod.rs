@@ -19,4 +19,7 @@ pub(crate) use mutation::{
 pub(crate) use ordering::{
     compare_prompt_hook_order, ensure_order_available, PromptHookOrder, PromptHookOrderSlot,
 };
-pub(crate) use template::PromptHookTemplate;
+pub(crate) use template::{
+    PromptHookTemplate, PromptHookTemplateContext, PromptHookVariableDefinition,
+    PROMPT_HOOK_VARIABLES,
+};

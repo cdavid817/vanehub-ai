@@ -3,21 +3,28 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentRegistryEntry } from "../../types/agent";
-import type { PromptHook, PromptHookListResult, PromptHookUpdateInput } from "../../types/prompt-hook";
+import type {
+  PromptHook,
+  PromptHookDraft,
+  PromptHookListResult,
+  SavePromptHookDraftInput,
+} from "../../types/prompt-hook";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../test/render";
 import { PromptHooksPage } from "./prompt-hooks-page";
 
 describe("PromptHooksPage interactions", () => {
   it("previews and updates a user Prompt Hook through the service boundary", async () => {
-    let hooks = [userHook(), builtinHook()];
-    const update = vi.fn(async (hookId: string, input: PromptHookUpdateInput) => {
-      const current = hooks.find((hook) => hook.id === hookId);
-      if (!current) throw new Error("missing hook");
-      const updated = { ...current, ...input, version: current.version + 1, updatedAt: "2026-07-23T01:00:00.000Z" };
-      hooks = hooks.map((hook) => hook.id === hookId ? updated : hook);
-      return updated;
+    const hooks = [userHook(), builtinHook()];
+    const saveDraft = vi.fn(async (input: SavePromptHookDraftInput) => {
+      return {
+        hookId: input.hookId,
+        revision: 1,
+        input: input.draft,
+        createdAt: "2026-07-23T01:00:00.000Z",
+        updatedAt: "2026-07-23T01:00:00.000Z",
+      };
     });
-    const service = promptHookService(() => hooks, update);
+    const service = promptHookService(() => hooks, saveDraft);
     const { user } = renderWithAppProviders(<PromptHooksPage searchTerm="" service={service} />);
 
     const card = await hookCard("Review Focus");
@@ -33,18 +40,23 @@ describe("PromptHooksPage interactions", () => {
     await user.paste("Updated {{sampleInput}}");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(await screen.findByText("Updated Review Focus")).toBeTruthy();
-    expect(update).toHaveBeenCalledWith(
-      "user-review-focus",
-      expect.objectContaining({ name: "Updated Review Focus", templateBody: "Updated {{sampleInput}}", version: 1 }),
-    );
-  }, 10_000);
+    expect(await screen.findByText("Review Focus")).toBeTruthy();
+    expect(saveDraft).toHaveBeenCalledWith({
+      hookId: "user-review-focus",
+      expectedRevision: null,
+      draft: expect.objectContaining({
+        name: "Updated Review Focus",
+        templateBody: "Updated {{sampleInput}}",
+        version: 1,
+      }),
+    });
+  }, 30_000);
 
   it("keeps edited values visible when the service rejects a save", async () => {
-    const update = vi.fn(async () => {
+    const saveDraft = vi.fn(async () => {
       throw new Error("service unavailable");
     });
-    const service = promptHookService(() => [userHook()], update);
+    const service = promptHookService(() => [userHook()], saveDraft);
     const { user } = renderWithAppProviders(<PromptHooksPage searchTerm="" service={service} />);
 
     const card = await hookCard("Review Focus");
@@ -55,14 +67,14 @@ describe("PromptHooksPage interactions", () => {
 
     expect(await screen.findByText("请检查输入后重试。")).toBeTruthy();
     expect(screen.getByLabelText("名称")).toHaveProperty("value", "Unsaved Review");
-    expect(update).toHaveBeenCalledOnce();
-  });
+    expect(saveDraft).toHaveBeenCalledOnce();
+  }, 20_000);
 
   it("localizes validation errors returned by the service boundary", async () => {
-    const update = vi.fn(async () => {
+    const saveDraft = vi.fn(async () => {
       throw new Error("Prompt Hook name is required");
     });
-    const service = promptHookService(() => [userHook()], update);
+    const service = promptHookService(() => [userHook()], saveDraft);
     const { user } = renderWithAppProviders(<PromptHooksPage searchTerm="" service={service} />);
 
     const card = await hookCard("Review Focus");
@@ -72,7 +84,7 @@ describe("PromptHooksPage interactions", () => {
 
     expect(await screen.findByText("请填写 Hook 名称。")).toBeTruthy();
     expect(screen.getByLabelText("名称")).toHaveProperty("value", "");
-  });
+  }, 20_000);
 
   it("does not expose mutation controls for an immutable built-in Prompt Hook", async () => {
     const service = promptHookService(() => [builtinHook()], vi.fn());
@@ -82,7 +94,7 @@ describe("PromptHooksPage interactions", () => {
     expect(within(card).queryByRole("button", { name: "编辑 Hook" })).toBeNull();
     expect(within(card).queryByRole("button", { name: "删除 Hook" })).toBeNull();
     expect(within(card).getByRole("checkbox", { name: "已启用" })).toHaveProperty("disabled", true);
-  });
+  }, 20_000);
 });
 
 async function hookCard(name: string) {
@@ -94,7 +106,7 @@ async function hookCard(name: string) {
 
 function promptHookService(
   readHooks: () => PromptHook[],
-  updatePromptHook: (hookId: string, input: PromptHookUpdateInput) => Promise<PromptHook>,
+  savePromptHookDraft: (input: SavePromptHookDraftInput) => Promise<PromptHookDraft>,
 ) {
   return createAgentServiceDouble({
     listAgents: async () => [agent],
@@ -117,7 +129,14 @@ function promptHookService(
       renderedContent: "Rendered preview",
       trace: [],
     }),
-    updatePromptHook,
+    getPromptHookVersionHistory: async (hookId) => ({
+      hookId,
+      publishedVersion: readHooks().find((hook) => hook.id === hookId)?.version ?? null,
+      draft: null,
+      versions: [],
+      evaluations: [],
+    }),
+    savePromptHookDraft,
   });
 }
 

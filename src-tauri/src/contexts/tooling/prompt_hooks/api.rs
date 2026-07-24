@@ -2,8 +2,11 @@ use crate::contexts::tooling::prompt_hooks::application::PromptHookApplicationSe
 
 pub(crate) use crate::contexts::tooling::prompt_hooks::application::{
     EffectivePromptRequest, PromptAssemblyResult, PromptHookApplicationError as PromptHookError,
-    PromptHookCreateRequest, PromptHookGovernance, PromptHookListResult, PromptHookPreview,
-    PromptHookPreviewRequest, PromptHookRecord, PromptHookTrace, PromptHookUpdateRequest,
+    PromptHookCreateRequest, PromptHookDraft, PromptHookExecutionObservation,
+    PromptHookExecutionOutcome, PromptHookGovernance, PromptHookListResult, PromptHookPreview,
+    PromptHookPreviewRequest, PromptHookRecord, PromptHookSnapshot, PromptHookTrace,
+    PromptHookUpdateRequest, PromptHookVariable, PromptHookVersion, PromptHookVersionHistory,
+    PublishPromptHookRequest, RollbackPromptHookRequest, SavePromptHookDraftRequest,
 };
 pub(crate) use crate::contexts::tooling::prompt_hooks::domain::{
     ManagedCliAgentId, PromptHookBindings, PromptHookCategory, PromptHookId, PromptHookManifest,
@@ -81,5 +84,44 @@ impl PromptHookApi {
 
     pub(crate) fn list_traces(&self, limit: i64) -> Result<Vec<PromptHookTrace>, PromptHookError> {
         self.service.list_traces(limit)
+    }
+
+    pub(crate) fn list_variables(&self) -> Vec<PromptHookVariable> {
+        self.service.list_variables()
+    }
+
+    pub(crate) fn save_draft(
+        &self,
+        request: SavePromptHookDraftRequest,
+    ) -> Result<PromptHookDraft, PromptHookError> {
+        self.service.save_draft(request)
+    }
+
+    pub(crate) fn publish(
+        &self,
+        request: PublishPromptHookRequest,
+    ) -> Result<PromptHookVersion, PromptHookError> {
+        self.service.publish(request)
+    }
+
+    pub(crate) fn version_history(
+        &self,
+        hook_id: PromptHookId,
+    ) -> Result<PromptHookVersionHistory, PromptHookError> {
+        self.service.version_history(hook_id)
+    }
+
+    pub(crate) fn rollback(
+        &self,
+        request: RollbackPromptHookRequest,
+    ) -> Result<PromptHookVersion, PromptHookError> {
+        self.service.rollback(request)
+    }
+
+    pub(crate) fn record_execution_observations(
+        &self,
+        observations: &[PromptHookExecutionObservation],
+    ) -> Result<(), PromptHookError> {
+        self.service.record_execution_observations(observations)
     }
 }

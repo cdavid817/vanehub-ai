@@ -7,8 +7,10 @@ use super::{
     GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
     LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
-    MessageTokenUsage, NewAgentMessage, ReadinessView, SendMessageRequest, StopGenerationResult,
-    ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
+    MessageTokenUsage, NewAgentMessage, PendingPromptExecution, PromptExecutionOutcome,
+    PromptExecutionReport, PromptVersionReference, ReadinessView, SendMessageRequest,
+    StopGenerationResult, ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest,
+    WorkflowView,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -573,6 +575,48 @@ impl AgentRuntimeApplicationService {
                 None,
             );
         }
+        let prompt_started_at = Instant::now();
+        let prompt_versions = effective_prompt
+            .trace
+            .iter()
+            .filter_map(|trace| {
+                (trace.status == "fired" || trace.status == "applied")
+                    .then_some(trace.version)
+                    .flatten()
+                    .map(|version| PromptVersionReference {
+                        hook_id: trace.hook_id.clone(),
+                        version,
+                    })
+            })
+            .collect::<Vec<_>>();
+        if let Err(error) = self.ports.generations.correlate_prompt(
+            lease,
+            &PendingPromptExecution {
+                invocation_id: operation.id.clone(),
+                agent_id: agent.id().as_str().to_string(),
+                versions: prompt_versions.clone(),
+                started_at: prompt_started_at,
+            },
+        ) {
+            self.record_prompt_execution(
+                &operation.id,
+                agent.id().as_str(),
+                &prompt_versions,
+                PromptExecutionOutcome::Failed,
+                prompt_started_at,
+            );
+            return self.fail_prepared_message(
+                &root_context,
+                session,
+                &assistant,
+                lease,
+                Some(&operation.id),
+                generation_failure(
+                    format!("{} command failed", agent.display_name()),
+                    error.to_string(),
+                ),
+            );
+        }
         let profile = match self
             .ports
             .cli_profiles
@@ -580,6 +624,13 @@ impl AgentRuntimeApplicationService {
         {
             Ok(profile) => profile,
             Err(error) => {
+                self.record_prompt_execution(
+                    &operation.id,
+                    agent.id().as_str(),
+                    &prompt_versions,
+                    PromptExecutionOutcome::Failed,
+                    prompt_started_at,
+                );
                 return self.fail_prepared_message(
                     &root_context,
                     session,
@@ -645,6 +696,13 @@ impl AgentRuntimeApplicationService {
             }) {
             Ok(started) => started,
             Err(error) => {
+                self.record_prompt_execution(
+                    &operation.id,
+                    agent.id().as_str(),
+                    &prompt_versions,
+                    PromptExecutionOutcome::Failed,
+                    prompt_started_at,
+                );
                 let _ = self.ports.telemetry.finish_span(
                     &agent_context.run_id,
                     &agent_context.span_id,
@@ -681,6 +739,13 @@ impl AgentRuntimeApplicationService {
                 &self.ports.clock.now(),
                 Some("generation_attach_failed"),
             );
+            self.record_prompt_execution(
+                &operation.id,
+                agent.id().as_str(),
+                &prompt_versions,
+                PromptExecutionOutcome::Failed,
+                prompt_started_at,
+            );
             return self.fail_prepared_message(
                 &root_context,
                 session,
@@ -706,6 +771,8 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
+                prompt_versions: prompt_versions.clone(),
+                prompt_started_at,
             },
         ));
         if let Err(error) = self
@@ -723,6 +790,13 @@ impl AgentRuntimeApplicationService {
                 ExecutionStatus::Failed,
                 &self.ports.clock.now(),
                 Some("generation_monitor_failed"),
+            );
+            self.record_prompt_execution(
+                &operation.id,
+                agent.id().as_str(),
+                &prompt_versions,
+                PromptExecutionOutcome::Failed,
+                prompt_started_at,
             );
             return self.fail_prepared_message(
                 &root_context,
@@ -874,6 +948,18 @@ impl AgentRuntimeApplicationService {
                 Some("user_cancelled"),
             );
         }
+        if let Some(prompt_execution) = cancellation
+            .as_ref()
+            .and_then(|outcome| outcome.prompt_execution.as_ref())
+        {
+            self.record_prompt_execution(
+                &prompt_execution.invocation_id,
+                &prompt_execution.agent_id,
+                &prompt_execution.versions,
+                PromptExecutionOutcome::Cancelled,
+                prompt_execution.started_at,
+            );
+        }
         for message_id in &message_ids {
             let _ = self.ports.events.publish(AgentEvent::MessageCancelled {
                 session_id: session_id.to_string(),
@@ -961,6 +1047,28 @@ impl AgentRuntimeApplicationService {
             occurred_at: self.ports.clock.now(),
         });
     }
+
+    fn record_prompt_execution(
+        &self,
+        invocation_id: &str,
+        agent_id: &str,
+        versions: &[PromptVersionReference],
+        outcome: PromptExecutionOutcome,
+        started_at: Instant,
+    ) {
+        if versions.is_empty() {
+            return;
+        }
+        let elapsed_ms = i64::try_from(started_at.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let _ = self.ports.prompts.record_execution(PromptExecutionReport {
+            invocation_id: invocation_id.to_string(),
+            agent_id: agent_id.to_string(),
+            versions: versions.to_vec(),
+            outcome,
+            elapsed_ms,
+            created_at: self.ports.clock.now(),
+        });
+    }
 }
 
 impl LoopWorkerGenerationPort for AgentRuntimeApplicationService {
@@ -1001,6 +1109,8 @@ struct GenerationEventHandler {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    prompt_versions: Vec<PromptVersionReference>,
+    prompt_started_at: Instant,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -1015,6 +1125,8 @@ struct GenerationEventHandlerInput {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    prompt_versions: Vec<PromptVersionReference>,
+    prompt_started_at: Instant,
 }
 
 // Streaming deltas are persisted for crash/live-reload durability only — the terminal
@@ -1089,6 +1201,8 @@ impl GenerationEventHandler {
             root_context: input.root_context,
             agent_context: input.agent_context,
             loop_ownership: input.loop_ownership,
+            prompt_versions: input.prompt_versions,
+            prompt_started_at: input.prompt_started_at,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -1297,6 +1411,7 @@ impl GenerationEventHandler {
         };
         let result = self.complete_claimed(response);
         if result.is_err() {
+            self.record_prompt_execution(PromptExecutionOutcome::Failed);
             self.finish_execution(
                 ExecutionStatus::Failed,
                 Some("completion_persistence_failed"),
@@ -1354,6 +1469,7 @@ impl GenerationEventHandler {
             token_usage: Some(token_usage),
         });
         self.deliver_loop_terminal(LoopRoleGenerationOutcome::Completed, Some(response), None)?;
+        self.record_prompt_execution(PromptExecutionOutcome::Succeeded);
         Ok(())
     }
 
@@ -1398,6 +1514,7 @@ impl GenerationEventHandler {
             None,
             Some(self.safe_error.clone()),
         )?;
+        self.record_prompt_execution(PromptExecutionOutcome::Failed);
         Ok(())
     }
 
@@ -1443,9 +1560,26 @@ impl GenerationEventHandler {
     fn mark_cancelled(&self) {
         let _ = self.ports.operations.cancel(&self.operation_id);
         self.finish_execution(ExecutionStatus::Cancelled, Some("user_cancelled"));
+        self.record_prompt_execution(PromptExecutionOutcome::Cancelled);
         if let Ok(mut state) = self.state() {
             state.phase = GenerationStreamPhase::Terminal;
         }
+    }
+
+    fn record_prompt_execution(&self, outcome: PromptExecutionOutcome) {
+        if self.prompt_versions.is_empty() {
+            return;
+        }
+        let elapsed_ms =
+            i64::try_from(self.prompt_started_at.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let _ = self.ports.prompts.record_execution(PromptExecutionReport {
+            invocation_id: self.operation_id.clone(),
+            agent_id: self.agent_id.clone(),
+            versions: self.prompt_versions.clone(),
+            outcome,
+            elapsed_ms,
+            created_at: self.ports.clock.now(),
+        });
     }
 
     fn begin_terminal(&self) -> Result<Option<String>, AgentRuntimeApplicationError> {
