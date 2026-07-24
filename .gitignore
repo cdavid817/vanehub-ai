@@ -7,3 +7,6 @@ src-tauri/target/
 test-results/
 playwright-report/
 coverage/
+.docs-build/
+.docs-target/
+.docs-screenshots/

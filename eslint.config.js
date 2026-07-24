@@ -4,10 +4,28 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "playwright-report", "src-tauri", "test-results"],
+    ignores: [
+      ".docs-build",
+      ".docs-screenshots",
+      ".docs-target",
+      "dist",
+      "node_modules",
+      "playwright-report",
+      "src-tauri",
+      "test-results",
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        process: "readonly",
+      },
+    },
+  },
   {
     files: ["**/*.{ts,tsx}"],
     plugins: {

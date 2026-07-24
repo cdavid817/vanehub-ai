@@ -14,11 +14,22 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      ignored: [
+        "**/src-tauri/**",
+        "**/.docs-build/**",
+        "**/.docs-screenshots/**",
+        "**/.docs-target/**",
+      ],
     },
   },
   test: {
-    exclude: ["node_modules/**", "dist/**", "src-tauri/**", "tests/e2e/**"],
+    exclude: [
+      "node_modules/**",
+      "dist/**",
+      "src-tauri/**",
+      "tests/docs/**",
+      "tests/e2e/**",
+    ],
     setupFiles: ["./src/test/setup.ts"],
     coverage: {
       provider: "v8",

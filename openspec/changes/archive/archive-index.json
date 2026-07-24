@@ -1023,6 +1023,21 @@
                      },
                      {
                          "archivedOn":  "2026-07-24",
+                         "changeName":  "establish-multilingual-documentation",
+                         "path":  "openspec/changes/archive/2026-07-24-establish-multilingual-documentation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "multilingual-readme",
+                                              "native-developer-documentation",
+                                              "user-guide-documentation"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-24",
                          "changeName":  "optimize-rust-build-and-release",
                          "path":  "openspec/changes/archive/2026-07-24-optimize-rust-build-and-release/",
                          "artifacts":  [

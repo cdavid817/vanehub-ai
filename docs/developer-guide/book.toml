@@ -1,0 +1,13 @@
+[book]
+title = "VaneHub AI Developer Guide"
+authors = ["VaneHub AI contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../../.docs-build/developer"
+
+[output.html]
+git-repository-url = "https://github.com/cdavid817/vanehub-ai"
+no-section-label = true
+smart-punctuation = true

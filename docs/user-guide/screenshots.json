@@ -1,0 +1,18 @@
+{
+  "screenshots": [
+    {
+      "id": "create-session-en",
+      "locale": "en",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/create-session-en.png"
+    },
+    {
+      "id": "create-session-zh-CN",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/create-session-zh-CN.png"
+    }
+  ]
+}
