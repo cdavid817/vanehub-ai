@@ -1,3 +1,9 @@
+//! Tauri transport DTOs for Agent Runtime commands.
+//!
+//! These serializable types isolate camel-case frontend contracts from native domain and
+//! application models. Mapping is explicit so command compatibility does not leak transport
+//! concerns into the owning bounded context.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -183,6 +189,7 @@ pub(crate) struct AgentTerminalSession {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Transport input for one node in a coordination plan.
 pub(crate) struct CoordinationNodeInput {
     pub(crate) id: String,
     pub(crate) primary_agent_id: String,
@@ -195,6 +202,7 @@ pub(crate) struct CoordinationNodeInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Transport request for starting a durable coordination run.
 pub(crate) struct StartCoordinationInput {
     pub(crate) name: String,
     pub(crate) project_path: Option<String>,
@@ -203,6 +211,7 @@ pub(crate) struct StartCoordinationInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Stable run and observable-operation identities returned to the frontend.
 pub(crate) struct StartCoordinationResult {
     pub(crate) run_id: String,
     pub(crate) operation_id: String,
@@ -297,6 +306,7 @@ pub(crate) struct CoordinationNodeRun {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+/// Page-facing projection of a coordination run.
 pub(crate) struct CoordinationRun {
     pub(crate) id: String,
     pub(crate) operation_id: String,

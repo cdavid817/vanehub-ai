@@ -1,11 +1,20 @@
+//! Domain model for validated Multi-Agent coordination plans and durable runs.
+//!
+//! Plans are directed acyclic graphs keyed by stable node and Agent ids. Run transitions preserve
+//! attempt provenance, bound persisted output, allow ordered fallback only for retryable failures,
+//! and deterministically skip dependents whose prerequisites cannot succeed.
+
 use super::AgentRuntimeDomainError;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Maximum persisted output retained for a successful node attempt.
 pub(crate) const COORDINATION_OUTPUT_LIMIT_BYTES: usize = 64 * 1024;
+/// Maximum combined prerequisite context accepted by a dependent node.
 pub(crate) const COORDINATION_CONTEXT_LIMIT_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Unvalidated node input accepted at the domain boundary.
 pub(crate) struct CoordinationNodeInput {
     pub(crate) id: String,
     pub(crate) primary_agent_id: String,
@@ -15,6 +24,7 @@ pub(crate) struct CoordinationNodeInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Complete unvalidated plan input.
 pub(crate) struct CoordinationPlanInput {
     pub(crate) name: String,
     pub(crate) project_path: Option<String>,
@@ -23,6 +33,7 @@ pub(crate) struct CoordinationPlanInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Validated immutable node definition stored in a plan snapshot.
 pub(crate) struct CoordinationNodeDefinition {
     pub(crate) id: String,
     pub(crate) primary_agent_id: String,
@@ -40,6 +51,7 @@ impl CoordinationNodeDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Validated plan snapshot with deterministic topological order.
 pub(crate) struct CoordinationPlan {
     pub(crate) name: String,
     pub(crate) project_path: Option<String>,
@@ -162,6 +174,7 @@ impl CoordinationPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Lifecycle state of a persisted coordination run.
 pub(crate) enum CoordinationRunStatus {
     Queued,
     Running,
@@ -178,6 +191,7 @@ impl CoordinationRunStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Lifecycle state of one node in a coordination run.
 pub(crate) enum CoordinationNodeStatus {
     Blocked,
     Queued,
@@ -208,6 +222,7 @@ pub(crate) enum CoordinationAttemptStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Failure classification that determines whether ordered fallback is permitted.
 pub(crate) enum CoordinationFailureKind {
     Retryable,
     NonRetryable,
@@ -300,6 +315,7 @@ pub(crate) struct CoordinationNodeRun {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// Durable coordination run aggregate and its node/attempt history.
 pub(crate) struct CoordinationRun {
     pub(crate) id: String,
     pub(crate) operation_id: String,

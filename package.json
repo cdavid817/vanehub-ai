@@ -27,7 +27,15 @@
     "coverage:check:native": "node scripts/check-coverage-policy.mjs --kind native --report coverage/native/coverage.json",
     "coverage:policy:test": "node --test scripts/check-coverage-policy.node-test.mjs",
     "lint:ci": "eslint . --max-warnings=0",
-    "contracts:check": "vitest run src/contracts/contract-conformance.test.ts"
+    "contracts:check": "vitest run src/contracts/contract-conformance.test.ts",
+    "docs:unit:test": "node --test scripts/check-readme-parity.node-test.mjs scripts/docs-screenshot-port.node-test.mjs scripts/validate-docs.node-test.mjs",
+    "docs:readme:check": "node scripts/check-readme-parity.mjs",
+    "docs:links:check": "node scripts/validate-docs.mjs",
+    "docs:check": "npm run docs:unit:test && npm run docs:readme:check && npm run docs:links:check",
+    "docs:test": "node scripts/test-docs.mjs",
+    "docs:build": "node scripts/build-docs.mjs",
+    "docs:screenshots:update": "node scripts/run-doc-screenshots.mjs update",
+    "docs:screenshots:check": "node scripts/run-doc-screenshots.mjs check"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",

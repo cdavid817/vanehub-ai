@@ -1,0 +1,80 @@
+{
+  "boundaries": [
+    {
+      "path": "src-tauri/src/lib.rs",
+      "role": "native crate entry",
+      "moduleDoc": true,
+      "symbols": ["run"]
+    },
+    {
+      "path": "src-tauri/src/contexts/agent_runtime/api.rs",
+      "role": "published Agent Runtime application facade",
+      "moduleDoc": true,
+      "symbols": ["AgentRuntimeApi"]
+    },
+    {
+      "path": "src-tauri/src/contexts/agent_runtime/domain/coordination.rs",
+      "role": "Multi-Agent coordination domain contracts",
+      "moduleDoc": true,
+      "symbols": [
+        "COORDINATION_OUTPUT_LIMIT_BYTES",
+        "COORDINATION_CONTEXT_LIMIT_BYTES",
+        "CoordinationNodeInput",
+        "CoordinationPlanInput",
+        "CoordinationNodeDefinition",
+        "CoordinationPlan",
+        "CoordinationRunStatus",
+        "CoordinationNodeStatus",
+        "CoordinationFailureKind",
+        "CoordinationRun"
+      ]
+    },
+    {
+      "path": "src-tauri/src/contexts/agent_runtime/application/ports.rs",
+      "role": "Agent Runtime outbound ports",
+      "moduleDoc": true,
+      "symbols": [
+        "LoopRepository",
+        "AgentRegistryRepository",
+        "AgentProcessGateway",
+        "AgentTaskPort",
+        "AgentLoggingPort"
+      ]
+    },
+    {
+      "path": "src-tauri/src/contexts/agent_runtime/application/coordination.rs",
+      "role": "Multi-Agent coordination application ports and use cases",
+      "moduleDoc": true,
+      "symbols": [
+        "StartCoordinationRequest",
+        "StartCoordinationResultView",
+        "CoordinationExecutionRequest",
+        "CoordinationExecutionResult",
+        "CoordinationExecutionOutput",
+        "CoordinationRepository",
+        "CoordinationNodeExecutor",
+        "CoordinationIdPort",
+        "CoordinationOperationPort",
+        "CoordinationApplicationPorts",
+        "CoordinationApplicationService"
+      ]
+    },
+    {
+      "path": "src-tauri/src/commands/agent_runtime/dto.rs",
+      "role": "Tauri transport DTO boundary",
+      "moduleDoc": true,
+      "symbols": [
+        "CoordinationNodeInput",
+        "StartCoordinationInput",
+        "StartCoordinationResult",
+        "CoordinationRun"
+      ]
+    },
+    {
+      "path": "src-tauri/src/contexts/operations/api.rs",
+      "role": "unified operations and logging facade",
+      "moduleDoc": true,
+      "symbols": ["OperationsApi"]
+    }
+  ]
+}

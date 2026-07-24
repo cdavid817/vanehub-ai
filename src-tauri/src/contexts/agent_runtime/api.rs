@@ -1,3 +1,9 @@
+//! Published in-process facade for Agent Runtime use cases.
+//!
+//! Command adapters and other native contexts use this facade instead of reaching into Agent
+//! Runtime repositories or provider infrastructure. It coordinates interactive execution, Agent
+//! terminals, loop engineering, and durable Multi-Agent runs.
+
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService,
     CoordinationApplicationService, LoopApplicationService, LoopControlApplicationService,
@@ -23,6 +29,10 @@ pub(crate) use super::domain::{
 };
 
 #[derive(Clone)]
+/// In-process Agent Runtime boundary assembled by bootstrap.
+///
+/// The facade schedules variable-duration work after the application service has persisted its
+/// initial state, keeping command handlers thin and preventing infrastructure leakage.
 pub(crate) struct AgentRuntimeApi {
     service: AgentRuntimeApplicationService,
     terminal_service: AgentTerminalApplicationService,

@@ -1,3 +1,9 @@
+//! Outbound ports consumed by Agent Runtime application services.
+//!
+//! Traits in this module describe behavior required from repositories, provider processes,
+//! terminals, operations, clocks, logging, and event publication. Infrastructure implements these
+//! contracts; application services do not depend on Tauri, SQLite, or concrete CLI libraries.
+
 use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMessage, AgentOperation,
     AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent, AgentTerminalInputRequest,
@@ -16,6 +22,7 @@ use crate::contexts::agent_runtime::domain::{
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Persistence contract for loop definitions, snapshots, and lifecycle transitions.
 pub(crate) trait LoopRepository: Send + Sync {
     fn list_definitions(&self) -> Result<Vec<LoopDefinition>, AgentRuntimeApplicationError>;
     fn find_definition(
@@ -251,6 +258,7 @@ pub(crate) trait LoopGenerationControlPort: Send + Sync {
     fn stop_loop_generation(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Read boundary for stable Agent registry entries.
 pub(crate) trait AgentRegistryRepository: Send + Sync {
     fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError>;
 
@@ -399,6 +407,7 @@ pub(crate) trait EffectivePromptGateway: Send + Sync {
     }
 }
 
+/// Process boundary for provider-specific Agent generation.
 pub(crate) trait AgentProcessGateway: Send + Sync {
     fn launch_workflow(
         &self,
@@ -464,6 +473,7 @@ pub(crate) trait AgentTerminalEventPort: Send + Sync {
     ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Observable-operation boundary used by Agent and loop execution.
 pub(crate) trait AgentTaskPort: Send + Sync {
     fn start_agent_launch(
         &self,
@@ -512,6 +522,7 @@ pub(crate) trait AgentTaskPort: Send + Sync {
     fn cancel(&self, operation_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Unified redacted diagnostic logging boundary for Agent execution.
 pub(crate) trait AgentLoggingPort: Send + Sync {
     fn record(&self, log: AgentLog) -> Result<(), AgentRuntimeApplicationError>;
 }

@@ -103,6 +103,77 @@ jobs:
             npx --yes @fission-ai/openspec@1.6.0 validate "$change_name" --strict
           done
 
+  documentation:
+    name: Documentation
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+
+      - name: Restore documentation tool and Rust caches
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/mdbook.exe
+            .docs-target
+          key: documentation-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'docs/toolchain.json') }}
+          restore-keys: |
+            documentation-${{ runner.os }}-
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install pinned mdBook
+        shell: pwsh
+        run: |
+          $expectedVersion = (Get-Content docs/toolchain.json | ConvertFrom-Json).mdbook
+          $installedVersion = if (Get-Command mdbook -ErrorAction SilentlyContinue) {
+            mdbook --version
+          } else {
+            ""
+          }
+          if ($installedVersion -notmatch [regex]::Escape($expectedVersion)) {
+            cargo install mdbook --version $expectedVersion --locked --force
+          }
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Check documentation sources
+        run: |
+          npm run docs:check
+          npm run docs:test
+
+      - name: Verify documentation screenshots
+        run: npm run docs:screenshots:check
+
+      - name: Build documentation site
+        run: npm run docs:build
+
+      - name: Confirm documentation build is read-only
+        run: git diff --exit-code
+
+      - name: Upload documentation site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: documentation-site-${{ github.run_id }}
+          path: .docs-build/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
+
   rust:
     name: Rust
     runs-on: ubuntu-latest
