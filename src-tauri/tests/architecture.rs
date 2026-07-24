@@ -743,3 +743,31 @@ mod tests {
     assert_eq!(uses.len(), 3);
     assert!(uses.iter().all(|usage| usage.line <= 4));
 }
+
+#[test]
+fn production_logging_contract_is_not_debug_assertion_gated() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let logging_contract_files = [
+        "platform/logging.rs",
+        "contexts/operations/infrastructure/unified_logging.rs",
+        "contexts/communications/infrastructure/runtime_manager.rs",
+        "contexts/desktop/infrastructure/folder_openers.rs",
+    ];
+
+    for relative in logging_contract_files {
+        let source = fs::read_to_string(source_root.join(relative)).expect("read logging source");
+        assert!(
+            !source.contains("cfg(debug_assertions)"),
+            "production logging contract cannot be debug-assertion gated: {relative}"
+        );
+    }
+
+    let logging =
+        fs::read_to_string(source_root.join("platform/logging.rs")).expect("read log levels");
+    for variant in ["Error", "Warn", "Info", "Debug"] {
+        assert!(
+            logging.contains(&format!("    {variant},")),
+            "production log level is missing: {variant}"
+        );
+    }
+}

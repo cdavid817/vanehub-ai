@@ -69,9 +69,11 @@ React components are expected to use the service interfaces in `src/services/` r
 - Node.js 22+ and npm.
 - Rust stable and Cargo.
 - Tauri system prerequisites for your platform.
-- Windows desktop builds: Microsoft C++ Build Tools with MSVC, Windows SDK, and WebView2 Runtime.
-- Linux desktop builds: WebKitGTK and related native packages used by the packaging workflow.
+- Windows x64 desktop builds: Microsoft C++ Build Tools with MSVC, Windows SDK, WebView2 Runtime, and the `rust-lld.exe` included in the selected Rust toolchain.
+- Linux x64 desktop builds: Clang, mold, WebKitGTK, and the related native packages used by the packaging workflow.
 - macOS desktop builds: Xcode command line tools.
+
+See `docs/build-performance.md` for linker verification, release-profile behavior, worktree cache guidance, and measured build evidence.
 
 ## Installation
 
@@ -117,6 +119,8 @@ Project configuration is stored in the repository:
 - `src-tauri/tauri.conf.json`: Tauri product name, app identifier, window settings, bundle settings, and version `0.1.0`.
 - `tailwind.config.ts` and `src/styles.css`: theme tokens and UI styling.
 - `.github/workflows/package.yml`: manual and tag-triggered desktop packaging workflow.
+- `.cargo/config.toml`: target-scoped Windows x64 LLD and Linux x64 mold configuration.
+- `docs/build-performance.md`: native build prerequisites, worktree behavior, release optimization, and measurement evidence.
 - `docs/release-signing.md`: release environment, signing, notarization, checksum, SBOM, and attestation guidance.
 
 Runtime state is created locally by the Tauri backend under `.vanehub/vanehub.sqlite` from the current working directory. No required environment variables were found in the repository.

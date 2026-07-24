@@ -116,12 +116,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
+            clang \
             curl \
             file \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
+            mold \
             patchelf \
             wget
 
@@ -129,6 +131,11 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: rustfmt, clippy
+
+      - name: Verify Linux fast linker
+        run: |
+          clang --version
+          mold --version
 
       - name: Rust fmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -209,8 +216,18 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
-      - name: Native cargo check
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Verify Windows LLD
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $rustLld = Join-Path (rustc --print sysroot) "lib/rustlib/x86_64-pc-windows-msvc/bin/rust-lld.exe"
+          if (-not (Test-Path -LiteralPath $rustLld)) {
+            throw "Rust toolchain LLD was not found at $rustLld"
+          }
+          Write-Output "Using Rust toolchain LLD at $rustLld"
+
+      - name: Native cargo build
+        run: cargo build --manifest-path src-tauri/Cargo.toml
 
   e2e:
     name: Playwright E2E
