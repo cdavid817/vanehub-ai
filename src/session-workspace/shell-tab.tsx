@@ -28,7 +28,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     const terminal = new XtermTerminal({
-      allowTransparency: true,
+      allowTransparency: false,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -103,7 +103,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
-      <div aria-label={t("sessionTabs.shell.terminal")} className="ucd-shell-terminal min-h-0 flex-1 bg-[hsl(var(--panel-muted))] p-2" ref={hostRef} />
+      <div aria-label={t("sessionTabs.shell.terminal")} className="ucd-shell-terminal min-h-0 flex-1 p-2" ref={hostRef} />
     </div>
   );
 }

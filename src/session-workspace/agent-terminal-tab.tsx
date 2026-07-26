@@ -59,7 +59,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
     let disposed = false;
     let unsubscribe: (() => void) | null = null;
     const terminal = new XtermTerminal({
-      allowTransparency: true,
+      allowTransparency: false,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
@@ -214,7 +214,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
         </div>
       </div>
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
-      <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="ucd-agent-terminal min-h-0 flex-1 bg-[hsl(var(--panel-muted))] p-2" ref={hostRef} />
+      <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="ucd-agent-terminal min-h-0 flex-1 p-2" ref={hostRef} />
       <form className="shrink-0 border-t border-border bg-background/80 p-2" onSubmit={(event) => { event.preventDefault(); submitCommand(); }}>
         <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 shadow-sm focus-within:border-primary">
           <textarea
