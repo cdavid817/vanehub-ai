@@ -61,27 +61,32 @@ describe("session workspace components", () => {
     expect(managedCliAgentIds).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
     expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
     expect(source).not.toContain("bg-zinc-950");
-    expect(source).toContain("allowTransparency: true");
+    // Full-screen TUIs paint 256-color/truecolor backgrounds that no per-class CSS
+    // override can catch, so the terminal renders on an opaque dark canvas with a
+    // complete ANSI palette instead of a transparent surface patched per ANSI class.
+    expect(source).toContain("allowTransparency: false");
     expect(themeSource).toContain("selectionForeground");
-    expect(themeSource).toContain('background: "rgba(0, 0, 0, 0)"');
-    expect(themeSource).toContain("black: foreground");
-    expect(styles).toContain(".ucd-agent-terminal .xterm-viewport");
-    expect(styles).toContain(".ucd-agent-terminal .xterm-bg-0");
-    expect(styles).toContain(".ucd-agent-terminal .xterm-bg-257");
-    expect(styles).toContain(".ucd-agent-terminal .xterm-fg-257");
+    expect(themeSource).toContain("--terminal-background");
+    expect(themeSource).toContain("brightWhite");
+    expect(themeSource).not.toContain("rgba(0, 0, 0, 0)");
+    expect(styles).toContain("--terminal-background");
+    expect(styles).toContain("--terminal-ansi-blue");
+    expect(styles).toContain("background: var(--terminal-background)");
+    expect(styles).not.toContain(".xterm-bg-0");
+    expect(styles).not.toContain(".xterm-fg-257");
   });
 
   it("keeps the ordinary shell readable for ANSI inverse output", () => {
     const source = readFileSync(new URL("./shell-tab.tsx", import.meta.url), "utf8");
     const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(source).toContain("allowTransparency: true");
+    expect(source).toContain("allowTransparency: false");
     expect(source).toContain("createTerminalTheme()");
     expect(source).toContain("ucd-shell-terminal");
-    expect(styles).toContain(".ucd-shell-terminal .xterm-viewport");
-    expect(styles).toContain(".ucd-shell-terminal .xterm-bg-0");
-    expect(styles).toContain(".ucd-shell-terminal .xterm-bg-257");
-    expect(styles).toContain(".ucd-shell-terminal .xterm-fg-257");
+    // Inverse video swaps theme fg/bg; both come from the opaque terminal palette.
+    expect(styles).toContain("background: var(--terminal-background)");
+    expect(styles).not.toContain(".xterm-viewport");
+    expect(styles).not.toContain(".xterm-bg-257");
   });
 
   it("reconnects stopped agent terminals only after an explicit session activation", () => {

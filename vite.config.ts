@@ -29,6 +29,9 @@ export default defineConfig({
       "src-tauri/**",
       "tests/docs/**",
       "tests/e2e/**",
+      // Nested git worktrees under .claude ship their own node_modules and e2e
+      // specs; keep the test runner from descending into those copies.
+      "**/.claude/**",
     ],
     setupFiles: ["./src/test/setup.ts"],
     coverage: {

@@ -38,6 +38,33 @@
   --agent-claude: 35 92% 52%;
   --agent-opencode: 154 64% 40%;
   --agent-gemini: 262 83% 62%;
+
+  /* Embedded terminals render agent/TUI ANSI output as their own opaque dark
+     surface (full-screen TUIs are dark-themed and paint 256/truecolor
+     backgrounds), so the palette is a fixed dark set shared by every visual
+     style. Terminal colors use hex — the terminal-domain convention — rather
+     than the HSL triplets used elsewhere. */
+  --terminal-background: #0d1117;
+  --terminal-foreground: #c9d1d9;
+  --terminal-cursor: #58a6ff;
+  --terminal-selection: #26456a;
+  --terminal-selection-foreground: #f0f6fc;
+  --terminal-ansi-black: #484f58;
+  --terminal-ansi-red: #ff7b72;
+  --terminal-ansi-green: #3fb950;
+  --terminal-ansi-yellow: #d29922;
+  --terminal-ansi-blue: #58a6ff;
+  --terminal-ansi-magenta: #bc8cff;
+  --terminal-ansi-cyan: #39c5cf;
+  --terminal-ansi-white: #b1bac4;
+  --terminal-ansi-bright-black: #6e7681;
+  --terminal-ansi-bright-red: #ffa198;
+  --terminal-ansi-bright-green: #56d364;
+  --terminal-ansi-bright-yellow: #e3b341;
+  --terminal-ansi-bright-blue: #79c0ff;
+  --terminal-ansi-bright-magenta: #d2a8ff;
+  --terminal-ansi-bright-cyan: #56d4dd;
+  --terminal-ansi-bright-white: #f0f6fc;
 }
 
 :root[data-theme="futuristic"] {
@@ -307,24 +334,13 @@ body.floating-assistant-surface {
   -webkit-text-fill-color: hsl(var(--foreground));
 }
 
-.ucd-agent-terminal .xterm-viewport,
-.ucd-shell-terminal .xterm-viewport {
-  background-color: transparent !important;
-}
-
-.ucd-agent-terminal .xterm-bg-0,
-.ucd-shell-terminal .xterm-bg-0 {
-  background-color: hsl(var(--panel-muted)) !important;
-}
-
-.ucd-agent-terminal .xterm-bg-257,
-.ucd-shell-terminal .xterm-bg-257 {
-  background-color: hsl(var(--panel-muted)) !important;
-}
-
-.ucd-agent-terminal .xterm-fg-257,
-.ucd-shell-terminal .xterm-fg-257 {
-  color: hsl(var(--foreground)) !important;
+/* Agent/TUI output owns an opaque terminal canvas; xterm paints ANSI colors
+   natively from the terminal palette instead of relying on per-class overrides
+   (which cannot reach 256-color/truecolor backgrounds emitted by full-screen
+   TUIs like Codex). */
+.ucd-agent-terminal,
+.ucd-shell-terminal {
+  background: var(--terminal-background);
 }
 
 .ucd-status-success {

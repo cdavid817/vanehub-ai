@@ -76,5 +76,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-24 | enhance-prompt-library-advanced-features | chat-experience, frontend-runtime-architecture, native-runtime-architecture, prompt-hook-management, settings-prompt-hooks-ui | `openspec/changes/archive/2026-07-24-enhance-prompt-library-advanced-features/` |
 | 2026-07-24 | establish-multilingual-documentation | multilingual-readme, native-developer-documentation, user-guide-documentation | `openspec/changes/archive/2026-07-24-establish-multilingual-documentation/` |
 | 2026-07-24 | optimize-rust-build-and-release | continuous-integration, native-app-packaging, native-build-optimization | `openspec/changes/archive/2026-07-24-optimize-rust-build-and-release/` |
+| 2026-07-26 | fix-embedded-terminal-tui-contrast | session-workspace-tabs | `openspec/changes/archive/2026-07-26-fix-embedded-terminal-tui-contrast/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

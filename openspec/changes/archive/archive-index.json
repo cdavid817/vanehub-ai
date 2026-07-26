@@ -1069,6 +1069,19 @@
                                               "native-app-packaging",
                                               "native-build-optimization"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-26",
+                         "changeName":  "fix-embedded-terminal-tui-contrast",
+                         "path":  "openspec/changes/archive/2026-07-26-fix-embedded-terminal-tui-contrast/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "session-workspace-tabs"
+                                          ]
                      }
                  ]
 }
