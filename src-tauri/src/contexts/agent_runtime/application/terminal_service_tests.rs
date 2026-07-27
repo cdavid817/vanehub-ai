@@ -494,6 +494,7 @@ fn open_terminal_starts_session_and_uses_interactive_profile() {
         .expect("open terminal");
 
     assert_eq!(opened.terminal_id, "terminal-1");
+    assert_eq!(opened.runtime_session_id.as_deref(), Some("runtime-1"));
     assert_eq!(
         *world.lifecycle.lock().expect("lifecycle"),
         vec![AgentLifecycle::Starting, AgentLifecycle::Running]

@@ -161,7 +161,6 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
         (
             "claude-code",
             vec!["--chrome".to_string()],
-            vec!["--chrome".to_string()],
             vec![
                 "--chrome".to_string(),
                 "--resume".to_string(),
@@ -170,7 +169,6 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
         ),
         (
             "codex-cli",
-            vec!["--strict-config".to_string()],
             vec!["--strict-config".to_string()],
             vec![
                 "--strict-config".to_string(),
@@ -181,7 +179,6 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
         (
             "gemini-cli",
             vec!["--sandbox".to_string()],
-            vec!["--sandbox".to_string()],
             vec![
                 "--sandbox".to_string(),
                 "--resume".to_string(),
@@ -191,7 +188,6 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
         (
             "opencode",
             vec!["--auto".to_string()],
-            vec!["--auto".to_string()],
             vec![
                 "--auto".to_string(),
                 "--session".to_string(),
@@ -199,9 +195,9 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
             ],
         ),
     ];
-    assert_stable_agent_coverage(fixtures.iter().map(|(agent_id, _, _, _)| *agent_id));
+    assert_stable_agent_coverage(fixtures.iter().map(|(agent_id, _, _)| *agent_id));
 
-    for (agent_id, managed_args, fresh_args, resume_args) in fixtures {
+    for (agent_id, managed_args, resume_args) in fixtures {
         let fresh = build_interactive_invocation(
             agent_id,
             format!("C:/bin/{agent_id}.exe"),
@@ -209,7 +205,28 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
             &managed_args,
         )
         .expect("fresh interactive invocation");
-        assert_eq!(fresh.args, fresh_args, "{agent_id} fresh");
+        match agent_id {
+            "claude-code" | "gemini-cli" => {
+                let assigned = fresh
+                    .assigned_runtime_session_id
+                    .as_deref()
+                    .expect("caller-assigned session id");
+                uuid::Uuid::parse_str(assigned).expect("provider-valid UUID");
+                assert_eq!(
+                    fresh.args,
+                    [
+                        managed_args.clone(),
+                        vec!["--session-id".to_string(), assigned.to_string()],
+                    ]
+                    .concat(),
+                    "{agent_id} fresh"
+                );
+            }
+            _ => {
+                assert_eq!(fresh.args, managed_args, "{agent_id} fresh");
+                assert_eq!(fresh.assigned_runtime_session_id, None);
+            }
+        }
 
         let resume = build_interactive_invocation(
             agent_id,
@@ -219,6 +236,30 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
         )
         .expect("resume interactive invocation");
         assert_eq!(resume.args, resume_args, "{agent_id} resume");
+        assert_eq!(resume.assigned_runtime_session_id, None);
+    }
+}
+
+#[test]
+fn empty_interactive_runtime_session_id_is_treated_as_fresh() {
+    for agent_id in ["claude-code", "codex-cli", "gemini-cli", "opencode"] {
+        let invocation = build_interactive_invocation(
+            agent_id,
+            format!("C:/bin/{agent_id}.exe"),
+            Some("  "),
+            &[],
+        )
+        .expect("fresh interactive invocation");
+
+        assert!(
+            !invocation.args.iter().any(|argument| argument == "  "),
+            "{agent_id}"
+        );
+        assert_eq!(
+            invocation.assigned_runtime_session_id.is_some(),
+            matches!(agent_id, "claude-code" | "gemini-cli"),
+            "{agent_id}"
+        );
     }
 }
 
