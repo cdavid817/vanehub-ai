@@ -9,6 +9,7 @@ use crate::contexts::sessions::infrastructure::{
     SessionOperationAdapter, SqliteSessionChatProfileAdapter, SqliteSessionsRepository,
     SystemSessionClock, UnifiedSessionLoggingAdapter, UuidSessionIdentities,
 };
+use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
@@ -24,6 +25,7 @@ pub(crate) fn assemble_sessions_api(
     operations: OperationsApi,
     workspaces: WorkspaceApi,
     cli_parameters: CliParametersApi,
+    native_config: Arc<dyn NativeConfigPort>,
     fallback_log_directory: PathBuf,
 ) -> (SessionsApi, AgentSessionRuntimeAdapter) {
     let repository = Arc::new(SqliteSessionsRepository::new(database.clone()));
@@ -42,7 +44,10 @@ pub(crate) fn assemble_sessions_api(
         files: Arc::new(SessionFileAdapter::new(workspaces.clone(), logging.clone())),
         operations: Arc::new(SessionOperationAdapter::new(operations)),
         logging: Arc::new(UnifiedSessionLoggingAdapter::new(logging)),
-        chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(cli_parameters)),
+        chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
+            cli_parameters,
+            native_config,
+        )),
         creation: Arc::new(SessionCreationContextAdapter::new(
             database.clone(),
             workspaces.clone(),

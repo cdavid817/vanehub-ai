@@ -516,6 +516,7 @@ impl SessionChatProfilePort for LifecycleDoubles {
     fn defaults_for(
         &self,
         _agent_id: &str,
+        _workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError> {
         Ok(ChatConfigurationValues {
             permission_mode: "agent".to_string(),

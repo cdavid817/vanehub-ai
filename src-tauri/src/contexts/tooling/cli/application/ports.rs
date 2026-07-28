@@ -76,3 +76,18 @@ pub(crate) trait CliMutationPort: Send + Sync {
 
     fn release_many(&self, agent_ids: &[String]) -> Result<(), CliApplicationError>;
 }
+
+pub(crate) trait NativeConfigPort: Send + Sync {
+    /// Discover the active model from a CLI's native configuration file.
+    /// `workspace_path`, when available, lets a CLI check per-project state
+    /// (e.g. Claude Code's project-scoped usage cache) in addition to its
+    /// global configuration file.
+    /// Returns `Ok(None)` when no source is available, unreadable, or does
+    /// not contain a model value — callers must fall back to their own
+    /// defaults.
+    fn discover_model(
+        &self,
+        agent_id: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<Option<String>, CliApplicationError>;
+}

@@ -29,13 +29,13 @@ http = "1"
 opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
 opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
-opentelemetry-semantic-conventions = { version = "=0.32.0", features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { version = "=0.32.1", features = ["semconv_experimental"] }
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
 russh = { version = "=0.62.4", default-features = false, features = ["ring"] }
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 futures-util = "0.3"
 keyring = "4.1.5"
 prost = "0.14"
@@ -48,17 +48,25 @@ url = "2"
 webpki-roots = "1"
 zeroize = "1"
 portable-pty = "0.9.0"
-tracing = { version = "=0.1.41", features = ["attributes", "std"] }
+toml = "0.8"
+dirs = "6"
+tracing = { version = "=0.1.44", features = ["attributes", "std"] }
 tracing-opentelemetry = { version = "=0.33.0", default-features = false }
-tracing-subscriber = { version = "=0.3.22", default-features = false, features = ["registry", "std"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
 
 [dev-dependencies]
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "testing"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
+tempfile = "3"
 
 [profile.release]
-opt-level = 3
+#opt-level = 3
+opt-level = 0    # 关闭优化，断点才不会乱跳
+debug = true
+debug-assertions = true
+split-debuginfo = "unpacked" # Windows/macOS 必备，调试信息完整
+
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"

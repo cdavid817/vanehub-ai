@@ -1,41 +1,57 @@
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::tooling::cli::infrastructure::NativeConfigReader;
 use crate::platform::database::NativeDatabase;
 use crate::platform::logging;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::Manager;
 
 const AGENT_TERMINAL_IDLE_TIMEOUT_SECONDS: i64 = 2 * 60 * 60;
 
+/// 桌面端Tauri应用启动入口（当前包内可见）
 pub(crate) fn run() {
+    // 1. 构建Tauri应用实例，配置各类插件、生命周期、事件、命令
     let result = tauri::Builder::default()
+        // 注册弹窗对话框插件（文件选择、提示框、确认框等）
         .plugin(tauri_plugin_dialog::init())
+        // 注册开机自启插件：Mac平台使用LaunchAgent实现开机启动，无额外配置
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // 应用初始化完成后的setup回调函数
         .setup(setup)
+        // 主窗口事件统一处理器（窗口打开/关闭/缩放/焦点等事件）
         .on_window_event(crate::contexts::desktop::infrastructure::handle_main_window_event)
+        // 注册前端调用后端的命令路由处理器
         .invoke_handler(crate::commands::invoke_handler())
+        // 编译时读取tauri.conf.json配置，构建应用对象
         .build(tauri::generate_context!());
+
+    // 2. 匹配应用构建结果：构建成功则启动运行，失败则打印启动错误日志
     match result {
+        // 应用构建成功，启动事件循环监听运行事件
         Ok(app) => app.run(|app, event| {
+            // 判断事件为程序退出事件，且存在遥测生命周期管理实例
             if matches!(event, tauri::RunEvent::Exit)
                 && app
-                    .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
-                    .is_some_and(|lifecycle| lifecycle.shutdown().is_err())
+                .try_state::<crate::contexts::execution_observability::infrastructure::ExecutionTelemetryLifecycle>()
+                .is_some_and(|lifecycle| lifecycle.shutdown().is_err())
             {
+                // 遥测数据关闭流程执行失败，写入警告启动日志
                 write_bootstrap_log(
-                    &logging::fallback_log_dir(),
-                    LogSeverity::Warn,
-                    "execution_observability.shutdown",
+                    &logging::fallback_log_dir(), // 兜底日志存储目录
+                    LogSeverity::Warn,             // 日志级别：警告
+                    "execution_observability.shutdown", // 日志分类标识
                     "Execution telemetry did not flush completely before the bounded shutdown deadline",
                 );
             }
         }),
+        // Tauri应用构建失败，记录错误日志
         Err(error) => write_bootstrap_log(
             &logging::fallback_log_dir(),
             LogSeverity::Error,
@@ -45,6 +61,12 @@ pub(crate) fn run() {
     }
 }
 
+/// Tauri应用初始化回调函数
+/// 负责组装所有领域API、初始化数据库、注册状态管理、启动后台任务
+/// # 参数
+/// * `app` - Tauri应用实例可变引用
+/// # 返回
+/// 初始化成功返回Ok(())，失败返回包装后的错误
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let data_dir = match configured_app_data_dir(std::env::var_os("VANEHUB_APP_DATA_DIR"))? {
         Some(path) => path,
@@ -118,11 +140,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         app.handle().clone(),
         fallback_log_directory.clone(),
     );
+    let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
+        UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
+    )));
     let (sessions_api, session_runtime_adapter) = super::assemble_sessions_api(
         database.clone(),
         operations_api.clone(),
         workspace_api.clone(),
         cli_parameters_api.clone(),
+        native_config_reader,
         fallback_log_directory.clone(),
     );
     let super::AgentRuntimeAssembly {
@@ -234,6 +260,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// 启动Agent终端空闲清理后台任务
+/// 每分钟执行一次检查，清理超过2小时空闲的终端会话
+/// # 参数
+/// * `agent_runtime_api` - Agent运行时API实例
 fn start_agent_terminal_cleanup_job(
     agent_runtime_api: crate::contexts::agent_runtime::api::AgentRuntimeApi,
 ) {
@@ -247,6 +277,12 @@ fn start_agent_terminal_cleanup_job(
     });
 }
 
+/// 解析并验证应用数据目录配置
+/// 支持通过环境变量VANEHUB_APP_DATA_DIR自定义数据目录，必须为绝对路径
+/// # 参数
+/// * `value` - 环境变量值（可能为空）
+/// # 返回
+/// 验证通过返回Some(有效路径)，空值返回None，相对路径返回错误
 fn configured_app_data_dir(value: Option<OsString>) -> Result<Option<PathBuf>, Box<dyn Error>> {
     let Some(value) = value.filter(|value| !value.is_empty()) else {
         return Ok(None);
@@ -260,6 +296,13 @@ fn configured_app_data_dir(value: Option<OsString>) -> Result<Option<PathBuf>, B
     Ok(Some(path))
 }
 
+/// 写入启动阶段日志
+/// 在正式日志系统初始化前使用，用于记录启动过程中的错误和警告
+/// # 参数
+/// * `fallback_log_directory` - 兜底日志目录
+/// * `severity` - 日志级别
+/// * `category` - 日志分类标识
+/// * `message` - 日志消息内容
 fn write_bootstrap_log(
     fallback_log_directory: &Path,
     severity: LogSeverity,
@@ -277,10 +320,18 @@ fn write_bootstrap_log(
     });
 }
 
+/// 将任意Error类型转换为`Box<dyn Error>`特征对象
+/// 用于统一错误类型，方便?运算符传播
+/// # 参数
+/// * `error` - 实现了Error特征的错误类型
 fn boxed_error(error: impl Error + 'static) -> Box<dyn Error> {
     Box::new(error)
 }
 
+/// 将字符串消息转换为标准IO错误并装箱
+/// 用于快速创建错误信息
+/// # 参数
+/// * `message` - 可显示的错误消息
 fn boxed_message(message: impl std::fmt::Display) -> Box<dyn Error> {
     Box::new(std::io::Error::other(message.to_string()))
 }

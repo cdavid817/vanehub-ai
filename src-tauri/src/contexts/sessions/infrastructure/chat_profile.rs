@@ -4,18 +4,27 @@ use crate::contexts::sessions::application::{
 use crate::contexts::sessions::domain::{
     default_model_for_agent, model_id_from_cli, normalize_reasoning, provider_for_agent,
 };
+use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct SqliteSessionChatProfileAdapter {
     cli_parameters: CliParametersApi,
+    native_config: Arc<dyn NativeConfigPort>,
 }
 
 impl SqliteSessionChatProfileAdapter {
-    pub(crate) fn new(cli_parameters: CliParametersApi) -> Self {
-        Self { cli_parameters }
+    pub(crate) fn new(
+        cli_parameters: CliParametersApi,
+        native_config: Arc<dyn NativeConfigPort>,
+    ) -> Self {
+        Self {
+            cli_parameters,
+            native_config,
+        }
     }
 }
 
@@ -23,6 +32,7 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
     fn defaults_for(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError> {
         let selections = self
             .cli_parameters
@@ -32,7 +42,13 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             .get("model")
             .and_then(Value::as_str)
             .and_then(|model| model_id_from_cli(agent_id, model))
-            .map(str::to_string)
+            .or_else(|| {
+                self.native_config
+                    .discover_model(agent_id, workspace_path)
+                    .ok()
+                    .flatten()
+                    .and_then(|raw| model_id_from_cli(agent_id, &raw))
+            })
             .map(Ok)
             .unwrap_or_else(|| {
                 default_model_for_agent(agent_id)

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
+import { resolveModelLabel } from "../components/chat/models";
 import { Button } from "../components/ui/button";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { normalizeDisplayPath } from "../lib/session-path";
@@ -171,6 +172,9 @@ export function SessionInfoPanel({
   const workspaceDisplayPath = workspacePath ?? activeSession?.folder ?? null;
   const identity = getAgentVisualIdentity(activeSession?.agentId ?? "");
   const chatConfig = useQuery({ enabled: Boolean(sessionId), queryKey: ["session-chat-config", sessionId], queryFn: () => agentService.getSessionChatConfig(sessionId ?? "") });
+  const modelLabel = useMemo(() => {
+    return resolveModelLabel(chatConfig.data?.providerId, chatConfig.data?.modelId) || null;
+  }, [chatConfig.data?.providerId, chatConfig.data?.modelId]);
   const usage = useQuery({ enabled: Boolean(sessionId), queryKey: ["session-usage-summary", sessionId], queryFn: () => agentService.getSessionUsageSummary(sessionId ?? "") });
   const usageSummary = useMemo(() => summaryWithLiveReportedTokens(usage.data, sessionId, messages), [messages, sessionId, usage.data]);
   const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
@@ -201,7 +205,7 @@ export function SessionInfoPanel({
                 <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
                 <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
                 <Field icon={<Activity className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.lifecycle")} value={activeSession ? t(`layout.lifecycle.${activeSession.lifecycleState}`) : t("layout.noSession")} />
-                <Field icon={<Brain className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.model")} value={chatConfig.data?.modelId ?? t("layout.info.modelUnavailable")} />
+                <Field icon={<Brain className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.model")} value={modelLabel ?? t("layout.info.modelUnavailable")} />
                 <Field
                   icon={<FolderGit2 className="h-3.5 w-3.5 text-primary" />}
                   label={t("layout.info.workspace")}

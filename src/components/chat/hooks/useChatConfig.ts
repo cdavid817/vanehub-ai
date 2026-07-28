@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRegistryEntry, Session } from "../../../types/agent";
 import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../../types/chat";
 import { agentService } from "../../../services/runtime-agent-client";
-import { PERMISSION_MODES, PROVIDER_MODELS, REASONING_DEPTHS } from "../models";
+import { PERMISSION_MODES, PROVIDER_MODELS, REASONING_DEPTHS, resolveModelLabel } from "../models";
 
 function providerIdFromAgent(agent?: AgentRegistryEntry | null) {
   const provider = agent?.provider.toLowerCase() ?? "";
@@ -97,7 +97,21 @@ export function useChatConfig({
     () => agents.filter((agent) => providerIdFromAgent(agent) === providerId),
     [agents, providerId],
   );
-  const availableModels = PROVIDER_MODELS[providerId] ?? PROVIDER_MODELS.anthropic;
+  const availableModels = useMemo(() => {
+    const catalogModels = PROVIDER_MODELS[providerId] ?? PROVIDER_MODELS.anthropic;
+    if (catalogModels.some((m) => m.id === modelId)) return catalogModels;
+    // Surface custom model IDs that are not in the static catalog
+    const customModel: ModelInfo = {
+      id: modelId,
+      label: resolveModelLabel(providerId, modelId),
+      providerId,
+      description: "",
+      supportsReasoning: false,
+      maxReasoningDepth: "low",
+      supportsLongContext: false,
+    };
+    return [customModel, ...catalogModels];
+  }, [providerId, modelId]);
   const selectedModel = availableModels.find((model) => model.id === modelId) ?? availableModels[0];
   const availableModes = modesForProvider(providerId);
   const availableReasoning = REASONING_DEPTHS.filter((depth) => {
@@ -135,11 +149,14 @@ export function useChatConfig({
   }
 
   function changeModel(nextModelId: string) {
-    const nextModel = availableModels.find((model) => model.id === nextModelId) ?? selectedModel;
-    setModelId(nextModel.id);
-    setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
-    if (!nextModel.supportsLongContext) {
-      setLongContext(false);
+    const nextModel = availableModels.find((model) => model.id === nextModelId)
+      ?? (PROVIDER_MODELS[providerId] ?? PROVIDER_MODELS.anthropic).find((m) => m.id === nextModelId);
+    setModelId(nextModelId);
+    if (nextModel) {
+      setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
+      if (!nextModel.supportsLongContext) {
+        setLongContext(false);
+      }
     }
   }
 
