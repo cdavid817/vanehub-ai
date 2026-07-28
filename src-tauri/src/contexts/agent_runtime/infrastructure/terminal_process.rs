@@ -1,4 +1,7 @@
-use super::providers::{build_interactive_invocation, output_parser_for, ProviderOutputEvent};
+use super::providers::{
+    build_interactive_invocation, output_parser_for, prepare_provider_session_capture,
+    ProviderOutputEvent, ProviderSessionCapture, ProviderSessionDiscovery,
+};
 use super::terminal_wrapper::{
     default_agent_terminal_shell, generate_agent_terminal_wrapper, AgentTerminalWrapperRequest,
 };
@@ -17,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 const RETAINED_TERMINAL_TRANSCRIPT_BYTES: usize = 1_000_000;
 
@@ -28,6 +32,7 @@ const TERMINAL_READ_BUFFER_BYTES: usize = 64 * 1024;
 /// Upper bound on an unterminated parse line, so newline-less output (e.g. `\r` progress
 /// bars) cannot grow the session-id parse buffer without bound.
 const MAX_PARSE_LINE_BYTES: usize = 256 * 1024;
+const PROVIDER_SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
 
 struct ManagedAgentTerminal {
     terminal_id: String,
@@ -182,6 +187,48 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         }
         let agent_id_for_error = request.agent.id.clone();
         let session_id_for_error = request.session.id.clone();
+        let provider_session_capture = if non_empty_runtime_session_id(
+            request.session.runtime_session_id.as_deref(),
+        )
+        .is_none()
+            && matches!(request.agent.id.as_str(), "codex-cli" | "opencode")
+        {
+            let working_directory = request
+                .session
+                .folder
+                .as_deref()
+                .filter(|folder| !folder.trim().is_empty())
+                .map(PathBuf::from)
+                .or_else(|| std::env::current_dir().ok());
+            match working_directory {
+                Some(working_directory) => {
+                    match prepare_provider_session_capture(&request.agent.id, working_directory) {
+                        Ok(capture) => capture,
+                        Err(error) => {
+                            self.record_log(
+                                AgentLogLevel::Warn,
+                                format!("Provider session capture is unavailable: {error}"),
+                                Some(&request.agent.id),
+                                Some(&request.session.id),
+                            );
+                            None
+                        }
+                    }
+                }
+                None => {
+                    self.record_log(
+                        AgentLogLevel::Warn,
+                        "Provider session capture is unavailable because the working directory could not be resolved."
+                            .to_string(),
+                        Some(&request.agent.id),
+                        Some(&request.session.id),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let executable =
             normalize_interactive_executable(&request.agent.id, &request.cli_profile.executable);
         let invocation = build_interactive_invocation(
@@ -293,11 +340,15 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             AgentRuntimeApplicationError::Process(message)
         })?;
         let child = Arc::new(Mutex::new(child));
+        let runtime_session_id =
+            non_empty_runtime_session_id(request.session.runtime_session_id.as_deref())
+                .map(str::to_string)
+                .or_else(|| invocation.assigned_runtime_session_id.clone());
         let terminal = ManagedAgentTerminal {
             terminal_id: terminal_id.clone(),
             session_id: request.session.id.clone(),
             agent_id: request.agent.id.clone(),
-            runtime_session_id: request.session.runtime_session_id.clone(),
+            runtime_session_id,
             last_active_at: now_timestamp(self.clock.as_ref()),
             size: request.size.clone(),
             master: pair.master,
@@ -318,6 +369,9 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
+            let mut provider_session_capture = provider_session_capture;
+            let mut last_capture_attempt: Option<Instant> = None;
+            let mut capture_failure_logged = false;
             let mut buffer = [0u8; TERMINAL_READ_BUFFER_BYTES];
             // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence
             // (中文 / emoji / TUI box-drawing) can be split across two reads. Carry the
@@ -367,8 +421,70 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                     },
                                 );
                                 let _ = events.publish_terminal(event);
+                                provider_session_capture = None;
                             }
                         });
+                        if provider_session_capture.is_some()
+                            && last_capture_attempt.is_none_or(|attempt| {
+                                attempt.elapsed() >= PROVIDER_SESSION_DISCOVERY_INTERVAL
+                            })
+                        {
+                            last_capture_attempt = Some(Instant::now());
+                            let discovery = provider_session_capture
+                                .as_ref()
+                                .map(ProviderSessionCapture::discover);
+                            match discovery {
+                                Some(Ok(ProviderSessionDiscovery::Found(runtime_session_id))) => {
+                                    let event = record_runtime_session_id(
+                                        terminals.as_ref(),
+                                        &terminal_id,
+                                        &session_id,
+                                        runtime_session_id,
+                                        |session_id, runtime_session_id| {
+                                            let _ = sessions.update_runtime_session_id(
+                                                session_id,
+                                                runtime_session_id,
+                                            );
+                                        },
+                                    );
+                                    let _ = events.publish_terminal(event);
+                                    record_provider_session_capture_log(
+                                        logging.as_ref(),
+                                        clock.as_ref(),
+                                        AgentLogLevel::Info,
+                                        "Captured exact provider session id.".to_string(),
+                                        &agent_id,
+                                        &session_id,
+                                    );
+                                    provider_session_capture = None;
+                                }
+                                Some(Ok(ProviderSessionDiscovery::Ambiguous(count))) => {
+                                    record_provider_session_capture_log(
+                                        logging.as_ref(),
+                                        clock.as_ref(),
+                                        AgentLogLevel::Warn,
+                                        format!(
+                                            "Provider session capture skipped because {count} matching new sessions were found."
+                                        ),
+                                        &agent_id,
+                                        &session_id,
+                                    );
+                                    provider_session_capture = None;
+                                }
+                                Some(Err(error)) if !capture_failure_logged => {
+                                    record_provider_session_capture_log(
+                                        logging.as_ref(),
+                                        clock.as_ref(),
+                                        AgentLogLevel::Warn,
+                                        format!("Provider session capture failed: {error}"),
+                                        &agent_id,
+                                        &session_id,
+                                    );
+                                    capture_failure_logged = true;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     Err(_) => break,
                 }
@@ -528,6 +644,28 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         }
         Ok(stopped)
     }
+}
+
+fn record_provider_session_capture_log(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    level: AgentLogLevel,
+    message: String,
+    agent_id: &str,
+    session_id: &str,
+) {
+    let _ = logging.record(AgentLog {
+        level,
+        category: "session.agent_terminal".to_string(),
+        message,
+        agent_id: Some(agent_id.to_string()),
+        session_id: Some(session_id.to_string()),
+        operation_id: None,
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
 }
 
 fn record_runtime_session_id(
@@ -745,6 +883,10 @@ fn safe_file_segment(value: &str) -> String {
         .collect()
 }
 
+fn non_empty_runtime_session_id(runtime_session_id: Option<&str>) -> Option<&str> {
+    runtime_session_id.filter(|session_id| !session_id.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -778,6 +920,16 @@ mod tests {
 
         assert_eq!(size.rows, 1);
         assert_eq!(size.cols, 500);
+    }
+
+    #[test]
+    fn blank_runtime_session_id_is_treated_as_missing() {
+        assert_eq!(non_empty_runtime_session_id(None), None);
+        assert_eq!(non_empty_runtime_session_id(Some(" \t")), None);
+        assert_eq!(
+            non_empty_runtime_session_id(Some("provider-session-1")),
+            Some("provider-session-1")
+        );
     }
 
     #[test]

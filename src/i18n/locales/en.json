@@ -1634,6 +1634,8 @@
   "cliParameters.common.warning": "Elevated risk",
   "cliParameters.common.unsaved": "Unsaved changes",
   "cliParameters.common.scope": "Applied to: {{scope}}",
+  "cliParameters.custom.option": "Custom…",
+  "cliParameters.custom.placeholder": "Enter a model identifier your CLI supports",
   "cliParameters.scope.interactive": "interactive launch",
   "cliParameters.scope.chat": "chat runtime",
   "cliParameters.empty": "No parameters match the current search.",

@@ -20,6 +20,7 @@ pub(crate) struct ProviderInvocationSpec {
 pub(crate) struct ProviderInteractiveInvocationSpec {
     pub(crate) executable: String,
     pub(crate) args: Vec<String>,
+    pub(crate) assigned_runtime_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,29 +121,49 @@ pub(crate) fn build_interactive_invocation(
     managed_args: &[String],
 ) -> Result<ProviderInteractiveInvocationSpec, ProviderInvocationError> {
     let mut args = Vec::new();
+    let existing_session_id = non_empty_session_id(runtime_session_id);
+    let mut assigned_runtime_session_id = None;
     match agent_id {
         "claude-code" => {
             args.extend_from_slice(managed_args);
-            push_resume_args(&mut args, runtime_session_id, "--resume");
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--resume", session_id);
+            } else {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                push_session_arg(&mut args, "--session-id", &session_id);
+                assigned_runtime_session_id = Some(session_id);
+            }
         }
         "codex-cli" => {
             args.extend_from_slice(managed_args);
-            if let Some(session_id) = non_empty_session_id(runtime_session_id) {
+            if let Some(session_id) = existing_session_id {
                 args.extend(["resume".to_string(), session_id.to_string()]);
             }
         }
         "gemini-cli" => {
             args.extend_from_slice(managed_args);
-            push_resume_args(&mut args, runtime_session_id, "--resume");
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--resume", session_id);
+            } else {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                push_session_arg(&mut args, "--session-id", &session_id);
+                assigned_runtime_session_id = Some(session_id);
+            }
         }
         "opencode" => {
             args.extend_from_slice(managed_args);
-            push_resume_args(&mut args, runtime_session_id, "--session");
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--session", session_id);
+            }
         }
         other => return Err(ProviderInvocationError::UnsupportedAgent(other.to_string())),
     };
 
-    Ok(ProviderInteractiveInvocationSpec { executable, args })
+    Ok(ProviderInteractiveInvocationSpec {
+        executable,
+        args,
+        assigned_runtime_session_id,
+    })
 }
 
 pub(crate) fn add_codex_output_capture_args(args: &mut Vec<String>, output_path: &str) {
@@ -277,6 +298,10 @@ fn non_empty_session_id(runtime_session_id: Option<&str>) -> Option<&str> {
 
 fn push_resume_args(args: &mut Vec<String>, runtime_session_id: Option<&str>, flag: &str) {
     if let Some(session_id) = non_empty_session_id(runtime_session_id) {
-        args.extend([flag.to_string(), session_id.to_string()]);
+        push_session_arg(args, flag, session_id);
     }
+}
+
+fn push_session_arg(args: &mut Vec<String>, flag: &str, session_id: &str) {
+    args.extend([flag.to_string(), session_id.to_string()]);
 }

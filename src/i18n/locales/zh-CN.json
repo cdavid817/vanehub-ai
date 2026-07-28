@@ -1634,6 +1634,8 @@
   "cliParameters.common.warning": "较高风险",
   "cliParameters.common.unsaved": "有未保存的更改",
   "cliParameters.common.scope": "应用范围：{{scope}}",
+  "cliParameters.custom.option": "自定义…",
+  "cliParameters.custom.placeholder": "输入您的 CLI 支持的模型标识符",
   "cliParameters.scope.interactive": "交互式启动",
   "cliParameters.scope.chat": "聊天运行时",
   "cliParameters.empty": "没有参数匹配当前搜索。",

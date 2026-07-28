@@ -24,10 +24,10 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-function applySettings(settings: AppSettings) {
-  void i18n.changeLanguage(settings.applicationLanguage);
+async function applySettings(settings: AppSettings) {
   document.documentElement.style.fontSize = settings.fontSize;
   document.documentElement.dataset.theme = settings.theme;
+  await i18n.changeLanguage(settings.applicationLanguage);
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
@@ -52,14 +52,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       try {
         const loadedSettings = normalizeAppSettings(await settingsService.getSettings());
         if (cancelled) return;
+        await applySettings(loadedSettings);
+        if (cancelled) return;
         setSettings(loadedSettings);
-        applySettings(loadedSettings);
         setError(null);
       } catch (err) {
         if (cancelled) return;
         const fallback = defaultAppSettings;
+        await applySettings(fallback);
+        if (cancelled) return;
         setSettings(fallback);
-        applySettings(fallback);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) setLoading(false);
@@ -81,7 +83,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           const nextSettings = normalizeAppSettings(await settingsService.getSettings());
           if (!active) return;
           setSettings(nextSettings);
-          applySettings(nextSettings);
+          void applySettings(nextSettings);
           setError(null);
         } catch (err) {
           if (active) setError(err instanceof Error ? err.message : String(err));
@@ -105,14 +107,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const previousSettings = settings;
       const optimisticSettings = normalizeAppSettings({ ...settings, [key]: value });
       setSettings(optimisticSettings);
-      applySettings(optimisticSettings);
+      void applySettings(optimisticSettings);
       try {
         const nextSettings = normalizeAppSettings(await settingsService.saveSetting({ key, value }));
         setSettings(nextSettings);
-        applySettings(nextSettings);
+        void applySettings(nextSettings);
       } catch (err) {
         setSettings(previousSettings);
-        applySettings(previousSettings);
+        void applySettings(previousSettings);
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
@@ -146,14 +148,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const previousSettings = settings;
       const optimisticSettings = normalizeAppSettings({ ...settings, launchOnStartup: enabled });
       setSettings(optimisticSettings);
-      applySettings(optimisticSettings);
+      void applySettings(optimisticSettings);
       try {
         const nextSettings = normalizeAppSettings(await settingsService.setLaunchOnStartup(enabled));
         setSettings(nextSettings);
-        applySettings(nextSettings);
+        void applySettings(nextSettings);
       } catch (err) {
         setSettings(previousSettings);
-        applySettings(previousSettings);
+        void applySettings(previousSettings);
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
@@ -208,6 +210,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [error, getDataManagementInfo, loading, nodeInfo, openDatabaseDirectory, openLogDirectory, refreshNodeInfo, reportClientLogEvent, resetSettings, saveSetting, scanNetworkProxies, setLaunchOnStartup, savingKey, settings, testNetworkProxy],
   );
 
+  if (loading) return null;
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
 

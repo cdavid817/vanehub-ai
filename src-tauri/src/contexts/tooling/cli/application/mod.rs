@@ -14,6 +14,6 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     CliClockPort, CliDetectionPort, CliExecutableLocatorPort, CliLoggingPort, CliMutationPort,
-    CliOperationPort, CliPackagePort, CliStatusRepository,
+    CliOperationPort, CliPackagePort, CliStatusRepository, NativeConfigPort,
 };
 pub(crate) use service::{CliApplicationPorts, CliApplicationService};

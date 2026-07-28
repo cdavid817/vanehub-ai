@@ -20,6 +20,30 @@ export const PROVIDER_LABELS: Record<string, string> = {
   opencode: "OpenCode",
 };
 
+/**
+ * Resolve a model ID to a human-readable label.
+ *
+ * Precedence:
+ * 1. Look up in PROVIDER_MODELS catalog (exact match)
+ * 2. Normalize the raw ID: split on dots/hyphens, capitalize each segment,
+ *    rejoin with spaces (e.g. "deepseek-v4-pro" → "Deepseek V4 Pro")
+ * 3. Fall back to the raw ID itself
+ */
+export function resolveModelLabel(providerId?: string | null, modelId?: string | null): string {
+  if (!modelId) return "";
+  if (providerId) {
+    const known = PROVIDER_MODELS[providerId]?.find((m) => m.id === modelId);
+    if (known) return known.label;
+  }
+  // Normalize unknown model IDs into a readable label
+  const normalized = modelId
+    .split(/[.\-_]/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+    .join(" ");
+  return normalized || modelId;
+}
+
 export const PROVIDER_MODELS: Record<string, ModelInfo[]> = {
   anthropic: [
     {
