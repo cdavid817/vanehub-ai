@@ -1,16 +1,24 @@
-import { renderToString } from "react-dom/server";
+// @vitest-environment jsdom
+
+import { render, screen } from "@testing-library/react";
 import "../../i18n";
 import { SettingsProvider } from "../settings-provider";
 import { BasicSettingsPage } from "./basic-settings-page";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 describe("BasicSettingsPage", () => {
-  it("renders log management policies and disables local open action in Web mock state", () => {
-    const html = renderToString(
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("renders log management policies and disables local open action in Web mock state", async () => {
+    const { container } = render(
       <SettingsProvider>
         <BasicSettingsPage />
       </SettingsProvider>,
     );
+    await screen.findByText("日志管理");
+    const html = container.innerHTML;
 
     expect(html).toContain("日志管理");
     expect(html).toContain("启动与系统行为");

@@ -78,5 +78,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-24 | optimize-rust-build-and-release | continuous-integration, native-app-packaging, native-build-optimization | `openspec/changes/archive/2026-07-24-optimize-rust-build-and-release/` |
 | 2026-07-26 | fix-embedded-terminal-tui-contrast | session-workspace-tabs | `openspec/changes/archive/2026-07-26-fix-embedded-terminal-tui-contrast/` |
 | 2026-07-28 | dynamic-llm-model-discovery | cli-parameter-management, custom-model-display, native-model-discovery, session-chat-configuration | `openspec/changes/archive/2026-07-28-dynamic-llm-model-discovery/` |
+| 2026-07-28 | fix-settings-hydration-flash | app-settings | `openspec/changes/archive/2026-07-28-fix-settings-hydration-flash/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

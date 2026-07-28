@@ -30,7 +30,7 @@ The system SHALL apply common settings through centralized side effects owned by
 - **THEN** the system SHALL update the document theme attribute used by CSS variable groups
 
 ### Requirement: Settings persistence
-The system SHALL persist common settings through the active runtime adapter.
+The system SHALL persist common settings through the active runtime adapter and SHALL complete initial settings hydration before displaying the formal application surface.
 
 #### Scenario: Persist desktop setting
 - **WHEN** the application runs in the Tauri desktop runtime and a user saves a common setting
@@ -43,6 +43,12 @@ The system SHALL persist common settings through the active runtime adapter.
 #### Scenario: Restore saved settings
 - **WHEN** the application starts after common settings have been saved
 - **THEN** the system SHALL restore and apply the saved setting values for the active runtime
+- **AND** the formal application surface SHALL first become visible with the restored root font size, visual theme, and application language already applied
+
+#### Scenario: Fall back when initial settings cannot be loaded
+- **WHEN** the active runtime fails to load common settings during application startup
+- **THEN** the system SHALL apply the shared default settings before displaying the formal application surface
+- **AND** the settings provider SHALL retain a user-displayable error without preventing startup
 
 ### Requirement: Node.js environment display
 The system SHALL expose read-only Node.js environment information for the Basic Configuration page.
