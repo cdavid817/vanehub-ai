@@ -31,6 +31,7 @@ pub(crate) enum CliParameterControl {
     Enum,
     Boolean,
     MultiEnum,
+    CustomText,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -132,6 +133,35 @@ fn enum_definition(
     }
 }
 
+fn custom_text_definition(
+    agent_id: &str,
+    id: &str,
+    flag: &str,
+    known_values: &[&str],
+    default_value: &str,
+    risk: CliParameterRisk,
+) -> CliParameterDefinition {
+    let prefix = format!("cliParameters.{agent_id}.{id}");
+    CliParameterDefinition {
+        id: id.to_string(),
+        agent_id: agent_id.to_string(),
+        flag: flag.to_string(),
+        control: CliParameterControl::CustomText,
+        label_key: format!("{prefix}.label"),
+        description_key: format!("{prefix}.description"),
+        options: known_values
+            .iter()
+            .map(|value| option(&prefix, value))
+            .collect(),
+        default_value: Value::String(default_value.to_string()),
+        launch_scopes: vec![
+            CliParameterLaunchScope::Interactive,
+            CliParameterLaunchScope::Chat,
+        ],
+        risk,
+    }
+}
+
 fn boolean_definition(
     agent_id: &str,
     id: &str,
@@ -167,7 +197,7 @@ pub(crate) fn catalog_for(
     };
     let definitions = match agent_id {
         "claude-code" => vec![
-            enum_definition(
+            custom_text_definition(
                 agent_id,
                 "model",
                 "--model",
@@ -200,7 +230,7 @@ pub(crate) fn catalog_for(
             ),
         ],
         "codex-cli" => vec![
-            enum_definition(
+            custom_text_definition(
                 agent_id,
                 "model",
                 "--model",
@@ -248,7 +278,7 @@ pub(crate) fn catalog_for(
             boolean_definition(agent_id, "strictConfig", "--strict-config", both(), normal),
         ],
         "gemini-cli" => vec![
-            enum_definition(
+            custom_text_definition(
                 agent_id,
                 "model",
                 "--model",
@@ -313,6 +343,9 @@ fn validate_value(definition: &CliParameterDefinition, value: &Value) -> bool {
                     .options
                     .iter()
                     .any(|option| option.value == candidate)
+        }),
+        CliParameterControl::CustomText => value.as_str().is_some_and(|candidate| {
+            !has_control_char(candidate) && !candidate.trim().is_empty()
         }),
         CliParameterControl::MultiEnum => value.as_array().is_some_and(|values| {
             values.iter().all(|entry| {
@@ -408,7 +441,7 @@ pub(crate) fn preview_args(
                     args.push(definition.flag);
                 }
             }
-            CliParameterControl::Enum => {
+            CliParameterControl::Enum | CliParameterControl::CustomText => {
                 if let Some(value) = value.as_str().filter(|value| *value != "default") {
                     let rendered_value = if definition.id == "reasoningEffort" {
                         format!("model_reasoning_effort=\"{value}\"")

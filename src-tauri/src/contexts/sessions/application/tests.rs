@@ -721,6 +721,7 @@ impl SessionChatProfilePort for FakeChatProfiles {
     fn defaults_for(
         &self,
         agent_id: &str,
+        _workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError> {
         let (provider_id, model_id) = match agent_id {
             "gemini-cli" => ("google", "gemini-2-5-flash"),

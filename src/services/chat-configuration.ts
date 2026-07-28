@@ -8,13 +8,6 @@ const agentDefaults: Record<string, { providerId: string; modelId: string; reaso
   opencode: { providerId: "opencode", modelId: "opencode-default", reasoning: undefined },
 };
 
-const supportedModels: Record<string, readonly string[]> = {
-  "claude-code": ["claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
-  "codex-cli": ["gpt-5-5", "gpt-5-4", "gpt-5-2-codex", "gpt-5-1-codex-max"],
-  "gemini-cli": ["gemini-2-5-pro", "gemini-2-5-flash"],
-  opencode: ["opencode-default"],
-};
-
 const permissionModes: readonly PermissionMode[] = ["default", "plan", "agent", "auto"];
 const reasoningDepths: readonly ReasoningDepth[] = ["low", "medium", "high", "max"];
 
@@ -63,7 +56,9 @@ export function defaultChatConfigForSession(session: Session): ChatConfig {
 export function normalizeChatConfigForSession(session: Session, input: ChatConfig): ChatConfig {
   const defaults = defaultsForAgent(session.agentId);
   const requestedModelId = input.modelId;
-  const modelId = input.providerId === defaults.providerId && requestedModelId && supportedModels[session.agentId]?.includes(requestedModelId)
+  // Accept any non-empty model ID when the provider matches (supports custom models);
+  // fall back to the default model when provider mismatch or model ID is missing.
+  const modelId = input.providerId === defaults.providerId && requestedModelId && requestedModelId.trim().length > 0
     ? requestedModelId
     : defaults.modelId;
   const permissionMode = permissionModes.includes(input.permissionMode) ? input.permissionMode : "default";

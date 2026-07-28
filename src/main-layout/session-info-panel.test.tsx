@@ -119,7 +119,7 @@ describe("SessionInfoPanel", () => {
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");
-    expect(html).toContain("gpt-5-5");
+    expect(html).toContain("GPT-5.5");
     expect(html).toContain("Codex CLI");
   });
 

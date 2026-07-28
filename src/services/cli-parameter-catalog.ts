@@ -47,6 +47,30 @@ function enumDefinition(
   };
 }
 
+function customTextDefinition(
+  agentId: ManagedCliAgentId,
+  id: string,
+  flag: string,
+  values: string[],
+  scopes: Array<"interactive" | "chat"> = ["interactive", "chat"],
+  defaultValue = "default",
+  risk: "normal" | "warning" = "normal",
+): CliParameterDefinition {
+  const prefix = `cliParameters.${agentId}.${id}`;
+  return {
+    id,
+    agentId,
+    flag,
+    control: "custom-text",
+    labelKey: `${prefix}.label`,
+    descriptionKey: `${prefix}.description`,
+    options: values.map((value) => (value === "default" ? defaultOption(prefix) : option(prefix, value))),
+    defaultValue,
+    launchScopes: scopes,
+    risk,
+  };
+}
+
 function booleanDefinition(
   agentId: ManagedCliAgentId,
   id: string,
@@ -71,13 +95,13 @@ function booleanDefinition(
 
 export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefinition[]> = {
   "claude-code": [
-    enumDefinition("claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
+    customTextDefinition("claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
     enumDefinition("claude-code", "effort", "--effort", ["default", "low", "medium", "high", "xhigh", "max"]),
     enumDefinition("claude-code", "permissionMode", "--permission-mode", ["default", "plan", "acceptEdits", "auto", "dontAsk"]),
     booleanDefinition("claude-code", "chrome", "--chrome", ["interactive"]),
   ],
   "codex-cli": [
-    enumDefinition("codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
+    customTextDefinition("codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
     enumDefinition("codex-cli", "reasoningEffort", "--config", ["default", "low", "medium", "high", "xhigh", "max"]),
     enumDefinition("codex-cli", "sandbox", "--sandbox", ["default", "read-only", "workspace-write"]),
     enumDefinition("codex-cli", "approvalPolicy", "--ask-for-approval", ["default", "untrusted", "on-request", "never"]),
@@ -85,7 +109,7 @@ export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefiniti
     booleanDefinition("codex-cli", "strictConfig", "--strict-config", ["interactive", "chat"]),
   ],
   "gemini-cli": [
-    enumDefinition("gemini-cli", "model", "--model", ["default", "gemini-2.5-pro", "gemini-2.5-flash"]),
+    customTextDefinition("gemini-cli", "model", "--model", ["default", "gemini-2.5-pro", "gemini-2.5-flash"]),
     enumDefinition("gemini-cli", "approvalMode", "--approval-mode", ["default", "auto_edit", "plan", "yolo"], ["interactive", "chat"], "yolo", "warning"),
     booleanDefinition("gemini-cli", "sandbox", "--sandbox", ["interactive", "chat"]),
   ],
@@ -108,6 +132,9 @@ function isValidValue(definition: CliParameterDefinition, value: CliParameterVal
   if (definition.control === "boolean") return typeof value === "boolean";
   if (definition.control === "enum") {
     return typeof value === "string" && definition.options.some((entry) => entry.value === value);
+  }
+  if (definition.control === "custom-text") {
+    return typeof value === "string" && value.trim().length > 0 && !/[\x00-\x1f\x7f]/.test(value);
   }
   return Array.isArray(value) && value.every((entry) => definition.options.some((optionEntry) => optionEntry.value === entry));
 }
@@ -160,7 +187,7 @@ export function buildCliParameterPreviewFromDefinitions(
     const value = normalized[definition.id];
     if (definition.control === "boolean") {
       if (value === true) args.push(definition.flag);
-    } else if (definition.control === "enum") {
+    } else if (definition.control === "enum" || definition.control === "custom-text") {
       if (typeof value === "string" && value !== "default") {
         const renderedValue = definition.id === "reasoningEffort" ? `model_reasoning_effort="${value}"` : value;
         args.push(definition.flag, renderedValue);
