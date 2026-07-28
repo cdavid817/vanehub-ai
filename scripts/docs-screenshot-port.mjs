@@ -54,7 +54,9 @@ export async function allocateScreenshotPort(requestedValue) {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const label = requestedPort === 0 ? "an available loopback port" : `loopback port ${requestedPort}`;
-    throw new Error(`Unable to reserve ${label} for documentation screenshots: ${detail}`);
+    throw new Error(`Unable to reserve ${label} for documentation screenshots: ${detail}`, {
+      cause: error,
+    });
   } finally {
     if (server.listening) await close(server);
   }

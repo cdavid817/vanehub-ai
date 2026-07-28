@@ -29,7 +29,12 @@ test("reports an unavailable configured port without reusing its server", async 
   try {
     await assert.rejects(
       allocateScreenshotPort(String(address.port)),
-      new RegExp(`loopback port ${address.port}`),
+      (error) => {
+        assert.match(error.message, new RegExp(`loopback port ${address.port}`));
+        assert.ok(error.cause instanceof Error);
+        assert.equal(error.cause.code, "EADDRINUSE");
+        return true;
+      },
     );
   } finally {
     await new Promise((resolve, reject) => {
