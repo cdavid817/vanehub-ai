@@ -280,6 +280,7 @@ pub(crate) trait SessionChatProfilePort: Send + Sync {
     fn defaults_for(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError>;
 }
 

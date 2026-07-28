@@ -25,7 +25,7 @@ describe("CLI parameter catalog", () => {
     for (const agentId of managedCliAgentIds) {
       const definitions = cliParameterCatalog[agentId];
       expect(definitions.map((definition) => definition.id)).toEqual(expectedParameterIds[agentId]);
-      expect(definitions.some((entry) => entry.control === "enum")).toBe(true);
+      expect(definitions.some((entry) => entry.control === "enum" || entry.control === "custom-text")).toBe(true);
       expect(definitions.some((entry) => entry.control === "boolean")).toBe(true);
       expect(new Set(definitions.map((entry) => entry.id)).size).toBe(definitions.length);
       for (const definition of definitions) {
@@ -33,7 +33,7 @@ describe("CLI parameter catalog", () => {
         expect(definition.launchScopes.length).toBeGreaterThan(0);
         expect(["normal", "warning"]).toContain(definition.risk);
         expect(reservedFlags.has(definition.flag)).toBe(false);
-        if (definition.control === "enum") {
+        if (definition.control === "enum" || definition.control === "custom-text") {
           expect(definition.options.some((entry) => entry.value === definition.defaultValue)).toBe(true);
         }
       }

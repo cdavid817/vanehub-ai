@@ -38,17 +38,7 @@ impl ChatAgent {
     }
 
     fn supports(self, model_id: &str) -> bool {
-        matches!(
-            (self, model_id),
-            (
-                Self::Claude,
-                "claude-opus-4-8" | "claude-sonnet-5" | "claude-sonnet-4-6" | "claude-haiku-4-5"
-            ) | (
-                Self::Codex,
-                "gpt-5-5" | "gpt-5-4" | "gpt-5-2-codex" | "gpt-5-1-codex-max"
-            ) | (Self::Gemini, "gemini-2-5-pro" | "gemini-2-5-flash")
-                | (Self::OpenCode, "opencode-default")
-        )
+        !model_id.trim().is_empty()
     }
 }
 
@@ -170,18 +160,19 @@ pub(crate) fn default_model_for_agent(agent_id: &str) -> Result<&'static str, Se
     ChatAgent::parse(agent_id).map(ChatAgent::default_model)
 }
 
-pub(crate) fn model_id_from_cli(agent_id: &str, model: &str) -> Option<&'static str> {
+pub(crate) fn model_id_from_cli(agent_id: &str, model: &str) -> Option<String> {
     match (agent_id, model) {
-        ("claude-code", "opus") => Some("claude-opus-4-8"),
-        ("claude-code", "sonnet") => Some("claude-sonnet-5"),
-        ("claude-code", "haiku") => Some("claude-haiku-4-5"),
-        ("codex-cli", "gpt-5.5") => Some("gpt-5-5"),
-        ("codex-cli", "gpt-5.4") => Some("gpt-5-4"),
-        ("codex-cli", "gpt-5.2-codex") => Some("gpt-5-2-codex"),
-        ("codex-cli", "gpt-5.1-codex-max") => Some("gpt-5-1-codex-max"),
-        ("gemini-cli", "gemini-2.5-pro") => Some("gemini-2-5-pro"),
-        ("gemini-cli", "gemini-2.5-flash") => Some("gemini-2-5-flash"),
-        _ => None,
+        ("claude-code", "opus") => Some("claude-opus-4-8".to_string()),
+        ("claude-code", "sonnet") => Some("claude-sonnet-5".to_string()),
+        ("claude-code", "haiku") => Some("claude-haiku-4-5".to_string()),
+        ("codex-cli", "gpt-5.5") => Some("gpt-5-5".to_string()),
+        ("codex-cli", "gpt-5.4") => Some("gpt-5-4".to_string()),
+        ("codex-cli", "gpt-5.2-codex") => Some("gpt-5-2-codex".to_string()),
+        ("codex-cli", "gpt-5.1-codex-max") => Some("gpt-5-1-codex-max".to_string()),
+        ("gemini-cli", "gemini-2.5-pro") => Some("gemini-2-5-pro".to_string()),
+        ("gemini-cli", "gemini-2.5-flash") => Some("gemini-2-5-flash".to_string()),
+        (_, "") | (_, "default") => None,
+        _ => Some(model.to_string()),
     }
 }
 
@@ -320,9 +311,15 @@ mod tests {
         assert_eq!(provider_for_agent("codex-cli"), Ok("openai"));
         assert_eq!(default_model_for_agent("codex-cli"), Ok("gpt-5-5"));
         assert_eq!(
-            model_id_from_cli("claude-code", "sonnet"),
+            model_id_from_cli("claude-code", "sonnet").as_deref(),
             Some("claude-sonnet-5")
         );
+        assert_eq!(
+            model_id_from_cli("claude-code", "deepseek-chat").as_deref(),
+            Some("deepseek-chat")
+        );
+        assert_eq!(model_id_from_cli("claude-code", ""), None);
+        assert_eq!(model_id_from_cli("claude-code", "default"), None);
     }
 
     #[test]
@@ -341,12 +338,12 @@ mod tests {
             Err(SessionsDomainError::ProviderMismatch { .. })
         ));
 
-        let mut invalid = request();
-        invalid.model_id = Some("gpt-5-5");
-        assert!(matches!(
-            normalize_chat_preferences("gemini-cli", invalid),
-            Err(SessionsDomainError::UnsupportedModel { .. })
-        ));
+        let mut custom = request();
+        custom.model_id = Some("gpt-5-5");
+        // Unknown models are now accepted as custom model IDs
+        let preferences =
+            normalize_chat_preferences("gemini-cli", custom).expect("custom model accepted");
+        assert_eq!(preferences.model_id(), "gpt-5-5");
 
         let mut invalid = request();
         invalid.reasoning_depth = Some("extreme");

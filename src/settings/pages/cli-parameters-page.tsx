@@ -31,6 +31,8 @@ function ParameterControl({
   onChange: (value: CliParameterValue) => void;
 }) {
   const { t } = useTranslation();
+  const [customText, setCustomText] = useState<string>("");
+
   if (definition.control === "boolean") {
     const checked = value === true;
     return (
@@ -45,6 +47,63 @@ function ParameterControl({
       >
         {t(checked ? "cliParameters.common.enabled" : "cliParameters.common.disabled")}
       </Button>
+    );
+  }
+
+  if (definition.control === "custom-text") {
+    const strValue = typeof value === "string" ? value : "default";
+    const isKnown = definition.options.some((option) => option.value === strValue);
+    const isCustom = !isKnown && strValue !== "default";
+    const selectValue = isCustom ? "__custom__" : strValue;
+    return (
+      <div className="space-y-2">
+        <select
+          aria-label={t(definition.labelKey)}
+          className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onChange={(event) => {
+            const v = event.currentTarget.value;
+            if (v === "__custom__") {
+              onChange(customText || "");
+            } else {
+              onChange(v);
+            }
+          }}
+          value={selectValue}
+        >
+          {definition.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {t(option.labelKey)}
+            </option>
+          ))}
+          {isCustom ? (
+            <option key="__custom__" value="__custom__">
+              {strValue}
+            </option>
+          ) : (
+            <option key="__custom__" value="__custom__">
+              {t("cliParameters.custom.option")}
+            </option>
+          )}
+        </select>
+        {selectValue === "__custom__" ? (
+          <input
+            aria-label={t("cliParameters.custom.placeholder")}
+            className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onChange={(event) => {
+              setCustomText(event.currentTarget.value);
+              onChange(event.currentTarget.value);
+            }}
+            placeholder={t("cliParameters.custom.placeholder")}
+            type="text"
+            value={isCustom && selectValue === "__custom__" ? strValue : customText}
+          />
+        ) : null}
+        {!isCustom && typeof strValue === "string" ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t(definition.options.find((option) => option.value === strValue)?.descriptionKey ?? "cliParameters.values.default.description")}
+          </p>
+        ) : null}
+      </div>
     );
   }
 

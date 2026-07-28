@@ -507,7 +507,15 @@ impl SessionsApplicationService {
             })
             .map(Ok)
             .unwrap_or_else(|| {
-                let defaults = self.ports.chat_profiles.defaults_for(&session.agent_id)?;
+                let workspace_path = session
+                    .workspace
+                    .worktree_path
+                    .as_deref()
+                    .or(session.workspace.project_path.as_deref());
+                let defaults = self
+                    .ports
+                    .chat_profiles
+                    .defaults_for(&session.agent_id, workspace_path)?;
                 normalize_chat_preferences(&session.agent_id, defaults.as_domain_request())
                     .map_err(SessionsApplicationError::from)
             })?;

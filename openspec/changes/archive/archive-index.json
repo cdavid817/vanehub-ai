@@ -1082,6 +1082,22 @@
                          "capabilities":  [
                                               "session-workspace-tabs"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-28",
+                         "changeName":  "dynamic-llm-model-discovery",
+                         "path":  "openspec/changes/archive/2026-07-28-dynamic-llm-model-discovery/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "cli-parameter-management",
+                                              "custom-model-display",
+                                              "native-model-discovery",
+                                              "session-chat-configuration"
+                                          ]
                      }
                  ]
 }

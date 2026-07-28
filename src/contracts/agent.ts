@@ -194,7 +194,7 @@ export const managedCliAgentIds = [
   "opencode",
 ] as const;
 export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
-export type CliParameterControl = "enum" | "boolean" | "multi-enum";
+export type CliParameterControl = "enum" | "boolean" | "multi-enum" | "custom-text";
 export type CliParameterValue = string | boolean | string[];
 export type CliParameterLaunchScope = "interactive" | "chat";
 export type CliParameterRisk = "normal" | "warning";
