@@ -320,7 +320,7 @@ fn write_bootstrap_log(
     });
 }
 
-/// 将任意Error类型转换为Box<dyn Error>特征对象
+/// 将任意Error类型转换为`Box<dyn Error>`特征对象
 /// 用于统一错误类型，方便?运算符传播
 /// # 参数
 /// * `error` - 实现了Error特征的错误类型
