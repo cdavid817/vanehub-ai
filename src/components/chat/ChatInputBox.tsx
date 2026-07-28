@@ -112,7 +112,7 @@ export function ChatInputBox({
           </div>
         ) : null}
         <textarea
-          className="ucd-input min-h-10 w-full resize-none rounded-md px-3 py-2 pr-10 text-sm leading-6 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="ucd-input min-h-10 w-full resize-none rounded-md px-3 py-2 pr-10 text-sm leading-6 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {

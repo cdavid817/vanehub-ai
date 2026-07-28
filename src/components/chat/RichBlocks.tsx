@@ -68,7 +68,7 @@ function CardBlock({ block }: { block: RichCardBlock }) {
           {block.fields.map((field) => (
             <div className="grid grid-cols-[minmax(5rem,0.35fr)_1fr] gap-2" key={field.label}>
               <dt className="truncate text-muted-foreground">{field.label}</dt>
-              <dd className="min-w-0 break-words">{field.value}</dd>
+              <dd className="min-w-0 wrap-break-word">{field.value}</dd>
             </div>
           ))}
         </dl>
@@ -103,7 +103,7 @@ function ChecklistBlock({ block }: { block: RichChecklistBlock }) {
             ) : (
               <Circle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             )}
-            <span className={cn("min-w-0 break-words", item.checked && "text-muted-foreground line-through")}>{item.text}</span>
+            <span className={cn("min-w-0 wrap-break-word", item.checked && "text-muted-foreground line-through")}>{item.text}</span>
           </li>
         ))}
       </ul>

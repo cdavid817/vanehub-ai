@@ -42,7 +42,7 @@ function Field({ icon, label, value }: { icon: ReactNode; label: string; value: 
         {icon}
         <span className="truncate">{label}</span>
       </dt>
-      <dd className="mt-1 min-h-5 break-words text-sm font-medium">{value}</dd>
+      <dd className="mt-1 min-h-5 wrap-break-word text-sm font-medium">{value}</dd>
     </div>
   );
 }
@@ -197,7 +197,7 @@ export function SessionInfoPanel({
     <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-lg transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
       <div className="flex h-full min-h-0 flex-col p-3">
         <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2><Button className="h-7 px-2 text-xs" onClick={() => onCollapsedChange(true)} variant="outline"><PanelRightClose className="h-3.5 w-3.5" />{t("layout.collapse")}</Button></div>
-        <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">{tabs.map((tab) => <button aria-pressed={activeTab === tab.key} className={cn("h-8 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-sm" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveTab(tab.key)} title={t(tab.labelKey)} type="button">{t(tab.labelKey)}</button>)}</div>
+        <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">{tabs.map((tab) => <button aria-pressed={activeTab === tab.key} className={cn("h-8 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveTab(tab.key)} title={t(tab.labelKey)} type="button">{t(tab.labelKey)}</button>)}</div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <Pane active={activeTab === "basic"}>
             <dl className="grid gap-3">

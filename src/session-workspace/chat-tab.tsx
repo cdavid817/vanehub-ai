@@ -20,7 +20,7 @@ export function ChatTab({
   const { t } = useTranslation();
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))] shadow-sm">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))] shadow-xs">
         <div className="flex items-center justify-between gap-3 border-b border-border p-4">
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold">{activeSession?.title ?? t("layout.noSession")}</h3>

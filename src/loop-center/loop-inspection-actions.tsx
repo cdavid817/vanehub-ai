@@ -50,7 +50,7 @@ export function LoopInspectionActions({
         return (
           <button
             aria-label={label}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             key={surface}
             onClick={() => onInspect({ sessionId, surface })}
             title={label}

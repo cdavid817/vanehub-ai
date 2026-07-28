@@ -43,7 +43,7 @@ function SelectField<T extends string>({
     <label className="grid gap-1.5 text-sm">
       <span className="font-medium text-muted-foreground">{label}</span>
       <select
-        className="ucd-input h-9 w-full rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="ucd-input h-9 w-full rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         disabled={disabled}
         onChange={(event) => onChange(event.target.value as T)}
         value={value}
@@ -149,7 +149,7 @@ export function BasicSettingsPage() {
             <label className="grid gap-1.5 text-sm">
               <span className="font-medium text-muted-foreground">{t("basic.logDirectory")}</span>
               <input
-                className="ucd-input h-9 w-full rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ucd-input h-9 w-full rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={busy}
                 onBlur={() => {
                   if (logDirectoryDraft !== settings.logDirectory) {

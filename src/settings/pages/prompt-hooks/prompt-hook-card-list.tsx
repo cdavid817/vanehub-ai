@@ -126,7 +126,7 @@ function PromptHookCard({
     <section
       aria-posinset={position}
       aria-setsize={total}
-      className="ucd-panel grid min-h-[20rem] gap-4 rounded-lg p-4"
+      className="ucd-panel grid min-h-80 gap-4 rounded-lg p-4"
       role="listitem"
     >
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">

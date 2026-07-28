@@ -12,7 +12,7 @@ export function SettingsSidebar({ activePageId, onSelectPage }: SettingsSidebarP
   const { t } = useTranslation();
 
   return (
-    <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-background p-2 shadow-sm max-lg:block max-lg:overflow-hidden">
+    <aside className="flex min-h-0 flex-col rounded-lg border border-border bg-background p-2 shadow-xs max-lg:block max-lg:overflow-hidden">
       <div className="px-3 pb-3 pt-2 max-lg:hidden">
         <div className="text-xs font-semibold uppercase text-muted-foreground">{t("app.settings.system")}</div>
       </div>

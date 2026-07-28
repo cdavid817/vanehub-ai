@@ -167,7 +167,7 @@ export function FloatingAssistantApp() {
           <button className="absolute -top-1 left-1/2 z-10 flex h-4 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-background/80 text-muted-foreground" onPointerDown={() => void floatingAssistantService.startDragging()} title={t("floating.drag")} type="button">
             <GripHorizontal className="h-3 w-3" aria-hidden="true" />
           </button>
-          <button aria-label={`${t("floating.openMenu")} · ${statusText}`} className="rounded-2xl transition-transform hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => changeMode("menu")} type="button">
+          <button aria-label={`${t("floating.openMenu")} · ${statusText}`} className="rounded-2xl transition-transform hover:scale-105 motion-reduce:transform-none motion-reduce:transition-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={() => changeMode("menu")} type="button">
             <AssistantMark status={assistantStatus} />
           </button>
         </div>
@@ -217,7 +217,7 @@ export function FloatingAssistantApp() {
         </div>
         {error ? <p className="mx-3 mb-2 rounded-md bg-[hsl(var(--danger-soft))] p-2 text-xs text-[hsl(var(--danger))]">{error}</p> : null}
         <div className="border-t border-border p-3">
-          <textarea className="ucd-input min-h-16 w-full resize-none rounded-lg px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={!activeSession || sendMutation.isPending || isStreaming} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (draft.trim() && !isStreaming) sendMutation.mutate(); } }} placeholder={t("floating.placeholder")} value={draft} />
+          <textarea className="ucd-input min-h-16 w-full resize-none rounded-lg px-3 py-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" disabled={!activeSession || sendMutation.isPending || isStreaming} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (draft.trim() && !isStreaming) sendMutation.mutate(); } }} placeholder={t("floating.placeholder")} value={draft} />
           <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
             <span>{t("floating.usesSessionConfig")}</span>
             {isStreaming ? <button className="flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-foreground hover:bg-muted" onClick={() => stopMutation.mutate()} type="button"><Square className="h-3.5 w-3.5" />{t("floating.stop")}</button> : <button className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-primary-foreground disabled:opacity-40" disabled={!activeSession || !configQuery.data || !draft.trim() || sendMutation.isPending} onClick={() => sendMutation.mutate()} type="button"><Send className="h-3.5 w-3.5" />{t("floating.send")}</button>}

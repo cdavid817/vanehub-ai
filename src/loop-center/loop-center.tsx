@@ -93,7 +93,7 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
 }
 
 const IconButton = forwardRef<HTMLButtonElement, { children: ReactNode; controls: string; label: string; onClick: () => void; open: boolean }>(function IconButton({ children, controls, label, onClick, open }, ref) {
-  return <button aria-controls={controls} aria-expanded={open} aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onClick} ref={ref} title={label} type="button">{children}</button>;
+  return <button aria-controls={controls} aria-expanded={open} aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onClick={onClick} ref={ref} title={label} type="button">{children}</button>;
 });
 
 function useDrawerFocus(open: boolean, setOpen: Dispatch<SetStateAction<boolean>>, drawerRef: RefObject<HTMLElement | null>, triggerRef: RefObject<HTMLButtonElement | null>) {

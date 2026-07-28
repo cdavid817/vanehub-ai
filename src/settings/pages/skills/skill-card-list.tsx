@@ -33,7 +33,7 @@ export function SkillCardList({
   return (
     <div className="grid items-start gap-4 xl:grid-cols-2">
       {skills.map((skill) => (
-        <section className="ucd-panel grid min-h-[18rem] gap-4 rounded-lg p-4" key={`${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`}>
+        <section className="ucd-panel grid min-h-72 gap-4 rounded-lg p-4" key={`${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`}>
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">

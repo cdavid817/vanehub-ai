@@ -78,7 +78,7 @@ export function FloatingAssistantSettingsSection() {
             role="switch"
             type="button"
           >
-            <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-background shadow transition-transform ${(config?.enabled ?? false) ? "translate-x-5" : "translate-x-0"}`} />
+            <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${(config?.enabled ?? false) ? "translate-x-5" : "translate-x-0"}`} />
           </button>
         </div>
         <p className="text-xs text-muted-foreground">

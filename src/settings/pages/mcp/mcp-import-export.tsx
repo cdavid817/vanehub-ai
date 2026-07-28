@@ -84,12 +84,12 @@ export function McpImportExportModal({
           <div className="grid gap-3">
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.modal.importScope")}</span>
-              <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
+              <select className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
                 <option value="user">{t("mcp.scope.userConfig")}</option>
                 <option value="project">{t("mcp.scope.projectConfig")}</option>
               </select>
             </label>
-            <textarea className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={input} onChange={(event) => setInput(event.target.value)} />
+            <textarea className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={input} onChange={(event) => setInput(event.target.value)} />
             {importNames.length ? <div className="text-xs text-muted-foreground">{t("mcp.modal.preview", { names: importNames.join(", ") })}</div> : null}
             <Button onClick={() => void handleImport()}>
               <Upload className="h-4 w-4" aria-hidden="true" />
@@ -118,7 +118,7 @@ export function McpImportExportModal({
               <Download className="h-4 w-4" aria-hidden="true" />
               {t("mcp.modal.generateJson")}
             </Button>
-            <textarea readOnly className="ucd-input min-h-64 rounded p-3 font-mono text-xs outline-none" value={output} />
+            <textarea readOnly className="ucd-input min-h-64 rounded p-3 font-mono text-xs outline-hidden" value={output} />
             <Button variant="outline" onClick={() => void copyOutput()} disabled={!output}>
               <Clipboard className="h-4 w-4" aria-hidden="true" />
               {t("mcp.modal.copy")}

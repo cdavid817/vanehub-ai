@@ -25,7 +25,7 @@ export function SettingsTopBar({ activePage, searchTerm, onSearchTermChange, onR
             <span>/</span>
             <span>{t("app.settings.breadcrumb")}</span>
           </div>
-          <h1 className="mt-0.5 break-words text-lg font-semibold leading-tight tracking-tight">{t(activePage.crumbKey)}</h1>
+          <h1 className="mt-0.5 wrap-break-word text-lg font-semibold leading-tight tracking-tight">{t(activePage.crumbKey)}</h1>
         </div>
       </div>
 
@@ -33,7 +33,7 @@ export function SettingsTopBar({ activePage, searchTerm, onSearchTermChange, onR
         <div className="relative min-w-0 lg:w-[min(34vw,420px)] lg:min-w-72">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
-            className="ucd-input h-9 w-full rounded-md px-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 w-full rounded-md px-9 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => onSearchTermChange(event.target.value)}
             placeholder={t(activePage.searchPlaceholderKey)}
             value={searchTerm}

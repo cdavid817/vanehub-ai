@@ -59,7 +59,7 @@ function ParameterControl({
       <div className="space-y-2">
         <select
           aria-label={t(definition.labelKey)}
-          className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           onChange={(event) => {
             const v = event.currentTarget.value;
             if (v === "__custom__") {
@@ -88,7 +88,7 @@ function ParameterControl({
         {selectValue === "__custom__" ? (
           <input
             aria-label={t("cliParameters.custom.placeholder")}
-            className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => {
               setCustomText(event.currentTarget.value);
               onChange(event.currentTarget.value);
@@ -113,7 +113,7 @@ function ParameterControl({
     <div className="space-y-2">
       <select
         aria-label={t(definition.labelKey)}
-        className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="min-h-9 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         multiple={multiple}
         onChange={(event) => {
           if (multiple) {

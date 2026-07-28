@@ -14,7 +14,7 @@ import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 const retainedTerminalReplayBytes = 1_000_000;
 const replayBySession = new Map<string, string>();
 export const agentTerminalInputClassName =
-  "ucd-agent-terminal-input min-h-20 w-full resize-none border-0 px-2 py-1 text-sm outline-none disabled:cursor-not-allowed";
+  "ucd-agent-terminal-input min-h-20 w-full resize-none border-0 px-2 py-1 text-sm outline-hidden disabled:cursor-not-allowed";
 
 function readReplay(sessionId: string) {
   return replayBySession.get(sessionId) ?? "";
@@ -216,7 +216,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
       {error ? <div className="p-2"><WorkspaceState kind="error" message={t(error)} /></div> : null}
       <div aria-label={t("sessionTabs.agentTerminal.terminal")} className="ucd-agent-terminal min-h-0 flex-1 p-2" ref={hostRef} />
       <form className="shrink-0 border-t border-border bg-background/80 p-2" onSubmit={(event) => { event.preventDefault(); submitCommand(); }}>
-        <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 shadow-sm focus-within:border-primary">
+        <div className="rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2 shadow-xs focus-within:border-primary">
           <textarea
           aria-label={t("sessionTabs.agentTerminal.input")}
           className={agentTerminalInputClassName}

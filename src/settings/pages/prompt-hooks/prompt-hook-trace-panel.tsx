@@ -12,7 +12,7 @@ export function PromptHookTracePanel({ traces }: { traces: PromptHookTraceSummar
         <div className="text-sm text-muted-foreground">{t("promptHooks.trace.empty")}</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[56rem] text-left text-sm">
+          <table className="w-full min-w-4xl text-left text-sm">
             <thead className="text-xs text-muted-foreground">
               <tr>
                 <th className="px-2 py-2 font-medium">{t("promptHooks.trace.hookId")}</th>

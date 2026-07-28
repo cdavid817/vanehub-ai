@@ -24,7 +24,7 @@ export function McpTestResultPanel({
         </div>
         {duration ? <span>{duration}ms</span> : null}
       </div>
-      {error ? <div className="mb-2 break-words">{error}</div> : null}
+      {error ? <div className="mb-2 wrap-break-word">{error}</div> : null}
       {tools.length ? (
         <div className="grid gap-1">
           {tools.slice(0, 5).map((tool) => (

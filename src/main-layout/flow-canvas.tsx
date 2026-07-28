@@ -68,7 +68,7 @@ export function FlowCanvas({
         </div>
       </div>
 
-      <div className="relative min-h-[530px] flex-1 overflow-hidden rounded-lg border border-border bg-[linear-gradient(hsl(var(--primary)/0.08)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary)/0.08)_1px,transparent_1px)] bg-[size:100px_100px]">
+      <div className="relative min-h-[530px] flex-1 overflow-hidden rounded-lg border border-border bg-[linear-gradient(hsl(var(--primary)/0.08)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary)/0.08)_1px,transparent_1px)] bg-size-[100px_100px]">
         {canvasMode === "flow" ? (
           <>
             <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
@@ -126,7 +126,7 @@ export function FlowCanvas({
 
       <div className="mt-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
         <textarea
-          className="ucd-input min-h-16 w-full resize-none rounded-md px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="ucd-input min-h-16 w-full resize-none rounded-md px-3 py-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           placeholder="Enter instructions for all agents..."
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">

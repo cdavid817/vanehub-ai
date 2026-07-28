@@ -90,19 +90,19 @@ export function McpServerForm({
         <div className="grid gap-3 text-sm md:grid-cols-2">
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">{t("mcp.form.name")}</span>
-            <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
+            <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
             {fieldErrors.name ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.name}</span> : null}
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">{t("mcp.form.scope")}</span>
-            <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
+            <select className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={scope} onChange={(event) => setScope(event.target.value as McpScope)}>
               <option value="user">{t("mcp.scope.userConfig")}</option>
               <option value="project">{t("mcp.scope.projectConfig")}</option>
             </select>
           </label>
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">{t("mcp.form.transport")}</span>
-            <select className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={transportType} onChange={(event) => setTransportType(event.target.value as McpTransportType)}>
+            <select className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={transportType} onChange={(event) => setTransportType(event.target.value as McpTransportType)}>
               <option value="stdio">stdio</option>
               <option value="sse">sse</option>
               <option value="streamable_http">streamable_http</option>
@@ -116,24 +116,24 @@ export function McpServerForm({
 
         <label className="mt-3 grid gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{t("mcp.form.description")}</span>
-          <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={description} onChange={(event) => setDescription(event.target.value)} />
+          <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={description} onChange={(event) => setDescription(event.target.value)} />
         </label>
 
         {transportType === "stdio" ? (
           <div className="mt-3 grid gap-3">
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.command")}</span>
-              <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={command} onChange={(event) => setCommand(event.target.value)} />
+              <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={command} onChange={(event) => setCommand(event.target.value)} />
               {fieldErrors.command ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.command}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.args")}</span>
-              <textarea className="ucd-input min-h-24 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={args} onChange={(event) => setArgs(event.target.value)} />
+              <textarea className="ucd-input min-h-24 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={args} onChange={(event) => setArgs(event.target.value)} />
               {fieldErrors.args ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.args}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.envJson")}</span>
-              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
+              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={env} onChange={(event) => setEnv(event.target.value)} />
               {fieldErrors.env ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.env}</span> : null}
             </label>
           </div>
@@ -141,12 +141,12 @@ export function McpServerForm({
           <div className="mt-3 grid gap-3">
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.url")}</span>
-              <input className="ucd-input h-9 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" value={url} onChange={(event) => setUrl(event.target.value)} />
+              <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={url} onChange={(event) => setUrl(event.target.value)} />
               {fieldErrors.url ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.url}</span> : null}
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t("mcp.form.headersJson")}</span>
-              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
+              <textarea className="ucd-input min-h-28 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={headers} onChange={(event) => setHeaders(event.target.value)} />
               {fieldErrors.headers ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.headers}</span> : null}
             </label>
           </div>

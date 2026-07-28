@@ -79,9 +79,9 @@ function NotificationToast({
         <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="min-w-0">
-        <span className="block break-words text-sm font-semibold text-foreground">{notification.title}</span>
+        <span className="block wrap-break-word text-sm font-semibold text-foreground">{notification.title}</span>
         {notification.message ? (
-          <span className="mt-0.5 block break-words text-xs leading-5 text-muted-foreground">
+          <span className="mt-0.5 block wrap-break-word text-xs leading-5 text-muted-foreground">
             {notification.message}
           </span>
         ) : null}
@@ -120,7 +120,7 @@ export function NotificationToastViewport({
     <div
       aria-label={t("notifications.toastRegion")}
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-2 bottom-10 z-[60] grid justify-items-end gap-2 sm:left-auto sm:right-4 sm:w-[min(24rem,calc(100vw-2rem))]"
+      className="pointer-events-none fixed inset-x-2 bottom-10 z-60 grid justify-items-end gap-2 sm:left-auto sm:right-4 sm:w-[min(24rem,calc(100vw-2rem))]"
     >
       {activeToasts.map((notification) => (
         <NotificationToast

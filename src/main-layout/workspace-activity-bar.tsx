@@ -23,7 +23,7 @@ interface WorkspaceActivityBarProps {
 }
 
 const activityButtonClass =
-  "ucd-interactive flex h-10 w-10 items-center justify-center rounded-lg border border-transparent text-muted-foreground outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "ucd-interactive flex h-10 w-10 items-center justify-center rounded-lg border border-transparent text-muted-foreground outline-hidden focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 export function WorkspaceActivityBar({
   activeDestination,

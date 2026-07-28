@@ -164,7 +164,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") applyCapabilityFilter();
                 }}
-                className="ucd-input h-9 min-w-56 flex-1 rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ucd-input h-9 min-w-56 flex-1 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 placeholder={t("agents.filter.placeholder")}
               />
               <Button variant="outline" onClick={applyCapabilityFilter}>
