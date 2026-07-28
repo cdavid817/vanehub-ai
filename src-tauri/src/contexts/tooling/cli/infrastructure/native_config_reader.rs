@@ -291,7 +291,9 @@ fn discover_opencode_model_from_db(
              ORDER BY time_updated DESC LIMIT 1",
         )
         .ok()?;
-    let model_json: String = stmt.query_row([&matched_directory], |row| row.get(0)).ok()?;
+    let model_json: String = stmt
+        .query_row([&matched_directory], |row| row.get(0))
+        .ok()?;
     extract_opencode_model_id(&model_json)
 }
 
@@ -311,13 +313,22 @@ fn discover_opencode_model_from_config(home: &Path, reader: &NativeConfigReader)
     let parsed: Option<serde_json::Value> = serde_json::from_str(&content).ok();
     match parsed {
         Some(json) => {
-            let models = json.get("provider")?.as_object()?.values().next()?.get("models")?.as_object()?;
+            let models = json
+                .get("provider")?
+                .as_object()?
+                .values()
+                .next()?
+                .get("models")?
+                .as_object()?;
             models.keys().next().cloned()
         }
         None => {
             reader.warn(
                 "cli.native-config",
-                format!("failed to parse opencode opencode.json (json5): {}", path.display()),
+                format!(
+                    "failed to parse opencode opencode.json (json5): {}",
+                    path.display()
+                ),
             );
             None
         }
@@ -327,18 +338,20 @@ fn discover_opencode_model_from_config(home: &Path, reader: &NativeConfigReader)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationsError};
+    use crate::contexts::operations::api::{
+        DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationsError,
+    };
     use std::sync::Mutex;
 
     #[derive(Clone, Default)]
     struct NullLogger(Arc<Mutex<Vec<(LogSeverity, String, String)>>>);
 
     impl DiagnosticLogPort for NullLogger {
-        fn write_diagnostic(
-            &self,
-            log: DiagnosticLog,
-        ) -> Result<(), OperationsError> {
-            self.0.lock().unwrap().push((log.severity, log.category, log.message));
+        fn write_diagnostic(&self, log: DiagnosticLog) -> Result<(), OperationsError> {
+            self.0
+                .lock()
+                .unwrap()
+                .push((log.severity, log.category, log.message));
             Ok(())
         }
     }
@@ -623,7 +636,7 @@ mod tests {
         let model = discover_opencode_model(&home, &reader(), None);
         assert!(model.is_some());
         // First key in models is model discovery target
-        assert!(model.unwrap().len() > 0);
+        assert!(!model.unwrap().is_empty());
     }
 
     #[test]
@@ -647,8 +660,14 @@ mod tests {
         conn
     }
 
-    fn insert_opencode_session(conn: &rusqlite::Connection, directory: &str, model_id: &str, time_updated: i64) {
-        let model_json = serde_json::json!({ "id": model_id, "providerID": "deepseek" }).to_string();
+    fn insert_opencode_session(
+        conn: &rusqlite::Connection,
+        directory: &str,
+        model_id: &str,
+        time_updated: i64,
+    ) {
+        let model_json =
+            serde_json::json!({ "id": model_id, "providerID": "deepseek" }).to_string();
         conn.execute(
             "INSERT INTO session (directory, model, time_updated) VALUES (?1, ?2, ?3)",
             rusqlite::params![directory, model_json, time_updated],
@@ -681,8 +700,18 @@ mod tests {
     fn opencode_db_picks_most_recent_when_multiple_sessions() {
         let (_tmp, home) = temp_home();
         let conn = create_opencode_db(&home);
-        insert_opencode_session(&conn, "D:/cdavid/Documents/code/gemini-cli", "older-model", 1_000);
-        insert_opencode_session(&conn, "D:/cdavid/Documents/code/gemini-cli", "newer-model", 2_000);
+        insert_opencode_session(
+            &conn,
+            "D:/cdavid/Documents/code/gemini-cli",
+            "older-model",
+            1_000,
+        );
+        insert_opencode_session(
+            &conn,
+            "D:/cdavid/Documents/code/gemini-cli",
+            "newer-model",
+            2_000,
+        );
         drop(conn);
         assert_eq!(
             discover_opencode_model(

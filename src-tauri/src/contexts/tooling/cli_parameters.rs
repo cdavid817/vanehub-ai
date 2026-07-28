@@ -344,9 +344,9 @@ fn validate_value(definition: &CliParameterDefinition, value: &Value) -> bool {
                     .iter()
                     .any(|option| option.value == candidate)
         }),
-        CliParameterControl::CustomText => value.as_str().is_some_and(|candidate| {
-            !has_control_char(candidate) && !candidate.trim().is_empty()
-        }),
+        CliParameterControl::CustomText => value
+            .as_str()
+            .is_some_and(|candidate| !has_control_char(candidate) && !candidate.trim().is_empty()),
         CliParameterControl::MultiEnum => value.as_array().is_some_and(|values| {
             values.iter().all(|entry| {
                 entry.as_str().is_some_and(|candidate| {
