@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: File explorer directory error visibility
 The Files tab SHALL surface directory-load errors in the file-tree section where the user action occurred, and SHALL NOT mark a directory as expanded when its contents failed to load.
@@ -7,10 +7,6 @@ The Files tab SHALL surface directory-load errors in the file-tree section where
 - **WHEN** the user clicks a directory and the listing service rejects the request
 - **THEN** the file-tree section SHALL display a localized error notice following the existing partial-results pattern
 - **AND** the directory SHALL remain visually collapsed (ChevronRight) rather than appearing empty-and-expanded
-
-#### Scenario: Directory expand succeeds
-- **WHEN** the user clicks a directory and the listing service returns its children
-- **THEN** the directory SHALL expand and render its child entries with the existing layout
 
 ### Requirement: Git changes selection stability
 The Changes tab SHALL auto-select the first status entry only on initial data load and SHALL preserve the user's manual selection across status-data refetches for the same session.
