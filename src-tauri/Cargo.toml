@@ -35,7 +35,7 @@ tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
 russh = { version = "=0.62.4", default-features = false, features = ["ring"] }
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 futures-util = "0.3"
 keyring = "4.1.5"
 prost = "0.14"
