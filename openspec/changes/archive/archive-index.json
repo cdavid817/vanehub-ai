@@ -1098,19 +1098,6 @@
                                               "native-model-discovery",
                                               "session-chat-configuration"
                                           ]
-                     },
-                     {
-                         "archivedOn":  "2026-07-28",
-                         "changeName":  "fix-settings-hydration-flash",
-                         "path":  "openspec/changes/archive/2026-07-28-fix-settings-hydration-flash/",
-                         "artifacts":  [
-                                           "proposal",
-                                           "design",
-                                           "tasks"
-                                       ],
-                         "capabilities":  [
-                                              "app-settings"
-                                          ]
                      }
                  ]
 }
