@@ -31,7 +31,7 @@ export const LoopNavigation = forwardRef<HTMLElement, LoopNavigationProps>(funct
           <NavigationAction disabled={!props.selectedDefinitionId} label={t("loops.definitions.edit")} onClick={props.onEditDefinition}><Pencil aria-hidden="true" /></NavigationAction>
         </div>
         {props.onClose ? (
-          <button aria-label={t("loops.navigation.close")} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:hidden" onClick={props.onClose} title={t("loops.navigation.close")} type="button">
+          <button aria-label={t("loops.navigation.close")} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:hidden" onClick={props.onClose} title={t("loops.navigation.close")} type="button">
             <X aria-hidden="true" className="h-4 w-4" />
           </button>
         ) : null}
@@ -75,7 +75,7 @@ export const LoopNavigation = forwardRef<HTMLElement, LoopNavigationProps>(funct
 });
 
 function NavigationAction({ children, disabled, label, onClick }: { children: ReactNode; disabled?: boolean; label: string; onClick: () => void }) {
-  return <button aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40" disabled={disabled} onClick={onClick} title={label} type="button">{children}</button>;
+  return <button aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40" disabled={disabled} onClick={onClick} title={label} type="button">{children}</button>;
 }
 
 function SectionLabel({ value }: { value: string }) {

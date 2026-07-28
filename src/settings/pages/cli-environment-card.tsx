@@ -139,7 +139,7 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
         {tool.lifecycleEligibility === "npm" ? (
           <select
             aria-label={t("cli.targetVersion", { name: tool.displayName })}
-            className="ucd-input h-9 min-w-36 flex-1 rounded px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 min-w-36 flex-1 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             disabled={props.packageBusy || operationRunning || options.length === 0}
             value={props.selectedVersion}
             onChange={(event) => props.onSelectedVersionChange(event.target.value)}

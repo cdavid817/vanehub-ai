@@ -79,7 +79,7 @@ function CommandRow({ command, index, onMove, onRemove, onUpdate, showError, tot
 }
 
 function CommandAction({ children, disabled, label, onClick }: { children: ReactNode; disabled?: boolean; label: string; onClick: () => void }) {
-  return <button aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40" disabled={disabled} onClick={onClick} title={label} type="button">{children}</button>;
+  return <button aria-label={label} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40" disabled={disabled} onClick={onClick} title={label} type="button">{children}</button>;
 }
 
 function Field({ children, label }: { children: ReactNode; label: string }) {
@@ -87,4 +87,4 @@ function Field({ children, label }: { children: ReactNode; label: string }) {
   return <label className="grid gap-1.5"><span className="text-xs font-medium text-muted-foreground">{t(label)}</span>{children}</label>;
 }
 
-const inputClass = "ucd-input h-9 w-full rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const inputClass = "ucd-input h-9 w-full rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring";

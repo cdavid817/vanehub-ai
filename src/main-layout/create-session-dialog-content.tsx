@@ -188,7 +188,7 @@ export function CreateSessionDialogContent({
                 {t("createSession.sessionName")}
               </span>
               <input
-                className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 onChange={(event) => onTitleChange(event.target.value)}
                 placeholder={t("createSession.sessionPlaceholder")}
                 value={title}

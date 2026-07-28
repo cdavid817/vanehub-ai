@@ -28,7 +28,7 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
       <header className="mb-3 flex min-h-8 items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground">{t("loops.inspector.title")}</h2>
         {onClose ? (
-          <button aria-label={t("loops.inspector.close")} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:hidden" onClick={onClose} title={t("loops.inspector.close")} type="button">
+          <button aria-label={t("loops.inspector.close")} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring min-[1024px]:hidden" onClick={onClose} title={t("loops.inspector.close")} type="button">
             <X aria-hidden="true" className="h-4 w-4" />
           </button>
         ) : null}
@@ -76,7 +76,7 @@ function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 border-b border-border/60 pb-3 last:border-0">
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words text-xs text-foreground">{value}</dd>
+      <dd className="mt-1 wrap-break-word text-xs text-foreground">{value}</dd>
     </div>
   );
 }

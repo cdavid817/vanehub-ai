@@ -16,7 +16,7 @@ export function LoopIterationDetails({ iteration, onInspect, open }: { iteration
   const deletions = evidenceDetailNumber(workerEvidence, "deletions");
   return (
     <details className="group rounded-md border border-border/70 bg-background/30" onToggle={(event) => setExpanded(event.currentTarget.open)} open={expanded}>
-      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <StatusIcon status={iteration.status} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{t("loops.iterations.number", { number: iteration.sequence })}</span>
@@ -46,7 +46,7 @@ function EvidenceRow({ evidence, onInspect, sessionId }: { evidence: LoopEvidenc
   const { t } = useTranslation();
   return <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 border-l-2 border-border pl-2 text-xs">
     <StatusIcon status={evidence.status} />
-    <div className="min-w-0"><p className="break-words"><span className="font-medium">{t(`loops.evidence.kind.${evidence.kind}`)}</span>: {evidence.summary}</p><p className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-muted-foreground"><span>{t(`loops.evidence.status.${evidence.status}`)}</span>{evidence.commandId ? <span>{evidence.commandId}</span> : null}{evidence.exitCode !== null ? <span>{t("loops.evidence.exitCode", { code: evidence.exitCode })}</span> : null}{evidence.durationMs !== null ? <span>{t("loops.evidence.duration", { duration: evidence.durationMs })}</span> : null}{evidence.operationId ? <span className="break-all">{t("loops.evidence.operation", { id: evidence.operationId })}</span> : null}</p>{evidence.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={sessionId} surfaces={["logs"]} /> : null}</div>
+    <div className="min-w-0"><p className="wrap-break-word"><span className="font-medium">{t(`loops.evidence.kind.${evidence.kind}`)}</span>: {evidence.summary}</p><p className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-muted-foreground"><span>{t(`loops.evidence.status.${evidence.status}`)}</span>{evidence.commandId ? <span>{evidence.commandId}</span> : null}{evidence.exitCode !== null ? <span>{t("loops.evidence.exitCode", { code: evidence.exitCode })}</span> : null}{evidence.durationMs !== null ? <span>{t("loops.evidence.duration", { duration: evidence.durationMs })}</span> : null}{evidence.operationId ? <span className="break-all">{t("loops.evidence.operation", { id: evidence.operationId })}</span> : null}</p>{evidence.operationId ? <LoopInspectionActions onInspect={onInspect} sessionId={sessionId} surfaces={["logs"]} /> : null}</div>
   </div>;
 }
 

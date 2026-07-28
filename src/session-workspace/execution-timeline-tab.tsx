@@ -50,7 +50,7 @@ export function ExecutionTimelineTab({
           {runItems.map((run) => (
             <button
               aria-pressed={selectedRunId === run.runId}
-              className={cn("rounded-md border p-2 text-left", selectedRunId === run.runId ? "border-primary bg-background shadow-sm" : "border-transparent hover:bg-background")}
+              className={cn("rounded-md border p-2 text-left", selectedRunId === run.runId ? "border-primary bg-background shadow-xs" : "border-transparent hover:bg-background")}
               key={run.runId}
               onClick={() => setSelectedRunId(run.runId)}
               type="button"
@@ -134,7 +134,7 @@ function SpanNode({ node }: { node: SpanTreeNode }) {
     <div className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="break-words font-mono text-sm font-medium">{node.span.name}</div>
+          <div className="wrap-break-word font-mono text-sm font-medium">{node.span.name}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
             {durationLabel(node.span.durationMs, t)}

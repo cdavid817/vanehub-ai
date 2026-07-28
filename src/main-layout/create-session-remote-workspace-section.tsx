@@ -65,7 +65,7 @@ export function RemoteWorkspaceSection({
             {t("createSession.sshConnection")}
           </span>
           <select
-            className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => selectProfile(event.target.value)}
             value={selectedSshConnectionId}
           >
@@ -200,7 +200,7 @@ function SaveConnectionFields({
             {t("createSession.sshAuthMode")}
           </span>
           <select
-            className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) =>
               onUpdate("authMode", event.target.value as SshAuthMode)
             }
@@ -248,7 +248,7 @@ function RemoteField({
     <label className="grid gap-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <input
-        className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         type={type}

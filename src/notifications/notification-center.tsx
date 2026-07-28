@@ -83,7 +83,7 @@ export function NotificationCenter() {
       {open ? (
         <section
           aria-label={t("layout.notifications")}
-          className="ucd-panel absolute right-0 top-[calc(100%+0.5rem)] z-50 grid w-[min(22rem,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border !bg-[hsl(var(--panel))] shadow-xl"
+          className="ucd-panel absolute right-0 top-[calc(100%+0.5rem)] z-50 grid w-[min(22rem,calc(100vw-1rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel))]! shadow-xl"
           id="notification-center"
           role="dialog"
         >
@@ -156,7 +156,7 @@ export function NotificationCenter() {
                       type="button"
                     >
                       <span className="flex items-start gap-2">
-                        <span className="min-w-0 flex-1 break-words text-xs font-semibold">
+                        <span className="min-w-0 flex-1 wrap-break-word text-xs font-semibold">
                           {notification.title}
                         </span>
                         {!notification.read ? (
@@ -164,7 +164,7 @@ export function NotificationCenter() {
                         ) : null}
                       </span>
                       {notification.message ? (
-                        <span className="mt-0.5 block break-words text-xs leading-5 text-muted-foreground">
+                        <span className="mt-0.5 block wrap-break-word text-xs leading-5 text-muted-foreground">
                           {notification.message}
                         </span>
                       ) : null}

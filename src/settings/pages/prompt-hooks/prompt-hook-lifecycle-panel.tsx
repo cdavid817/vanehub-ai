@@ -112,7 +112,7 @@ export function PromptHookLifecyclePanel({
                     <span className="text-muted-foreground">{t("promptHooks.lifecycle.availability")}: </span>
                     {t(variable.availabilityKey)}
                   </span>
-                  <span className="mt-1 block break-words text-xs">
+                  <span className="mt-1 block wrap-break-word text-xs">
                     <span className="text-muted-foreground">{t("promptHooks.lifecycle.previewExample")}: </span>
                     <span className="font-mono">{variable.example}</span>
                   </span>

@@ -20,7 +20,7 @@ export function LogEntryArticle({
     <article
       aria-posinset={position}
       aria-setsize={total}
-      className="rounded border border-border bg-background p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="rounded border border-border bg-background p-2 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       data-log-id={entry.id}
       ref={(element) => {
         if (!element || !focused) return;

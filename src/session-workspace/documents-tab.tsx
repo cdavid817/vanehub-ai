@@ -56,7 +56,7 @@ export function DocumentsTab({ sessionId }: { sessionId: string | null }) {
       <article className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-4">
         {loading ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !content ? <WorkspaceState kind="empty" /> : content.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${content.status}`)} /> : selected?.kind === "markdown" ? (
           <div className="grid max-w-none gap-3 text-sm leading-6 text-foreground [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_li]:ml-5 [&_li]:list-disc [&_p]:whitespace-pre-wrap"><ReactMarkdown skipHtml>{content.content ?? ""}</ReactMarkdown></div>
-        ) : <pre className="whitespace-pre-wrap break-words text-sm leading-6">{content.content}</pre>}
+        ) : <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6">{content.content}</pre>}
       </article>
     </div>
   );

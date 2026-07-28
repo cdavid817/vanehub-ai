@@ -80,7 +80,7 @@ export function LocalWorkspaceSection({
         </span>
         <div className="flex gap-2">
           <input
-            className="ucd-input h-9 min-w-0 flex-1 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 min-w-0 flex-1 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onBlur={() => onInspectPath(projectPath)}
             onChange={(event) => setProjectPath(event.target.value)}
             placeholder="D:\\code\\project"
@@ -156,7 +156,7 @@ export function LocalWorkspaceSection({
               {t("createSession.worktreeName")}
             </span>
             <input
-              className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               onChange={(event) => setWorktreeName(event.target.value)}
               placeholder="feature-a"
               value={worktreeName}

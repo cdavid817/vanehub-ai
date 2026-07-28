@@ -27,7 +27,7 @@ export function PageHeader({
         ) : null}
         <div className="min-w-0">
           <div className="mb-1 text-xs font-medium text-muted-foreground">{t("app.settings.breadcrumb")}</div>
-          <h2 className="break-words text-2xl font-semibold leading-tight tracking-tight">{title}</h2>
+          <h2 className="wrap-break-word text-2xl font-semibold leading-tight tracking-tight">{title}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
         </div>
       </div>
@@ -50,7 +50,7 @@ export function SectionPanel({
   icon?: LucideIcon;
 }) {
   return (
-    <section className={cn("rounded-lg border border-border bg-background p-5 shadow-sm sm:p-6", className)}>
+    <section className={cn("rounded-lg border border-border bg-background p-5 shadow-xs sm:p-6", className)}>
       <div className="mb-5 flex gap-4 border-b border-border/70 pb-4">
         {Icon ? (
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))] text-primary">
@@ -58,7 +58,7 @@ export function SectionPanel({
           </span>
         ) : null}
         <div className="min-w-0">
-          <h3 className="break-words text-base font-semibold leading-6 tracking-tight">{title}</h3>
+          <h3 className="wrap-break-word text-base font-semibold leading-6 tracking-tight">{title}</h3>
           {description ? <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
         </div>
       </div>

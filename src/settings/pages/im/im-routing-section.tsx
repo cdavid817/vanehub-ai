@@ -27,7 +27,7 @@ export function ImRoutingSection(props: ImRoutingSectionProps) {
           <span className="font-medium">{t("im.routing.agent")}</span>
           <select
             aria-invalid={Boolean(props.errors.agentId)}
-            className="ucd-input h-9 min-w-0 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 min-w-0 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             onChange={(event) => props.onAgentChange(event.target.value)}
             value={props.agentId}
           >
@@ -41,7 +41,7 @@ export function ImRoutingSection(props: ImRoutingSectionProps) {
           <div className="flex min-w-0 gap-2">
             <select
               aria-invalid={Boolean(props.errors.projectPath)}
-              className="ucd-input h-9 min-w-0 flex-1 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ucd-input h-9 min-w-0 flex-1 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               onChange={(event) => props.onProjectChange(event.target.value)}
               value={props.projectPath}
             >

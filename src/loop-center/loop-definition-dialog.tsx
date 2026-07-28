@@ -160,11 +160,11 @@ function ReviewStep({ agents, draft }: { agents: AgentRegistryEntry[]; draft: Lo
   const name = (id: string) => agents.find((agent) => agent.id === id)?.displayName ?? id;
   const commands = draft.verificationCommands.map((command) => `${command.program} ${command.arguments.split(/\r?\n/).filter(Boolean).join(" ")}`.trim()).join("; ");
   const rows = [["name", draft.name], ["project", draft.projectPath], ["branch", draft.baseBranch], ["worker", name(draft.workerAgentId)], ["verifier", name(draft.verifierAgentId)], ["commands", commands], ["maxIterations", String(draft.limits.maxIterations)]];
-  return <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="break-words text-sm">{value}</dd></div>)}</dl>;
+  return <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(8rem,auto)_1fr]">{rows.map(([key, value]) => <div className="contents" key={key}><dt className="text-xs font-medium text-muted-foreground">{t(`loops.editor.field.${key}`)}</dt><dd className="wrap-break-word text-sm">{value}</dd></div>)}</dl>;
 }
 
 interface StepProps { draft: LoopDefinitionDraft; setDraft: (draft: LoopDefinitionDraft) => void }
-const inputClass = "ucd-input h-9 w-full rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const inputClass = "ucd-input h-9 w-full rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 
 function Field({ children, className = "", label }: { children: ReactNode; className?: string; label: string }) {
   const { t } = useTranslation();

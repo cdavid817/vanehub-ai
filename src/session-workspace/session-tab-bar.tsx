@@ -88,9 +88,9 @@ export function SessionTabBar({
             aria-controls={`session-tab-panel-${id}`}
             aria-selected={activeTab === id}
             className={cn(
-              "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               activeTab === id
-                ? "bg-background font-semibold text-primary shadow-sm"
+                ? "bg-background font-semibold text-primary shadow-xs"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             id={`session-tab-${id}`}

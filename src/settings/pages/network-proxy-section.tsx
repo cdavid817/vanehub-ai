@@ -132,7 +132,7 @@ export function NetworkProxySection() {
         <label className="grid gap-1.5 text-sm">
           <span className="font-medium text-muted-foreground">{t("basic.proxyUrl")}</span>
           <input
-            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             disabled={disabled}
             onChange={(event) => setUrlDraft(event.target.value)}
             placeholder={t("basic.proxyUrlPlaceholder")}
@@ -143,7 +143,7 @@ export function NetworkProxySection() {
           <label className="grid min-w-0 gap-1.5 text-sm">
             <span className="font-medium text-muted-foreground">{t("basic.proxyUsername")}</span>
             <input
-              className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               disabled={disabled}
               onChange={(event) => setUsernameDraft(event.target.value)}
               placeholder={t("basic.proxyUsernamePlaceholder")}
@@ -154,7 +154,7 @@ export function NetworkProxySection() {
             <span className="font-medium text-muted-foreground">{t("basic.proxyPassword")}</span>
             <span className="relative block">
               <input
-                className="ucd-input h-9 w-full rounded px-3 pr-10 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ucd-input h-9 w-full rounded px-3 pr-10 font-mono text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={disabled}
                 onChange={(event) => setPasswordDraft(event.target.value)}
                 placeholder={t("basic.proxyPasswordPlaceholder")}
@@ -176,7 +176,7 @@ export function NetworkProxySection() {
         <label className="grid gap-1.5 text-sm">
           <span className="font-medium text-muted-foreground">{t("basic.proxyBypass")}</span>
           <input
-            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ucd-input h-9 w-full rounded px-3 font-mono text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             disabled={disabled}
             onChange={(event) => setBypassDraft(event.target.value)}
             placeholder={t("basic.proxyBypassPlaceholder")}

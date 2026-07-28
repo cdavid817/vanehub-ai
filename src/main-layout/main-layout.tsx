@@ -180,7 +180,7 @@ export function MainLayout({
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 opacity-[0.035] [background-image:linear-gradient(hsl(var(--primary))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary))_1px,transparent_1px)] [background-size:100px_100px]" />
+      <div className="pointer-events-none fixed inset-0 opacity-[0.035] bg-[linear-gradient(hsl(var(--primary))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary))_1px,transparent_1px)] bg-size-[100px_100px]" />
       <div className="relative flex h-screen min-h-0 flex-col overflow-hidden">
         <TopBar />
         <div className="relative flex min-h-0 flex-1">
@@ -254,7 +254,7 @@ export function MainLayout({
                 <div className="mb-3 flex min-h-9 shrink-0 items-center gap-2 border-b border-border/70 pb-2">
                   <button
                     aria-label={t("loops.inspection.back")}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => { setLoopInspection(null); setDestination("loops"); }}
                     title={t("loops.inspection.back")}
                     type="button"

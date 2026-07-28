@@ -63,7 +63,7 @@ export function LoopRunControls({ run }: { run: LoopRun }) {
       </div> : null}
       {actions.includes("accept") ? <div className="grid gap-2">
         <Button disabled={busy} onClick={() => void execute("accept")} size="sm" type="button"><Check aria-hidden="true" />{t("loops.controls.accept")}</Button>
-        <label className="grid gap-1.5"><span className="text-xs font-medium text-muted-foreground">{t("loops.controls.feedback")}</span><textarea className="ucd-input min-h-20 w-full rounded p-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={busy || !canContinue} onChange={(event) => setFeedback(event.target.value)} value={feedback} /></label>
+        <label className="grid gap-1.5"><span className="text-xs font-medium text-muted-foreground">{t("loops.controls.feedback")}</span><textarea className="ucd-input min-h-20 w-full rounded p-2 text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" disabled={busy || !canContinue} onChange={(event) => setFeedback(event.target.value)} value={feedback} /></label>
         {!canContinue ? <p className="text-xs text-warning">{t("loops.controls.iterationLimitReached")}</p> : null}
         <div className="grid grid-cols-2 gap-2"><Button disabled={busy || !canContinue || !feedback.trim()} onClick={() => void execute("continue")} size="sm" type="button" variant="outline"><MessageSquareMore aria-hidden="true" />{t("loops.controls.continue")}</Button><Button className="text-destructive hover:text-destructive" disabled={busy} onClick={() => setConfirming("reject")} size="sm" type="button" variant="outline"><X aria-hidden="true" />{t("loops.controls.reject")}</Button></div>
       </div> : null}

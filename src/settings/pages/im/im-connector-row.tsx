@@ -47,7 +47,7 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
       <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
         <button
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setExpanded((value) => !value)}
           type="button"
         >
@@ -88,7 +88,7 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
                   <span className="font-medium">{t(`im.fields.${field.key}`)}</span>
                   <input
                     autoComplete="off"
-                    className="ucd-input h-9 min-w-0 rounded px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="ucd-input h-9 min-w-0 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                     onChange={(event) => setCredentials((current) => ({ ...current, [field.key]: event.target.value }))}
                     placeholder={view.hasCredentials ? t("im.credentials.configured") : t("im.credentials.enter")}
                     type={field.secret ? "password" : "text"}

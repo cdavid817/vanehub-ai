@@ -80,7 +80,7 @@ export function SshConnectionForm({
         <Field error={validationErrors.defaultPath} label={t("sshConnections.fields.defaultPath")} value={form.defaultPath} onChange={(value) => update("defaultPath", value)} />
         <label className="grid gap-1">
           <span className="text-xs font-medium text-muted-foreground">{t("sshConnections.fields.authMode")}</span>
-          <select className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" value={form.authMode} onChange={(event) => update("authMode", event.target.value as SshAuthMode)}>
+          <select className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={form.authMode} onChange={(event) => update("authMode", event.target.value as SshAuthMode)}>
             <option value="key">{t("sshConnections.auth.key")}</option>
             <option value="password">{t("sshConnections.auth.password")}</option>
           </select>
@@ -103,7 +103,7 @@ function Field({ label, value, onChange, type = "text", placeholder, error }: { 
   return (
     <label className="grid gap-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <input aria-invalid={Boolean(error)} className="ucd-input h-9 rounded px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => onChange(event.target.value)} placeholder={placeholder} type={type} value={value} />
+      <input aria-invalid={Boolean(error)} className="ucd-input h-9 rounded px-2 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => onChange(event.target.value)} placeholder={placeholder} type={type} value={value} />
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </label>
   );

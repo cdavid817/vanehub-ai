@@ -117,7 +117,7 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
       </section>
       <section className="min-h-0 overflow-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
         {loading && selectedPath ? <WorkspaceState kind="loading" /> : error ? <WorkspaceState kind="error" message={t(error)} /> : !preview ? <WorkspaceState kind="empty" message={t("sessionTabs.files.select")} /> : preview.status !== "text" ? <WorkspaceState kind="unavailable" message={t(`sessionTabs.files.${preview.status}`)} /> : (
-          <><h3 className="mb-3 truncate text-sm font-semibold">{preview.path}</h3><pre className="whitespace-pre-wrap break-words font-mono text-xs leading-5">{preview.content}</pre></>
+          <><h3 className="mb-3 truncate text-sm font-semibold">{preview.path}</h3><pre className="whitespace-pre-wrap wrap-break-word font-mono text-xs leading-5">{preview.content}</pre></>
         )}
       </section>
     </div>
