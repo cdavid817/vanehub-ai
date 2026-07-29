@@ -82,13 +82,18 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
 
   async function toggleDirectory(path: string) {
     const next = new Set(expanded);
-    if (next.has(path)) next.delete(path);
-    else {
-      next.add(path);
-      if (!entriesByPath[path]) {
-        try { await loadDirectory(path); }
-        catch (reason) { setError(workspaceErrorKey(reason)); }
+    if (next.has(path)) {
+      next.delete(path);
+    } else if (!entriesByPath[path]) {
+      try {
+        await loadDirectory(path);
+        next.add(path);
+      } catch (reason) {
+        setError(workspaceErrorKey(reason));
+        return;
       }
+    } else {
+      next.add(path);
     }
     setExpanded(next);
   }
@@ -101,6 +106,7 @@ export function FilesTab({ sessionId }: { sessionId: string | null }) {
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(180px,0.38fr)_minmax(0,1fr)]">
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-2">
         {partial ? <PartialNotice /> : null}
+        {error ? <p className="mb-2 rounded border border-border bg-muted px-2 py-1 text-xs text-muted-foreground" role="alert">{t(error)}</p> : null}
         {rows.length === 0 ? <WorkspaceState kind="empty" message={t("sessionTabs.files.empty")} /> : rows.map(({ entry, depth }) => (
           <button
             className="flex h-8 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-muted"
