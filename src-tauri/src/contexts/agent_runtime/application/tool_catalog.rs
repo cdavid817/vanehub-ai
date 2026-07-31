@@ -7,13 +7,18 @@ use serde_json::{json, Value};
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
+/// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
+/// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
+/// always prefixed before entering the catalog.
+pub(crate) const MCP_TOOL_NAME_PREFIX: &str = "mcp__";
 
 pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
-            name: SHELL_TOOL_NAME,
+            name: SHELL_TOOL_NAME.to_string(),
             description:
-                "Execute a shell command in the session's workspace folder and return its output.",
+                "Execute a shell command in the session's workspace folder and return its output."
+                    .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -26,8 +31,9 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: FILE_TOOL_NAME,
-            description: "Read or write a file relative to the session's workspace folder.",
+            name: FILE_TOOL_NAME.to_string(),
+            description: "Read or write a file relative to the session's workspace folder."
+                .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -49,8 +55,8 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: REMEMBER_TOOL_NAME,
-            description: "Save a fact, decision, or preference so it's available in future, separate sessions with this same project. Use for information worth remembering long-term, not routine conversation.",
+            name: REMEMBER_TOOL_NAME.to_string(),
+            description: "Save a fact, decision, or preference so it's available in future, separate sessions with this same project. Use for information worth remembering long-term, not routine conversation.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -149,6 +155,19 @@ mod tests {
     fn unknown_tool_name_fails_closed() {
         assert_eq!(
             risk_tier_for("unknown", &json!({})),
+            ToolRiskTier::RequiresApproval
+        );
+    }
+
+    /// Locks in design.md Decision 7 (`add-agent-mcp-tools`): MCP tool names always fall through
+    /// to the existing catch-all above since they never literally equal `FILE_TOOL_NAME` or
+    /// `REMEMBER_TOOL_NAME` (guaranteed by the mandatory `mcp__` prefix) — no production code
+    /// change is needed for MCP calls to require approval unconditionally, but that behavior
+    /// deserves its own test rather than being an accident of the existing match arms.
+    #[test]
+    fn mcp_sourced_tool_names_always_require_approval() {
+        assert_eq!(
+            risk_tier_for("mcp__filesystem-tools__search", &json!({"query": "x"})),
             ToolRiskTier::RequiresApproval
         );
     }

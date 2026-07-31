@@ -3,13 +3,14 @@ use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     risk_tier_for, tool_catalog, AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink, AgentProcessGateway,
-    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
-    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolRiskTier,
-    ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink,
+    AgentProcessGateway, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
+    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    FILE_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME,
+    SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -62,6 +63,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
     memories: Arc<dyn AgentMemoryPort>,
+    mcp: Arc<dyn AgentMcpToolPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
 }
@@ -73,6 +75,7 @@ struct ManagedApiGeneration {
 }
 
 impl RuntimeAgentApiAdapter {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         credentials: Arc<dyn ApiCredentialPort>,
         config: Arc<dyn ApiAgentGateway>,
@@ -81,6 +84,7 @@ impl RuntimeAgentApiAdapter {
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
         memories: Arc<dyn AgentMemoryPort>,
+        mcp: Arc<dyn AgentMcpToolPort>,
     ) -> Self {
         Self {
             credentials,
@@ -90,6 +94,7 @@ impl RuntimeAgentApiAdapter {
             clock,
             skills,
             memories,
+            mcp,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
         }
@@ -166,6 +171,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let clock = self.clock.clone();
         let skills = self.skills.clone();
         let memories = self.memories.clone();
+        let mcp = self.mcp.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -177,6 +183,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 clock,
                 skills,
                 memories,
+                mcp,
                 sink,
                 pending_approvals,
             );
@@ -245,6 +252,7 @@ fn run_generation(
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
     memories: Arc<dyn AgentMemoryPort>,
+    mcp: Arc<dyn AgentMcpToolPort>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
@@ -260,6 +268,7 @@ fn run_generation(
         clock.as_ref(),
         skills.as_ref(),
         memories.as_ref(),
+        mcp.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -345,6 +354,7 @@ fn execute(
     clock: &dyn AgentClockPort,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -380,7 +390,7 @@ fn execute(
             ))
         }
     };
-    let tools = tool_catalog();
+    let tools = resolve_tool_catalog(request, mcp, logging, clock);
     let mut turns = (wire_format.history_to_turns)(&recent);
     if let Some(failure) = maybe_compact(
         &mut turns,
@@ -536,6 +546,7 @@ fn execute(
                 cancelled.clone(),
                 agent_id,
                 memories,
+                mcp,
             );
             tool_use.status = if outcome.is_error {
                 "failed".to_string()
@@ -605,6 +616,41 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
         "bodyMarkdown": "Earlier turns in this conversation were summarized to stay within the model's context window.",
         "tone": "info",
     })
+}
+
+/// Merges the fixed `shell`/`file`/`remember` catalog with every MCP-sourced tool visible and
+/// active for the session's workspace folder (`add-agent-mcp-tools`). A catalog lookup failure
+/// cannot fail the generation — it logs a warning and falls back to the fixed catalog alone,
+/// matching `resolve_system_prompt`'s established best-effort-enhancement philosophy for the
+/// exact same reason: MCP tools are additive on top of an already-usable fixed catalog.
+fn resolve_tool_catalog(
+    request: &GenerationProcessRequest,
+    mcp: &dyn AgentMcpToolPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+) -> Vec<ToolDefinition> {
+    let mut tools = tool_catalog();
+    let project_path = request.session.folder.as_deref().unwrap_or_default();
+    match mcp.catalog_entries(project_path) {
+        Ok(mcp_tools) => tools.extend(mcp_tools),
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.mcp".to_string(),
+                message: format!(
+                    "Failed to resolve MCP-sourced tools; continuing with the fixed tool catalog only: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+        }
+    }
+    tools
 }
 
 /// Resolves the agent's bound, enabled Skills (`add-agent-skill-support`) and stored memories
@@ -974,12 +1020,24 @@ fn execute_tool_call(
     cancelled: Arc<AtomicBool>,
     agent_id: &str,
     memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
 ) -> ToolExecutionOutcome {
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
     if name == REMEMBER_TOOL_NAME {
         return execute_remember(input, agent_id, workspace_folder, memories);
+    }
+    // MCP tools are similarly folder-independent: a user-scoped MCP server has no project
+    // affiliation at all, so a folder-less session can still reach it (`add-agent-mcp-tools`).
+    // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
+    // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
+    if name.starts_with(MCP_TOOL_NAME_PREFIX) {
+        let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input);
+        return ToolExecutionOutcome {
+            output: outcome.output,
+            is_error: outcome.is_error,
+        };
     }
     let Some(folder) = workspace_folder else {
         return ToolExecutionOutcome {
@@ -1205,6 +1263,76 @@ mod tests {
         }
     }
 
+    struct NoopMcp;
+
+    impl AgentMcpToolPort for NoopMcp {
+        fn catalog_entries(
+            &self,
+            _project_path: &str,
+        ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError> {
+            Ok(Vec::new())
+        }
+
+        fn call_tool(
+            &self,
+            _project_path: &str,
+            name: &str,
+            _arguments: &Value,
+        ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: format!("NoopMcp cannot call \"{name}\"."),
+                is_error: true,
+            }
+        }
+    }
+
+    /// `(project_path, tool_name, arguments)` per `call_tool` invocation, plus configurable
+    /// results for both port methods — used where a test needs to observe or control the MCP
+    /// path rather than just satisfy the trait bound (`NoopMcp` covers the latter).
+    struct FakeMcp {
+        catalog_result: Result<Vec<ToolDefinition>, &'static str>,
+        call_outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
+        calls: Mutex<Vec<(String, String, Value)>>,
+    }
+
+    impl FakeMcp {
+        fn new(
+            catalog_result: Result<Vec<ToolDefinition>, &'static str>,
+            call_outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
+        ) -> Self {
+            Self {
+                catalog_result,
+                call_outcome,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl AgentMcpToolPort for FakeMcp {
+        fn catalog_entries(
+            &self,
+            _project_path: &str,
+        ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError> {
+            self.catalog_result
+                .clone()
+                .map_err(|message| AgentRuntimeApplicationError::Mcp(message.to_string()))
+        }
+
+        fn call_tool(
+            &self,
+            project_path: &str,
+            tool_name: &str,
+            arguments: &Value,
+        ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            self.calls.lock().expect("calls").push((
+                project_path.to_string(),
+                tool_name.to_string(),
+                arguments.clone(),
+            ));
+            self.call_outcome.clone()
+        }
+    }
+
     /// `(agent_id, folder, content, source)`, as recorded by `FakeMemories::save`.
     type SavedMemory = (String, Option<String>, String, MemorySource);
 
@@ -1367,6 +1495,7 @@ mod tests {
             Arc::new(FixedClock),
             Arc::new(NoopSkills),
             Arc::new(FakeMemories::default()),
+            Arc::new(NoopMcp),
         )
     }
 
@@ -1440,6 +1569,7 @@ mod tests {
             &FixedClock,
             &NoopSkills,
             &FakeMemories::default(),
+            &NoopMcp,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1468,6 +1598,7 @@ mod tests {
             &FixedClock,
             &NoopSkills,
             &FakeMemories::default(),
+            &NoopMcp,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1495,6 +1626,7 @@ mod tests {
             &FixedClock,
             &NoopSkills,
             &FakeMemories::default(),
+            &NoopMcp,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1521,6 +1653,7 @@ mod tests {
             &FixedClock,
             &NoopSkills,
             &FakeMemories::default(),
+            &NoopMcp,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1548,6 +1681,7 @@ mod tests {
             &FixedClock,
             &NoopSkills,
             &FakeMemories::default(),
+            &NoopMcp,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1644,6 +1778,7 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &FakeMemories::default(),
+            &NoopMcp,
         );
         assert!(outcome.is_error);
     }
@@ -1657,6 +1792,7 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &FakeMemories::default(),
+            &NoopMcp,
         );
         assert!(outcome.is_error);
         assert!(outcome.output.contains("workspace folder"));
@@ -1675,6 +1811,7 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &FakeMemories::default(),
+            &NoopMcp,
         );
         assert!(!shell_outcome.is_error);
 
@@ -1685,6 +1822,7 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &FakeMemories::default(),
+            &NoopMcp,
         );
         assert!(!file_outcome.is_error);
         assert_eq!(file_outcome.output, "hello");
@@ -1701,6 +1839,7 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &memories,
+            &NoopMcp,
         );
 
         assert!(!outcome.is_error);
@@ -1721,8 +1860,123 @@ mod tests {
             not_cancelled(),
             "test-agent",
             &FakeMemories::default(),
+            &NoopMcp,
         );
         assert!(outcome.is_error);
+    }
+
+    #[test]
+    fn execute_tool_call_routes_mcp_prefixed_names_to_the_mcp_port_and_maps_the_outcome() {
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "search results".to_string(),
+                is_error: false,
+            },
+        );
+
+        let outcome = execute_tool_call(
+            "mcp__filesystem-tools__search",
+            &json!({"query": "hello"}),
+            Some("D:\\code\\fixture"),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        assert!(!outcome.is_error);
+        assert_eq!(outcome.output, "search results");
+        let calls = mcp.calls.lock().expect("calls");
+        assert_eq!(
+            calls.as_slice(),
+            [(
+                "D:\\code\\fixture".to_string(),
+                "mcp__filesystem-tools__search".to_string(),
+                json!({"query": "hello"})
+            )]
+        );
+    }
+
+    #[test]
+    fn execute_tool_call_routes_mcp_calls_even_without_a_workspace_folder() {
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "ok".to_string(),
+                is_error: false,
+            },
+        );
+
+        let outcome = execute_tool_call(
+            "mcp__user-scoped-server__ping",
+            &json!({}),
+            None,
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        assert!(!outcome.is_error);
+        let calls = mcp.calls.lock().expect("calls");
+        assert_eq!(
+            calls[0].0, "",
+            "no folder should collapse to an empty project path"
+        );
+    }
+
+    #[test]
+    fn resolve_tool_catalog_merges_mcp_entries_into_the_fixed_catalog() {
+        let request = sample_request("api");
+        let mcp_tool = ToolDefinition {
+            name: "mcp__filesystem-tools__search".to_string(),
+            description: "Search files".to_string(),
+            input_schema: json!({ "type": "object" }),
+        };
+        let mcp = FakeMcp::new(
+            Ok(vec![mcp_tool.clone()]),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+        let logging = RecordingLogging::default();
+
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock);
+
+        assert_eq!(tools.len(), 4);
+        assert!(tools.contains(&mcp_tool));
+        assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn resolve_tool_catalog_logs_a_warning_and_falls_back_to_the_fixed_catalog_on_mcp_failure() {
+        let request = sample_request("api");
+        let mcp = FakeMcp::new(
+            Err("mcp lookup exploded"),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+        let logging = RecordingLogging::default();
+
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock);
+
+        assert_eq!(
+            tools.len(),
+            3,
+            "should fall back to exactly the fixed catalog"
+        );
+        assert_eq!(tools[0].name, SHELL_TOOL_NAME);
+        assert_eq!(tools[1].name, FILE_TOOL_NAME);
+        assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
+        let logs = logging.logs.lock().expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, AgentLogLevel::Warn);
+        assert_eq!(logs[0].category, "session.runtime.api.mcp");
+        assert!(logs[0].message.contains("mcp lookup exploded"));
     }
 
     #[test]

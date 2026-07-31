@@ -1019,6 +1019,49 @@ describe("webAgentClient", () => {
     expect(await webAgentClient.listAgentMemories(agent.id)).toEqual([]);
   });
 
+  it("simulates an MCP-sourced tool call that requires approval before completing", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "MCP Tool Test Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "MCP tool" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const awaitingEvent = events.find(
+      (event) =>
+        event.type === "tool_use" &&
+        event.toolUse.name === "mcp__mock-server__search" &&
+        event.toolUse.status === "awaiting_approval",
+    );
+    expect(awaitingEvent).toBeDefined();
+    const callId = awaitingEvent && awaitingEvent.type === "tool_use" ? awaitingEvent.toolUse.id : "";
+
+    const resolved = await webAgentClient.resolveToolApproval(session.id, callId, true);
+    expect(resolved).toBe(true);
+
+    const completedEvent = events.find(
+      (event) =>
+        event.type === "tool_use" &&
+        event.toolUse.id === callId &&
+        event.toolUse.name === "mcp__mock-server__search" &&
+        event.toolUse.status === "completed",
+    );
+    expect(completedEvent).toBeDefined();
+    unsubscribe();
+  });
+
   it("extracts a mock memory for long API-agent sessions and signals injection on the next turn", async () => {
     vi.useFakeTimers();
     const agent = await webAgentClient.registerApiAgent({

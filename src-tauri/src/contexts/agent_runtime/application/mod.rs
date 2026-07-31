@@ -57,9 +57,9 @@ pub(crate) use models::{
     AgentMessage, AgentMessageSource, AgentOperation, AgentSession, AgentSessionDetails,
     AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
-    AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig, BoundSkillPrompt,
-    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
-    GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
     GenerationProcessFailureKind, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
     LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
     LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
@@ -75,20 +75,21 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,
-    AgentGenerationPort, AgentLoggingPort, AgentMemoryPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRegistryRepository, AgentSessionGateway, AgentSkillPort,
-    AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository,
-    ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort, EffectivePromptGateway,
-    LoopExecutionControlPort, LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort,
-    LoopIterationRepository, LoopLoggingPort, LoopProjectPort, LoopRepository,
-    LoopRoleGenerationCompletionPort, LoopRoleSessionPort, LoopVerificationProcessPort,
-    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
-    ToolApprovalPort,
+    AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
+    AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository, AgentSessionGateway,
+    AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
+    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort,
+    EffectivePromptGateway, LoopExecutionControlPort, LoopExecutionLeasePort,
+    LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
+    LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
+    LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
+    LoopWorkerGenerationPort, ToolApprovalPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    risk_tier_for, tool_catalog, FILE_TOOL_NAME, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    risk_tier_for, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME,
+    SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]

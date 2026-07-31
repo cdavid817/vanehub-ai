@@ -20,6 +20,7 @@ mod loop_repository_views;
 mod loop_scheduler;
 mod loop_schema;
 mod loop_verification_process;
+mod mcp_tool_gateway;
 mod memory_repository;
 mod memory_schema;
 mod openai_compatible_provider;
@@ -55,6 +56,7 @@ pub(crate) use loop_repository::SqliteLoopRepository;
 pub(crate) use loop_scheduler::NativeLoopScheduler;
 pub(crate) use loop_schema::apply_loop_schema;
 pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
+pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::apply_memory_schema;
 pub(crate) use process_adapter::{

@@ -1,8 +1,9 @@
 use super::{ConnectionTestResult, McpApplicationError, StartedOperation};
 use crate::contexts::tooling::mcp::domain::{
-    ConnectionOutcome, ServerConfiguration, ServerName, ServerStatus,
+    ConnectionOutcome, ServerConfiguration, ServerName, ServerStatus, ToolCallOutcome,
 };
 use async_trait::async_trait;
+use serde_json::Value;
 
 pub(crate) trait McpServerRepository: Send + Sync {
     fn list_visible(
@@ -49,6 +50,13 @@ pub(crate) trait McpServerRepository: Send + Sync {
 #[async_trait]
 pub(crate) trait McpConnectionPort: Send + Sync {
     async fn test(&self, server: &ServerConfiguration) -> ConnectionOutcome;
+
+    async fn call_tool(
+        &self,
+        server: &ServerConfiguration,
+        tool_name: &str,
+        arguments: Value,
+    ) -> ToolCallOutcome;
 }
 
 pub(crate) trait McpOperationPort: Send + Sync {

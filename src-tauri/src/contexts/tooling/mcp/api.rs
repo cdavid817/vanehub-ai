@@ -1,12 +1,13 @@
 use crate::contexts::tooling::mcp::application::McpApplicationService;
 pub(crate) use crate::contexts::tooling::mcp::application::{
     ExportBundle, ImportBundle, ImportEntry, ImportResult, McpApplicationError as McpError,
-    PreparedConnectionTest, ServerPatch, StartedOperation,
+    McpServerToolEntry, PreparedConnectionTest, ServerPatch, StartedOperation,
 };
 pub(crate) use crate::contexts::tooling::mcp::domain::{
     ConnectionStatus, Scope, ServerConfiguration, ServerConfigurationDraft, ServerStatus,
-    ToolDescriptor, TransportType,
+    ToolCallOutcome, ToolDescriptor, TransportType,
 };
+use serde_json::Value;
 
 #[derive(Clone)]
 pub(crate) struct McpApi {
@@ -66,5 +67,24 @@ impl McpApi {
         prepared: PreparedConnectionTest,
     ) -> Result<(), McpError> {
         self.service.execute_connection_test(prepared).await
+    }
+
+    pub(crate) fn visible_tool_catalog(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<McpServerToolEntry>, McpError> {
+        self.service.visible_tool_catalog(project_path)
+    }
+
+    pub(crate) async fn call_tool(
+        &self,
+        project_path: &str,
+        server_name: &str,
+        tool_name: &str,
+        arguments: Value,
+    ) -> Result<ToolCallOutcome, McpError> {
+        self.service
+            .call_tool(project_path, server_name, tool_name, arguments)
+            .await
     }
 }

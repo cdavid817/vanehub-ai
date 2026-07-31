@@ -1,12 +1,14 @@
 use super::{
     ConnectionTestResult, ExportBundle, ImportBundle, ImportEntry, ImportResult,
     McpApplicationError, McpClockPort, McpConnectionPort, McpLoggingPort, McpOperationPort,
-    McpProjectPathPort, McpServerRepository, McpTelemetryPort, PreparedConnectionTest, ServerPatch,
+    McpProjectPathPort, McpServerRepository, McpServerToolEntry, McpTelemetryPort,
+    PreparedConnectionTest, ServerPatch,
 };
 use crate::contexts::tooling::mcp::domain::{
     ConnectionOutcome, Scope, ServerConfiguration, ServerConfigurationDraft, ServerName,
-    ServerStatus, TransportType,
+    ServerStatus, ToolCallOutcome, TransportType,
 };
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -114,6 +116,56 @@ impl McpApplicationService {
 
     pub(crate) fn server_status(&self, name: &str) -> Result<ServerStatus, McpApplicationError> {
         self.repository.status(name)
+    }
+
+    /// Every tool exposed by every MCP server visible and active for `project_path`, sourced
+    /// from each server's last cached "Test Connection" result — never a fresh connection.
+    /// `project_path` is caller-supplied rather than read from `self.project_path` because
+    /// callers outside the MCP settings UI (a native API agent's own session folder) don't share
+    /// this service's ambient current-project-path port.
+    pub(crate) fn visible_tool_catalog(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<McpServerToolEntry>, McpApplicationError> {
+        let mut entries = Vec::new();
+        for server in self
+            .repository
+            .list_visible(project_path)?
+            .into_iter()
+            .filter(ServerConfiguration::is_active)
+        {
+            let server_name = server.name().as_str().to_string();
+            let status = self.repository.status(&server_name)?;
+            entries.extend(status.tools.into_iter().map(|tool| McpServerToolEntry {
+                server_name: server_name.clone(),
+                tool,
+            }));
+        }
+        Ok(entries)
+    }
+
+    /// Invokes `tool_name` on `server_name`, re-deriving the visible+active server set for
+    /// `project_path` the same way `visible_tool_catalog` does rather than trusting the caller's
+    /// `server_name` outright — a server that isn't currently visible and active is rejected
+    /// before any connection is attempted.
+    pub(crate) async fn call_tool(
+        &self,
+        project_path: &str,
+        server_name: &str,
+        tool_name: &str,
+        arguments: Value,
+    ) -> Result<ToolCallOutcome, McpApplicationError> {
+        let server = self
+            .repository
+            .list_visible(project_path)?
+            .into_iter()
+            .filter(ServerConfiguration::is_active)
+            .find(|server| server.name().as_str() == server_name)
+            .ok_or_else(|| McpApplicationError::ServerNotFound(server_name.to_string()))?;
+        Ok(self
+            .connection
+            .call_tool(&server, tool_name, arguments)
+            .await)
     }
 
     pub(crate) fn import_servers(
@@ -300,6 +352,7 @@ mod tests {
         servers: Mutex<BTreeMap<String, ServerConfiguration>>,
         writes: Mutex<Vec<String>>,
         outcome: Mutex<Option<ConnectionOutcome>>,
+        statuses: Mutex<BTreeMap<String, ServerStatus>>,
     }
 
     impl McpServerRepository for FakeRepository {
@@ -370,6 +423,9 @@ mod tests {
         }
 
         fn status(&self, name: &str) -> Result<ServerStatus, McpApplicationError> {
+            if let Some(status) = self.statuses.lock().expect("statuses").get(name) {
+                return Ok(status.clone());
+            }
             Ok(ServerStatus {
                 name: ServerName::parse(name.to_string())?,
                 connection_status: ConnectionStatus::Disconnected,
@@ -394,12 +450,37 @@ mod tests {
 
     struct FakeConnection {
         outcome: ConnectionOutcome,
+        tool_call_outcome: ToolCallOutcome,
+        tool_calls: Mutex<Vec<(String, String)>>,
+    }
+
+    impl FakeConnection {
+        fn new(outcome: ConnectionOutcome) -> Self {
+            Self {
+                outcome,
+                tool_call_outcome: ToolCallOutcome::success(""),
+                tool_calls: Mutex::new(Vec::new()),
+            }
+        }
     }
 
     #[async_trait]
     impl McpConnectionPort for FakeConnection {
         async fn test(&self, _server: &ServerConfiguration) -> ConnectionOutcome {
             self.outcome.clone()
+        }
+
+        async fn call_tool(
+            &self,
+            server: &ServerConfiguration,
+            tool_name: &str,
+            _arguments: Value,
+        ) -> ToolCallOutcome {
+            self.tool_calls
+                .lock()
+                .expect("tool_calls")
+                .push((server.name().as_str().to_string(), tool_name.to_string()));
+            self.tool_call_outcome.clone()
         }
     }
 
@@ -530,6 +611,14 @@ mod tests {
         }
     }
 
+    fn server_draft_named(name: &str, active: bool) -> ServerConfigurationDraft {
+        ServerConfigurationDraft {
+            name: name.to_string(),
+            active,
+            ..server_draft(Scope::User)
+        }
+    }
+
     fn service(
         repository: Arc<FakeRepository>,
         operations: Arc<FakeOperations>,
@@ -538,7 +627,7 @@ mod tests {
     ) -> McpApplicationService {
         McpApplicationService::new(
             repository,
-            Arc::new(FakeConnection { outcome }),
+            Arc::new(FakeConnection::new(outcome)),
             operations,
             Arc::new(FakeClock),
             logging,
@@ -643,6 +732,143 @@ mod tests {
         assert_eq!(
             operations.events.lock().expect("events").as_slice(),
             ["log:handshake failed", "fail:handshake failed"]
+        );
+    }
+
+    #[test]
+    fn visible_tool_catalog_includes_only_visible_active_servers_cached_tools() {
+        let repository = Arc::new(FakeRepository::default());
+        let service = McpApplicationService::new(
+            repository.clone(),
+            Arc::new(FakeConnection::new(ConnectionOutcome::failed("unused", 0))),
+            Arc::new(FakeOperations::default()),
+            Arc::new(FakeClock),
+            Arc::new(FakeLogging::default()),
+            Arc::new(FakeProjectPath),
+            Arc::new(FakeTelemetry),
+        );
+        service
+            .add_server(server_draft_named("active-tested", true))
+            .expect("add active-tested");
+        service
+            .add_server(server_draft_named("inactive-tested", false))
+            .expect("add inactive-tested");
+        service
+            .add_server(server_draft_named("active-untested", true))
+            .expect("add active-untested");
+
+        let tool = ToolDescriptor {
+            name: "search".to_string(),
+            description: None,
+            input_schema: None,
+        };
+        let cached = ServerStatus {
+            name: ServerName::parse("placeholder").expect("name"),
+            connection_status: ConnectionStatus::Connected,
+            tools: vec![tool.clone()],
+            last_connected: Some("1700000000".to_string()),
+            error: None,
+            duration_ms: Some(5),
+        };
+        {
+            let mut statuses = repository.statuses.lock().expect("statuses");
+            statuses.insert(
+                "active-tested".to_string(),
+                ServerStatus {
+                    name: ServerName::parse("active-tested").expect("name"),
+                    ..cached.clone()
+                },
+            );
+            statuses.insert(
+                "inactive-tested".to_string(),
+                ServerStatus {
+                    name: ServerName::parse("inactive-tested").expect("name"),
+                    ..cached
+                },
+            );
+        }
+
+        let entries = service
+            .visible_tool_catalog("D:\\code\\fixture")
+            .expect("catalog");
+
+        assert_eq!(
+            entries,
+            vec![McpServerToolEntry {
+                server_name: "active-tested".to_string(),
+                tool,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn call_tool_rejects_a_server_outside_the_visible_active_set_without_connecting() {
+        let repository = Arc::new(FakeRepository::default());
+        let connection = Arc::new(FakeConnection::new(ConnectionOutcome::failed("unused", 0)));
+        let service = McpApplicationService::new(
+            repository,
+            connection.clone(),
+            Arc::new(FakeOperations::default()),
+            Arc::new(FakeClock),
+            Arc::new(FakeLogging::default()),
+            Arc::new(FakeProjectPath),
+            Arc::new(FakeTelemetry),
+        );
+        service
+            .add_server(server_draft_named("disabled-server", false))
+            .expect("add disabled-server");
+
+        let result = service
+            .call_tool(
+                "D:\\code\\fixture",
+                "disabled-server",
+                "search",
+                serde_json::json!({}),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(McpApplicationError::ServerNotFound(name)) if name == "disabled-server"
+        ));
+        assert!(connection.tool_calls.lock().expect("tool_calls").is_empty());
+    }
+
+    #[tokio::test]
+    async fn call_tool_delegates_to_the_connection_port_for_a_visible_active_server() {
+        let repository = Arc::new(FakeRepository::default());
+        let connection = Arc::new(FakeConnection {
+            outcome: ConnectionOutcome::failed("unused", 0),
+            tool_call_outcome: ToolCallOutcome::success("42"),
+            tool_calls: Mutex::new(Vec::new()),
+        });
+        let service = McpApplicationService::new(
+            repository,
+            connection.clone(),
+            Arc::new(FakeOperations::default()),
+            Arc::new(FakeClock),
+            Arc::new(FakeLogging::default()),
+            Arc::new(FakeProjectPath),
+            Arc::new(FakeTelemetry),
+        );
+        service
+            .add_server(server_draft_named("active-server", true))
+            .expect("add active-server");
+
+        let outcome = service
+            .call_tool(
+                "D:\\code\\fixture",
+                "active-server",
+                "search",
+                serde_json::json!({"q": "x"}),
+            )
+            .await
+            .expect("call tool");
+
+        assert_eq!(outcome, ToolCallOutcome::success("42"));
+        assert_eq!(
+            connection.tool_calls.lock().expect("tool_calls").as_slice(),
+            [("active-server".to_string(), "search".to_string())]
         );
     }
 }
