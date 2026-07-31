@@ -202,6 +202,10 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Logging(message)
             | AgentRuntimeApplicationError::Event(message)
             | AgentRuntimeApplicationError::Generation(message) => Self::storage(message),
+            AgentRuntimeApplicationError::Credential(message) => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message: format!("credential error: {}", redact_text(&message)),
+            },
         }
     }
 }

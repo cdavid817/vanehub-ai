@@ -83,7 +83,7 @@ export const MessageItem = memo(function MessageItem({ message }: { message: Cha
         ) : null}
         {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
         <ThinkingBlock content={message.thinkingContent ?? ""} />
-        <ToolUseBlock toolUse={message.toolUse ?? []} />
+        <ToolUseBlock sessionId={message.sessionId} toolUse={message.toolUse ?? []} />
         <RichBlocks blocks={message.richBlocks ?? []} />
       </div>
     </article>

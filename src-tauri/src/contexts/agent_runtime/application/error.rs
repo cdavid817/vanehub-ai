@@ -27,6 +27,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     Logging(String),
     Event(String),
     Generation(String),
+    Credential(String),
 }
 
 impl fmt::Display for AgentRuntimeApplicationError {
@@ -77,6 +78,7 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Logging(message) => write!(formatter, "agent logging error: {message}"),
             Self::Event(message) => write!(formatter, "agent event error: {message}"),
             Self::Generation(message) => write!(formatter, "agent generation error: {message}"),
+            Self::Credential(message) => write!(formatter, "agent credential error: {message}"),
         }
     }
 }

@@ -2,11 +2,13 @@ import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import type {
+  AgentRegistryEntry,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
+  RegisterApiAgentInput,
   CliParameterSelections,
   CliToolStatus,
   CreateSessionCategoryInput,
@@ -113,6 +115,13 @@ function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
 }
 
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function webLocalCliDetectionMessage() {
   return tr("web.error.localCliDetection");
 }
@@ -122,6 +131,8 @@ function webCliPackageOperationsMessage() {
 }
 
 const webRetainedTerminalTranscriptBytes = 1_000_000;
+/** Mirrors the desktop runtime's character-count compaction trigger (see `add-agent-context-compaction`), scaled down for deterministic mock sessions. */
+const mockCompactionTriggerCharacters = 2_000;
 
 let workflowState: WorkflowState = { ...mockWorkflowState };
 let nextSessionId = 1;
@@ -168,6 +179,7 @@ let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
+const pendingMockToolApprovals = new Map<string, { sessionId: string; messageId: string; toolName: string }>();
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
 const terminalTranscriptsBySession = new Map<string, string>();
@@ -1487,6 +1499,38 @@ export const webAgentClient: AgentService = {
       : mockAgents;
   },
 
+  async registerApiAgent(input: RegisterApiAgentInput) {
+    const displayName = input.displayName.trim();
+    const provider = input.provider.trim();
+    const apiKey = input.apiKey.trim();
+    const modelId = input.modelId.trim();
+    if (!displayName || !provider || !apiKey || !modelId) {
+      throw new Error(i18n.t("agents.registerApiAgent.errors.incomplete"));
+    }
+    const baseUrl = input.baseUrl?.trim() || null;
+    if (input.interfaceFormat === "openai-compatible" && !baseUrl) {
+      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
+    }
+    const baseId = slugify(displayName) || "api-agent";
+    let candidateId = baseId;
+    let suffix = 2;
+    while (mockAgents.some((agent) => agent.id === candidateId)) {
+      candidateId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    const entry: AgentRegistryEntry = {
+      id: candidateId,
+      displayName,
+      provider,
+      launch: { kind: "api" },
+      supportedInteractionModes: ["api"],
+      availabilityState: "available",
+      capabilityTags: ["api"],
+    };
+    mockAgents.push(entry);
+    return entry;
+  },
+
   async listCliTools() {
     return webCliTools.map((tool) => ({
       ...tool,
@@ -2236,6 +2280,28 @@ export const webAgentClient: AgentService = {
       emitChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
     }, 80);
     timeoutIds.push(startTimeoutId);
+    const historyCharacterCount = getSessionMessages(input.sessionId).reduce(
+      (total, message) => total + message.content.length,
+      0,
+    );
+    if (historyCharacterCount > mockCompactionTriggerCharacters) {
+      const compactionTimeoutId = setTimeout(() => {
+        publishChatEvent({
+          type: "rich_block",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          block: {
+            id: `web-compaction-${assistantMessage.id}`,
+            kind: "card",
+            v: 1,
+            title: "Conversation compacted",
+            bodyMarkdown: "Earlier turns in this conversation were summarized to stay within the model's context window.",
+            tone: "info",
+          },
+        });
+      }, 150);
+      timeoutIds.push(compactionTimeoutId);
+    }
     tokens.forEach((contentDelta, index) => {
       const timeoutId = setTimeout(() => {
         publishChatEvent({ type: "token", sessionId: input.sessionId, messageId: assistantMessage.id, contentDelta });
@@ -2268,6 +2334,29 @@ export const webAgentClient: AgentService = {
       });
     }, 210);
     timeoutIds.push(toolUseTimeoutId);
+    const agent = mockAgents.find((candidate) => candidate.id === session.agentId);
+    if (agent?.launch.kind === "api") {
+      const callId = `web-tool-approval-${assistantMessage.id}`;
+      const approvalTimeoutId = setTimeout(() => {
+        pendingMockToolApprovals.set(callId, {
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolName: "shell",
+        });
+        publishChatEvent({
+          type: "tool_use",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolUse: {
+            id: callId,
+            name: "shell",
+            input: { command: "echo mock" },
+            status: "awaiting_approval",
+          },
+        });
+      }, 230);
+      timeoutIds.push(approvalTimeoutId);
+    }
     const richCardTimeoutId = setTimeout(() => {
       publishChatEvent({
         type: "rich_block",
@@ -2360,6 +2449,26 @@ export const webAgentClient: AgentService = {
     findSession(sessionId);
     if (!cancelActiveStream(sessionId)) return;
     updateSession(sessionId, { lifecycleState: "stopped" });
+  },
+
+  async resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
+    findSession(sessionId);
+    const pending = pendingMockToolApprovals.get(callId);
+    if (!pending || pending.sessionId !== sessionId) return false;
+    pendingMockToolApprovals.delete(callId);
+    publishChatEvent({
+      type: "tool_use",
+      sessionId,
+      messageId: pending.messageId,
+      toolUse: {
+        id: callId,
+        name: pending.toolName,
+        input: { command: "echo mock" },
+        output: approved ? "mock\n" : "Denied by user.",
+        status: approved ? "completed" : "failed",
+      },
+    });
+    return true;
   },
 
   async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {

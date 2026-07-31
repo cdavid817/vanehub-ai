@@ -11,8 +11,8 @@ use crate::contexts::agent_runtime::api::{
     CoordinationNodeStatus as ApiCoordinationNodeStatus,
     CoordinationOutput as ApiCoordinationOutput, CoordinationRun as ApiCoordinationRun,
     CoordinationRunStatus as ApiCoordinationRunStatus, InteractionMode, LaunchWorkflowResult,
-    OpenAgentTerminalRequest, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
-    StopAgentTerminalRequest, WorkflowView,
+    OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
+    SendMessageRequest, StopAgentTerminalRequest, ToolApprovalDecision, WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
@@ -21,6 +21,27 @@ use crate::contexts::agent_runtime::application::{
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
     agents.into_iter().map(agent_to_dto).collect()
+}
+
+pub(super) fn register_api_agent_request(
+    input: dto::RegisterApiAgentInput,
+) -> RegisterApiAgentInput {
+    RegisterApiAgentInput {
+        display_name: input.display_name,
+        provider: input.provider,
+        api_key: input.api_key,
+        model_id: input.model_id,
+        interface_format: input.interface_format,
+        base_url: input.base_url,
+    }
+}
+
+pub(super) fn tool_approval_decision(approved: bool) -> ToolApprovalDecision {
+    if approved {
+        ToolApprovalDecision::Approved
+    } else {
+        ToolApprovalDecision::Denied
+    }
 }
 
 pub(super) fn start_coordination_request(
@@ -345,6 +366,7 @@ pub(super) fn interaction_mode_from_dto(mode: dto::InteractionMode) -> Interacti
         dto::InteractionMode::Browser => InteractionMode::Browser,
         dto::InteractionMode::NativeDesktop => InteractionMode::NativeDesktop,
         dto::InteractionMode::Cli => InteractionMode::Cli,
+        dto::InteractionMode::Api => InteractionMode::Api,
     }
 }
 
@@ -353,6 +375,7 @@ fn interaction_mode_to_dto(mode: InteractionMode) -> dto::InteractionMode {
         InteractionMode::Browser => dto::InteractionMode::Browser,
         InteractionMode::NativeDesktop => dto::InteractionMode::NativeDesktop,
         InteractionMode::Cli => dto::InteractionMode::Cli,
+        InteractionMode::Api => dto::InteractionMode::Api,
     }
 }
 

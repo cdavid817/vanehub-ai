@@ -13,6 +13,7 @@ pub(crate) enum InteractionMode {
     Browser,
     NativeDesktop,
     Cli,
+    Api,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -41,6 +42,25 @@ pub(crate) struct LaunchMetadata {
     pub(crate) command: Option<String>,
     pub(crate) url: Option<String>,
     pub(crate) executable_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegisterApiAgentInput {
+    pub(crate) display_name: String,
+    pub(crate) provider: String,
+    pub(crate) api_key: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResolveToolApprovalInput {
+    pub(crate) session_id: String,
+    pub(crate) call_id: String,
+    pub(crate) approved: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

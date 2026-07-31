@@ -22,6 +22,7 @@ import type {
   ManagedCliAgentId,
   ProjectInspection,
   ReadinessStatus,
+  RegisterApiAgentInput,
   RenameSessionCategoryInput,
   Session,
   SessionCategory,
@@ -86,6 +87,10 @@ import { subscribeLoopRunPolling } from "./loop-run-polling";
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
     return invoke<AgentRegistryEntry[]>("list_agents", { capabilityTag: capabilityTag ?? null });
+  },
+
+  registerApiAgent(input: RegisterApiAgentInput) {
+    return invoke<AgentRegistryEntry>("register_api_agent", { input });
   },
 
   listCliTools() {
@@ -397,6 +402,10 @@ export const tauriAgentClient: AgentService = {
 
   async stopGeneration(sessionId: string) {
     await invoke<void>("stop_generation", { sessionId });
+  },
+
+  resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
+    return invoke<boolean>("resolve_tool_approval", { input: { sessionId, callId, approved } });
   },
 
   openAgentTerminal(sessionId: string, size: AgentTerminalSize) {

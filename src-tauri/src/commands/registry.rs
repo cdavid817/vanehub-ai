@@ -6,6 +6,8 @@ pub(crate) fn invoke_handler(
         // Agent Runtime
         crate::commands::agent_runtime::list_agents::list_agents,
         crate::commands::agent_runtime::get_agent_by_id::get_agent_by_id,
+        crate::commands::agent_runtime::register_api_agent::register_api_agent,
+        crate::commands::agent_runtime::resolve_tool_approval::resolve_tool_approval,
         crate::commands::agent_runtime::get_workflow_state::get_workflow_state,
         crate::commands::agent_runtime::select_agent::select_agent,
         crate::commands::agent_runtime::check_browser_readiness::check_browser_readiness,

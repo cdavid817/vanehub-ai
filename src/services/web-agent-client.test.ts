@@ -644,6 +644,52 @@ describe("webAgentClient", () => {
     unsubscribe();
   });
 
+  it("emits a deterministic compaction notice for sufficiently long mock sessions", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Long session",
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "x".repeat(2_100), config });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const compactionEvent = events.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-compaction-"),
+    );
+    expect(compactionEvent).toBeDefined();
+    unsubscribe();
+  });
+
+  it("does not emit a compaction notice for ordinary short mock sessions", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Short session",
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello agent", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const compactionEvent = events.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-compaction-"),
+    );
+    expect(compactionEvent).toBeUndefined();
+    unsubscribe();
+  });
+
   it("persists chat configuration per session and keeps session identity authoritative", async () => {
     const first = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Config one" });
     const second = await createMockSession({ agentId: "gemini-cli", interactionMode: "browser", title: "Config two" });

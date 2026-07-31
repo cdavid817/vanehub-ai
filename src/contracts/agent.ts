@@ -1,4 +1,4 @@
-export type InteractionMode = "browser" | "native-desktop" | "cli";
+export type InteractionMode = "browser" | "native-desktop" | "cli" | "api";
 
 export type AvailabilityState =
   "available" | "unavailable" | "needs-auth" | "unknown";
@@ -15,7 +15,7 @@ export interface SessionSourceMetadata {
 }
 
 export interface LaunchMetadata {
-  kind: "cli" | "browser" | "desktop";
+  kind: "cli" | "browser" | "desktop" | "api";
   command?: string;
   url?: string;
   executableName?: string;
@@ -31,6 +31,17 @@ export interface AgentRegistryEntry {
   availabilityState: AvailabilityState;
   unavailableReason?: string;
   capabilityTags: string[];
+}
+
+export type ApiInterfaceFormat = "anthropic" | "openai-compatible";
+
+export interface RegisterApiAgentInput {
+  displayName: string;
+  provider: string;
+  apiKey: string;
+  modelId: string;
+  interfaceFormat: ApiInterfaceFormat;
+  baseUrl: string | null;
 }
 
 export interface WorkflowState {
@@ -126,7 +137,7 @@ export interface SessionDetails {
   agentId: string | null;
   interactionMode: InteractionMode | null;
   lifecycleState: SessionLifecycleState;
-  adapter: "browser" | "native-desktop" | "cli" | "none";
+  adapter: "browser" | "native-desktop" | "cli" | "api" | "none";
   details: Record<string, string>;
 }
 
