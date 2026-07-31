@@ -7,6 +7,11 @@ The system SHALL persist at most one normalized usage record per VaneHub assista
 - **WHEN** a supported CLI reports valid, non-zero usage for an assistant response
 - **THEN** the system SHALL persist non-negative normalized token categories with accounting kind `reported`, unit `tokens`, stable Agent id, source, and occurrence time
 
+#### Scenario: Persist reported tokens for an interactive terminal session
+- **WHEN** a supported CLI runs as an interactive embedded-terminal session rather than through VaneHub's managed invocation pipeline
+- **THEN** the system SHALL read that CLI's own persisted session log or database to obtain reported usage
+- **AND** it SHALL persist that usage the same way as managed-pipeline usage, with accounting kind `reported` and unit `tokens`
+
 #### Scenario: Persist successful fallback estimate
 - **WHEN** a VaneHub assistant response completes successfully without valid reported usage
 - **THEN** the system SHALL persist its input and output character counts with accounting kind `estimated` and unit `characters`

@@ -1127,6 +1127,19 @@
                      },
                      {
                          "archivedOn":  "2026-07-31",
+                         "changeName":  "add-reported-usage-ingestion",
+                         "path":  "openspec/changes/archive/2026-07-31-add-reported-usage-ingestion/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
                          "changeName":  "add-terminal-usage-tracking",
                          "path":  "openspec/changes/archive/2026-07-31-add-terminal-usage-tracking/",
                          "artifacts":  [
