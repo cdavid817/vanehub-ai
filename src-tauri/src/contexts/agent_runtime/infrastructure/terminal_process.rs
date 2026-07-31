@@ -22,7 +22,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -406,13 +406,68 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         } else {
             None
         };
+        // A CLI can go quiet on the PTY (idle, waiting for the next prompt) for several
+        // seconds *after* it has finished streaming visible output but *before* it has
+        // actually persisted that turn's usage to its own session log/DB — observed
+        // directly: opencode's `session` row appeared several seconds before its token
+        // columns were actually updated. Polling only when output happens to arrive would
+        // miss that gap entirely and could never catch up until the next unrelated burst
+        // of output (or exit). This timer thread is intentionally independent of PTY
+        // activity so it keeps checking on a fixed cadence regardless.
+        let usage_poll_alive = Arc::new(AtomicBool::new(true));
+        if let Some(message_id) = usage_tracking_message_id.clone() {
+            let agent_id = agent_id.clone();
+            let session_folder = session_folder.clone();
+            let runtime_session_id = runtime_session_id.clone();
+            let sessions = sessions.clone();
+            let logging = logging.clone();
+            let clock = clock.clone();
+            let session_id = session_id.clone();
+            let alive = usage_poll_alive.clone();
+            thread::spawn(move || {
+                // Ticks in short increments so the thread notices the terminal has
+                // exited promptly instead of sleeping a full interval before checking.
+                const TICK: Duration = Duration::from_millis(250);
+                let mut waited = Duration::ZERO;
+                while alive.load(Ordering::Relaxed) {
+                    thread::sleep(TICK);
+                    waited += TICK;
+                    if waited < TERMINAL_USAGE_POLL_INTERVAL {
+                        continue;
+                    }
+                    waited = Duration::ZERO;
+                    if !alive.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let result = run_terminal_usage_ingestion(
+                        &agent_id,
+                        session_folder.as_deref(),
+                        runtime_session_id.as_deref(),
+                        started_at_ms,
+                        sessions.as_ref(),
+                        &message_id,
+                        &session_id,
+                        clock.as_ref(),
+                    );
+                    if let Some(result) = result {
+                        record_terminal_usage_log(
+                            logging.as_ref(),
+                            clock.as_ref(),
+                            &agent_id,
+                            &session_id,
+                            "periodic poll",
+                            &result,
+                        );
+                    }
+                }
+            });
+        }
         drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
             let mut provider_session_capture = provider_session_capture;
             let mut last_capture_attempt: Option<Instant> = None;
             let mut capture_failure_logged = false;
-            let mut last_usage_poll: Option<Instant> = None;
             let mut buffer = [0u8; TERMINAL_READ_BUFFER_BYTES];
             // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence
             // (中文 / emoji / TUI box-drawing) can be split across two reads. Carry the
@@ -526,38 +581,14 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                                 _ => {}
                             }
                         }
-                        if let Some(message_id) = usage_tracking_message_id.as_deref() {
-                            if last_usage_poll.is_none_or(|attempt| {
-                                attempt.elapsed() >= TERMINAL_USAGE_POLL_INTERVAL
-                            }) {
-                                last_usage_poll = Some(Instant::now());
-                                let result = run_terminal_usage_ingestion(
-                                    &agent_id,
-                                    session_folder.as_deref(),
-                                    runtime_session_id.as_deref(),
-                                    started_at_ms,
-                                    sessions.as_ref(),
-                                    message_id,
-                                    &session_id,
-                                    clock.as_ref(),
-                                );
-                                if let Some(result) = result {
-                                    record_terminal_usage_log(
-                                        logging.as_ref(),
-                                        clock.as_ref(),
-                                        &agent_id,
-                                        &session_id,
-                                        "periodic poll",
-                                        &result,
-                                    );
-                                }
-                            }
-                        }
                     }
                     Err(_) => break,
                 }
             }
 
+            // Stop the independent usage-poll thread now that the terminal has
+            // definitely exited, so it doesn't race the exit-time read below.
+            usage_poll_alive.store(false, Ordering::Relaxed);
             let exit_result = child
                 .lock()
                 .map_err(|error| error.to_string())
