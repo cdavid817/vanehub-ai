@@ -1,6 +1,6 @@
 use super::session_capture::{
     capture_codex_baseline, capture_opencode_baseline, discover_codex_session,
-    discover_opencode_session, ProviderSessionDiscovery,
+    discover_opencode_session, read_gemini_project_slug, ProviderSessionDiscovery,
 };
 use rusqlite::Connection;
 use serde_json::json;
@@ -177,5 +177,56 @@ fn opencode_capture_rejects_stale_and_ambiguous_rows() {
         ProviderSessionDiscovery::Ambiguous(2)
     );
     drop(connection);
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+fn write_gemini_projects_registry(path: &Path, entries: &[(&Path, &str)]) {
+    let projects = entries
+        .iter()
+        .map(|(project_path, slug)| (project_path.to_string_lossy().to_string(), slug.to_string()))
+        .collect::<std::collections::HashMap<_, _>>();
+    fs::write(
+        path,
+        json!({ "projects": projects }).to_string(),
+    )
+    .expect("write projects registry");
+}
+
+#[test]
+fn gemini_project_slug_resolves_a_matching_registered_path() {
+    let root = temp_directory("gemini-registry");
+    let project = root.join("aiproject");
+    let registry_path = root.join("projects.json");
+    write_gemini_projects_registry(&registry_path, &[(&project, "aiproject")]);
+
+    let slug = read_gemini_project_slug(&registry_path, &project).expect("read registry");
+
+    assert_eq!(slug.as_deref(), Some("aiproject"));
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+#[test]
+fn gemini_project_slug_returns_none_for_an_unregistered_path() {
+    let root = temp_directory("gemini-registry-miss");
+    let project = root.join("aiproject");
+    let other = root.join("unrelated");
+    let registry_path = root.join("projects.json");
+    write_gemini_projects_registry(&registry_path, &[(&project, "aiproject")]);
+
+    let slug = read_gemini_project_slug(&registry_path, &other).expect("read registry");
+
+    assert_eq!(slug, None);
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+#[test]
+fn gemini_project_slug_missing_registry_file_is_graceful() {
+    let root = temp_directory("gemini-registry-absent");
+    let registry_path = root.join("projects.json");
+
+    let slug =
+        read_gemini_project_slug(&registry_path, &root.join("aiproject")).expect("read registry");
+
+    assert_eq!(slug, None);
     fs::remove_dir_all(root).expect("remove temp directory");
 }

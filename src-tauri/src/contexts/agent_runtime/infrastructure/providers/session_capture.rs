@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -275,6 +275,97 @@ pub(crate) fn find_opencode_session_since(
         .collect();
     candidates.sort_by_key(|(created_at, _)| *created_at);
     Ok(candidates.pop().map(|(_, id)| id))
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiProjectsRegistry {
+    #[serde(default)]
+    projects: HashMap<String, String>,
+}
+
+/// Post-hoc lookup for gemini-cli's own `ChatRecordingService` output, following the
+/// same working-directory + start-time pattern as `find_opencode_session_since` /
+/// `find_codex_rollout_since`. gemini-cli has no live `ProviderSessionCapture` poll to
+/// mirror in the first place (that mechanism is codex-cli/opencode-specific), so this
+/// is the only lookup, called on the same periodic timer as the other three CLIs.
+///
+/// The project directory is resolved via `~/.gemini/projects.json` — a
+/// normalized-absolute-path -> slug map gemini-cli itself maintains and auto-populates
+/// the first time it runs in a given directory (verified directly by reading the
+/// installed `@google/gemini-cli` package's bundled source: `ProjectRegistry.getShortId`
+/// / `Storage.getProjectIdentifier`). This recently replaced an older pure-hash scheme
+/// (per a source comment: "Performs migration of legacy hash-based directories to the
+/// new slug-based format"), so no hash-based assumption is used here.
+pub(crate) fn find_gemini_chat_session_since(
+    working_directory: &Path,
+    since_ms: i64,
+) -> Result<Option<PathBuf>, ProviderSessionCaptureError> {
+    let Some(registry_path) = gemini_projects_registry_path() else {
+        return Ok(None);
+    };
+    let Some(slug) = read_gemini_project_slug(&registry_path, working_directory)? else {
+        return Ok(None);
+    };
+    let Some(gemini_home) = gemini_home_dir() else {
+        return Ok(None);
+    };
+    let chats_dir = gemini_home.join("tmp").join(slug).join("chats");
+    if !chats_dir.exists() {
+        return Ok(None);
+    }
+    let since = UNIX_EPOCH + Duration::from_millis(since_ms.saturating_sub(2_000).max(0) as u64);
+    let mut candidates: Vec<(SystemTime, PathBuf)> = Vec::new();
+    let entries = fs::read_dir(&chats_dir).map_err(|error| capture_error("Gemini", error))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| capture_error("Gemini", error))?;
+        let path = entry.path();
+        let is_chat_file = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".jsonl"));
+        if !is_chat_file {
+            continue;
+        }
+        let modified = fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .map_err(|error| capture_error("Gemini", error))?;
+        if modified < since {
+            continue;
+        }
+        candidates.push((modified, path));
+    }
+    candidates.sort_by_key(|(modified, _)| *modified);
+    Ok(candidates.pop().map(|(_, path)| path))
+}
+
+pub(super) fn read_gemini_project_slug(
+    registry_path: &Path,
+    working_directory: &Path,
+) -> Result<Option<String>, ProviderSessionCaptureError> {
+    if !registry_path.exists() {
+        return Ok(None);
+    }
+    let content =
+        fs::read_to_string(registry_path).map_err(|error| capture_error("Gemini", error))?;
+    let Ok(registry) = serde_json::from_str::<GeminiProjectsRegistry>(&content) else {
+        return Ok(None);
+    };
+    Ok(registry
+        .projects
+        .into_iter()
+        .find(|(project_path, _)| paths_match(Path::new(project_path), working_directory))
+        .map(|(_, slug)| slug))
+}
+
+/// `~/.gemini`, exactly as gemini-cli's own `Storage.getGlobalGeminiDir()` resolves it
+/// (verified directly against source: `path.join(homedir(), ".gemini")`, no environment
+/// variable override exists for this in the installed package).
+fn gemini_home_dir() -> Option<PathBuf> {
+    user_home().map(|home| home.join(".gemini"))
+}
+
+fn gemini_projects_registry_path() -> Option<PathBuf> {
+    gemini_home_dir().map(|home| home.join("projects.json"))
 }
 
 struct OpenCodeSessionRecord {

@@ -1,6 +1,6 @@
 use super::providers::{
-    codex_session_root, find_codex_rollout_since, find_opencode_session_since,
-    opencode_database_path,
+    codex_session_root, find_codex_rollout_since, find_gemini_chat_session_since,
+    find_opencode_session_since, opencode_database_path,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentRuntimeApplicationError, AgentSessionGateway, AgentUsageAccountingKind,
@@ -148,6 +148,44 @@ pub(crate) fn ingest_codex_terminal_usage(
         "cli-session-log",
         clock,
     )
+}
+
+/// Finds the `chats/*.jsonl` file gemini-cli's own `ChatRecordingService` wrote for this
+/// working directory during this terminal's lifetime, then sums every `type: "gemini"`
+/// message's per-turn `tokens` object — verified directly against the installed
+/// `@google/gemini-cli` package's bundled source, not assumed. Unlike codex-cli's
+/// cumulative `total_token_usage`, gemini-cli's local per-message tokens are genuinely
+/// per-turn deltas, so every matching message is summed rather than taking the last one.
+///
+/// Uses the same post-hoc lookup as opencode/codex-cli; gemini-cli has no live
+/// `ProviderSessionCapture` poll to race against in the first place, so this is simply
+/// the only lookup. `message_id` is the stable id from
+/// `create_terminal_usage_placeholder`, so repeated calls update the same row.
+pub(crate) fn ingest_gemini_terminal_usage(
+    session_folder: Option<&str>,
+    started_at_ms: i64,
+    sessions: &dyn AgentSessionGateway,
+    message_id: &str,
+    session_id: &str,
+    agent_id: &str,
+    clock: &dyn AgentClockPort,
+) -> Result<bool, AgentRuntimeApplicationError> {
+    let Some(cwd) = session_folder
+        .filter(|f| !f.trim().is_empty())
+        .map(PathBuf::from)
+    else {
+        return Ok(false);
+    };
+    let Some(chat_path) = find_gemini_chat_session_since(&cwd, started_at_ms)
+        .map_err(|e| AgentRuntimeApplicationError::Process(e.to_string()))?
+    else {
+        return Ok(false);
+    };
+    let Ok(file) = fs::File::open(&chat_path) else {
+        return Ok(false);
+    };
+    let totals = aggregate_gemini_usage(&chat_path, file)?;
+    persist_terminal_usage(totals, sessions, message_id, session_id, agent_id, "cli-session-log", clock)
 }
 
 /// Creates the placeholder assistant message that periodic and exit-time usage polls
@@ -418,6 +456,69 @@ fn aggregate_codex_usage(
         };
     }
     Ok(latest)
+}
+
+/// One line per event in gemini-cli's own `ChatRecordingService` output: an initial
+/// metadata line and `{"$set": ...}` update lines have neither `type` nor `tokens`, so
+/// they deserialize with both fields `None` (serde ignores their unrecognised keys) and
+/// are skipped by the `type == "gemini"` filter below, same as `type: "user"` lines.
+#[derive(Debug, Deserialize)]
+struct GeminiChatMessageLine {
+    #[serde(rename = "type")]
+    message_type: Option<String>,
+    tokens: Option<GeminiMessageTokens>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiMessageTokens {
+    input: Option<i64>,
+    output: Option<i64>,
+    cached: Option<i64>,
+    thoughts: Option<i64>,
+}
+
+/// gemini-cli's `ChatRecordingService` records one line per event. Only `type:
+/// "gemini"` messages (assistant turns) carry a `tokens` object, and — verified
+/// directly from the installed package's source — each is a genuine per-turn delta
+/// rather than a running cumulative total (unlike codex-cli's `total_token_usage`), so
+/// every matching message's tokens are summed. `thoughts` (reasoning tokens) are folded
+/// into `output_tokens`, matching the same folding decision already made for codex-cli
+/// and opencode. `tool` (tokens spent on tool-use prompt context) is deliberately left
+/// unmapped: it is very likely already a subset of `input`, and folding it in on top
+/// would risk double-counting rather than adding real information.
+fn aggregate_gemini_usage(
+    path: &Path,
+    file: fs::File,
+) -> Result<TerminalUsageTotals, AgentRuntimeApplicationError> {
+    let reader = std::io::BufReader::new(file);
+    let mut totals = TerminalUsageTotals::default();
+    for line in reader.lines() {
+        let line = line.map_err(|e| {
+            AgentRuntimeApplicationError::Process(format!(
+                "Failed to read gemini chat session {}: {e}",
+                path.display()
+            ))
+        })?;
+        let Ok(event) = serde_json::from_str::<GeminiChatMessageLine>(&line) else {
+            continue;
+        };
+        if event.message_type.as_deref() != Some("gemini") {
+            continue;
+        }
+        let Some(tokens) = event.tokens else {
+            continue;
+        };
+        let input = tokens.input.unwrap_or(0).max(0);
+        let output = tokens.output.unwrap_or(0).max(0) + tokens.thoughts.unwrap_or(0).max(0);
+        let cached = tokens.cached.unwrap_or(0).max(0);
+        if input == 0 && output == 0 && cached == 0 {
+            continue;
+        }
+        totals.input_tokens += input;
+        totals.output_tokens += output;
+        totals.cache_read_tokens += cached;
+    }
+    Ok(totals)
 }
 
 #[cfg(test)]
@@ -843,6 +944,88 @@ mod tests {
         let totals =
             aggregate_codex_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
                 .expect("aggregate");
+
+        assert_eq!(totals, TerminalUsageTotals::default());
+    }
+
+    #[test]
+    fn gemini_usage_sums_across_all_gemini_messages_and_folds_thoughts_into_output() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        writeln!(
+            file,
+            r#"{{"sessionId":"s1","projectHash":"h1","startTime":"t0","lastUpdated":"t0","kind":"interactive"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg1","timestamp":"t1","type":"user","content":"hello","displayContent":"hello"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg2","timestamp":"t2","type":"gemini","content":"hi","displayContent":"hi","thoughts":[],"tokens":{{"input":100,"output":50,"cached":10,"thoughts":20,"tool":5,"total":185}},"model":"gemini-2.5-pro"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"$set":{{"lastUpdated":"t3"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg3","timestamp":"t4","type":"gemini","content":"more","displayContent":"more","tokens":{{"input":50,"output":30,"cached":0,"thoughts":0,"tool":0,"total":80}}}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+        let totals = aggregate_gemini_usage(
+            file.path(),
+            std::fs::File::open(file.path()).expect("open"),
+        )
+        .expect("aggregate");
+
+        assert_eq!(totals.input_tokens, 150);
+        assert_eq!(totals.output_tokens, 100);
+        assert_eq!(totals.cache_read_tokens, 10);
+        assert_eq!(totals.cache_creation_tokens, 0);
+    }
+
+    #[test]
+    fn gemini_usage_skips_gemini_messages_without_a_tokens_object() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        writeln!(
+            file,
+            r#"{{"id":"msg1","timestamp":"t1","type":"gemini","content":"queued","displayContent":"queued"}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+        let totals = aggregate_gemini_usage(
+            file.path(),
+            std::fs::File::open(file.path()).expect("open"),
+        )
+        .expect("aggregate");
+
+        assert_eq!(totals, TerminalUsageTotals::default());
+    }
+
+    #[test]
+    fn gemini_chat_session_without_any_gemini_messages_yields_zero_totals() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        writeln!(
+            file,
+            r#"{{"sessionId":"s1","projectHash":"h1","startTime":"t0","lastUpdated":"t0","kind":"interactive"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg1","timestamp":"t1","type":"user","content":"hello","displayContent":"hello"}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+        let totals = aggregate_gemini_usage(
+            file.path(),
+            std::fs::File::open(file.path()).expect("open"),
+        )
+        .expect("aggregate");
 
         assert_eq!(totals, TerminalUsageTotals::default());
     }
