@@ -1,8 +1,8 @@
 use super::invocation::ProviderInvocationError;
 use super::{
     apply_configuration_overrides, build_interactive_invocation, build_invocation,
-    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderToolEvent,
-    ProviderToolPhase,
+    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    ProviderToolEvent, ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
@@ -283,7 +283,7 @@ fn output_fixtures_cover_every_stable_provider() {
                 ProviderOutputEvent::RichBlock(serde_json::json!({
                     "id":"claude-card","kind":"card","v":1,"title":"Summary"
                 })),
-                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::Completed(None),
             ],
         ),
         (
@@ -300,7 +300,7 @@ fn output_fixtures_cover_every_stable_provider() {
                 ),
                 completed_tool("codex-tool", "read_file", serde_json::json!({"bytes":20})),
                 failed_tool("codex-failed", "shell"),
-                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::Completed(None),
                 ProviderOutputEvent::SessionId("codex-thread".to_string()),
                 ProviderOutputEvent::Token("hello from current codex".to_string()),
             ],
@@ -318,7 +318,7 @@ fn output_fixtures_cover_every_stable_provider() {
                 ),
                 completed_tool("gemini-tool", "read_file", serde_json::json!({"bytes":30})),
                 failed_tool("gemini-failed", "shell"),
-                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::Completed(None),
             ],
         ),
         (
@@ -334,10 +334,10 @@ fn output_fixtures_cover_every_stable_provider() {
                 ),
                 completed_tool("opencode-tool", "read", serde_json::json!({"bytes":40})),
                 failed_tool("opencode-failed", "shell"),
-                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::Completed(None),
                 ProviderOutputEvent::SessionId("opencode-current-session".to_string()),
                 ProviderOutputEvent::Token("hello from current opencode".to_string()),
-                ProviderOutputEvent::Completed,
+                ProviderOutputEvent::Completed(None),
             ],
         ),
     ];
@@ -351,6 +351,101 @@ fn output_fixtures_cover_every_stable_provider() {
             .collect::<Vec<_>>();
         assert_eq!(parsed, expected, "{agent_id}");
     }
+}
+
+#[test]
+fn claude_code_completion_line_reports_usage() {
+    let event = output_parser_for("claude-code").parse_line(
+        r#"{"type":"result","usage":{"input_tokens":120,"output_tokens":340,"cache_creation_input_tokens":50,"cache_read_input_tokens":900}}"#,
+    );
+    assert_eq!(
+        event,
+        ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+            input_tokens: 120,
+            output_tokens: 340,
+            cache_read_tokens: 900,
+            cache_creation_tokens: 50,
+        }))
+    );
+}
+
+#[test]
+fn claude_code_all_zero_usage_is_treated_as_absent() {
+    let event = output_parser_for("claude-code").parse_line(
+        r#"{"type":"result","is_error":true,"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#,
+    );
+    assert_eq!(event, ProviderOutputEvent::Completed(None));
+}
+
+#[test]
+fn codex_cli_completion_line_folds_reasoning_into_output() {
+    let event = output_parser_for("codex-cli").parse_line(
+        r#"{"type":"turn.completed","usage":{"input_tokens":500,"cached_input_tokens":200,"cache_write_input_tokens":30,"output_tokens":100,"reasoning_output_tokens":40}}"#,
+    );
+    assert_eq!(
+        event,
+        ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+            input_tokens: 500,
+            output_tokens: 140,
+            cache_read_tokens: 200,
+            cache_creation_tokens: 30,
+        }))
+    );
+}
+
+#[test]
+fn codex_cli_all_zero_usage_is_treated_as_absent() {
+    let event = output_parser_for("codex-cli").parse_line(
+        r#"{"type":"turn.completed","usage":{"input_tokens":0,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0}}"#,
+    );
+    assert_eq!(event, ProviderOutputEvent::Completed(None));
+}
+
+#[test]
+fn gemini_cli_completion_line_reports_usage() {
+    let event = output_parser_for("gemini-cli").parse_line(
+        r#"{"type":"result","stats":{"input_tokens":80,"output_tokens":200,"cached":15,"total_tokens":295}}"#,
+    );
+    assert_eq!(
+        event,
+        ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+            input_tokens: 80,
+            output_tokens: 200,
+            cache_read_tokens: 15,
+            cache_creation_tokens: 0,
+        }))
+    );
+}
+
+#[test]
+fn gemini_cli_all_zero_usage_is_treated_as_absent() {
+    let event = output_parser_for("gemini-cli")
+        .parse_line(r#"{"type":"result","stats":{"input_tokens":0,"output_tokens":0,"cached":0,"total_tokens":0}}"#);
+    assert_eq!(event, ProviderOutputEvent::Completed(None));
+}
+
+#[test]
+fn opencode_completion_line_folds_reasoning_into_output() {
+    let event = output_parser_for("opencode").parse_line(
+        r#"{"type":"step_finish","part":{"type":"step-finish","tokens":{"total":900,"input":600,"output":150,"reasoning":50,"cache":{"read":80,"write":20}},"cost":0.01}}"#,
+    );
+    assert_eq!(
+        event,
+        ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+            input_tokens: 600,
+            output_tokens: 200,
+            cache_read_tokens: 80,
+            cache_creation_tokens: 20,
+        }))
+    );
+}
+
+#[test]
+fn opencode_all_zero_usage_is_treated_as_absent() {
+    let event = output_parser_for("opencode").parse_line(
+        r#"{"type":"step_finish","part":{"type":"step-finish","tokens":{"total":0,"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0}}"#,
+    );
+    assert_eq!(event, ProviderOutputEvent::Completed(None));
 }
 
 #[test]

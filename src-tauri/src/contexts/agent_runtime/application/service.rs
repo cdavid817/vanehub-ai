@@ -9,9 +9,9 @@ use super::{
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
     LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
     MessageTokenUsage, NewAgentMessage, PendingPromptExecution, PromptExecutionOutcome,
-    PromptExecutionReport, PromptVersionReference, ReadinessView, SendMessageRequest,
-    StopGenerationResult, ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest,
-    WorkflowView,
+    PromptExecutionReport, PromptVersionReference, ReadinessView, ReportedUsageTotals,
+    SendMessageRequest, StopGenerationResult, ToolLifecycleEvent, ToolLifecyclePhase,
+    WorkflowLaunchRequest, WorkflowView,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -1406,11 +1406,14 @@ impl GenerationEventHandler {
         Ok(())
     }
 
-    fn completed(&self) -> Result<(), AgentRuntimeApplicationError> {
+    fn completed(
+        &self,
+        usage: Option<ReportedUsageTotals>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         let Some(response) = self.begin_terminal()? else {
             return Ok(());
         };
-        let result = self.complete_claimed(response);
+        let result = self.complete_claimed(response, usage);
         if result.is_err() {
             self.record_prompt_execution(PromptExecutionOutcome::Failed);
             self.finish_execution(
@@ -1422,7 +1425,11 @@ impl GenerationEventHandler {
         result
     }
 
-    fn complete_claimed(&self, response: String) -> Result<(), AgentRuntimeApplicationError> {
+    fn complete_claimed(
+        &self,
+        response: String,
+        reported_usage: Option<ReportedUsageTotals>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         let current = self.current_message()?;
         if current.status == "cancelled" {
             self.mark_cancelled();
@@ -1432,19 +1439,39 @@ impl GenerationEventHandler {
             input: bounded_count(self.input_count),
             output: bounded_count(response.chars().count()),
         };
-        let usage = AgentUsageRecord {
-            message_id: self.message_id.clone(),
-            session_id: self.session_id.clone(),
-            agent_id: self.agent_id.clone(),
-            provider_id: self.configuration.provider_id.clone(),
-            model_id: self.configuration.model_id.clone(),
-            accounting_kind: AgentUsageAccountingKind::Estimated,
-            input_count: token_usage.input,
-            output_count: token_usage.output,
-            cache_read_count: 0,
-            cache_creation_count: 0,
-            source: "character-count".to_string(),
-            occurred_at: self.ports.clock.now(),
+        // Reported usage from the CLI's own completion line takes precedence over the
+        // character-count estimate; an all-zero/degenerate payload is normalized to
+        // `None` upstream in `output.rs`, so any `Some(...)` reaching here is genuine.
+        // See `add-reported-usage-ingestion` design.md Decisions 2 and 4.
+        let usage = match reported_usage {
+            Some(reported) => AgentUsageRecord {
+                message_id: self.message_id.clone(),
+                session_id: self.session_id.clone(),
+                agent_id: self.agent_id.clone(),
+                provider_id: self.configuration.provider_id.clone(),
+                model_id: self.configuration.model_id.clone(),
+                accounting_kind: AgentUsageAccountingKind::Reported,
+                input_count: reported.input_tokens,
+                output_count: reported.output_tokens,
+                cache_read_count: reported.cache_read_tokens,
+                cache_creation_count: reported.cache_creation_tokens,
+                source: "cli-reported".to_string(),
+                occurred_at: self.ports.clock.now(),
+            },
+            None => AgentUsageRecord {
+                message_id: self.message_id.clone(),
+                session_id: self.session_id.clone(),
+                agent_id: self.agent_id.clone(),
+                provider_id: self.configuration.provider_id.clone(),
+                model_id: self.configuration.model_id.clone(),
+                accounting_kind: AgentUsageAccountingKind::Estimated,
+                input_count: token_usage.input,
+                output_count: token_usage.output,
+                cache_read_count: 0,
+                cache_creation_count: 0,
+                source: "character-count".to_string(),
+                occurred_at: self.ports.clock.now(),
+            },
         };
         self.ports.sessions.complete_message(CompleteAgentMessage {
             message_id: self.message_id.clone(),
@@ -1725,7 +1752,7 @@ impl AgentProcessEventSink for GenerationEventHandler {
                 self.stderr(diagnostic);
                 Ok(())
             }
-            GenerationProcessEvent::Completed => self.completed(),
+            GenerationProcessEvent::Completed(usage) => self.completed(usage),
             GenerationProcessEvent::Failed(failure) => self.failed(failure.diagnostic),
         }
     }

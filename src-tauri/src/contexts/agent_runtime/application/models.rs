@@ -394,6 +394,18 @@ pub(crate) enum AgentUsageAccountingKind {
     Estimated,
 }
 
+/// Reported token usage normalized to the application layer's own shape — kept
+/// separate from `agent_runtime::infrastructure::ProviderReportedUsage` (the raw
+/// per-CLI shape) so this layer never depends on an infrastructure-defined type.
+/// See `add-reported-usage-ingestion` design.md Decision 0/2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct ReportedUsageTotals {
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_read_tokens: i64,
+    pub(crate) cache_creation_tokens: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentUsageRecord {
     pub(crate) message_id: String,
@@ -512,7 +524,7 @@ pub(crate) enum GenerationProcessEvent {
     RichBlock(Value),
     RuntimeSessionId(String),
     Stderr(String),
-    Completed,
+    Completed(Option<ReportedUsageTotals>),
     Failed(GenerationProcessFailure),
 }
 

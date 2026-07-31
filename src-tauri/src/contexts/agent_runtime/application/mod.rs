@@ -65,9 +65,10 @@ pub(crate) use models::{
     LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
     MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, PendingPromptExecution,
     ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
-    PromptVersionReference, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
-    StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult, ToolLifecycleEvent,
-    ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
+    PromptVersionReference, ReadinessView, ReportedUsageTotals, ResizeAgentTerminalRequest,
+    SendMessageRequest, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
+    ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, WorkflowView,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,

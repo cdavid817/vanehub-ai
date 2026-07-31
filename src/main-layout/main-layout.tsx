@@ -281,7 +281,6 @@ export function MainLayout({
             <SessionInfoPanel
               activeSession={displayedSession}
               collapsed={infoPanelCollapsed}
-              messages={displayedMessages}
               onCollapsedChange={setInfoPanelCollapsed}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : null}
             />

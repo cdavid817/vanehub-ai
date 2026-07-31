@@ -7,7 +7,8 @@ pub(crate) use invocation::{
     build_invocation, ProviderPromptDelivery,
 };
 pub(crate) use output::{
-    output_parser_for, ProviderOutputEvent, ProviderToolEvent, ProviderToolPhase,
+    output_parser_for, ProviderOutputEvent, ProviderReportedUsage, ProviderToolEvent,
+    ProviderToolPhase,
 };
 pub(crate) use session_capture::{
     codex_session_root, find_codex_rollout_since, find_opencode_session_since,

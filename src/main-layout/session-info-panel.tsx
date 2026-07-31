@@ -20,7 +20,7 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
-import type { ChatMessage, SessionUsageSummary } from "../types/chat";
+import type { SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
 
 export type InfoTab = "basic" | "usage" | "skills";
@@ -80,31 +80,6 @@ function EmptyState({ children }: { children: ReactNode }) {
   return <p className="rounded border border-border bg-background p-3 text-xs text-muted-foreground">{children}</p>;
 }
 
-function summaryWithLiveReportedTokens(summary: SessionUsageSummary | undefined, sessionId: string | null, messages: ChatMessage[]): SessionUsageSummary | undefined {
-  if (!summary || summary.reported.totalTokens > 0 || !sessionId) return summary;
-  const reportedMessages = messages.filter((message) => message.sessionId === sessionId && message.role === "assistant" && message.status === "completed" && message.tokenUsage);
-  if (reportedMessages.length === 0) return summary;
-  const reported = reportedMessages.reduce((totals, message) => {
-    totals.inputTokens += message.tokenUsage?.input ?? 0;
-    totals.outputTokens += message.tokenUsage?.output ?? 0;
-    return totals;
-  }, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 });
-  reported.totalTokens = reported.inputTokens + reported.outputTokens;
-  if (reported.totalTokens === 0) return summary;
-  const totalResponses = Math.max(summary.coverage.totalResponses, reportedMessages.length);
-  return {
-    ...summary,
-    reported,
-    coverage: {
-      ...summary.coverage,
-      reportedResponses: Math.max(summary.coverage.reportedResponses, reportedMessages.length),
-      totalResponses,
-      reportedPercent: totalResponses === 0 ? 0 : (Math.max(summary.coverage.reportedResponses, reportedMessages.length) / totalResponses) * 100,
-    },
-    responseCount: Math.max(summary.responseCount, reportedMessages.length),
-  };
-}
-
 function TokenUsagePane({ loading, summary }: { loading: boolean; summary: SessionUsageSummary | undefined }) {
   const { t } = useTranslation();
   if (loading) return <EmptyState>{t("layout.info.loading")}</EmptyState>;
@@ -155,13 +130,11 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
 export function SessionInfoPanel({
   activeSession,
   collapsed,
-  messages = [],
   onCollapsedChange,
   requestedTab,
 }: {
   activeSession: Session | null;
   collapsed: boolean;
-  messages?: ChatMessage[];
   onCollapsedChange: (collapsed: boolean) => void;
   requestedTab?: InfoTab | null;
 }) {
@@ -184,7 +157,6 @@ export function SessionInfoPanel({
     queryFn: () => agentService.getSessionUsageSummary(sessionId ?? ""),
     refetchInterval: activeSession?.lifecycleState === "running" ? 5000 : false,
   });
-  const usageSummary = useMemo(() => summaryWithLiveReportedTokens(usage.data, sessionId, messages), [messages, sessionId, usage.data]);
   const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
   const workspaceSkills = useQuery({ enabled: Boolean(sessionId && workspacePath), queryKey: ["skills", "workspace", workspacePath], queryFn: () => agentService.listSkills({ scope: "workspace", workspacePath }) });
 
@@ -222,7 +194,7 @@ export function SessionInfoPanel({
               </section>
             </dl>
           </Pane>
-          <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usageSummary} /></Pane>
+          <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
           <Pane active={activeTab === "skills"}>
             <div className="grid gap-3">
               <section className="ucd-muted-panel rounded-lg p-3">

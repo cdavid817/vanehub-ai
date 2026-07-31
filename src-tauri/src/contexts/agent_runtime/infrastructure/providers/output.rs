@@ -9,9 +9,21 @@ pub(crate) enum ProviderOutputEvent {
     ToolLifecycle(Box<ProviderToolEvent>),
     RichBlock(Value),
     SessionId(String),
-    Completed,
+    Completed(Option<ProviderReportedUsage>),
     Failed(GenerationProcessFailure),
     Empty,
+}
+
+/// Per-CLI reported token usage parsed from a provider's own "turn complete" line, in
+/// the CLI's native shape. Reasoning/thinking output tokens (codex-cli, opencode) are
+/// already folded into `output_tokens` at parse time — see
+/// `add-reported-usage-ingestion` design.md Decision 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct ProviderReportedUsage {
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_read_tokens: i64,
+    pub(crate) cache_creation_tokens: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +146,9 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
         "tool_use" | "tool_result" | "tool_error" | "tool_failure" => {
             ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)))
         }
-        "result" | "complete" | "completed" => ProviderOutputEvent::Completed,
+        "result" | "complete" | "completed" => {
+            ProviderOutputEvent::Completed(claude_usage(&value))
+        }
         "error" | "failed" => {
             ProviderOutputEvent::Failed(provider_failure(&value, "Agent output reported an error."))
         }
@@ -175,7 +189,17 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
             | "step_finish"
             | "step-finish"
     ) {
-        return ProviderOutputEvent::Completed;
+        // `result` is gemini-cli's completion shape here (claude-code's own `result`
+        // line never reaches this function — it goes through `parse_claude_line`
+        // instead); `done`/`complete`/`completed` are untyped generic terminal
+        // markers with no known usage shape to parse.
+        let usage = match event_type {
+            "turn.completed" => codex_usage(&value),
+            "result" => gemini_usage(&value),
+            "step_finish" | "step-finish" => opencode_usage(&value),
+            _ => None,
+        };
+        return ProviderOutputEvent::Completed(usage);
     }
     if let Some(session_id) = session_id(&value) {
         if matches!(
@@ -215,6 +239,82 @@ fn parse_structured_json_line(line: &str) -> ProviderOutputEvent {
     text_value(&value)
         .map(ProviderOutputEvent::Token)
         .unwrap_or(ProviderOutputEvent::Empty)
+}
+
+/// A usage payload that is present but all-zero (e.g. a CLI error response that still
+/// emits a zero-filled usage block) is treated as absent rather than a valid reported
+/// zero, so it falls back to the estimated/character-count path instead of persisting
+/// a permanently-stuck zero. See `add-reported-usage-ingestion` design.md Decision 4.
+fn non_degenerate(usage: ProviderReportedUsage) -> Option<ProviderReportedUsage> {
+    if usage.input_tokens == 0
+        && usage.output_tokens == 0
+        && usage.cache_read_tokens == 0
+        && usage.cache_creation_tokens == 0
+    {
+        None
+    } else {
+        Some(usage)
+    }
+}
+
+fn non_negative_i64(value: &Value, key: &str) -> i64 {
+    value.get(key).and_then(Value::as_i64).unwrap_or(0).max(0)
+}
+
+/// claude-code `result` line: `{"usage":{"input_tokens","output_tokens","cache_creation_input_tokens","cache_read_input_tokens"}}`.
+fn claude_usage(value: &Value) -> Option<ProviderReportedUsage> {
+    let usage = value.get("usage")?;
+    non_degenerate(ProviderReportedUsage {
+        input_tokens: non_negative_i64(usage, "input_tokens"),
+        output_tokens: non_negative_i64(usage, "output_tokens"),
+        cache_read_tokens: non_negative_i64(usage, "cache_read_input_tokens"),
+        cache_creation_tokens: non_negative_i64(usage, "cache_creation_input_tokens"),
+    })
+}
+
+/// codex-cli `turn.completed` line: `{"usage":{"input_tokens","cached_input_tokens","cache_write_input_tokens","output_tokens","reasoning_output_tokens"}}`.
+/// Reasoning output tokens are folded into `output_tokens` (Decision 3).
+fn codex_usage(value: &Value) -> Option<ProviderReportedUsage> {
+    let usage = value.get("usage")?;
+    non_degenerate(ProviderReportedUsage {
+        input_tokens: non_negative_i64(usage, "input_tokens"),
+        output_tokens: non_negative_i64(usage, "output_tokens")
+            + non_negative_i64(usage, "reasoning_output_tokens"),
+        cache_read_tokens: non_negative_i64(usage, "cached_input_tokens"),
+        cache_creation_tokens: non_negative_i64(usage, "cache_write_input_tokens"),
+    })
+}
+
+/// gemini-cli `result` line: `{"stats":{"input_tokens","output_tokens","cached","total_tokens"}}`.
+/// gemini-cli's stream-json stats have no separate cache-write figure.
+fn gemini_usage(value: &Value) -> Option<ProviderReportedUsage> {
+    let stats = value.get("stats")?;
+    non_degenerate(ProviderReportedUsage {
+        input_tokens: non_negative_i64(stats, "input_tokens"),
+        output_tokens: non_negative_i64(stats, "output_tokens"),
+        cache_read_tokens: non_negative_i64(stats, "cached"),
+        cache_creation_tokens: 0,
+    })
+}
+
+/// opencode `step_finish`/`step-finish` line: `{"part":{"tokens":{"total","input","output","reasoning","cache":{"read","write"}}}}`.
+/// Reasoning output tokens are folded into `output_tokens` (Decision 3).
+fn opencode_usage(value: &Value) -> Option<ProviderReportedUsage> {
+    let tokens = value.pointer("/part/tokens")?;
+    non_degenerate(ProviderReportedUsage {
+        input_tokens: non_negative_i64(tokens, "input"),
+        output_tokens: non_negative_i64(tokens, "output") + non_negative_i64(tokens, "reasoning"),
+        cache_read_tokens: tokens
+            .pointer("/cache/read")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+        cache_creation_tokens: tokens
+            .pointer("/cache/write")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+    })
 }
 
 fn text_value(value: &Value) -> Option<String> {

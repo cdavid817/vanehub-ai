@@ -339,7 +339,7 @@ impl CoordinationNodeExecutor for NativeCoordinationNodeExecutor {
         let result = loop {
             match receiver.recv_timeout(COORDINATION_ATTEMPT_TIMEOUT) {
                 Ok(GenerationProcessEvent::Token(content)) => output.push(&content),
-                Ok(GenerationProcessEvent::Completed) => {
+                Ok(GenerationProcessEvent::Completed(_)) => {
                     break CoordinationExecutionResult::Succeeded(output.finish());
                 }
                 Ok(GenerationProcessEvent::Failed(failure)) => {
