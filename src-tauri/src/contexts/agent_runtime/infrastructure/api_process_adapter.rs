@@ -1128,6 +1128,16 @@ mod tests {
         ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
             Ok(self.provider_config.clone())
         }
+        fn update(
+            &self,
+            _agent_id: &str,
+            _input: &crate::contexts::agent_runtime::application::UpdateApiAgentInput,
+        ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+            unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
+        }
+        fn delete(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+            unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
+        }
     }
 
     enum FakeHistoryOutcome {

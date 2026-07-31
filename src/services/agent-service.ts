@@ -1,6 +1,7 @@
 import type {
   AgentMemory,
   AgentRegistryEntry,
+  ApiAgentProviderConfig,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
@@ -22,6 +23,7 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  UpdateApiAgentInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
   Session,
@@ -98,6 +100,9 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences,
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
+  getApiAgentProviderConfig(agentId: string): Promise<ApiAgentProviderConfig | null>;
+  updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
+  deleteApiAgent(agentId: string): Promise<void>;
   listAgentMemories(agentId: string): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;

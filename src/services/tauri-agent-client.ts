@@ -5,6 +5,7 @@ import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentMemory,
   AgentRegistryEntry,
+  ApiAgentProviderConfig,
   AgentTerminalEvent,
   AgentTerminalSession,
   AgentTerminalSize,
@@ -24,6 +25,7 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  UpdateApiAgentInput,
   RenameSessionCategoryInput,
   Session,
   SessionCategory,
@@ -92,6 +94,18 @@ export const tauriAgentClient: AgentService = {
 
   registerApiAgent(input: RegisterApiAgentInput) {
     return invoke<AgentRegistryEntry>("register_api_agent", { input });
+  },
+
+  getApiAgentProviderConfig(agentId: string) {
+    return invoke<ApiAgentProviderConfig | null>("get_api_agent_provider_config", { agentId });
+  },
+
+  updateApiAgent(agentId: string, input: UpdateApiAgentInput) {
+    return invoke<AgentRegistryEntry>("update_api_agent", { agentId, input });
+  },
+
+  deleteApiAgent(agentId: string) {
+    return invoke<void>("delete_api_agent", { agentId });
   },
 
   listAgentMemories(agentId: string) {

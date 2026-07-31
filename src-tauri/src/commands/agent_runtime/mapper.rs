@@ -2,7 +2,7 @@ use super::dto;
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMemory,
     AgentMessage, AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
-    AgentTerminalSize as ApiAgentTerminalSize, AgentView,
+    AgentTerminalSize as ApiAgentTerminalSize, AgentView, ApiProviderConfig,
     CoordinationAttempt as ApiCoordinationAttempt,
     CoordinationAttemptStatus as ApiCoordinationAttemptStatus,
     CoordinationCandidateRole as ApiCoordinationCandidateRole,
@@ -12,7 +12,8 @@ use crate::contexts::agent_runtime::api::{
     CoordinationOutput as ApiCoordinationOutput, CoordinationRun as ApiCoordinationRun,
     CoordinationRunStatus as ApiCoordinationRunStatus, InteractionMode, LaunchWorkflowResult,
     OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
-    SendMessageRequest, StopAgentTerminalRequest, ToolApprovalDecision, WorkflowView,
+    SendMessageRequest, StopAgentTerminalRequest, ToolApprovalDecision, UpdateApiAgentInput,
+    WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
@@ -51,6 +52,25 @@ pub(super) fn register_api_agent_request(
         model_id: input.model_id,
         interface_format: input.interface_format,
         base_url: input.base_url,
+    }
+}
+
+pub(super) fn api_agent_provider_config_to_dto(
+    config: ApiProviderConfig,
+) -> dto::ApiAgentProviderConfig {
+    dto::ApiAgentProviderConfig {
+        model_id: config.model_id,
+        interface_format: config.interface_format,
+        base_url: config.base_url,
+    }
+}
+
+pub(super) fn update_api_agent_request(input: dto::UpdateApiAgentInput) -> UpdateApiAgentInput {
+    UpdateApiAgentInput {
+        display_name: input.display_name,
+        model_id: input.model_id,
+        base_url: input.base_url,
+        new_api_key: input.new_api_key,
     }
 }
 

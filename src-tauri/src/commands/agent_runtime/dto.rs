@@ -55,6 +55,23 @@ pub(crate) struct RegisterApiAgentInput {
     pub(crate) base_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ApiAgentProviderConfig {
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateApiAgentInput {
+    pub(crate) display_name: String,
+    pub(crate) model_id: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) new_api_key: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ResolveToolApprovalInput {

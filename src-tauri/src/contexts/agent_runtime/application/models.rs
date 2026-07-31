@@ -745,6 +745,19 @@ pub(crate) struct RegisterApiAgentInput {
     pub(crate) base_url: Option<String>,
 }
 
+/// `add-agent-lifecycle-management`. `provider`/`interface_format` are deliberately absent —
+/// immutable after registration (design.md Decision 1). `new_api_key: None` leaves the stored
+/// credential untouched; `ApiAgentGateway::update` never reads this field — only the
+/// application service does, exactly like `RegisterApiAgentInput.api_key` is only ever read by
+/// the service before calling `register`, never by the gateway itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UpdateApiAgentInput {
+    pub(crate) display_name: String,
+    pub(crate) model_id: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) new_api_key: Option<String>,
+}
+
 /// The two supported wire protocols for `launch_kind = "api"` agents.
 pub(crate) const INTERFACE_FORMAT_ANTHROPIC: &str = "anthropic";
 pub(crate) const INTERFACE_FORMAT_OPENAI_COMPATIBLE: &str = "openai-compatible";

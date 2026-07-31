@@ -44,6 +44,19 @@ export interface RegisterApiAgentInput {
   baseUrl: string | null;
 }
 
+export interface ApiAgentProviderConfig {
+  modelId: string;
+  interfaceFormat: ApiInterfaceFormat;
+  baseUrl: string | null;
+}
+
+export interface UpdateApiAgentInput {
+  displayName: string;
+  modelId: string;
+  baseUrl: string | null;
+  newApiKey?: string | null;
+}
+
 export type AgentMemorySource = "explicit" | "automatic";
 
 export interface AgentMemory {

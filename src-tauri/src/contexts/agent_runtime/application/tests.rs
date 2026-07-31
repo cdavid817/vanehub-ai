@@ -55,6 +55,16 @@ struct FakeWorld {
     completed_usage: Mutex<Vec<AgentUsageRecord>>,
     resolved_approvals: Mutex<Vec<(String, String, ToolApprovalDecision)>>,
     memories: Mutex<Vec<AgentMemory>>,
+    /// What `ApiAgentGateway::provider_config` hands back — `None` by default (matching the
+    /// shape every pre-existing call site outside this section's own tests relies on), seeded
+    /// per test so `update_api_agent`'s "re-validate against the *stored* interface_format"
+    /// logic (`add-agent-lifecycle-management` design.md Decision 4) has something to read.
+    provider_config: Mutex<Option<ApiProviderConfig>>,
+    updated_agents: Mutex<Vec<(String, UpdateApiAgentInput)>>,
+    delete_api_agent_failure: AtomicBool,
+    deleted_agent_ids: Mutex<Vec<String>>,
+    stored_credentials: Mutex<Vec<(String, String)>>,
+    removed_credentials: Mutex<Vec<String>>,
 }
 
 impl FakeWorld {
@@ -95,6 +105,12 @@ impl FakeWorld {
             completed_usage: Mutex::new(Vec::new()),
             resolved_approvals: Mutex::new(Vec::new()),
             memories: Mutex::new(Vec::new()),
+            provider_config: Mutex::new(None),
+            updated_agents: Mutex::new(Vec::new()),
+            delete_api_agent_failure: AtomicBool::new(false),
+            deleted_agent_ids: Mutex::new(Vec::new()),
+            stored_credentials: Mutex::new(Vec::new()),
+            removed_credentials: Mutex::new(Vec::new()),
         }
     }
 }
@@ -404,12 +420,45 @@ impl ApiAgentGateway for FakeWorld {
         &self,
         _agent_id: &str,
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
-        Ok(None)
+        Ok(self
+            .provider_config
+            .lock()
+            .expect("provider config")
+            .clone())
+    }
+
+    fn update(
+        &self,
+        agent_id: &str,
+        input: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        self.updated_agents
+            .lock()
+            .expect("updated agents")
+            .push((agent_id.to_string(), input.clone()));
+        Ok(api_agent(agent_id, &input.display_name, vec!["api"]))
+    }
+
+    fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        if self.delete_api_agent_failure.load(Ordering::SeqCst) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Cannot delete this agent: it is still referenced by 1 sessions.".to_string(),
+            ));
+        }
+        self.deleted_agent_ids
+            .lock()
+            .expect("deleted agent ids")
+            .push(agent_id.to_string());
+        Ok(())
     }
 }
 
 impl ApiCredentialPort for FakeWorld {
-    fn store(&self, _agent_id: &str, _api_key: &str) -> Result<(), AgentRuntimeApplicationError> {
+    fn store(&self, agent_id: &str, api_key: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.stored_credentials
+            .lock()
+            .expect("stored credentials")
+            .push((agent_id.to_string(), api_key.to_string()));
         Ok(())
     }
 
@@ -417,7 +466,11 @@ impl ApiCredentialPort for FakeWorld {
         Ok(None)
     }
 
-    fn remove(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+    fn remove(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.removed_credentials
+            .lock()
+            .expect("removed credentials")
+            .push(agent_id.to_string());
         Ok(())
     }
 }
@@ -1032,6 +1085,154 @@ fn query_selection_and_readiness_use_only_registry_workflow_and_event_ports() {
         .stopped_processes
         .lock()
         .expect("stopped processes")
+        .is_empty());
+}
+
+#[test]
+fn update_api_agent_trims_fields_and_forwards_the_normalized_input_to_the_gateway() {
+    let world = test_world();
+    world
+        .provider_config
+        .lock()
+        .expect("provider config")
+        .replace(ApiProviderConfig {
+            model_id: "old-model".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: None,
+        });
+
+    let updated = service(world.clone())
+        .update_api_agent(
+            "my-api-agent",
+            UpdateApiAgentInput {
+                display_name: "  Renamed Agent  ".to_string(),
+                model_id: "  new-model  ".to_string(),
+                base_url: None,
+                new_api_key: None,
+            },
+        )
+        .expect("update");
+
+    assert_eq!(updated.display_name, "Renamed Agent");
+    let calls = world.updated_agents.lock().expect("updated agents");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "my-api-agent");
+    assert_eq!(calls[0].1.display_name, "Renamed Agent");
+    assert_eq!(calls[0].1.model_id, "new-model");
+    assert_eq!(calls[0].1.base_url, None);
+    assert_eq!(calls[0].1.new_api_key, None);
+}
+
+#[test]
+fn update_api_agent_rejects_a_missing_base_url_when_the_stored_format_is_openai_compatible() {
+    let world = test_world();
+    world
+        .provider_config
+        .lock()
+        .expect("provider config")
+        .replace(ApiProviderConfig {
+            model_id: "old-model".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("https://old.example.test".to_string()),
+        });
+
+    let result = service(world.clone()).update_api_agent(
+        "my-api-agent",
+        UpdateApiAgentInput {
+            display_name: "Renamed".to_string(),
+            model_id: "new-model".to_string(),
+            base_url: None,
+            new_api_key: None,
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    assert!(world
+        .updated_agents
+        .lock()
+        .expect("updated agents")
+        .is_empty());
+}
+
+#[test]
+fn update_api_agent_rotating_the_key_stores_it_without_touching_other_fields() {
+    let world = test_world();
+    world
+        .provider_config
+        .lock()
+        .expect("provider config")
+        .replace(ApiProviderConfig {
+            model_id: "gpt-test".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: None,
+        });
+
+    service(world.clone())
+        .update_api_agent(
+            "my-api-agent",
+            UpdateApiAgentInput {
+                display_name: "My Agent".to_string(),
+                model_id: "gpt-test".to_string(),
+                base_url: None,
+                new_api_key: Some("sk-new-key".to_string()),
+            },
+        )
+        .expect("update");
+
+    let stored = world.stored_credentials.lock().expect("stored credentials");
+    assert_eq!(
+        stored.as_slice(),
+        [("my-api-agent".to_string(), "sk-new-key".to_string())]
+    );
+    // The rotated key never reaches the gateway — it's an OS-keychain concern, not a DB column.
+    let calls = world.updated_agents.lock().expect("updated agents");
+    assert_eq!(calls[0].1.new_api_key, None);
+}
+
+#[test]
+fn delete_api_agent_removes_the_stored_credential_after_a_successful_delete() {
+    let world = test_world();
+
+    service(world.clone())
+        .delete_api_agent("my-api-agent")
+        .expect("delete");
+
+    assert_eq!(
+        *world.deleted_agent_ids.lock().expect("deleted agent ids"),
+        vec!["my-api-agent".to_string()]
+    );
+    assert_eq!(
+        *world
+            .removed_credentials
+            .lock()
+            .expect("removed credentials"),
+        vec!["my-api-agent".to_string()]
+    );
+}
+
+#[test]
+fn delete_api_agent_does_not_touch_the_credential_when_the_gateway_rejects_the_delete() {
+    let world = test_world();
+    world.delete_api_agent_failure.store(true, Ordering::SeqCst);
+
+    let result = service(world.clone()).delete_api_agent("my-api-agent");
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    assert!(world
+        .deleted_agent_ids
+        .lock()
+        .expect("deleted agent ids")
+        .is_empty());
+    assert!(world
+        .removed_credentials
+        .lock()
+        .expect("removed credentials")
         .is_empty());
 }
 
