@@ -65,6 +65,11 @@ mod tests {
         );
         assert!(InteractionMode::parse("terminal").is_err());
         assert!(AgentId::parse(" \n ").is_err());
+        assert_eq!(
+            InteractionMode::parse("api").expect("api mode"),
+            InteractionMode::Api
+        );
+        assert_eq!(InteractionMode::Api.as_str(), "api");
 
         let agent = agent(
             AvailabilityAssessment::new(AgentAvailability::Available, None),

@@ -1,8 +1,10 @@
+pub(crate) mod bind_skill_to_api_agent;
 pub(crate) mod create_skill;
 pub(crate) mod delete_skill;
 pub(crate) mod detect_skill_drift;
 pub(crate) mod dto;
 pub(crate) mod import_skill;
+pub(crate) mod list_skill_api_agent_bindings;
 pub(crate) mod list_skill_mount_paths;
 pub(crate) mod list_skills;
 mod mapper;
@@ -12,5 +14,6 @@ pub(crate) mod select_workspace_directory;
 pub(crate) mod set_skill_agent_bindings;
 pub(crate) mod set_skill_enabled;
 pub(crate) mod sync_skill_drift;
+pub(crate) mod unbind_skill_from_api_agent;
 pub(crate) mod update_skill;
 pub(crate) mod update_skill_mount_path;

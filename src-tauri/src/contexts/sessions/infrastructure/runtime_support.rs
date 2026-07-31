@@ -287,7 +287,9 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         | AgentRuntimeApplicationError::VerificationProcess(message)
         | AgentRuntimeApplicationError::Logging(message)
         | AgentRuntimeApplicationError::Event(message)
-        | AgentRuntimeApplicationError::Generation(message) => {
+        | AgentRuntimeApplicationError::Generation(message)
+        | AgentRuntimeApplicationError::Credential(message)
+        | AgentRuntimeApplicationError::Skill(message) => {
             SessionsApplicationError::Runtime(message)
         }
     }

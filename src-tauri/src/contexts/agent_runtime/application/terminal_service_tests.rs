@@ -483,6 +483,13 @@ impl super::AgentGenerationPort for TerminalWorld {
     fn fail(&self, _session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         unused()
     }
+
+    fn active_process_id(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        unused()
+    }
 }
 
 #[test]

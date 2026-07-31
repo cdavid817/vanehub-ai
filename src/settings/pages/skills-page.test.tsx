@@ -66,4 +66,66 @@ describe("SkillsPage", () => {
     expect(html).toContain("TDD 开发纪律助手");
     expect(html).toContain(".codex/skills");
   });
+
+  it("renders API agent binding controls when a registered agent is API-kind", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["agents", "skills"], [
+      {
+        id: "my-api-agent",
+        displayName: "My API Agent",
+        provider: "Anthropic",
+        launch: { kind: "api" },
+        supportedInteractionModes: ["api"],
+        availabilityState: "available",
+        capabilityTags: ["api"],
+      },
+    ]);
+    queryClient.setQueryData(["skill-mount-paths"], []);
+    queryClient.setQueryData(["skills", { scope: "global", workspacePath: null }], {
+      stats: { total: 1, enabled: 1, mounted: 0 },
+      skills: [
+        {
+          id: "tdd-discipline",
+          scope: "global",
+          workspacePath: null,
+          source: "builtin",
+          enabled: true,
+          skillDir: "~/.vanehub/skills/tdd-discipline",
+          skillMdPath: "~/.vanehub/skills/tdd-discipline/SKILL.md",
+          contentHash: "hash",
+          metadata: {
+            id: "tdd-discipline",
+            name: "TDD 开发纪律助手",
+            description: "测试先行",
+            category: "development",
+            version: "1.0.0",
+            triggers: ["TDD"],
+          },
+          boundAgentIds: [],
+          bindings: [],
+          createdAt: "now",
+          updatedAt: "now",
+        },
+      ],
+    });
+    queryClient.setQueryData(["skill-drift", { scope: "global", workspacePath: null }], {
+      scope: "global",
+      workspacePath: null,
+      issues: [],
+      driftHash: "clean",
+    });
+    queryClient.setQueryData(
+      ["skill-api-agent-bindings", "tdd-discipline", { scope: "global", workspacePath: null }],
+      ["my-api-agent"],
+    );
+
+    const html = renderToString(
+      <QueryClientProvider client={queryClient}>
+        <SkillsPage searchTerm="" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("API 代理绑定");
+    expect(html).toContain("My API Agent");
+  });
 });

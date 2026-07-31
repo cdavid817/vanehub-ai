@@ -17,6 +17,7 @@ mod models;
 mod ports;
 mod service;
 mod terminal_service;
+mod tool_catalog;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use coordination::{
@@ -56,30 +57,34 @@ pub(crate) use models::{
     AgentMessageSource, AgentOperation, AgentSession, AgentSessionDetails, AgentTerminalCapability,
     AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
     AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentUsageRecord, AgentView,
-    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
-    GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
     GenerationProcessFailureKind, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
     LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
     LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
     LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
     MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest, PendingPromptExecution,
     ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
-    PromptVersionReference, ReadinessView, ResizeAgentTerminalRequest, SendMessageRequest,
-    StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult, ToolLifecycleEvent,
-    ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
+    PromptVersionReference, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
+    SendMessageRequest, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier,
+    ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,
     AgentGenerationPort, AgentLoggingPort, AgentProcessEventSink, AgentProcessGateway,
-    AgentRegistryRepository, AgentSessionGateway, AgentTaskPort, AgentTerminalEventPort,
-    AgentTerminalGateway, AgentWorkflowRepository, EffectivePromptGateway,
-    LoopExecutionControlPort, LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort,
-    LoopIterationRepository, LoopLoggingPort, LoopProjectPort, LoopRepository,
-    LoopRoleGenerationCompletionPort, LoopRoleSessionPort, LoopVerificationProcessPort,
-    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    AgentRegistryRepository, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
+    AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
+    ApiCredentialPort, ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
+    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
+    LoopRoleSessionPort, LoopVerificationProcessPort, LoopVerifierContextPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, ToolApprovalPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
+pub(crate) use tool_catalog::{risk_tier_for, tool_catalog, FILE_TOOL_NAME, SHELL_TOOL_NAME};
 
 #[cfg(test)]
 mod tests;

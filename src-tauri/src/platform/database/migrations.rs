@@ -160,6 +160,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "remote-terminal-management",
         crate::contexts::workspaces::infrastructure::apply_remote_terminal_schema,
     )?;
+    apply_migration(
+        conn,
+        29,
+        "api-agent-registration",
+        crate::contexts::agent_runtime::infrastructure::apply_api_agent_schema,
+    )?;
+    apply_migration(
+        conn,
+        30,
+        "openai-compatible-agent-registration",
+        crate::contexts::agent_runtime::infrastructure::apply_openai_compatible_schema,
+    )?;
 
     Ok(())
 }

@@ -94,6 +94,23 @@ pub fn http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
     build_http_client(reqwest::Client::builder().timeout(timeout))
 }
 
+pub(crate) fn blocking_http_client(
+    timeout: Duration,
+) -> Result<reqwest::blocking::Client, AppError> {
+    let state = current_state();
+    let mut builder = reqwest::blocking::Client::builder().timeout(timeout);
+    if !state.url.is_empty() {
+        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
+        let proxy = reqwest::Proxy::all(&state.url)
+            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
+            .no_proxy(no_proxy);
+        builder = builder.proxy(proxy);
+    }
+    builder
+        .build()
+        .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
+}
+
 pub(crate) fn no_redirect_http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
     build_http_client(
         reqwest::Client::builder()

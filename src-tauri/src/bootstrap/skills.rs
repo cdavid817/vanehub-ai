@@ -11,8 +11,10 @@ use std::sync::Arc;
 
 pub(crate) fn assemble_skill_api(database: NativeDatabase, fallback_log_dir: PathBuf) -> SkillApi {
     let logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_dir));
+    let repository = Arc::new(SqliteSkillRepository::new(database));
     SkillApi::new(SkillApplicationService::new(
-        Arc::new(SqliteSkillRepository::new(database)),
+        repository.clone(),
+        repository,
         Arc::new(ManagedSkillFilesystem::new()),
         Arc::new(CurrentWorkspaceSelection),
         Arc::new(SystemSkillClock),

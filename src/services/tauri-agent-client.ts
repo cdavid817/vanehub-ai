@@ -22,6 +22,7 @@ import type {
   ManagedCliAgentId,
   ProjectInspection,
   ReadinessStatus,
+  RegisterApiAgentInput,
   RenameSessionCategoryInput,
   Session,
   SessionCategory,
@@ -86,6 +87,10 @@ import { subscribeLoopRunPolling } from "./loop-run-polling";
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
     return invoke<AgentRegistryEntry[]>("list_agents", { capabilityTag: capabilityTag ?? null });
+  },
+
+  registerApiAgent(input: RegisterApiAgentInput) {
+    return invoke<AgentRegistryEntry>("register_api_agent", { input });
   },
 
   listCliTools() {
@@ -399,6 +404,10 @@ export const tauriAgentClient: AgentService = {
     await invoke<void>("stop_generation", { sessionId });
   },
 
+  resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
+    return invoke<boolean>("resolve_tool_approval", { input: { sessionId, callId, approved } });
+  },
+
   openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
     return invoke<AgentTerminalSession>("open_agent_terminal", { sessionId, size });
   },
@@ -472,6 +481,18 @@ export const tauriAgentClient: AgentService = {
 
   setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]) {
     return invoke<Skill>("set_skill_agent_bindings", { skillId, input, agentIds });
+  },
+
+  bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<void>("bind_skill_to_api_agent", { skillId, input, agentId });
+  },
+
+  unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<void>("unbind_skill_from_api_agent", { skillId, input, agentId });
+  },
+
+  listSkillApiAgentBindings(skillId: string, input: SkillScopeInput) {
+    return invoke<string[]>("list_skill_api_agent_bindings", { skillId, input });
   },
 
   previewSkill(skillId: string, input: SkillScopeInput) {

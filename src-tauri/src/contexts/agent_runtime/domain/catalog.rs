@@ -19,6 +19,7 @@ pub(crate) enum InteractionMode {
     Browser,
     NativeDesktop,
     Cli,
+    Api,
 }
 
 impl InteractionMode {
@@ -27,6 +28,7 @@ impl InteractionMode {
             "browser" => Ok(Self::Browser),
             "native-desktop" => Ok(Self::NativeDesktop),
             "cli" => Ok(Self::Cli),
+            "api" => Ok(Self::Api),
             other => Err(AgentRuntimeDomainError::UnsupportedInteractionMode(
                 other.to_string(),
             )),
@@ -38,6 +40,7 @@ impl InteractionMode {
             Self::Browser => "browser",
             Self::NativeDesktop => "native-desktop",
             Self::Cli => "cli",
+            Self::Api => "api",
         }
     }
 }
@@ -47,6 +50,7 @@ pub(crate) enum LaunchKind {
     Cli,
     Browser,
     NativeDesktop,
+    Api,
     Other(String),
 }
 
@@ -57,6 +61,7 @@ impl LaunchKind {
             "cli" => Self::Cli,
             "browser" => Self::Browser,
             "native-desktop" => Self::NativeDesktop,
+            "api" => Self::Api,
             _ => Self::Other(value),
         })
     }
@@ -66,6 +71,7 @@ impl LaunchKind {
             Self::Cli => "cli",
             Self::Browser => "browser",
             Self::NativeDesktop => "native-desktop",
+            Self::Api => "api",
             Self::Other(value) => value,
         }
     }

@@ -35,7 +35,7 @@ export interface ToolUseBlock {
   name: string;
   input?: unknown;
   output?: unknown;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "awaiting_approval" | "completed" | "failed";
 }
 
 export type RichBlockKind =

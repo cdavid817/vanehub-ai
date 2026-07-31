@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, CheckCircle2, CircleAlert, Laptop, Play, RefreshCw, Search, Terminal } from "lucide-react";
+import { Activity, Bot, CheckCircle2, CircleAlert, Cloud, Laptop, Play, Plus, RefreshCw, Search, Terminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { agentService } from "../../services/runtime-agent-client";
-import type { AgentRegistryEntry, InteractionMode, SessionDetails, WorkflowState } from "../../types/agent";
+import type { AgentRegistryEntry, InteractionMode, RegisterApiAgentInput, SessionDetails, WorkflowState } from "../../types/agent";
 import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 
@@ -23,6 +23,16 @@ const modeIcons: Record<InteractionMode, typeof Terminal> = {
   browser: Search,
   "native-desktop": Laptop,
   cli: Terminal,
+  api: Cloud,
+};
+
+const emptyRegisterApiAgentInput: RegisterApiAgentInput = {
+  displayName: "",
+  provider: "",
+  apiKey: "",
+  modelId: "",
+  interfaceFormat: "openai-compatible",
+  baseUrl: "",
 };
 
 function availabilityTone(agent: AgentRegistryEntry): "success" | "warning" | "muted" {
@@ -43,6 +53,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
   const [selectedMode, setSelectedMode] = useState<InteractionMode>("cli");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [registerForm, setRegisterForm] = useState<RegisterApiAgentInput>(emptyRegisterApiAgentInput);
 
   const agentsOverviewQuery = useQuery({
     queryKey: agentsOverviewQueryKey(appliedCapabilityFilter),
@@ -96,6 +107,30 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
       await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
     },
   });
+
+  const registerApiAgentMutation = useMutation({
+    mutationFn: (input: RegisterApiAgentInput) => agentService.registerApiAgent(input),
+    onSuccess: async (agent) => {
+      setNotice(t("agents.registerApiAgent.success", { agent: agent.displayName }));
+      setRegisterForm(emptyRegisterApiAgentInput);
+      await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : String(err)),
+  });
+
+  function handleRegisterApiAgent() {
+    setError(null);
+    setNotice(null);
+    if (!registerForm.displayName.trim() || !registerForm.provider.trim() || !registerForm.apiKey.trim() || !registerForm.modelId.trim()) {
+      setError(t("agents.registerApiAgent.errors.incomplete"));
+      return;
+    }
+    if (registerForm.interfaceFormat === "openai-compatible" && !registerForm.baseUrl?.trim()) {
+      setError(t("agents.registerApiAgent.errors.baseUrlRequired"));
+      return;
+    }
+    void registerApiAgentMutation.mutateAsync(registerForm);
+  }
 
   const filteredAgents = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -171,6 +206,85 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                 {t("agents.filter.apply")}
               </Button>
             </div>
+          </SectionPanel>
+
+          <SectionPanel title={t("agents.registerApiAgent.title")} description={t("agents.registerApiAgent.description")}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                {t("agents.registerApiAgent.displayName")}
+                <input
+                  className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={(event) => setRegisterForm((prev) => ({ ...prev, displayName: event.target.value }))}
+                  placeholder={t("agents.registerApiAgent.displayNamePlaceholder")}
+                  value={registerForm.displayName}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                {t("agents.registerApiAgent.interfaceFormat")}
+                <select
+                  className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={(event) =>
+                    setRegisterForm((prev) => ({
+                      ...prev,
+                      interfaceFormat: event.target.value as RegisterApiAgentInput["interfaceFormat"],
+                    }))
+                  }
+                  value={registerForm.interfaceFormat}
+                >
+                  <option value="openai-compatible">{t("agents.registerApiAgent.interfaceFormatOpenAiCompatible")}</option>
+                  <option value="anthropic">{t("agents.registerApiAgent.interfaceFormatAnthropic")}</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                {t("agents.registerApiAgent.provider")}
+                <input
+                  className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={(event) => setRegisterForm((prev) => ({ ...prev, provider: event.target.value }))}
+                  placeholder={t("agents.registerApiAgent.providerPlaceholder")}
+                  value={registerForm.provider}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                {t("agents.registerApiAgent.apiKey")}
+                <input
+                  autoComplete="off"
+                  className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={(event) => setRegisterForm((prev) => ({ ...prev, apiKey: event.target.value }))}
+                  placeholder={t("agents.registerApiAgent.apiKeyPlaceholder")}
+                  type="password"
+                  value={registerForm.apiKey}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                {t("agents.registerApiAgent.modelId")}
+                <input
+                  className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onChange={(event) => setRegisterForm((prev) => ({ ...prev, modelId: event.target.value }))}
+                  placeholder={t("agents.registerApiAgent.modelIdPlaceholder")}
+                  value={registerForm.modelId}
+                />
+              </label>
+              {registerForm.interfaceFormat === "openai-compatible" && (
+                <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                  {t("agents.registerApiAgent.baseUrl")}
+                  <input
+                    className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    onChange={(event) => setRegisterForm((prev) => ({ ...prev, baseUrl: event.target.value }))}
+                    placeholder={t("agents.registerApiAgent.baseUrlPlaceholder")}
+                    value={registerForm.baseUrl ?? ""}
+                  />
+                </label>
+              )}
+            </div>
+            <Button
+              className="mt-3"
+              disabled={registerApiAgentMutation.isPending}
+              onClick={handleRegisterApiAgent}
+              variant="outline"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {registerApiAgentMutation.isPending ? t("agents.registerApiAgent.submitting") : t("agents.registerApiAgent.submit")}
+            </Button>
           </SectionPanel>
 
           <div className="grid gap-4 lg:grid-cols-2">

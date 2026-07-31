@@ -1,7 +1,8 @@
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
-    AgentSession, AgentSessionGateway, AgentUsageRecord, CompleteAgentMessage, LoopRoleSessionPort,
-    LoopRoleSessionRequest, MessageTokenUsage, NewAgentMessage, ToolUseBlock,
+    AgentSession, AgentSessionGateway, AgentUsageRecord, CompleteAgentMessage,
+    ConversationHistoryPort, LoopRoleSessionPort, LoopRoleSessionRequest, MessageTokenUsage,
+    NewAgentMessage, ToolUseBlock,
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use crate::contexts::sessions::api::{
@@ -297,6 +298,25 @@ fn file_reference_input(reference: &AgentFileReference) -> FileReferenceInput {
         name: reference.name.clone(),
         size_bytes: reference.size_bytes,
         content_hash: reference.content_hash.clone(),
+    }
+}
+
+impl ConversationHistoryPort for SessionsAgentRuntimeAdapter {
+    fn recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AgentMessage>, AgentRuntimeApplicationError> {
+        self.sessions
+            .list_messages(session_id, Some(limit), None)
+            .map_err(session_error)
+            .map(|records| {
+                records
+                    .iter()
+                    .map(RuntimeMessageSnapshot::from_record)
+                    .map(agent_message)
+                    .collect()
+            })
     }
 }
 

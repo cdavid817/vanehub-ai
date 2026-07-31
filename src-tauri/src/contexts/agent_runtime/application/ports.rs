@@ -7,13 +7,15 @@
 use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMessage, AgentOperation,
     AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent, AgentTerminalInputRequest,
-    AgentTerminalProcessRequest, AgentTerminalSession, CliProfileSnapshot, CompleteAgentMessage,
-    EffectivePrompt, GenerationCancellation, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog,
-    LoopOperationContext, LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
-    LoopVerificationProcessRequest, LoopVerificationProcessResult, NewAgentMessage,
+    AgentTerminalProcessRequest, AgentTerminalSession, ApiProviderConfig, BoundSkillPrompt,
+    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView,
+    LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
+    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
+    LoopVerificationProcessResult, NewAgentMessage, RegisterApiAgentInput,
     ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -594,4 +596,71 @@ pub(crate) trait AgentGenerationPort: Send + Sync {
     fn complete(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 
     fn fail(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Non-mutating lookup of the process id currently attached to `session_id`'s active
+    /// generation, if any — used to resolve a tool approval without cancelling the generation
+    /// the way `cancel` would.
+    fn active_process_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError>;
+}
+
+/// Read boundary for recent conversation turns, used by API-based generation to assemble
+/// provider-native message history without a local process transcript.
+pub(crate) trait ConversationHistoryPort: Send + Sync {
+    fn recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AgentMessage>, AgentRuntimeApplicationError>;
+}
+
+/// Persistence boundary for API-based agent registration and per-agent provider configuration.
+pub(crate) trait ApiAgentGateway: Send + Sync {
+    fn register(
+        &self,
+        agent_id: &str,
+        input: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError>;
+
+    fn provider_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError>;
+}
+
+/// Secret storage boundary for API-based agent provider credentials.
+pub(crate) trait ApiCredentialPort: Send + Sync {
+    fn store(&self, agent_id: &str, api_key: &str) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn fetch(&self, agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError>;
+
+    fn remove(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+}
+
+/// Resolution boundary for a native-agent tool call paused awaiting user approval. Only
+/// `RuntimeAgentApiAdapter` implements this — CLI agents run their own approval flow internally
+/// and never register a pending approval here (design.md Decision 4).
+pub(crate) trait ToolApprovalPort: Send + Sync {
+    /// Delivers `decision` for the pending approval identified by `process_id`/`call_id`.
+    /// Returns `false` if no such pending approval exists (already resolved, the generation
+    /// ended, or it was never registered) rather than treating that as an error.
+    fn resolve(
+        &self,
+        process_id: &str,
+        call_id: &str,
+        decision: ToolApprovalDecision,
+    ) -> Result<bool, AgentRuntimeApplicationError>;
+}
+
+/// Read boundary for Skill content bound to an API agent, injected as that agent's generation
+/// requests' system prompt (`add-agent-skill-support`). Implemented in
+/// `tooling::skills::infrastructure` — `agent_runtime` depends on this port rather than the
+/// Skill registry directly, matching every other cross-context dependency in this module.
+pub(crate) trait AgentSkillPort: Send + Sync {
+    fn bound_skill_prompts(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
 }

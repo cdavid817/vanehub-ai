@@ -1,4 +1,4 @@
-import { Eye, Link2, Pencil, Trash2 } from "lucide-react";
+import { Cloud, Eye, Link2, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -8,18 +8,24 @@ import type { Skill } from "../../../types/skill";
 export function SkillCardList({
   skills,
   agents,
+  apiAgents,
+  apiBindingsBySkillId,
   busySkillId,
   onToggleEnabled,
   onToggleAgent,
+  onToggleApiAgent,
   onPreview,
   onEdit,
   onDelete,
 }: {
   skills: Skill[];
   agents: AgentRegistryEntry[];
+  apiAgents: AgentRegistryEntry[];
+  apiBindingsBySkillId: Record<string, string[]>;
   busySkillId: string | null;
   onToggleEnabled: (skill: Skill, enabled: boolean) => void;
   onToggleAgent: (skill: Skill, agentId: string, checked: boolean) => void;
+  onToggleApiAgent: (skill: Skill, agentId: string, checked: boolean) => void;
   onPreview: (skill: Skill) => void;
   onEdit: (skill: Skill) => void;
   onDelete: (skill: Skill) => void;
@@ -96,6 +102,30 @@ export function SkillCardList({
                 </label>
               ))}
             </div>
+            {apiAgents.length > 0 ? (
+              <>
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                  <Cloud className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                  {t("skills.apiAgentBindings")}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {apiAgents.map((agent) => (
+                    <label
+                      className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-[hsl(var(--panel-muted))] px-2 py-2 text-sm"
+                      key={agent.id}
+                    >
+                      <input
+                        className="h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
+                        checked={(apiBindingsBySkillId[skill.id] ?? []).includes(agent.id)}
+                        onChange={(event) => onToggleApiAgent(skill, agent.id, event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{agent.displayName}</span>
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         </section>
       ))}
