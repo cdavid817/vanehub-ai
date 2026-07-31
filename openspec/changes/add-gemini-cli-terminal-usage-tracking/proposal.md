@@ -15,7 +15,7 @@
 (none — this change extends an existing capability)
 
 ### Modified Capabilities
-(none — `usage-statistics`'s "Persist reported tokens for an interactive terminal session" scenario already reads generically across "a supported CLI"; no requirement wording changes, only implementation coverage expands to the fourth CLI)
+- `usage-statistics`: clarifies the "Persist reported tokens for an interactive terminal session" scenario to explicitly enumerate all four supported CLIs (claude-code, opencode, codex-cli, gemini-cli) now that gemini-cli's implementation closes out the last deferred one, rather than leaving "a supported CLI" ambiguous about which of the four that meant in practice.
 
 ## Impact
 
