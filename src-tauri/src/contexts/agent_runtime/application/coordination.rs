@@ -682,7 +682,8 @@ fn scheduler_error_classification(error: &AgentRuntimeApplicationError) -> &'sta
         | AgentRuntimeApplicationError::Session(_)
         | AgentRuntimeApplicationError::Coordination(_)
         | AgentRuntimeApplicationError::Credential(_)
-        | AgentRuntimeApplicationError::Skill(_) => "persistence_or_runtime",
+        | AgentRuntimeApplicationError::Skill(_)
+        | AgentRuntimeApplicationError::Memory(_) => "persistence_or_runtime",
         AgentRuntimeApplicationError::CliProfile(_) | AgentRuntimeApplicationError::Prompt(_) => {
             "configuration"
         }

@@ -12,12 +12,13 @@ use super::application::{
 use super::infrastructure::{NativeCoordinationScheduler, NativeLoopScheduler};
 
 pub(crate) use super::application::{
-    AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
-    AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
-    AgentView, ContinueLoopRequest, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
-    OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
-    SaveLoopDefinitionRequest, SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest,
-    StopGenerationResult, ToolApprovalDecision, WorkflowView,
+    AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
+    AgentRuntimeApplicationError, AgentSessionDetails, AgentTerminalInputRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentView, ContinueLoopRequest, LaunchWorkflowResult,
+    LoopDefinitionView, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -247,6 +248,20 @@ impl AgentRuntimeApi {
     ) -> Result<bool, AgentRuntimeApplicationError> {
         self.service
             .resolve_tool_approval(session_id, call_id, decision)
+    }
+
+    pub(crate) fn list_agent_memories(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        self.service.list_agent_memories(agent_id)
+    }
+
+    pub(crate) fn delete_agent_memory(
+        &self,
+        memory_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.service.delete_agent_memory(memory_id)
     }
 
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {

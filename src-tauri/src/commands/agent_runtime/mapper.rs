@@ -1,7 +1,7 @@
 use super::dto;
 use crate::contexts::agent_runtime::api::{
-    AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMessage,
-    AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
+    AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMemory,
+    AgentMessage, AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
     AgentTerminalSize as ApiAgentTerminalSize, AgentView,
     CoordinationAttempt as ApiCoordinationAttempt,
     CoordinationAttemptStatus as ApiCoordinationAttemptStatus,
@@ -16,11 +16,29 @@ use crate::contexts::agent_runtime::api::{
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
-    AgentTerminalState as ApiAgentTerminalState,
+    AgentTerminalState as ApiAgentTerminalState, MemorySource,
 };
 
 pub(super) fn agents_to_dto(agents: Vec<AgentView>) -> Vec<dto::AgentRegistryEntry> {
     agents.into_iter().map(agent_to_dto).collect()
+}
+
+pub(super) fn agent_memories_to_dto(memories: Vec<AgentMemory>) -> Vec<dto::AgentMemoryEntry> {
+    memories.into_iter().map(agent_memory_to_dto).collect()
+}
+
+fn agent_memory_to_dto(memory: AgentMemory) -> dto::AgentMemoryEntry {
+    dto::AgentMemoryEntry {
+        id: memory.id,
+        agent_id: memory.agent_id,
+        folder: memory.folder,
+        content: memory.content,
+        source: match memory.source {
+            MemorySource::Explicit => dto::AgentMemorySource::Explicit,
+            MemorySource::Automatic => dto::AgentMemorySource::Automatic,
+        },
+        created_at: memory.created_at,
+    }
 }
 
 pub(super) fn register_api_agent_request(

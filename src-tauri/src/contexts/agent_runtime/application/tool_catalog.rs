@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
+pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 
 pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
     vec![
@@ -47,6 +48,20 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                 "required": ["operation", "path"]
             }),
         },
+        ToolDefinition {
+            name: REMEMBER_TOOL_NAME,
+            description: "Save a fact, decision, or preference so it's available in future, separate sessions with this same project. Use for information worth remembering long-term, not routine conversation.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The fact, decision, or preference to remember."
+                    }
+                },
+                "required": ["content"]
+            }),
+        },
     ]
 }
 
@@ -60,6 +75,10 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
             Some("read") => ToolRiskTier::AutoApprove,
             _ => ToolRiskTier::RequiresApproval,
         },
+        // Only ever writes to this app's own internal storage — never the user's filesystem,
+        // shell, or anything else external — so a wrong or low-value memory is no worse than a
+        // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
+        REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
         _ => ToolRiskTier::RequiresApproval,
     }
 }
@@ -69,11 +88,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_declares_exactly_shell_and_file_tools() {
+    fn catalog_declares_exactly_shell_file_and_remember_tools() {
         let catalog = tool_catalog();
-        assert_eq!(catalog.len(), 2);
+        assert_eq!(catalog.len(), 3);
         assert_eq!(catalog[0].name, SHELL_TOOL_NAME);
         assert_eq!(catalog[1].name, FILE_TOOL_NAME);
+        assert_eq!(catalog[2].name, REMEMBER_TOOL_NAME);
     }
 
     #[test]
@@ -130,6 +150,14 @@ mod tests {
         assert_eq!(
             risk_tier_for("unknown", &json!({})),
             ToolRiskTier::RequiresApproval
+        );
+    }
+
+    #[test]
+    fn remember_always_auto_approves() {
+        assert_eq!(
+            risk_tier_for(REMEMBER_TOOL_NAME, &json!({"content": "Uses pnpm."})),
+            ToolRiskTier::AutoApprove
         );
     }
 }

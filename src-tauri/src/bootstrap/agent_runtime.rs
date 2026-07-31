@@ -17,10 +17,10 @@ use crate::contexts::agent_runtime::infrastructure::{
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository,
-    SqliteCoordinationRepository, SqliteLoopRepository, StructuredLoopVerificationProcess,
-    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter, UuidCoordinationIds,
-    WorkspaceLoopProjectAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteCoordinationRepository, SqliteLoopRepository,
+    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter,
+    UuidCoordinationIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
@@ -115,6 +115,9 @@ pub(crate) fn assemble_agent_runtime_api(
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let api_credentials = Arc::new(OsApiCredentialAdapter::new());
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
+    let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
+        dependencies.database.clone(),
+    ));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -122,6 +125,7 @@ pub(crate) fn assemble_agent_runtime_api(
         logging.clone(),
         clock.clone(),
         agent_skills,
+        agent_memories.clone(),
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
@@ -164,6 +168,7 @@ pub(crate) fn assemble_agent_runtime_api(
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
         tool_approvals: tool_approvals.clone(),
+        memories: agent_memories,
     });
     let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
         registry: repository.clone(),

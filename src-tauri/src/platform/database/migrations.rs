@@ -172,6 +172,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "openai-compatible-agent-registration",
         crate::contexts::agent_runtime::infrastructure::apply_openai_compatible_schema,
     )?;
+    apply_migration(
+        conn,
+        31,
+        "agent-cross-session-memory",
+        crate::contexts::agent_runtime::infrastructure::apply_memory_schema,
+    )?;
 
     Ok(())
 }

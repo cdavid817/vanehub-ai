@@ -520,7 +520,8 @@ fn classify_application_error(error: AgentRuntimeApplicationError) -> Coordinati
         | AgentRuntimeApplicationError::VerificationPolicy(_)
         | AgentRuntimeApplicationError::Logging(_)
         | AgentRuntimeApplicationError::Credential(_)
-        | AgentRuntimeApplicationError::Skill(_) => CoordinationFailureKind::NonRetryable,
+        | AgentRuntimeApplicationError::Skill(_)
+        | AgentRuntimeApplicationError::Memory(_) => CoordinationFailureKind::NonRetryable,
     };
     CoordinationExecutionResult::Failed {
         kind,

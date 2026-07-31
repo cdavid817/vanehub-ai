@@ -264,10 +264,11 @@ mod tests {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
         let body = build_request_body("deepseek-chat", &[], &tools, None);
         let declared = body["tools"].as_array().expect("tools array");
-        assert_eq!(declared.len(), 2);
+        assert_eq!(declared.len(), 3);
         assert_eq!(declared[0]["type"], "function");
         assert_eq!(declared[0]["function"]["name"], "shell");
         assert_eq!(declared[1]["function"]["name"], "file");
+        assert_eq!(declared[2]["function"]["name"], "remember");
     }
 
     #[test]

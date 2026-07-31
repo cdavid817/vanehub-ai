@@ -44,6 +44,17 @@ export interface RegisterApiAgentInput {
   baseUrl: string | null;
 }
 
+export type AgentMemorySource = "explicit" | "automatic";
+
+export interface AgentMemory {
+  id: string;
+  agentId: string;
+  folder: string | null;
+  content: string;
+  source: AgentMemorySource;
+  createdAt: string;
+}
+
 export interface WorkflowState {
   activeAgentId: string | null;
   activeInteractionMode: InteractionMode | null;

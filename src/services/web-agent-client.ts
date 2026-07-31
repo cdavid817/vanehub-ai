@@ -2,6 +2,7 @@ import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import type {
+  AgentMemory,
   AgentRegistryEntry,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
@@ -332,6 +333,27 @@ let webSkillApiAgentBindings: Array<{
 }> = [];
 
 const deletedBuiltinSkillIds = new Set<string>();
+
+/** Mock cross-session memories (`add-agent-cross-session-memory`) — starts empty, since real
+ * memories only ever come from a `remember` tool call or extraction, both simulated in
+ * `sendMessage` for `launch.kind === "api"` sessions; there is no fixed "api" agent id to
+ * pre-seed against (API agents are registered at runtime with generated ids). */
+let webAgentMemories: AgentMemory[] = [];
+let nextAgentMemoryId = 1;
+
+function createAgentMemory(agentId: string, folder: string | null, content: string, source: AgentMemory["source"]): AgentMemory {
+  const memory: AgentMemory = {
+    id: `web-memory-${nextAgentMemoryId}`,
+    agentId,
+    folder,
+    content,
+    source,
+    createdAt: nowIso(),
+  };
+  nextAgentMemoryId += 1;
+  webAgentMemories = [memory, ...webAgentMemories];
+  return memory;
+}
 
 const promptHookStorageKey = "vanehub.prompt-hooks.v1";
 const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
@@ -1540,6 +1562,14 @@ export const webAgentClient: AgentService = {
     return entry;
   },
 
+  async listAgentMemories(agentId: string) {
+    return webAgentMemories.filter((memory) => memory.agentId === agentId);
+  },
+
+  async deleteAgentMemory(memoryId: string) {
+    webAgentMemories = webAgentMemories.filter((memory) => memory.id !== memoryId);
+  },
+
   async listCliTools() {
     return webCliTools.map((tool) => ({
       ...tool,
@@ -2310,6 +2340,53 @@ export const webAgentClient: AgentService = {
         });
       }, 150);
       timeoutIds.push(compactionTimeoutId);
+      // Extraction (`add-agent-cross-session-memory`) piggybacks on the same trigger as
+      // compaction in the real runtime, so the mock fires it at the identical condition.
+      if (mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api") {
+        const extractionTimeoutId = setTimeout(() => {
+          const memory = createAgentMemory(
+            session.agentId,
+            session.folder,
+            `Extracted from a long conversation: "${userMessage.content.slice(0, 60)}"`,
+            "automatic",
+          );
+          publishChatEvent({
+            type: "rich_block",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            block: {
+              id: `web-memory-extracted-${assistantMessage.id}`,
+              kind: "card",
+              v: 1,
+              title: "Memory extracted",
+              bodyMarkdown: `Saved for future sessions: "${memory.content}"`,
+              tone: "info",
+            },
+          });
+        }, 150);
+        timeoutIds.push(extractionTimeoutId);
+      }
+    }
+    const hadExistingMemoriesForScope = webAgentMemories.some(
+      (memory) => memory.agentId === session.agentId && memory.folder === session.folder,
+    );
+    if (hadExistingMemoriesForScope) {
+      const memoryInjectionTimeoutId = setTimeout(() => {
+        publishChatEvent({
+          type: "rich_block",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          block: {
+            id: `web-memory-applied-${assistantMessage.id}`,
+            kind: "card",
+            v: 1,
+            title: "Memory applied",
+            bodyMarkdown: "This response was influenced by memories saved in earlier sessions.",
+            tone: "info",
+          },
+        });
+      }, 150);
+      timeoutIds.push(memoryInjectionTimeoutId);
     }
     const boundSkillNames = webSkillApiAgentBindings
       .filter((binding) => binding.agentId === session.agentId)
@@ -2395,6 +2472,29 @@ export const webAgentClient: AgentService = {
         });
       }, 230);
       timeoutIds.push(approvalTimeoutId);
+      // Explicit path (`add-agent-cross-session-memory`): simulates the model calling the
+      // `remember` tool, mirroring the deterministic `read_file`/`shell` tool_use events above.
+      const rememberTimeoutId = setTimeout(() => {
+        const memory = createAgentMemory(
+          session.agentId,
+          session.folder,
+          `User said: "${userMessage.content.slice(0, 60)}"`,
+          "explicit",
+        );
+        publishChatEvent({
+          type: "tool_use",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolUse: {
+            id: `web-remember-${assistantMessage.id}`,
+            name: "remember",
+            input: { content: memory.content },
+            output: "Saved.",
+            status: "completed",
+          },
+        });
+      }, 235);
+      timeoutIds.push(rememberTimeoutId);
     }
     const richCardTimeoutId = setTimeout(() => {
       publishChatEvent({

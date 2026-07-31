@@ -5,17 +5,17 @@
 //! contracts; application services do not depend on Tauri, SQLite, or concrete CLI libraries.
 
 use super::{
-    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMessage, AgentOperation,
-    AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent, AgentTerminalInputRequest,
-    AgentTerminalProcessRequest, AgentTerminalSession, ApiProviderConfig, BoundSkillPrompt,
-    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
-    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView,
-    LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
-    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, NewAgentMessage, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest,
+    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMessage,
+    AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
+    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
+    ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext,
+    LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -663,4 +663,33 @@ pub(crate) trait AgentSkillPort: Send + Sync {
         &self,
         agent_id: &str,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
+}
+
+/// Persistence boundary for cross-session agent memory (`add-agent-cross-session-memory`).
+/// Unlike `AgentSkillPort`, `agent_runtime` owns this concept outright — no other context reads
+/// or writes it — so this port has a single, directly-implementing SQLite adapter rather than a
+/// cross-context wrapper.
+pub(crate) trait AgentMemoryPort: Send + Sync {
+    fn save(
+        &self,
+        agent_id: &str,
+        folder: Option<&str>,
+        content: &str,
+        source: MemorySource,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn list(
+        &self,
+        agent_id: &str,
+        folder: Option<&str>,
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
+
+    /// Lists every memory for `agent_id` regardless of folder — used by the management view,
+    /// which shows an agent's memories across all of its scopes at once.
+    fn list_all_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
+
+    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 }

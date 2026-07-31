@@ -1,4 +1,5 @@
 import type {
+  AgentMemory,
   AgentRegistryEntry,
   AgentTerminalEvent,
   AgentTerminalSession,
@@ -97,6 +98,8 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences,
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
+  listAgentMemories(agentId: string): Promise<AgentMemory[]>;
+  deleteAgentMemory(memoryId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
