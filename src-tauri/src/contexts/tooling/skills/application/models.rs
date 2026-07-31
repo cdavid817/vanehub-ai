@@ -110,6 +110,15 @@ pub(crate) struct SkillImportRequest {
     pub(crate) bound_agent_ids: Vec<String>,
 }
 
+/// A bound Skill's content, resolved and ready to inject as an API Agent's system prompt
+/// (`add-agent-skill-support`) — `name` from metadata, `body` from the Skill's source file with
+/// its frontmatter stripped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillPromptForAgent {
+    pub(crate) name: String,
+    pub(crate) body: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SkillPreview {
     pub(crate) key: SkillKey,
@@ -188,6 +197,7 @@ pub(crate) enum SkillLogAction {
     Restore,
     SetEnabled,
     SetBindings,
+    SetApiAgentBinding,
     Import,
     DetectDrift,
     SyncDrift,
@@ -204,6 +214,7 @@ impl SkillLogAction {
             Self::Restore => "restore",
             Self::SetEnabled => "set-enabled",
             Self::SetBindings => "set-bindings",
+            Self::SetApiAgentBinding => "set-api-agent-binding",
             Self::Import => "import",
             Self::DetectDrift => "detect-drift",
             Self::SyncDrift => "sync-drift",

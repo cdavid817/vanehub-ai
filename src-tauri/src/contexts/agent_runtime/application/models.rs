@@ -736,3 +736,12 @@ pub(crate) struct ApiProviderConfig {
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
 }
+
+/// A Skill bound to an API agent, resolved and ready to inject as that agent's generation
+/// requests' system prompt (`add-agent-skill-support`) — `name` and `body` only, no metadata
+/// `agent_runtime` has no use for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BoundSkillPrompt {
+    pub(crate) name: String,
+    pub(crate) body: String,
+}

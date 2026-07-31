@@ -651,6 +651,7 @@
   "skills.preview": "预览 Skill",
   "skills.edit": "编辑 Skill",
   "skills.delete": "删除 Skill",
+  "skills.apiAgentBindings": "API 代理绑定(注入 system prompt)",
   "skills.source.builtin": "内置",
   "skills.source.user": "用户",
   "skills.source.imported": "导入",

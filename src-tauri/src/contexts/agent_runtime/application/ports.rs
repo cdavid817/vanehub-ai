@@ -7,10 +7,10 @@
 use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMessage, AgentOperation,
     AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent, AgentTerminalInputRequest,
-    AgentTerminalProcessRequest, AgentTerminalSession, ApiProviderConfig, CliProfileSnapshot,
-    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView, LoopGitStateView,
-    LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
+    AgentTerminalProcessRequest, AgentTerminalSession, ApiProviderConfig, BoundSkillPrompt,
+    CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt, GenerationCancellation,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView,
+    LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
     LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
     LoopVerificationProcessResult, NewAgentMessage, RegisterApiAgentInput,
     ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
@@ -652,4 +652,15 @@ pub(crate) trait ToolApprovalPort: Send + Sync {
         call_id: &str,
         decision: ToolApprovalDecision,
     ) -> Result<bool, AgentRuntimeApplicationError>;
+}
+
+/// Read boundary for Skill content bound to an API agent, injected as that agent's generation
+/// requests' system prompt (`add-agent-skill-support`). Implemented in
+/// `tooling::skills::infrastructure` — `agent_runtime` depends on this port rather than the
+/// Skill registry directly, matching every other cross-context dependency in this module.
+pub(crate) trait AgentSkillPort: Send + Sync {
+    fn bound_skill_prompts(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
 }

@@ -651,6 +651,7 @@
   "skills.preview": "Preview Skill",
   "skills.edit": "Edit Skill",
   "skills.delete": "Delete Skill",
+  "skills.apiAgentBindings": "API agent bindings (injected as system prompt)",
   "skills.source.builtin": "Built-in",
   "skills.source.user": "User",
   "skills.source.imported": "Imported",

@@ -16,10 +16,11 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopRoleGenerationCompletions, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeEffectivePromptAdapter,
-    SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
-    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository,
+    SqliteCoordinationRepository, SqliteLoopRepository, StructuredLoopVerificationProcess,
+    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter, UuidCoordinationIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
@@ -36,6 +37,7 @@ use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
+use crate::contexts::tooling::skills::api::SkillApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
@@ -52,6 +54,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) cli: CliApi,
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
+    pub(crate) skills: SkillApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) fallback_log_directory: PathBuf,
@@ -111,12 +114,14 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let api_credentials = Arc::new(OsApiCredentialAdapter::new());
+    let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
         sessions.clone(),
         logging.clone(),
         clock.clone(),
+        agent_skills,
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =

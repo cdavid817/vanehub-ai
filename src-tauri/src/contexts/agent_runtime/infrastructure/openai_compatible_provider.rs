@@ -36,16 +36,26 @@ pub(crate) fn history_to_turns(history: &[AgentMessage]) -> Vec<Value> {
 
 /// Builds the streaming Chat Completions request body from already-converted turns and, when
 /// `tools` is non-empty, a `tools` declaration in OpenAI's
-/// `{type: "function", function: {name, description, parameters}}` shape.
+/// `{type: "function", function: {name, description, parameters}}` shape. `system`, when
+/// present, is prepended as a `role: "system"` message *at request-build time* — this wire
+/// format has no separate system field the way Anthropic's does, but the caller's `messages`
+/// slice is never mutated to include it, so bound-Skill content (`add-agent-skill-support`) is
+/// never mistaken for a turn a caller (e.g. context compaction) might rewrite or summarize away.
 pub(crate) fn build_request_body(
     model: &str,
     messages: &[Value],
     tools: &[ToolDefinition],
+    system: Option<&str>,
 ) -> Value {
+    let mut all_messages = Vec::with_capacity(messages.len() + 1);
+    if let Some(system) = system {
+        all_messages.push(json!({ "role": "system", "content": system }));
+    }
+    all_messages.extend_from_slice(messages);
     let mut body = json!({
         "model": model,
         "stream": true,
-        "messages": messages,
+        "messages": all_messages,
     });
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.iter().map(tool_definition_to_json).collect());
@@ -242,7 +252,7 @@ mod tests {
     #[test]
     fn request_body_embeds_model_and_turns() {
         let turns = history_to_turns(&[message("user", "Hello")]);
-        let body = build_request_body("deepseek-chat", &turns, &[]);
+        let body = build_request_body("deepseek-chat", &turns, &[], None);
         assert_eq!(body["model"], "deepseek-chat");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"].as_array().expect("array").len(), 1);
@@ -252,12 +262,24 @@ mod tests {
     #[test]
     fn request_body_declares_tools_when_provided() {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
-        let body = build_request_body("deepseek-chat", &[], &tools);
+        let body = build_request_body("deepseek-chat", &[], &tools, None);
         let declared = body["tools"].as_array().expect("tools array");
         assert_eq!(declared.len(), 2);
         assert_eq!(declared[0]["type"], "function");
         assert_eq!(declared[0]["function"]["name"], "shell");
         assert_eq!(declared[1]["function"]["name"], "file");
+    }
+
+    #[test]
+    fn request_body_prepends_a_system_message_without_mutating_the_caller_turns() {
+        let turns = history_to_turns(&[message("user", "Hello")]);
+        let body = build_request_body("deepseek-chat", &turns, &[], Some("Be concise."));
+        let messages = body["messages"].as_array().expect("array");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[0]["content"], "Be concise.");
+        assert_eq!(messages[1]["role"], "user");
+        assert_eq!(turns.len(), 1, "the caller's turns slice must be untouched");
     }
 
     #[test]

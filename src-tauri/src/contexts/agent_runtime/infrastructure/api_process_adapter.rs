@@ -4,11 +4,11 @@ use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     risk_tier_for, tool_catalog, AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort,
     AgentMessage, AgentProcessEventSink, AgentProcessGateway, AgentRuntimeApplicationError,
-    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, ConversationHistoryPort,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
-    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    FILE_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, SHELL_TOOL_NAME,
+    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
+    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision,
+    ToolApprovalPort, ToolDefinition, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, FILE_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -51,6 +51,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     history: Arc<dyn ConversationHistoryPort>,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
+    skills: Arc<dyn AgentSkillPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
 }
@@ -68,6 +69,7 @@ impl RuntimeAgentApiAdapter {
         history: Arc<dyn ConversationHistoryPort>,
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
+        skills: Arc<dyn AgentSkillPort>,
     ) -> Self {
         Self {
             credentials,
@@ -75,6 +77,7 @@ impl RuntimeAgentApiAdapter {
             history,
             logging,
             clock,
+            skills,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
         }
@@ -149,6 +152,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let history = self.history.clone();
         let logging = self.logging.clone();
         let clock = self.clock.clone();
+        let skills = self.skills.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -158,6 +162,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 history,
                 logging,
                 clock,
+                skills,
                 sink,
                 pending_approvals,
             );
@@ -224,6 +229,7 @@ fn run_generation(
     history: Arc<dyn ConversationHistoryPort>,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
+    skills: Arc<dyn AgentSkillPort>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
@@ -237,6 +243,7 @@ fn run_generation(
         &pending_approvals,
         logging.as_ref(),
         clock.as_ref(),
+        skills.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -263,7 +270,7 @@ fn run_generation(
 struct WireFormat {
     endpoint: String,
     history_to_turns: fn(&[AgentMessage]) -> Vec<Value>,
-    build_request_body: fn(&str, &[Value], &[ToolDefinition]) -> Value,
+    build_request_body: fn(&str, &[Value], &[ToolDefinition], Option<&str>) -> Value,
     translate_sse_data: fn(&str, &mut ToolCallAccumulator) -> Option<GenerationProcessEvent>,
     build_reply_turns: fn(&str, &[ExecutedToolCall]) -> Vec<Value>,
     failure_from_http_status: fn(u16, &str) -> GenerationProcessFailure,
@@ -320,6 +327,7 @@ fn execute(
     pending_approvals: &PendingApprovals,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
+    skills: &dyn AgentSkillPort,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -338,6 +346,7 @@ fn execute(
         Ok(wire_format) => wire_format,
         Err(message) => return failed_non_retryable(message),
     };
+    let system = resolve_system_prompt(agent_id, skills, logging, clock, request);
     let recent = match history.recent_messages(&request.session.id, HISTORY_LIMIT) {
         Ok(messages) => messages,
         Err(error) => {
@@ -362,6 +371,7 @@ fn execute(
         &client,
         &api_key,
         &provider_config.model_id,
+        system.as_deref(),
         &cancelled,
         sink,
         logging,
@@ -375,7 +385,12 @@ fn execute(
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
         }
-        let body = (wire_format.build_request_body)(&provider_config.model_id, &turns, &tools);
+        let body = (wire_format.build_request_body)(
+            &provider_config.model_id,
+            &turns,
+            &tools,
+            system.as_deref(),
+        );
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
         let response = match request_builder
@@ -524,6 +539,7 @@ fn execute(
             &client,
             &api_key,
             &provider_config.model_id,
+            system.as_deref(),
             &cancelled,
             sink,
             logging,
@@ -570,12 +586,56 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
     })
 }
 
+/// Resolves the agent's bound, enabled Skills into one system-prompt string
+/// (`add-agent-skill-support`), or `None` if it has none bound. Never fails the generation on
+/// lookup error — logs a warning and falls back to `None`, matching context compaction's own
+/// established best-effort-enhancement philosophy (design.md Decision 3).
+fn resolve_system_prompt(
+    agent_id: &str,
+    skills: &dyn AgentSkillPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+) -> Option<String> {
+    match skills.bound_skill_prompts(agent_id) {
+        Ok(prompts) if prompts.is_empty() => None,
+        Ok(prompts) => Some(format_system_prompt(&prompts)),
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.skills".to_string(),
+                message: format!(
+                    "Failed to resolve bound Skills; continuing without a system prompt: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            None
+        }
+    }
+}
+
+fn format_system_prompt(prompts: &[BoundSkillPrompt]) -> String {
+    prompts
+        .iter()
+        .map(|prompt| format!("## {}\n{}", prompt.name, prompt.body))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// If `turns`' accumulated size crosses the trigger threshold, replaces everything except the
 /// most recent `COMPACTION_KEEP_RECENT_TURNS` turns with one synthetic summary turn and emits a
 /// visible `RichBlock` notice. Leaves `turns` untouched when below threshold, when there's
 /// nothing old enough to summarize, or when the summarization call itself fails — a failed
 /// summarization attempt falls back to sending the request uncompacted rather than breaking the
-/// generation.
+/// generation. `system`, if present, is forwarded to the summarization call itself (it must never
+/// be written into `turns`, or it would be eligible to be summarized away — see design.md
+/// Decision 2 in `add-agent-skill-support`).
 #[allow(clippy::too_many_arguments)]
 fn maybe_compact(
     turns: &mut Vec<Value>,
@@ -583,6 +643,7 @@ fn maybe_compact(
     client: &reqwest::blocking::Client,
     api_key: &str,
     model: &str,
+    system: Option<&str>,
     cancelled: &AtomicBool,
     sink: &dyn AgentProcessEventSink,
     logging: &dyn AgentLoggingPort,
@@ -600,6 +661,7 @@ fn maybe_compact(
         client,
         api_key,
         model,
+        system,
         &turns[..split_at],
         cancelled,
     ) else {
@@ -644,6 +706,7 @@ fn summarize_turns(
     client: &reqwest::blocking::Client,
     api_key: &str,
     model: &str,
+    system: Option<&str>,
     turns_to_summarize: &[Value],
     cancelled: &AtomicBool,
 ) -> Option<String> {
@@ -652,7 +715,7 @@ fn summarize_turns(
     }
     let mut prompt_turns = turns_to_summarize.to_vec();
     prompt_turns.push(json!({ "role": "user", "content": SUMMARIZATION_INSTRUCTION }));
-    let body = (wire_format.build_request_body)(model, &prompt_turns, &[]);
+    let body = (wire_format.build_request_body)(model, &prompt_turns, &[], system);
     let request_builder = (wire_format.apply_auth)(client.post(&wire_format.endpoint), api_key);
     let response = request_builder
         .header("content-type", "application/json")
@@ -906,6 +969,30 @@ mod tests {
         }
     }
 
+    struct NoopSkills;
+
+    impl AgentSkillPort for NoopSkills {
+        fn bound_skill_prompts(
+            &self,
+            _agent_id: &str,
+        ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct FakeSkills(Result<Vec<BoundSkillPrompt>, &'static str>);
+
+    impl AgentSkillPort for FakeSkills {
+        fn bound_skill_prompts(
+            &self,
+            _agent_id: &str,
+        ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
+            self.0
+                .clone()
+                .map_err(|message| AgentRuntimeApplicationError::Skill(message.to_string()))
+        }
+    }
+
     #[derive(Default)]
     struct CapturingSink {
         events: Mutex<Vec<GenerationProcessEvent>>,
@@ -984,6 +1071,7 @@ mod tests {
             Arc::new(FakeHistory(FakeHistoryOutcome::Messages(Vec::new()))),
             Arc::new(NoopLogging),
             Arc::new(FixedClock),
+            Arc::new(NoopSkills),
         )
     }
 
@@ -1055,6 +1143,7 @@ mod tests {
             &no_pending_approvals(),
             &NoopLogging,
             &FixedClock,
+            &NoopSkills,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1081,6 +1170,7 @@ mod tests {
             &no_pending_approvals(),
             &NoopLogging,
             &FixedClock,
+            &NoopSkills,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1106,6 +1196,7 @@ mod tests {
             &no_pending_approvals(),
             &NoopLogging,
             &FixedClock,
+            &NoopSkills,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1130,6 +1221,7 @@ mod tests {
             &no_pending_approvals(),
             &NoopLogging,
             &FixedClock,
+            &NoopSkills,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1155,6 +1247,7 @@ mod tests {
             &no_pending_approvals(),
             &NoopLogging,
             &FixedClock,
+            &NoopSkills,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1337,6 +1430,66 @@ mod tests {
         assert!(should_compact(COMPACTION_TRIGGER_CHARACTERS + 1));
     }
 
+    #[test]
+    fn format_system_prompt_joins_multiple_skills_with_headers() {
+        let prompts = vec![
+            BoundSkillPrompt {
+                name: "First".to_string(),
+                body: "Do the first thing.".to_string(),
+            },
+            BoundSkillPrompt {
+                name: "Second".to_string(),
+                body: "Do the second thing.".to_string(),
+            },
+        ];
+        assert_eq!(
+            format_system_prompt(&prompts),
+            "## First\nDo the first thing.\n\n## Second\nDo the second thing."
+        );
+    }
+
+    #[test]
+    fn resolve_system_prompt_returns_none_when_no_skills_are_bound() {
+        let request = sample_request("api");
+        let system = resolve_system_prompt(
+            "my-agent",
+            &FakeSkills(Ok(Vec::new())),
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        assert_eq!(system, None);
+    }
+
+    #[test]
+    fn resolve_system_prompt_formats_bound_skills() {
+        let request = sample_request("api");
+        let system = resolve_system_prompt(
+            "my-agent",
+            &FakeSkills(Ok(vec![BoundSkillPrompt {
+                name: "Reviewer".to_string(),
+                body: "Review the diff.".to_string(),
+            }])),
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        assert_eq!(system, Some("## Reviewer\nReview the diff.".to_string()));
+    }
+
+    #[test]
+    fn resolve_system_prompt_falls_back_to_none_when_skill_lookup_fails() {
+        let request = sample_request("api");
+        let system = resolve_system_prompt(
+            "my-agent",
+            &FakeSkills(Err("lookup failed")),
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        assert_eq!(system, None);
+    }
+
     fn openai_compatible_wire_format(base_url: &str) -> WireFormat {
         wire_format_for(&ApiProviderConfig {
             model_id: "deepseek-chat".to_string(),
@@ -1429,6 +1582,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &[json!({ "role": "user", "content": "hello" })],
             &cancelled,
         );
@@ -1447,6 +1601,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &[],
             &not_cancelled(),
         );
@@ -1465,6 +1620,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &[json!({ "role": "user", "content": "hello" })],
             &cancelled,
         );
@@ -1488,6 +1644,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &cancelled,
             &sink,
             &NoopLogging,
@@ -1532,6 +1689,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &cancelled,
             &sink,
             &NoopLogging,
@@ -1558,6 +1716,67 @@ mod tests {
     }
 
     #[test]
+    fn maybe_compact_preserves_the_system_prompt_across_a_trigger() {
+        let (address, server) = http_fixture(
+            "200 OK",
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+        );
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let sink = CapturingSink::default();
+        let request = sample_request("api");
+        let cancelled = not_cancelled();
+        let system = "Be concise.";
+
+        let mut turns = Vec::new();
+        for index in 0..3 {
+            turns.push(json!({
+                "role": "user",
+                "content": format!("{}-{index}", "x".repeat(COMPACTION_TRIGGER_CHARACTERS / 2)),
+            }));
+        }
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+
+        let result = maybe_compact(
+            &mut turns,
+            &wire_format,
+            &client,
+            "sk-test",
+            "deepseek-chat",
+            Some(system),
+            &cancelled,
+            &sink,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        let summarization_request = server.join().expect("fixture server");
+        assert!(result.is_none());
+
+        // The system prompt reached the summarization call itself...
+        let summarization_body = request_json_body(&summarization_request);
+        assert_eq!(summarization_body["messages"][0]["role"], "system");
+        assert_eq!(summarization_body["messages"][0]["content"], system);
+
+        // ...and was never written into the turns compaction rewrote, so it can't be
+        // mistaken for a turn a later compaction pass could summarize away.
+        for turn in &turns {
+            assert_ne!(turn["content"], system);
+        }
+
+        // A request built after compaction still carries the same system prompt, unaffected.
+        let body_after =
+            (wire_format.build_request_body)("deepseek-chat", &turns, &[], Some(system));
+        assert_eq!(body_after["messages"][0]["role"], "system");
+        assert_eq!(body_after["messages"][0]["content"], system);
+    }
+
+    #[test]
     fn maybe_compact_falls_back_to_leaving_turns_untouched_when_summarization_fails() {
         let (address, server) = http_fixture("500 Internal Server Error", String::new());
         let wire_format = openai_compatible_wire_format(&address);
@@ -1579,6 +1798,7 @@ mod tests {
             &client,
             "sk-test",
             "deepseek-chat",
+            None,
             &cancelled,
             &sink,
             &NoopLogging,

@@ -32,11 +32,14 @@ pub(crate) fn history_to_turns(history: &[AgentMessage]) -> Vec<Value> {
 
 /// Builds the streaming Messages API request body from already-converted turns and, when
 /// `tools` is non-empty, a `tools` declaration in Anthropic's `{name, description, input_schema}`
-/// shape.
+/// shape. `system`, when present, becomes the request's top-level `system` field — Anthropic's
+/// wire format keeps it separate from `messages` natively, so bound-Skill content
+/// (`add-agent-skill-support`) never needs to be represented as a turn.
 pub(crate) fn build_request_body(
     model: &str,
     messages: &[Value],
     tools: &[ToolDefinition],
+    system: Option<&str>,
 ) -> Value {
     let mut body = json!({
         "model": model,
@@ -46,6 +49,9 @@ pub(crate) fn build_request_body(
     });
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.iter().map(tool_definition_to_json).collect());
+    }
+    if let Some(system) = system {
+        body["system"] = json!(system);
     }
     body
 }
@@ -274,22 +280,30 @@ mod tests {
     #[test]
     fn request_body_embeds_model_and_turns() {
         let turns = history_to_turns(&[message("user", "Hello")]);
-        let body = build_request_body("claude-opus-4-8", &turns, &[]);
+        let body = build_request_body("claude-opus-4-8", &turns, &[], None);
         assert_eq!(body["model"], "claude-opus-4-8");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"].as_array().expect("array").len(), 1);
         assert!(body.get("tools").is_none());
+        assert!(body.get("system").is_none());
     }
 
     #[test]
     fn request_body_declares_tools_when_provided() {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
-        let body = build_request_body("claude-opus-4-8", &[], &tools);
+        let body = build_request_body("claude-opus-4-8", &[], &tools, None);
         let declared = body["tools"].as_array().expect("tools array");
         assert_eq!(declared.len(), 2);
         assert_eq!(declared[0]["name"], "shell");
         assert!(declared[0]["input_schema"]["properties"]["command"].is_object());
         assert_eq!(declared[1]["name"], "file");
+    }
+
+    #[test]
+    fn request_body_sets_top_level_system_field_when_present() {
+        let body = build_request_body("claude-opus-4-8", &[], &[], Some("Be concise."));
+        assert_eq!(body["system"], "Be concise.");
+        assert!(body["messages"].as_array().expect("array").is_empty());
     }
 
     #[test]

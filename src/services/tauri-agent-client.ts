@@ -483,6 +483,18 @@ export const tauriAgentClient: AgentService = {
     return invoke<Skill>("set_skill_agent_bindings", { skillId, input, agentIds });
   },
 
+  bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<void>("bind_skill_to_api_agent", { skillId, input, agentId });
+  },
+
+  unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<void>("unbind_skill_from_api_agent", { skillId, input, agentId });
+  },
+
+  listSkillApiAgentBindings(skillId: string, input: SkillScopeInput) {
+    return invoke<string[]>("list_skill_api_agent_bindings", { skillId, input });
+  },
+
   previewSkill(skillId: string, input: SkillScopeInput) {
     return invoke<SkillPreview>("preview_skill", { skillId, input });
   },

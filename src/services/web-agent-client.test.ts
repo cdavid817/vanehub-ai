@@ -861,6 +861,51 @@ describe("webAgentClient", () => {
     expect(sync.restored).toContain("code-review");
   });
 
+  it("binds and unbinds mock Skills to API agents independently of CLI mount bindings", async () => {
+    const scope = { scope: "global" as const };
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([]);
+
+    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, "my-api-agent");
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual(["my-api-agent"]);
+
+    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, "my-api-agent");
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual(["my-api-agent"]);
+
+    await webAgentClient.unbindSkillFromApiAgent("tdd-discipline", scope, "my-api-agent");
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([]);
+
+    await expect(webAgentClient.bindSkillToApiAgent("does-not-exist", scope, "my-api-agent")).rejects.toThrow(
+      "Skill not found",
+    );
+  });
+
+  it("signals bound Skill influence in mock API-agent generations", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Skill Test Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    await webAgentClient.bindSkillToApiAgent("tdd-discipline", { scope: "global" }, agent.id);
+
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Skill influence" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const skillEvent = events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-skills-"));
+    expect(skillEvent).toBeDefined();
+    unsubscribe();
+  });
+
   it("manages mock Prompt Hooks, previews content, and stores safe traces", async () => {
     const initial = await webAgentClient.listPromptHooks();
     expect(initial.hooks.map((hook) => hook.category)).toEqual(

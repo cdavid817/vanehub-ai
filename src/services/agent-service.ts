@@ -207,6 +207,9 @@ export interface AgentService {
   restoreBuiltinSkill(skillId: string): Promise<Skill>;
   setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean): Promise<Skill>;
   setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]): Promise<Skill>;
+  bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
+  unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
+  listSkillApiAgentBindings(skillId: string, input: SkillScopeInput): Promise<string[]>;
   previewSkill(skillId: string, input: SkillScopeInput): Promise<SkillPreview>;
   importSkill(input: SkillImportInput): Promise<Skill>;
   detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;

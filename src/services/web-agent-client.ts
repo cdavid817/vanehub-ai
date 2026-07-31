@@ -97,6 +97,7 @@ import type {
   SkillMountMigrationReport,
   SkillMutationInput,
   SkillPreview,
+  SkillScope,
   SkillScopeInput,
   SkillSyncResult,
   SkillUpdateInput,
@@ -321,6 +322,14 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
     updatedAt: timestamp,
   };
 });
+
+/** Mock non-mount Skill-to-API-agent bindings (`add-agent-skill-support`), separate from `webSkills`' CLI mount-path `boundAgentIds`. */
+let webSkillApiAgentBindings: Array<{
+  skillId: string;
+  scope: SkillScope;
+  workspacePath: string | null;
+  agentId: string;
+}> = [];
 
 const deletedBuiltinSkillIds = new Set<string>();
 
@@ -2302,6 +2311,36 @@ export const webAgentClient: AgentService = {
       }, 150);
       timeoutIds.push(compactionTimeoutId);
     }
+    const boundSkillNames = webSkillApiAgentBindings
+      .filter((binding) => binding.agentId === session.agentId)
+      .map((binding) =>
+        webSkills.find(
+          (skill) =>
+            skill.id === binding.skillId &&
+            skill.scope === binding.scope &&
+            skill.workspacePath === binding.workspacePath,
+        ),
+      )
+      .filter((skill): skill is Skill => skill != null && skill.enabled)
+      .map((skill) => skill.metadata.name);
+    if (boundSkillNames.length > 0) {
+      const skillTimeoutId = setTimeout(() => {
+        publishChatEvent({
+          type: "rich_block",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          block: {
+            id: `web-skills-${assistantMessage.id}`,
+            kind: "card",
+            v: 1,
+            title: "Skill instructions applied",
+            bodyMarkdown: `This response was influenced by: ${boundSkillNames.join(", ")}.`,
+            tone: "info",
+          },
+        });
+      }, 150);
+      timeoutIds.push(skillTimeoutId);
+    }
     tokens.forEach((contentDelta, index) => {
       const timeoutId = setTimeout(() => {
         publishChatEvent({ type: "token", sessionId: input.sessionId, messageId: assistantMessage.id, contentDelta });
@@ -2687,6 +2726,48 @@ export const webAgentClient: AgentService = {
     const current = findWebSkill(skillId, input);
     const updated = { ...current, boundAgentIds: [...agentIds], updatedAt: nowIso() };
     return hydrateSkillBindings(upsertWebSkill(updated));
+  },
+
+  async bindSkillToApiAgent(skillId, input, agentId) {
+    const skill = findWebSkill(skillId, input);
+    const alreadyBound = webSkillApiAgentBindings.some(
+      (binding) =>
+        binding.skillId === skill.id &&
+        binding.scope === skill.scope &&
+        binding.workspacePath === skill.workspacePath &&
+        binding.agentId === agentId,
+    );
+    if (!alreadyBound) {
+      webSkillApiAgentBindings = [
+        ...webSkillApiAgentBindings,
+        { skillId: skill.id, scope: skill.scope, workspacePath: skill.workspacePath, agentId },
+      ];
+    }
+  },
+
+  async unbindSkillFromApiAgent(skillId, input, agentId) {
+    const skill = findWebSkill(skillId, input);
+    webSkillApiAgentBindings = webSkillApiAgentBindings.filter(
+      (binding) =>
+        !(
+          binding.skillId === skill.id &&
+          binding.scope === skill.scope &&
+          binding.workspacePath === skill.workspacePath &&
+          binding.agentId === agentId
+        ),
+    );
+  },
+
+  async listSkillApiAgentBindings(skillId, input) {
+    const skill = findWebSkill(skillId, input);
+    return webSkillApiAgentBindings
+      .filter(
+        (binding) =>
+          binding.skillId === skill.id &&
+          binding.scope === skill.scope &&
+          binding.workspacePath === skill.workspacePath,
+      )
+      .map((binding) => binding.agentId);
   },
 
   async previewSkill(skillId, input): Promise<SkillPreview> {
