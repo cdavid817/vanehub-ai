@@ -51,16 +51,6 @@ fn has_windows_drive_prefix(path: &str) -> bool {
     bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
-pub(crate) fn normalize_windows_extended_length_path(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{}", rest);
-    }
-    if let Some(rest) = path.strip_prefix(r"\\?\") {
-        return rest.to_string();
-    }
-    path.to_string()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CanonicalPathBoundary {
     root: PathBuf,
@@ -117,22 +107,6 @@ mod tests {
         assert_eq!(
             WorkspaceRelativePath::parse("src\\..\\secret"),
             Err(WorkspaceDomainError::WorkspacePathEscape)
-        );
-    }
-
-    #[test]
-    fn windows_extended_length_paths_are_normalized_for_shells_and_labels() {
-        assert_eq!(
-            normalize_windows_extended_length_path(r"\\?\D:\cdavid\Documents\code\claude-code"),
-            r"D:\cdavid\Documents\code\claude-code"
-        );
-        assert_eq!(
-            normalize_windows_extended_length_path(r"\\?\UNC\server\share\repo"),
-            r"\\server\share\repo"
-        );
-        assert_eq!(
-            normalize_windows_extended_length_path(r"D:\cdavid\Documents\code\claude-code"),
-            r"D:\cdavid\Documents\code\claude-code"
         );
     }
 

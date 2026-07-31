@@ -10,7 +10,9 @@ pub(crate) use output::{
     output_parser_for, ProviderOutputEvent, ProviderToolEvent, ProviderToolPhase,
 };
 pub(crate) use session_capture::{
-    prepare_provider_session_capture, ProviderSessionCapture, ProviderSessionDiscovery,
+    codex_session_root, find_codex_rollout_since, find_opencode_session_since,
+    opencode_database_path, prepare_provider_session_capture, ProviderSessionCapture,
+    ProviderSessionDiscovery,
 };
 
 #[cfg(test)]

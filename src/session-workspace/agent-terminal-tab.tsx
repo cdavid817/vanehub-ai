@@ -127,6 +127,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
             if (event.state === "stopped" || event.state === "failed") {
               terminalIdRef.current = null;
               clearReplay(targetSessionId);
+              void queryClient.invalidateQueries({ queryKey: ["session-usage-summary", targetSessionId] });
             }
             if (event.error) setError(workspaceErrorKey(event.error));
           }

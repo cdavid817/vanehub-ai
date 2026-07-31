@@ -427,23 +427,12 @@ pub(crate) enum UsageStatisticsRange {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionUsageAccountingKind {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "persisted reported-token records remain supported"
-        )
-    )]
     Reported,
     Estimated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionUsageUnit {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "persisted token-unit records remain supported")
-    )]
     Tokens,
     Characters,
 }

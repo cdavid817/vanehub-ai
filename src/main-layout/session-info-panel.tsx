@@ -175,7 +175,15 @@ export function SessionInfoPanel({
   const modelLabel = useMemo(() => {
     return resolveModelLabel(chatConfig.data?.providerId, chatConfig.data?.modelId) || null;
   }, [chatConfig.data?.providerId, chatConfig.data?.modelId]);
-  const usage = useQuery({ enabled: Boolean(sessionId), queryKey: ["session-usage-summary", sessionId], queryFn: () => agentService.getSessionUsageSummary(sessionId ?? "") });
+  // While a session is running, the backend re-reads the CLI's own usage data every
+  // few seconds (see TERMINAL_USAGE_POLL_INTERVAL); refetching on the same cadence
+  // here is what actually surfaces those writes without waiting for the user to stop.
+  const usage = useQuery({
+    enabled: Boolean(sessionId),
+    queryKey: ["session-usage-summary", sessionId],
+    queryFn: () => agentService.getSessionUsageSummary(sessionId ?? ""),
+    refetchInterval: activeSession?.lifecycleState === "running" ? 5000 : false,
+  });
   const usageSummary = useMemo(() => summaryWithLiveReportedTokens(usage.data, sessionId, messages), [messages, sessionId, usage.data]);
   const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
   const workspaceSkills = useQuery({ enabled: Boolean(sessionId && workspacePath), queryKey: ["skills", "workspace", workspacePath], queryFn: () => agentService.listSkills({ scope: "workspace", workspacePath }) });

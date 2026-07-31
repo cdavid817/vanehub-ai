@@ -23,6 +23,24 @@ pub(crate) enum BoundaryError {
     Io(#[from] std::io::Error),
 }
 
+/// Strips a Windows extended-length path prefix (`\\?\`, `\\?\UNC\`) for contexts that
+/// don't support it — notably setting a process/shell current directory. `CreateProcess`'s
+/// `lpCurrentDirectory`, `cmd.exe`'s `cd /d`, and PowerShell's `Set-Location` all reject or
+/// silently mishandle the `\\?\` prefix (verified directly: PowerShell raises a
+/// non-terminating `DriveNotFoundException` and continues from the wrong directory; cmd.exe
+/// hard-fails with "CMD does not support UNC paths as the current directory"). A normal-form
+/// path works for setting cwd as long as it doesn't itself need the extended form, which is
+/// the common case for the paths this normalizes.
+pub(crate) fn normalize_windows_extended_length_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{}", rest);
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    path.to_string()
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct BoundedFilesystem {
     root: PathBuf,
@@ -154,6 +172,22 @@ fn normalized(path: &Path) -> String {
 mod tests {
     use super::*;
     use crate::test_support::TempDirectory;
+
+    #[test]
+    fn windows_extended_length_paths_are_normalized_for_shells_and_labels() {
+        assert_eq!(
+            normalize_windows_extended_length_path(r"\\?\D:\cdavid\Documents\code\claude-code"),
+            r"D:\cdavid\Documents\code\claude-code"
+        );
+        assert_eq!(
+            normalize_windows_extended_length_path(r"\\?\UNC\server\share\repo"),
+            r"\\server\share\repo"
+        );
+        assert_eq!(
+            normalize_windows_extended_length_path(r"D:\cdavid\Documents\code\claude-code"),
+            r"D:\cdavid\Documents\code\claude-code"
+        );
+    }
 
     #[test]
     fn canonical_boundary_rejects_traversal_absolute_and_hidden_paths() {
