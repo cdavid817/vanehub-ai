@@ -397,6 +397,11 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 launch_command(request.agent.launch.command.as_deref())?;
                 ("cli", "CLI workflow launch routed through Tauri adapter.")
             }
+            InteractionMode::Api => {
+                return Err(AgentRuntimeApplicationError::UnsupportedInteractionMode(
+                    InteractionMode::Api.as_str().to_string(),
+                ))
+            }
         };
         self.record_log(
             AgentLogLevel::Info,

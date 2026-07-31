@@ -15,9 +15,9 @@ pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
     AgentView, ContinueLoopRequest, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
-    OpenAgentTerminalRequest, ReadinessView, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
-    SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult,
-    WorkflowView,
+    OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
+    SaveLoopDefinitionRequest, SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest,
+    StopGenerationResult, ToolApprovalDecision, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -230,6 +230,23 @@ impl AgentRuntimeApi {
         agent_id: &str,
     ) -> Result<AgentView, AgentRuntimeApplicationError> {
         self.service.get_agent(agent_id)
+    }
+
+    pub(crate) fn register_api_agent(
+        &self,
+        request: RegisterApiAgentInput,
+    ) -> Result<AgentView, AgentRuntimeApplicationError> {
+        self.service.register_api_agent(request)
+    }
+
+    pub(crate) fn resolve_tool_approval(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        decision: ToolApprovalDecision,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.service
+            .resolve_tool_approval(session_id, call_id, decision)
     }
 
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {

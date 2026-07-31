@@ -1,5 +1,9 @@
+mod anthropic_provider;
+mod api_credentials;
+mod api_process_adapter;
 mod availability;
 mod cli_profile;
+mod composite_process_gateway;
 mod coordination_executor;
 mod coordination_repository;
 mod coordination_scheduler;
@@ -16,19 +20,26 @@ mod loop_repository_views;
 mod loop_scheduler;
 mod loop_schema;
 mod loop_verification_process;
+mod openai_compatible_provider;
 mod process_adapter;
 mod prompt_gateway;
 pub(crate) mod providers;
 mod runtime_support;
 mod schema;
 mod sessions_gateway;
+mod skill_gateway;
 mod sqlite_repository;
 mod terminal_process;
 mod terminal_usage_ingestion;
 mod terminal_wrapper;
+mod tool_call_accumulator;
+mod tools;
 
+pub(crate) use api_credentials::OsApiCredentialAdapter;
+pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
+pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
 pub(crate) use coordination_executor::NativeCoordinationNodeExecutor;
 pub(crate) use coordination_repository::SqliteCoordinationRepository;
 pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
@@ -50,8 +61,9 @@ pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
     UuidCoordinationIds,
 };
-pub(crate) use schema::seed_registry;
+pub(crate) use schema::{apply_api_agent_schema, apply_openai_compatible_schema, seed_registry};
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
+pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
 

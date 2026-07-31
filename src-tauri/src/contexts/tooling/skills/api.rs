@@ -3,7 +3,8 @@ use crate::contexts::tooling::skills::application::SkillApplicationService;
 pub(crate) use crate::contexts::tooling::skills::application::{
     SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry, SkillCreateRequest,
     SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillMountMigrationReport,
-    SkillPreview, SkillRecord, SkillScopeQuery, SkillSyncResult, SkillUpdateRequest,
+    SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery, SkillSyncResult,
+    SkillUpdateRequest,
 };
 pub(crate) use crate::contexts::tooling::skills::domain::{
     SkillDomainError, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
@@ -70,6 +71,33 @@ impl SkillApi {
 
     pub(crate) fn preview(&self, key: SkillKey) -> Result<SkillPreview, SkillError> {
         self.service.preview_skill(key)
+    }
+
+    pub(crate) fn bind_to_api_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<(), SkillError> {
+        self.service.bind_skill_to_api_agent(key, agent_id)
+    }
+
+    pub(crate) fn unbind_from_api_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<(), SkillError> {
+        self.service.unbind_skill_from_api_agent(key, agent_id)
+    }
+
+    pub(crate) fn list_api_agent_bindings(&self, key: SkillKey) -> Result<Vec<String>, SkillError> {
+        self.service.list_api_agent_bindings(key)
+    }
+
+    pub(crate) fn bound_skill_prompts_for_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<SkillPromptForAgent>, SkillError> {
+        self.service.bound_skill_prompts_for_api_agent(agent_id)
     }
 
     pub(crate) fn import(&self, request: SkillImportRequest) -> Result<SkillRecord, SkillError> {

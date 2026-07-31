@@ -120,6 +120,16 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
     fn fail(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         self.finish(session_id, GenerationAttempt::fail)
     }
+
+    fn active_process_id(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        let active = self.active()?;
+        Ok(active
+            .get(session_id)
+            .and_then(|generation| generation.process_id.clone()))
+    }
 }
 
 impl InMemoryGenerationCoordinator {

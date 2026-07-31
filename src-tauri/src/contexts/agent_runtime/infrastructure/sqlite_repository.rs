@@ -1,10 +1,11 @@
 use crate::contexts::agent_runtime::application::{
     AgentAvailabilityGateway, AgentRegistryRepository, AgentRuntimeApplicationError,
-    AgentWorkflowRepository,
+    AgentWorkflowRepository, ApiAgentGateway, ApiProviderConfig, RegisterApiAgentInput,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow, InteractionMode,
-    LaunchMetadata,
+    AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow,
+    AvailabilityAssessment, InteractionMode, LaunchMetadata,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -43,7 +44,8 @@ impl SqliteAgentRuntimeRepository {
             .query_row(
                 r#"
                 SELECT id, display_name, provider, launch_kind, launch_command,
-                       launch_url, executable_name, managed_sdk_dependency_id
+                       launch_url, executable_name, managed_sdk_dependency_id, model_id,
+                       interface_format, base_url
                 FROM agents
                 WHERE id = ?1
                 "#,
@@ -200,6 +202,76 @@ impl AgentWorkflowRepository for SqliteAgentRuntimeRepository {
     }
 }
 
+impl ApiAgentGateway for SqliteAgentRuntimeRepository {
+    fn register(
+        &self,
+        agent_id: &str,
+        input: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        connection
+            .execute(
+                r#"
+                INSERT INTO agents (id, display_name, provider, launch_kind, model_id, interface_format, base_url)
+                VALUES (?1, ?2, ?3, 'api', ?4, ?5, ?6)
+                "#,
+                params![
+                    agent_id,
+                    input.display_name,
+                    input.provider,
+                    input.model_id,
+                    input.interface_format,
+                    input.base_url,
+                ],
+            )
+            .map_err(registry_error)?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO agent_modes (agent_id, mode) VALUES (?1, 'api')",
+                params![agent_id],
+            )
+            .map_err(registry_error)?;
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO agent_capability_tags (agent_id, tag) VALUES (?1, 'api')",
+                params![agent_id],
+            )
+            .map_err(registry_error)?;
+        self.find_in(&connection, agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
+    }
+
+    fn provider_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        self.connection()?
+            .query_row(
+                "SELECT model_id, interface_format, base_url FROM agents WHERE id = ?1",
+                [agent_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(registry_error)
+            .map(|row| {
+                row.and_then(|(model_id, interface_format, base_url)| {
+                    Some(ApiProviderConfig {
+                        model_id: model_id?,
+                        interface_format: interface_format
+                            .unwrap_or_else(|| INTERFACE_FORMAT_ANTHROPIC.to_string()),
+                        base_url,
+                    })
+                })
+            })
+    }
+}
+
 struct AgentRow {
     id: String,
     display_name: String,
@@ -209,6 +281,9 @@ struct AgentRow {
     launch_url: Option<String>,
     executable_name: Option<String>,
     managed_sdk_dependency_id: Option<String>,
+    model_id: Option<String>,
+    interface_format: Option<String>,
+    base_url: Option<String>,
 }
 
 impl AgentRow {
@@ -222,6 +297,9 @@ impl AgentRow {
             launch_url: row.get(5)?,
             executable_name: row.get(6)?,
             managed_sdk_dependency_id: row.get(7)?,
+            model_id: row.get(8)?,
+            interface_format: row.get(9)?,
+            base_url: row.get(10)?,
         })
     }
 
@@ -232,10 +310,36 @@ impl AgentRow {
     ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
         let modes = load_modes(connection, &self.id)?;
         let capability_tags = load_tags(connection, &self.id)?;
-        let availability = availability.assess(
-            self.managed_sdk_dependency_id.as_deref(),
-            self.executable_name.as_deref(),
-        )?;
+        let availability = if self.launch_kind == "api" {
+            let has_model = self
+                .model_id
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty());
+            let has_base_url_if_required = self.interface_format.as_deref()
+                != Some(INTERFACE_FORMAT_OPENAI_COMPATIBLE)
+                || self
+                    .base_url
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty());
+            if has_model && has_base_url_if_required {
+                AvailabilityAssessment::new(AgentAvailability::Available, None)
+            } else if !has_model {
+                AvailabilityAssessment::new(
+                    AgentAvailability::Unavailable,
+                    Some("API agent is missing a configured model.".to_string()),
+                )
+            } else {
+                AvailabilityAssessment::new(
+                    AgentAvailability::Unavailable,
+                    Some("API agent is missing a configured base URL.".to_string()),
+                )
+            }
+        } else {
+            availability.assess(
+                self.managed_sdk_dependency_id.as_deref(),
+                self.executable_name.as_deref(),
+            )?
+        };
         AgentDefinition::new(AgentDefinitionInput {
             id: self.id,
             display_name: self.display_name,

@@ -35,6 +35,8 @@ type AgentAssertions = [
   Assert<Equal<AgentContracts.SessionLifecycleState, AgentTypes.SessionLifecycleState>>,
   Assert<Equal<AgentContracts.LaunchMetadata, AgentTypes.LaunchMetadata>>,
   Assert<Equal<AgentContracts.AgentRegistryEntry, AgentTypes.AgentRegistryEntry>>,
+  Assert<Equal<AgentContracts.ApiInterfaceFormat, AgentTypes.ApiInterfaceFormat>>,
+  Assert<Equal<AgentContracts.RegisterApiAgentInput, AgentTypes.RegisterApiAgentInput>>,
   Assert<Equal<AgentContracts.WorkflowState, AgentTypes.WorkflowState>>,
   Assert<Equal<AgentContracts.Session, AgentTypes.Session>>,
   Assert<Equal<AgentContracts.KnownProject, AgentTypes.KnownProject>>,

@@ -3,14 +3,16 @@ use super::{
     AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage,
     AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
-    AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, CompleteAgentMessage,
-    EffectivePromptGateway, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
-    LaunchWorkflowResult, LoopGenerationControlPort, LoopRoleGenerationCompletionPort,
-    LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage, PendingPromptExecution,
-    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference, ReadinessView,
-    ReportedUsageTotals, SendMessageRequest, StopGenerationResult, ToolLifecycleEvent,
-    ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
+    AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
+    ApiCredentialPort, CliProfileSnapshot, CompleteAgentMessage, EffectivePromptGateway,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    MessageTokenUsage, NewAgentMessage, PendingPromptExecution, PromptExecutionOutcome,
+    PromptExecutionReport, PromptVersionReference, ReadinessView, RegisterApiAgentInput,
+    ReportedUsageTotals, SendMessageRequest, StopGenerationResult, ToolApprovalDecision,
+    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -41,6 +43,9 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
+    pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
+    pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
+    pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
 }
 
 #[derive(Clone)]
@@ -112,6 +117,121 @@ impl AgentRuntimeApplicationService {
             file_references: Vec::new(),
         })?;
         Ok(message.id)
+    }
+
+    pub(crate) fn register_api_agent(
+        &self,
+        input: RegisterApiAgentInput,
+    ) -> Result<AgentView, AgentRuntimeApplicationError> {
+        let display_name = input.display_name.trim().to_string();
+        if display_name.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Agent display name cannot be empty.".to_string(),
+            ));
+        }
+        let provider = input.provider.trim().to_string();
+        if provider.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Agent provider cannot be empty.".to_string(),
+            ));
+        }
+        let api_key = input.api_key.trim().to_string();
+        if api_key.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "API key cannot be empty.".to_string(),
+            ));
+        }
+        let model_id = input.model_id.trim().to_string();
+        if model_id.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Model id cannot be empty.".to_string(),
+            ));
+        }
+        let interface_format = input.interface_format.trim().to_string();
+        if interface_format != INTERFACE_FORMAT_ANTHROPIC
+            && interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE
+        {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Interface format must be either \"anthropic\" or \"openai-compatible\"."
+                    .to_string(),
+            ));
+        }
+        let base_url = if interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            let base_url = input
+                .base_url
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if base_url.is_empty() {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "Base URL is required for an OpenAI-compatible agent.".to_string(),
+                ));
+            }
+            Some(base_url)
+        } else {
+            None
+        };
+
+        let agent_id = self.unique_api_agent_id(&display_name)?;
+        self.ports.api_credentials.store(&agent_id, &api_key)?;
+
+        let normalized = RegisterApiAgentInput {
+            display_name,
+            provider,
+            api_key,
+            model_id,
+            interface_format,
+            base_url,
+        };
+        match self.ports.api_agents.register(&agent_id, &normalized) {
+            Ok(definition) => Ok(AgentView::from(&definition)),
+            Err(error) => {
+                let _ = self.ports.api_credentials.remove(&agent_id);
+                Err(error)
+            }
+        }
+    }
+
+    /// Delivers a user's approve/deny decision for a native-agent tool call awaiting approval.
+    /// Returns `false` if no such pending approval exists.
+    pub(crate) fn resolve_tool_approval(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        decision: ToolApprovalDecision,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let Some(process_id) = self.ports.generations.active_process_id(session_id)? else {
+            return Ok(false);
+        };
+        self.ports
+            .tool_approvals
+            .resolve(&process_id, call_id, decision)
+    }
+
+    fn unique_api_agent_id(
+        &self,
+        display_name: &str,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        let base = slugify(display_name);
+        let base = if base.is_empty() {
+            "api-agent".to_string()
+        } else {
+            base
+        };
+        for attempt in 0..50 {
+            let candidate = if attempt == 0 {
+                base.clone()
+            } else {
+                format!("{base}-{}", attempt + 1)
+            };
+            if self.ports.registry.find(&candidate)?.is_none() {
+                return Ok(candidate);
+            }
+        }
+        Err(AgentRuntimeApplicationError::Validation(
+            "Could not derive a unique agent id from the display name.".to_string(),
+        ))
     }
 
     pub(crate) fn list_agents(
@@ -617,31 +737,39 @@ impl AgentRuntimeApplicationService {
                 ),
             );
         }
-        let profile = match self
-            .ports
-            .cli_profiles
-            .load(agent.id().as_str(), &configuration)
-        {
-            Ok(profile) => profile,
-            Err(error) => {
-                self.record_prompt_execution(
-                    &operation.id,
-                    agent.id().as_str(),
-                    &prompt_versions,
-                    PromptExecutionOutcome::Failed,
-                    prompt_started_at,
-                );
-                return self.fail_prepared_message(
-                    &root_context,
-                    session,
-                    &assistant,
-                    lease,
-                    Some(&operation.id),
-                    generation_failure(
-                        format!("{} command failed", agent.display_name()),
-                        error.to_string(),
-                    ),
-                );
+        let profile = if agent.launch().kind_str() == "cli" {
+            match self
+                .ports
+                .cli_profiles
+                .load(agent.id().as_str(), &configuration)
+            {
+                Ok(profile) => profile,
+                Err(error) => {
+                    self.record_prompt_execution(
+                        &operation.id,
+                        agent.id().as_str(),
+                        &prompt_versions,
+                        PromptExecutionOutcome::Failed,
+                        prompt_started_at,
+                    );
+                    return self.fail_prepared_message(
+                        &root_context,
+                        session,
+                        &assistant,
+                        lease,
+                        Some(&operation.id),
+                        generation_failure(
+                            format!("{} command failed", agent.display_name()),
+                            error.to_string(),
+                        ),
+                    );
+                }
+            }
+        } else {
+            CliProfileSnapshot {
+                executable: String::new(),
+                selections: std::collections::BTreeMap::new(),
+                managed_args: Vec::new(),
             }
         };
         let input_count = effective_prompt.content.chars().count();
@@ -1261,10 +1389,14 @@ impl GenerationEventHandler {
     }
 
     fn tool_use(&self, tool_use: super::ToolUseBlock) -> Result<(), AgentRuntimeApplicationError> {
-        let phase = match tool_terminal_status(&tool_use.status) {
-            Some(ExecutionStatus::Succeeded) => ToolLifecyclePhase::Completed,
-            Some(_) => ToolLifecyclePhase::Failed,
-            None => ToolLifecyclePhase::Started,
+        let phase = if tool_use.status == "awaiting_approval" {
+            ToolLifecyclePhase::AwaitingApproval
+        } else {
+            match tool_terminal_status(&tool_use.status) {
+                Some(ExecutionStatus::Succeeded) => ToolLifecyclePhase::Completed,
+                Some(_) => ToolLifecyclePhase::Failed,
+                None => ToolLifecyclePhase::Started,
+            }
         };
         self.tool_lifecycle(ToolLifecycleEvent {
             call_id: tool_use.id.clone(),
@@ -1359,7 +1491,9 @@ impl GenerationEventHandler {
         let terminal_status = match event.phase {
             ToolLifecyclePhase::Completed => Some(ExecutionStatus::Succeeded),
             ToolLifecyclePhase::Failed => Some(ExecutionStatus::Failed),
-            ToolLifecyclePhase::Started | ToolLifecyclePhase::Updated => None,
+            ToolLifecyclePhase::Started
+            | ToolLifecyclePhase::Updated
+            | ToolLifecyclePhase::AwaitingApproval => None,
         };
         if let Some(status) = terminal_status {
             let error_classification =
@@ -1779,6 +1913,24 @@ fn safe_attributes(
     entries: impl IntoIterator<Item = (String, SafeAttributeValue)>,
 ) -> SafeAttributes {
     SafeAttributes::try_from_entries(entries).unwrap_or_default()
+}
+
+fn slugify(value: &str) -> String {
+    let mut slug = String::with_capacity(value.len());
+    let mut last_was_hyphen = true;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+            last_was_hyphen = false;
+        } else if !last_was_hyphen {
+            slug.push('-');
+            last_was_hyphen = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    slug
 }
 
 fn execution_source(source: super::AgentMessageSource) -> ExecutionSource {

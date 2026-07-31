@@ -64,6 +64,28 @@ const AGENTS: [SeedAgent; 4] = [
     ),
 ];
 
+pub(crate) fn apply_api_agent_schema(
+    conn: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    conn.execute_batch("ALTER TABLE agents ADD COLUMN model_id TEXT;")?;
+    Ok(())
+}
+
+/// Adds the wire-protocol fields needed to support OpenAI Chat Completions-compatible
+/// endpoints alongside the existing Anthropic-only path. Existing `launch_kind = 'api'`
+/// rows (registered before this migration) are backfilled to `interface_format = 'anthropic'`
+/// so they keep behaving exactly as before.
+pub(crate) fn apply_openai_compatible_schema(
+    conn: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE agents ADD COLUMN interface_format TEXT;
+         ALTER TABLE agents ADD COLUMN base_url TEXT;
+         UPDATE agents SET interface_format = 'anthropic' WHERE launch_kind = 'api';",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn seed_registry(
     connection: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {

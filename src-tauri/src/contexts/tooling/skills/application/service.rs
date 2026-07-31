@@ -1,10 +1,10 @@
 use super::{
-    AgentMountConfiguration, SkillAgentMountPath, SkillApplicationError, SkillClockPort,
-    SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure, SkillFilesystemPort,
-    SkillFilesystemTransaction, SkillImportRequest, SkillListResult, SkillLogAction, SkillLogEvent,
-    SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport, SkillMountRepair, SkillPreview,
-    SkillRecord, SkillRepository, SkillScopeQuery, SkillStats, SkillSyncResult, SkillUpdateRequest,
-    SkillWorkspaceSelectionPort,
+    AgentMountConfiguration, SkillAgentMountPath, SkillApiBindingRepository, SkillApplicationError,
+    SkillClockPort, SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure,
+    SkillFilesystemPort, SkillFilesystemTransaction, SkillImportRequest, SkillListResult,
+    SkillLogAction, SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport,
+    SkillMountRepair, SkillPreview, SkillPromptForAgent, SkillRecord, SkillRepository,
+    SkillScopeQuery, SkillStats, SkillSyncResult, SkillUpdateRequest, SkillWorkspaceSelectionPort,
 };
 use crate::contexts::tooling::skills::domain::{
     builtin_definitions, builtin_restore_plan, default_mount_path, deletion_policy, detect_drift,
@@ -19,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub(crate) struct SkillApplicationService {
     repository: Arc<dyn SkillRepository>,
+    api_bindings: Arc<dyn SkillApiBindingRepository>,
     filesystem: Arc<dyn SkillFilesystemPort>,
     selection: Arc<dyn SkillWorkspaceSelectionPort>,
     clock: Arc<dyn SkillClockPort>,
@@ -26,8 +27,10 @@ pub(crate) struct SkillApplicationService {
 }
 
 impl SkillApplicationService {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         repository: Arc<dyn SkillRepository>,
+        api_bindings: Arc<dyn SkillApiBindingRepository>,
         filesystem: Arc<dyn SkillFilesystemPort>,
         selection: Arc<dyn SkillWorkspaceSelectionPort>,
         clock: Arc<dyn SkillClockPort>,
@@ -35,6 +38,7 @@ impl SkillApplicationService {
     ) -> Self {
         Self {
             repository,
+            api_bindings,
             filesystem,
             selection,
             clock,
@@ -147,6 +151,81 @@ impl SkillApplicationService {
         let skill_id = key.id.as_str().to_string();
         let result = self.set_bindings_work(&key, agent_ids);
         self.observe(SkillLogAction::SetBindings, Some(skill_id), result)
+    }
+
+    /// Binds `key` to `agent_id` for API-agent system-prompt injection (`add-agent-skill-support`)
+    /// — a non-mount binding, distinct from `set_bindings`' CLI mount-path binding.
+    pub(crate) fn bind_skill_to_api_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<(), SkillApplicationError> {
+        let skill_id = key.id.as_str().to_string();
+        let result = self.bind_skill_to_api_agent_work(&key, &agent_id);
+        self.observe(SkillLogAction::SetApiAgentBinding, Some(skill_id), result)
+    }
+
+    pub(crate) fn unbind_skill_from_api_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<(), SkillApplicationError> {
+        let skill_id = key.id.as_str().to_string();
+        let result = self.api_bindings.unbind_api_agent(&key, &agent_id);
+        self.observe(SkillLogAction::SetApiAgentBinding, Some(skill_id), result)
+    }
+
+    pub(crate) fn list_api_agent_bindings(
+        &self,
+        key: SkillKey,
+    ) -> Result<Vec<String>, SkillApplicationError> {
+        self.api_bindings.api_agent_bindings(&key)
+    }
+
+    /// Reads every enabled Skill bound to `agent_id`, resolving each one's source file into
+    /// `{name, body}` ready for system-prompt injection. Used by `agent_runtime`'s
+    /// `AgentSkillPort` adapter, not by any Skill-management UI flow.
+    pub(crate) fn bound_skill_prompts_for_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<SkillPromptForAgent>, SkillApplicationError> {
+        self.api_bindings
+            .enabled_skills_bound_to_api_agent(agent_id)?
+            .iter()
+            .map(|record| {
+                let raw = self.filesystem.read_source(record)?;
+                Ok(SkillPromptForAgent {
+                    name: record.metadata.name.clone(),
+                    body: strip_frontmatter(&raw),
+                })
+            })
+            .collect()
+    }
+
+    fn bind_skill_to_api_agent_work(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+    ) -> Result<(), SkillApplicationError> {
+        self.load(key)?;
+        self.ensure_known_agent(agent_id)?;
+        self.api_bindings
+            .bind_api_agent(key, agent_id, &self.clock.now())
+    }
+
+    fn ensure_known_agent(&self, agent_id: &str) -> Result<(), SkillApplicationError> {
+        let known = self
+            .repository
+            .agent_mount_configurations()?
+            .into_iter()
+            .any(|configuration| configuration.agent_id == agent_id);
+        if known {
+            Ok(())
+        } else {
+            Err(SkillApplicationError::Validation(format!(
+                "Unknown Agent id: {agent_id}"
+            )))
+        }
     }
 
     pub(crate) fn preview_skill(
@@ -760,6 +839,20 @@ impl SkillApplicationService {
         });
         result
     }
+}
+
+/// Strips a SKILL.md file's YAML frontmatter block, returning everything after the closing
+/// `---` — the instructional body suitable for system-prompt injection, without the id/name/
+/// description/category/version/triggers metadata the frontmatter carries for tooling. Falls
+/// back to the full trimmed content if no frontmatter block is found, mirroring
+/// `infrastructure::filesystem::document::parse`'s own frontmatter-detection technique.
+fn strip_frontmatter(content: &str) -> String {
+    let normalized = content.replace("\r\n", "\n");
+    let body = normalized
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---"))
+        .map(|(_, remainder)| remainder);
+    body.unwrap_or(normalized.as_str()).trim().to_string()
 }
 
 fn registered_agent_ids(configurations: &[AgentMountConfiguration]) -> BTreeSet<String> {

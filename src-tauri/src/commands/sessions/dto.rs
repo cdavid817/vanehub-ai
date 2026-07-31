@@ -8,6 +8,7 @@ pub(crate) enum InteractionMode {
     Browser,
     NativeDesktop,
     Cli,
+    Api,
 }
 
 impl InteractionMode {
@@ -16,6 +17,7 @@ impl InteractionMode {
             Self::Browser => "browser",
             Self::NativeDesktop => "native-desktop",
             Self::Cli => "cli",
+            Self::Api => "api",
         }
     }
 }

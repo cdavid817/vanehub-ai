@@ -1,6 +1,6 @@
 use crate::contexts::tooling::skills::application::{
-    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
-    SkillDriftReport, SkillRecord, SkillRepository,
+    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApiBindingRepository,
+    SkillApplicationError, SkillDriftReport, SkillRecord, SkillRepository,
 };
 use crate::contexts::tooling::skills::domain::{
     default_mount_path, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
@@ -197,6 +197,15 @@ impl SkillRepository for SqliteSkillRepository {
             .map_err(repository_error)?;
         transaction
             .execute(
+                r#"
+                DELETE FROM skill_api_agent_bindings
+                WHERE skill_id = ?1 AND scope = ?2 AND workspace_path = ?3
+                "#,
+                key_params(key),
+            )
+            .map_err(repository_error)?;
+        transaction
+            .execute(
                 "DELETE FROM skills WHERE id = ?1 AND scope = ?2 AND workspace_path = ?3",
                 key_params(key),
             )
@@ -249,6 +258,110 @@ impl SkillRepository for SqliteSkillRepository {
     }
 }
 
+impl SkillApiBindingRepository for SqliteSkillRepository {
+    fn bind_api_agent(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+        now: &str,
+    ) -> Result<(), SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        connection
+            .execute(
+                r#"
+                INSERT INTO skill_api_agent_bindings
+                (skill_id, scope, workspace_path, agent_id, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+                ON CONFLICT(skill_id, scope, workspace_path, agent_id) DO UPDATE SET
+                    updated_at = excluded.updated_at
+                "#,
+                params![
+                    key.id.as_str(),
+                    key.location.scope.as_str(),
+                    key.location.storage_workspace_key(),
+                    agent_id,
+                    now,
+                ],
+            )
+            .map_err(repository_error)?;
+        Ok(())
+    }
+
+    fn unbind_api_agent(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+    ) -> Result<(), SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        connection
+            .execute(
+                r#"
+                DELETE FROM skill_api_agent_bindings
+                WHERE skill_id = ?1 AND scope = ?2 AND workspace_path = ?3 AND agent_id = ?4
+                "#,
+                params![
+                    key.id.as_str(),
+                    key.location.scope.as_str(),
+                    key.location.storage_workspace_key(),
+                    agent_id,
+                ],
+            )
+            .map_err(repository_error)?;
+        Ok(())
+    }
+
+    fn api_agent_bindings(&self, key: &SkillKey) -> Result<Vec<String>, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT agent_id FROM skill_api_agent_bindings
+                WHERE skill_id = ?1 AND scope = ?2 AND workspace_path = ?3
+                ORDER BY agent_id
+                "#,
+            )
+            .map_err(repository_error)?;
+        let agent_ids = statement
+            .query_map(key_params(key), |row| row.get::<_, String>(0))
+            .map_err(repository_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(repository_error)?;
+        Ok(agent_ids)
+    }
+
+    fn enabled_skills_bound_to_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<SkillRecord>, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT skills.id, skills.scope, skills.workspace_path, skills.source,
+                       skills.enabled, skills.skill_dir, skills.skill_md_path,
+                       skills.content_hash, skills.metadata_json, skills.created_at,
+                       skills.updated_at
+                FROM skills
+                INNER JOIN skill_api_agent_bindings
+                  ON skills.id = skill_api_agent_bindings.skill_id
+                 AND skills.scope = skill_api_agent_bindings.scope
+                 AND skills.workspace_path = skill_api_agent_bindings.workspace_path
+                WHERE skill_api_agent_bindings.agent_id = ?1 AND skills.enabled = 1
+                ORDER BY skills.scope, skills.workspace_path, skills.id
+                "#,
+            )
+            .map_err(repository_error)?;
+        let rows = statement
+            .query_map(params![agent_id], SkillRow::read)
+            .map_err(repository_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(repository_error)?;
+        rows.into_iter()
+            .map(|row| row.into_record(&connection))
+            .collect()
+    }
+}
+
 pub(crate) fn apply_schema(
     connection: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {
@@ -276,6 +389,16 @@ pub(crate) fn apply_schema(
             agent_id TEXT NOT NULL,
             mounted_path TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (skill_id, scope, workspace_path, agent_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS skill_api_agent_bindings (
+            skill_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            workspace_path TEXT NOT NULL DEFAULT '',
+            agent_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (skill_id, scope, workspace_path, agent_id)
@@ -865,5 +988,132 @@ mod tests {
         assert_eq!(snapshot.0, "sync-hash");
         assert!(snapshot.1.contains("missing-mount"));
         assert!(!snapshot.1.contains("issue_type"));
+    }
+
+    #[test]
+    fn api_agent_binding_round_trips_and_unbind_removes_it() {
+        let fixture = Fixture::new("Skill API agent binding round trip");
+        let expected = record("fixture-skill", None);
+        fixture
+            .repository
+            .save_skills(std::slice::from_ref(&expected), &[])
+            .expect("save Skill");
+
+        fixture
+            .repository
+            .bind_api_agent(&expected.key, "my-api-agent", "2026-07-18T00:00:00Z")
+            .expect("bind");
+        assert_eq!(
+            fixture
+                .repository
+                .api_agent_bindings(&expected.key)
+                .expect("bindings"),
+            vec!["my-api-agent".to_string()]
+        );
+
+        fixture
+            .repository
+            .unbind_api_agent(&expected.key, "my-api-agent")
+            .expect("unbind");
+        assert!(fixture
+            .repository
+            .api_agent_bindings(&expected.key)
+            .expect("bindings")
+            .is_empty());
+    }
+
+    #[test]
+    fn binding_an_already_bound_skill_updates_rather_than_duplicates() {
+        let fixture = Fixture::new("Skill API agent binding idempotent");
+        let expected = record("fixture-skill", None);
+        fixture
+            .repository
+            .save_skills(std::slice::from_ref(&expected), &[])
+            .expect("save Skill");
+
+        fixture
+            .repository
+            .bind_api_agent(&expected.key, "my-api-agent", "2026-07-18T00:00:00Z")
+            .expect("bind once");
+        fixture
+            .repository
+            .bind_api_agent(&expected.key, "my-api-agent", "2026-07-19T00:00:00Z")
+            .expect("bind again");
+
+        assert_eq!(
+            fixture
+                .repository
+                .api_agent_bindings(&expected.key)
+                .expect("bindings"),
+            vec!["my-api-agent".to_string()]
+        );
+    }
+
+    #[test]
+    fn unbinding_a_never_bound_pair_is_a_no_op_not_an_error() {
+        let fixture = Fixture::new("Skill API agent unbind no-op");
+        let expected = record("fixture-skill", None);
+        fixture
+            .repository
+            .save_skills(std::slice::from_ref(&expected), &[])
+            .expect("save Skill");
+
+        fixture
+            .repository
+            .unbind_api_agent(&expected.key, "never-bound-agent")
+            .expect("unbind never-bound pair");
+    }
+
+    #[test]
+    fn enabled_skills_bound_to_api_agent_excludes_disabled_skills() {
+        let fixture = Fixture::new("Skill API agent enabled filter");
+        let mut disabled = record("disabled-skill", None);
+        disabled.enabled = false;
+        let enabled = record("enabled-skill", None);
+        fixture
+            .repository
+            .save_skills(&[disabled.clone(), enabled.clone()], &[])
+            .expect("save Skills");
+        fixture
+            .repository
+            .bind_api_agent(&disabled.key, "my-api-agent", "2026-07-18T00:00:00Z")
+            .expect("bind disabled");
+        fixture
+            .repository
+            .bind_api_agent(&enabled.key, "my-api-agent", "2026-07-18T00:00:00Z")
+            .expect("bind enabled");
+
+        let bound = fixture
+            .repository
+            .enabled_skills_bound_to_api_agent("my-api-agent")
+            .expect("enabled skills");
+
+        assert_eq!(bound.len(), 1);
+        assert_eq!(bound[0].key.id.as_str(), "enabled-skill");
+    }
+
+    #[test]
+    fn deleting_a_skill_cascades_to_its_api_agent_bindings() {
+        let fixture = Fixture::new("Skill API agent binding cascade delete");
+        let expected = record("fixture-skill", None);
+        fixture
+            .repository
+            .save_skills(std::slice::from_ref(&expected), &[])
+            .expect("save Skill");
+        fixture
+            .repository
+            .bind_api_agent(&expected.key, "my-api-agent", "2026-07-18T00:00:00Z")
+            .expect("bind");
+
+        fixture
+            .repository
+            .delete_skill(&expected.key, false, "2026-07-18T00:00:00Z")
+            .expect("delete Skill");
+
+        assert!(fixture
+            .repository
+            .api_agent_bindings(&expected.key)
+            .expect("bindings")
+            .is_empty());
     }
 }

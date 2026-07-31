@@ -53,6 +53,7 @@ struct FakeWorld {
     streaming_message_ids: Mutex<Vec<String>>,
     next_message_id: AtomicUsize,
     completed_usage: Mutex<Vec<AgentUsageRecord>>,
+    resolved_approvals: Mutex<Vec<(String, String, ToolApprovalDecision)>>,
 }
 
 impl FakeWorld {
@@ -91,6 +92,7 @@ impl FakeWorld {
             streaming_message_ids: Mutex::new(Vec::new()),
             next_message_id: AtomicUsize::new(0),
             completed_usage: Mutex::new(Vec::new()),
+            resolved_approvals: Mutex::new(Vec::new()),
         }
     }
 }
@@ -382,6 +384,54 @@ impl AgentCliProfileGateway for FakeWorld {
             )]),
             managed_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
         })
+    }
+}
+
+impl ApiAgentGateway for FakeWorld {
+    fn register(
+        &self,
+        _agent_id: &str,
+        _input: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Registry(
+            "FakeWorld does not support API agent registration.".to_string(),
+        ))
+    }
+
+    fn provider_config(
+        &self,
+        _agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+}
+
+impl ApiCredentialPort for FakeWorld {
+    fn store(&self, _agent_id: &str, _api_key: &str) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+
+    fn fetch(&self, _agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
+    fn remove(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        Ok(())
+    }
+}
+
+impl ToolApprovalPort for FakeWorld {
+    fn resolve(
+        &self,
+        process_id: &str,
+        call_id: &str,
+        decision: ToolApprovalDecision,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        self.resolved_approvals
+            .lock()
+            .expect("resolved approvals")
+            .push((process_id.to_string(), call_id.to_string(), decision));
+        Ok(true)
     }
 }
 
@@ -706,6 +756,18 @@ impl AgentGenerationPort for FakeWorld {
         *self.active_generation.lock().expect("active generation") = None;
         Ok(())
     }
+
+    fn active_process_id(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        Ok(self
+            .active_generation
+            .lock()
+            .expect("active generation")
+            .as_ref()
+            .and_then(|current| current.2.clone()))
+    }
 }
 
 impl ExecutionSettingsPort for FakeWorld {
@@ -836,7 +898,10 @@ fn service_with_telemetry(
         execution_ids: Arc::new(RandomExecutionIdentity),
         execution_settings: world.clone(),
         telemetry: Arc::new(telemetry.clone()),
-        loop_completions: world,
+        loop_completions: world.clone(),
+        api_agents: world.clone(),
+        api_credentials: world.clone(),
+        tool_approvals: world,
     });
     (service, telemetry)
 }
@@ -1655,6 +1720,48 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Cancelled);
+}
+
+#[test]
+fn resolve_tool_approval_returns_false_without_an_active_generation() {
+    let world = test_world();
+    let resolved = service(world.clone())
+        .resolve_tool_approval("session-1", "call-1", ToolApprovalDecision::Approved)
+        .expect("resolve");
+    assert!(!resolved);
+    assert!(world
+        .resolved_approvals
+        .lock()
+        .expect("resolved approvals")
+        .is_empty());
+}
+
+#[test]
+fn resolve_tool_approval_delegates_to_the_active_generations_process_id() {
+    let world = test_world();
+    let service_instance = service(world.clone());
+    service_instance
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    let resolved = service_instance
+        .resolve_tool_approval("session-1", "call-1", ToolApprovalDecision::Approved)
+        .expect("resolve");
+    assert!(resolved);
+    assert_eq!(
+        *world.resolved_approvals.lock().expect("resolved approvals"),
+        vec![(
+            "process-1".to_string(),
+            "call-1".to_string(),
+            ToolApprovalDecision::Approved
+        )]
+    );
 }
 
 #[test]

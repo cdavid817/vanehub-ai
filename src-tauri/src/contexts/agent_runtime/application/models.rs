@@ -356,6 +356,30 @@ pub(crate) struct ToolUseBlock {
     pub(crate) status: String,
 }
 
+/// A tool the native tool-use loop can declare to a provider. Provider-agnostic — each wire
+/// format translation module renders this into its own `tools` request shape.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ToolDefinition {
+    pub(crate) name: &'static str,
+    pub(crate) description: &'static str,
+    pub(crate) input_schema: Value,
+}
+
+/// Whether a tool call may execute immediately or must wait for an explicit user decision.
+/// Fixed per tool/operation (design.md Decision 4) — never derived from the call's arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolRiskTier {
+    AutoApprove,
+    RequiresApproval,
+}
+
+/// The user's resolution of a tool call that was awaiting approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolApprovalDecision {
+    Approved,
+    Denied,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MessageTokenUsage {
     pub(crate) input: i64,
@@ -558,6 +582,10 @@ impl GenerationProcessFailure {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolLifecyclePhase {
+    /// A tool call whose risk tier requires user approval is waiting on that decision before it
+    /// executes. CLI-agent stdout parsing never produces this phase — it is only ever emitted by
+    /// the native tool-use loop.
+    AwaitingApproval,
     Started,
     Updated,
     Completed,
@@ -705,4 +733,36 @@ pub(crate) enum AgentMessageSource {
 pub(crate) struct StopGenerationResult {
     pub(crate) cancelled_message_ids: Vec<String>,
     pub(crate) process_stopped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RegisterApiAgentInput {
+    pub(crate) display_name: String,
+    pub(crate) provider: String,
+    pub(crate) api_key: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+}
+
+/// The two supported wire protocols for `launch_kind = "api"` agents.
+pub(crate) const INTERFACE_FORMAT_ANTHROPIC: &str = "anthropic";
+pub(crate) const INTERFACE_FORMAT_OPENAI_COMPATIBLE: &str = "openai-compatible";
+
+/// Per-agent configuration `RuntimeAgentApiAdapter::execute` needs to run a generation:
+/// which model, which wire protocol, and (for `openai-compatible`) which endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ApiProviderConfig {
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+}
+
+/// A Skill bound to an API agent, resolved and ready to inject as that agent's generation
+/// requests' system prompt (`add-agent-skill-support`) — `name` and `body` only, no metadata
+/// `agent_runtime` has no use for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BoundSkillPrompt {
+    pub(crate) name: String,
+    pub(crate) body: String,
 }

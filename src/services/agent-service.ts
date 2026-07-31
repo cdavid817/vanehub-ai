@@ -20,6 +20,7 @@ import type {
   LaunchResult,
   ProjectInspection,
   ReadinessStatus,
+  RegisterApiAgentInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
   Session,
@@ -95,6 +96,7 @@ import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences,
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
+  registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
@@ -163,6 +165,7 @@ export interface AgentService {
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   stopGeneration(sessionId: string): Promise<void>;
+  resolveToolApproval(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
   resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;
@@ -204,6 +207,9 @@ export interface AgentService {
   restoreBuiltinSkill(skillId: string): Promise<Skill>;
   setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean): Promise<Skill>;
   setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]): Promise<Skill>;
+  bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
+  unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
+  listSkillApiAgentBindings(skillId: string, input: SkillScopeInput): Promise<string[]>;
   previewSkill(skillId: string, input: SkillScopeInput): Promise<SkillPreview>;
   importSkill(input: SkillImportInput): Promise<Skill>;
   detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;

@@ -123,3 +123,26 @@ pub(crate) trait SkillClockPort: Send + Sync {
 pub(crate) trait SkillLoggingPort: Send + Sync {
     fn record(&self, event: &SkillLogEvent) -> Result<(), SkillApplicationError>;
 }
+
+/// Non-mount binding boundary for Skills bound to API-based Agents (`add-agent-skill-support`) —
+/// a separate, simpler relationship from `SkillRepository`'s CLI mount-path binding, which this
+/// does not read or write. Presence of a binding means "bound"; whether it's active still gates
+/// on the Skill's own `enabled` flag, matching `SkillRepository::enabled_skills_bound_to`.
+pub(crate) trait SkillApiBindingRepository: Send + Sync {
+    fn bind_api_agent(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+        now: &str,
+    ) -> Result<(), SkillApplicationError>;
+
+    fn unbind_api_agent(&self, key: &SkillKey, agent_id: &str)
+        -> Result<(), SkillApplicationError>;
+
+    fn api_agent_bindings(&self, key: &SkillKey) -> Result<Vec<String>, SkillApplicationError>;
+
+    fn enabled_skills_bound_to_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<SkillRecord>, SkillApplicationError>;
+}

@@ -1,6 +1,6 @@
 import { Plus, Puzzle, RotateCcw, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
@@ -69,6 +69,13 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       agentService.setSkillAgentBindings(skill.id, scopeInput, agentIds),
     onSuccess: () => void invalidate(),
   });
+  const apiBindingMutation = useMutation({
+    mutationFn: ({ skill, agentId, bound }: { skill: Skill; agentId: string; bound: boolean }) =>
+      bound
+        ? agentService.bindSkillToApiAgent(skill.id, scopeInput, agentId)
+        : agentService.unbindSkillFromApiAgent(skill.id, scopeInput, agentId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["skill-api-agent-bindings"] }),
+  });
   const createMutation = useMutation({
     mutationFn: ({ metadata, body, source }: { metadata: SkillMetadata; body: string; source: SkillSource }) =>
       agentService.createSkill({
@@ -134,6 +141,22 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
     });
   }, [category, query, searchTerm, skills]);
 
+  const apiAgents = useMemo(() => (agentsQuery.data ?? []).filter((agent) => agent.launch.kind === "api"), [agentsQuery.data]);
+  const apiBindingQueries = useQueries({
+    queries: visibleSkills.map((skill) => ({
+      queryKey: ["skill-api-agent-bindings", skill.id, scopeInput],
+      queryFn: () => agentService.listSkillApiAgentBindings(skill.id, scopeInput),
+      enabled: apiAgents.length > 0,
+    })),
+  });
+  const apiBindingsBySkillId = useMemo(() => {
+    const entries: Array<[string, string[]]> = [];
+    apiBindingQueries.forEach((result, index) => {
+      if (result.data) entries.push([visibleSkills[index].id, result.data]);
+    });
+    return Object.fromEntries(entries) as Record<string, string[]>;
+  }, [apiBindingQueries, visibleSkills]);
+
   async function browseWorkspace() {
     const selected = await agentService.selectWorkspaceDirectory();
     if (selected) setWorkspacePath(normalizeDisplayPath(selected));
@@ -144,6 +167,10 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       ? Array.from(new Set([...skill.boundAgentIds, agentId]))
       : skill.boundAgentIds.filter((id) => id !== agentId);
     bindingMutation.mutate({ skill, agentIds });
+  }
+
+  function toggleApiAgent(skill: Skill, agentId: string, checked: boolean) {
+    apiBindingMutation.mutate({ skill, agentId, bound: checked });
   }
 
   return (
@@ -190,12 +217,15 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       {skillsQuery.isLoading ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.loading")}</div> : null}
       <SkillCardList
         agents={agentsQuery.data ?? []}
+        apiAgents={apiAgents}
+        apiBindingsBySkillId={apiBindingsBySkillId}
         busySkillId={enabledMutation.variables?.skill.id ?? bindingMutation.variables?.skill.id ?? null}
         skills={visibleSkills}
         onDelete={(skill) => deleteMutation.mutate(skill)}
         onEdit={(skill) => setDialog({ mode: "edit", skill, preview: null })}
         onPreview={(skill) => previewMutation.mutate(skill)}
         onToggleAgent={toggleAgent}
+        onToggleApiAgent={toggleApiAgent}
         onToggleEnabled={(skill, enabled) => enabledMutation.mutate({ skill, enabled })}
       />
       <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">

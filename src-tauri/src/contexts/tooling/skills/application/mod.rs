@@ -12,11 +12,11 @@ pub(crate) use models::{
     SkillBackupEntry, SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure,
     SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillListResult,
     SkillLogAction, SkillLogEvent, SkillLogLevel, SkillMountMigrationReport, SkillMountRepair,
-    SkillPreview, SkillRecord, SkillScopeQuery, SkillSourceRefresh, SkillStats, SkillSyncResult,
-    SkillUpdateRequest,
+    SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery, SkillSourceRefresh,
+    SkillStats, SkillSyncResult, SkillUpdateRequest,
 };
 pub(crate) use ports::{
-    SkillClockPort, SkillFilesystemPort, SkillLoggingPort, SkillRepository,
-    SkillWorkspaceSelectionPort,
+    SkillApiBindingRepository, SkillClockPort, SkillFilesystemPort, SkillLoggingPort,
+    SkillRepository, SkillWorkspaceSelectionPort,
 };
 pub(crate) use service::SkillApplicationService;

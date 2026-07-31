@@ -11,14 +11,16 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
-    AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    NativeCoordinationNodeExecutor, NativeCoordinationScheduler, NativeLoopScheduler,
-    PortablePtyAgentTerminalRuntime, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeEffectivePromptAdapter,
-    SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
-    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
+    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
+    InMemoryLoopRoleGenerationCompletions, NativeCoordinationNodeExecutor,
+    NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
+    PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentRuntimeRepository,
+    SqliteCoordinationRepository, SqliteLoopRepository, StructuredLoopVerificationProcess,
+    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter, UuidCoordinationIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
@@ -35,6 +37,7 @@ use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
+use crate::contexts::tooling::skills::api::SkillApi;
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
@@ -51,6 +54,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) cli: CliApi,
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
+    pub(crate) skills: SkillApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) fallback_log_directory: PathBuf,
@@ -99,7 +103,7 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
-    let processes = Arc::new(RuntimeAgentProcessAdapter::new(
+    let cli_processes = Arc::new(RuntimeAgentProcessAdapter::new(
         logging.clone(),
         clock.clone(),
         execution_ids.clone(),
@@ -109,6 +113,22 @@ pub(crate) fn assemble_agent_runtime_api(
         )),
     ));
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
+    let api_credentials = Arc::new(OsApiCredentialAdapter::new());
+    let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
+    let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
+        api_credentials.clone(),
+        repository.clone(),
+        sessions.clone(),
+        logging.clone(),
+        clock.clone(),
+        agent_skills,
+    ));
+    let tool_approvals = api_processes.clone();
+    let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
+        Arc::new(CompositeAgentProcessGateway::new(
+            cli_processes,
+            api_processes,
+        ));
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
         dependencies.cli_parameters,
         dependencies.cli,
@@ -141,6 +161,9 @@ pub(crate) fn assemble_agent_runtime_api(
         execution_settings: timeline.clone(),
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
+        api_agents: repository.clone(),
+        api_credentials: api_credentials.clone(),
+        tool_approvals: tool_approvals.clone(),
     });
     let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
         registry: repository.clone(),

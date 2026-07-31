@@ -362,6 +362,7 @@ fn interaction_mode(value: &str) -> Result<dto::InteractionMode, SessionsError> 
         "browser" => Ok(dto::InteractionMode::Browser),
         "native-desktop" => Ok(dto::InteractionMode::NativeDesktop),
         "cli" => Ok(dto::InteractionMode::Cli),
+        "api" => Ok(dto::InteractionMode::Api),
         other => Err(SessionsError::UnsupportedInteractionMode(other.to_string())),
     }
 }

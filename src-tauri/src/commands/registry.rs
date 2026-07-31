@@ -6,6 +6,8 @@ pub(crate) fn invoke_handler(
         // Agent Runtime
         crate::commands::agent_runtime::list_agents::list_agents,
         crate::commands::agent_runtime::get_agent_by_id::get_agent_by_id,
+        crate::commands::agent_runtime::register_api_agent::register_api_agent,
+        crate::commands::agent_runtime::resolve_tool_approval::resolve_tool_approval,
         crate::commands::agent_runtime::get_workflow_state::get_workflow_state,
         crate::commands::agent_runtime::select_agent::select_agent,
         crate::commands::agent_runtime::check_browser_readiness::check_browser_readiness,
@@ -178,6 +180,9 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::skills::restore_builtin_skill::restore_builtin_skill,
         crate::commands::tooling::skills::set_skill_enabled::set_skill_enabled,
         crate::commands::tooling::skills::set_skill_agent_bindings::set_skill_agent_bindings,
+        crate::commands::tooling::skills::bind_skill_to_api_agent::bind_skill_to_api_agent,
+        crate::commands::tooling::skills::unbind_skill_from_api_agent::unbind_skill_from_api_agent,
+        crate::commands::tooling::skills::list_skill_api_agent_bindings::list_skill_api_agent_bindings,
         crate::commands::tooling::skills::preview_skill::preview_skill,
         crate::commands::tooling::skills::import_skill::import_skill,
         crate::commands::tooling::skills::detect_skill_drift::detect_skill_drift,

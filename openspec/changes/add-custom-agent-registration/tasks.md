@@ -1,0 +1,77 @@
+## 1. Research & groundwork
+
+- [x] 1.1 Confirm the new `launch_kind` / interaction-mode name (`api` is a placeholder in design.md) does not collide with any existing `InteractionMode` variant; finalize the name — confirmed no collision; `api` used as-is.
+- [x] 1.2 Locate the existing non-blocking streaming/event-emission mechanism CLI chat generation already uses to stream `token` events to the frontend, and confirm the new adapter can reuse it (design.md Decision 5) — `AgentProcessGateway::monitor_generation` + `AgentProcessEventSink::handle(GenerationProcessEvent)`, run on a spawned `std::thread` (mirrors `process_adapter.rs`'s `ProcessMonitor`), not tokio.
+- [x] 1.3 Confirm which HTTP client crate (if any) `platform::network` already standardizes on, to reuse rather than adding a new dependency unchecked — `reqwest` (already a dependency, `blocking` feature already enabled); added `platform::network::proxy::blocking_http_client` alongside the existing async `http_client` so the new adapter inherits proxy support with no new Cargo.toml dependency.
+
+## 2. Domain & application layer (`agent_runtime`)
+
+- [x] 2.1 Define domain types for API-agent registration input — `RegisterApiAgentInput` (application-layer, not domain — see 2.2 note) with validation in `AgentRuntimeApplicationService::register_api_agent`.
+- [x] 2.2 Define the new application port — resolved design.md's open question: **reused the existing `AgentProcessGateway` port** (`GenerationProcessRequest` was already provider-agnostic aside from the CLI-only `cli_profile` field, which the API adapter ignores). No new generation port was needed. Added three new narrow ports instead: `ConversationHistoryPort` (recent messages for building the API request), `ApiAgentGateway` (registration + model lookup), `ApiCredentialPort` (credential store/fetch/remove).
+- [x] 2.3 Define the registration use case — `AgentRuntimeApplicationService::register_api_agent`: validates input, generates a unique kebab-case agent id via `slugify`, stores the credential, persists the agent, rolls back the credential if persistence fails.
+- [x] 2.4 Generation dispatch — no separate use case was needed; existing `send_message` → `start_message_generation` already routes through `AgentProcessGateway`, now backed by `CompositeAgentProcessGateway` (new file) which routes CLI vs. API by `launch_kind`/`process_id` prefix. Also added a small guard in `start_message_generation` to skip `cli_profiles.load` for non-CLI agents (that call unconditionally errors for unknown agent ids).
+- [x] 2.5 Domain and application tests — extended the existing `FakeWorld` test double with `ApiAgentGateway`/`ApiCredentialPort` impls; full application test suite passes.
+
+## 3. SQLite schema (additive migration)
+
+- [x] 3.1 Additive migration 29 (`api-agent-registration`): single new nullable `model_id` column on `agents`. No credential-reference column — the credential store is keyed directly by agent id, so presence is checked via the credential port, not a stored reference.
+- [x] 3.2 `SqliteAgentRuntimeRepository` reads `model_id`, branches availability for `launch_kind = "api"` (available iff `model_id` is set), and implements `ApiAgentGateway` (`register`, `model_id`).
+- [x] 3.3 Covered by the existing migration/idempotency tests (`connection_applies_all_migrations_foreign_keys_and_seeds`, `reopening_is_idempotent_and_preserves_existing_records`, `current_v20_fixture_is_idempotent_and_readable`, etc.), updated for the new migration count (28 → 29) and passing — the 4 seeded CLI agents remain unchanged.
+
+## 4. Infrastructure: Anthropic Messages API adapter
+
+- [x] 4.1 `infrastructure/anthropic_provider.rs::build_request_body` — builds the streaming Messages API request from recent history.
+- [x] 4.2 `infrastructure/anthropic_provider.rs::translate_sse_data` — pure SSE-payload → `GenerationProcessEvent` translation (text/thinking deltas, `message_stop`, `error`). Targets `GenerationProcessEvent` directly rather than `ProviderOutputEvent` — the latter is CLI-stdout-line-parsing-specific and not the right target (confirmed by reading `process_adapter.rs`: it parses into `ProviderOutputEvent` only to immediately map to `GenerationProcessEvent`).
+- [x] 4.3 12 unit tests in `anthropic_provider.rs` (request building, all delta/event kinds, error classification, malformed input) — all passing.
+- [x] 4.4 `infrastructure/api_credentials.rs::OsApiCredentialAdapter` wraps `platform::credentials::OsCredentialStore`; API key never appears in log messages (only used in the request header).
+- [x] 4.5 `RuntimeAgentApiAdapter::monitor_generation` spawns `std::thread`, mirroring the CLI adapter's `ProcessMonitor` pattern exactly (register in `start_generation`, stream in `monitor_generation`, cancellation via a shared `AtomicBool` checked per line).
+- [x] 4.6 Added a `#[cfg(test)]` module to `api_process_adapter.rs` with local fake `ApiCredentialPort`/`ApiAgentGateway`/`ConversationHistoryPort`/`AgentLoggingPort`/`AgentClockPort`/`AgentProcessEventSink` implementations (no network I/O), covering: `start_generation` rejects a non-`"api"` launch kind and registers with the `agent-api-process-` id prefix on success; `stop_generation` returns `false` for an unknown process id and `true` (setting the cancellation flag) for a registered one; `monitor_generation` errors for an unknown process id; `execute()`'s three pre-flight failure paths (missing credential, missing model — both non-retryable; history-fetch error — retryable) return the correct `GenerationProcessEvent::Failed` variant without a network call. Also fixed a pre-existing borrow-checker error in the 4.5/3.2 SQLite tests (`infrastructure/tests.rs`) surfaced while compiling this module. 762/762 `cargo test --lib` passing (was 752); `cargo clippy --lib --tests` clean (added one precedented `#[allow(clippy::too_many_arguments)]` on the 8-arg thread-spawn helper `run_generation`, matching existing usage elsewhere in the codebase).
+
+## 5. Tauri commands and interface layer
+
+- [x] 5.1 `commands/agent_runtime/register_api_agent.rs`.
+- [x] 5.2 `start_message_generation` in `service.rs` branches on `agent.launch().kind_str()`; actual routing to CLI vs. API happens one layer down in `CompositeAgentProcessGateway`.
+- [x] 5.3 Registered in `commands/registry.rs`.
+- [x] 5.4 `AgentRuntimeApplicationError::Credential` added and mapped in all required places (`commands/error.rs`, `coordination.rs`, `coordination_executor.rs`, `sessions/infrastructure/runtime_support.rs` — the compiler's exhaustiveness checking found all call sites).
+
+## 6. Composition root wiring
+
+- [x] 6.1 `bootstrap/agent_runtime.rs`: `cli_processes` (renamed from `processes`) + new `api_processes` (`RuntimeAgentApiAdapter`) combined into `processes: Arc<dyn AgentProcessGateway>` via `CompositeAgentProcessGateway`; both `AgentRuntimeApplicationPorts` and `NativeCoordinationNodeExecutor` receive the composite transparently — multi-agent coordination gets API-agent support for free.
+
+## 7. Frontend contracts and services
+
+- [x] 7.1 Confirmed; `ManagedCliAgentId` left untouched (CLI Parameters/Prompt Hooks stay CLI-only).
+- [x] 7.2 `registerApiAgent` added to `AgentService`.
+- [x] 7.3 `tauri-agent-client.ts`: thin `invoke("register_api_agent", { input })` wrapper.
+- [x] 7.4 `web-agent-client.ts`: generates a unique slug id, pushes a deterministic `AgentRegistryEntry` onto `mockAgents`, no network/SQLite/credential access.
+- [x] 7.5 Added `RegisterApiAgentInput` assertion to `contract-conformance.test.ts`; also had to widen `SessionDetails.adapter`'s literal union (`"browser" | "native-desktop" | "cli" | "none"` → `+ "api"`) in both `types/agent.ts` and `contracts/agent.ts` — the compiler caught this via the same contract-equality check.
+
+## 8. Frontend UI
+
+- [x] 8.1 Added a "Register API Agent" `SectionPanel` to `settings/pages/agents-page.tsx` (display name, provider, API key, model, submit) with full zh-CN/en i18n.
+- [x] 8.2 Verified live in a real browser (Chromium via Playwright, `npm run dev`, web/mock adapter): Settings → "Agent 管理" → filled in the "注册 API Agent" form (display name/provider/API key/model) → submit → a new agent card renders with the entered display name and the "直连 API" mode badge, and the "{{agent}} 已注册。" success message renders with correct i18n interpolation. Confirms the existing agent list/card rendering needed no API-agent-specific branch. (Verification script was throwaway, not committed — see note under 9.1 on how to rerun.)
+- [x] 8.3 Verified `create-session-agent-section.tsx` is fully generic (renders from `AgentRegistryEntry[]`, no mode-specific branching) — no changes needed.
+- [x] 8.4 zh-CN/en keys added for all new UI text.
+
+## 9. Verification
+
+- [x] 9.1 `npm run build` — **passes.** The earlier failure (`@layer base is used but no matching @tailwind base directive`, tracing into the main repo's `node_modules/.pnpm/tailwindcss@3.4.19`) was transient, not a real code/config defect — most likely a side effect of the disk-space exhaustion earlier in this session leaving a stale/partial `node_modules` state. Re-ran from a clean shell: `tsc` clean, `vite build` clean, `check-frontend-chunks.mjs` reports "Verified 4 lazy frontend chunks." `npm ls tailwindcss` in this worktree resolves a single, consistent `4.3.3` tree; no `postcss.config.*`/`tailwind.config.*` exists anywhere in this worktree or its ancestor directories up to the main repo root, so there is no live cross-worktree resolution path — the stray `pnpm-lock.yaml`/`pnpm-workspace.yaml` in the main repo remain pre-existing but are confirmed inert for this worktree's build.
+- [x] 9.2 `cargo check` — clean.
+- [x] 9.3 `cargo test --lib` — **762 passed, 0 failed, 3 ignored** (was 752; +10 from task 4.6).
+- [x] 9.4 `npm run test -- --run` — **94 test files / 304 tests passed, 0 failed.**
+- [x] 9.5 `openspec validate add-custom-agent-registration --strict` — valid.
+- [x] 9.5b `cargo clippy --lib --tests` — clean, 0 warnings.
+- [x] 9.5c E2E regression: `npx playwright test tests/e2e/cli-management-settings.spec.ts` — 2/2 passed, confirming the pre-existing "exactly 4 CLI agents" management surface (`[data-cli-agent]`) is untouched by this change. (Note: this machine has `all_proxy=socks5://127.0.0.1:8888` set globally, which breaks Playwright's dev-server health check with `Protocol "socks5:" not supported`; run E2E/dev-server commands with that unset for this repo, e.g. `env -u all_proxy npx playwright test ...`.)
+- [ ] 9.6 Manual smoke test with a real Anthropic API key — not performed, requires a live key and either `npm run tauri dev` or a packaged desktop build. Left for the user. Procedure: `npm run tauri dev` → Settings → "Agent 管理" → fill in "注册 API Agent" (display name, provider "Anthropic", a real `sk-ant-...` key, a real model id e.g. `claude-opus-4-8`) → submit → start a chat session against the new agent → confirm streamed tokens render and the session completes without a `Failed` event.
+
+## 10. OpenAI Chat Completions-compatible interface format (scope revision, design.md Decision 7)
+
+- [x] 10.1 Domain/application: added `interface_format`/`base_url` to `RegisterApiAgentInput`; `register_api_agent` validates `interface_format` is exactly `INTERFACE_FORMAT_ANTHROPIC`/`INTERFACE_FORMAT_OPENAI_COMPATIBLE` and requires a non-empty `base_url` iff openai-compatible (ignored/normalized to `None` for anthropic).
+- [x] 10.2 Replaced `ApiAgentGateway::model_id` with `provider_config(agent_id) -> Option<ApiProviderConfig>`; updated the SQLite repository impl, the one real caller in `api_process_adapter.rs::execute()`, and both fake-port test doubles (`application/tests.rs::FakeWorld`, `api_process_adapter.rs::FakeConfig`).
+- [x] 10.3 Migration 30 (`openai-compatible-agent-registration`): adds `interface_format`/`base_url` columns to `agents`, backfills `interface_format = 'anthropic'` for pre-existing `launch_kind = 'api'` rows. `into_domain`'s availability branch now also requires a non-empty `base_url` when `interface_format = openai-compatible`. Migration-count assertions bumped 29 → 30 in `migration_fixture_tests.rs` and `platform/database/mod.rs`.
+- [x] 10.4 `infrastructure/openai_compatible_provider.rs` added: `build_request_body`, `translate_sse_data` (content delta → `Token`, `reasoning_content` delta → `Thinking`, literal `[DONE]` sentinel → `Completed`, in-stream `error` → `Failed` non-retryable by default since vendor `error.type` values aren't standardized), `failure_from_http_status` (status-code-based classification, same reasoning). 12 unit tests, all passing.
+- [x] 10.5 `api_process_adapter.rs`: added a `WireFormat` struct (endpoint, function pointers for body-building/SSE-translation/status-failure-classification, an `apply_auth` closure) selected once per generation by `wire_format_for(&ApiProviderConfig)`; `execute()` now calls through it instead of hardcoding the Anthropic path. `wire_format_for` returns `Result<WireFormat, &'static str>` rather than `GenerationProcessEvent` to avoid a `clippy::result_large_err` warning (that enum has a 296-byte variant). Extended the adapter's fake-port test module with `anthropic_config`/`openai_compatible_config` helpers and 4 new tests (missing/blank base URL → non-retryable Failed; `wire_format_for` endpoint construction for both formats).
+- [x] 10.6 Tauri command/DTO: `RegisterApiAgentInput` DTO gained `interfaceFormat`/`baseUrl` (camelCase via existing `#[serde(rename_all = "camelCase")]`); mapper passes both through unchanged.
+- [x] 10.7 Frontend: added `ApiInterfaceFormat` type + `interfaceFormat`/`baseUrl` fields to `types/agent.ts` and `contracts/agent.ts` (kept in lockstep, new contract-conformance assertion added); `agents-page.tsx`'s registration form gained an interface-format `<select>` (default `openai-compatible`, matching the stated preference — the `provider` field's default was also changed from the now-outdated hardcoded `"Anthropic"` to empty, since it's just a free-text label independent of interface format) and a Base URL field shown only when OpenAI-compatible is selected; zh-CN/en i18n added for all new strings including a `baseUrlRequired` validation message.
+- [x] 10.8 `web-agent-client.ts`: `registerApiAgent` now validates `base_url` required for `openai-compatible` the same way the backend does (same error message key). Not echoed onto the mock `AgentRegistryEntry` — that read-model type doesn't carry `model_id` either today, so this follows existing precedent rather than introducing a new field only the mock has.
+- [x] 10.9 Verification — all green: `cargo test --lib` **778/778 passed** (was 762; +16 from section 10), `cargo clippy --lib --tests` clean (fixed one real `clippy::result_large_err` by narrowing `wire_format_for`'s error type rather than suppressing it), `cargo fmt` applied cleanly (re-verified 778/778 after), `npx tsc --noEmit` clean, `npm run test` **94 files / 304 tests passed**, `npm run build` clean (`Verified 4 lazy frontend chunks`), `openspec validate add-custom-agent-registration --strict` valid. Manual smoke test against a real OpenAI-compatible endpoint **not performed** — same constraint as 9.6, requires a live key and `npm run tauri dev`; left for the user. Procedure: identical to 9.6's, but pick "OpenAI 兼容" in the new interface-format selector and fill in a real Base URL (e.g. `https://api.deepseek.com/v1`) and a matching API key/model.

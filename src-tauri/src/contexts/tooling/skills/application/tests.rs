@@ -14,6 +14,7 @@ struct RepositoryState {
     mount_configurations: Vec<AgentMountConfiguration>,
     drift_snapshots: Vec<SkillDriftReport>,
     synchronization_count: usize,
+    api_agent_bindings: BTreeSet<(SkillKey, String)>,
 }
 
 impl Default for RepositoryState {
@@ -30,6 +31,7 @@ impl Default for RepositoryState {
                 .collect(),
             drift_snapshots: Vec::new(),
             synchronization_count: 0,
+            api_agent_bindings: BTreeSet::new(),
         }
     }
 }
@@ -220,6 +222,62 @@ impl SkillRepository for FakeRepository {
         state.drift_snapshots.push(report.clone());
         state.synchronization_count += 1;
         Ok(())
+    }
+}
+
+impl SkillApiBindingRepository for FakeRepository {
+    fn bind_api_agent(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+        _now: &str,
+    ) -> Result<(), SkillApplicationError> {
+        self.state
+            .lock()
+            .expect("repository state")
+            .api_agent_bindings
+            .insert((key.clone(), agent_id.to_string()));
+        Ok(())
+    }
+
+    fn unbind_api_agent(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+    ) -> Result<(), SkillApplicationError> {
+        self.state
+            .lock()
+            .expect("repository state")
+            .api_agent_bindings
+            .remove(&(key.clone(), agent_id.to_string()));
+        Ok(())
+    }
+
+    fn api_agent_bindings(&self, key: &SkillKey) -> Result<Vec<String>, SkillApplicationError> {
+        Ok(self
+            .state
+            .lock()
+            .expect("repository state")
+            .api_agent_bindings
+            .iter()
+            .filter(|(bound_key, _)| bound_key == key)
+            .map(|(_, agent_id)| agent_id.clone())
+            .collect())
+    }
+
+    fn enabled_skills_bound_to_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<SkillRecord>, SkillApplicationError> {
+        let state = self.state.lock().expect("repository state");
+        Ok(state
+            .api_agent_bindings
+            .iter()
+            .filter(|(_, bound_agent_id)| bound_agent_id == agent_id)
+            .filter_map(|(key, _)| state.records.get(key))
+            .filter(|record| record.enabled)
+            .cloned()
+            .collect())
     }
 }
 
@@ -514,6 +572,7 @@ impl Fixture {
         let logging = Arc::new(FakeLogging::default());
         Self {
             service: SkillApplicationService::new(
+                repository.clone(),
                 repository.clone(),
                 filesystem.clone(),
                 Arc::new(FixedSelection),
@@ -1107,4 +1166,85 @@ fn diagnostic_storage_failure_does_not_hide_a_successful_use_case() {
 
     assert_eq!(created.key.id.as_str(), "logged-skill");
     assert_eq!(fixture.logging.events.lock().expect("log events").len(), 1);
+}
+
+fn register_known_agent(fixture: &Fixture, agent_id: &str) {
+    fixture
+        .repository
+        .state
+        .lock()
+        .expect("repository state")
+        .mount_configurations
+        .push(AgentMountConfiguration {
+            agent_id: agent_id.to_string(),
+            configured_path: None,
+        });
+}
+
+#[test]
+fn binding_to_an_unknown_agent_is_rejected() {
+    let fixture = Fixture::new();
+    let existing = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+
+    let error = fixture
+        .service
+        .bind_skill_to_api_agent(existing.key, "never-registered".to_string())
+        .expect_err("unknown Agent id");
+
+    assert!(matches!(error, SkillApplicationError::Validation(_)));
+}
+
+#[test]
+fn bound_skill_prompts_strip_frontmatter_and_exclude_disabled_skills() {
+    let fixture = Fixture::new();
+    register_known_agent(&fixture, "my-api-agent");
+    let enabled = record("enabled-skill", global(), SkillSource::User, true, &[]);
+    let disabled = record("disabled-skill", global(), SkillSource::User, false, &[]);
+    fixture.repository.insert(enabled.clone());
+    fixture.repository.insert(disabled.clone());
+    *fixture.filesystem.preview_content.lock().expect("preview content") =
+        "---\nid: enabled-skill\nname: Enabled Skill\ndescription: d\ncategory: c\nversion: 1.0.0\ntriggers:\n  - t\n---\n\n# Enabled Skill\n\nDo the thing.\n"
+            .to_string();
+
+    fixture
+        .service
+        .bind_skill_to_api_agent(enabled.key.clone(), "my-api-agent".to_string())
+        .expect("bind enabled skill");
+    fixture
+        .service
+        .bind_skill_to_api_agent(disabled.key.clone(), "my-api-agent".to_string())
+        .expect("bind disabled skill");
+
+    let prompts = fixture
+        .service
+        .bound_skill_prompts_for_api_agent("my-api-agent")
+        .expect("bound skill prompts");
+
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].name, "Name enabled-skill");
+    assert_eq!(prompts[0].body, "# Enabled Skill\n\nDo the thing.");
+}
+
+#[test]
+fn unbinding_removes_a_skill_from_the_bound_list() {
+    let fixture = Fixture::new();
+    register_known_agent(&fixture, "my-api-agent");
+    let existing = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+    fixture
+        .service
+        .bind_skill_to_api_agent(existing.key.clone(), "my-api-agent".to_string())
+        .expect("bind");
+
+    fixture
+        .service
+        .unbind_skill_from_api_agent(existing.key.clone(), "my-api-agent".to_string())
+        .expect("unbind");
+
+    assert!(fixture
+        .service
+        .list_api_agent_bindings(existing.key)
+        .expect("bindings")
+        .is_empty());
 }
