@@ -9,6 +9,7 @@ const baseURL = `http://127.0.0.1:${screenshotPort}`;
 export default defineConfig({
   testDir: "./tests/docs",
   outputDir: ".docs-screenshots/test-results",
+  snapshotPathTemplate: "{testDir}/../../docs/user-guide/{arg}{ext}",
   timeout: 60_000,
   workers: 1,
   retries: 0,

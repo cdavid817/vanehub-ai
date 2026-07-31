@@ -53,6 +53,13 @@ const checkedFiles = [
   "src/session-workspace/shell-tab.tsx",
   "src/session-workspace/logs-tab.tsx",
   "src/session-workspace/report-tab.tsx",
+  "src/session-workspace/agent-terminal-tab.tsx",
+  "src/session-workspace/chat-tab.tsx",
+  "src/session-workspace/diff-view.tsx",
+  "src/session-workspace/execution-timeline-tab.tsx",
+  "src/session-workspace/folder-opener-control.tsx",
+  "src/session-workspace/log-entry-article.tsx",
+  "src/session-workspace/session-tabs.tsx",
   "src/floating-assistant/floating-assistant-app.tsx",
   "src/settings/pages/floating-assistant-settings-section.tsx",
 ];

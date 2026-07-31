@@ -1,11 +1,29 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { i18n } from ".";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
+function findDuplicateKeys(filePath: string): string[] {
+  const raw = readFileSync(filePath, "utf8");
+  const keys = [...raw.matchAll(/"([a-zA-Z0-9_.-]+)":\s*"/g)].map((match) => match[1]);
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const key of keys) {
+    if (seen.has(key)) duplicates.add(key);
+    seen.add(key);
+  }
+  return [...duplicates];
+}
+
 describe("i18n resources", () => {
   it("keeps zh-CN and en key sets aligned", () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zhCN).sort());
+  });
+
+  it("has no duplicate keys in the raw locale JSON source", () => {
+    expect(findDuplicateKeys("src/i18n/locales/zh-CN.json")).toEqual([]);
+    expect(findDuplicateKeys("src/i18n/locales/en.json")).toEqual([]);
   });
 
   it("provides representative page translations in both supported languages", async () => {
