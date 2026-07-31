@@ -146,9 +146,7 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
         "tool_use" | "tool_result" | "tool_error" | "tool_failure" => {
             ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)))
         }
-        "result" | "complete" | "completed" => {
-            ProviderOutputEvent::Completed(claude_usage(&value))
-        }
+        "result" | "complete" | "completed" => ProviderOutputEvent::Completed(claude_usage(&value)),
         "error" | "failed" => {
             ProviderOutputEvent::Failed(provider_failure(&value, "Agent output reported an error."))
         }

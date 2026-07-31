@@ -296,7 +296,10 @@ impl AgentSessionGateway for FakeWorld {
         message.rich_blocks = completed.rich_blocks;
         message.token_usage = completed.token_usage;
         if let Some(usage) = completed.usage {
-            self.completed_usage.lock().expect("completed usage").push(usage);
+            self.completed_usage
+                .lock()
+                .expect("completed usage")
+                .push(usage);
         }
         Ok(message.clone())
     }
@@ -1090,12 +1093,14 @@ fn completion_with_reported_usage_persists_reported_accounting() {
         .cloned()
         .expect("sink");
 
-    sink.handle(GenerationProcessEvent::Completed(Some(ReportedUsageTotals {
-        input_tokens: 120,
-        output_tokens: 340,
-        cache_read_tokens: 900,
-        cache_creation_tokens: 50,
-    })))
+    sink.handle(GenerationProcessEvent::Completed(Some(
+        ReportedUsageTotals {
+            input_tokens: 120,
+            output_tokens: 340,
+            cache_read_tokens: 900,
+            cache_creation_tokens: 50,
+        },
+    )))
     .expect("complete");
 
     let usage = world

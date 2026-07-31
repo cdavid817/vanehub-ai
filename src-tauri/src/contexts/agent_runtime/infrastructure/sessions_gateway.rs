@@ -368,12 +368,14 @@ fn session_token_usage(usage: MessageTokenUsage) -> SessionMessageTokenUsage {
 
 fn session_usage(usage: AgentUsageRecord) -> MessageUsageRecord {
     let (accounting_kind, unit) = match usage.accounting_kind {
-        AgentUsageAccountingKind::Reported => {
-            (SessionUsageAccountingKind::Reported, SessionUsageUnit::Tokens)
-        }
-        AgentUsageAccountingKind::Estimated => {
-            (SessionUsageAccountingKind::Estimated, SessionUsageUnit::Characters)
-        }
+        AgentUsageAccountingKind::Reported => (
+            SessionUsageAccountingKind::Reported,
+            SessionUsageUnit::Tokens,
+        ),
+        AgentUsageAccountingKind::Estimated => (
+            SessionUsageAccountingKind::Estimated,
+            SessionUsageUnit::Characters,
+        ),
     };
     MessageUsageRecord {
         message_id: usage.message_id,

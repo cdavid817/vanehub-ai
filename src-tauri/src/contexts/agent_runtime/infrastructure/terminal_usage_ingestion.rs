@@ -41,7 +41,15 @@ pub(crate) fn ingest_claude_terminal_usage(
         return Ok(false);
     };
     let totals = aggregate_claude_usage(&jsonl_path, file)?;
-    persist_terminal_usage(totals, sessions, message_id, session_id, agent_id, "cli-session-log", clock)
+    persist_terminal_usage(
+        totals,
+        sessions,
+        message_id,
+        session_id,
+        agent_id,
+        "cli-session-log",
+        clock,
+    )
 }
 
 /// Finds the opencode session that was created in this working directory during this
@@ -83,7 +91,15 @@ pub(crate) fn ingest_opencode_terminal_usage(
     let Some(totals) = read_opencode_session_totals(&database_path, &runtime_session_id)? else {
         return Ok(false);
     };
-    persist_terminal_usage(totals, sessions, message_id, session_id, agent_id, "cli-session-log", clock)
+    persist_terminal_usage(
+        totals,
+        sessions,
+        message_id,
+        session_id,
+        agent_id,
+        "cli-session-log",
+        clock,
+    )
 }
 
 /// Finds the rollout file codex itself wrote for this working directory during this
@@ -123,7 +139,15 @@ pub(crate) fn ingest_codex_terminal_usage(
         return Ok(false);
     };
     let totals = aggregate_codex_usage(&rollout_path, file)?;
-    persist_terminal_usage(totals, sessions, message_id, session_id, agent_id, "cli-session-log", clock)
+    persist_terminal_usage(
+        totals,
+        sessions,
+        message_id,
+        session_id,
+        agent_id,
+        "cli-session-log",
+        clock,
+    )
 }
 
 /// Creates the placeholder assistant message that periodic and exit-time usage polls
@@ -418,8 +442,10 @@ mod tests {
         fn find_session(
             &self,
             _session_id: &str,
-        ) -> Result<Option<crate::contexts::agent_runtime::application::AgentSession>, AgentRuntimeApplicationError>
-        {
+        ) -> Result<
+            Option<crate::contexts::agent_runtime::application::AgentSession>,
+            AgentRuntimeApplicationError,
+        > {
             unimplemented!("not exercised by terminal usage ingestion tests")
         }
 
@@ -508,7 +534,10 @@ mod tests {
             &self,
             message: CompleteAgentMessage,
         ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-            self.completed.lock().expect("completed").push(message.clone());
+            self.completed
+                .lock()
+                .expect("completed")
+                .push(message.clone());
             Ok(AgentMessage {
                 id: message.message_id,
                 session_id: message.session_id,
@@ -632,10 +661,7 @@ mod tests {
         assert_eq!(completed.len(), 2);
         assert_eq!(completed[0].message_id, message_id);
         assert_eq!(completed[1].message_id, message_id);
-        assert_eq!(
-            completed[1].usage.as_ref().expect("usage").input_count,
-            400
-        );
+        assert_eq!(completed[1].usage.as_ref().expect("usage").input_count, 400);
     }
 
     #[test]
@@ -702,11 +728,9 @@ mod tests {
         .unwrap();
         writeln!(file, r#"{{"type":"user"}}"#).unwrap();
         file.flush().unwrap();
-        let totals = aggregate_claude_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_claude_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals.input_tokens, 30);
         assert_eq!(totals.output_tokens, 20);
@@ -719,11 +743,9 @@ mod tests {
         let mut file = tempfile::NamedTempFile::new().expect("temp file");
         writeln!(file, r#"{{"type":"user"}}"#).unwrap();
         file.flush().unwrap();
-        let totals = aggregate_claude_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_claude_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals.input_tokens, 0);
         assert_eq!(totals.output_tokens, 0);
@@ -754,9 +776,10 @@ mod tests {
     #[test]
     fn opencode_totals_fold_reasoning_into_output() {
         let dir = opencode_fixture_db();
-        let totals = read_opencode_session_totals(&dir.path().join("opencode.db"), "ses_with_usage")
-            .expect("query")
-            .expect("row found");
+        let totals =
+            read_opencode_session_totals(&dir.path().join("opencode.db"), "ses_with_usage")
+                .expect("query")
+                .expect("row found");
 
         assert_eq!(totals.input_tokens, 14681);
         assert_eq!(totals.output_tokens, 21);
@@ -798,11 +821,9 @@ mod tests {
         )
         .unwrap();
         file.flush().unwrap();
-        let totals = aggregate_codex_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_codex_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals.input_tokens, 33000);
         assert_eq!(totals.output_tokens, 460);
@@ -813,13 +834,15 @@ mod tests {
     #[test]
     fn codex_rollout_without_token_count_events_yields_zero_totals() {
         let mut file = tempfile::NamedTempFile::new().expect("temp file");
-        writeln!(file, r#"{{"timestamp":"t1","type":"session_meta","payload":{{}}}}"#).unwrap();
-        file.flush().unwrap();
-        let totals = aggregate_codex_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
+        writeln!(
+            file,
+            r#"{{"timestamp":"t1","type":"session_meta","payload":{{}}}}"#
         )
-        .expect("aggregate");
+        .unwrap();
+        file.flush().unwrap();
+        let totals =
+            aggregate_codex_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals, TerminalUsageTotals::default());
     }

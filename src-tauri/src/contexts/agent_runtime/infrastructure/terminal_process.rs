@@ -387,25 +387,23 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         // Created once, up front, so both the periodic poll below and the final
         // exit-time read reuse the same message id — required for `upsert_usage`'s
         // `ON CONFLICT(message_id)` to update one row instead of one per poll.
-        let usage_tracking_message_id = if matches!(
-            agent_id.as_str(),
-            "claude-code" | "opencode" | "codex-cli"
-        ) {
-            match create_terminal_usage_placeholder(sessions.as_ref(), &session_id) {
-                Ok(message_id) => Some(message_id),
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        format!("Failed to create terminal usage placeholder message: {error}"),
-                        Some(&agent_id),
-                        Some(&session_id),
-                    );
-                    None
+        let usage_tracking_message_id =
+            if matches!(agent_id.as_str(), "claude-code" | "opencode" | "codex-cli") {
+                match create_terminal_usage_placeholder(sessions.as_ref(), &session_id) {
+                    Ok(message_id) => Some(message_id),
+                    Err(error) => {
+                        self.record_log(
+                            AgentLogLevel::Warn,
+                            format!("Failed to create terminal usage placeholder message: {error}"),
+                            Some(&agent_id),
+                            Some(&session_id),
+                        );
+                        None
+                    }
                 }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
         // A CLI can go quiet on the PTY (idle, waiting for the next prompt) for several
         // seconds *after* it has finished streaming visible output but *before* it has
         // actually persisted that turn's usage to its own session log/DB — observed
