@@ -13,7 +13,8 @@
 ## 3. Terminal lifecycle wiring (`infrastructure/terminal_process.rs`)
 
 - [x] 3.1 Create the placeholder usage message once, synchronously, before the PTY reader thread starts, for `claude-code` / `opencode` / `codex-cli` sessions only.
-- [x] 3.2 Add a periodic usage poll (`TERMINAL_USAGE_POLL_INTERVAL`, 5 seconds) inside the existing PTY read loop, throttled the same way the existing `ProviderSessionCapture` discovery poll already is.
+- [x] 3.2 Add a periodic usage poll (`TERMINAL_USAGE_POLL_INTERVAL`, 5 seconds) on an independent timer thread, decoupled from PTY output activity.
+  - [x] 3.2.1 **Found during manual end-to-end testing**: the first version gated the poll on PTY output arrival (reusing the session-discovery poll's throttle pattern). Verified against a real opencode session that this misses a real gap — the session's SQLite row existed several seconds before its token columns were populated, entirely within an idle period with no PTY output at all, so an output-gated poll could go arbitrarily long without checking. Replaced with a dedicated thread that ticks on its own fixed cadence regardless of terminal activity, signaled to stop via an `AtomicBool` once the terminal's read loop exits. See design.md Decision 4.
 - [x] 3.3 Reuse the same stored message id for the exit-time read (previously created a fresh message at exit; now a final catch-up write to the same row).
 - [x] 3.4 Factor `run_terminal_usage_ingestion` (per-CLI dispatch) and `record_terminal_usage_log` (Info at exit / Debug on periodic success / Warn on error) so the periodic and exit-time call sites share one implementation and can't drift apart.
 
