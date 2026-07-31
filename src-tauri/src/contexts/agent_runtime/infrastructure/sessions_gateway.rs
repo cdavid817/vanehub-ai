@@ -1,8 +1,8 @@
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
-    AgentSession, AgentSessionGateway, AgentUsageRecord, CompleteAgentMessage,
-    ConversationHistoryPort, LoopRoleSessionPort, LoopRoleSessionRequest, MessageTokenUsage,
-    NewAgentMessage, ToolUseBlock,
+    AgentSession, AgentSessionGateway, AgentUsageAccountingKind, AgentUsageRecord,
+    CompleteAgentMessage, ConversationHistoryPort, LoopRoleSessionPort, LoopRoleSessionRequest,
+    MessageTokenUsage, NewAgentMessage, ToolUseBlock,
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use crate::contexts::sessions::api::{
@@ -386,18 +386,28 @@ fn session_token_usage(usage: MessageTokenUsage) -> SessionMessageTokenUsage {
 }
 
 fn session_usage(usage: AgentUsageRecord) -> MessageUsageRecord {
+    let (accounting_kind, unit) = match usage.accounting_kind {
+        AgentUsageAccountingKind::Reported => (
+            SessionUsageAccountingKind::Reported,
+            SessionUsageUnit::Tokens,
+        ),
+        AgentUsageAccountingKind::Estimated => (
+            SessionUsageAccountingKind::Estimated,
+            SessionUsageUnit::Characters,
+        ),
+    };
     MessageUsageRecord {
         message_id: usage.message_id,
         session_id: usage.session_id,
         agent_id: usage.agent_id,
         provider_id: usage.provider_id,
         model_id: usage.model_id,
-        accounting_kind: SessionUsageAccountingKind::Estimated,
-        unit: SessionUsageUnit::Characters,
+        accounting_kind,
+        unit,
         input_count: usage.input_count,
         output_count: usage.output_count,
-        cache_read_count: 0,
-        cache_creation_count: 0,
+        cache_read_count: usage.cache_read_count,
+        cache_creation_count: usage.cache_creation_count,
         source: usage.source,
         occurred_at: usage.occurred_at,
     }

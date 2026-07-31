@@ -2,9 +2,8 @@ use crate::contexts::workspaces::application::{
     ShellEvent, ShellLaunch, ShellLog, WorkspaceApplicationError as AppError, WorkspaceLogLevel,
     WorkspaceShellEventPort, WorkspaceShellLogPort, WorkspaceShellRuntimePort,
 };
-use crate::contexts::workspaces::domain::{
-    normalize_windows_extended_length_path, reset_directory_command, ShellHost, TerminalDimensions,
-};
+use crate::contexts::workspaces::domain::{reset_directory_command, ShellHost, TerminalDimensions};
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};

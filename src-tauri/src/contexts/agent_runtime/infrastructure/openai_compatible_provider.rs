@@ -123,7 +123,7 @@ pub(crate) fn translate_sse_data(
     }
     if trimmed == DONE_SENTINEL {
         accumulator.finish_all_pending();
-        return Some(GenerationProcessEvent::Completed);
+        return Some(GenerationProcessEvent::Completed(None));
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
     if value.get("error").is_some() {
@@ -301,7 +301,7 @@ mod tests {
 
         assert_eq!(
             translate_sse_data("[DONE]", &mut accumulator),
-            Some(GenerationProcessEvent::Completed)
+            Some(GenerationProcessEvent::Completed(None))
         );
         let completed = accumulator.take_completed();
         assert_eq!(completed.len(), 1);
@@ -365,10 +365,13 @@ mod tests {
 
     #[test]
     fn done_sentinel_becomes_completed() {
-        assert_eq!(translate("[DONE]"), Some(GenerationProcessEvent::Completed));
+        assert_eq!(
+            translate("[DONE]"),
+            Some(GenerationProcessEvent::Completed(None))
+        );
         assert_eq!(
             translate(" [DONE] "),
-            Some(GenerationProcessEvent::Completed)
+            Some(GenerationProcessEvent::Completed(None))
         );
     }
 

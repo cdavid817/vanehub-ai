@@ -1124,6 +1124,74 @@
                          "capabilities":  [
                                               "app-settings"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "add-reported-usage-ingestion",
+                         "path":  "openspec/changes/archive/2026-07-31-add-reported-usage-ingestion/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "add-terminal-usage-tracking",
+                         "path":  "openspec/changes/archive/2026-07-31-add-terminal-usage-tracking/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "usage-statistics"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "establish-test-coverage-and-integration-gates",
+                         "path":  "openspec/changes/archive/2026-07-31-establish-test-coverage-and-integration-gates/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "continuous-integration",
+                                              "frontend-runtime-architecture",
+                                              "native-runtime-architecture"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "fix-cli-terminal-session-resume-capture",
+                         "path":  "openspec/changes/archive/2026-07-31-fix-cli-terminal-session-resume-capture/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "pool-native-sqlite-connections",
+                         "path":  "openspec/changes/archive/2026-07-31-pool-native-sqlite-connections/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "native-runtime-architecture"
+                                          ]
                      }
                  ]
 }

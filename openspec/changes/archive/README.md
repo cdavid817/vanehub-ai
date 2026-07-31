@@ -80,5 +80,10 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-28 | dynamic-llm-model-discovery | cli-parameter-management, custom-model-display, native-model-discovery, session-chat-configuration | `openspec/changes/archive/2026-07-28-dynamic-llm-model-discovery/` |
 | 2026-07-28 | fix-session-workspace-ui-defects | session-workspace-tabs | `openspec/changes/archive/2026-07-28-fix-session-workspace-ui-defects/` |
 | 2026-07-28 | fix-settings-hydration-flash | app-settings | `openspec/changes/archive/2026-07-28-fix-settings-hydration-flash/` |
+| 2026-07-31 | add-reported-usage-ingestion | usage-statistics | `openspec/changes/archive/2026-07-31-add-reported-usage-ingestion/` |
+| 2026-07-31 | add-terminal-usage-tracking | usage-statistics | `openspec/changes/archive/2026-07-31-add-terminal-usage-tracking/` |
+| 2026-07-31 | establish-test-coverage-and-integration-gates | continuous-integration, frontend-runtime-architecture, native-runtime-architecture | `openspec/changes/archive/2026-07-31-establish-test-coverage-and-integration-gates/` |
+| 2026-07-31 | fix-cli-terminal-session-resume-capture | agent-terminal-runtime | `openspec/changes/archive/2026-07-31-fix-cli-terminal-session-resume-capture/` |
+| 2026-07-31 | pool-native-sqlite-connections | native-runtime-architecture | `openspec/changes/archive/2026-07-31-pool-native-sqlite-connections/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

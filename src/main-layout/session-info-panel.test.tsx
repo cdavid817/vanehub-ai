@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
 import { i18n } from "../i18n";
 import type { Session } from "../types/agent";
-import type { ChatMessage, SessionUsageSummary } from "../types/chat";
+import type { SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
 import { SessionInfoPanel } from "./session-info-panel";
 
@@ -64,7 +64,7 @@ function skill(id: string, enabled: boolean, boundAgentIds: string[], scope: "gl
   };
 }
 
-function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Session> = {}, messages: ChatMessage[] = []) {
+function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Session> = {}) {
   const activeSession = { ...session(), ...overrideSession };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(["session-chat-config", activeSession.id], {
@@ -93,7 +93,7 @@ function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Sessio
 
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <SessionInfoPanel activeSession={activeSession} collapsed={false} messages={messages} onCollapsedChange={vi.fn()} />
+      <SessionInfoPanel activeSession={activeSession} collapsed={false} onCollapsedChange={vi.fn()} />
     </QueryClientProvider>,
   );
 }
@@ -155,24 +155,15 @@ describe("SessionInfoPanel", () => {
     expect(html).not.toContain("\\\\?\\D:");
   });
 
-  it("uses live message token usage while the session summary refreshes", () => {
+  it("shows backend-reported token totals directly, independent of live message state", () => {
     const html = renderPanel({
       sessionId: "session-info-fixture",
-      reported: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 },
+      reported: { inputTokens: 12, outputTokens: 34, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 46 },
       estimated: { inputCharacters: 0, outputCharacters: 0, totalCharacters: 0 },
-      coverage: { reportedResponses: 0, estimatedResponses: 0, totalResponses: 0, reportedPercent: 0 },
-      responseCount: 0,
+      coverage: { reportedResponses: 1, estimatedResponses: 0, totalResponses: 1, reportedPercent: 100 },
+      responseCount: 1,
       generatedAt: "2026-07-20T00:00:00.000Z",
-    }, {}, [{
-      id: "assistant-1",
-      sessionId: "session-info-fixture",
-      role: "assistant",
-      content: "done",
-      status: "completed",
-      tokenUsage: { input: 12, output: 34 },
-      createdAt: "2026-07-20T00:00:00.000Z",
-      updatedAt: "2026-07-20T00:00:01.000Z",
-    }]);
+    });
 
     expect(html).toContain("12");
     expect(html).toContain("34");

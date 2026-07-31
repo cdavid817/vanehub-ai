@@ -2,6 +2,10 @@ use super::providers::{
     build_interactive_invocation, output_parser_for, prepare_provider_session_capture,
     ProviderOutputEvent, ProviderSessionCapture, ProviderSessionDiscovery,
 };
+use super::terminal_usage_ingestion::{
+    create_terminal_usage_placeholder, ingest_claude_terminal_usage, ingest_codex_terminal_usage,
+    ingest_opencode_terminal_usage,
+};
 use super::terminal_wrapper::{
     default_agent_terminal_shell, generate_agent_terminal_wrapper, AgentTerminalWrapperRequest,
 };
@@ -13,11 +17,12 @@ use crate::contexts::agent_runtime::application::{
     StopAgentTerminalRequest,
 };
 use crate::contexts::agent_runtime::domain::AgentLifecycle;
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -33,6 +38,12 @@ const TERMINAL_READ_BUFFER_BYTES: usize = 64 * 1024;
 /// bars) cannot grow the session-id parse buffer without bound.
 const MAX_PARSE_LINE_BYTES: usize = 256 * 1024;
 const PROVIDER_SESSION_DISCOVERY_INTERVAL: Duration = Duration::from_millis(250);
+
+/// How often the interactive terminal re-reads the CLI's own usage data while the
+/// session is still open. Wider than the session-discovery poll since it re-scans a
+/// session log/DB rather than checking already-buffered output; a few seconds keeps
+/// the Token Usage panel close to live without adding meaningful file/DB IO.
+const TERMINAL_USAGE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 struct ManagedAgentTerminal {
     terminal_id: String,
@@ -248,15 +259,20 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             AgentRuntimeApplicationError::Process(message)
         })?;
         let terminal_id = self.next_terminal_id(&request.session.id);
+        // `Set-Location`/`cd /d` and `CreateProcess`'s `lpCurrentDirectory` all reject or
+        // mishandle a Windows extended-length path prefix (`\\?\`) — normalize once and
+        // reuse for both the wrapper script's own directory change and the outer PTY
+        // spawn's cwd below, so the CLI actually starts in the intended project folder.
+        let normalized_folder = request
+            .session
+            .folder
+            .as_deref()
+            .filter(|folder| !folder.trim().is_empty())
+            .map(normalize_windows_extended_length_path);
         let (shell, shell_executable) = default_agent_terminal_shell();
         let wrapper = generate_agent_terminal_wrapper(&AgentTerminalWrapperRequest {
             terminal_id: terminal_id.clone(),
-            session_folder: request
-                .session
-                .folder
-                .as_ref()
-                .filter(|folder| !folder.trim().is_empty())
-                .map(PathBuf::from),
+            session_folder: normalized_folder.as_deref().map(PathBuf::from),
             executable: invocation.executable.clone(),
             args: invocation.args.clone(),
             shell,
@@ -297,12 +313,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let redacted_command = wrapper.redacted_command.clone();
         let mut command = CommandBuilder::new(wrapper.executable.clone());
         command.args(wrapper.args.clone());
-        if let Some(folder) = request
-            .session
-            .folder
-            .as_deref()
-            .filter(|folder| !folder.trim().is_empty())
-        {
+        if let Some(folder) = normalized_folder.as_deref() {
             command.cwd(folder);
         }
         let child = pair.slave.spawn_command(command).map_err(|error| {
@@ -348,7 +359,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             terminal_id: terminal_id.clone(),
             session_id: request.session.id.clone(),
             agent_id: request.agent.id.clone(),
-            runtime_session_id,
+            runtime_session_id: runtime_session_id.clone(),
             last_active_at: now_timestamp(self.clock.as_ref()),
             size: request.size.clone(),
             master: pair.master,
@@ -366,6 +377,89 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let terminals = self.terminals.clone();
         let session_id = request.session.id;
         let agent_id = request.agent.id;
+        let session_folder = request
+            .session
+            .folder
+            .as_deref()
+            .filter(|f| !f.trim().is_empty())
+            .map(str::to_string);
+        let started_at_ms = now_timestamp_ms(self.clock.as_ref());
+        // Created once, up front, so both the periodic poll below and the final
+        // exit-time read reuse the same message id — required for `upsert_usage`'s
+        // `ON CONFLICT(message_id)` to update one row instead of one per poll.
+        let usage_tracking_message_id =
+            if matches!(agent_id.as_str(), "claude-code" | "opencode" | "codex-cli") {
+                match create_terminal_usage_placeholder(sessions.as_ref(), &session_id) {
+                    Ok(message_id) => Some(message_id),
+                    Err(error) => {
+                        self.record_log(
+                            AgentLogLevel::Warn,
+                            format!("Failed to create terminal usage placeholder message: {error}"),
+                            Some(&agent_id),
+                            Some(&session_id),
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+        // A CLI can go quiet on the PTY (idle, waiting for the next prompt) for several
+        // seconds *after* it has finished streaming visible output but *before* it has
+        // actually persisted that turn's usage to its own session log/DB — observed
+        // directly: opencode's `session` row appeared several seconds before its token
+        // columns were actually updated. Polling only when output happens to arrive would
+        // miss that gap entirely and could never catch up until the next unrelated burst
+        // of output (or exit). This timer thread is intentionally independent of PTY
+        // activity so it keeps checking on a fixed cadence regardless.
+        let usage_poll_alive = Arc::new(AtomicBool::new(true));
+        if let Some(message_id) = usage_tracking_message_id.clone() {
+            let agent_id = agent_id.clone();
+            let session_folder = session_folder.clone();
+            let runtime_session_id = runtime_session_id.clone();
+            let sessions = sessions.clone();
+            let logging = logging.clone();
+            let clock = clock.clone();
+            let session_id = session_id.clone();
+            let alive = usage_poll_alive.clone();
+            thread::spawn(move || {
+                // Ticks in short increments so the thread notices the terminal has
+                // exited promptly instead of sleeping a full interval before checking.
+                const TICK: Duration = Duration::from_millis(250);
+                let mut waited = Duration::ZERO;
+                while alive.load(Ordering::Relaxed) {
+                    thread::sleep(TICK);
+                    waited += TICK;
+                    if waited < TERMINAL_USAGE_POLL_INTERVAL {
+                        continue;
+                    }
+                    waited = Duration::ZERO;
+                    if !alive.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let result = run_terminal_usage_ingestion(
+                        &agent_id,
+                        session_folder.as_deref(),
+                        runtime_session_id.as_deref(),
+                        started_at_ms,
+                        sessions.as_ref(),
+                        &message_id,
+                        &session_id,
+                        clock.as_ref(),
+                    );
+                    if let Some(result) = result {
+                        record_terminal_usage_log(
+                            logging.as_ref(),
+                            clock.as_ref(),
+                            &agent_id,
+                            &session_id,
+                            "periodic poll",
+                            &result,
+                        );
+                    }
+                }
+            });
+        }
         drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
@@ -490,6 +584,9 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 }
             }
 
+            // Stop the independent usage-poll thread now that the terminal has
+            // definitely exited, so it doesn't race the exit-time read below.
+            usage_poll_alive.store(false, Ordering::Relaxed);
             let exit_result = child
                 .lock()
                 .map_err(|error| error.to_string())
@@ -502,6 +599,38 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 ),
                 Err(error) => (AgentTerminalState::Failed, Some(error)),
             };
+            // Read back the CLI's own persisted usage data regardless of exit status:
+            // a clean exit (Stopped) is the normal case, but even a killed process
+            // (Failed) has already flushed its usage data during the interactive turns.
+            //
+            // claude-code needs the runtime session id VaneHub assigned (it's the JSONL
+            // file name); opencode and codex-cli look themselves up by working directory
+            // + start time instead of depending on the live `ProviderSessionCapture` poll
+            // — that poll only samples while fresh PTY output is arriving, so it can miss
+            // a session whose own log/DB row appears after the last visible output but
+            // before Stop.
+            if let Some(message_id) = usage_tracking_message_id.as_deref() {
+                let result = run_terminal_usage_ingestion(
+                    &agent_id,
+                    session_folder.as_deref(),
+                    runtime_session_id.as_deref(),
+                    started_at_ms,
+                    sessions.as_ref(),
+                    message_id,
+                    &session_id,
+                    clock.as_ref(),
+                );
+                if let Some(result) = result {
+                    record_terminal_usage_log(
+                        logging.as_ref(),
+                        clock.as_ref(),
+                        &agent_id,
+                        &session_id,
+                        "session exit",
+                        &result,
+                    );
+                }
+            }
             if let Ok(mut terminals) = terminals.lock() {
                 if terminals
                     .get(&session_id)
@@ -644,6 +773,89 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         }
         Ok(stopped)
     }
+}
+
+/// Dispatches to the CLI-specific usage reader for `agent_id`, or `None` for CLIs that
+/// don't support terminal-mode usage tracking (or when claude-code's runtime session id
+/// isn't known yet). Shared by both the periodic in-session poll and the final
+/// exit-time read so the two call sites can't drift.
+#[allow(clippy::too_many_arguments)]
+fn run_terminal_usage_ingestion(
+    agent_id: &str,
+    session_folder: Option<&str>,
+    runtime_session_id: Option<&str>,
+    started_at_ms: i64,
+    sessions: &dyn AgentSessionGateway,
+    message_id: &str,
+    session_id: &str,
+    clock: &dyn AgentClockPort,
+) -> Option<Result<bool, AgentRuntimeApplicationError>> {
+    match agent_id {
+        "claude-code" => runtime_session_id.map(|runtime_session_id| {
+            ingest_claude_terminal_usage(
+                session_folder,
+                runtime_session_id,
+                sessions,
+                message_id,
+                session_id,
+                agent_id,
+                clock,
+            )
+        }),
+        "opencode" => Some(ingest_opencode_terminal_usage(
+            session_folder,
+            started_at_ms,
+            sessions,
+            message_id,
+            session_id,
+            agent_id,
+            clock,
+        )),
+        "codex-cli" => Some(ingest_codex_terminal_usage(
+            session_folder,
+            started_at_ms,
+            sessions,
+            message_id,
+            session_id,
+            agent_id,
+            clock,
+        )),
+        _ => None,
+    }
+}
+
+/// `context` distinguishes the frequent periodic poll (kept at Debug so a long session
+/// doesn't spam Info) from the one-time exit read (kept at Info as the meaningful
+/// "did the panel end up with real data" summary). Both log Warn on error.
+fn record_terminal_usage_log(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    agent_id: &str,
+    session_id: &str,
+    context: &str,
+    result: &Result<bool, AgentRuntimeApplicationError>,
+) {
+    let level = match result {
+        Ok(true) if context == "session exit" => AgentLogLevel::Info,
+        Ok(_) => AgentLogLevel::Debug,
+        Err(_) => AgentLogLevel::Warn,
+    };
+    let _ = logging.record(AgentLog {
+        level,
+        category: "session.agent_terminal.usage".to_string(),
+        message: format!(
+            "terminal usage ingestion ({context}): persisted={} err={:?}",
+            result.as_ref().unwrap_or(&false),
+            result.as_ref().err(),
+        ),
+        agent_id: Some(agent_id.to_string()),
+        session_id: Some(session_id.to_string()),
+        operation_id: None,
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
 }
 
 fn record_provider_session_capture_log(
@@ -791,6 +1003,12 @@ fn terminal_size(size: &AgentTerminalSize) -> PtySize {
 fn now_timestamp(clock: &dyn AgentClockPort) -> i64 {
     chrono::DateTime::parse_from_rfc3339(&clock.now())
         .map(|value| value.timestamp())
+        .unwrap_or(0)
+}
+
+fn now_timestamp_ms(clock: &dyn AgentClockPort) -> i64 {
+    chrono::DateTime::parse_from_rfc3339(&clock.now())
+        .map(|value| value.timestamp_millis())
         .unwrap_or(0)
 }
 

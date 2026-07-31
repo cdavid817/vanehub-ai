@@ -124,7 +124,7 @@ pub(crate) fn translate_sse_data(
             }
             None
         }
-        "message_stop" => Some(GenerationProcessEvent::Completed),
+        "message_stop" => Some(GenerationProcessEvent::Completed(None)),
         "error" => Some(GenerationProcessEvent::Failed(translate_error(&value))),
         _ => None,
     }
@@ -380,7 +380,10 @@ mod tests {
     #[test]
     fn message_stop_becomes_completed() {
         let data = r#"{"type":"message_stop"}"#;
-        assert_eq!(translate(data), Some(GenerationProcessEvent::Completed));
+        assert_eq!(
+            translate(data),
+            Some(GenerationProcessEvent::Completed(None))
+        );
     }
 
     #[test]

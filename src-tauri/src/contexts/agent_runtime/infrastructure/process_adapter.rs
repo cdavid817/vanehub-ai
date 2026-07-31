@@ -1,19 +1,20 @@
 use super::providers::{
     add_codex_output_capture_args, build_invocation, output_parser_for, ProviderOutputEvent,
-    ProviderPromptDelivery, ProviderToolEvent, ProviderToolPhase,
+    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
     AgentProcessGateway, AgentRuntimeApplicationError, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, StartedGenerationProcess,
-    ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest,
+    GenerationProcessFailure, GenerationProcessRequest, ReportedUsageTotals,
+    StartedGenerationProcess, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionIdentityPort, ExecutionSpan,
     ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
 };
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::process;
 use std::collections::HashMap;
 use std::fs;
@@ -166,7 +167,7 @@ impl RuntimeAgentProcessAdapter {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
         {
-            command.current_dir(folder);
+            command.current_dir(normalize_windows_extended_length_path(folder));
         }
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if spec.prompt_delivery == ProviderPromptDelivery::Stdin {
@@ -606,6 +607,11 @@ impl ProcessMonitor {
         let mut terminal_error = None;
         let mut emitted_content = false;
         let mut first_visible_output = false;
+        // Captured from the CLI's own completion line (if it carried usage), mirroring
+        // how `terminal_error` is captured across the read loop. Attached to the
+        // terminal `GenerationProcessEvent::Completed` below rather than acted on
+        // immediately, since the exit code (not this line) decides success/failure.
+        let mut reported_usage: Option<ReportedUsageTotals> = None;
         for line in BufReader::new(stdout).lines() {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
@@ -632,7 +638,11 @@ impl ProcessMonitor {
                         terminal_error = Some(error);
                         None
                     }
-                    ProviderOutputEvent::Completed | ProviderOutputEvent::Empty => None,
+                    ProviderOutputEvent::Completed(usage) => {
+                        reported_usage = usage.map(normalize_provider_usage);
+                        None
+                    }
+                    ProviderOutputEvent::Empty => None,
                 },
                 Err(error) => {
                     terminal_error = Some(GenerationProcessFailure::retryable(format!(
@@ -689,7 +699,9 @@ impl ProcessMonitor {
         };
         let terminal = match (terminal_error, exit_status) {
             (Some(error), _) => GenerationProcessEvent::Failed(error),
-            (None, Ok(status)) if status.success() => GenerationProcessEvent::Completed,
+            (None, Ok(status)) if status.success() => {
+                GenerationProcessEvent::Completed(reported_usage)
+            }
             (None, Ok(status)) => GenerationProcessEvent::Failed(
                 GenerationProcessFailure::retryable(if stderr_output.trim().is_empty() {
                     format!("Agent CLI exited with status {status}.")
@@ -702,7 +714,7 @@ impl ProcessMonitor {
             }
         };
         let (process_status, process_error) = match &terminal {
-            GenerationProcessEvent::Completed => (ExecutionStatus::Succeeded, None),
+            GenerationProcessEvent::Completed(_) => (ExecutionStatus::Succeeded, None),
             GenerationProcessEvent::Failed(_) => {
                 (ExecutionStatus::Failed, Some("process_exit_failed"))
             }
@@ -746,6 +758,19 @@ impl ProcessMonitor {
         }
         cleanup_final_output(final_output_path.as_deref());
         cleanup_paths_all(&cleanup_paths);
+    }
+}
+
+/// Converts the infrastructure-owned per-CLI usage shape into the application layer's
+/// own `ReportedUsageTotals`, at the same boundary `normalize_provider_tool` already
+/// converts `ProviderToolEvent` — keeping `agent_runtime::application` free of a
+/// concrete infrastructure type. See `add-reported-usage-ingestion` design.md Decision 0.
+fn normalize_provider_usage(usage: ProviderReportedUsage) -> ReportedUsageTotals {
+    ReportedUsageTotals {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_tokens: usage.cache_read_tokens,
+        cache_creation_tokens: usage.cache_creation_tokens,
     }
 }
 

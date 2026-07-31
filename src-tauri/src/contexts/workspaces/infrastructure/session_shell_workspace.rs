@@ -2,7 +2,7 @@ use crate::contexts::workspaces::application::{
     ShellRemoteEndpoint, ShellSshBinding, ShellWorkspace, ShellWorkspacePolicy,
     WorkspaceApplicationError, WorkspaceShellContextPort,
 };
-use crate::contexts::workspaces::domain::normalize_windows_extended_length_path;
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::{database::NativeDatabase, filesystem};
 use rusqlite::{params, OptionalExtension};
 use std::path::Path;

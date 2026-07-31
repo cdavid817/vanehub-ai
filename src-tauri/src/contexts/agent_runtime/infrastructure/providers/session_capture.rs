@@ -5,7 +5,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderSessionDiscovery {
@@ -129,6 +129,40 @@ pub(super) fn discover_codex_session(
     unique_candidate(candidates)
 }
 
+/// Post-hoc equivalent of `discover_codex_session`, used once the terminal process has
+/// already exited. Matches by `cwd` (from each rollout's first-line `session_meta`) and
+/// picks the most-recently-modified matching file, mirroring
+/// `find_opencode_session_since`'s reasoning: no live-poll race once the process has
+/// fully exited and stopped writing.
+pub(crate) fn find_codex_rollout_since(
+    session_root: &Path,
+    working_directory: &Path,
+    since_ms: i64,
+) -> Result<Option<PathBuf>, ProviderSessionCaptureError> {
+    let since = UNIX_EPOCH + Duration::from_millis(since_ms.saturating_sub(2_000).max(0) as u64);
+    let mut candidates: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for path in collect_rollout_paths(session_root)? {
+        let Some(meta) = read_codex_session_meta(&path)? else {
+            continue;
+        };
+        let Some(cwd) = meta.cwd.as_deref() else {
+            continue;
+        };
+        if !paths_match(Path::new(cwd), working_directory) {
+            continue;
+        }
+        let modified = fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .map_err(|error| capture_error("Codex", error))?;
+        if modified < since {
+            continue;
+        }
+        candidates.push((modified, path));
+    }
+    candidates.sort_by_key(|(modified, _)| *modified);
+    Ok(candidates.pop().map(|(_, path)| path))
+}
+
 fn collect_rollout_paths(
     session_root: &Path,
 ) -> Result<HashSet<PathBuf>, ProviderSessionCaptureError> {
@@ -221,6 +255,28 @@ pub(super) fn discover_opencode_session(
     unique_candidate(candidates)
 }
 
+/// Post-hoc equivalent of `discover_opencode_session`, used once the terminal process
+/// has already exited (so opencode has definitely finished writing its session row —
+/// unlike the live poll in `discover_opencode_session`, which only runs while fresh PTY
+/// output is arriving and can miss a session created after the last visible output).
+/// Picks the most recently created match rather than requiring a unique one, since a
+/// stale session from an earlier run in the same directory could otherwise be mistaken
+/// for ambiguity.
+pub(crate) fn find_opencode_session_since(
+    database_path: &Path,
+    working_directory: &Path,
+    since_ms: i64,
+) -> Result<Option<String>, ProviderSessionCaptureError> {
+    let mut candidates: Vec<(i64, String)> = read_opencode_sessions(database_path)?
+        .into_iter()
+        .filter(|session| session.created_at_ms >= since_ms.saturating_sub(2_000))
+        .filter(|session| paths_match(Path::new(&session.working_directory), working_directory))
+        .map(|session| (session.created_at_ms, session.id))
+        .collect();
+    candidates.sort_by_key(|(created_at, _)| *created_at);
+    Ok(candidates.pop().map(|(_, id)| id))
+}
+
 struct OpenCodeSessionRecord {
     id: String,
     working_directory: String,
@@ -266,14 +322,14 @@ fn unique_candidate(
     })
 }
 
-fn codex_session_root() -> Option<PathBuf> {
+pub(crate) fn codex_session_root() -> Option<PathBuf> {
     if let Some(root) = env::var_os("CODEX_HOME").filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(root).join("sessions"));
     }
     user_home().map(|home| home.join(".codex").join("sessions"))
 }
 
-fn opencode_database_path() -> Option<PathBuf> {
+pub(crate) fn opencode_database_path() -> Option<PathBuf> {
     env::var_os("XDG_DATA_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

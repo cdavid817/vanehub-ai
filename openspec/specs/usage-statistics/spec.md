@@ -49,8 +49,13 @@ The system SHALL document and display that usage statistics cover VaneHub-manage
 The system SHALL persist at most one normalized usage record per VaneHub assistant response without storing prompt or response content in that record.
 
 #### Scenario: Persist reported tokens
-- **WHEN** a supported CLI reports valid usage for an assistant response
+- **WHEN** a supported CLI reports valid, non-zero usage for an assistant response
 - **THEN** the system SHALL persist non-negative normalized token categories with accounting kind `reported`, unit `tokens`, stable Agent id, source, and occurrence time
+
+#### Scenario: Persist reported tokens for an interactive terminal session
+- **WHEN** a supported CLI runs as an interactive embedded-terminal session rather than through VaneHub's managed invocation pipeline
+- **THEN** the system SHALL read that CLI's own persisted session log or database to obtain reported usage
+- **AND** it SHALL persist that usage the same way as managed-pipeline usage, with accounting kind `reported` and unit `tokens`
 
 #### Scenario: Persist successful fallback estimate
 - **WHEN** a VaneHub assistant response completes successfully without valid reported usage
@@ -64,6 +69,16 @@ The system SHALL persist at most one normalized usage record per VaneHub assista
 - **WHEN** reported usage later becomes available for a response that has an estimated record
 - **THEN** the reported record SHALL replace the estimate
 - **AND** an estimated observation SHALL NOT overwrite reported data
+
+#### Scenario: Treat degenerate zero usage as unreported
+- **WHEN** a supported CLI's completion signal for an assistant response carries a usage payload whose token categories are all zero
+- **THEN** the system SHALL treat that response as without valid reported usage
+- **AND** the system SHALL follow the successful fallback estimate scenario instead of persisting a reported record
+
+#### Scenario: Fold reasoning tokens into reported output
+- **WHEN** a supported CLI reports reasoning or thinking tokens separately from its output tokens for an assistant response
+- **THEN** the system SHALL include those reasoning tokens in the persisted reported output token count
+- **AND** the system SHALL NOT persist reasoning tokens as a distinct tracked category
 
 ### Requirement: Historical usage quality preservation
 The system SHALL preserve positive legacy message usage as estimated character history during migration.
@@ -102,4 +117,9 @@ The system SHALL provide a session-scoped usage summary for a single VaneHub-man
 - **WHEN** session usage is requested for an unknown, deleted, or inaccessible session
 - **THEN** the system SHALL return a bounded service error or zero isolated result according to the existing session service error policy
 - **AND** it SHALL NOT expose usage data from other sessions
+
+#### Scenario: Refresh a running session's summary periodically
+- **WHEN** a session's interactive terminal remains open after its usage was last read
+- **THEN** the system SHALL periodically re-read the CLI's own reported usage and refresh the persisted usage record without waiting for the session to stop
+- **AND** the session usage summary SHALL reflect the refreshed values on its next request
 

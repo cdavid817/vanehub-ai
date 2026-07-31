@@ -442,7 +442,7 @@ fn execute(
             if line.is_empty() {
                 if let Some(data) = current_data.take() {
                     match (wire_format.translate_sse_data)(&data, &mut accumulator) {
-                        Some(GenerationProcessEvent::Completed) => break,
+                        Some(GenerationProcessEvent::Completed(_)) => break,
                         Some(GenerationProcessEvent::Failed(failure)) => {
                             return GenerationProcessEvent::Failed(failure)
                         }
@@ -465,7 +465,7 @@ fn execute(
 
         let tool_calls = accumulator.take_completed();
         if tool_calls.is_empty() {
-            return GenerationProcessEvent::Completed;
+            return GenerationProcessEvent::Completed(None);
         }
 
         let mut executed: Vec<ExecutedToolCall> = Vec::with_capacity(tool_calls.len());
@@ -747,7 +747,7 @@ fn summarize_turns(
         if line.is_empty() {
             if let Some(data) = current_data.take() {
                 match (wire_format.translate_sse_data)(&data, &mut accumulator) {
-                    Some(GenerationProcessEvent::Completed) => break,
+                    Some(GenerationProcessEvent::Completed(_)) => break,
                     Some(GenerationProcessEvent::Failed(_)) => return None,
                     Some(GenerationProcessEvent::Token(text)) => summary.push_str(&text),
                     _ => {}

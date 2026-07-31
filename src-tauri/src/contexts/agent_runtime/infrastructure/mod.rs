@@ -30,6 +30,7 @@ mod sessions_gateway;
 mod skill_gateway;
 mod sqlite_repository;
 mod terminal_process;
+mod terminal_usage_ingestion;
 mod terminal_wrapper;
 mod tool_call_accumulator;
 mod tools;

@@ -52,6 +52,7 @@ struct FakeWorld {
     active_generation: Mutex<Option<ActiveGeneration>>,
     streaming_message_ids: Mutex<Vec<String>>,
     next_message_id: AtomicUsize,
+    completed_usage: Mutex<Vec<AgentUsageRecord>>,
     resolved_approvals: Mutex<Vec<(String, String, ToolApprovalDecision)>>,
 }
 
@@ -90,6 +91,7 @@ impl FakeWorld {
             active_generation: Mutex::new(None),
             streaming_message_ids: Mutex::new(Vec::new()),
             next_message_id: AtomicUsize::new(0),
+            completed_usage: Mutex::new(Vec::new()),
             resolved_approvals: Mutex::new(Vec::new()),
         }
     }
@@ -295,6 +297,12 @@ impl AgentSessionGateway for FakeWorld {
         message.tool_use = completed.tool_use;
         message.rich_blocks = completed.rich_blocks;
         message.token_usage = completed.token_usage;
+        if let Some(usage) = completed.usage {
+            self.completed_usage
+                .lock()
+                .expect("completed usage")
+                .push(usage);
+        }
         Ok(message.clone())
     }
 
@@ -1076,7 +1084,7 @@ fn execution_telemetry_preserves_task_agent_and_tool_topology() {
         }))
         .expect("tool lifecycle");
     }
-    sink.handle(GenerationProcessEvent::Completed)
+    sink.handle(GenerationProcessEvent::Completed(None))
         .expect("complete");
 
     let records = telemetry.records().expect("telemetry records");
@@ -1127,6 +1135,89 @@ fn execution_telemetry_preserves_task_agent_and_tool_topology() {
         }
     )));
     assert!(!format!("{records:?}").contains("secret prompt must not be captured"));
+}
+
+#[test]
+fn completion_with_reported_usage_persists_reported_accounting() {
+    let world = test_world();
+    let service = service(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "explain this".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+
+    sink.handle(GenerationProcessEvent::Completed(Some(
+        ReportedUsageTotals {
+            input_tokens: 120,
+            output_tokens: 340,
+            cache_read_tokens: 900,
+            cache_creation_tokens: 50,
+        },
+    )))
+    .expect("complete");
+
+    let usage = world
+        .completed_usage
+        .lock()
+        .expect("completed usage")
+        .last()
+        .cloned()
+        .expect("usage record");
+    assert_eq!(usage.accounting_kind, AgentUsageAccountingKind::Reported);
+    assert_eq!(usage.input_count, 120);
+    assert_eq!(usage.output_count, 340);
+    assert_eq!(usage.cache_read_count, 900);
+    assert_eq!(usage.cache_creation_count, 50);
+    assert_eq!(usage.source, "cli-reported");
+}
+
+#[test]
+fn completion_without_reported_usage_falls_back_to_character_count_estimate() {
+    let world = test_world();
+    let service = service(world.clone());
+    service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "explain this".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+
+    sink.handle(GenerationProcessEvent::Completed(None))
+        .expect("complete");
+
+    let usage = world
+        .completed_usage
+        .lock()
+        .expect("completed usage")
+        .last()
+        .cloned()
+        .expect("usage record");
+    assert_eq!(usage.accounting_kind, AgentUsageAccountingKind::Estimated);
+    assert_eq!(usage.source, "character-count");
+    assert_eq!(usage.cache_read_count, 0);
+    assert_eq!(usage.cache_creation_count, 0);
 }
 
 #[test]
@@ -1190,7 +1281,7 @@ fn normalized_tool_lifecycle_deduplicates_and_marks_missing_boundaries() {
         .expect("failed");
     sink.handle(event("unfinished", ToolLifecyclePhase::Started, "running"))
         .expect("unfinished");
-    sink.handle(GenerationProcessEvent::Completed)
+    sink.handle(GenerationProcessEvent::Completed(None))
         .expect("agent complete");
 
     let records = telemetry.records().expect("telemetry records");
@@ -1270,7 +1361,7 @@ fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
         persisted_content()
     );
 
-    sink.handle(GenerationProcessEvent::Completed)
+    sink.handle(GenerationProcessEvent::Completed(None))
         .expect("completed");
 
     // The terminal transition flushes the coalesced tail and the full content is durable.
@@ -1329,13 +1420,13 @@ fn stream_events_persist_complete_usage_and_operation_once() {
     let first_barrier = barrier.clone();
     let first = std::thread::spawn(move || {
         first_barrier.wait();
-        first_sink.handle(GenerationProcessEvent::Completed)
+        first_sink.handle(GenerationProcessEvent::Completed(None))
     });
     let second_sink = sink.clone();
     let second_barrier = barrier.clone();
     let second = std::thread::spawn(move || {
         second_barrier.wait();
-        second_sink.handle(GenerationProcessEvent::Completed)
+        second_sink.handle(GenerationProcessEvent::Completed(None))
     });
     barrier.wait();
     first
@@ -1470,9 +1561,9 @@ fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_r
         } else {
             sink.handle(GenerationProcessEvent::Token("done".to_string()))
                 .expect("token");
-            sink.handle(GenerationProcessEvent::Completed)
+            sink.handle(GenerationProcessEvent::Completed(None))
                 .expect("complete");
-            sink.handle(GenerationProcessEvent::Completed)
+            sink.handle(GenerationProcessEvent::Completed(None))
                 .expect("duplicate complete ignored");
         }
 
@@ -1693,7 +1784,7 @@ fn prompt_execution_without_fired_versions_records_no_observation() {
         .get("process-1")
         .cloned()
         .expect("sink")
-        .handle(GenerationProcessEvent::Completed)
+        .handle(GenerationProcessEvent::Completed(None))
         .expect("complete");
 
     assert!(world
