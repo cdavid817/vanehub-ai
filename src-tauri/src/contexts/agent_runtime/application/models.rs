@@ -388,6 +388,12 @@ pub(crate) struct NewAgentMessage {
     pub(crate) file_references: Vec<AgentFileReference>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentUsageAccountingKind {
+    Reported,
+    Estimated,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentUsageRecord {
     pub(crate) message_id: String,
@@ -395,8 +401,11 @@ pub(crate) struct AgentUsageRecord {
     pub(crate) agent_id: String,
     pub(crate) provider_id: Option<String>,
     pub(crate) model_id: Option<String>,
+    pub(crate) accounting_kind: AgentUsageAccountingKind,
     pub(crate) input_count: i64,
     pub(crate) output_count: i64,
+    pub(crate) cache_read_count: i64,
+    pub(crate) cache_creation_count: i64,
     pub(crate) source: String,
     pub(crate) occurred_at: String,
 }

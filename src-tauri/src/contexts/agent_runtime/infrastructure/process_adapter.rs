@@ -14,6 +14,7 @@ use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionIdentityPort, ExecutionSpan,
     ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
 };
+use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::process;
 use std::collections::HashMap;
 use std::fs;
@@ -166,7 +167,7 @@ impl RuntimeAgentProcessAdapter {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
         {
-            command.current_dir(folder);
+            command.current_dir(normalize_windows_extended_length_path(folder));
         }
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         if spec.prompt_delivery == ProviderPromptDelivery::Stdin {

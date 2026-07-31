@@ -24,6 +24,7 @@ mod schema;
 mod sessions_gateway;
 mod sqlite_repository;
 mod terminal_process;
+mod terminal_usage_ingestion;
 mod terminal_wrapper;
 
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;

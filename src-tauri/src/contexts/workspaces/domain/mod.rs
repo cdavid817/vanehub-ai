@@ -14,9 +14,7 @@ pub(crate) use command_template::{CommandTemplate, CommandTemplateError, Command
 pub(crate) use error::WorkspaceDomainError;
 pub(crate) use output_chunk::{TerminalOutputChunk, TerminalOutputSource};
 #[allow(unused_imports)]
-pub(crate) use path::{
-    normalize_windows_extended_length_path, CanonicalPathBoundary, WorkspaceRelativePath,
-};
+pub(crate) use path::{CanonicalPathBoundary, WorkspaceRelativePath};
 pub(crate) use project::{ensure_git_worktree_available, ProjectInspection, ProjectPath};
 #[allow(unused_imports)]
 pub(crate) use remote_terminal_limits::{
