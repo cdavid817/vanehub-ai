@@ -185,7 +185,15 @@ pub(crate) fn ingest_gemini_terminal_usage(
         return Ok(false);
     };
     let totals = aggregate_gemini_usage(&chat_path, file)?;
-    persist_terminal_usage(totals, sessions, message_id, session_id, agent_id, "cli-session-log", clock)
+    persist_terminal_usage(
+        totals,
+        sessions,
+        message_id,
+        session_id,
+        agent_id,
+        "cli-session-log",
+        clock,
+    )
 }
 
 /// Creates the placeholder assistant message that periodic and exit-time usage polls
@@ -966,22 +974,16 @@ mod tests {
             r#"{{"id":"msg2","timestamp":"t2","type":"gemini","content":"hi","displayContent":"hi","thoughts":[],"tokens":{{"input":100,"output":50,"cached":10,"thoughts":20,"tool":5,"total":185}},"model":"gemini-2.5-pro"}}"#
         )
         .unwrap();
-        writeln!(
-            file,
-            r#"{{"$set":{{"lastUpdated":"t3"}}}}"#
-        )
-        .unwrap();
+        writeln!(file, r#"{{"$set":{{"lastUpdated":"t3"}}}}"#).unwrap();
         writeln!(
             file,
             r#"{{"id":"msg3","timestamp":"t4","type":"gemini","content":"more","displayContent":"more","tokens":{{"input":50,"output":30,"cached":0,"thoughts":0,"tool":0,"total":80}}}}"#
         )
         .unwrap();
         file.flush().unwrap();
-        let totals = aggregate_gemini_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_gemini_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals.input_tokens, 150);
         assert_eq!(totals.output_tokens, 100);
@@ -998,11 +1000,9 @@ mod tests {
         )
         .unwrap();
         file.flush().unwrap();
-        let totals = aggregate_gemini_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_gemini_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals, TerminalUsageTotals::default());
     }
@@ -1021,11 +1021,9 @@ mod tests {
         )
         .unwrap();
         file.flush().unwrap();
-        let totals = aggregate_gemini_usage(
-            file.path(),
-            std::fs::File::open(file.path()).expect("open"),
-        )
-        .expect("aggregate");
+        let totals =
+            aggregate_gemini_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
 
         assert_eq!(totals, TerminalUsageTotals::default());
     }

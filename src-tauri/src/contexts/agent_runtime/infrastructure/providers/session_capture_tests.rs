@@ -185,11 +185,7 @@ fn write_gemini_projects_registry(path: &Path, entries: &[(&Path, &str)]) {
         .iter()
         .map(|(project_path, slug)| (project_path.to_string_lossy().to_string(), slug.to_string()))
         .collect::<std::collections::HashMap<_, _>>();
-    fs::write(
-        path,
-        json!({ "projects": projects }).to_string(),
-    )
-    .expect("write projects registry");
+    fs::write(path, json!({ "projects": projects }).to_string()).expect("write projects registry");
 }
 
 #[test]
