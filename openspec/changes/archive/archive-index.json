@@ -1124,6 +1124,19 @@
                          "capabilities":  [
                                               "app-settings"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-07-31",
+                         "changeName":  "add-terminal-usage-tracking",
+                         "path":  "openspec/changes/archive/2026-07-31-add-terminal-usage-tracking/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "usage-statistics"
+                                          ]
                      }
                  ]
 }

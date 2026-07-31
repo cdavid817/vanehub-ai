@@ -80,5 +80,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-28 | dynamic-llm-model-discovery | cli-parameter-management, custom-model-display, native-model-discovery, session-chat-configuration | `openspec/changes/archive/2026-07-28-dynamic-llm-model-discovery/` |
 | 2026-07-28 | fix-session-workspace-ui-defects | session-workspace-tabs | `openspec/changes/archive/2026-07-28-fix-session-workspace-ui-defects/` |
 | 2026-07-28 | fix-settings-hydration-flash | app-settings | `openspec/changes/archive/2026-07-28-fix-settings-hydration-flash/` |
+| 2026-07-31 | add-terminal-usage-tracking | usage-statistics | `openspec/changes/archive/2026-07-31-add-terminal-usage-tracking/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
