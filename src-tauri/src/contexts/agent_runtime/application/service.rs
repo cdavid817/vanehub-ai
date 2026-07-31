@@ -4,15 +4,16 @@ use super::{
     AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
-    ApiCredentialPort, CliProfileSnapshot, CompleteAgentMessage, EffectivePromptGateway,
-    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
-    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
-    MessageTokenUsage, NewAgentMessage, PendingPromptExecution, PromptExecutionOutcome,
-    PromptExecutionReport, PromptVersionReference, ReadinessView, RegisterApiAgentInput,
-    ReportedUsageTotals, SendMessageRequest, StopGenerationResult, ToolApprovalDecision,
-    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, WorkflowLaunchRequest, WorkflowView,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    ApiCredentialPort, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
+    EffectivePromptGateway, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    LaunchWorkflowResult, LoopGenerationControlPort, LoopRoleGenerationCompletionPort,
+    LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopVerifierGenerationPort,
+    LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage, PendingPromptExecution,
+    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference, ReadinessView,
+    RegisterApiAgentInput, ReportedUsageTotals, SendMessageRequest, StopGenerationResult,
+    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -46,6 +47,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
+    pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
 }
 
 #[derive(Clone)]
@@ -207,6 +209,20 @@ impl AgentRuntimeApplicationService {
         self.ports
             .tool_approvals
             .resolve(&process_id, call_id, decision)
+    }
+
+    pub(crate) fn list_agent_memories(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<super::AgentMemory>, AgentRuntimeApplicationError> {
+        self.ports.memories.list_all_for_agent(agent_id)
+    }
+
+    pub(crate) fn delete_agent_memory(
+        &self,
+        memory_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.ports.memories.delete(memory_id)
     }
 
     fn unique_api_agent_id(
@@ -657,7 +673,11 @@ impl AgentRuntimeApplicationService {
             );
         }
 
-        let effective_prompt =
+        // Prompt Hooks are CLI-only (`ManagedCliAgentId` only recognizes the built-in CLI ids) —
+        // mirrors the `cli_profiles` gate below. Calling `assemble` for a non-CLI agent id would
+        // fail to parse it and abort the whole send, so it's skipped in favor of the prompt
+        // composed above, passed through unchanged.
+        let effective_prompt = if agent.launch().kind_str() == "cli" {
             match self
                 .ports
                 .prompts
@@ -674,7 +694,13 @@ impl AgentRuntimeApplicationService {
                         generation_failure("Prompt Hook assembly failed", error.to_string()),
                     );
                 }
-            };
+            }
+        } else {
+            EffectivePrompt {
+                content: prompt.clone(),
+                trace: Vec::new(),
+            }
+        };
         for trace in &effective_prompt.trace {
             self.record_log(
                 AgentLogLevel::Debug,

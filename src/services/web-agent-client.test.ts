@@ -906,6 +906,86 @@ describe("webAgentClient", () => {
     unsubscribe();
   });
 
+  it("simulates the remember tool, lists the saved mock memory, and deletes it", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Memory Test Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    expect(await webAgentClient.listAgentMemories(agent.id)).toEqual([]);
+
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Remember tool" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const rememberEvent = events.find(
+      (event) => event.type === "tool_use" && event.toolUse.name === "remember" && event.toolUse.status === "completed",
+    );
+    expect(rememberEvent).toBeDefined();
+    unsubscribe();
+
+    const memories = await webAgentClient.listAgentMemories(agent.id);
+    expect(memories).toHaveLength(1);
+    expect(memories[0]).toMatchObject({ agentId: agent.id, source: "explicit" });
+
+    await webAgentClient.deleteAgentMemory(memories[0].id);
+    expect(await webAgentClient.listAgentMemories(agent.id)).toEqual([]);
+  });
+
+  it("extracts a mock memory for long API-agent sessions and signals injection on the next turn", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Extraction Test Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Long session" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const firstTurnEvents: ChatStreamEvent[] = [];
+    const unsubscribeFirst = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      firstTurnEvents.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "x".repeat(2_100), config });
+    // The mock's own response text echoes the full user message, so a 2,100-char input streams
+    // several hundred tokens back — advance well past that before starting the next turn.
+    await vi.advanceTimersByTimeAsync(40_000);
+    unsubscribeFirst();
+
+    const extractionEvent = firstTurnEvents.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
+    );
+    expect(extractionEvent).toBeDefined();
+    const memoriesAfterExtraction = await webAgentClient.listAgentMemories(agent.id);
+    expect(memoriesAfterExtraction.some((memory) => memory.source === "automatic")).toBe(true);
+
+    const secondTurnEvents: ChatStreamEvent[] = [];
+    const unsubscribeSecond = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      secondTurnEvents.push(event);
+    });
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "follow up", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+    unsubscribeSecond();
+
+    const injectionEvent = secondTurnEvents.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-"),
+    );
+    expect(injectionEvent).toBeDefined();
+  });
+
   it("manages mock Prompt Hooks, previews content, and stores safe traces", async () => {
     const initial = await webAgentClient.listPromptHooks();
     expect(initial.hooks.map((hook) => hook.category)).toEqual(

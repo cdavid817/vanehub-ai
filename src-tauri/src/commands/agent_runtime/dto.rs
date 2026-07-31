@@ -77,6 +77,24 @@ pub(crate) struct AgentRegistryEntry {
     pub(crate) capability_tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum AgentMemorySource {
+    Explicit,
+    Automatic,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentMemoryEntry {
+    pub(crate) id: String,
+    pub(crate) agent_id: String,
+    pub(crate) folder: Option<String>,
+    pub(crate) content: String,
+    pub(crate) source: AgentMemorySource,
+    pub(crate) created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkflowState {

@@ -60,18 +60,29 @@ pub(crate) fn create_scheduled_task(
     let next_run_at = compute_next_run(&input.frequency, Local::now())?;
     let frequency = serde_json::to_string(&input.frequency).map_err(command_error)?;
     let connection = database.connection().map_err(command_error)?;
-    let agent_exists = connection
+    let launch_kind: Option<String> = connection
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1)",
+            "SELECT launch_kind FROM agents WHERE id = ?1",
             [&input.agent_id],
-            |row| row.get::<_, i64>(0),
+            |row| row.get(0),
         )
-        .map_err(command_error)?
-        != 0;
-    if !agent_exists {
-        return Err(CommandError::validation(
-            "Scheduled task references an unsupported Agent.",
-        ));
+        .optional()
+        .map_err(command_error)?;
+    // The runner (`bootstrap::scheduled_tasks::run_one_task`) always fires with a hardcoded
+    // CLI interaction mode, so a task saved against a non-CLI agent would fail every time it
+    // runs — reject it here rather than let it silently never work once scheduled.
+    match launch_kind.as_deref() {
+        Some("cli") => {}
+        Some(_) => {
+            return Err(CommandError::validation(
+                "Scheduled tasks currently only support CLI Agents.",
+            ));
+        }
+        None => {
+            return Err(CommandError::validation(
+                "Scheduled task references an unsupported Agent.",
+            ));
+        }
     }
     let id = format!("scheduled-task-{}", Uuid::new_v4());
     let timestamp = Utc::now().to_rfc3339();
@@ -492,6 +503,54 @@ mod tests {
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].id, "task-1");
         assert_eq!(tasks[0].next_run_at, "2026-07-19T00:00:00Z");
+    }
+
+    #[test]
+    fn create_scheduled_task_accepts_a_cli_agent() {
+        let (_directory, database) = database();
+
+        let task = create_scheduled_task(
+            &database,
+            dto::CreateScheduledTaskInput {
+                name: "Task".to_string(),
+                content: "Run it".to_string(),
+                agent_id: "codex-cli".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 5 },
+            },
+        )
+        .expect("create");
+
+        assert_eq!(task.agent_id, "codex-cli");
+    }
+
+    #[test]
+    fn create_scheduled_task_rejects_an_agent_that_does_not_support_cli() {
+        // The runner (`bootstrap::scheduled_tasks::run_one_task`) always fires with a
+        // hardcoded `InteractionMode::Cli` — a task saved against a non-CLI agent (e.g. a
+        // registered API agent) would fail every single time it runs, silently forever, since
+        // nothing previously stopped it from being created this way.
+        let (_directory, database) = database();
+        let connection = database.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind) \
+                 VALUES ('my-api-agent', 'My API Agent', 'Test', 'api')",
+                [],
+            )
+            .expect("seed api agent");
+        drop(connection);
+
+        let result = create_scheduled_task(
+            &database,
+            dto::CreateScheduledTaskInput {
+                name: "Task".to_string(),
+                content: "Run it".to_string(),
+                agent_id: "my-api-agent".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 5 },
+            },
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

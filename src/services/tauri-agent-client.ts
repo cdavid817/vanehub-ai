@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
+  AgentMemory,
   AgentRegistryEntry,
   AgentTerminalEvent,
   AgentTerminalSession,
@@ -91,6 +92,14 @@ export const tauriAgentClient: AgentService = {
 
   registerApiAgent(input: RegisterApiAgentInput) {
     return invoke<AgentRegistryEntry>("register_api_agent", { input });
+  },
+
+  listAgentMemories(agentId: string) {
+    return invoke<AgentMemory[]>("list_agent_memories", { agentId });
+  },
+
+  deleteAgentMemory(memoryId: string) {
+    return invoke<void>("delete_agent_memory", { memoryId });
   },
 
   listCliTools() {

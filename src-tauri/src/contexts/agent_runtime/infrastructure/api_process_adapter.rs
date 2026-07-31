@@ -3,12 +3,13 @@ use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     risk_tier_for, tool_catalog, AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMessage, AgentProcessEventSink, AgentProcessGateway, AgentRuntimeApplicationError,
-    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
-    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessRequest, ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision,
-    ToolApprovalPort, ToolDefinition, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, FILE_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, SHELL_TOOL_NAME,
+    AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink, AgentProcessGateway,
+    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
+    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolRiskTier,
+    ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -36,6 +37,14 @@ const COMPACTION_TRIGGER_CHARACTERS: usize = 60_000;
 /// everything older is replaced by one synthetic summary turn.
 const COMPACTION_KEEP_RECENT_TURNS: usize = 6;
 const SUMMARIZATION_INSTRUCTION: &str = "Summarize the conversation above concisely for your own future reference. Preserve key facts, decisions, and any outstanding tasks. Respond with only the summary text, no preamble.";
+/// Deliberately asks for one fact per line with no numbering/bullets/preamble, since the
+/// response is parsed by splitting on newlines (`extract_memories`) rather than an additional
+/// structured-output round trip.
+const MEMORY_EXTRACTION_INSTRUCTION: &str = "Review the conversation above for any facts, decisions, or preferences worth remembering in future, separate sessions working on this same project. Respond with one per line, plain text, no numbering, bullets, or preamble. If nothing is worth remembering, respond with nothing at all.";
+/// Conservative bound on injected memory content, well under `COMPACTION_TRIGGER_CHARACTERS` —
+/// memories share the same system prompt as Skills and, unlike a turn, are never eligible for
+/// compaction, so they must not by themselves risk crowding out the context window.
+const MEMORY_INJECTION_CHARACTER_BUDGET: usize = 4_000;
 
 type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecision>>>>;
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
@@ -52,6 +61,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    memories: Arc<dyn AgentMemoryPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
 }
@@ -70,6 +80,7 @@ impl RuntimeAgentApiAdapter {
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
+        memories: Arc<dyn AgentMemoryPort>,
     ) -> Self {
         Self {
             credentials,
@@ -78,6 +89,7 @@ impl RuntimeAgentApiAdapter {
             logging,
             clock,
             skills,
+            memories,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
         }
@@ -153,6 +165,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let logging = self.logging.clone();
         let clock = self.clock.clone();
         let skills = self.skills.clone();
+        let memories = self.memories.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -163,6 +176,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 logging,
                 clock,
                 skills,
+                memories,
                 sink,
                 pending_approvals,
             );
@@ -230,6 +244,7 @@ fn run_generation(
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    memories: Arc<dyn AgentMemoryPort>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
@@ -244,6 +259,7 @@ fn run_generation(
         logging.as_ref(),
         clock.as_ref(),
         skills.as_ref(),
+        memories.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -328,6 +344,7 @@ fn execute(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     skills: &dyn AgentSkillPort,
+    memories: &dyn AgentMemoryPort,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -346,7 +363,7 @@ fn execute(
         Ok(wire_format) => wire_format,
         Err(message) => return failed_non_retryable(message),
     };
-    let system = resolve_system_prompt(agent_id, skills, logging, clock, request);
+    let system = resolve_system_prompt(agent_id, skills, memories, logging, clock, request);
     let recent = match history.recent_messages(&request.session.id, HISTORY_LIMIT) {
         Ok(messages) => messages,
         Err(error) => {
@@ -377,6 +394,7 @@ fn execute(
         logging,
         clock,
         request,
+        memories,
     ) {
         return failure;
     }
@@ -516,6 +534,8 @@ fn execute(
                 &input,
                 request.session.folder.as_deref(),
                 cancelled.clone(),
+                agent_id,
+                memories,
             );
             tool_use.status = if outcome.is_error {
                 "failed".to_string()
@@ -545,6 +565,7 @@ fn execute(
             logging,
             clock,
             request,
+            memories,
         ) {
             return failure;
         }
@@ -586,18 +607,21 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
     })
 }
 
-/// Resolves the agent's bound, enabled Skills into one system-prompt string
-/// (`add-agent-skill-support`), or `None` if it has none bound. Never fails the generation on
-/// lookup error — logs a warning and falls back to `None`, matching context compaction's own
-/// established best-effort-enhancement philosophy (design.md Decision 3).
+/// Resolves the agent's bound, enabled Skills (`add-agent-skill-support`) and stored memories
+/// scoped to `(agent_id, request.session.folder)` (`add-agent-cross-session-memory`) into one
+/// system-prompt string, or `None` if both are empty. Neither source can fail the generation on
+/// lookup error — each logs its own warning and falls back to contributing nothing, matching
+/// context compaction's own established best-effort-enhancement philosophy (design.md Decision 3
+/// in `add-agent-skill-support`).
 fn resolve_system_prompt(
     agent_id: &str,
     skills: &dyn AgentSkillPort,
+    memories: &dyn AgentMemoryPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
-    match skills.bound_skill_prompts(agent_id) {
+    let skill_section = match skills.bound_skill_prompts(agent_id) {
         Ok(prompts) if prompts.is_empty() => None,
         Ok(prompts) => Some(format_system_prompt(&prompts)),
         Err(error) => {
@@ -605,7 +629,7 @@ fn resolve_system_prompt(
                 level: AgentLogLevel::Warn,
                 category: "session.runtime.api.skills".to_string(),
                 message: format!(
-                    "Failed to resolve bound Skills; continuing without a system prompt: {error}"
+                    "Failed to resolve bound Skills; continuing without them in the system prompt: {error}"
                 ),
                 agent_id: Some(request.agent.id.clone()),
                 session_id: Some(request.session.id.clone()),
@@ -617,6 +641,35 @@ fn resolve_system_prompt(
             });
             None
         }
+    };
+    let memory_section = match memories.list(agent_id, request.session.folder.as_deref()) {
+        Ok(scoped_memories) => format_memory_section(&scoped_memories),
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.memory".to_string(),
+                message: format!(
+                    "Failed to resolve stored memories; continuing without them in the system prompt: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            None
+        }
+    };
+    let sections: Vec<String> = [skill_section, memory_section]
+        .into_iter()
+        .flatten()
+        .collect();
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
     }
 }
 
@@ -626,6 +679,31 @@ fn format_system_prompt(prompts: &[BoundSkillPrompt]) -> String {
         .map(|prompt| format!("## {}\n{}", prompt.name, prompt.body))
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// Formats `memories` (already recency-ordered — most recent first — by the port's `list`
+/// contract) as one `## Memory` section, one bullet per memory, greedily included up to
+/// `MEMORY_INJECTION_CHARACTER_BUDGET`. An individual memory too large to fit is skipped rather
+/// than stopping the whole pass, so one oversized entry can't crowd out every smaller, older one
+/// behind it. Returns `None` when there are no memories or none fit — a bounded substitute for
+/// real retrieval (design.md defers vector search/embeddings unless this proves inadequate).
+fn format_memory_section(memories: &[AgentMemory]) -> Option<String> {
+    let mut budget = MEMORY_INJECTION_CHARACTER_BUDGET;
+    let mut lines = Vec::new();
+    for memory in memories {
+        let line = format!("- {}", memory.content);
+        let line_length = line.chars().count();
+        if line_length > budget {
+            continue;
+        }
+        budget -= line_length;
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(format!("## Memory\n{}", lines.join("\n")))
+    }
 }
 
 /// If `turns`' accumulated size crosses the trigger threshold, replaces everything except the
@@ -649,6 +727,7 @@ fn maybe_compact(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
+    memories: &dyn AgentMemoryPort,
 ) -> Option<GenerationProcessEvent> {
     if !should_compact(turns_character_count(turns)) || turns.len() <= COMPACTION_KEEP_RECENT_TURNS
     {
@@ -656,7 +735,39 @@ fn maybe_compact(
     }
     let split_at = turns.len() - COMPACTION_KEEP_RECENT_TURNS;
     let turns_before = turns.len();
-    let Some(summary) = summarize_turns(
+    let summary = match summarize_turns(
+        wire_format,
+        client,
+        api_key,
+        model,
+        system,
+        &turns[..split_at],
+        SUMMARIZATION_INSTRUCTION,
+        cancelled,
+    ) {
+        Ok(Some(summary)) => summary,
+        Ok(None) | Err(_) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.compaction".to_string(),
+                message:
+                    "Context compaction summarization call failed; continuing without compaction."
+                        .to_string(),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            return None;
+        }
+    };
+    // Piggybacks on compaction's own trigger as a cost/latency control (design.md) — runs only
+    // when the session has already gotten substantial enough to compact, using the identical
+    // pre-mutation slice.
+    extract_memories(
         wire_format,
         client,
         api_key,
@@ -664,22 +775,13 @@ fn maybe_compact(
         system,
         &turns[..split_at],
         cancelled,
-    ) else {
-        let _ = logging.record(AgentLog {
-            level: AgentLogLevel::Warn,
-            category: "session.runtime.api.compaction".to_string(),
-            message: "Context compaction summarization call failed; continuing without compaction."
-                .to_string(),
-            agent_id: Some(request.agent.id.clone()),
-            session_id: Some(request.session.id.clone()),
-            operation_id: Some(request.operation_id.clone()),
-            run_id: None,
-            trace_id: None,
-            span_id: None,
-            occurred_at: clock.now(),
-        });
-        return None;
-    };
+        request.agent.id.as_str(),
+        request.session.folder.as_deref(),
+        memories,
+        logging,
+        clock,
+        request,
+    );
     let mut compacted = vec![json!({ "role": "user", "content": summary })];
     compacted.extend(turns.split_off(split_at));
     *turns = compacted;
@@ -695,12 +797,17 @@ fn maybe_compact(
     None
 }
 
-/// Calls the model once to summarize `turns_to_summarize` into a short recap, reusing the same
-/// wire-format request/response machinery as regular generation — except the full text response
-/// is accumulated instead of streamed to the sink, and no tools are declared. Returns `None`
-/// (rather than an `Err`) on any failure: network error, non-2xx status, cancellation, or an
-/// empty response — summarization is a best-effort compaction step, not something that should
-/// fail the generation it's trying to shrink.
+/// Calls the model once to reduce `turns_to_summarize` to short text per `instruction`, reusing
+/// the same wire-format request/response machinery as regular generation — except the full text
+/// response is accumulated instead of streamed to the sink, and no tools are declared. `Ok(None)`
+/// means the call completed but produced nothing (empty `turns_to_summarize`, or a blank/
+/// whitespace-only response — a valid outcome, e.g. "nothing worth remembering" for extraction).
+/// `Err` means the call itself didn't complete: network error, non-2xx status, cancellation, or a
+/// provider-reported failure. Shared by compaction's own summarization and automatic memory
+/// extraction (`extract_memories`) — both are best-effort steps that must never fail the
+/// generation they're attached to, but the `Ok`/`Err` split lets `extract_memories` log only the
+/// latter, matching `add-agent-cross-session-memory`'s spec.
+#[allow(clippy::too_many_arguments)]
 fn summarize_turns(
     wire_format: &WireFormat,
     client: &reqwest::blocking::Client,
@@ -708,22 +815,23 @@ fn summarize_turns(
     model: &str,
     system: Option<&str>,
     turns_to_summarize: &[Value],
+    instruction: &str,
     cancelled: &AtomicBool,
-) -> Option<String> {
+) -> Result<Option<String>, String> {
     if turns_to_summarize.is_empty() {
-        return None;
+        return Ok(None);
     }
     let mut prompt_turns = turns_to_summarize.to_vec();
-    prompt_turns.push(json!({ "role": "user", "content": SUMMARIZATION_INSTRUCTION }));
+    prompt_turns.push(json!({ "role": "user", "content": instruction }));
     let body = (wire_format.build_request_body)(model, &prompt_turns, &[], system);
     let request_builder = (wire_format.apply_auth)(client.post(&wire_format.endpoint), api_key);
     let response = request_builder
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .ok()?;
+        .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
-        return None;
+        return Err(format!("received HTTP {}", response.status()));
     }
 
     let mut reader = std::io::BufReader::new(response);
@@ -732,10 +840,12 @@ fn summarize_turns(
     let mut summary = String::new();
     loop {
         if cancelled.load(Ordering::SeqCst) {
-            return None;
+            return Err("cancelled".to_string());
         }
         let mut line = String::new();
-        let read = reader.read_line(&mut line).ok()?;
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|error| error.to_string())?;
         if read == 0 {
             break;
         }
@@ -748,7 +858,7 @@ fn summarize_turns(
             if let Some(data) = current_data.take() {
                 match (wire_format.translate_sse_data)(&data, &mut accumulator) {
                     Some(GenerationProcessEvent::Completed(_)) => break,
-                    Some(GenerationProcessEvent::Failed(_)) => return None,
+                    Some(GenerationProcessEvent::Failed(failure)) => return Err(failure.diagnostic),
                     Some(GenerationProcessEvent::Token(text)) => summary.push_str(&text),
                     _ => {}
                 }
@@ -757,10 +867,65 @@ fn summarize_turns(
     }
 
     let trimmed = summary.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
+    Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
+}
+
+/// Parses `summarize_turns`'s response as zero or more memories, one per non-empty line, and
+/// saves each as `MemorySource::Automatic`. "Nothing worth remembering" (`Ok(None)`) saves
+/// nothing and logs nothing — a normal, expected outcome, not a failure. An actual call failure
+/// (`Err`) is logged and otherwise ignored, exactly like compaction's own summarization failure,
+/// so it's visible to an operator without affecting the generation or its compaction.
+#[allow(clippy::too_many_arguments)]
+fn extract_memories(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    turns_to_extract_from: &[Value],
+    cancelled: &AtomicBool,
+    agent_id: &str,
+    folder: Option<&str>,
+    memories: &dyn AgentMemoryPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+) {
+    let response = match summarize_turns(
+        wire_format,
+        client,
+        api_key,
+        model,
+        system,
+        turns_to_extract_from,
+        MEMORY_EXTRACTION_INSTRUCTION,
+        cancelled,
+    ) {
+        Ok(Some(response)) => response,
+        Ok(None) => return,
+        Err(error) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.memory".to_string(),
+                message: format!(
+                    "Automatic memory extraction call failed; continuing without it: {error}"
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            return;
+        }
+    };
+    for line in response.lines() {
+        let line = line.trim();
+        if !line.is_empty() {
+            let _ = memories.save(agent_id, folder, line, MemorySource::Automatic);
+        }
     }
 }
 
@@ -801,12 +966,21 @@ fn await_approval(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_tool_call(
     name: &str,
     input: &Value,
     workspace_folder: Option<&str>,
     cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
 ) -> ToolExecutionOutcome {
+    // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
+    // touches this app's own storage — so it's handled before the workspace-folder gate below,
+    // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
+    if name == REMEMBER_TOOL_NAME {
+        return execute_remember(input, agent_id, workspace_folder, memories);
+    }
     let Some(folder) = workspace_folder else {
         return ToolExecutionOutcome {
             output: "This session has no workspace folder configured.".to_string(),
@@ -835,6 +1009,35 @@ fn execute_tool_call(
         }
         other => ToolExecutionOutcome {
             output: format!("Unknown tool \"{other}\"."),
+            is_error: true,
+        },
+    }
+}
+
+fn execute_remember(
+    input: &Value,
+    agent_id: &str,
+    folder: Option<&str>,
+    memories: &dyn AgentMemoryPort,
+) -> ToolExecutionOutcome {
+    let content = input
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if content.is_empty() {
+        return ToolExecutionOutcome {
+            output: "No content was provided to remember.".to_string(),
+            is_error: true,
+        };
+    }
+    match memories.save(agent_id, folder, content, MemorySource::Explicit) {
+        Ok(()) => ToolExecutionOutcome {
+            output: "Saved.".to_string(),
+            is_error: false,
+        },
+        Err(error) => ToolExecutionOutcome {
+            output: format!("Failed to save memory: {error}"),
             is_error: true,
         },
     }
@@ -961,6 +1164,18 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingLogging {
+        logs: Mutex<Vec<AgentLog>>,
+    }
+
+    impl AgentLoggingPort for RecordingLogging {
+        fn record(&self, log: AgentLog) -> Result<(), AgentRuntimeApplicationError> {
+            self.logs.lock().expect("logs").push(log);
+            Ok(())
+        }
+    }
+
     struct FixedClock;
 
     impl AgentClockPort for FixedClock {
@@ -977,6 +1192,75 @@ mod tests {
             _agent_id: &str,
         ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
             Ok(Vec::new())
+        }
+    }
+
+    /// `(agent_id, folder, content, source)`, as recorded by `FakeMemories::save`.
+    type SavedMemory = (String, Option<String>, String, MemorySource);
+
+    #[derive(Default)]
+    struct FakeMemories {
+        saved: Mutex<Vec<SavedMemory>>,
+        /// What `list`/`list_all_for_agent` hand back — empty by default (the shape every
+        /// pre-existing call site outside this section's own tests relies on), seeded via
+        /// `FakeMemories::seeded` where a test needs `resolve_system_prompt` to see memories.
+        to_list: Vec<AgentMemory>,
+    }
+
+    impl FakeMemories {
+        fn seeded(to_list: Vec<AgentMemory>) -> Self {
+            Self {
+                saved: Mutex::new(Vec::new()),
+                to_list,
+            }
+        }
+    }
+
+    impl AgentMemoryPort for FakeMemories {
+        fn save(
+            &self,
+            agent_id: &str,
+            folder: Option<&str>,
+            content: &str,
+            source: MemorySource,
+        ) -> Result<(), AgentRuntimeApplicationError> {
+            self.saved.lock().expect("saved memories").push((
+                agent_id.to_string(),
+                folder.map(str::to_string),
+                content.to_string(),
+                source,
+            ));
+            Ok(())
+        }
+
+        fn list(
+            &self,
+            _agent_id: &str,
+            _folder: Option<&str>,
+        ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+            Ok(self.to_list.clone())
+        }
+
+        fn list_all_for_agent(
+            &self,
+            _agent_id: &str,
+        ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+            Ok(self.to_list.clone())
+        }
+
+        fn delete(&self, _memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+            Ok(())
+        }
+    }
+
+    fn fake_memory(id: &str, content: &str) -> AgentMemory {
+        AgentMemory {
+            id: id.to_string(),
+            agent_id: "my-agent".to_string(),
+            folder: None,
+            content: content.to_string(),
+            source: MemorySource::Explicit,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
 
@@ -1072,6 +1356,7 @@ mod tests {
             Arc::new(NoopLogging),
             Arc::new(FixedClock),
             Arc::new(NoopSkills),
+            Arc::new(FakeMemories::default()),
         )
     }
 
@@ -1144,6 +1429,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &FakeMemories::default(),
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1171,6 +1457,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &FakeMemories::default(),
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1197,6 +1484,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &FakeMemories::default(),
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1222,6 +1510,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &FakeMemories::default(),
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1248,6 +1537,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &FakeMemories::default(),
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1337,7 +1627,14 @@ mod tests {
 
     #[test]
     fn execute_tool_call_rejects_unknown_tool_names() {
-        let outcome = execute_tool_call("mystery", &json!({}), Some("."), not_cancelled());
+        let outcome = execute_tool_call(
+            "mystery",
+            &json!({}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+        );
         assert!(outcome.is_error);
     }
 
@@ -1348,6 +1645,8 @@ mod tests {
             &json!({"command": "echo hi"}),
             None,
             not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
         );
         assert!(outcome.is_error);
         assert!(outcome.output.contains("workspace folder"));
@@ -1364,6 +1663,8 @@ mod tests {
             &json!({"command": "echo hi"}),
             Some(&folder),
             not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
         );
         assert!(!shell_outcome.is_error);
 
@@ -1372,9 +1673,46 @@ mod tests {
             &json!({"operation": "read", "path": "a.txt"}),
             Some(&folder),
             not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
         );
         assert!(!file_outcome.is_error);
         assert_eq!(file_outcome.output, "hello");
+    }
+
+    #[test]
+    fn execute_tool_call_routes_remember_and_works_without_a_workspace_folder() {
+        let memories = FakeMemories::default();
+
+        let outcome = execute_tool_call(
+            REMEMBER_TOOL_NAME,
+            &json!({"content": "Uses pnpm."}),
+            None,
+            not_cancelled(),
+            "test-agent",
+            &memories,
+        );
+
+        assert!(!outcome.is_error);
+        let saved = memories.saved.lock().expect("saved memories");
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].0, "test-agent");
+        assert_eq!(saved[0].1, None);
+        assert_eq!(saved[0].2, "Uses pnpm.");
+        assert_eq!(saved[0].3, MemorySource::Explicit);
+    }
+
+    #[test]
+    fn execute_tool_call_remember_rejects_empty_content() {
+        let outcome = execute_tool_call(
+            REMEMBER_TOOL_NAME,
+            &json!({"content": "   "}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+        );
+        assert!(outcome.is_error);
     }
 
     #[test]
@@ -1454,6 +1792,7 @@ mod tests {
         let system = resolve_system_prompt(
             "my-agent",
             &FakeSkills(Ok(Vec::new())),
+            &FakeMemories::default(),
             &NoopLogging,
             &FixedClock,
             &request,
@@ -1470,6 +1809,7 @@ mod tests {
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
             }])),
+            &FakeMemories::default(),
             &NoopLogging,
             &FixedClock,
             &request,
@@ -1483,11 +1823,74 @@ mod tests {
         let system = resolve_system_prompt(
             "my-agent",
             &FakeSkills(Err("lookup failed")),
+            &FakeMemories::default(),
             &NoopLogging,
             &FixedClock,
             &request,
         );
         assert_eq!(system, None);
+    }
+
+    #[test]
+    fn resolve_system_prompt_combines_skills_and_memory_sections() {
+        let request = sample_request("api");
+        let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
+        let system = resolve_system_prompt(
+            "my-agent",
+            &FakeSkills(Ok(vec![BoundSkillPrompt {
+                name: "Reviewer".to_string(),
+                body: "Review the diff.".to_string(),
+            }])),
+            &memories,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        assert_eq!(
+            system,
+            Some("## Reviewer\nReview the diff.\n\n## Memory\n- Uses pnpm.".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_system_prompt_returns_only_memory_when_no_skills_are_bound() {
+        let request = sample_request("api");
+        let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
+        let system = resolve_system_prompt(
+            "my-agent",
+            &FakeSkills(Ok(Vec::new())),
+            &memories,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        );
+        assert_eq!(system, Some("## Memory\n- Uses pnpm.".to_string()));
+    }
+
+    #[test]
+    fn format_memory_section_truncates_by_recency_when_over_budget() {
+        let recent = fake_memory(
+            "recent",
+            &"x".repeat(MEMORY_INJECTION_CHARACTER_BUDGET - 10),
+        );
+        let older = fake_memory("older", "This one no longer fits.");
+        // `list`'s contract is recency order (most recent first) — `recent` is deliberately
+        // sized to consume nearly the whole budget, leaving no room for `older` behind it.
+        let section = format_memory_section(&[recent.clone(), older]);
+        assert_eq!(section, Some(format!("## Memory\n- {}", recent.content)));
+    }
+
+    #[test]
+    fn format_memory_section_skips_an_oversized_entry_and_keeps_checking_smaller_ones_behind_it() {
+        let oversized = fake_memory("big", &"x".repeat(MEMORY_INJECTION_CHARACTER_BUDGET + 1));
+        let fits = fake_memory("small", "Uses pnpm.");
+        let section = format_memory_section(&[oversized, fits]);
+        assert_eq!(section, Some("## Memory\n- Uses pnpm.".to_string()));
+    }
+
+    #[test]
+    fn format_memory_section_returns_none_for_no_memories() {
+        assert_eq!(format_memory_section(&[]), None);
     }
 
     fn openai_compatible_wire_format(base_url: &str) -> WireFormat {
@@ -1524,6 +1927,36 @@ mod tests {
                 .write_all(response.as_bytes())
                 .expect("write summarization response");
             request
+        });
+        (format!("http://{address}"), handle)
+    }
+
+    /// Like `http_fixture`, but accepts and answers `bodies.len()` requests in sequence on the
+    /// same address — for call sites that make more than one HTTP request against the same
+    /// wire-format endpoint, such as `maybe_compact`'s own summarization call followed by
+    /// `extract_memories`'s.
+    fn http_fixture_sequence(
+        status: &'static str,
+        bodies: Vec<String>,
+    ) -> (String, thread::JoinHandle<Vec<Vec<u8>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture sequence");
+        let address = listener.local_addr().expect("fixture address");
+        let handle = thread::spawn(move || {
+            bodies
+                .into_iter()
+                .map(|body| {
+                    let (mut stream, _) = listener.accept().expect("accept fixture request");
+                    let request = read_fixture_request(&mut stream);
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    stream
+                        .write_all(response.as_bytes())
+                        .expect("write fixture response");
+                    request
+                })
+                .collect()
         });
         (format!("http://{address}"), handle)
     }
@@ -1584,16 +2017,17 @@ mod tests {
             "deepseek-chat",
             None,
             &[json!({ "role": "user", "content": "hello" })],
+            SUMMARIZATION_INSTRUCTION,
             &cancelled,
         );
 
         let request = server.join().expect("fixture server");
-        assert_eq!(summary, Some("This is a summary.".to_string()));
+        assert_eq!(summary, Ok(Some("This is a summary.".to_string())));
         assert!(request_json_body(&request).get("tools").is_none());
     }
 
     #[test]
-    fn summarize_turns_returns_none_when_the_turns_to_summarize_are_empty() {
+    fn summarize_turns_returns_ok_none_when_the_turns_to_summarize_are_empty() {
         let wire_format = openai_compatible_wire_format("http://127.0.0.1:1");
         let client = blocking_http_client(Duration::from_secs(5)).expect("client");
         let summary = summarize_turns(
@@ -1603,13 +2037,14 @@ mod tests {
             "deepseek-chat",
             None,
             &[],
+            SUMMARIZATION_INSTRUCTION,
             &not_cancelled(),
         );
-        assert_eq!(summary, None);
+        assert_eq!(summary, Ok(None));
     }
 
     #[test]
-    fn summarize_turns_falls_back_to_none_when_the_http_call_fails() {
+    fn summarize_turns_returns_err_when_the_http_call_fails() {
         let (address, server) = http_fixture("500 Internal Server Error", String::new());
         let wire_format = openai_compatible_wire_format(&address);
         let client = blocking_http_client(Duration::from_secs(5)).expect("client");
@@ -1622,11 +2057,127 @@ mod tests {
             "deepseek-chat",
             None,
             &[json!({ "role": "user", "content": "hello" })],
+            SUMMARIZATION_INSTRUCTION,
             &cancelled,
         );
 
         server.join().expect("fixture server");
-        assert_eq!(summary, None);
+        assert!(summary.is_err());
+    }
+
+    #[test]
+    fn extract_memories_saves_one_memory_per_non_empty_line() {
+        let (address, server) = http_fixture(
+            "200 OK",
+            sse_body(&[
+                r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm.\nPrefers dark mode."},"finish_reason":null}]}"#,
+                "[DONE]",
+            ]),
+        );
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let cancelled = not_cancelled();
+        let memories = FakeMemories::default();
+        let logging = RecordingLogging::default();
+        let request = sample_request("api");
+
+        extract_memories(
+            &wire_format,
+            &client,
+            "sk-test",
+            "deepseek-chat",
+            None,
+            &[json!({ "role": "user", "content": "hello" })],
+            &cancelled,
+            "my-agent",
+            Some("my-folder"),
+            &memories,
+            &logging,
+            &FixedClock,
+            &request,
+        );
+
+        server.join().expect("fixture server");
+        let saved = memories.saved.lock().expect("saved memories");
+        assert_eq!(saved.len(), 2);
+        assert_eq!(
+            saved[0],
+            (
+                "my-agent".to_string(),
+                Some("my-folder".to_string()),
+                "Uses pnpm.".to_string(),
+                MemorySource::Automatic,
+            )
+        );
+        assert_eq!(saved[1].2, "Prefers dark mode.");
+        assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn extract_memories_saves_nothing_and_logs_nothing_when_the_response_is_empty() {
+        let (address, server) = http_fixture("200 OK", sse_body(&["[DONE]"]));
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let cancelled = not_cancelled();
+        let memories = FakeMemories::default();
+        let logging = RecordingLogging::default();
+        let request = sample_request("api");
+
+        extract_memories(
+            &wire_format,
+            &client,
+            "sk-test",
+            "deepseek-chat",
+            None,
+            &[json!({ "role": "user", "content": "hello" })],
+            &cancelled,
+            "my-agent",
+            None,
+            &memories,
+            &logging,
+            &FixedClock,
+            &request,
+        );
+
+        server.join().expect("fixture server");
+        assert!(memories.saved.lock().expect("saved memories").is_empty());
+        // "Nothing worth remembering" is a normal outcome, not a failure — unlike the HTTP
+        // failure case below, it must not be logged.
+        assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn extract_memories_saves_nothing_and_logs_a_warning_when_the_http_call_fails() {
+        let (address, server) = http_fixture("500 Internal Server Error", String::new());
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let cancelled = not_cancelled();
+        let memories = FakeMemories::default();
+        let logging = RecordingLogging::default();
+        let request = sample_request("api");
+
+        extract_memories(
+            &wire_format,
+            &client,
+            "sk-test",
+            "deepseek-chat",
+            None,
+            &[json!({ "role": "user", "content": "hello" })],
+            &cancelled,
+            "my-agent",
+            None,
+            &memories,
+            &logging,
+            &FixedClock,
+            &request,
+        );
+
+        server.join().expect("fixture server");
+        assert!(memories.saved.lock().expect("saved memories").is_empty());
+        let logs = logging.logs.lock().expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, AgentLogLevel::Warn);
+        assert!(logs[0].message.contains("extraction"));
     }
 
     #[test]
@@ -1650,6 +2201,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &request,
+            &FakeMemories::default(),
         );
 
         assert!(result.is_none());
@@ -1695,6 +2247,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &request,
+            &FakeMemories::default(),
         );
         server.join().expect("fixture server");
 
@@ -1754,6 +2307,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &request,
+            &FakeMemories::default(),
         );
         let summarization_request = server.join().expect("fixture server");
         assert!(result.is_none());
@@ -1804,6 +2358,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &request,
+            &FakeMemories::default(),
         );
         server.join().expect("fixture server");
 
@@ -1811,5 +2366,68 @@ mod tests {
         assert_eq!(turns.len(), original_len);
         assert_eq!(turns[0]["content"], big);
         assert!(sink.events.lock().expect("events").is_empty());
+    }
+
+    #[test]
+    fn maybe_compact_triggers_extraction_and_saves_memories_when_it_succeeds() {
+        let (address, server) = http_fixture_sequence(
+            "200 OK",
+            vec![
+                sse_body(&[
+                    r#"{"choices":[{"index":0,"delta":{"content":"Condensed summary."},"finish_reason":null}]}"#,
+                    "[DONE]",
+                ]),
+                sse_body(&[
+                    r#"{"choices":[{"index":0,"delta":{"content":"Uses pnpm."},"finish_reason":null}]}"#,
+                    "[DONE]",
+                ]),
+            ],
+        );
+        let wire_format = openai_compatible_wire_format(&address);
+        let client = blocking_http_client(Duration::from_secs(5)).expect("client");
+        let sink = CapturingSink::default();
+        let request = sample_request("api");
+        let cancelled = not_cancelled();
+        let memories = FakeMemories::default();
+
+        let mut turns = Vec::new();
+        for index in 0..3 {
+            turns.push(json!({
+                "role": "user",
+                "content": format!("{}-{index}", "x".repeat(COMPACTION_TRIGGER_CHARACTERS / 2)),
+            }));
+        }
+        for index in 0..COMPACTION_KEEP_RECENT_TURNS {
+            turns.push(json!({ "role": "user", "content": format!("recent-{index}") }));
+        }
+
+        let result = maybe_compact(
+            &mut turns,
+            &wire_format,
+            &client,
+            "sk-test",
+            "deepseek-chat",
+            None,
+            &cancelled,
+            &sink,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+            &memories,
+        );
+        let requests = server.join().expect("fixture server");
+
+        assert!(result.is_none());
+        assert_eq!(
+            requests.len(),
+            2,
+            "compaction's own summarization call, then extraction's"
+        );
+        let saved = memories.saved.lock().expect("saved memories");
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].0, request.agent.id);
+        assert_eq!(saved[0].1, request.session.folder);
+        assert_eq!(saved[0].2, "Uses pnpm.");
+        assert_eq!(saved[0].3, MemorySource::Automatic);
     }
 }

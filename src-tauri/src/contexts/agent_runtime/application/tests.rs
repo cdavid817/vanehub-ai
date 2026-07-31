@@ -54,6 +54,7 @@ struct FakeWorld {
     next_message_id: AtomicUsize,
     completed_usage: Mutex<Vec<AgentUsageRecord>>,
     resolved_approvals: Mutex<Vec<(String, String, ToolApprovalDecision)>>,
+    memories: Mutex<Vec<AgentMemory>>,
 }
 
 impl FakeWorld {
@@ -93,6 +94,7 @@ impl FakeWorld {
             next_message_id: AtomicUsize::new(0),
             completed_usage: Mutex::new(Vec::new()),
             resolved_approvals: Mutex::new(Vec::new()),
+            memories: Mutex::new(Vec::new()),
         }
     }
 }
@@ -432,6 +434,66 @@ impl ToolApprovalPort for FakeWorld {
             .expect("resolved approvals")
             .push((process_id.to_string(), call_id.to_string(), decision));
         Ok(true)
+    }
+}
+
+impl AgentMemoryPort for FakeWorld {
+    fn save(
+        &self,
+        agent_id: &str,
+        folder: Option<&str>,
+        content: &str,
+        source: MemorySource,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.memories.lock().expect("memories").push(AgentMemory {
+            id: format!(
+                "memory-{}",
+                self.next_message_id.fetch_add(1, Ordering::Relaxed)
+            ),
+            agent_id: agent_id.to_string(),
+            folder: folder.map(str::to_string),
+            content: content.to_string(),
+            source,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        });
+        Ok(())
+    }
+
+    fn list(
+        &self,
+        agent_id: &str,
+        folder: Option<&str>,
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        Ok(self
+            .memories
+            .lock()
+            .expect("memories")
+            .iter()
+            .filter(|memory| memory.agent_id == agent_id && memory.folder.as_deref() == folder)
+            .cloned()
+            .collect())
+    }
+
+    fn list_all_for_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        Ok(self
+            .memories
+            .lock()
+            .expect("memories")
+            .iter()
+            .filter(|memory| memory.agent_id == agent_id)
+            .cloned()
+            .collect())
+    }
+
+    fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.memories
+            .lock()
+            .expect("memories")
+            .retain(|memory| memory.id != memory_id);
+        Ok(())
     }
 }
 
@@ -801,6 +863,20 @@ fn agent(
     .expect("agent")
 }
 
+fn api_agent(id: &str, display_name: &str, tags: Vec<&str>) -> AgentDefinition {
+    AgentDefinition::new(AgentDefinitionInput {
+        id: id.to_string(),
+        display_name: display_name.to_string(),
+        provider: "provider".to_string(),
+        managed_sdk_dependency_id: None,
+        launch: LaunchMetadata::new("api".to_string(), None, None, None).expect("launch"),
+        supported_interaction_modes: vec![InteractionMode::Api],
+        availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+        capability_tags: tags.into_iter().map(str::to_string).collect(),
+    })
+    .expect("agent")
+}
+
 fn chat_configuration() -> AgentChatConfiguration {
     AgentChatConfiguration {
         agent_id: "codex-cli".to_string(),
@@ -901,7 +977,8 @@ fn service_with_telemetry(
         loop_completions: world.clone(),
         api_agents: world.clone(),
         api_credentials: world.clone(),
-        tool_approvals: world,
+        tool_approvals: world.clone(),
+        memories: world,
     });
     (service, telemetry)
 }
@@ -1720,6 +1797,66 @@ fn prompt_failure_is_safe_terminal_and_stop_deduplicates_cancelled_events() {
     let prompt_reports = world.prompt_reports.lock().expect("prompt reports");
     assert_eq!(prompt_reports.len(), 1);
     assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Cancelled);
+}
+
+#[test]
+fn send_message_skips_prompt_hook_assembly_for_non_cli_agents() {
+    // Prompt Hooks are CLI-only by design (`ManagedCliAgentId` only recognizes the built-in
+    // CLI ids). The real `EffectivePromptGateway` adapter fails to parse any other agent id,
+    // so `start_message_generation` must skip `prompts.assemble` for non-CLI agents entirely
+    // — mirroring the `cli_profiles.load` gate immediately below it — rather than let that
+    // parse failure abort the whole send. `FakeWorld::assemble` always succeeds regardless of
+    // agent id (it can't reproduce the real parse failure without duplicating
+    // `ManagedCliAgentId`'s logic), so this asserts the *call* is skipped: a called `assemble`
+    // always prefixes the prompt with "effective::", so its absence proves the skip.
+    let world = Arc::new(FakeWorld::new(vec![api_agent(
+        "my-api-agent",
+        "My API Agent",
+        vec!["coding"],
+    )]));
+    world.sessions.lock().expect("sessions").insert(
+        "api-session".to_string(),
+        AgentSession {
+            id: "api-session".to_string(),
+            agent_id: "my-api-agent".to_string(),
+            interaction_mode: InteractionMode::Api,
+            lifecycle: AgentLifecycle::Idle,
+            folder: None,
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership: None,
+        },
+    );
+
+    let message = service(world.clone())
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "api-session".to_string(),
+            content: "hello".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "my-api-agent".to_string(),
+                interaction_mode: InteractionMode::Api,
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })
+        .expect("send");
+
+    assert_eq!(message.status, "streaming");
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(requests.len(), 1);
+    assert!(!requests[0].effective_prompt.starts_with("effective::"));
+    assert_eq!(requests[0].effective_prompt, "hello\nfiles=0");
 }
 
 #[test]

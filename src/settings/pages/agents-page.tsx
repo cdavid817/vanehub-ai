@@ -9,6 +9,7 @@ import { agentService } from "../../services/runtime-agent-client";
 import type { AgentRegistryEntry, InteractionMode, RegisterApiAgentInput, SessionDetails, WorkflowState } from "../../types/agent";
 import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
+import { AgentMemoryPanel } from "./agents/agent-memory-panel";
 
 type AgentsOverview = {
   agents: AgentRegistryEntry[];
@@ -337,68 +338,72 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
           </div>
         </div>
 
-        <SectionPanel title={t("agents.details.title")} description={t("agents.details.description")}>
-          <dl className="grid gap-4 text-sm">
-            <div>
-              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.activeAgent")}</dt>
-              <dd className="mt-1 flex min-w-0 items-center gap-2 font-medium">
-                {activeAgent ? (
-                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border ${getAgentVisualIdentity(activeAgent.id).tone}`}>
-                    <AgentBrandIcon agentId={activeAgent.id} className="h-3.5 w-3.5" />
-                  </span>
-                ) : null}
-                <span className="truncate">{activeAgent?.displayName ?? t("agents.details.noneSelected")}</span>
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.interactionMode")}</dt>
-              <dd className="mt-1 font-medium">
-                {workflow?.activeInteractionMode ? t(`agents.mode.${workflow.activeInteractionMode}`) : t("agents.details.notSelected")}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.lifecycle")}</dt>
-              <dd className="mt-1 font-medium">{workflow?.lifecycleState ?? t("agents.status.idle")}</dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.intent")}</dt>
-              <dd className="mt-1 text-muted-foreground">{workflow?.intent ?? t("agents.details.defaultIntent")}</dd>
-            </div>
-          </dl>
+        <div className="space-y-4">
+          <SectionPanel title={t("agents.details.title")} description={t("agents.details.description")}>
+            <dl className="grid gap-4 text-sm">
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.activeAgent")}</dt>
+                <dd className="mt-1 flex min-w-0 items-center gap-2 font-medium">
+                  {activeAgent ? (
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border ${getAgentVisualIdentity(activeAgent.id).tone}`}>
+                      <AgentBrandIcon agentId={activeAgent.id} className="h-3.5 w-3.5" />
+                    </span>
+                  ) : null}
+                  <span className="truncate">{activeAgent?.displayName ?? t("agents.details.noneSelected")}</span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.interactionMode")}</dt>
+                <dd className="mt-1 font-medium">
+                  {workflow?.activeInteractionMode ? t(`agents.mode.${workflow.activeInteractionMode}`) : t("agents.details.notSelected")}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.lifecycle")}</dt>
+                <dd className="mt-1 font-medium">{workflow?.lifecycleState ?? t("agents.status.idle")}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-muted-foreground">{t("agents.details.intent")}</dt>
+                <dd className="mt-1 text-muted-foreground">{workflow?.intent ?? t("agents.details.defaultIntent")}</dd>
+              </div>
+            </dl>
 
-          {visibleError ? (
-            <div className="mt-5 flex gap-2 rounded-md border p-3 text-sm ucd-status-warning">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{visibleError}</span>
-            </div>
-          ) : null}
-
-          {notice ? <div className="mt-5 rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
-
-          <Button className="mt-5 w-full" disabled={!activeAgent || launchWorkflowMutation.isPending} onClick={() => void handleLaunch()}>
-            <Play className="h-4 w-4" aria-hidden="true" />
-            {t("agents.launch")}
-          </Button>
-
-          <div className="mt-5 border-t border-border pt-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-              <Activity className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              {t("agents.details.session")}
-            </div>
-            {sessionDetails ? (
-              <dl className="grid gap-2 text-xs text-muted-foreground">
-                <div className="flex justify-between gap-3">
-                  <dt>{t("agents.details.adapter")}</dt>
-                  <dd className="font-medium text-foreground">{sessionDetails.adapter}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt>{t("agents.details.runtime")}</dt>
-                  <dd className="font-medium text-foreground">{sessionDetails.details.runtime ?? "desktop"}</dd>
-                </div>
-              </dl>
+            {visibleError ? (
+              <div className="mt-5 flex gap-2 rounded-md border p-3 text-sm ucd-status-warning">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{visibleError}</span>
+              </div>
             ) : null}
-          </div>
-        </SectionPanel>
+
+            {notice ? <div className="mt-5 rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
+
+            <Button className="mt-5 w-full" disabled={!activeAgent || launchWorkflowMutation.isPending} onClick={() => void handleLaunch()}>
+              <Play className="h-4 w-4" aria-hidden="true" />
+              {t("agents.launch")}
+            </Button>
+
+            <div className="mt-5 border-t border-border pt-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <Activity className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                {t("agents.details.session")}
+              </div>
+              {sessionDetails ? (
+                <dl className="grid gap-2 text-xs text-muted-foreground">
+                  <div className="flex justify-between gap-3">
+                    <dt>{t("agents.details.adapter")}</dt>
+                    <dd className="font-medium text-foreground">{sessionDetails.adapter}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>{t("agents.details.runtime")}</dt>
+                    <dd className="font-medium text-foreground">{sessionDetails.details.runtime ?? "desktop"}</dd>
+                  </div>
+                </dl>
+              ) : null}
+            </div>
+          </SectionPanel>
+
+          <AgentMemoryPanel agentId={activeAgent?.id ?? null} />
+        </div>
       </div>
     </div>
   );

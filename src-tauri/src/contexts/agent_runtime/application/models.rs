@@ -766,3 +766,41 @@ pub(crate) struct BoundSkillPrompt {
     pub(crate) name: String,
     pub(crate) body: String,
 }
+
+/// How a memory (`add-agent-cross-session-memory`) was produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemorySource {
+    /// Saved by the model calling the `remember` tool.
+    Explicit,
+    /// Saved by best-effort extraction when context compaction triggers.
+    Automatic,
+}
+
+impl MemorySource {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Explicit => "explicit",
+            Self::Automatic => "automatic",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "explicit" => Some(Self::Explicit),
+            "automatic" => Some(Self::Automatic),
+            _ => None,
+        }
+    }
+}
+
+/// A persisted cross-session memory, scoped to the agent that produced it and (when available)
+/// its workspace folder — `folder: None` means the agent-global scope (`add-agent-cross-session-memory`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMemory {
+    pub(crate) id: String,
+    pub(crate) agent_id: String,
+    pub(crate) folder: Option<String>,
+    pub(crate) content: String,
+    pub(crate) source: MemorySource,
+    pub(crate) created_at: String,
+}

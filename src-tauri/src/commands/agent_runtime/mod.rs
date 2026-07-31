@@ -1,10 +1,12 @@
 pub(crate) mod check_browser_readiness;
 pub(crate) mod coordination;
+pub(crate) mod delete_agent_memory;
 mod dto;
 pub(crate) mod get_agent_by_id;
 pub(crate) mod get_session_details;
 pub(crate) mod get_workflow_state;
 pub(crate) mod launch_active_workflow;
+pub(crate) mod list_agent_memories;
 pub(crate) mod list_agents;
 pub(crate) mod loops;
 mod mapper;

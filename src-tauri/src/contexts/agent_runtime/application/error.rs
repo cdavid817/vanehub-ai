@@ -29,6 +29,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     Generation(String),
     Credential(String),
     Skill(String),
+    Memory(String),
 }
 
 impl fmt::Display for AgentRuntimeApplicationError {
@@ -81,6 +82,7 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Generation(message) => write!(formatter, "agent generation error: {message}"),
             Self::Credential(message) => write!(formatter, "agent credential error: {message}"),
             Self::Skill(message) => write!(formatter, "agent Skill error: {message}"),
+            Self::Memory(message) => write!(formatter, "agent memory error: {message}"),
         }
     }
 }
