@@ -1,0 +1,46 @@
+## Context
+
+`add-terminal-usage-tracking` established the pattern this change extends: for each supported interactive-terminal CLI, a post-hoc/periodic lookup finds that CLI's own persisted session file by matching working directory and start time, then aggregates its own reported usage into VaneHub's `usage_records` table via a stable, reused message id. That change's `research.md` correctly identified gemini-cli's rough location (`~/.gemini/tmp/<project-identifier>/chats/session-*.jsonl`, resolved via `~/.gemini/projects.json`) but explicitly left it unimplemented, since no real sample file existed to verify the exact JSONL shape against.
+
+This change had access to a real, already-authenticated `~/.gemini/` directory on the user's machine (OAuth credentials present, at least one real project registered), which made it possible to read the *actual* `ChatRecordingService` class from the installed `@google/gemini-cli` npm package's bundled source directly — not just infer behavior from a class name, as `add-terminal-usage-tracking`'s research had to.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Persist reported token usage for gemini-cli's interactive terminal sessions, reusing the exact same `usage_records` schema, stable-message-id-reuse pattern, and periodic-poll infrastructure already shipped for the other three CLIs.
+- Ground the implementation in the real, installed gemini-cli package's actual source code rather than assumption, matching (and in this case exceeding, since a real sample file was unavailable even for reading) the empirical rigor applied to the other three CLIs.
+
+**Non-Goals:**
+- Mapping gemini-cli's `tool` token count (see Decision 3) — deferred pending a real multi-tool-call sample to disambiguate whether it's additive or a breakdown subset of `input`.
+- Any change to gemini-cli's managed/non-interactive pipeline mapping (`add-reported-usage-ingestion`'s `gemini_usage()` in `output.rs`) — that reads a structurally different, simpler `stream-json` `stats` object, unrelated to this terminal-mode `ChatRecordingService` output.
+- A live, authenticated end-to-end smoke test in this session — attempted (a real `gemini -p` invocation was started, using the machine's existing OAuth credentials) but did not complete in time; carried forward as a manual follow-up task, consistent with how gemini-cli's managed-pipeline mapping was originally shipped and later flagged for the same kind of follow-up verification.
+
+## Decisions
+
+1. **Resolve the project directory via `~/.gemini/projects.json`, not a fixed hash function.** Read directly from the installed package's bundled source (`ProjectRegistry.getShortId` / `Storage.getProjectIdentifier`, found via `grep -rl "ChatRecordingService"` across the minified bundle chunks and then locating the class definition and its callers): gemini-cli maintains a JSON map of `normalizedAbsoluteProjectPath -> slug` at `~/.gemini/projects.json`, auto-populating a new entry (auto-incrementing a numeric suffix on name collision, e.g. `aiproject`, `aiproject-1`) the first time it runs in a given directory. Windows paths are lowercased before lookup (`normalizePath()`: `path.resolve()` then `.toLowerCase()` only on `win32`/`darwin`). A source comment in the installed package (`"Performs migration of legacy hash-based directories to the new slug-based format"`) confirms this slug scheme superseded an older pure-hash scheme — meaning any hash-based assumption would already be stale against the currently-installed CLI version.
+   - Alternative considered: replicate claude-code's own deterministic cwd-hash scheme, by analogy. Rejected once the actual source was read — gemini-cli does not use a hash for its *current* directory naming at all (only a legacy migration path from one), so this would have silently failed to find real sessions.
+
+2. **Sum per-message tokens across every `type: "gemini"` record, not take-the-last-cumulative.** Read directly from `ChatRecordingService.recordMessageTokens()`: each assistant turn gets its own `tokens: {input, output, cached, thoughts, tool, total}` object attached to that specific message record (queued if the message hasn't been pushed yet, attached directly otherwise) — these are per-turn deltas, not a running cumulative total (unlike codex-cli's `total_token_usage`, which the source there already confirmed as monotonically cumulative). Summing every `type: "gemini"` message's `tokens.input`/`tokens.output` mirrors exactly how claude-code's own terminal usage is aggregated (`aggregate_claude_usage` sums every `assistant`-typed line's `usage` block), since both are genuinely per-message rather than cumulative.
+   - Alternative considered: take only the last `type: "gemini"` message's tokens, by analogy with codex-cli. Rejected — verified via source reading that gemini-cli's local per-message tokens are not cumulative, so taking only the last one would undercount every multi-turn session.
+
+3. **Fold `thoughts` into output; leave `tool` unmapped.** `thoughts` (from `thoughtsTokenCount` in the underlying GenAI SDK's `UsageMetadata`) represents extended-thinking/reasoning tokens that are billed as output but not included in `candidatesTokenCount` (`tokens.output`) — folding it in matches the same reasoning-token-folding decision already made for codex-cli and opencode. `tool` (from `toolUsePromptTokenCount`) is, per the underlying API's own documented semantics, very likely already a breakdown/subset of `promptTokenCount` (`tokens.input`) rather than an additive count — adding it on top would risk double-counting input tokens. Since this cannot be confirmed without a real multi-tool-call sample (unlike `thoughts`, which is unambiguously documented as separate from the visible response), it is left out of the mapping entirely rather than guessed.
+   - Alternative considered: add `tool` into `input_tokens` anyway, erring toward "some data is better than none." Rejected — an accounting bucket that might silently double-count is worse than an accounting bucket that's simply incomplete; this matches the project's existing precedent of falling back to "no reported usage" rather than guessing when a shape is ambiguous (see `add-reported-usage-ingestion`'s degenerate-zero handling).
+
+4. **Same post-hoc, working-directory + start-time lookup as opencode/codex-cli — not a live poll.** `find_gemini_chat_session_since()` (new, in `session_capture.rs`) mirrors `find_opencode_session_since`/`find_codex_rollout_since` exactly: list `.jsonl` files under the resolved project's `chats/` directory, filter by file mtime at or after the terminal's start time (with the same 2-second grace buffer), and pick the most-recently-modified match. No live `ProviderSessionCapture` discovery exists for gemini-cli today (that mechanism is codex-cli/opencode-specific, gated in `terminal_process.rs` by `matches!(request.agent.id.as_str(), "codex-cli" | "opencode")`), so there is no live-poll race to avoid in the first place — the post-hoc lookup is simply the only lookup, consistent with the periodic-poll timer (already CLI-agnostic) driving all repeated reads regardless.
+
+## Risks / Trade-offs
+
+- [Risk] gemini-cli's chat-recording format is unversioned and could change across releases, silently regressing to "no terminal usage found" for gemini-cli specifically. → [Mitigation] Missing-file/unparseable-line paths degrade to `Ok(false)` ("no usage found"), the same graceful-degradation behavior already used for the other three CLIs; fixture-based tests are pinned to the exact shape read from source so a future CLI upgrade that changes the shape fails an obvious test.
+- [Risk] No real live sample was captured before shipping (see proposal Impact). → [Mitigation] The implementation is grounded in reading actual (not documented/assumed) source code from the currently-installed package version, and the gap is explicitly flagged as a follow-up task, exactly as gemini-cli's managed-pipeline mapping already was in `add-reported-usage-ingestion`.
+- [Risk] Leaving `tool` tokens unmapped could undercount input tokens for tool-heavy gemini-cli sessions if it turns out `tool` actually is additive. → [Mitigation] Explicitly documented as a Non-Goal with clear rationale; revisit once a real multi-tool-call sample is available to disambiguate.
+
+## Migration Plan
+
+- No SQLite migration — reuses the existing `usage_records` schema unchanged.
+- No feature flag: purely additive dispatch (`"gemini-cli"` added to existing `match` arms already handling `"claude-code" | "opencode" | "codex-cli"`); any lookup/parse failure degrades to today's "no terminal usage found for this CLI" behavior, not a new failure mode.
+- Rollback: reverting the `"gemini-cli"` dispatch arms and the new lookup/aggregation functions restores today's gemini-cli-excluded behavior; no data cleanup needed.
+
+## Open Questions
+
+- Should `tool` tokens get their own tracked category once their additive-vs-subset semantics are confirmed? Deferred — not blocking this change.
+- Should the manual live-verification task block merging, or can it land now (mirroring how gemini-cli's managed-pipeline mapping already shipped without one)? Following the existing precedent: ship now, verify later.
