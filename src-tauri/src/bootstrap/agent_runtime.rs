@@ -16,11 +16,11 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopRoleGenerationCompletions, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteCoordinationRepository, SqliteLoopRepository,
-    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter,
-    UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
+    RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
+    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
+    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
+    TauriAgentRuntimeEventAdapter, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
@@ -35,6 +35,7 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
+use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
 use crate::contexts::tooling::skills::api::SkillApi;
@@ -55,6 +56,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
     pub(crate) skills: SkillApi,
+    pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) fallback_log_directory: PathBuf,
@@ -118,6 +120,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
         dependencies.database.clone(),
     ));
+    let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -126,6 +129,7 @@ pub(crate) fn assemble_agent_runtime_api(
         clock.clone(),
         agent_skills,
         agent_memories.clone(),
+        agent_mcp_tools,
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =

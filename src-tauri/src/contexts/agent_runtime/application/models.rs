@@ -360,9 +360,21 @@ pub(crate) struct ToolUseBlock {
 /// format translation module renders this into its own `tools` request shape.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ToolDefinition {
-    pub(crate) name: &'static str,
-    pub(crate) description: &'static str,
+    pub(crate) name: String,
+    pub(crate) description: String,
     pub(crate) input_schema: Value,
+}
+
+/// The result of invoking a dynamically-sourced tool (currently: MCP-sourced tools only) through
+/// `AgentMcpToolPort`. Kept separate from infrastructure's `ToolExecutionOutcome` — an
+/// application-layer port trait cannot mention an infrastructure-layer type in its signature
+/// (`native_context_dependencies_point_inward` forbids `application` from importing this
+/// context's own `infrastructure`, not just another context's) — `execute_tool_call` converts
+/// one into the other field-for-field at the infrastructure call site.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentToolCallOutcome {
+    pub(crate) output: String,
+    pub(crate) is_error: bool,
 }
 
 /// Whether a tool call may execute immediately or must wait for an explicit user decision.

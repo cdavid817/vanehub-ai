@@ -39,6 +39,20 @@ function toolList() {
   };
 }
 
+function toolCallResult(params) {
+  const { name, arguments: args } = params || {};
+  if (name === "fixture_echo") {
+    const text = (args && args.text) || "";
+    return {
+      content: [{ type: "text", text: `echo: ${text}` }],
+    };
+  }
+  return {
+    content: [{ type: "text", text: `Unknown tool "${name}".` }],
+    isError: true,
+  };
+}
+
 rl.on("line", (line) => {
   if (!line.trim()) return;
   const message = JSON.parse(line);
@@ -48,5 +62,9 @@ rl.on("line", (line) => {
   }
   if (message.method === "tools/list") {
     send(message.id, toolList());
+    return;
+  }
+  if (message.method === "tools/call") {
+    send(message.id, toolCallResult(message.params));
   }
 });

@@ -75,3 +75,12 @@ impl ConnectionTestResult {
         }
     }
 }
+
+/// One MCP server's tool, flattened out of `visible_tool_catalog`'s per-server grouping — the
+/// shape a caller outside this context (`agent_runtime`) needs to build its own prefixed tool
+/// names from, without depending on `ServerConfiguration` itself.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct McpServerToolEntry {
+    pub(crate) server_name: String,
+    pub(crate) tool: ToolDescriptor,
+}

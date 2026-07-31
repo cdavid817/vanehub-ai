@@ -314,6 +314,33 @@ impl ConnectionOutcome {
     }
 }
 
+/// The result of a single `tools/call` invocation against an MCP server — kept separate from
+/// `ConnectionOutcome` (which describes a connectivity *test*, not a tool result) even though
+/// both represent "success or failure as data, never a Rust `Result` error" for the same reason:
+/// a tool that ran but reported failure, or a server that couldn't be reached, are both outcomes
+/// the calling agent should see and react to, not exceptions in this layer.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ToolCallOutcome {
+    pub(crate) content: String,
+    pub(crate) is_error: bool,
+}
+
+impl ToolCallOutcome {
+    pub(crate) fn success(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            is_error: false,
+        }
+    }
+
+    pub(crate) fn failed(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            is_error: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,5 +432,16 @@ mod tests {
             ConnectionStatus::Connected.visible_for(false),
             ConnectionStatus::Disabled
         );
+    }
+
+    #[test]
+    fn tool_call_outcomes_have_explicit_content_and_error_semantics() {
+        let success = ToolCallOutcome::success("42");
+        assert_eq!(success.content, "42");
+        assert!(!success.is_error);
+
+        let failure = ToolCallOutcome::failed("boom");
+        assert_eq!(failure.content, "boom");
+        assert!(failure.is_error);
     }
 }

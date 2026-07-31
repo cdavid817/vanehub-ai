@@ -163,6 +163,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         cli_parameters: cli_parameters_api.clone(),
         prompts: prompt_hook_api.clone(),
         skills: skill_api.clone(),
+        mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
         fallback_log_directory: fallback_log_directory.clone(),

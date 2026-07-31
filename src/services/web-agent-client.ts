@@ -2551,6 +2551,31 @@ export const webAgentClient: AgentService = {
         });
       }, 235);
       timeoutIds.push(rememberTimeoutId);
+      // MCP-sourced tool call (`add-agent-mcp-tools`): simulates the model calling a tool
+      // exposed by a configured MCP server. Always approval-gated, mirroring the same
+      // `pendingMockToolApprovals`/`resolveToolApproval` flow `shell` already uses above — the
+      // real backend classifies every MCP-sourced tool call `RequiresApproval` unconditionally,
+      // with no auto-approve path, unlike `remember`.
+      const mcpCallId = `web-tool-approval-mcp-${assistantMessage.id}`;
+      const mcpApprovalTimeoutId = setTimeout(() => {
+        pendingMockToolApprovals.set(mcpCallId, {
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolName: "mcp__mock-server__search",
+        });
+        publishChatEvent({
+          type: "tool_use",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolUse: {
+            id: mcpCallId,
+            name: "mcp__mock-server__search",
+            input: { query: "mock" },
+            status: "awaiting_approval",
+          },
+        });
+      }, 237);
+      timeoutIds.push(mcpApprovalTimeoutId);
     }
     const richCardTimeoutId = setTimeout(() => {
       publishChatEvent({

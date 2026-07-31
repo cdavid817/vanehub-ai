@@ -8,13 +8,14 @@ use super::{
     AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentMemory, AgentMessage,
     AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
     AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
-    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
-    LoopEvidenceView, LoopGitStateView, LoopIterationView, LoopLog, LoopOperationContext,
-    LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
-    LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
-    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolUseBlock,
+    AgentToolCallOutcome, ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot,
+    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
+    GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView, LoopGitStateView,
+    LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
+    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
+    LoopVerificationProcessResult, MemorySource, NewAgentMessage, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
     UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
@@ -679,6 +680,36 @@ pub(crate) trait AgentSkillPort: Send + Sync {
         &self,
         agent_id: &str,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
+}
+
+/// Bridges the native tool-use loop to MCP-sourced tools (`add-agent-mcp-tools`), through
+/// `agent_runtime`'s own port rather than `tooling::mcp`'s types directly — mirrors
+/// `AgentSkillPort`/`RuntimeAgentSkillAdapter`'s existing pattern for depending on another
+/// context's API. Both methods are sync — the implementing adapter is responsible for bridging
+/// to `tooling::mcp`'s async `McpApi` internally (`tauri::async_runtime::block_on`), matching how
+/// this port is consumed from the tool-execution loop's synchronous call chain.
+pub(crate) trait AgentMcpToolPort: Send + Sync {
+    /// Every MCP-sourced tool visible and active for `project_path`, already named and shaped as
+    /// `ToolDefinition`s ready to merge into the fixed catalog. Returns `Err` only when the
+    /// lookup itself fails (not when there are simply no MCP tools) — callers are expected to
+    /// degrade gracefully (log and continue with the fixed catalog alone) rather than fail the
+    /// generation, matching `resolve_system_prompt`'s existing treatment of `AgentSkillPort`.
+    fn catalog_entries(
+        &self,
+        project_path: &str,
+    ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError>;
+
+    /// Invokes an MCP-sourced tool by its full prefixed name (e.g. `mcp__<server>__<tool>`).
+    /// Infallible by design — every failure mode (server no longer visible/active, connection
+    /// failure, tool-level error reported by the remote server) resolves to
+    /// `AgentToolCallOutcome{is_error: true, ..}`, matching `execute_shell`/`execute_file`'s
+    /// existing infallible-signature convention.
+    fn call_tool(
+        &self,
+        project_path: &str,
+        tool_name: &str,
+        arguments: &Value,
+    ) -> AgentToolCallOutcome;
 }
 
 /// Persistence boundary for cross-session agent memory (`add-agent-cross-session-memory`).
