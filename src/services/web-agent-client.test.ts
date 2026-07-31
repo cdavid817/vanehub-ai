@@ -879,6 +879,83 @@ describe("webAgentClient", () => {
     );
   });
 
+  it("updates a mock API agent's display name, model, and base URL", async () => {
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Original Name",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    expect(await webAgentClient.getApiAgentProviderConfig(agent.id)).toEqual({
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+
+    const updated = await webAgentClient.updateApiAgent(agent.id, {
+      displayName: "Renamed Agent",
+      modelId: "claude-sonnet-5",
+      baseUrl: null,
+      newApiKey: null,
+    });
+
+    expect(updated.displayName).toBe("Renamed Agent");
+    expect(await webAgentClient.getApiAgentProviderConfig(agent.id)).toEqual({
+      modelId: "claude-sonnet-5",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+  });
+
+  it("rejects updating a mock API agent to drop a required base URL", async () => {
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "OpenAI-Compatible Agent",
+      provider: "DeepSeek",
+      apiKey: "sk-test",
+      modelId: "deepseek-chat",
+      interfaceFormat: "openai-compatible",
+      baseUrl: "https://api.deepseek.com/v1",
+    });
+
+    await expect(
+      webAgentClient.updateApiAgent(agent.id, {
+        displayName: "OpenAI-Compatible Agent",
+        modelId: "deepseek-chat",
+        baseUrl: null,
+        newApiKey: null,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("deletes an unreferenced mock API agent and rejects deleting a referenced one", async () => {
+    const unreferenced = await webAgentClient.registerApiAgent({
+      displayName: "Unreferenced Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    await webAgentClient.deleteApiAgent(unreferenced.id);
+    expect(await webAgentClient.getApiAgentProviderConfig(unreferenced.id)).toBeNull();
+    expect((await webAgentClient.listAgents()).some((entry) => entry.id === unreferenced.id)).toBe(false);
+
+    const referenced = await webAgentClient.registerApiAgent({
+      displayName: "Referenced Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    await createMockSession({ agentId: referenced.id, interactionMode: "api", title: "Blocks delete" });
+
+    await expect(webAgentClient.deleteApiAgent(referenced.id)).rejects.toThrow();
+    expect((await webAgentClient.listAgents()).some((entry) => entry.id === referenced.id)).toBe(true);
+  });
+
   it("signals bound Skill influence in mock API-agent generations", async () => {
     vi.useFakeTimers();
     const agent = await webAgentClient.registerApiAgent({

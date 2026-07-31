@@ -1,7 +1,7 @@
 use crate::contexts::agent_runtime::application::{
     AgentAvailabilityGateway, AgentRegistryRepository, AgentRuntimeApplicationError,
     AgentWorkflowRepository, ApiAgentGateway, ApiProviderConfig, RegisterApiAgentInput,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    UpdateApiAgentInput, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentLifecycle, AgentWorkflow,
@@ -270,6 +270,97 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
                 })
             })
     }
+
+    fn update(
+        &self,
+        agent_id: &str,
+        input: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        let changed = connection
+            .execute(
+                r#"
+                UPDATE agents
+                SET display_name = ?2, model_id = ?3, base_url = ?4
+                WHERE id = ?1 AND launch_kind = 'api'
+                "#,
+                params![agent_id, input.display_name, input.model_id, input.base_url],
+            )
+            .map_err(registry_error)?;
+        if changed == 0 {
+            return Err(AgentRuntimeApplicationError::AgentNotFound(
+                agent_id.to_string(),
+            ));
+        }
+        self.find_in(&connection, agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
+    }
+
+    fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(registry_error)?;
+        let exists: i64 = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1 AND launch_kind = 'api')",
+                [agent_id],
+                |row| row.get(0),
+            )
+            .map_err(registry_error)?;
+        if exists == 0 {
+            return Err(AgentRuntimeApplicationError::AgentNotFound(
+                agent_id.to_string(),
+            ));
+        }
+        // Every table is checked before anything is deleted, and the whole operation rolls
+        // back (transaction dropped without a commit) if any of them still reference this
+        // agent — a delete is never partially applied (design.md Decision 2).
+        let mut blocking = Vec::new();
+        for (label, sql) in [
+            (
+                "sessions",
+                "SELECT COUNT(*) FROM sessions WHERE agent_id = ?1",
+            ),
+            (
+                "memories",
+                "SELECT COUNT(*) FROM agent_memories WHERE agent_id = ?1",
+            ),
+            (
+                "usage records",
+                "SELECT COUNT(*) FROM usage_records WHERE agent_id = ?1",
+            ),
+            (
+                "Loop definitions as worker",
+                "SELECT COUNT(*) FROM loop_definitions WHERE worker_agent_id = ?1",
+            ),
+            (
+                "Loop definitions as verifier",
+                "SELECT COUNT(*) FROM loop_definitions WHERE verifier_agent_id = ?1",
+            ),
+        ] {
+            let count: i64 = transaction
+                .query_row(sql, [agent_id], |row| row.get(0))
+                .map_err(registry_error)?;
+            if count > 0 {
+                blocking.push(format!("{count} {label}"));
+            }
+        }
+        if !blocking.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(format!(
+                "Cannot delete this agent: it is still referenced by {}.",
+                blocking.join(", ")
+            )));
+        }
+        transaction
+            .execute(
+                "DELETE FROM skill_api_agent_bindings WHERE agent_id = ?1",
+                [agent_id],
+            )
+            .map_err(registry_error)?;
+        transaction
+            .execute("DELETE FROM agents WHERE id = ?1", [agent_id])
+            .map_err(registry_error)?;
+        transaction.commit().map_err(registry_error)
+    }
 }
 
 struct AgentRow {
@@ -407,4 +498,327 @@ fn registry_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError
 
 fn workflow_error(error: impl std::fmt::Display) -> AgentRuntimeApplicationError {
     AgentRuntimeApplicationError::Workflow(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::agent_runtime::domain::AgentAvailability;
+    use crate::test_support::TempDirectory;
+
+    struct FakeAvailability;
+
+    impl AgentAvailabilityGateway for FakeAvailability {
+        fn assess(
+            &self,
+            _managed_sdk_dependency_id: Option<&str>,
+            _executable_name: Option<&str>,
+        ) -> Result<AvailabilityAssessment, AgentRuntimeApplicationError> {
+            Ok(AvailabilityAssessment::new(
+                AgentAvailability::Available,
+                None,
+            ))
+        }
+    }
+
+    fn fixture(label: &str) -> (TempDirectory, SqliteAgentRuntimeRepository) {
+        let directory = TempDirectory::new(label);
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
+        let repository = SqliteAgentRuntimeRepository::new(database, Arc::new(FakeAvailability));
+        (directory, repository)
+    }
+
+    fn register_test_agent(repository: &SqliteAgentRuntimeRepository, id: &str) -> AgentDefinition {
+        repository
+            .register(
+                id,
+                &RegisterApiAgentInput {
+                    display_name: "Test Agent".to_string(),
+                    provider: "Test".to_string(),
+                    api_key: "unused-by-register".to_string(),
+                    model_id: "gpt-test".to_string(),
+                    interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+                    base_url: None,
+                },
+            )
+            .expect("register")
+    }
+
+    fn seed_session(repository: &SqliteAgentRuntimeRepository, agent_id: &str) {
+        repository
+            .connection()
+            .expect("connection")
+            .execute(
+                r#"
+                INSERT INTO sessions
+                    (id, title, agent_id, interaction_mode, lifecycle_state, created_at, updated_at)
+                VALUES ('fixture-session', 'Fixture', ?1, 'api', 'idle', '2026-01-01', '2026-01-01')
+                "#,
+                params![agent_id],
+            )
+            .expect("seed session");
+    }
+
+    fn seed_memory(repository: &SqliteAgentRuntimeRepository, agent_id: &str) {
+        repository
+            .connection()
+            .expect("connection")
+            .execute(
+                r#"
+                INSERT INTO agent_memories (id, agent_id, folder, content, source, created_at, updated_at)
+                VALUES ('fixture-memory', ?1, '', 'Uses pnpm.', 'explicit', '2026-01-01', '2026-01-01')
+                "#,
+                params![agent_id],
+            )
+            .expect("seed memory");
+    }
+
+    fn seed_usage_record(repository: &SqliteAgentRuntimeRepository, agent_id: &str) {
+        let connection = repository.connection().expect("connection");
+        connection
+            .execute(
+                r#"
+                INSERT INTO sessions
+                    (id, title, agent_id, interaction_mode, lifecycle_state, created_at, updated_at)
+                VALUES ('usage-session', 'Fixture', ?1, 'api', 'idle', '2026-01-01', '2026-01-01')
+                "#,
+                params![agent_id],
+            )
+            .expect("seed usage session");
+        connection
+            .execute(
+                r#"
+                INSERT INTO messages (id, session_id, role, created_at, updated_at)
+                VALUES ('fixture-message', 'usage-session', 'assistant', '2026-01-01', '2026-01-01')
+                "#,
+                [],
+            )
+            .expect("seed usage message");
+        connection
+            .execute(
+                r#"
+                INSERT INTO usage_records
+                    (message_id, session_id, agent_id, accounting_kind, unit, source, occurred_at)
+                VALUES ('fixture-message', 'usage-session', ?1, 'reported', 'tokens', 'test', '2026-01-01')
+                "#,
+                params![agent_id],
+            )
+            .expect("seed usage record");
+    }
+
+    fn seed_loop_definition(
+        repository: &SqliteAgentRuntimeRepository,
+        agent_id: &str,
+        as_worker: bool,
+    ) {
+        let (worker, verifier) = if as_worker {
+            (agent_id, "other-agent")
+        } else {
+            ("other-agent", agent_id)
+        };
+        let connection = repository.connection().expect("connection");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind) VALUES ('other-agent', 'Other', 'Test', 'api')",
+                [],
+            )
+            .expect("seed other agent");
+        connection
+            .execute(
+                r#"
+                INSERT INTO loop_definitions
+                    (id, name, project_path, base_branch, goal, acceptance_criteria, allowed_paths,
+                     protected_paths, worker_agent_id, verifier_agent_id, verification_commands,
+                     limits, version, created_at, updated_at)
+                VALUES ('fixture-loop', 'Fixture', 'C:/project', 'main', 'Goal', '[]', '[]', '[]',
+                        ?1, ?2, '[]', '{}', 1, '2026-01-01', '2026-01-01')
+                "#,
+                params![worker, verifier],
+            )
+            .expect("seed loop definition");
+    }
+
+    #[test]
+    fn update_changes_display_name_model_and_base_url_but_not_provider_or_interface_format() {
+        let (_directory, repository) = fixture("agent update basic");
+        register_test_agent(&repository, "my-agent");
+
+        let updated = repository
+            .update(
+                "my-agent",
+                &UpdateApiAgentInput {
+                    display_name: "Renamed Agent".to_string(),
+                    model_id: "gpt-updated".to_string(),
+                    base_url: Some("https://example.test".to_string()),
+                    new_api_key: None,
+                },
+            )
+            .expect("update");
+
+        assert_eq!(updated.display_name(), "Renamed Agent");
+        assert_eq!(updated.provider(), "Test");
+        let config = repository
+            .provider_config("my-agent")
+            .expect("provider config")
+            .expect("config present");
+        assert_eq!(config.model_id, "gpt-updated");
+        assert_eq!(config.base_url.as_deref(), Some("https://example.test"));
+        assert_eq!(config.interface_format, INTERFACE_FORMAT_ANTHROPIC);
+    }
+
+    #[test]
+    fn update_on_a_nonexistent_agent_errors() {
+        let (_directory, repository) = fixture("agent update missing");
+
+        let result = repository.update(
+            "does-not-exist",
+            &UpdateApiAgentInput {
+                display_name: "X".to_string(),
+                model_id: "X".to_string(),
+                base_url: None,
+                new_api_key: None,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::AgentNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn delete_removes_an_unreferenced_agent_and_its_mode_and_tag_rows() {
+        let (_directory, repository) = fixture("agent delete unreferenced");
+        register_test_agent(&repository, "my-agent");
+
+        repository.delete("my-agent").expect("delete");
+
+        assert!(repository.find("my-agent").expect("find").is_none());
+        let connection = repository.connection().expect("connection");
+        let modes: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM agent_modes WHERE agent_id = 'my-agent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count modes");
+        assert_eq!(modes, 0);
+    }
+
+    #[test]
+    fn delete_on_a_nonexistent_agent_errors() {
+        let (_directory, repository) = fixture("agent delete missing");
+
+        let result = repository.delete("does-not-exist");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::AgentNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn delete_is_rejected_and_unapplied_when_referenced_by_a_session() {
+        let (_directory, repository) = fixture("agent delete session ref");
+        register_test_agent(&repository, "my-agent");
+        seed_session(&repository, "my-agent");
+
+        let result = repository.delete("my-agent");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::Validation(_))
+        ));
+        assert!(repository.find("my-agent").expect("find").is_some());
+    }
+
+    #[test]
+    fn delete_is_rejected_when_referenced_by_a_memory() {
+        let (_directory, repository) = fixture("agent delete memory ref");
+        register_test_agent(&repository, "my-agent");
+        seed_memory(&repository, "my-agent");
+
+        let result = repository.delete("my-agent");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::Validation(_))
+        ));
+        assert!(repository.find("my-agent").expect("find").is_some());
+    }
+
+    #[test]
+    fn delete_is_rejected_when_referenced_by_a_usage_record() {
+        let (_directory, repository) = fixture("agent delete usage ref");
+        register_test_agent(&repository, "my-agent");
+        seed_usage_record(&repository, "my-agent");
+
+        let result = repository.delete("my-agent");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::Validation(_))
+        ));
+        assert!(repository.find("my-agent").expect("find").is_some());
+    }
+
+    #[test]
+    fn delete_is_rejected_when_assigned_as_a_loop_worker() {
+        let (_directory, repository) = fixture("agent delete loop worker ref");
+        register_test_agent(&repository, "my-agent");
+        seed_loop_definition(&repository, "my-agent", true);
+
+        let result = repository.delete("my-agent");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::Validation(_))
+        ));
+        assert!(repository.find("my-agent").expect("find").is_some());
+    }
+
+    #[test]
+    fn delete_is_rejected_when_assigned_as_a_loop_verifier() {
+        let (_directory, repository) = fixture("agent delete loop verifier ref");
+        register_test_agent(&repository, "my-agent");
+        seed_loop_definition(&repository, "my-agent", false);
+
+        let result = repository.delete("my-agent");
+
+        assert!(matches!(
+            result,
+            Err(AgentRuntimeApplicationError::Validation(_))
+        ));
+        assert!(repository.find("my-agent").expect("find").is_some());
+    }
+
+    #[test]
+    fn delete_removes_skill_api_agent_bindings() {
+        let (_directory, repository) = fixture("agent delete skill bindings");
+        register_test_agent(&repository, "my-agent");
+        let connection = repository.connection().expect("connection");
+        connection
+            .execute(
+                r#"
+                INSERT INTO skill_api_agent_bindings
+                    (skill_id, scope, workspace_path, agent_id, created_at, updated_at)
+                VALUES ('some-skill', 'global', '', 'my-agent', '2026-01-01', '2026-01-01')
+                "#,
+                [],
+            )
+            .expect("seed skill binding");
+        drop(connection);
+
+        repository.delete("my-agent").expect("delete");
+
+        let connection = repository.connection().expect("connection");
+        let bindings: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM skill_api_agent_bindings WHERE agent_id = 'my-agent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count bindings");
+        assert_eq!(bindings, 0);
+    }
 }

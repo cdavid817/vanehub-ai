@@ -1,8 +1,10 @@
 pub(crate) mod check_browser_readiness;
 pub(crate) mod coordination;
 pub(crate) mod delete_agent_memory;
+pub(crate) mod delete_api_agent;
 mod dto;
 pub(crate) mod get_agent_by_id;
+pub(crate) mod get_api_agent_provider_config;
 pub(crate) mod get_session_details;
 pub(crate) mod get_workflow_state;
 pub(crate) mod launch_active_workflow;
@@ -19,3 +21,4 @@ pub(crate) mod send_agent_terminal_input;
 pub(crate) mod send_message;
 pub(crate) mod stop_agent_terminal;
 pub(crate) mod stop_generation;
+pub(crate) mod update_api_agent;

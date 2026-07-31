@@ -15,7 +15,7 @@ use super::{
     LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
     RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
     StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -628,6 +628,22 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
         &self,
         agent_id: &str,
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError>;
+
+    /// Updates `display_name`/`model_id`/`base_url` in place (`add-agent-lifecycle-management`).
+    /// `input.new_api_key` is ignored here — credential rotation goes through
+    /// `ApiCredentialPort` at the application layer, exactly like `register`'s own `api_key`
+    /// field is only ever read by the service before calling `register`, never by this gateway.
+    fn update(
+        &self,
+        agent_id: &str,
+        input: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError>;
+
+    /// Deletes the agent and its `agent_modes`/`agent_capability_tags`/
+    /// `skill_api_agent_bindings` rows, or fails with `AgentRuntimeApplicationError::Validation`
+    /// naming what still references it — never partially applied (`add-agent-lifecycle-management`
+    /// design.md Decision 2).
+    fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 /// Secret storage boundary for API-based agent provider credentials.

@@ -4,16 +4,16 @@ use super::{
     AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
-    ApiCredentialPort, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
-    EffectivePromptGateway, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
-    LaunchWorkflowResult, LoopGenerationControlPort, LoopRoleGenerationCompletionPort,
-    LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage, PendingPromptExecution,
-    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SendMessageRequest, StopGenerationResult,
-    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
-    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot, CompleteAgentMessage,
+    EffectivePrompt, EffectivePromptGateway, GenerationLease, GenerationProcessEvent,
+    GenerationProcessRequest, LaunchWorkflowResult, LoopGenerationControlPort,
+    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage,
+    PendingPromptExecution, PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
+    ReadinessView, RegisterApiAgentInput, ReportedUsageTotals, SendMessageRequest,
+    StopGenerationResult, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
+    ToolLifecyclePhase, UpdateApiAgentInput, WorkflowLaunchRequest, WorkflowView,
+    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -193,6 +193,105 @@ impl AgentRuntimeApplicationService {
                 Err(error)
             }
         }
+    }
+
+    /// Reads back an API agent's current `model_id`/`interface_format`/`base_url` —
+    /// `AgentView`/`AgentRegistryEntry` never carry these (they're CLI/API-agnostic view
+    /// types), so this is the only way the frontend can pre-fill an edit form with the
+    /// agent's current values, or know whether `base_url` is required, before submitting
+    /// `update_api_agent` (`add-agent-lifecycle-management`, discovered as a necessary
+    /// addition while wiring the edit UI — see tasks.md 5.1's note).
+    pub(crate) fn api_agent_provider_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        self.ports.api_agents.provider_config(agent_id)
+    }
+
+    /// Edits an existing API agent's `display_name`/`model_id`/`base_url`, and optionally
+    /// rotates its stored API key. `provider`/`interface_format` are immutable after
+    /// registration (`add-agent-lifecycle-management` design.md Decision 1) — re-validates like
+    /// `register_api_agent`, but against the agent's *current* `interface_format` (read via
+    /// `provider_config`), since that isn't part of the update payload.
+    pub(crate) fn update_api_agent(
+        &self,
+        agent_id: &str,
+        input: UpdateApiAgentInput,
+    ) -> Result<AgentView, AgentRuntimeApplicationError> {
+        let display_name = input.display_name.trim().to_string();
+        if display_name.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Agent display name cannot be empty.".to_string(),
+            ));
+        }
+        let model_id = input.model_id.trim().to_string();
+        if model_id.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Model id cannot be empty.".to_string(),
+            ));
+        }
+        let current = self
+            .ports
+            .api_agents
+            .provider_config(agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))?;
+        let base_url = if current.interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            let base_url = input
+                .base_url
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if base_url.is_empty() {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "Base URL is required for an OpenAI-compatible agent.".to_string(),
+                ));
+            }
+            Some(base_url)
+        } else {
+            None
+        };
+        if let Some(new_api_key) = input.new_api_key.as_deref() {
+            let new_api_key = new_api_key.trim();
+            if new_api_key.is_empty() {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "API key cannot be empty.".to_string(),
+                ));
+            }
+            self.ports.api_credentials.store(agent_id, new_api_key)?;
+        }
+        let normalized = UpdateApiAgentInput {
+            display_name,
+            model_id,
+            base_url,
+            new_api_key: None,
+        };
+        let definition = self.ports.api_agents.update(agent_id, &normalized)?;
+        Ok(AgentView::from(&definition))
+    }
+
+    /// Deletes a registered API agent and its stored credential. The repository rejects (and
+    /// changes nothing) if the agent is still referenced by other stored data
+    /// (`add-agent-lifecycle-management` design.md Decision 2) — `credentials.remove` only runs
+    /// after that succeeds; its own failure is logged and otherwise ignored rather than
+    /// reported back as the operation's result, matching this codebase's existing best-effort
+    /// posture for credential cleanup (`register_api_agent`'s registration-failure rollback).
+    pub(crate) fn delete_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.ports.api_agents.delete(agent_id)?;
+        if let Err(error) = self.ports.api_credentials.remove(agent_id) {
+            self.record_log(
+                AgentLogLevel::Warn,
+                "session.runtime.api.credentials",
+                format!("Failed to remove stored credential after deleting the agent: {error}"),
+                Some(agent_id),
+                None,
+                None,
+            );
+        }
+        Ok(())
     }
 
     /// Delivers a user's approve/deny decision for a native-agent tool call awaiting approval.

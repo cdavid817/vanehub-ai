@@ -69,8 +69,8 @@ pub(crate) use models::{
     PromptTrace, PromptVersionReference, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
     ResizeAgentTerminalRequest, SendMessageRequest, StartedGenerationProcess,
     StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, ToolDefinition,
-    ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock, UpdateApiAgentInput,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{

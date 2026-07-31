@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Bot, CheckCircle2, CircleAlert, Cloud, Laptop, Play, Plus, RefreshCw, Search, Terminal } from "lucide-react";
+import { Activity, Bot, CheckCircle2, CircleAlert, Cloud, Laptop, Pencil, Play, Plus, RefreshCw, Search, Terminal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
@@ -9,6 +9,7 @@ import { agentService } from "../../services/runtime-agent-client";
 import type { AgentRegistryEntry, InteractionMode, RegisterApiAgentInput, SessionDetails, WorkflowState } from "../../types/agent";
 import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
+import { AgentEditDialog } from "./agents/agent-edit-dialog";
 import { AgentMemoryPanel } from "./agents/agent-memory-panel";
 
 type AgentsOverview = {
@@ -55,6 +56,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [registerForm, setRegisterForm] = useState<RegisterApiAgentInput>(emptyRegisterApiAgentInput);
+  const [editingAgent, setEditingAgent] = useState<AgentRegistryEntry | null>(null);
 
   const agentsOverviewQuery = useQuery({
     queryKey: agentsOverviewQueryKey(appliedCapabilityFilter),
@@ -118,6 +120,21 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
     },
     onError: (err) => setError(err instanceof Error ? err.message : String(err)),
   });
+
+  const deleteApiAgentMutation = useMutation({
+    mutationFn: (agentId: string) => agentService.deleteApiAgent(agentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : String(err)),
+  });
+
+  async function handleDeleteApiAgent(agent: AgentRegistryEntry) {
+    setError(null);
+    setNotice(null);
+    if (!window.confirm(t("agents.delete.confirm", { agent: agent.displayName }))) return;
+    await deleteApiAgentMutation.mutateAsync(agent.id).catch(() => undefined);
+  }
 
   function handleRegisterApiAgent() {
     setError(null);
@@ -333,6 +350,25 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                     {t("agents.configure")}
                   </Button>
                 </div>
+
+                {agent.launch.kind === "api" ? (
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button className="h-8 px-3 text-xs" onClick={() => setEditingAgent(agent)} type="button" variant="outline">
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("agents.edit.action")}
+                    </Button>
+                    <Button
+                      className="h-8 px-3 text-xs"
+                      disabled={deleteApiAgentMutation.isPending}
+                      onClick={() => void handleDeleteApiAgent(agent)}
+                      type="button"
+                      variant="outline"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("agents.delete.action")}
+                    </Button>
+                  </div>
+                ) : null}
               </section>
             ))}
           </div>
@@ -405,6 +441,18 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
           <AgentMemoryPanel agentId={activeAgent?.id ?? null} />
         </div>
       </div>
+
+      {editingAgent ? (
+        <AgentEditDialog
+          agent={editingAgent}
+          onClose={() => setEditingAgent(null)}
+          onSaved={async () => {
+            setEditingAgent(null);
+            setNotice(t("agents.edit.success"));
+            await queryClient.invalidateQueries({ queryKey: ["agents", "overview"] });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -4,10 +4,12 @@ import { i18n } from "../i18n";
 import type {
   AgentMemory,
   AgentRegistryEntry,
+  ApiAgentProviderConfig,
   AssignSessionCategoryInput,
   AutomaticArchivalSettings,
   AgentTerminalEvent,
   AgentTerminalSession,
+  UpdateApiAgentInput,
   AgentTerminalSize,
   RegisterApiAgentInput,
   CliParameterSelections,
@@ -333,6 +335,12 @@ let webSkillApiAgentBindings: Array<{
 }> = [];
 
 const deletedBuiltinSkillIds = new Set<string>();
+
+/** Mock API agents' `modelId`/`interfaceFormat`/`baseUrl` (`add-agent-lifecycle-management`) —
+ * kept out of `AgentRegistryEntry` itself, mirroring the real backend, where those fields live
+ * behind a separate read path (`getApiAgentProviderConfig`) rather than on the CLI/API-agnostic
+ * registry view. */
+const webApiAgentProviderConfigs = new Map<string, ApiAgentProviderConfig>();
 
 /** Mock cross-session memories (`add-agent-cross-session-memory`) — starts empty, since real
  * memories only ever come from a `remember` tool call or extraction, both simulated in
@@ -1559,7 +1567,55 @@ export const webAgentClient: AgentService = {
       capabilityTags: ["api"],
     };
     mockAgents.push(entry);
+    webApiAgentProviderConfigs.set(candidateId, {
+      modelId,
+      interfaceFormat: input.interfaceFormat,
+      baseUrl,
+    });
     return entry;
+  },
+
+  async getApiAgentProviderConfig(agentId: string) {
+    return webApiAgentProviderConfigs.get(agentId) ?? null;
+  },
+
+  async updateApiAgent(agentId: string, input: UpdateApiAgentInput) {
+    const agent = mockAgents.find((candidate) => candidate.id === agentId);
+    const current = webApiAgentProviderConfigs.get(agentId);
+    if (!agent || !current) {
+      throw new Error(i18n.t("agents.updateApiAgent.errors.notFound"));
+    }
+    const displayName = input.displayName.trim();
+    const modelId = input.modelId.trim();
+    if (!displayName || !modelId) {
+      throw new Error(i18n.t("agents.registerApiAgent.errors.incomplete"));
+    }
+    const baseUrl = input.baseUrl?.trim() || null;
+    if (current.interfaceFormat === "openai-compatible" && !baseUrl) {
+      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
+    }
+    agent.displayName = displayName;
+    webApiAgentProviderConfigs.set(agentId, { ...current, modelId, baseUrl });
+    return agent;
+  },
+
+  async deleteApiAgent(agentId: string) {
+    const blocking: string[] = [];
+    const sessionCount = sessions.filter((session) => session.agentId === agentId).length;
+    if (sessionCount > 0) blocking.push(`${sessionCount} sessions`);
+    const memoryCount = webAgentMemories.filter((memory) => memory.agentId === agentId).length;
+    if (memoryCount > 0) blocking.push(`${memoryCount} memories`);
+    const workerCount = loopDefinitions.filter((definition) => definition.workerAgentId === agentId).length;
+    if (workerCount > 0) blocking.push(`${workerCount} Loop definitions as worker`);
+    const verifierCount = loopDefinitions.filter((definition) => definition.verifierAgentId === agentId).length;
+    if (verifierCount > 0) blocking.push(`${verifierCount} Loop definitions as verifier`);
+    if (blocking.length > 0) {
+      throw new Error(`Cannot delete this agent: it is still referenced by ${blocking.join(", ")}.`);
+    }
+    const index = mockAgents.findIndex((agent) => agent.id === agentId);
+    if (index !== -1) mockAgents.splice(index, 1);
+    webApiAgentProviderConfigs.delete(agentId);
+    webSkillApiAgentBindings = webSkillApiAgentBindings.filter((binding) => binding.agentId !== agentId);
   },
 
   async listAgentMemories(agentId: string) {

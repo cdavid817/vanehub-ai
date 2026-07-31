@@ -14,11 +14,11 @@ use super::infrastructure::{NativeCoordinationScheduler, NativeLoopScheduler};
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
     AgentRuntimeApplicationError, AgentSessionDetails, AgentTerminalInputRequest,
-    AgentTerminalSession, AgentTerminalSize, AgentView, ContinueLoopRequest, LaunchWorkflowResult,
-    LoopDefinitionView, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
+    AgentTerminalSession, AgentTerminalSize, AgentView, ApiProviderConfig, ContinueLoopRequest,
+    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
     RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
     SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult,
-    ToolApprovalDecision, WorkflowView,
+    ToolApprovalDecision, UpdateApiAgentInput, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -238,6 +238,28 @@ impl AgentRuntimeApi {
         request: RegisterApiAgentInput,
     ) -> Result<AgentView, AgentRuntimeApplicationError> {
         self.service.register_api_agent(request)
+    }
+
+    pub(crate) fn api_agent_provider_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        self.service.api_agent_provider_config(agent_id)
+    }
+
+    pub(crate) fn update_api_agent(
+        &self,
+        agent_id: &str,
+        input: UpdateApiAgentInput,
+    ) -> Result<AgentView, AgentRuntimeApplicationError> {
+        self.service.update_api_agent(agent_id, input)
+    }
+
+    pub(crate) fn delete_api_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.service.delete_api_agent(agent_id)
     }
 
     pub(crate) fn resolve_tool_approval(
