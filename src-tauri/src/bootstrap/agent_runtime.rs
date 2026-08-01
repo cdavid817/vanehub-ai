@@ -214,7 +214,8 @@ pub(crate) fn assemble_agent_runtime_api(
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
     let loops = LoopApplicationService::new(LoopApplicationPorts {
         loops: loop_repository.clone(),
-        registry: repository,
+        registry: repository.clone(),
+        api_agents: repository.clone(),
         projects: loop_projects.clone(),
         observer: loop_observer.clone(),
         clock: clock.clone(),
@@ -234,6 +235,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let generations = Arc::new(service.clone());
     let loop_worker = LoopWorkerApplicationService::new(LoopWorkerApplicationPorts {
         iterations: loop_repository.clone(),
+        registry: repository.clone(),
         roles: sessions.clone(),
         git: loop_projects.clone(),
         generations: generations.clone(),
@@ -248,6 +250,7 @@ pub(crate) fn assemble_agent_runtime_api(
         });
     let loop_verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
         iterations: loop_repository.clone(),
+        registry: repository,
         roles: sessions,
         context: loop_projects.clone(),
         generations,

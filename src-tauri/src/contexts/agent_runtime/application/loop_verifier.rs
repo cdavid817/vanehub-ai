@@ -1,10 +1,11 @@
 use super::{
-    AgentRuntimeApplicationError, LoopIterationRepository, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopRoleSessionPort, LoopRoleSessionRequest,
-    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopVerifierRecommendation,
-    LoopVerifierResult, SaveLoopVerifierResultRequest, StartLoopVerifierRequest,
-    StartedLoopVerifierView,
+    AgentRegistryRepository, AgentRuntimeApplicationError, LoopIterationRepository,
+    LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopRoleSessionPort,
+    LoopRoleSessionRequest, LoopVerifierContextPort, LoopVerifierGenerationPort,
+    LoopVerifierRecommendation, LoopVerifierResult, SaveLoopVerifierResultRequest,
+    StartLoopVerifierRequest, StartedLoopVerifierView,
 };
+use crate::contexts::agent_runtime::domain::InteractionMode;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ const MAX_FINDING_BYTES: usize = 2 * 1024;
 #[derive(Clone)]
 pub(crate) struct LoopVerifierApplicationPorts {
     pub(crate) iterations: Arc<dyn LoopIterationRepository>,
+    pub(crate) registry: Arc<dyn AgentRegistryRepository>,
     pub(crate) roles: Arc<dyn LoopRoleSessionPort>,
     pub(crate) context: Arc<dyn LoopVerifierContextPort>,
     pub(crate) generations: Arc<dyn LoopVerifierGenerationPort>,
@@ -35,13 +37,25 @@ impl LoopVerifierApplicationService {
         request: StartLoopVerifierRequest,
     ) -> Result<StartedLoopVerifierView, AgentRuntimeApplicationError> {
         validate_request(&request)?;
+        let agent_id = &request.definition_snapshot.verifier_agent_id;
+        let agent = self
+            .ports
+            .registry
+            .find(agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.clone()))?;
+        let interaction_mode = if agent.supports(InteractionMode::Cli) {
+            InteractionMode::Cli
+        } else {
+            InteractionMode::Api
+        };
         let session_id = self
             .ports
             .roles
             .create_verifier_session(LoopRoleSessionRequest {
                 run_id: request.run_id.clone(),
                 iteration_id: request.iteration_id.clone(),
-                agent_id: request.definition_snapshot.verifier_agent_id.clone(),
+                agent_id: agent_id.clone(),
+                interaction_mode,
                 project_path: request.project_path.clone(),
                 worktree_path: request.worktree_path.clone(),
                 worktree_name: request.worktree_name.clone(),

@@ -1,4 +1,8 @@
 use super::*;
+use crate::contexts::agent_runtime::domain::{
+    AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
+    InteractionMode, LaunchMetadata,
+};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -7,16 +11,60 @@ struct VerifierWorld {
     attachments: Mutex<Vec<(String, String)>>,
     prompts: Mutex<Vec<String>>,
     saved: Mutex<Vec<(String, Vec<String>)>>,
+    /// `None` defaults to `Cli`, matching every pre-existing test's expectations.
+    agent_mode: Mutex<Option<InteractionMode>>,
 }
 
 impl VerifierWorld {
     fn service(self: &Arc<Self>) -> LoopVerifierApplicationService {
         LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
             iterations: self.clone(),
+            registry: self.clone(),
             roles: self.clone(),
             context: self.clone(),
             generations: self.clone(),
         })
+    }
+}
+
+impl AgentRegistryRepository for VerifierWorld {
+    fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+
+    fn find(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
+        let mode = self
+            .agent_mode
+            .lock()
+            .expect("agent_mode")
+            .unwrap_or(InteractionMode::Cli);
+        Ok(Some(
+            AgentDefinition::new(AgentDefinitionInput {
+                id: agent_id.to_string(),
+                display_name: agent_id.to_string(),
+                provider: "test".to_string(),
+                managed_sdk_dependency_id: None,
+                launch: LaunchMetadata::new(
+                    if mode == InteractionMode::Cli {
+                        "cli"
+                    } else {
+                        "api"
+                    }
+                    .to_string(),
+                    None,
+                    None,
+                    None,
+                )
+                .expect("launch"),
+                supported_interaction_modes: vec![mode],
+                availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+                capability_tags: Vec::new(),
+            })
+            .expect("agent"),
+        ))
     }
 }
 
@@ -199,6 +247,23 @@ fn each_start_uses_a_fresh_session_and_bounded_read_only_context() {
     assert_eq!(
         world.sessions.lock().expect("sessions")[0].agent_id,
         "verifier-agent"
+    );
+    assert_eq!(
+        world.sessions.lock().expect("sessions")[0].interaction_mode,
+        InteractionMode::Cli
+    );
+}
+
+#[test]
+fn start_for_an_api_agent_resolves_api_interaction_mode() {
+    let world = Arc::new(VerifierWorld::default());
+    *world.agent_mode.lock().expect("agent_mode") = Some(InteractionMode::Api);
+
+    world.service().start(request()).expect("verifier");
+
+    assert_eq!(
+        world.sessions.lock().expect("sessions")[0].interaction_mode,
+        InteractionMode::Api
     );
 }
 

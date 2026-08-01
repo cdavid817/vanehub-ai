@@ -1930,6 +1930,52 @@ fn loop_role_generation_delivers_one_terminal_completion_and_cancellation_wins_r
 }
 
 #[test]
+fn loop_role_generation_for_an_api_agent_session_resolves_api_interaction_mode() {
+    let world = test_world();
+    world.agents.lock().expect("agents").push(api_agent(
+        "trusted-api-agent",
+        "Trusted API Agent",
+        vec!["coding"],
+    ));
+    world.sessions.lock().expect("sessions").insert(
+        "session-api-1".to_string(),
+        AgentSession {
+            id: "session-api-1".to_string(),
+            agent_id: "trusted-api-agent".to_string(),
+            interaction_mode: InteractionMode::Api,
+            lifecycle: AgentLifecycle::Idle,
+            folder: Some("C:/workspace".to_string()),
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership: Some(LoopRoleGenerationOwnership {
+                run_id: "run-1".to_string(),
+                iteration_id: "iteration-1".to_string(),
+                role: "worker".to_string(),
+            }),
+        },
+    );
+    let service = service(world.clone());
+
+    service
+        .start_worker_generation("session-api-1", "implement")
+        .expect("start worker generation");
+
+    let requests = world
+        .generation_requests
+        .lock()
+        .expect("generation requests");
+    assert_eq!(
+        requests
+            .last()
+            .expect("request")
+            .configuration
+            .interaction_mode,
+        InteractionMode::Api
+    );
+}
+
+#[test]
 fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
     let world = test_world();
     let service = service(world.clone());

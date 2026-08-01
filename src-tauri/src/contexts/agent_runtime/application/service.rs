@@ -101,13 +101,23 @@ impl AgentRuntimeApplicationService {
                 "Loop role generation requires an owned role session.".to_string(),
             ));
         }
+        let agent = self
+            .ports
+            .registry
+            .find(&session.agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(session.agent_id.clone()))?;
+        let interaction_mode = if agent.supports(InteractionMode::Cli) {
+            InteractionMode::Cli
+        } else {
+            InteractionMode::Api
+        };
         let message = self.send_message(SendMessageRequest {
             session_id: session_id.to_string(),
             content: prompt.to_string(),
             source: super::AgentMessageSource::Desktop,
             configuration: AgentChatConfiguration {
                 agent_id: session.agent_id,
-                interaction_mode: InteractionMode::Cli,
+                interaction_mode,
                 permission_mode: "default".to_string(),
                 provider_id: None,
                 model_id: None,

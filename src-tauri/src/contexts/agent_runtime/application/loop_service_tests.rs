@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 struct FakeWorld {
     definition: LoopDefinition,
     agents: Vec<AgentDefinition>,
+    trusted_agents: Vec<String>,
     project_is_git: bool,
     run: Mutex<Option<LoopRun>>,
     snapshot: Mutex<Option<LoopDefinition>>,
@@ -19,9 +20,19 @@ struct FakeWorld {
 
 impl FakeWorld {
     fn new(enabled: bool, project_is_git: bool, agents: Vec<AgentDefinition>) -> Arc<Self> {
+        Self::new_with_trust(enabled, project_is_git, agents, Vec::new())
+    }
+
+    fn new_with_trust(
+        enabled: bool,
+        project_is_git: bool,
+        agents: Vec<AgentDefinition>,
+        trusted_agents: Vec<&str>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             definition: definition(enabled),
             agents,
+            trusted_agents: trusted_agents.into_iter().map(str::to_string).collect(),
             project_is_git,
             run: Mutex::new(None),
             snapshot: Mutex::new(None),
@@ -35,6 +46,7 @@ impl FakeWorld {
         LoopApplicationService::new(LoopApplicationPorts {
             loops: self.clone(),
             registry: self.clone(),
+            api_agents: self.clone(),
             projects: self.clone(),
             observer: LoopOperationObserver::new(self.clone(), self.clone(), self.clone()),
             clock: self.clone(),
@@ -138,6 +150,50 @@ impl AgentRegistryRepository for FakeWorld {
             .iter()
             .find(|agent| agent.id().as_str() == agent_id)
             .cloned())
+    }
+}
+
+impl ApiAgentGateway for FakeWorld {
+    fn register(
+        &self,
+        _: &str,
+        _: &RegisterApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn provider_config(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
+        if !self
+            .agents
+            .iter()
+            .any(|agent| agent.id().as_str() == agent_id)
+        {
+            return Ok(None);
+        }
+        Ok(Some(ApiProviderConfig {
+            model_id: "test-model".to_string(),
+            interface_format: "anthropic".to_string(),
+            base_url: None,
+            auto_approve_tools: self
+                .trusted_agents
+                .iter()
+                .any(|trusted_id| trusted_id == agent_id),
+        }))
+    }
+    fn update(
+        &self,
+        _: &str,
+        _: &UpdateApiAgentInput,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn delete(&self, _: &str) -> Result<(), AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+    fn set_auto_approve_tools(&self, _: &str, _: bool) -> Result<(), AgentRuntimeApplicationError> {
+        unreachable!()
     }
 }
 
@@ -260,6 +316,113 @@ fn agent(id: &str) -> AgentDefinition {
         capability_tags: vec!["coding".to_string()],
     })
     .expect("agent")
+}
+
+fn api_agent(id: &str) -> AgentDefinition {
+    AgentDefinition::new(AgentDefinitionInput {
+        id: id.to_string(),
+        display_name: id.to_string(),
+        provider: "test".to_string(),
+        managed_sdk_dependency_id: None,
+        launch: LaunchMetadata::new("api".to_string(), None, None, None).expect("launch"),
+        supported_interaction_modes: vec![InteractionMode::Api],
+        availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+        capability_tags: vec!["coding".to_string()],
+    })
+    .expect("agent")
+}
+
+fn save_request(worker_agent_id: &str, verifier_agent_id: &str) -> SaveLoopDefinitionRequest {
+    SaveLoopDefinitionRequest {
+        name: "Improve tests".to_string(),
+        enabled: true,
+        project_path: "C:/work/project".to_string(),
+        base_branch: "main".to_string(),
+        goal: "Improve test coverage".to_string(),
+        acceptance_criteria: vec!["Tests pass".to_string()],
+        allowed_paths: vec!["src".to_string()],
+        protected_paths: vec![".git".to_string()],
+        worker_agent_id: worker_agent_id.to_string(),
+        verifier_agent_id: verifier_agent_id.to_string(),
+        verification_commands: vec![LoopVerificationCommand::new(
+            "tests".to_string(),
+            "npm".to_string(),
+            vec!["test".to_string()],
+            None,
+            60,
+            true,
+        )
+        .expect("command")],
+        limits: LoopLimits::new(3, 60, 600, 2, 2).expect("limits"),
+        expected_version: None,
+    }
+}
+
+#[test]
+fn create_definition_accepts_a_trusted_api_agent_as_worker_or_verifier() {
+    let world = FakeWorld::new_with_trust(
+        true,
+        true,
+        vec![api_agent("worker"), agent("verifier")],
+        vec!["worker"],
+    );
+
+    let result = world
+        .service()
+        .create_definition(save_request("worker", "verifier"));
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn create_definition_rejects_an_untrusted_api_agent_as_worker_or_verifier() {
+    let world = FakeWorld::new_with_trust(
+        true,
+        true,
+        vec![api_agent("worker"), agent("verifier")],
+        Vec::new(),
+    );
+
+    let error = world
+        .service()
+        .create_definition(save_request("worker", "verifier"))
+        .expect_err("untrusted API agent should be rejected");
+
+    let message = error.to_string();
+    assert!(message.contains("tool-use trust"), "{message}");
+}
+
+#[test]
+fn manual_start_accepts_a_trusted_api_agent_as_worker_or_verifier() {
+    let world = FakeWorld::new_with_trust(
+        true,
+        true,
+        vec![api_agent("worker"), api_agent("verifier")],
+        vec!["worker", "verifier"],
+    );
+
+    let result = world.service().start_manual("loop-1");
+
+    assert!(result.is_ok());
+}
+
+#[test]
+fn manual_start_rejects_an_untrusted_api_agent_as_worker_or_verifier() {
+    let world = FakeWorld::new_with_trust(
+        true,
+        true,
+        vec![api_agent("worker"), api_agent("verifier")],
+        vec!["worker"],
+    );
+
+    let error = world
+        .service()
+        .start_manual("loop-1")
+        .expect_err("untrusted verifier should be rejected");
+
+    let message = error.to_string();
+    assert!(message.contains("tool-use trust"), "{message}");
+    assert!(world.run.lock().expect("run").is_none());
 }
 
 #[test]
