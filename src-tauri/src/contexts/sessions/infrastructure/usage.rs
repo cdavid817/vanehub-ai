@@ -5,7 +5,7 @@ use crate::contexts::sessions::application::{
     SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit, SessionsApplicationError,
     UsageStatisticsRange,
 };
-use rusqlite::{params, params_from_iter, Connection, Row, Transaction};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, Transaction};
 
 pub(crate) fn apply_schema(
     connection: &Connection,
@@ -224,6 +224,28 @@ impl SessionUsageRepository for SqliteSessionsRepository {
             response_count,
             generated_at: generated_at.to_string(),
         })
+    }
+
+    fn terminal_usage_message_id(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Option<String>, SessionsApplicationError> {
+        self.connection()?
+            .query_row(
+                "SELECT usage_records.message_id
+                 FROM usage_records
+                 INNER JOIN messages ON messages.id = usage_records.message_id
+                 WHERE usage_records.session_id = ?1
+                   AND usage_records.agent_id = ?2
+                   AND usage_records.source = 'cli-session-log'
+                 ORDER BY messages.updated_at DESC, usage_records.message_id DESC
+                 LIMIT 1",
+                params![session_id, agent_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(repository_error)
     }
 }
 

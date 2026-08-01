@@ -20,7 +20,8 @@ use crate::contexts::agent_runtime::infrastructure::{
     RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
     SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
     SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidCoordinationIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
@@ -150,6 +151,11 @@ pub(crate) fn assemble_agent_runtime_api(
         sessions.clone(),
         logging.clone(),
         clock.clone(),
+        TerminalExecutionObservability::new(
+            execution_ids.clone(),
+            timeline.clone(),
+            telemetry.clone(),
+        ),
         std::env::temp_dir().join("vanehub-agent-terminal-wrappers"),
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());

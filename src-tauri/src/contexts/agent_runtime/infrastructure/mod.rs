@@ -32,6 +32,7 @@ mod schema;
 mod sessions_gateway;
 mod skill_gateway;
 mod sqlite_repository;
+mod terminal_observability;
 mod terminal_process;
 mod terminal_usage_ingestion;
 mod terminal_wrapper;
@@ -71,6 +72,7 @@ pub(crate) use schema::{apply_api_agent_schema, apply_openai_compatible_schema, 
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
+pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
 
 #[cfg(test)]

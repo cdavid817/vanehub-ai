@@ -634,6 +634,67 @@ fn message_and_usage_commit_together_and_usage_is_message_owned() {
 }
 
 #[test]
+fn terminal_usage_message_lookup_returns_the_newest_matching_row() {
+    let fixture = fixture("sessions-terminal-usage-lookup");
+    let repository = &fixture.repository;
+    let session = session_record(
+        "session-terminal-usage",
+        SessionLifecycle::Idle,
+        "Terminal Usage",
+        "2026-07-18T10:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(repository, &session, SessionActivation::PreserveActive)
+        .expect("create session");
+
+    for (message_id, updated_at, source) in [
+        (
+            "message-terminal-older",
+            "2026-07-18T10:01:00+00:00",
+            "cli-session-log",
+        ),
+        (
+            "message-terminal-newer",
+            "2026-07-18T10:02:00+00:00",
+            "cli-session-log",
+        ),
+        (
+            "message-provider-newest",
+            "2026-07-18T10:03:00+00:00",
+            "provider",
+        ),
+    ] {
+        let streaming = message_record(
+            message_id,
+            session.id(),
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "",
+        );
+        SessionMessageRepository::insert(repository, &streaming).expect("insert message");
+        let mut completed = streaming;
+        completed
+            .message
+            .transition_to(MessageStatus::Completed)
+            .expect("complete transition");
+        completed.updated_at = updated_at.to_string();
+        let mut usage = usage_record(message_id, session.id(), "codex-cli");
+        usage.source = source.to_string();
+        SessionTransactionPort::complete_message(repository, &completed, Some(&usage))
+            .expect("complete with usage");
+    }
+
+    let found =
+        SessionUsageRepository::terminal_usage_message_id(repository, session.id(), "codex-cli")
+            .expect("lookup terminal usage message");
+    assert_eq!(found.as_deref(), Some("message-terminal-newer"));
+    assert_eq!(
+        SessionUsageRepository::terminal_usage_message_id(repository, session.id(), "gemini-cli",)
+            .expect("lookup other agent"),
+        None
+    );
+}
+
+#[test]
 fn deleting_an_assistant_message_deletes_only_its_owned_usage_record() {
     let fixture = fixture("sessions-message-owned-usage");
     let repository = &fixture.repository;

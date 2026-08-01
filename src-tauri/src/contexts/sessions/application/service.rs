@@ -912,6 +912,20 @@ impl SessionsApplicationService {
             .summary_for_session(session.id(), &self.ports.clock.now())
     }
 
+    pub(crate) fn terminal_usage_message_id(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Option<String>, SessionsApplicationError> {
+        let session = self.load_session(session_id)?;
+        if session.agent_id != agent_id {
+            return Ok(None);
+        }
+        self.ports
+            .usage
+            .terminal_usage_message_id(session.id(), agent_id)
+    }
+
     pub(crate) fn run_maintenance(
         &self,
         policy: ArchivalPolicy,

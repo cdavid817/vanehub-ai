@@ -1,49 +1,4 @@
-# usage-statistics Specification
-
-## Purpose
-Defines the first-version usage statistics capability for summarizing persisted VaneHub chat message token usage in the settings center, including supported ranges, aggregation semantics, and documented accounting constraints.
-## Requirements
-### Requirement: Usage statistics summary
-The system SHALL provide separated reported-token and estimated-character usage statistics for VaneHub-managed assistant responses.
-
-#### Scenario: Display reported token usage
-- **WHEN** usage statistics are requested for a supported time range containing provider-reported usage
-- **THEN** the system SHALL return reported fresh-input, output, cache-read, cache-creation, and total token counts
-- **AND** reported total tokens SHALL equal the sum of those four token categories
-
-#### Scenario: Keep estimated activity separate
-- **WHEN** the selected range contains assistant responses whose usage is derived from character counting
-- **THEN** the system SHALL return estimated input, output, and total character counts separately from reported token counts
-- **AND** estimated characters SHALL NOT be added to any reported token total
-
-#### Scenario: Display coverage and breakdowns
-- **WHEN** usage statistics are requested for a supported time range
-- **THEN** the system SHALL return reported, estimated, and total counted response counts, counted sessions, daily trend points, and per-Agent breakdown rows keyed by stable Agent id
-- **AND** it SHALL return the percentage of counted responses backed by reported usage
-
-#### Scenario: Handle no usage data
-- **WHEN** no persisted usage records exist in the selected range
-- **THEN** the system SHALL return zero-valued reported, estimated, coverage, response, and session totals with empty trend and Agent breakdown arrays instead of failing the page
-
-### Requirement: Usage time ranges
-The system SHALL support usage time ranges for today, last seven days, last thirty days, and all time using the active runtime's user-local calendar.
-
-#### Scenario: Filter by bounded local-calendar range
-- **WHEN** a user selects today, last seven days, or last thirty days
-- **THEN** the system SHALL include usage whose occurrence time falls within that many local calendar dates including the current local date
-- **AND** desktop and Web/mock runtimes SHALL apply equivalent local-calendar semantics
-
-#### Scenario: Include all persisted usage
-- **WHEN** a user selects all time
-- **THEN** the system SHALL include all persisted VaneHub usage records without a lower date boundary
-
-### Requirement: First-version accounting constraints
-The system SHALL document and display that usage statistics cover VaneHub-managed sessions, distinguish reported tokens from estimated characters, and are not provider billing records.
-
-#### Scenario: Show accounting limitation
-- **WHEN** the Usage Statistics page renders
-- **THEN** it SHALL show localized explanatory text describing reported and estimated sources
-- **AND** it SHALL state that external-terminal history, billing reconciliation, monetary cost estimation, request-detail logs, and provider/model filtering are not included in this version
+## MODIFIED Requirements
 
 ### Requirement: Normalized response usage records
 The system SHALL persist at most one normalized usage record per VaneHub assistant response or interactive terminal usage subject without storing prompt, response, or terminal content in that record.
@@ -91,17 +46,6 @@ The system SHALL persist at most one normalized usage record per VaneHub assista
 - **THEN** the system SHALL include those reasoning tokens in the persisted reported output token count
 - **AND** the system SHALL NOT persist reasoning tokens as a distinct tracked category
 
-### Requirement: Historical usage quality preservation
-The system SHALL preserve positive legacy message usage as estimated character history during migration.
-
-#### Scenario: Backfill legacy message usage
-- **WHEN** the usage-record migration runs on an existing database
-- **THEN** each assistant message with positive legacy input or output values SHALL produce an idempotent estimated-character usage record attributed to its owning Agent and original creation time
-
-#### Scenario: Preserve empty legacy rows
-- **WHEN** an existing assistant message has no positive legacy usage value
-- **THEN** the migration SHALL NOT create a synthetic usage record for that message
-
 ### Requirement: Session usage summary
 The system SHALL provide a session-scoped usage summary for a single VaneHub-managed session without changing global usage statistics range behavior.
 
@@ -134,4 +78,3 @@ The system SHALL provide a session-scoped usage summary for a single VaneHub-man
 - **THEN** the system SHALL periodically re-read the CLI's own reported usage and refresh the persisted usage record without waiting for the session to stop
 - **AND** the session usage summary SHALL reflect the refreshed values on its next request
 - **AND** the periodic poll SHALL finish before the exit-time refresh begins
-
