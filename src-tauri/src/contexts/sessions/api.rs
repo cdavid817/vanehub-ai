@@ -307,6 +307,14 @@ impl SessionsApi {
         self.service.session_usage_summary(session_id)
     }
 
+    pub(crate) fn terminal_usage_message_id(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Option<String>, SessionsError> {
+        self.service.terminal_usage_message_id(session_id, agent_id)
+    }
+
     pub(crate) fn run_maintenance(
         &self,
         policy: ArchivalPolicy,

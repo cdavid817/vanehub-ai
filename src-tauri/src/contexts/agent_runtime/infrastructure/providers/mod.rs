@@ -11,7 +11,7 @@ pub(crate) use output::{
     ProviderToolPhase,
 };
 pub(crate) use session_capture::{
-    codex_session_root, find_codex_rollout_since, find_gemini_chat_session_since,
+    codex_session_root, find_codex_rollout_since, find_gemini_chat_session,
     find_opencode_session_since, opencode_database_path, prepare_provider_session_capture,
     ProviderSessionCapture, ProviderSessionDiscovery,
 };
