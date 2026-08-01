@@ -88,8 +88,8 @@ pub(crate) use ports::{
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    risk_tier_for, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME,
-    SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, risk_tier_for, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]

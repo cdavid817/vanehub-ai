@@ -2,6 +2,7 @@
 //! `GenerationProcessEvent` vocabulary. No I/O lives here so this module is unit-testable without
 //! a live network connection, mirroring `providers::output`'s CLI-line-parsing tests.
 
+use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
     AgentMessage, GenerationProcessEvent, GenerationProcessFailure, ToolDefinition, ToolUseBlock,
@@ -34,12 +35,15 @@ pub(crate) fn history_to_turns(history: &[AgentMessage]) -> Vec<Value> {
 /// `tools` is non-empty, a `tools` declaration in Anthropic's `{name, description, input_schema}`
 /// shape. `system`, when present, becomes the request's top-level `system` field — Anthropic's
 /// wire format keeps it separate from `messages` natively, so bound-Skill content
-/// (`add-agent-skill-support`) never needs to be represented as a turn.
+/// (`add-agent-skill-support`) never needs to be represented as a turn. `options.thinking`, when
+/// `true`, enables extended thinking (`add-agent-chat-configuration`); `options.reasoning_depth`
+/// has no Anthropic-side effect — adaptive thinking has no separate depth parameter to set.
 pub(crate) fn build_request_body(
     model: &str,
     messages: &[Value],
     tools: &[ToolDefinition],
     system: Option<&str>,
+    options: &GenerationOptions,
 ) -> Value {
     let mut body = json!({
         "model": model,
@@ -52,6 +56,9 @@ pub(crate) fn build_request_body(
     }
     if let Some(system) = system {
         body["system"] = json!(system);
+    }
+    if options.thinking {
+        body["thinking"] = json!({ "type": "adaptive" });
     }
     body
 }
@@ -277,21 +284,26 @@ mod tests {
         assert_eq!(turns[1]["role"], "assistant");
     }
 
+    fn no_options() -> GenerationOptions<'static> {
+        GenerationOptions::disabled()
+    }
+
     #[test]
     fn request_body_embeds_model_and_turns() {
         let turns = history_to_turns(&[message("user", "Hello")]);
-        let body = build_request_body("claude-opus-4-8", &turns, &[], None);
+        let body = build_request_body("claude-opus-4-8", &turns, &[], None, &no_options());
         assert_eq!(body["model"], "claude-opus-4-8");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"].as_array().expect("array").len(), 1);
         assert!(body.get("tools").is_none());
         assert!(body.get("system").is_none());
+        assert!(body.get("thinking").is_none());
     }
 
     #[test]
     fn request_body_declares_tools_when_provided() {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
-        let body = build_request_body("claude-opus-4-8", &[], &tools, None);
+        let body = build_request_body("claude-opus-4-8", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
         assert_eq!(declared.len(), 3);
         assert_eq!(declared[0]["name"], "shell");
@@ -302,9 +314,42 @@ mod tests {
 
     #[test]
     fn request_body_sets_top_level_system_field_when_present() {
-        let body = build_request_body("claude-opus-4-8", &[], &[], Some("Be concise."));
+        let body = build_request_body(
+            "claude-opus-4-8",
+            &[],
+            &[],
+            Some("Be concise."),
+            &no_options(),
+        );
         assert_eq!(body["system"], "Be concise.");
         assert!(body["messages"].as_array().expect("array").is_empty());
+    }
+
+    #[test]
+    fn request_body_enables_adaptive_thinking_when_requested() {
+        let options = GenerationOptions {
+            thinking: true,
+            reasoning_depth: None,
+        };
+        let body = build_request_body("claude-opus-4-8", &[], &[], None, &options);
+        assert_eq!(body["thinking"], json!({ "type": "adaptive" }));
+    }
+
+    #[test]
+    fn request_body_omits_thinking_when_not_requested() {
+        let body = build_request_body("claude-opus-4-8", &[], &[], None, &no_options());
+        assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
+    fn request_body_ignores_reasoning_depth() {
+        let options = GenerationOptions {
+            thinking: false,
+            reasoning_depth: Some("high"),
+        };
+        let body = build_request_body("claude-opus-4-8", &[], &[], None, &options);
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
