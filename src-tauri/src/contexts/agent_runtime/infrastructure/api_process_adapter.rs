@@ -2,15 +2,15 @@ use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    risk_tier_for, tool_catalog, AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink,
-    AgentProcessGateway, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolRiskTier, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    FILE_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME,
-    SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, risk_tier_for, tool_catalog, AgentChatConfiguration, AgentClockPort,
+    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
+    AgentMessage, AgentProcessEventSink, AgentProcessGateway, AgentRuntimeApplicationError,
+    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
+    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, ProcessStopInitiator, StartedGenerationProcess,
+    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolRiskTier, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -287,15 +287,54 @@ fn run_generation(
     let _ = sink.handle(terminal);
 }
 
+/// Provider-agnostic knobs from `AgentChatConfiguration` that map onto a single generation
+/// request (`add-agent-chat-configuration`). Each provider's `build_request_body` reads only the
+/// field(s) meaningful to its own wire format — mirrors how `WireFormat`'s other function
+/// pointers already share one signature across providers with different per-provider bodies.
+pub(crate) struct GenerationOptions<'a> {
+    pub(crate) thinking: bool,
+    pub(crate) reasoning_depth: Option<&'a str>,
+}
+
+impl GenerationOptions<'_> {
+    /// Used for requests that are not the user-facing turn (context compaction's own internal
+    /// summarization call) — never inherits the user's turn-level settings.
+    pub(crate) fn disabled() -> GenerationOptions<'static> {
+        GenerationOptions {
+            thinking: false,
+            reasoning_depth: None,
+        }
+    }
+}
+
+fn generation_options_from_configuration(
+    configuration: &AgentChatConfiguration,
+) -> GenerationOptions<'_> {
+    GenerationOptions {
+        thinking: configuration.thinking,
+        reasoning_depth: configuration.reasoning_depth.as_deref(),
+    }
+}
+
+/// Whether the session's permission mode is plan mode (`add-agent-chat-configuration`) — the
+/// only `permission_mode` value this native-agent path currently changes behavior for; `"agent"`
+/// and `"auto"` are deliberately left inert this phase (design.md Decision 5).
+fn is_plan_mode(configuration: &AgentChatConfiguration) -> bool {
+    configuration.permission_mode == "plan"
+}
+
 /// The wire-protocol-specific pieces `execute` needs: where to send the request, what body to
 /// build, how to authenticate, and how to translate the response and build tool-reply turns.
 /// Selected once per generation from the agent's `interface_format`; everything else in
 /// `execute` — the tool-use loop, risk-tiered approval, and sandboxed tool execution — is
 /// format-agnostic.
+type BuildRequestBody =
+    fn(&str, &[Value], &[ToolDefinition], Option<&str>, &GenerationOptions) -> Value;
+
 struct WireFormat {
     endpoint: String,
     history_to_turns: fn(&[AgentMessage]) -> Vec<Value>,
-    build_request_body: fn(&str, &[Value], &[ToolDefinition], Option<&str>) -> Value,
+    build_request_body: BuildRequestBody,
     translate_sse_data: fn(&str, &mut ToolCallAccumulator) -> Option<GenerationProcessEvent>,
     build_reply_turns: fn(&str, &[ExecutedToolCall]) -> Vec<Value>,
     failure_from_http_status: fn(u16, &str) -> GenerationProcessFailure,
@@ -390,7 +429,9 @@ fn execute(
             ))
         }
     };
-    let tools = resolve_tool_catalog(request, mcp, logging, clock);
+    let plan_mode = is_plan_mode(&request.configuration);
+    let tools = resolve_tool_catalog(request, mcp, logging, clock, plan_mode);
+    let generation_options = generation_options_from_configuration(&request.configuration);
     let mut turns = (wire_format.history_to_turns)(&recent);
     if let Some(failure) = maybe_compact(
         &mut turns,
@@ -418,6 +459,7 @@ fn execute(
             &turns,
             &tools,
             system.as_deref(),
+            &generation_options,
         );
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
@@ -547,6 +589,7 @@ fn execute(
                 agent_id,
                 memories,
                 mcp,
+                plan_mode,
             );
             tool_use.status = if outcome.is_error {
                 "failed".to_string()
@@ -623,12 +666,20 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
 /// cannot fail the generation — it logs a warning and falls back to the fixed catalog alone,
 /// matching `resolve_system_prompt`'s established best-effort-enhancement philosophy for the
 /// exact same reason: MCP tools are additive on top of an already-usable fixed catalog.
+///
+/// In plan mode (`add-agent-chat-configuration`), returns `plan_mode_tool_catalog()` instead and
+/// skips the MCP lookup entirely — MCP tools are always excluded in plan mode, so there is no
+/// reason to pay the lookup cost.
 fn resolve_tool_catalog(
     request: &GenerationProcessRequest,
     mcp: &dyn AgentMcpToolPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
+    plan_mode: bool,
 ) -> Vec<ToolDefinition> {
+    if plan_mode {
+        return plan_mode_tool_catalog();
+    }
     let mut tools = tool_catalog();
     let project_path = request.session.folder.as_deref().unwrap_or_default();
     match mcp.catalog_entries(project_path) {
@@ -869,7 +920,15 @@ fn summarize_turns(
     }
     let mut prompt_turns = turns_to_summarize.to_vec();
     prompt_turns.push(json!({ "role": "user", "content": instruction }));
-    let body = (wire_format.build_request_body)(model, &prompt_turns, &[], system);
+    // Never inherits the user's turn-level `thinking`/`reasoning_depth` — this is an internal,
+    // mechanical summarization call, not the user-facing turn (`add-agent-chat-configuration`).
+    let body = (wire_format.build_request_body)(
+        model,
+        &prompt_turns,
+        &[],
+        system,
+        &GenerationOptions::disabled(),
+    );
     let request_builder = (wire_format.apply_auth)(client.post(&wire_format.endpoint), api_key);
     let response = request_builder
         .header("content-type", "application/json")
@@ -1013,6 +1072,16 @@ fn await_approval(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Formats the fixed rejection message used for every plan-mode enforcement gate below — the
+/// same message shape regardless of which tool/operation was denied.
+fn plan_mode_denial(what: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: format!("{what} is disabled in plan mode."),
+        is_error: true,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn execute_tool_call(
     name: &str,
     input: &Value,
@@ -1021,12 +1090,22 @@ fn execute_tool_call(
     agent_id: &str,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
+    plan_mode: bool,
 ) -> ToolExecutionOutcome {
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
+    // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
     if name == REMEMBER_TOOL_NAME {
         return execute_remember(input, agent_id, workspace_folder, memories);
+    }
+    // Plan mode (`add-agent-chat-configuration`) excludes MCP-sourced tools and `shell` from the
+    // catalog entirely, and narrows `file` to `read` — but the catalog only shapes what the model
+    // is *told* it can do. This is the actual enforcement boundary: nothing stops a model from
+    // requesting a tool/operation it was never offered (hallucination, or prompt injection from
+    // earlier tool output), so every one of these is re-checked here regardless of the catalog.
+    if plan_mode && name.starts_with(MCP_TOOL_NAME_PREFIX) {
+        return plan_mode_denial("MCP tools");
     }
     // MCP tools are similarly folder-independent: a user-scoped MCP server has no project
     // affiliation at all, so a folder-less session can still reach it (`add-agent-mcp-tools`).
@@ -1038,6 +1117,9 @@ fn execute_tool_call(
             output: outcome.output,
             is_error: outcome.is_error,
         };
+    }
+    if plan_mode && name == SHELL_TOOL_NAME {
+        return plan_mode_denial("Shell commands");
     }
     let Some(folder) = workspace_folder else {
         return ToolExecutionOutcome {
@@ -1058,6 +1140,9 @@ fn execute_tool_call(
                 .get("operation")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            if plan_mode && operation != "read" {
+                return plan_mode_denial("Writing files");
+            }
             let path = input
                 .get("path")
                 .and_then(Value::as_str)
@@ -1113,8 +1198,8 @@ fn failed_retryable(message: &str) -> GenerationProcessEvent {
 mod tests {
     use super::*;
     use crate::contexts::agent_runtime::application::{
-        AgentChatConfiguration, AgentLaunchView, AgentSession, AgentView, CliProfileSnapshot,
-        GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
+        AgentLaunchView, AgentSession, AgentView, CliProfileSnapshot, GenerationProcessFailureKind,
+        INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -1293,6 +1378,7 @@ mod tests {
         catalog_result: Result<Vec<ToolDefinition>, &'static str>,
         call_outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
         calls: Mutex<Vec<(String, String, Value)>>,
+        catalog_lookups: Mutex<u32>,
     }
 
     impl FakeMcp {
@@ -1304,6 +1390,7 @@ mod tests {
                 catalog_result,
                 call_outcome,
                 calls: Mutex::new(Vec::new()),
+                catalog_lookups: Mutex::new(0),
             }
         }
     }
@@ -1313,6 +1400,7 @@ mod tests {
             &self,
             _project_path: &str,
         ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError> {
+            *self.catalog_lookups.lock().expect("catalog_lookups") += 1;
             self.catalog_result
                 .clone()
                 .map_err(|message| AgentRuntimeApplicationError::Mcp(message.to_string()))
@@ -1718,6 +1806,40 @@ mod tests {
     }
 
     #[test]
+    fn generation_options_from_configuration_reads_thinking_and_reasoning_depth() {
+        let mut configuration = sample_request("api").configuration;
+        configuration.thinking = true;
+        configuration.reasoning_depth = Some("high".to_string());
+
+        let options = generation_options_from_configuration(&configuration);
+
+        assert!(options.thinking);
+        assert_eq!(options.reasoning_depth, Some("high"));
+    }
+
+    #[test]
+    fn generation_options_from_configuration_defaults_to_disabled() {
+        let configuration = sample_request("api").configuration;
+
+        let options = generation_options_from_configuration(&configuration);
+
+        assert!(!options.thinking);
+        assert_eq!(options.reasoning_depth, None);
+    }
+
+    #[test]
+    fn is_plan_mode_matches_only_the_literal_plan_value() {
+        let mut configuration = sample_request("api").configuration;
+        assert!(!is_plan_mode(&configuration));
+
+        configuration.permission_mode = "plan".to_string();
+        assert!(is_plan_mode(&configuration));
+
+        configuration.permission_mode = "agent".to_string();
+        assert!(!is_plan_mode(&configuration));
+    }
+
+    #[test]
     fn await_approval_returns_approved_when_resolved_with_approved() {
         let pending = no_pending_approvals();
         let cancelled = not_cancelled();
@@ -1779,6 +1901,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            false,
         );
         assert!(outcome.is_error);
     }
@@ -1793,6 +1916,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            false,
         );
         assert!(outcome.is_error);
         assert!(outcome.output.contains("workspace folder"));
@@ -1812,6 +1936,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            false,
         );
         assert!(!shell_outcome.is_error);
 
@@ -1823,6 +1948,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            false,
         );
         assert!(!file_outcome.is_error);
         assert_eq!(file_outcome.output, "hello");
@@ -1840,6 +1966,7 @@ mod tests {
             "test-agent",
             &memories,
             &NoopMcp,
+            false,
         );
 
         assert!(!outcome.is_error);
@@ -1861,6 +1988,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            false,
         );
         assert!(outcome.is_error);
     }
@@ -1883,6 +2011,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            false,
         );
 
         assert!(!outcome.is_error);
@@ -1916,6 +2045,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            false,
         );
 
         assert!(!outcome.is_error);
@@ -1924,6 +2054,91 @@ mod tests {
             calls[0].0, "",
             "no folder should collapse to an empty project path"
         );
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_shell_in_plan_mode() {
+        let outcome = execute_tool_call(
+            SHELL_TOOL_NAME,
+            &json!({"command": "echo hi"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            true,
+        );
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("plan mode"));
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_mcp_calls_in_plan_mode_without_reaching_the_port() {
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "should not be reached".to_string(),
+                is_error: false,
+            },
+        );
+
+        let outcome = execute_tool_call(
+            "mcp__filesystem-tools__search",
+            &json!({"query": "hello"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &mcp,
+            true,
+        );
+
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("plan mode"));
+        assert!(mcp.calls.lock().expect("calls").is_empty());
+    }
+
+    #[test]
+    fn execute_tool_call_still_allows_file_read_in_plan_mode() {
+        let directory = crate::test_support::TempDirectory::new("execute-tool-call-plan-mode-read");
+        std::fs::write(directory.path().join("a.txt"), "hello").expect("fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "a.txt"}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            true,
+        );
+
+        assert!(!outcome.is_error);
+        assert_eq!(outcome.output, "hello");
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_file_write_in_plan_mode() {
+        let directory =
+            crate::test_support::TempDirectory::new("execute-tool-call-plan-mode-write");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            true,
+        );
+
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("plan mode"));
+        assert!(!directory.path().join("a.txt").exists());
     }
 
     #[test]
@@ -1943,7 +2158,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false);
 
         assert_eq!(tools.len(), 4);
         assert!(tools.contains(&mcp_tool));
@@ -1962,7 +2177,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false);
 
         assert_eq!(
             tools.len(),
@@ -1977,6 +2192,33 @@ mod tests {
         assert_eq!(logs[0].level, AgentLogLevel::Warn);
         assert_eq!(logs[0].category, "session.runtime.api.mcp");
         assert!(logs[0].message.contains("mcp lookup exploded"));
+    }
+
+    #[test]
+    fn resolve_tool_catalog_returns_the_plan_mode_catalog_without_querying_mcp() {
+        let request = sample_request("api");
+        let mcp = FakeMcp::new(
+            Ok(vec![ToolDefinition {
+                name: "mcp__filesystem-tools__search".to_string(),
+                description: "Search files".to_string(),
+                input_schema: json!({ "type": "object" }),
+            }]),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+        let logging = RecordingLogging::default();
+
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true);
+
+        assert_eq!(tools, plan_mode_tool_catalog());
+        assert_eq!(
+            *mcp.catalog_lookups.lock().expect("catalog_lookups"),
+            0,
+            "plan mode should skip the MCP catalog lookup entirely"
+        );
+        assert!(logging.logs.lock().expect("logs").is_empty());
     }
 
     #[test]
@@ -2588,8 +2830,13 @@ mod tests {
         }
 
         // A request built after compaction still carries the same system prompt, unaffected.
-        let body_after =
-            (wire_format.build_request_body)("deepseek-chat", &turns, &[], Some(system));
+        let body_after = (wire_format.build_request_body)(
+            "deepseek-chat",
+            &turns,
+            &[],
+            Some(system),
+            &GenerationOptions::disabled(),
+        );
         assert_eq!(body_after["messages"][0]["role"], "system");
         assert_eq!(body_after["messages"][0]["content"], system);
     }

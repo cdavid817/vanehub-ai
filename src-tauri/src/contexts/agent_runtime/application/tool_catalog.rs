@@ -54,21 +54,57 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                 "required": ["operation", "path"]
             }),
         },
+        remember_tool_definition(),
+    ]
+}
+
+/// The catalog offered when the session's permission mode is plan mode
+/// (`add-agent-chat-configuration`): read-only exploration only. Excludes `shell` entirely;
+/// narrows `file` to its `read` operation; keeps `remember` (VaneHub-internal storage only, not a
+/// "real" side effect this mode cares about, already auto-approved everywhere else). This shapes
+/// what the model is *told* it can do — `execute_tool_call`'s own plan-mode checks are the actual
+/// enforcement boundary, since nothing stops a model from requesting a tool/operation it was
+/// never offered.
+pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
+    vec![
         ToolDefinition {
-            name: REMEMBER_TOOL_NAME.to_string(),
-            description: "Save a fact, decision, or preference so it's available in future, separate sessions with this same project. Use for information worth remembering long-term, not routine conversation.".to_string(),
+            name: FILE_TOOL_NAME.to_string(),
+            description: "Read a file relative to the session's workspace folder. Plan mode is active: writing files is not available.".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "content": {
+                    "operation": {
                         "type": "string",
-                        "description": "The fact, decision, or preference to remember."
+                        "enum": ["read"],
+                        "description": "Only reading is available in plan mode."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to the workspace root."
                     }
                 },
-                "required": ["content"]
+                "required": ["operation", "path"]
             }),
         },
+        remember_tool_definition(),
     ]
+}
+
+fn remember_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: REMEMBER_TOOL_NAME.to_string(),
+        description: "Save a fact, decision, or preference so it's available in future, separate sessions with this same project. Use for information worth remembering long-term, not routine conversation.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The fact, decision, or preference to remember."
+                }
+            },
+            "required": ["content"]
+        }),
+    }
 }
 
 /// Classifies a tool call's risk tier by tool name and, for the file tool, its `operation`
@@ -100,6 +136,18 @@ mod tests {
         assert_eq!(catalog[0].name, SHELL_TOOL_NAME);
         assert_eq!(catalog[1].name, FILE_TOOL_NAME);
         assert_eq!(catalog[2].name, REMEMBER_TOOL_NAME);
+    }
+
+    #[test]
+    fn plan_mode_catalog_offers_only_read_only_file_and_remember() {
+        let catalog = plan_mode_tool_catalog();
+        assert_eq!(catalog.len(), 2);
+        assert_eq!(catalog[0].name, FILE_TOOL_NAME);
+        assert_eq!(
+            catalog[0].input_schema["properties"]["operation"]["enum"],
+            json!(["read"])
+        );
+        assert_eq!(catalog[1].name, REMEMBER_TOOL_NAME);
     }
 
     #[test]

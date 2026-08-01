@@ -5,6 +5,7 @@
 //! `interface_format` without any other branching. No I/O lives here so this module is
 //! unit-testable without a live network connection.
 
+use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
     AgentMessage, GenerationProcessEvent, GenerationProcessFailure, ToolDefinition, ToolUseBlock,
@@ -41,11 +42,17 @@ pub(crate) fn history_to_turns(history: &[AgentMessage]) -> Vec<Value> {
 /// format has no separate system field the way Anthropic's does, but the caller's `messages`
 /// slice is never mutated to include it, so bound-Skill content (`add-agent-skill-support`) is
 /// never mistaken for a turn a caller (e.g. context compaction) might rewrite or summarize away.
+/// `options.reasoning_depth`, when present, becomes a `reasoning_effort` field
+/// (`add-agent-chat-configuration`) — the standard-ish request parameter reasoning-capable
+/// OpenAI-compatible models use. `options.thinking` has no effect here: there is no universal
+/// "enable reasoning" request flag across OpenAI-compatible vendors (many reasoning models
+/// reason automatically based on the chosen model id, not a request-level toggle).
 pub(crate) fn build_request_body(
     model: &str,
     messages: &[Value],
     tools: &[ToolDefinition],
     system: Option<&str>,
+    options: &GenerationOptions,
 ) -> Value {
     let mut all_messages = Vec::with_capacity(messages.len() + 1);
     if let Some(system) = system {
@@ -60,7 +67,22 @@ pub(crate) fn build_request_body(
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools.iter().map(tool_definition_to_json).collect());
     }
+    if let Some(depth) = options.reasoning_depth {
+        body["reasoning_effort"] = json!(reasoning_effort(depth));
+    }
     body
+}
+
+/// Folds VaneHub's `"max"` reasoning-depth tier down to `"high"` — the same kind of fold-down
+/// `providers/invocation.rs` already applies for codex-cli's own reasoning-effort vocabulary
+/// (`"max"` → `"xhigh"`), since `"max"` is a VaneHub-only tier with no equivalent in the standard
+/// `reasoning_effort` enum.
+fn reasoning_effort(depth: &str) -> &str {
+    if depth == "max" {
+        "high"
+    } else {
+        depth
+    }
 }
 
 fn tool_definition_to_json(tool: &ToolDefinition) -> Value {
@@ -249,20 +271,25 @@ mod tests {
         assert_eq!(turns[1]["role"], "assistant");
     }
 
+    fn no_options() -> GenerationOptions<'static> {
+        GenerationOptions::disabled()
+    }
+
     #[test]
     fn request_body_embeds_model_and_turns() {
         let turns = history_to_turns(&[message("user", "Hello")]);
-        let body = build_request_body("deepseek-chat", &turns, &[], None);
+        let body = build_request_body("deepseek-chat", &turns, &[], None, &no_options());
         assert_eq!(body["model"], "deepseek-chat");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"].as_array().expect("array").len(), 1);
         assert!(body.get("tools").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
     fn request_body_declares_tools_when_provided() {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
-        let body = build_request_body("deepseek-chat", &[], &tools, None);
+        let body = build_request_body("deepseek-chat", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
         assert_eq!(declared.len(), 3);
         assert_eq!(declared[0]["type"], "function");
@@ -274,13 +301,52 @@ mod tests {
     #[test]
     fn request_body_prepends_a_system_message_without_mutating_the_caller_turns() {
         let turns = history_to_turns(&[message("user", "Hello")]);
-        let body = build_request_body("deepseek-chat", &turns, &[], Some("Be concise."));
+        let body = build_request_body(
+            "deepseek-chat",
+            &turns,
+            &[],
+            Some("Be concise."),
+            &no_options(),
+        );
         let messages = body["messages"].as_array().expect("array");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[0]["content"], "Be concise.");
         assert_eq!(messages[1]["role"], "user");
         assert_eq!(turns.len(), 1, "the caller's turns slice must be untouched");
+    }
+
+    #[test]
+    fn request_body_passes_reasoning_depth_through_as_reasoning_effort() {
+        for depth in ["low", "medium", "high"] {
+            let options = GenerationOptions {
+                thinking: false,
+                reasoning_depth: Some(depth),
+            };
+            let body = build_request_body("deepseek-chat", &[], &[], None, &options);
+            assert_eq!(body["reasoning_effort"], depth);
+        }
+    }
+
+    #[test]
+    fn request_body_folds_max_reasoning_depth_down_to_high() {
+        let options = GenerationOptions {
+            thinking: false,
+            reasoning_depth: Some("max"),
+        };
+        let body = build_request_body("deepseek-chat", &[], &[], None, &options);
+        assert_eq!(body["reasoning_effort"], "high");
+    }
+
+    #[test]
+    fn request_body_ignores_thinking() {
+        let options = GenerationOptions {
+            thinking: true,
+            reasoning_depth: None,
+        };
+        let body = build_request_body("deepseek-chat", &[], &[], None, &options);
+        assert!(body.get("thinking").is_none());
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
