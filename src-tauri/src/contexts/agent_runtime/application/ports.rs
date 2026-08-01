@@ -653,6 +653,15 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
     /// naming what still references it — never partially applied (`add-agent-lifecycle-management`
     /// design.md Decision 2).
     fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Sets the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`). Fails
+    /// with `AgentNotFound` for a nonexistent id or one that isn't `launch_kind = 'api'`, mirroring
+    /// `update`/`delete`'s existing "0 rows changed" convention.
+    fn set_auto_approve_tools(
+        &self,
+        agent_id: &str,
+        enabled: bool,
+    ) -> Result<(), AgentRuntimeApplicationError>;
 }
 
 /// Secret storage boundary for API-based agent provider credentials.

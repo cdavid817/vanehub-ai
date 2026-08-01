@@ -62,6 +62,7 @@ pub(super) fn api_agent_provider_config_to_dto(
         model_id: config.model_id,
         interface_format: config.interface_format,
         base_url: config.base_url,
+        auto_approve_tools: config.auto_approve_tools,
     }
 }
 

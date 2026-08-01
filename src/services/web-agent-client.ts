@@ -1571,6 +1571,7 @@ export const webAgentClient: AgentService = {
       modelId,
       interfaceFormat: input.interfaceFormat,
       baseUrl,
+      autoApproveTools: false,
     });
     return entry;
   },
@@ -1616,6 +1617,16 @@ export const webAgentClient: AgentService = {
     if (index !== -1) mockAgents.splice(index, 1);
     webApiAgentProviderConfigs.delete(agentId);
     webSkillApiAgentBindings = webSkillApiAgentBindings.filter((binding) => binding.agentId !== agentId);
+  },
+
+  async setAgentToolTrust(agentId: string, enabled: boolean) {
+    const agent = mockAgents.find((candidate) => candidate.id === agentId);
+    const current = webApiAgentProviderConfigs.get(agentId);
+    if (!agent || !current) {
+      throw new Error(i18n.t("agents.updateApiAgent.errors.notFound"));
+    }
+    webApiAgentProviderConfigs.set(agentId, { ...current, autoApproveTools: enabled });
+    return agent;
   },
 
   async listAgentMemories(agentId: string) {
@@ -2508,8 +2519,26 @@ export const webAgentClient: AgentService = {
     timeoutIds.push(toolUseTimeoutId);
     const agent = mockAgents.find((candidate) => candidate.id === session.agentId);
     if (agent?.launch.kind === "api") {
+      // Trusted agents (`add-agent-tool-trust`) skip the simulated approval step for shell,
+      // mirroring the real backend's `requires_approval` short-circuit exactly.
+      const isTrusted = webApiAgentProviderConfigs.get(session.agentId)?.autoApproveTools ?? false;
       const callId = `web-tool-approval-${assistantMessage.id}`;
       const approvalTimeoutId = setTimeout(() => {
+        if (isTrusted) {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: callId,
+              name: "shell",
+              input: { command: "echo mock" },
+              output: "mock\n",
+              status: "completed",
+            },
+          });
+          return;
+        }
         pendingMockToolApprovals.set(callId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,

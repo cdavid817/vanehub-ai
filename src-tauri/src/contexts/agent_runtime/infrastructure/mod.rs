@@ -68,7 +68,10 @@ pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
     UuidCoordinationIds,
 };
-pub(crate) use schema::{apply_api_agent_schema, apply_openai_compatible_schema, seed_registry};
+pub(crate) use schema::{
+    apply_agent_tool_trust_schema, apply_api_agent_schema, apply_openai_compatible_schema,
+    seed_registry,
+};
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;

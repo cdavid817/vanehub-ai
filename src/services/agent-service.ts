@@ -103,6 +103,7 @@ export interface AgentService {
   getApiAgentProviderConfig(agentId: string): Promise<ApiAgentProviderConfig | null>;
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
+  setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
   listAgentMemories(agentId: string): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;

@@ -86,6 +86,18 @@ pub(crate) fn apply_openai_compatible_schema(
     Ok(())
 }
 
+/// Adds the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`) — off by
+/// default for every existing and newly registered agent, mirrors CLI agents' own existing
+/// persisted-CLI-Profile lever for the same underlying concern.
+pub(crate) fn apply_agent_tool_trust_schema(
+    conn: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE agents ADD COLUMN auto_approve_tools INTEGER NOT NULL DEFAULT 0;",
+    )?;
+    Ok(())
+}
+
 pub(crate) fn seed_registry(
     connection: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {

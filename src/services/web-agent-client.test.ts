@@ -892,6 +892,7 @@ describe("webAgentClient", () => {
       modelId: "claude-opus-4-8",
       interfaceFormat: "anthropic",
       baseUrl: null,
+      autoApproveTools: false,
     });
 
     const updated = await webAgentClient.updateApiAgent(agent.id, {
@@ -906,6 +907,7 @@ describe("webAgentClient", () => {
       modelId: "claude-sonnet-5",
       interfaceFormat: "anthropic",
       baseUrl: null,
+      autoApproveTools: false,
     });
   });
 
@@ -954,6 +956,80 @@ describe("webAgentClient", () => {
 
     await expect(webAgentClient.deleteApiAgent(referenced.id)).rejects.toThrow();
     expect((await webAgentClient.listAgents()).some((entry) => entry.id === referenced.id)).toBe(true);
+  });
+
+  it("sets and clears a mock API agent's tool-trust flag", async () => {
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Trust Test Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(false);
+
+    await webAgentClient.setAgentToolTrust(agent.id, true);
+    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(true);
+
+    await webAgentClient.setAgentToolTrust(agent.id, false);
+    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(false);
+  });
+
+  it("simulates a trusted agent's shell call completing without an approval step", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Trusted Shell Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    await webAgentClient.setAgentToolTrust(agent.id, true);
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Trusted shell" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(
+      events.some((event) => event.type === "tool_use" && event.toolUse.name === "shell" && event.toolUse.status === "awaiting_approval"),
+    ).toBe(false);
+    expect(
+      events.some((event) => event.type === "tool_use" && event.toolUse.name === "shell" && event.toolUse.status === "completed"),
+    ).toBe(true);
+    unsubscribe();
+  });
+
+  it("simulates an untrusted agent's shell call still requiring approval", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Untrusted Shell Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Untrusted shell" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(
+      events.some((event) => event.type === "tool_use" && event.toolUse.name === "shell" && event.toolUse.status === "awaiting_approval"),
+    ).toBe(true);
+    unsubscribe();
   });
 
   it("signals bound Skill influence in mock API-agent generations", async () => {

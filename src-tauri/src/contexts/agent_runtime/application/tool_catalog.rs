@@ -125,6 +125,20 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
     }
 }
 
+/// Whether a tool call must pause for human approval, composing `risk_tier_for`'s static
+/// classification with a per-agent trust grant (`add-agent-tool-trust`). `risk_tier_for` itself
+/// stays agent-trust-unaware — this function is the only place the two are combined, kept
+/// separate so `risk_tier_for`'s existing pure "classify by name+input" contract and test suite
+/// need no changes. `auto_approve_tools` can only ever skip approval for `shell` and `file`
+/// calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
+/// `RequiresApproval` for any name it doesn't explicitly recognize, with no carve-out here.
+pub(crate) fn requires_approval(tool_name: &str, input: &Value, auto_approve_tools: bool) -> bool {
+    if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL_NAME) {
+        return false;
+    }
+    risk_tier_for(tool_name, input) == ToolRiskTier::RequiresApproval
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +240,60 @@ mod tests {
             risk_tier_for(REMEMBER_TOOL_NAME, &json!({"content": "Uses pnpm."})),
             ToolRiskTier::AutoApprove
         );
+    }
+
+    #[test]
+    fn trusted_agent_skips_approval_for_shell() {
+        assert!(!requires_approval(
+            SHELL_TOOL_NAME,
+            &json!({"command": "rm -rf /"}),
+            true
+        ));
+    }
+
+    #[test]
+    fn trusted_agent_skips_approval_for_file_write() {
+        assert!(!requires_approval(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
+            true
+        ));
+    }
+
+    #[test]
+    fn untrusted_agent_still_requires_approval_for_shell_and_file_write() {
+        assert!(requires_approval(
+            SHELL_TOOL_NAME,
+            &json!({"command": "ls"}),
+            false
+        ));
+        assert!(requires_approval(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
+            false
+        ));
+    }
+
+    #[test]
+    fn trusted_agent_still_requires_approval_for_mcp_calls() {
+        assert!(requires_approval(
+            "mcp__filesystem-tools__search",
+            &json!({"query": "x"}),
+            true
+        ));
+    }
+
+    #[test]
+    fn trust_flag_never_affects_already_auto_approved_tools() {
+        assert!(!requires_approval(
+            REMEMBER_TOOL_NAME,
+            &json!({"content": "Uses pnpm."}),
+            false
+        ));
+        assert!(!requires_approval(
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "a.txt"}),
+            false
+        ));
     }
 }

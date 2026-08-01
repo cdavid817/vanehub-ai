@@ -178,6 +178,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "agent-cross-session-memory",
         crate::contexts::agent_runtime::infrastructure::apply_memory_schema,
     )?;
+    apply_migration(
+        conn,
+        32,
+        "agent-tool-trust",
+        crate::contexts::agent_runtime::infrastructure::apply_agent_tool_trust_schema,
+    )?;
 
     Ok(())
 }

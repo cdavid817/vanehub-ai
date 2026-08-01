@@ -19,6 +19,7 @@ pub(crate) mod resolve_tool_approval;
 pub(crate) mod select_agent;
 pub(crate) mod send_agent_terminal_input;
 pub(crate) mod send_message;
+pub(crate) mod set_agent_tool_trust;
 pub(crate) mod stop_agent_terminal;
 pub(crate) mod stop_generation;
 pub(crate) mod update_api_agent;

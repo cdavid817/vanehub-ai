@@ -25,6 +25,7 @@ describe("AgentEditDialog", () => {
         modelId: "claude-opus-4-8",
         interfaceFormat: "anthropic",
         baseUrl: null,
+        autoApproveTools: false,
       }),
     });
     renderWithAppProviders(<AgentEditDialog agent={agent} onClose={() => undefined} onSaved={() => undefined} service={service} />);
@@ -41,6 +42,7 @@ describe("AgentEditDialog", () => {
         modelId: "claude-opus-4-8",
         interfaceFormat: "anthropic",
         baseUrl: null,
+        autoApproveTools: false,
       }),
       updateApiAgent,
     });
@@ -70,6 +72,7 @@ describe("AgentEditDialog", () => {
         modelId: "claude-opus-4-8",
         interfaceFormat: "anthropic",
         baseUrl: null,
+        autoApproveTools: false,
       }),
       updateApiAgent: async () => {
         throw new Error("Cannot update: agent not found.");

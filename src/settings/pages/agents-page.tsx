@@ -11,6 +11,7 @@ import { PageHeader, SectionPanel, StatusPill, TagList } from "./page-parts";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 import { AgentEditDialog } from "./agents/agent-edit-dialog";
 import { AgentMemoryPanel } from "./agents/agent-memory-panel";
+import { AgentToolTrustToggle } from "./agents/agent-tool-trust-toggle";
 
 type AgentsOverview = {
   agents: AgentRegistryEntry[];
@@ -369,6 +370,7 @@ export function AgentsPage({ searchTerm }: { searchTerm: string }) {
                     </Button>
                   </div>
                 ) : null}
+                {agent.launch.kind === "api" ? <AgentToolTrustToggle agent={agent} /> : null}
               </section>
             ))}
           </div>

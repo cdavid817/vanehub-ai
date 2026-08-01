@@ -63,6 +63,8 @@ struct FakeWorld {
     updated_agents: Mutex<Vec<(String, UpdateApiAgentInput)>>,
     delete_api_agent_failure: AtomicBool,
     deleted_agent_ids: Mutex<Vec<String>>,
+    set_auto_approve_tools_calls: Mutex<Vec<(String, bool)>>,
+    set_auto_approve_tools_failure: AtomicBool,
     stored_credentials: Mutex<Vec<(String, String)>>,
     removed_credentials: Mutex<Vec<String>>,
 }
@@ -111,6 +113,8 @@ impl FakeWorld {
             deleted_agent_ids: Mutex::new(Vec::new()),
             stored_credentials: Mutex::new(Vec::new()),
             removed_credentials: Mutex::new(Vec::new()),
+            set_auto_approve_tools_calls: Mutex::new(Vec::new()),
+            set_auto_approve_tools_failure: AtomicBool::new(false),
         }
     }
 }
@@ -449,6 +453,23 @@ impl ApiAgentGateway for FakeWorld {
             .lock()
             .expect("deleted agent ids")
             .push(agent_id.to_string());
+        Ok(())
+    }
+
+    fn set_auto_approve_tools(
+        &self,
+        agent_id: &str,
+        enabled: bool,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        if self.set_auto_approve_tools_failure.load(Ordering::SeqCst) {
+            return Err(AgentRuntimeApplicationError::AgentNotFound(
+                agent_id.to_string(),
+            ));
+        }
+        self.set_auto_approve_tools_calls
+            .lock()
+            .expect("set_auto_approve_tools calls")
+            .push((agent_id.to_string(), enabled));
         Ok(())
     }
 }
@@ -1099,6 +1120,7 @@ fn update_api_agent_trims_fields_and_forwards_the_normalized_input_to_the_gatewa
             model_id: "old-model".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
+            auto_approve_tools: false,
         });
 
     let updated = service(world.clone())
@@ -1134,6 +1156,7 @@ fn update_api_agent_rejects_a_missing_base_url_when_the_stored_format_is_openai_
             model_id: "old-model".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://old.example.test".to_string()),
+            auto_approve_tools: false,
         });
 
     let result = service(world.clone()).update_api_agent(
@@ -1168,6 +1191,7 @@ fn update_api_agent_rotating_the_key_stores_it_without_touching_other_fields() {
             model_id: "gpt-test".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
+            auto_approve_tools: false,
         });
 
     service(world.clone())
@@ -1234,6 +1258,41 @@ fn delete_api_agent_does_not_touch_the_credential_when_the_gateway_rejects_the_d
         .lock()
         .expect("removed credentials")
         .is_empty());
+}
+
+#[test]
+fn set_auto_approve_tools_enables_and_returns_the_updated_agent_view() {
+    let world = Arc::new(FakeWorld::new(vec![api_agent(
+        "my-api-agent",
+        "My API Agent",
+        vec!["api"],
+    )]));
+
+    let updated = service(world.clone())
+        .set_auto_approve_tools("my-api-agent", true)
+        .expect("set auto approve tools");
+
+    assert_eq!(updated.display_name, "My API Agent");
+    let calls = world
+        .set_auto_approve_tools_calls
+        .lock()
+        .expect("set_auto_approve_tools calls");
+    assert_eq!(calls.as_slice(), [("my-api-agent".to_string(), true)]);
+}
+
+#[test]
+fn set_auto_approve_tools_surfaces_agent_not_found() {
+    let world = test_world();
+    world
+        .set_auto_approve_tools_failure
+        .store(true, Ordering::SeqCst);
+
+    let result = service(world.clone()).set_auto_approve_tools("my-api-agent", true);
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::AgentNotFound(id)) if id == "my-api-agent"
+    ));
 }
 
 #[test]
