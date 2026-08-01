@@ -85,6 +85,15 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-31 | establish-test-coverage-and-integration-gates | continuous-integration, frontend-runtime-architecture, native-runtime-architecture | `openspec/changes/archive/2026-07-31-establish-test-coverage-and-integration-gates/` |
 | 2026-07-31 | fix-cli-terminal-session-resume-capture | agent-terminal-runtime | `openspec/changes/archive/2026-07-31-fix-cli-terminal-session-resume-capture/` |
 | 2026-07-31 | pool-native-sqlite-connections | native-runtime-architecture | `openspec/changes/archive/2026-07-31-pool-native-sqlite-connections/` |
+| 2026-08-01 | add-agent-chat-configuration | agent-chat-configuration | `openspec/changes/archive/2026-08-01-add-agent-chat-configuration/` |
+| 2026-08-01 | add-agent-context-compaction | agent-context-compaction | `openspec/changes/archive/2026-08-01-add-agent-context-compaction/` |
+| 2026-08-01 | add-agent-cross-session-memory | agent-cross-session-memory | `openspec/changes/archive/2026-08-01-add-agent-cross-session-memory/` |
+| 2026-08-01 | add-agent-lifecycle-management | agent-lifecycle-management | `openspec/changes/archive/2026-08-01-add-agent-lifecycle-management/` |
+| 2026-08-01 | add-agent-mcp-tools | agent-mcp-tools | `openspec/changes/archive/2026-08-01-add-agent-mcp-tools/` |
+| 2026-08-01 | add-agent-skill-support | agent-skill-injection | `openspec/changes/archive/2026-08-01-add-agent-skill-support/` |
+| 2026-08-01 | add-agent-tool-execution | agent-tool-execution | `openspec/changes/archive/2026-08-01-add-agent-tool-execution/` |
+| 2026-08-01 | add-agent-tool-trust | agent-tool-trust | `openspec/changes/archive/2026-08-01-add-agent-tool-trust/` |
+| 2026-08-01 | add-custom-agent-registration | agent-tool-registry, api-agent-runtime, chat-experience, interaction-modes | `openspec/changes/archive/2026-08-01-add-custom-agent-registration/` |
 | 2026-08-01 | fix-terminal-usage-integrity | agent-execution-observability, agent-terminal-runtime, usage-statistics | `openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
