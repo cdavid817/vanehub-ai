@@ -124,6 +124,7 @@ fn api_agent_registration_round_trips_and_reports_available() {
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
+            auto_approve_tools: false,
         })
     );
 
@@ -169,6 +170,7 @@ fn openai_compatible_agent_registration_persists_base_url_and_reports_available(
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://api.deepseek.com/v1".to_string()),
+            auto_approve_tools: false,
         })
     );
 }

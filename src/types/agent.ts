@@ -48,6 +48,7 @@ export interface ApiAgentProviderConfig {
   modelId: string;
   interfaceFormat: ApiInterfaceFormat;
   baseUrl: string | null;
+  autoApproveTools: boolean;
 }
 
 export interface UpdateApiAgentInput {

@@ -108,6 +108,10 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_api_agent", { agentId });
   },
 
+  setAgentToolTrust(agentId: string, enabled: boolean) {
+    return invoke<AgentRegistryEntry>("set_agent_tool_trust", { agentId, enabled });
+  },
+
   listAgentMemories(agentId: string) {
     return invoke<AgentMemory[]>("list_agent_memories", { agentId });
   },

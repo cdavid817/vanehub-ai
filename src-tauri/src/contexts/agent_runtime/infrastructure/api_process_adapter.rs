@@ -2,13 +2,13 @@ use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    plan_mode_tool_catalog, risk_tier_for, tool_catalog, AgentChatConfiguration, AgentClockPort,
-    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
-    AgentMessage, AgentProcessEventSink, AgentProcessGateway, AgentRuntimeApplicationError,
-    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
-    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessRequest, MemorySource, ProcessStopInitiator, StartedGenerationProcess,
-    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolRiskTier, ToolUseBlock,
+    plan_mode_tool_catalog, requires_approval, tool_catalog, AgentChatConfiguration,
+    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory,
+    AgentMemoryPort, AgentMessage, AgentProcessEventSink, AgentProcessGateway,
+    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
+    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
@@ -544,7 +544,7 @@ fn execute(
                 return failed_non_retryable("Generation was cancelled.");
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
-            if risk_tier_for(&tool_use.name, &input) == ToolRiskTier::RequiresApproval {
+            if requires_approval(&tool_use.name, &input, provider_config.auto_approve_tools) {
                 tool_use.status = "awaiting_approval".to_string();
                 if sink
                     .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
@@ -1243,6 +1243,7 @@ mod tests {
                 model_id: model_id.to_string(),
                 interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
                 base_url: None,
+                auto_approve_tools: false,
             }),
         }
     }
@@ -1253,6 +1254,7 @@ mod tests {
                 model_id: model_id.to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: base_url.map(str::to_string),
+                auto_approve_tools: false,
             }),
         }
     }
@@ -1279,6 +1281,13 @@ mod tests {
             unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
         }
         fn delete(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+            unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
+        }
+        fn set_auto_approve_tools(
+            &self,
+            _agent_id: &str,
+            _enabled: bool,
+        ) -> Result<(), AgentRuntimeApplicationError> {
             unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
         }
     }
@@ -1780,12 +1789,80 @@ mod tests {
         }
     }
 
+    /// Proves the full wiring end to end: `provider_config.auto_approve_tools` actually reaches
+    /// `requires_approval` inside `execute()`'s round-trip loop, and a trusted agent's shell call
+    /// runs straight through with no `awaiting_approval` event, matching `requires_approval`'s
+    /// own unit-tested behavior (`tool_catalog.rs`). Only the trusted path is exercised here —
+    /// the untrusted path is unchanged pre-existing behavior already covered by every other
+    /// `execute_tool_call`/`requires_approval` test in this file, and driving it through a full
+    /// `execute()` round trip would mean blocking on `await_approval`'s real (timeout-less) wait
+    /// for a decision nothing in this test would ever send.
+    #[test]
+    fn execute_skips_the_approval_prompt_for_a_trusted_agents_shell_call() {
+        let directory = crate::test_support::TempDirectory::new("execute-trusted-shell-round-trip");
+        let sse_body = concat!(
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"shell\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"command\\\": \\\"echo hi\\\"}\"}}]},\"finish_reason\":null}]}\n",
+            "\n",
+            "data: [DONE]\n",
+            "\n",
+        )
+        .to_string();
+        let (address, _server) = http_fixture("200 OK", sse_body);
+        let mut request = sample_request("api");
+        request.session.folder = Some(directory.path().to_string_lossy().to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+
+        let _event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let events = sink.events.lock().expect("events");
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "awaiting_approval"
+            )),
+            "trusted agent's shell call must never show an approval prompt"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "completed"
+            )),
+            "trusted agent's shell call must still run to completion"
+        );
+    }
+
     #[test]
     fn wire_format_for_openai_compatible_builds_chat_completions_endpoint() {
         let config = ApiProviderConfig {
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://api.deepseek.com/v1/".to_string()),
+            auto_approve_tools: false,
         };
         let wire_format = wire_format_for(&config).expect("wire format");
         assert_eq!(
@@ -1800,6 +1877,7 @@ mod tests {
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
+            auto_approve_tools: false,
         };
         let wire_format = wire_format_for(&config).expect("wire format");
         assert_eq!(wire_format.endpoint, MESSAGES_ENDPOINT);
@@ -2404,6 +2482,7 @@ mod tests {
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some(base_url.to_string()),
+            auto_approve_tools: false,
         })
         .expect("wire format")
     }

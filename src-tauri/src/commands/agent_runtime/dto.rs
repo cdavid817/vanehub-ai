@@ -61,6 +61,7 @@ pub(crate) struct ApiAgentProviderConfig {
     pub(crate) model_id: String,
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
+    pub(crate) auto_approve_tools: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

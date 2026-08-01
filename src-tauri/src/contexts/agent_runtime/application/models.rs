@@ -781,6 +781,7 @@ pub(crate) struct ApiProviderConfig {
     pub(crate) model_id: String,
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
+    pub(crate) auto_approve_tools: bool,
 }
 
 /// A Skill bound to an API agent, resolved and ready to inject as that agent's generation

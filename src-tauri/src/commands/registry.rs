@@ -12,6 +12,7 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::get_api_agent_provider_config::get_api_agent_provider_config,
         crate::commands::agent_runtime::update_api_agent::update_api_agent,
         crate::commands::agent_runtime::delete_api_agent::delete_api_agent,
+        crate::commands::agent_runtime::set_agent_tool_trust::set_agent_tool_trust,
         crate::commands::agent_runtime::resolve_tool_approval::resolve_tool_approval,
         crate::commands::agent_runtime::get_workflow_state::get_workflow_state,
         crate::commands::agent_runtime::select_agent::select_agent,

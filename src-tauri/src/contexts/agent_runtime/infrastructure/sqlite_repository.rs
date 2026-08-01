@@ -247,25 +247,27 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
         self.connection()?
             .query_row(
-                "SELECT model_id, interface_format, base_url FROM agents WHERE id = ?1",
+                "SELECT model_id, interface_format, base_url, auto_approve_tools FROM agents WHERE id = ?1",
                 [agent_id],
                 |row| {
                     Ok((
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, bool>(3)?,
                     ))
                 },
             )
             .optional()
             .map_err(registry_error)
             .map(|row| {
-                row.and_then(|(model_id, interface_format, base_url)| {
+                row.and_then(|(model_id, interface_format, base_url, auto_approve_tools)| {
                     Some(ApiProviderConfig {
                         model_id: model_id?,
                         interface_format: interface_format
                             .unwrap_or_else(|| INTERFACE_FORMAT_ANTHROPIC.to_string()),
                         base_url,
+                        auto_approve_tools,
                     })
                 })
             })
@@ -294,6 +296,26 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
         }
         self.find_in(&connection, agent_id)?
             .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
+    }
+
+    fn set_auto_approve_tools(
+        &self,
+        agent_id: &str,
+        enabled: bool,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let changed = self
+            .connection()?
+            .execute(
+                "UPDATE agents SET auto_approve_tools = ?2 WHERE id = ?1 AND launch_kind = 'api'",
+                params![agent_id, enabled],
+            )
+            .map_err(registry_error)?;
+        if changed == 0 {
+            return Err(AgentRuntimeApplicationError::AgentNotFound(
+                agent_id.to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
