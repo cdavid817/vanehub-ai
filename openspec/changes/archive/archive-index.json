@@ -1195,6 +1195,126 @@
                      },
                      {
                          "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-chat-configuration",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-chat-configuration/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-context-compaction",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-context-compaction/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-context-compaction"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-cross-session-memory",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-cross-session-memory/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-lifecycle-management",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-lifecycle-management/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-lifecycle-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-mcp-tools",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-mcp-tools/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-mcp-tools"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-skill-support",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-skill-support/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-skill-injection"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-tool-execution",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-tool-execution/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-agent-tool-trust",
+                         "path":  "openspec/changes/archive/2026-08-01-add-agent-tool-trust/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-trust"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "add-custom-agent-registration",
+                         "path":  "openspec/changes/archive/2026-08-01-add-custom-agent-registration/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-registry",
+                                              "api-agent-runtime",
+                                              "chat-experience",
+                                              "interaction-modes"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
                          "changeName":  "fix-terminal-usage-integrity",
                          "path":  "openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/",
                          "artifacts":  [

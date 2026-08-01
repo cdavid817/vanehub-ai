@@ -59,7 +59,7 @@ Agent registry entry models used by the Rust/Tauri layer and frontend service la
 - **THEN** the contract SHALL preserve stable kebab-case agent ids as the canonical reference field
 
 ### Requirement: Supported CLI tool management catalog
-The system SHALL maintain backend-owned management metadata for the supported AI coding CLI tools using stable agent identifiers.
+The system SHALL maintain backend-owned management metadata for the supported AI coding CLI tools (`launch_kind = cli`) using stable agent identifiers. This requirement governs only CLI-managed agents; other `launch_kind` values (for example `api`) are registered agents per "Registered agent catalog" but are not CLI tools and are out of scope for this requirement.
 
 #### Scenario: List managed CLI tools
 - **WHEN** CLI management status is requested
@@ -68,6 +68,10 @@ The system SHALL maintain backend-owned management metadata for the supported AI
 #### Scenario: Preserve CLI package metadata
 - **WHEN** the system manages a supported CLI tool
 - **THEN** it SHALL associate the stable agent id with its executable name and npm package name from backend-owned metadata
+
+#### Scenario: Non-CLI agents are excluded from CLI management
+- **WHEN** CLI management status is requested
+- **THEN** the system SHALL NOT include agents whose `launch_kind` is not `cli` in the CLI management list
 
 ### Requirement: Persisted CLI detection status
 The system SHALL store the last known CLI detection status and bounded installation distribution for supported CLI tools.
@@ -142,3 +146,4 @@ CLI detection and package operations SHALL persist operation logs through unifie
 #### Scenario: Keep CLI card logs
 - **WHEN** CLI operation logs are persisted through unified log management
 - **THEN** the CLI management page SHALL still display the latest operation logs inside the affected CLI card
+
