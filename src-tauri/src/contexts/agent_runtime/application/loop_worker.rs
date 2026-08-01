@@ -1,17 +1,18 @@
 use super::loop_worker_prompt::{truncate_utf8, worker_prompt};
 use super::{
-    AgentClockPort, AgentRuntimeApplicationError, LoopGitStatePort, LoopIterationRepository,
-    LoopIterationView, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopRoleSessionPort,
-    LoopRoleSessionRequest, LoopWorkerGenerationPort, StartLoopWorkerRequest,
-    StartedLoopWorkerView,
+    AgentClockPort, AgentRegistryRepository, AgentRuntimeApplicationError, LoopGitStatePort,
+    LoopIterationRepository, LoopIterationView, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopRoleSessionPort, LoopRoleSessionRequest,
+    LoopWorkerGenerationPort, StartLoopWorkerRequest, StartedLoopWorkerView,
 };
-use crate::contexts::agent_runtime::domain::LoopRunStatus;
+use crate::contexts::agent_runtime::domain::{InteractionMode, LoopRunStatus};
 use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
 pub(crate) struct LoopWorkerApplicationPorts {
     pub(crate) iterations: Arc<dyn LoopIterationRepository>,
+    pub(crate) registry: Arc<dyn AgentRegistryRepository>,
     pub(crate) roles: Arc<dyn LoopRoleSessionPort>,
     pub(crate) git: Arc<dyn LoopGitStatePort>,
     pub(crate) generations: Arc<dyn LoopWorkerGenerationPort>,
@@ -83,13 +84,25 @@ impl LoopWorkerApplicationService {
         request: &StartLoopWorkerRequest,
         feedback: Option<&str>,
     ) -> Result<StartedLoopWorkerView, AgentRuntimeApplicationError> {
+        let agent_id = &request.definition_snapshot.worker_agent_id;
+        let agent = self
+            .ports
+            .registry
+            .find(agent_id)?
+            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.clone()))?;
+        let interaction_mode = if agent.supports(InteractionMode::Cli) {
+            InteractionMode::Cli
+        } else {
+            InteractionMode::Api
+        };
         let session_id = self
             .ports
             .roles
             .create_worker_session(LoopRoleSessionRequest {
                 run_id: request.run_id.clone(),
                 iteration_id: iteration_id.to_string(),
-                agent_id: request.definition_snapshot.worker_agent_id.clone(),
+                agent_id: agent_id.clone(),
+                interaction_mode,
                 project_path: request.project_path.clone(),
                 worktree_path: request.worktree_path.clone(),
                 worktree_name: request.worktree_name.clone(),

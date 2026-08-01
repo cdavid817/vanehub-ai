@@ -1,7 +1,8 @@
 use super::*;
 use crate::contexts::agent_runtime::domain::{
-    LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunSnapshot,
-    LoopRunStatus, LoopVerificationCommand,
+    AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
+    InteractionMode, LaunchMetadata, LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun,
+    LoopRunPhase, LoopRunSnapshot, LoopRunStatus, LoopVerificationCommand,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -88,6 +89,7 @@ impl OrchestratorWorld {
         let observer = LoopOperationObserver::new(self.clone(), self.clone(), self.clone());
         let worker = LoopWorkerApplicationService::new(LoopWorkerApplicationPorts {
             iterations: self.clone(),
+            registry: self.clone(),
             roles: self.clone(),
             git: self.clone(),
             generations: self.clone(),
@@ -102,6 +104,7 @@ impl OrchestratorWorld {
             });
         let verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
             iterations: self.clone(),
+            registry: self.clone(),
             roles: self.clone(),
             context: self.clone(),
             generations: self.clone(),
@@ -216,6 +219,31 @@ impl LoopRepository for OrchestratorWorld {
         run_id: &str,
     ) -> Result<Option<LoopDefinition>, AgentRuntimeApplicationError> {
         Ok((run_id == "run-1").then(|| self.definition.clone()))
+    }
+}
+
+impl AgentRegistryRepository for OrchestratorWorld {
+    fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+
+    fn find(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
+        Ok(Some(
+            AgentDefinition::new(AgentDefinitionInput {
+                id: agent_id.to_string(),
+                display_name: agent_id.to_string(),
+                provider: "test".to_string(),
+                managed_sdk_dependency_id: None,
+                launch: LaunchMetadata::new("cli".to_string(), None, None, None).expect("launch"),
+                supported_interaction_modes: vec![InteractionMode::Cli],
+                availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+                capability_tags: Vec::new(),
+            })
+            .expect("agent"),
+        ))
     }
 }
 
