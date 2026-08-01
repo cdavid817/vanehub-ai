@@ -85,5 +85,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-07-31 | establish-test-coverage-and-integration-gates | continuous-integration, frontend-runtime-architecture, native-runtime-architecture | `openspec/changes/archive/2026-07-31-establish-test-coverage-and-integration-gates/` |
 | 2026-07-31 | fix-cli-terminal-session-resume-capture | agent-terminal-runtime | `openspec/changes/archive/2026-07-31-fix-cli-terminal-session-resume-capture/` |
 | 2026-07-31 | pool-native-sqlite-connections | native-runtime-architecture | `openspec/changes/archive/2026-07-31-pool-native-sqlite-connections/` |
+| 2026-08-01 | fix-terminal-usage-integrity | agent-execution-observability, agent-terminal-runtime, usage-statistics | `openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

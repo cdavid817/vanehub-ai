@@ -2,9 +2,13 @@ use super::providers::{
     build_interactive_invocation, output_parser_for, prepare_provider_session_capture,
     ProviderOutputEvent, ProviderSessionCapture, ProviderSessionDiscovery,
 };
+use super::terminal_observability::{
+    finish_terminal_execution_trace, start_terminal_execution_trace,
+    TerminalExecutionObservability, TerminalExecutionTrace,
+};
 use super::terminal_usage_ingestion::{
-    create_terminal_usage_placeholder, ingest_claude_terminal_usage, ingest_codex_terminal_usage,
-    ingest_gemini_terminal_usage, ingest_opencode_terminal_usage,
+    ingest_claude_terminal_usage, ingest_codex_terminal_usage, ingest_gemini_terminal_usage,
+    ingest_opencode_terminal_usage, load_terminal_usage_message_id,
 };
 use super::terminal_wrapper::{
     default_agent_terminal_shell, generate_agent_terminal_wrapper, AgentTerminalWrapperRequest,
@@ -17,6 +21,7 @@ use crate::contexts::agent_runtime::application::{
     StopAgentTerminalRequest,
 };
 use crate::contexts::agent_runtime::domain::AgentLifecycle;
+use crate::contexts::execution_observability::api::ExecutionStatus;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
@@ -66,6 +71,7 @@ pub(crate) struct PortablePtyAgentTerminalRuntime {
     sessions: Arc<dyn AgentSessionGateway>,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
+    observability: TerminalExecutionObservability,
     wrapper_dir: PathBuf,
 }
 
@@ -75,6 +81,7 @@ impl PortablePtyAgentTerminalRuntime {
         sessions: Arc<dyn AgentSessionGateway>,
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
+        observability: TerminalExecutionObservability,
         wrapper_dir: PathBuf,
     ) -> Self {
         Self {
@@ -84,6 +91,7 @@ impl PortablePtyAgentTerminalRuntime {
             sessions,
             logging,
             clock,
+            observability,
             wrapper_dir,
         }
     }
@@ -126,6 +134,35 @@ impl PortablePtyAgentTerminalRuntime {
             span_id: None,
             occurred_at: self.clock.now(),
         });
+    }
+
+    fn start_terminal_execution(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+        provider_session_id: Option<&str>,
+    ) -> TerminalExecutionTrace {
+        let settings = match self.observability.execution_settings.load_settings() {
+            Ok(settings) => settings,
+            Err(error) => {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    format!("Execution observability settings are unavailable: {error}"),
+                    Some(agent_id),
+                    Some(session_id),
+                );
+                Default::default()
+            }
+        };
+        start_terminal_execution_trace(
+            self.observability.execution_ids.as_ref(),
+            self.observability.telemetry.as_ref(),
+            self.clock.as_ref(),
+            &settings,
+            session_id,
+            agent_id,
+            provider_session_id,
+        )
     }
 }
 
@@ -316,7 +353,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         if let Some(folder) = normalized_folder.as_deref() {
             command.cwd(folder);
         }
-        let child = pair.slave.spawn_command(command).map_err(|error| {
+        let mut child = pair.slave.spawn_command(command).map_err(|error| {
             let message = format!(
                 "Failed to spawn Agent terminal process for {}: {error}",
                 redacted_command
@@ -330,31 +367,44 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             AgentRuntimeApplicationError::Process(message)
         })?;
         drop(pair.slave);
-        let mut reader = pair.master.try_clone_reader().map_err(|error| {
-            let message = format!("Failed to attach Agent terminal reader: {error}");
-            self.record_log(
-                AgentLogLevel::Error,
-                message.clone(),
-                Some(&request.agent.id),
-                Some(&request.session.id),
-            );
-            AgentRuntimeApplicationError::Process(message)
-        })?;
-        let writer = pair.master.take_writer().map_err(|error| {
-            let message = format!("Failed to attach Agent terminal writer: {error}");
-            self.record_log(
-                AgentLogLevel::Error,
-                message.clone(),
-                Some(&request.agent.id),
-                Some(&request.session.id),
-            );
-            AgentRuntimeApplicationError::Process(message)
-        })?;
+        let mut reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                cleanup_unattached_terminal_child(child.as_mut());
+                let message = format!("Failed to attach Agent terminal reader: {error}");
+                self.record_log(
+                    AgentLogLevel::Error,
+                    message.clone(),
+                    Some(&request.agent.id),
+                    Some(&request.session.id),
+                );
+                return Err(AgentRuntimeApplicationError::Process(message));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                cleanup_unattached_terminal_child(child.as_mut());
+                let message = format!("Failed to attach Agent terminal writer: {error}");
+                self.record_log(
+                    AgentLogLevel::Error,
+                    message.clone(),
+                    Some(&request.agent.id),
+                    Some(&request.session.id),
+                );
+                return Err(AgentRuntimeApplicationError::Process(message));
+            }
+        };
         let child = Arc::new(Mutex::new(child));
         let runtime_session_id =
             non_empty_runtime_session_id(request.session.runtime_session_id.as_deref())
                 .map(str::to_string)
                 .or_else(|| invocation.assigned_runtime_session_id.clone());
+        let terminal_execution = self.start_terminal_execution(
+            &request.session.id,
+            &request.agent.id,
+            runtime_session_id.as_deref(),
+        );
         let terminal = ManagedAgentTerminal {
             terminal_id: terminal_id.clone(),
             session_id: request.session.id.clone(),
@@ -374,6 +424,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         let sessions = self.sessions.clone();
         let logging = self.logging.clone();
         let clock = self.clock.clone();
+        let telemetry = self.observability.telemetry.clone();
         let terminals = self.terminals.clone();
         let session_id = request.session.id;
         let agent_id = request.agent.id;
@@ -384,23 +435,25 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             .filter(|f| !f.trim().is_empty())
             .map(str::to_string);
         let started_at_ms = now_timestamp_ms(self.clock.as_ref());
-        // Created once, up front, so both the periodic poll below and the final
-        // exit-time read reuse the same message id — required for `upsert_usage`'s
-        // `ON CONFLICT(message_id)` to update one row instead of one per poll.
+        // Recover the backing row when a terminal is restarted. When no row exists,
+        // the first non-zero usage sample creates it lazily so opening and closing an
+        // idle terminal does not leave a ghost assistant message in the transcript.
         let usage_tracking_message_id = if matches!(
             agent_id.as_str(),
             "claude-code" | "opencode" | "codex-cli" | "gemini-cli"
         ) {
-            match create_terminal_usage_placeholder(sessions.as_ref(), &session_id) {
-                Ok(message_id) => Some(message_id),
+            match load_terminal_usage_message_id(sessions.as_ref(), &session_id, &agent_id) {
+                Ok(message_id) => Some(Arc::new(Mutex::new(message_id))),
                 Err(error) => {
                     self.record_log(
                         AgentLogLevel::Warn,
-                        format!("Failed to create terminal usage placeholder message: {error}"),
+                        format!("Failed to recover terminal usage message: {error}"),
                         Some(&agent_id),
                         Some(&session_id),
                     );
-                    None
+                    // Keep tracking enabled: persistence retries the lookup before it
+                    // creates a replacement row, preserving restart idempotency.
+                    Some(Arc::new(Mutex::new(None)))
                 }
             }
         } else {
@@ -415,7 +468,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         // of output (or exit). This timer thread is intentionally independent of PTY
         // activity so it keeps checking on a fixed cadence regardless.
         let usage_poll_alive = Arc::new(AtomicBool::new(true));
-        if let Some(message_id) = usage_tracking_message_id.clone() {
+        let usage_poll_handle = if let Some(message_id) = usage_tracking_message_id.clone() {
             let agent_id = agent_id.clone();
             let session_folder = session_folder.clone();
             let runtime_session_id = runtime_session_id.clone();
@@ -424,19 +477,19 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             let clock = clock.clone();
             let session_id = session_id.clone();
             let alive = usage_poll_alive.clone();
-            thread::spawn(move || {
+            Some(thread::spawn(move || {
                 // Ticks in short increments so the thread notices the terminal has
                 // exited promptly instead of sleeping a full interval before checking.
                 const TICK: Duration = Duration::from_millis(250);
                 let mut waited = Duration::ZERO;
-                while alive.load(Ordering::Relaxed) {
+                while alive.load(Ordering::Acquire) {
                     thread::sleep(TICK);
                     waited += TICK;
                     if waited < TERMINAL_USAGE_POLL_INTERVAL {
                         continue;
                     }
                     waited = Duration::ZERO;
-                    if !alive.load(Ordering::Relaxed) {
+                    if !alive.load(Ordering::Acquire) {
                         break;
                     }
                     let result = run_terminal_usage_ingestion(
@@ -445,7 +498,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                         runtime_session_id.as_deref(),
                         started_at_ms,
                         sessions.as_ref(),
-                        &message_id,
+                        message_id.as_ref(),
                         &session_id,
                         clock.as_ref(),
                     );
@@ -460,8 +513,10 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                         );
                     }
                 }
-            });
-        }
+            }))
+        } else {
+            None
+        };
         drop(terminal_registry);
         thread::spawn(move || {
             let parser = output_parser_for(&agent_id);
@@ -588,7 +643,16 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
 
             // Stop the independent usage-poll thread now that the terminal has
             // definitely exited, so it doesn't race the exit-time read below.
-            usage_poll_alive.store(false, Ordering::Relaxed);
+            if stop_terminal_usage_poll(usage_poll_alive.as_ref(), usage_poll_handle) {
+                record_provider_session_capture_log(
+                    logging.as_ref(),
+                    clock.as_ref(),
+                    AgentLogLevel::Warn,
+                    "Terminal usage polling thread panicked before shutdown.".to_string(),
+                    &agent_id,
+                    &session_id,
+                );
+            }
             let exit_result = child
                 .lock()
                 .map_err(|error| error.to_string())
@@ -611,14 +675,14 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             // — that poll only samples while fresh PTY output is arriving, so it can miss
             // a session whose own log/DB row appears after the last visible output but
             // before Stop.
-            if let Some(message_id) = usage_tracking_message_id.as_deref() {
+            if let Some(message_id) = usage_tracking_message_id.as_ref() {
                 let result = run_terminal_usage_ingestion(
                     &agent_id,
                     session_folder.as_deref(),
                     runtime_session_id.as_deref(),
                     started_at_ms,
                     sessions.as_ref(),
-                    message_id,
+                    message_id.as_ref(),
                     &session_id,
                     clock.as_ref(),
                 );
@@ -645,6 +709,18 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 AgentTerminalState::Failed => AgentLifecycle::Failed,
                 _ => AgentLifecycle::Stopped,
             };
+            let execution_status = match state {
+                AgentTerminalState::Failed => ExecutionStatus::Failed,
+                _ => ExecutionStatus::Succeeded,
+            };
+            let error_classification = error.as_ref().map(|_| "agent_terminal_process_failed");
+            finish_terminal_execution_trace(
+                telemetry.as_ref(),
+                clock.as_ref(),
+                &terminal_execution,
+                execution_status,
+                error_classification,
+            );
             let _ = sessions.update_lifecycle(&session_id, lifecycle);
             let _ = events.publish_terminal(AgentTerminalEvent::State {
                 terminal_id,
@@ -663,9 +739,9 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                 agent_id: Some(agent_id),
                 session_id: Some(session_id),
                 operation_id: None,
-                run_id: None,
-                trace_id: None,
-                span_id: None,
+                run_id: Some(terminal_execution.session.run_id.as_str().to_string()),
+                trace_id: Some(terminal_execution.session.trace_id.as_str().to_string()),
+                span_id: Some(terminal_execution.process.span_id.as_str().to_string()),
                 occurred_at: clock.now(),
             });
         });
@@ -788,7 +864,7 @@ fn run_terminal_usage_ingestion(
     runtime_session_id: Option<&str>,
     started_at_ms: i64,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     clock: &dyn AgentClockPort,
 ) -> Option<Result<bool, AgentRuntimeApplicationError>> {
@@ -822,15 +898,17 @@ fn run_terminal_usage_ingestion(
             agent_id,
             clock,
         )),
-        "gemini-cli" => Some(ingest_gemini_terminal_usage(
-            session_folder,
-            started_at_ms,
-            sessions,
-            message_id,
-            session_id,
-            agent_id,
-            clock,
-        )),
+        "gemini-cli" => runtime_session_id.map(|runtime_session_id| {
+            ingest_gemini_terminal_usage(
+                session_folder,
+                runtime_session_id,
+                sessions,
+                message_id,
+                session_id,
+                agent_id,
+                clock,
+            )
+        }),
         _ => None,
     }
 }
@@ -940,6 +1018,18 @@ fn terminate_terminal_child(
     }
     let _ = child.wait();
     Ok(())
+}
+
+fn cleanup_unattached_terminal_child(child: &mut dyn Child) {
+    if child.try_wait().ok().flatten().is_none() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
+
+fn stop_terminal_usage_poll(alive: &AtomicBool, handle: Option<thread::JoinHandle<()>>) -> bool {
+    alive.store(false, Ordering::Release);
+    handle.map(|handle| handle.join().is_err()).unwrap_or(false)
 }
 
 fn agent_terminal_session(terminal: &ManagedAgentTerminal) -> AgentTerminalSession {
@@ -1379,6 +1469,32 @@ mod tests {
         assert!(transcript.len() <= RETAINED_TERMINAL_TRANSCRIPT_BYTES);
         assert!(transcript.is_char_boundary(0));
         assert!(!transcript.contains("older"));
+    }
+
+    #[test]
+    fn stopping_usage_poll_joins_before_returning() {
+        let alive = Arc::new(AtomicBool::new(true));
+        let finished = Arc::new(AtomicBool::new(false));
+        let worker_alive = alive.clone();
+        let worker_finished = finished.clone();
+        let handle = thread::spawn(move || {
+            while worker_alive.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            worker_finished.store(true, Ordering::Release);
+        });
+
+        assert!(!stop_terminal_usage_poll(alive.as_ref(), Some(handle)));
+        assert!(finished.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn unattached_child_cleanup_waits_for_process_exit() {
+        let mut child = dummy_child();
+
+        cleanup_unattached_terminal_child(child.as_mut());
+
+        assert!(child.try_wait().expect("child status").is_some());
     }
 
     fn dummy_child() -> Box<dyn Child + Send + Sync> {

@@ -183,6 +183,16 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             .map_err(session_error)
     }
 
+    fn find_terminal_usage_message(
+        &self,
+        session_id: &str,
+        agent_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        self.sessions
+            .terminal_usage_message_id(session_id, agent_id)
+            .map_err(session_error)
+    }
+
     fn append_content(
         &self,
         message_id: &str,

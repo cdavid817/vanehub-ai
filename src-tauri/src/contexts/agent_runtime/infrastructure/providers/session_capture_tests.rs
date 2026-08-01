@@ -1,6 +1,7 @@
 use super::session_capture::{
     capture_codex_baseline, capture_opencode_baseline, discover_codex_session,
-    discover_opencode_session, read_gemini_project_slug, ProviderSessionDiscovery,
+    discover_opencode_session, find_gemini_chat_session_in_home, read_gemini_project_slug,
+    ProviderSessionDiscovery,
 };
 use rusqlite::Connection;
 use serde_json::json;
@@ -222,6 +223,101 @@ fn gemini_project_slug_missing_registry_file_is_graceful() {
 
     let slug =
         read_gemini_project_slug(&registry_path, &root.join("aiproject")).expect("read registry");
+
+    assert_eq!(slug, None);
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+fn write_gemini_chat(gemini_home: &Path, slug: &str, name: &str, session_id: Option<&str>) {
+    let chats = gemini_home.join("tmp").join(slug).join("chats");
+    fs::create_dir_all(&chats).expect("create chats directory");
+    let metadata = session_id
+        .map(|session_id| json!({ "sessionId": session_id, "projectHash": "fixture" }).to_string())
+        .unwrap_or_else(|| "{not-json".to_string());
+    fs::write(chats.join(name), format!("{metadata}\n")).expect("write chat fixture");
+}
+
+#[test]
+fn gemini_chat_lookup_uses_exact_runtime_session_id() {
+    let root = temp_directory("gemini-exact-session");
+    let gemini_home = root.join(".gemini");
+    let project = root.join("project");
+    let registry_path = gemini_home.join("projects.json");
+    fs::create_dir_all(&gemini_home).expect("create gemini home");
+    write_gemini_projects_registry(&registry_path, &[(&project, "project")]);
+    write_gemini_chat(
+        &gemini_home,
+        "project",
+        "session-newer-wrong.jsonl",
+        Some("runtime-wrong"),
+    );
+    write_gemini_chat(
+        &gemini_home,
+        "project",
+        "session-exact.jsonl",
+        Some("runtime-exact"),
+    );
+
+    let found =
+        find_gemini_chat_session_in_home(&gemini_home, &registry_path, &project, "runtime-exact")
+            .expect("lookup")
+            .expect("exact session");
+
+    assert_eq!(
+        found.file_name().and_then(|name| name.to_str()),
+        Some("session-exact.jsonl")
+    );
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+#[test]
+fn gemini_chat_lookup_rejects_missing_and_ambiguous_session_ids() {
+    let root = temp_directory("gemini-session-edge-cases");
+    let gemini_home = root.join(".gemini");
+    let project = root.join("project");
+    let registry_path = gemini_home.join("projects.json");
+    fs::create_dir_all(&gemini_home).expect("create gemini home");
+    write_gemini_projects_registry(&registry_path, &[(&project, "project")]);
+    write_gemini_chat(
+        &gemini_home,
+        "project",
+        "session-one.jsonl",
+        Some("runtime-duplicate"),
+    );
+    write_gemini_chat(
+        &gemini_home,
+        "project",
+        "session-two.jsonl",
+        Some("runtime-duplicate"),
+    );
+
+    assert!(find_gemini_chat_session_in_home(
+        &gemini_home,
+        &registry_path,
+        &project,
+        "runtime-missing",
+    )
+    .expect("missing lookup")
+    .is_none());
+    let error = find_gemini_chat_session_in_home(
+        &gemini_home,
+        &registry_path,
+        &project,
+        "runtime-duplicate",
+    )
+    .expect_err("ambiguous lookup must fail");
+    assert!(error.to_string().contains("ambiguous"));
+    fs::remove_dir_all(root).expect("remove temp directory");
+}
+
+#[test]
+fn gemini_project_slug_rejects_path_components() {
+    let root = temp_directory("gemini-invalid-slug");
+    let project = root.join("project");
+    let registry_path = root.join("projects.json");
+    write_gemini_projects_registry(&registry_path, &[(&project, "../escape")]);
+
+    let slug = read_gemini_project_slug(&registry_path, &project).expect("read registry");
 
     assert_eq!(slug, None);
     fs::remove_dir_all(root).expect("remove temp directory");

@@ -322,6 +322,14 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         message_id: &str,
     ) -> Result<Option<AgentMessage>, AgentRuntimeApplicationError>;
 
+    fn find_terminal_usage_message(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
+
     fn append_content(
         &self,
         message_id: &str,

@@ -77,7 +77,7 @@ The Agent Terminal runtime SHALL persist provider runtime session ids when avail
 - **THEN** the desktop runtime SHALL start a fresh Agent CLI process for the selected stable agent id
 
 ### Requirement: Retained terminal lifecycle
-The desktop runtime SHALL retain Agent Terminal processes across session switching and page closure, then stop inactive processes after two hours or during application shutdown.
+The desktop runtime SHALL retain Agent Terminal processes across session switching and page closure, then stop inactive processes after two hours or during application shutdown, including all terminal-owned background workers.
 
 #### Scenario: Switch session keeps process
 - **WHEN** the user switches away from a session with a live Agent Terminal process
@@ -109,18 +109,29 @@ The desktop runtime SHALL retain Agent Terminal processes across session switchi
 - **THEN** the frontend SHALL paint the cached terminal output before waiting for the native attach response
 - **AND** it SHALL avoid duplicating content when the native retained transcript replay arrives
 
+#### Scenario: Usage worker stops before final refresh
+- **WHEN** an Agent Terminal process exits or is stopped
+- **THEN** the runtime SHALL signal and join its periodic usage worker before starting the final usage refresh
+- **AND** an older periodic result SHALL NOT overwrite the final observation
+
 #### Scenario: Shutdown stops processes
 - **WHEN** the desktop application shuts down
-- **THEN** the native runtime SHALL stop all live Agent Terminal processes
+- **THEN** the native runtime SHALL stop all live Agent Terminal processes and terminal-owned background workers
+- **AND** it SHALL wait for child-process cleanup before releasing terminal state
 - **AND** it SHALL write redacted shutdown diagnostics through unified logging
 
 ### Requirement: Terminal output persistence boundary
-The first Agent Terminal version SHALL persist runtime session ids and redacted run diagnostics but SHALL NOT convert terminal transcript output into chat messages.
+The Agent Terminal runtime SHALL persist runtime session ids, reported usage, and redacted run diagnostics but SHALL NOT convert terminal transcript output or empty usage placeholders into chat messages.
 
 #### Scenario: Output is not written as messages
 - **WHEN** an Agent Terminal emits stdout or stderr content
 - **THEN** the desktop runtime SHALL display the content in the terminal stream
 - **AND** it SHALL NOT create or append `messages` rows for that transcript content
+
+#### Scenario: Empty usage does not create a streaming message
+- **WHEN** terminal usage polling has not found a non-zero provider observation
+- **THEN** the runtime SHALL NOT create an empty streaming assistant message for usage tracking
+- **AND** the session SHALL NOT remain in a streaming state because usage is unavailable
 
 #### Scenario: Diagnostics use unified logging
 - **WHEN** an Agent Terminal starts, fails, exits, is stopped by idle cleanup, or is stopped during shutdown

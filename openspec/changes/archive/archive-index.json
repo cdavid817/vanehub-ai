@@ -1192,6 +1192,21 @@
                          "capabilities":  [
                                               "native-runtime-architecture"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
+                         "changeName":  "fix-terminal-usage-integrity",
+                         "path":  "openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "agent-terminal-runtime",
+                                              "usage-statistics"
+                                          ]
                      }
                  ]
 }

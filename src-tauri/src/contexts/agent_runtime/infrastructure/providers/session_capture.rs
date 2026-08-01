@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,6 +283,12 @@ struct GeminiProjectsRegistry {
     projects: HashMap<String, String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct GeminiSessionMetadata {
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+}
+
 /// Post-hoc lookup for gemini-cli's own `ChatRecordingService` output, following the
 /// same working-directory + start-time pattern as `find_opencode_session_since` /
 /// `find_codex_rollout_since`. gemini-cli has no live `ProviderSessionCapture` poll to
@@ -296,46 +302,72 @@ struct GeminiProjectsRegistry {
 /// / `Storage.getProjectIdentifier`). This recently replaced an older pure-hash scheme
 /// (per a source comment: "Performs migration of legacy hash-based directories to the
 /// new slug-based format"), so no hash-based assumption is used here.
-pub(crate) fn find_gemini_chat_session_since(
+pub(crate) fn find_gemini_chat_session(
     working_directory: &Path,
-    since_ms: i64,
+    runtime_session_id: &str,
 ) -> Result<Option<PathBuf>, ProviderSessionCaptureError> {
     let Some(registry_path) = gemini_projects_registry_path() else {
         return Ok(None);
     };
-    let Some(slug) = read_gemini_project_slug(&registry_path, working_directory)? else {
+    let Some(gemini_home) = gemini_home_dir() else {
         return Ok(None);
     };
-    let Some(gemini_home) = gemini_home_dir() else {
+    find_gemini_chat_session_in_home(
+        &gemini_home,
+        &registry_path,
+        working_directory,
+        runtime_session_id,
+    )
+}
+
+pub(super) fn find_gemini_chat_session_in_home(
+    gemini_home: &Path,
+    registry_path: &Path,
+    working_directory: &Path,
+    runtime_session_id: &str,
+) -> Result<Option<PathBuf>, ProviderSessionCaptureError> {
+    let runtime_session_id = runtime_session_id.trim();
+    if runtime_session_id.is_empty() {
+        return Ok(None);
+    }
+    let Some(slug) = read_gemini_project_slug(registry_path, working_directory)? else {
         return Ok(None);
     };
     let chats_dir = gemini_home.join("tmp").join(slug).join("chats");
     if !chats_dir.exists() {
         return Ok(None);
     }
-    let since = UNIX_EPOCH + Duration::from_millis(since_ms.saturating_sub(2_000).max(0) as u64);
-    let mut candidates: Vec<(SystemTime, PathBuf)> = Vec::new();
+    let mut candidates = Vec::new();
     let entries = fs::read_dir(&chats_dir).map_err(|error| capture_error("Gemini", error))?;
     for entry in entries {
         let entry = entry.map_err(|error| capture_error("Gemini", error))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| capture_error("Gemini", error))?;
+        if !file_type.is_file() {
+            continue;
+        }
         let path = entry.path();
         let is_chat_file = path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.ends_with(".jsonl"));
+            .is_some_and(|name| name.starts_with("session-") && name.ends_with(".jsonl"));
         if !is_chat_file {
             continue;
         }
-        let modified = fs::metadata(&path)
-            .and_then(|metadata| metadata.modified())
-            .map_err(|error| capture_error("Gemini", error))?;
-        if modified < since {
-            continue;
+        if read_gemini_session_id(&path)?.as_deref() == Some(runtime_session_id) {
+            candidates.push(path);
         }
-        candidates.push((modified, path));
     }
-    candidates.sort_by_key(|(modified, _)| *modified);
-    Ok(candidates.pop().map(|(_, path)| path))
+    match candidates.len() {
+        0 => Ok(None),
+        1 => Ok(candidates.pop()),
+        count => Err(ProviderSessionCaptureError {
+            message: format!(
+                "Gemini session metadata is ambiguous: {count} chat files share one runtime session id"
+            ),
+        }),
+    }
 }
 
 pub(super) fn read_gemini_project_slug(
@@ -354,7 +386,28 @@ pub(super) fn read_gemini_project_slug(
         .projects
         .into_iter()
         .find(|(project_path, _)| paths_match(Path::new(project_path), working_directory))
-        .map(|(_, slug)| slug))
+        .map(|(_, slug)| slug)
+        .filter(|slug| valid_gemini_project_slug(slug)))
+}
+
+fn valid_gemini_project_slug(slug: &str) -> bool {
+    let mut components = Path::new(slug).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+fn read_gemini_session_id(path: &Path) -> Result<Option<String>, ProviderSessionCaptureError> {
+    let file = File::open(path).map_err(|error| capture_error("Gemini", error))?;
+    let mut lines = BufReader::new(file).lines();
+    let Some(line) = lines.next() else {
+        return Ok(None);
+    };
+    let line = line.map_err(|error| capture_error("Gemini", error))?;
+    let Ok(metadata) = serde_json::from_str::<GeminiSessionMetadata>(&line) else {
+        return Ok(None);
+    };
+    Ok(metadata
+        .session_id
+        .filter(|session_id| !session_id.trim().is_empty()))
 }
 
 /// `~/.gemini`, exactly as gemini-cli's own `Storage.getGlobalGeminiDir()` resolves it

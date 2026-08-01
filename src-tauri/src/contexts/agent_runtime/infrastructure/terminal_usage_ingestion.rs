@@ -1,5 +1,5 @@
 use super::providers::{
-    codex_session_root, find_codex_rollout_since, find_gemini_chat_session_since,
+    codex_session_root, find_codex_rollout_since, find_gemini_chat_session,
     find_opencode_session_since, opencode_database_path,
 };
 use crate::contexts::agent_runtime::application::{
@@ -8,9 +8,11 @@ use crate::contexts::agent_runtime::application::{
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct TerminalUsageTotals {
@@ -22,14 +24,13 @@ struct TerminalUsageTotals {
 
 /// Reads the claude-code session JSONL and upserts one aggregated usage record under
 /// `message_id`. Safe to call repeatedly (e.g. every few seconds while the terminal is
-/// open, and once more at exit): `message_id` is a stable id created once per terminal
-/// session by `create_terminal_usage_placeholder`, so each call updates the same row
-/// via `upsert_usage`'s `ON CONFLICT(message_id)` instead of accumulating duplicates.
+/// open, and once more at exit): the shared message state is recovered across restarts
+/// and created only when non-zero usage exists, so each call updates the same row.
 pub(crate) fn ingest_claude_terminal_usage(
     session_folder: Option<&str>,
     runtime_session_id: &str,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     agent_id: &str,
     clock: &dyn AgentClockPort,
@@ -60,13 +61,13 @@ pub(crate) fn ingest_claude_terminal_usage(
 /// only samples while fresh PTY output is arriving and can miss a session whose DB row
 /// appears after the last visible output, before the user stops the terminal). Doing
 /// the directory+time lookup here instead has no such race and is cheap enough to repeat
-/// on every periodic poll as well as once more at exit; `message_id` is the stable id
-/// from `create_terminal_usage_placeholder`, so repeated calls update the same row.
+/// on every periodic poll as well as once more at exit; repeated calls update the same
+/// recovered or lazily-created row.
 pub(crate) fn ingest_opencode_terminal_usage(
     session_folder: Option<&str>,
     started_at_ms: i64,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     agent_id: &str,
     clock: &dyn AgentClockPort,
@@ -110,13 +111,13 @@ pub(crate) fn ingest_opencode_terminal_usage(
 ///
 /// Uses the same post-hoc lookup as opencode rather than `ProviderSessionCapture`'s
 /// live poll, for the same reason: no race, and cheap enough to repeat on every
-/// periodic poll as well as once more at exit; `message_id` is the stable id from
-/// `create_terminal_usage_placeholder`, so repeated calls update the same row.
+/// periodic poll as well as once more at exit; repeated calls update the same recovered
+/// or lazily-created row.
 pub(crate) fn ingest_codex_terminal_usage(
     session_folder: Option<&str>,
     started_at_ms: i64,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     agent_id: &str,
     clock: &dyn AgentClockPort,
@@ -159,13 +160,12 @@ pub(crate) fn ingest_codex_terminal_usage(
 ///
 /// Uses the same post-hoc lookup as opencode/codex-cli; gemini-cli has no live
 /// `ProviderSessionCapture` poll to race against in the first place, so this is simply
-/// the only lookup. `message_id` is the stable id from
-/// `create_terminal_usage_placeholder`, so repeated calls update the same row.
+/// the only lookup. Repeated calls update the same recovered or lazily-created row.
 pub(crate) fn ingest_gemini_terminal_usage(
     session_folder: Option<&str>,
-    started_at_ms: i64,
+    runtime_session_id: &str,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     agent_id: &str,
     clock: &dyn AgentClockPort,
@@ -176,7 +176,7 @@ pub(crate) fn ingest_gemini_terminal_usage(
     else {
         return Ok(false);
     };
-    let Some(chat_path) = find_gemini_chat_session_since(&cwd, started_at_ms)
+    let Some(chat_path) = find_gemini_chat_session(&cwd, runtime_session_id)
         .map_err(|e| AgentRuntimeApplicationError::Process(e.to_string()))?
     else {
         return Ok(false);
@@ -196,24 +196,12 @@ pub(crate) fn ingest_gemini_terminal_usage(
     )
 }
 
-/// Creates the placeholder assistant message that periodic and exit-time usage polls
-/// repeatedly update in place. A single stable id is required so `upsert_usage`'s
-/// `ON CONFLICT(message_id)` updates the same row on every poll instead of
-/// accumulating a new row every few seconds; `MessageStatus::can_transition_to`
-/// explicitly allows `Completed -> Completed`, so re-completing this same message
-/// on each poll is a valid, non-erroring transition.
-pub(crate) fn create_terminal_usage_placeholder(
+pub(crate) fn load_terminal_usage_message_id(
     sessions: &dyn AgentSessionGateway,
     session_id: &str,
-) -> Result<String, AgentRuntimeApplicationError> {
-    let message = sessions.create_message(NewAgentMessage {
-        session_id: session_id.to_string(),
-        role: "assistant".to_string(),
-        status: "streaming".to_string(),
-        content: String::new(),
-        file_references: Vec::new(),
-    })?;
-    Ok(message.id)
+    agent_id: &str,
+) -> Result<Option<String>, AgentRuntimeApplicationError> {
+    sessions.find_terminal_usage_message(session_id, agent_id)
 }
 
 /// Returns whether a usage record was actually persisted, so callers can log the
@@ -222,17 +210,47 @@ pub(crate) fn create_terminal_usage_placeholder(
 fn persist_terminal_usage(
     totals: TerminalUsageTotals,
     sessions: &dyn AgentSessionGateway,
-    message_id: &str,
+    message_id: &Mutex<Option<String>>,
     session_id: &str,
     agent_id: &str,
     source: &str,
     clock: &dyn AgentClockPort,
 ) -> Result<bool, AgentRuntimeApplicationError> {
-    if totals.input_tokens == 0 && totals.output_tokens == 0 {
+    if totals.input_tokens == 0
+        && totals.output_tokens == 0
+        && totals.cache_read_tokens == 0
+        && totals.cache_creation_tokens == 0
+    {
         return Ok(false);
     }
+    let mut message_id = message_id.lock().map_err(|_| {
+        AgentRuntimeApplicationError::Process(
+            "Terminal usage message state is unavailable.".to_string(),
+        )
+    })?;
+    if message_id.is_none() {
+        *message_id = match sessions.find_terminal_usage_message(session_id, agent_id)? {
+            Some(existing) => Some(existing),
+            None => Some(
+                sessions
+                    .create_message(NewAgentMessage {
+                        session_id: session_id.to_string(),
+                        role: "assistant".to_string(),
+                        status: "completed".to_string(),
+                        content: String::new(),
+                        file_references: Vec::new(),
+                    })?
+                    .id,
+            ),
+        };
+    }
+    let message_id = message_id.clone().ok_or_else(|| {
+        AgentRuntimeApplicationError::Process(
+            "Failed to create terminal usage message.".to_string(),
+        )
+    })?;
     let usage = AgentUsageRecord {
-        message_id: message_id.to_string(),
+        message_id: message_id.clone(),
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
         provider_id: None,
@@ -245,8 +263,8 @@ fn persist_terminal_usage(
         source: source.to_string(),
         occurred_at: clock.now(),
     };
-    let _ = sessions.complete_message(CompleteAgentMessage {
-        message_id: message_id.to_string(),
+    sessions.complete_message(CompleteAgentMessage {
+        message_id,
         session_id: session_id.to_string(),
         content: String::new(),
         thinking_content: None,
@@ -257,7 +275,7 @@ fn persist_terminal_usage(
             output: totals.output_tokens,
         }),
         usage: Some(usage),
-    });
+    })?;
     Ok(true)
 }
 
@@ -472,12 +490,20 @@ fn aggregate_codex_usage(
 /// are skipped by the `type == "gemini"` filter below, same as `type: "user"` lines.
 #[derive(Debug, Deserialize)]
 struct GeminiChatMessageLine {
+    id: Option<String>,
     #[serde(rename = "type")]
     message_type: Option<String>,
     tokens: Option<GeminiMessageTokens>,
+    #[serde(rename = "$set")]
+    set: Option<GeminiSetRecord>,
 }
 
 #[derive(Debug, Deserialize)]
+struct GeminiSetRecord {
+    messages: Option<Vec<GeminiChatMessageLine>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct GeminiMessageTokens {
     input: Option<i64>,
     output: Option<i64>,
@@ -499,7 +525,7 @@ fn aggregate_gemini_usage(
     file: fs::File,
 ) -> Result<TerminalUsageTotals, AgentRuntimeApplicationError> {
     let reader = std::io::BufReader::new(file);
-    let mut totals = TerminalUsageTotals::default();
+    let mut messages: HashMap<String, Option<GeminiMessageTokens>> = HashMap::new();
     for line in reader.lines() {
         let line = line.map_err(|e| {
             AgentRuntimeApplicationError::Process(format!(
@@ -507,26 +533,48 @@ fn aggregate_gemini_usage(
                 path.display()
             ))
         })?;
-        let Ok(event) = serde_json::from_str::<GeminiChatMessageLine>(&line) else {
+        let Ok(record) = serde_json::from_str::<GeminiChatMessageLine>(&line) else {
             continue;
         };
-        if event.message_type.as_deref() != Some("gemini") {
-            continue;
-        }
-        let Some(tokens) = event.tokens else {
-            continue;
-        };
+        materialize_gemini_record(record, &mut messages);
+    }
+    let mut totals = TerminalUsageTotals::default();
+    for tokens in messages.into_values().flatten() {
         let input = tokens.input.unwrap_or(0).max(0);
-        let output = tokens.output.unwrap_or(0).max(0) + tokens.thoughts.unwrap_or(0).max(0);
+        let output = tokens
+            .output
+            .unwrap_or(0)
+            .max(0)
+            .saturating_add(tokens.thoughts.unwrap_or(0).max(0));
         let cached = tokens.cached.unwrap_or(0).max(0);
         if input == 0 && output == 0 && cached == 0 {
             continue;
         }
-        totals.input_tokens += input;
-        totals.output_tokens += output;
-        totals.cache_read_tokens += cached;
+        totals.input_tokens = totals.input_tokens.saturating_add(input);
+        totals.output_tokens = totals.output_tokens.saturating_add(output);
+        totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cached);
     }
     Ok(totals)
+}
+
+fn materialize_gemini_record(
+    record: GeminiChatMessageLine,
+    messages: &mut HashMap<String, Option<GeminiMessageTokens>>,
+) {
+    if let Some(snapshot) = record.set.and_then(|set| set.messages) {
+        messages.clear();
+        for message in snapshot {
+            materialize_gemini_record(message, messages);
+        }
+        return;
+    }
+    if record.message_type.as_deref() != Some("gemini") {
+        return;
+    }
+    let Some(id) = record.id.filter(|id| !id.trim().is_empty()) else {
+        return;
+    };
+    messages.insert(id, record.tokens);
 }
 
 #[cfg(test)]
@@ -537,14 +585,13 @@ mod tests {
     use std::io::Write;
     use std::sync::Mutex;
 
-    /// Minimal `AgentSessionGateway` fake exercising only the two methods the
-    /// terminal usage ingestion path calls, to verify that polling reuses a single
-    /// message id (one `create_message`, many `complete_message` calls) instead of
-    /// creating a fresh message every poll.
+    /// Minimal gateway fake for restart recovery and repeated-poll persistence.
     #[derive(Default)]
     struct FakeSessionGateway {
         created: Mutex<Vec<NewAgentMessage>>,
         completed: Mutex<Vec<CompleteAgentMessage>>,
+        existing: Mutex<Option<String>>,
+        fail_completion: bool,
     }
 
     impl AgentSessionGateway for FakeSessionGateway {
@@ -600,6 +647,14 @@ mod tests {
             })
         }
 
+        fn find_terminal_usage_message(
+            &self,
+            _session_id: &str,
+            _agent_id: &str,
+        ) -> Result<Option<String>, AgentRuntimeApplicationError> {
+            Ok(self.existing.lock().expect("existing").clone())
+        }
+
         fn find_message(
             &self,
             _message_id: &str,
@@ -643,6 +698,11 @@ mod tests {
             &self,
             message: CompleteAgentMessage,
         ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+            if self.fail_completion {
+                return Err(AgentRuntimeApplicationError::Process(
+                    "completion failed".to_string(),
+                ));
+            }
             self.completed
                 .lock()
                 .expect("completed")
@@ -706,25 +766,32 @@ mod tests {
     }
 
     #[test]
-    fn create_terminal_usage_placeholder_creates_exactly_one_streaming_message() {
+    fn zero_totals_do_not_create_a_backing_message() {
         let gateway = FakeSessionGateway::default();
+        let clock = FixedClock;
+        let message_id = Mutex::new(None);
 
-        let message_id = create_terminal_usage_placeholder(&gateway, "session-1").expect("create");
+        let persisted = persist_terminal_usage(
+            TerminalUsageTotals::default(),
+            &gateway,
+            &message_id,
+            "session-1",
+            "codex-cli",
+            "cli-session-log",
+            &clock,
+        )
+        .expect("zero totals still return Ok");
 
-        assert_eq!(message_id, "placeholder-message");
-        let created = gateway.created.lock().expect("created");
-        assert_eq!(created.len(), 1);
-        assert_eq!(created[0].session_id, "session-1");
-        assert_eq!(created[0].role, "assistant");
-        assert_eq!(created[0].status, "streaming");
+        assert!(!persisted);
+        assert!(gateway.created.lock().expect("created").is_empty());
+        assert!(gateway.completed.lock().expect("completed").is_empty());
     }
 
     #[test]
     fn repeated_persist_calls_with_the_same_message_id_update_in_place() {
         let gateway = FakeSessionGateway::default();
         let clock = FixedClock;
-        let message_id =
-            create_terminal_usage_placeholder(&gateway, "session-1").expect("placeholder");
+        let message_id = Mutex::new(None);
 
         let first = TerminalUsageTotals {
             input_tokens: 100,
@@ -762,35 +829,107 @@ mod tests {
 
         assert!(first_persisted);
         assert!(second_persisted);
-        // Exactly one placeholder message was ever created…
+        // Exactly one completed backing message was ever created…
         assert_eq!(gateway.created.lock().expect("created").len(), 1);
+        assert_eq!(
+            gateway.created.lock().expect("created")[0].status,
+            "completed"
+        );
         // …and both polls completed that same message id, letting the DB's
         // `ON CONFLICT(message_id)` upsert keep only the latest totals.
         let completed = gateway.completed.lock().expect("completed");
         assert_eq!(completed.len(), 2);
-        assert_eq!(completed[0].message_id, message_id);
-        assert_eq!(completed[1].message_id, message_id);
+        assert_eq!(completed[0].message_id, "placeholder-message");
+        assert_eq!(completed[1].message_id, "placeholder-message");
         assert_eq!(completed[1].usage.as_ref().expect("usage").input_count, 400);
     }
 
     #[test]
-    fn zero_totals_are_not_persisted_and_do_not_touch_the_gateway() {
-        let gateway = FakeSessionGateway::default();
+    fn restart_reuses_the_existing_terminal_usage_message() {
+        let gateway = FakeSessionGateway {
+            existing: Mutex::new(Some("persisted-message".to_string())),
+            ..Default::default()
+        };
         let clock = FixedClock;
+        let message_id = Mutex::new(None);
 
         let persisted = persist_terminal_usage(
-            TerminalUsageTotals::default(),
+            TerminalUsageTotals {
+                input_tokens: 1,
+                ..Default::default()
+            },
             &gateway,
-            "some-message-id",
+            &message_id,
             "session-1",
             "codex-cli",
             "cli-session-log",
             &clock,
         )
-        .expect("zero totals still return Ok");
+        .expect("existing row is reused");
 
-        assert!(!persisted);
-        assert!(gateway.completed.lock().expect("completed").is_empty());
+        assert!(persisted);
+        assert!(gateway.created.lock().expect("created").is_empty());
+        assert_eq!(
+            gateway.completed.lock().expect("completed")[0].message_id,
+            "persisted-message"
+        );
+    }
+
+    #[test]
+    fn cache_only_totals_are_persisted() {
+        let gateway = FakeSessionGateway::default();
+        let clock = FixedClock;
+        let message_id = Mutex::new(None);
+
+        let persisted = persist_terminal_usage(
+            TerminalUsageTotals {
+                cache_read_tokens: 5,
+                ..Default::default()
+            },
+            &gateway,
+            &message_id,
+            "session-1",
+            "codex-cli",
+            "cli-session-log",
+            &clock,
+        )
+        .expect("cache-only usage persists");
+
+        assert!(persisted);
+        assert_eq!(
+            gateway.completed.lock().expect("completed")[0]
+                .usage
+                .as_ref()
+                .expect("usage")
+                .cache_read_count,
+            5
+        );
+    }
+
+    #[test]
+    fn completion_failure_is_propagated() {
+        let gateway = FakeSessionGateway {
+            fail_completion: true,
+            ..Default::default()
+        };
+        let clock = FixedClock;
+        let message_id = Mutex::new(None);
+
+        let error = persist_terminal_usage(
+            TerminalUsageTotals {
+                input_tokens: 1,
+                ..Default::default()
+            },
+            &gateway,
+            &message_id,
+            "session-1",
+            "codex-cli",
+            "cli-session-log",
+            &clock,
+        )
+        .expect_err("persistence errors must not be swallowed");
+
+        assert!(error.to_string().contains("completion failed"));
     }
 
     #[test]
@@ -989,6 +1128,59 @@ mod tests {
         assert_eq!(totals.output_tokens, 100);
         assert_eq!(totals.cache_read_tokens, 10);
         assert_eq!(totals.cache_creation_tokens, 0);
+    }
+
+    #[test]
+    fn gemini_usage_keeps_only_the_latest_revision_for_each_message_id() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        writeln!(
+            file,
+            r#"{{"id":"msg1","type":"gemini","tokens":{{"input":100,"output":20,"cached":5,"thoughts":10}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg1","type":"gemini","toolCalls":[{{"id":"tool1"}}],"tokens":{{"input":100,"output":20,"cached":5,"thoughts":10}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"id":"msg2","type":"gemini","tokens":{{"input":50,"output":7,"cached":0,"thoughts":3}}}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let totals =
+            aggregate_gemini_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
+
+        assert_eq!(totals.input_tokens, 150);
+        assert_eq!(totals.output_tokens, 40);
+        assert_eq!(totals.cache_read_tokens, 5);
+    }
+
+    #[test]
+    fn gemini_usage_set_messages_snapshot_replaces_prior_materialized_messages() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp file");
+        writeln!(
+            file,
+            r#"{{"id":"obsolete","type":"gemini","tokens":{{"input":900,"output":900}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"$set":{{"messages":[{{"id":"current","type":"gemini","tokens":{{"input":12,"output":8,"cached":2,"thoughts":1}}}},{{"id":"user","type":"user"}}]}}}}"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let totals =
+            aggregate_gemini_usage(file.path(), std::fs::File::open(file.path()).expect("open"))
+                .expect("aggregate");
+
+        assert_eq!(totals.input_tokens, 12);
+        assert_eq!(totals.output_tokens, 9);
+        assert_eq!(totals.cache_read_tokens, 2);
     }
 
     #[test]
