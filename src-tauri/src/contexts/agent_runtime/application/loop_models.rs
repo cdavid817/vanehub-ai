@@ -1,5 +1,5 @@
 use crate::contexts::agent_runtime::domain::{
-    LoopDefinition, LoopLimits, LoopRunPhase, LoopRunStatus, LoopTerminalReason,
+    InteractionMode, LoopDefinition, LoopLimits, LoopRunPhase, LoopRunStatus, LoopTerminalReason,
     LoopVerificationCommand, LoopVerifierRecommendation,
 };
 use serde_json::Value;
@@ -226,6 +226,7 @@ pub(crate) struct LoopRoleSessionRequest {
     pub(crate) run_id: String,
     pub(crate) iteration_id: String,
     pub(crate) agent_id: String,
+    pub(crate) interaction_mode: InteractionMode,
     pub(crate) project_path: String,
     pub(crate) worktree_path: String,
     pub(crate) worktree_name: String,

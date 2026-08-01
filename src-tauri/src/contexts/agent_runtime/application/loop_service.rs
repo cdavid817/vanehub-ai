@@ -1,7 +1,7 @@
 use super::{
-    AgentClockPort, AgentRegistryRepository, AgentRuntimeApplicationError, LoopDefinitionView,
-    LoopOperationContext, LoopOperationKind, LoopOperationObserver, LoopProjectPort,
-    LoopRepository, LoopRunView, SaveLoopDefinitionRequest, StartLoopResultView,
+    AgentClockPort, AgentRegistryRepository, AgentRuntimeApplicationError, ApiAgentGateway,
+    LoopDefinitionView, LoopOperationContext, LoopOperationKind, LoopOperationObserver,
+    LoopProjectPort, LoopRepository, LoopRunView, SaveLoopDefinitionRequest, StartLoopResultView,
 };
 use crate::contexts::agent_runtime::domain::{
     InteractionMode, LoopDefinition, LoopDefinitionInput, LoopRun, LoopRunStatus,
@@ -14,6 +14,7 @@ use uuid::Uuid;
 pub(crate) struct LoopApplicationPorts {
     pub(crate) loops: Arc<dyn LoopRepository>,
     pub(crate) registry: Arc<dyn AgentRegistryRepository>,
+    pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) projects: Arc<dyn LoopProjectPort>,
     pub(crate) observer: LoopOperationObserver,
     pub(crate) clock: Arc<dyn AgentClockPort>,
@@ -211,7 +212,22 @@ impl LoopApplicationService {
             .registry
             .find(agent_id)?
             .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))?;
-        agent.ensure_selectable(InteractionMode::Cli)?;
+        if agent.supports(InteractionMode::Cli) {
+            agent.ensure_selectable(InteractionMode::Cli)?;
+            return Ok(());
+        }
+        agent.ensure_selectable(InteractionMode::Api)?;
+        let trusted = self
+            .ports
+            .api_agents
+            .provider_config(agent_id)?
+            .map(|config| config.auto_approve_tools)
+            .unwrap_or(false);
+        if !trusted {
+            return Err(loop_validation(
+                "API agent must have tool-use trust enabled before it can be used as a Loop Worker or Verifier.",
+            ));
+        }
         Ok(())
     }
 

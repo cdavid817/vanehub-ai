@@ -1,5 +1,8 @@
 use super::*;
-use crate::contexts::agent_runtime::domain::LoopRunStatus;
+use crate::contexts::agent_runtime::domain::{
+    AgentAvailability, AgentDefinition, AgentDefinitionInput, AvailabilityAssessment,
+    InteractionMode, LaunchMetadata, LoopRunStatus,
+};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -10,12 +13,15 @@ struct WorkerWorld {
     prompts: Mutex<Vec<String>>,
     summaries: Mutex<Vec<(String, String, String, String)>>,
     session_sequence: Mutex<u16>,
+    /// `None` defaults to `Cli`, matching every pre-existing test's expectations.
+    agent_mode: Mutex<Option<InteractionMode>>,
 }
 
 impl WorkerWorld {
     fn service(self: &Arc<Self>) -> LoopWorkerApplicationService {
         LoopWorkerApplicationService::new(LoopWorkerApplicationPorts {
             iterations: self.clone(),
+            registry: self.clone(),
             roles: self.clone(),
             git: self.clone(),
             generations: self.clone(),
@@ -25,6 +31,50 @@ impl WorkerWorld {
 
     fn record(&self, call: &str) {
         self.calls.lock().expect("calls").push(call.to_string());
+    }
+
+    fn resolved_agent_mode(&self) -> InteractionMode {
+        self.agent_mode
+            .lock()
+            .expect("agent_mode")
+            .unwrap_or(InteractionMode::Cli)
+    }
+}
+
+impl AgentRegistryRepository for WorkerWorld {
+    fn list(&self) -> Result<Vec<AgentDefinition>, AgentRuntimeApplicationError> {
+        unreachable!()
+    }
+
+    fn find(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<AgentDefinition>, AgentRuntimeApplicationError> {
+        let mode = self.resolved_agent_mode();
+        Ok(Some(
+            AgentDefinition::new(AgentDefinitionInput {
+                id: agent_id.to_string(),
+                display_name: agent_id.to_string(),
+                provider: "test".to_string(),
+                managed_sdk_dependency_id: None,
+                launch: LaunchMetadata::new(
+                    if mode == InteractionMode::Cli {
+                        "cli"
+                    } else {
+                        "api"
+                    }
+                    .to_string(),
+                    None,
+                    None,
+                    None,
+                )
+                .expect("launch"),
+                supported_interaction_modes: vec![mode],
+                availability: AvailabilityAssessment::new(AgentAvailability::Available, None),
+                capability_tags: Vec::new(),
+            })
+            .expect("agent"),
+        ))
     }
 }
 
@@ -108,6 +158,7 @@ impl LoopRoleSessionPort for WorkerWorld {
         self.record("role");
         assert_eq!(request.agent_id, "worker-agent");
         assert_eq!(request.worktree_path, "C:/work/project-loop");
+        assert_eq!(request.interaction_mode, self.resolved_agent_mode());
         let mut sequence = self.session_sequence.lock().expect("sequence");
         *sequence += 1;
         Ok(format!("worker-session-{sequence}"))
@@ -264,6 +315,16 @@ fn worker_context_rejects_cross_run_evidence_before_persistence() {
 
     assert!(world.service().start_iteration(invalid).is_err());
     assert!(world.calls.lock().expect("calls").is_empty());
+}
+
+#[test]
+fn worker_iteration_for_an_api_agent_resolves_api_interaction_mode() {
+    let world = Arc::new(WorkerWorld::default());
+    *world.agent_mode.lock().expect("agent_mode") = Some(InteractionMode::Api);
+
+    let started = world.service().start_iteration(request(1)).expect("worker");
+
+    assert_eq!(started.session_id, "worker-session-1");
 }
 
 #[test]
