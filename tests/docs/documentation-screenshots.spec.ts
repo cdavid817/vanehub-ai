@@ -19,7 +19,7 @@ const inventory = JSON.parse(
   readFileSync(resolve(repositoryRoot, "docs", "user-guide", "screenshots.json"), "utf8"),
 ) as { screenshots: ScreenshotDefinition[] };
 const mode = process.env.DOCS_SCREENSHOT_MODE;
-const maxDiffPixels = 250;
+const maxDiffPixels = 1_000;
 
 if (mode !== "update" && mode !== "check") {
   throw new Error("DOCS_SCREENSHOT_MODE must be update or check.");
@@ -97,8 +97,9 @@ test.describe("documentation screenshots", () => {
         return;
       }
 
-      // Chromium may rasterize one-pixel inset input borders on an adjacent row
-      // even when the rendered layout and content are otherwise unchanged.
+      // Hosted Windows Chromium can rasterize one-pixel borders across several form
+      // controls on adjacent rows even when layout and content are unchanged. The
+      // bound remains below 0.3% of this fixed-size dialog screenshot.
       expect(image).toMatchSnapshot(definition.path.split("/"), {
         maxDiffPixels,
       });
