@@ -15,6 +15,19 @@ The system SHALL persist Loop definitions with a stable id, name, enabled state,
 - **WHEN** a definition targets a non-Git project, remote workspace, missing Agent, unsafe path scope, or invalid limit
 - **THEN** the system SHALL reject the definition without starting an Agent or creating a worktree
 
+#### Scenario: Accept a CLI-launched Worker or Verifier Agent
+- **WHEN** a definition names a Worker or Verifier Agent that supports CLI interaction
+- **THEN** the system SHALL accept that Agent for the role, unchanged from existing behavior
+
+#### Scenario: Accept a trusted API Worker or Verifier Agent
+- **WHEN** a definition names a Worker or Verifier Agent that only supports API interaction and has tool-use trust enabled
+- **THEN** the system SHALL accept that Agent for the role
+
+#### Scenario: Reject an untrusted API Worker or Verifier Agent
+- **WHEN** a definition names a Worker or Verifier Agent that only supports API interaction and does not have tool-use trust enabled
+- **THEN** the system SHALL reject the definition with an error identifying that the Agent requires tool-use trust
+- **AND** it SHALL NOT start an Agent or create a worktree
+
 ### Requirement: Manual bounded Loop start
 The first-phase system SHALL start a Loop only through an explicit user action and SHALL snapshot the selected definition before asynchronous work begins.
 
@@ -26,6 +39,11 @@ The first-phase system SHALL start a Loop only through an explicit user action a
 #### Scenario: Reject concurrent run for definition
 - **WHEN** a definition already has a queued, running, paused, or awaiting-acceptance run
 - **THEN** the system SHALL reject another start for that definition without creating a second worktree
+
+#### Scenario: Reject start when a role Agent is no longer eligible
+- **WHEN** a user starts a definition whose Worker or Verifier Agent no longer supports CLI or trusted API interaction (for example, tool-use trust was disabled after the definition was saved)
+- **THEN** the system SHALL reject the start with an error identifying the ineligible Agent
+- **AND** it SHALL NOT persist a queued run or create a worktree
 
 ### Requirement: Fixed Loop execution lifecycle
 The native runtime SHALL orchestrate each run through preparing, acting, verifying, deciding, and finalizing phases using explicit durable transitions.

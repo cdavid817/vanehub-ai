@@ -1315,6 +1315,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-01",
+                         "changeName":  "add-loop-api-agent-support",
+                         "path":  "openspec/changes/archive/2026-08-01-add-loop-api-agent-support/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "loop-engineering-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-01",
                          "changeName":  "fix-terminal-usage-integrity",
                          "path":  "openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/",
                          "artifacts":  [
