@@ -16,7 +16,7 @@ The Skills settings page SHALL render from one service-backed overview per activ
 
 #### Scenario: No static demo data
 - **WHEN** the Skills settings page renders
-- **THEN** the page SHALL NOT use hard-coded demo Skill arrays as the source of displayed Skill data
+- **THEN** it SHALL NOT use hard-coded demo Skill arrays as the source of displayed Skill data
 
 ### Requirement: Skills page module composition
 The Skills settings page SHALL be composed from seven reusable child components: `SkillStatsCards`, `SkillAgentMountPathsPanel`, `SkillScopeTabs`, `SkillFilterToolbar`, `SkillCardList`, `SkillDialogs`, and `SkillDriftBanner`.

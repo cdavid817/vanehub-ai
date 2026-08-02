@@ -3,11 +3,11 @@
 ## Purpose
 
 This capability defines desktop close-to-tray behavior and background lifecycle.
-
 ## Requirements
 
 Wall time: 1 seconds
 Output:
+
 ### Requirement: Desktop close-to-tray behavior
 The Tauri desktop runtime SHALL keep the VaneHub process and enabled IM connectors running when the user closes the main window.
 
