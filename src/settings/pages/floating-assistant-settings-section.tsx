@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { floatingAssistantService } from "../../services/runtime-floating-assistant-client";
 import type { FloatingAssistantConfig, FloatingAssistantRuntimeInfo } from "../../types/floating-assistant";
 import { useSettings } from "../settings-provider";
-import { SectionPanel } from "./page-parts";
+import { SettingsRow } from "./page-parts";
 
 export function FloatingAssistantSettingsSection() {
   const { t } = useTranslation();
@@ -57,18 +57,13 @@ export function FloatingAssistantSettingsSection() {
   }
 
   return (
-    <SectionPanel icon={Bot} title={t("floating.settingsTitle")} description={t("floating.settingsDescription")}>
-      <div className="grid gap-4">
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-[hsl(var(--panel-muted))] p-3">
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-primary">
-            <Bot className="h-5 w-5" aria-hidden="true" />
-            <Sparkles className="absolute right-1 top-1 h-3 w-3 text-primary" aria-hidden="true" />
+    <>
+      <SettingsRow description={t("floating.enableHint")} title={t("floating.enable")}>
+        <div className="flex items-center justify-end gap-3">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-[hsl(var(--nav-active-soft))] text-primary">
+            <Bot className="h-4 w-4" aria-hidden="true" />
+            <Sparkles className="absolute right-0.5 top-0.5 h-2.5 w-2.5 text-primary" aria-hidden="true" />
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">{t("floating.enable")}</div>
-            <div className="mt-0.5 text-xs text-muted-foreground">{t("floating.enableHint")}</div>
-          </div>
-          <span className={`h-2.5 w-2.5 rounded-full ${(config?.enabled ?? false) ? "bg-[hsl(var(--success))]" : "bg-muted-foreground/50"}`} title={(config?.enabled ?? false) ? t("basic.enabled") : t("basic.disabled")} />
           <button
             aria-checked={config?.enabled ?? false}
             aria-label={t("floating.enable")}
@@ -81,11 +76,13 @@ export function FloatingAssistantSettingsSection() {
             <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${(config?.enabled ?? false) ? "translate-x-5" : "translate-x-0"}`} />
           </button>
         </div>
-        <p className="text-xs text-muted-foreground">
+      </SettingsRow>
+      <div className="border-b border-border/70 px-5 py-3 last:border-b-0 sm:px-6">
+        <p className="text-xs leading-5 text-muted-foreground">
           {runtime?.nativeAvailable ? t("floating.windowsAvailable") : t("floating.windowsOnly")}
         </p>
         {error ? <p className="rounded-md bg-[hsl(var(--danger-soft))] p-2 text-xs text-[hsl(var(--danger))]">{error}</p> : null}
       </div>
-    </SectionPanel>
+    </>
   );
 }

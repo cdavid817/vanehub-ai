@@ -125,8 +125,8 @@ export function NetworkProxySection() {
   };
 
   return (
-    <SectionPanel icon={Network} title={t("basic.proxy")} description={t("basic.proxyDesc")}>
-      <div className="grid gap-4">
+    <SectionPanel icon={Network} title={t("basic.proxy")} description={t("basic.proxyDesc")} variant="settings">
+      <div className="grid gap-4 p-5 sm:p-6">
         {error ? <div className="rounded border p-3 text-xs ucd-status-danger">{error}</div> : null}
         {status ? <div className="rounded border p-3 text-xs ucd-status-success">{status}</div> : null}
         <label className="grid gap-1.5 text-sm">

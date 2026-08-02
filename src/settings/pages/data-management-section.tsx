@@ -56,8 +56,8 @@ export function DataManagementSection() {
   }
 
   return (
-    <SectionPanel icon={Database} title={t("basic.storage")} description={t("basic.storageDesc")}>
-      <div className="grid gap-4">
+    <SectionPanel icon={Database} title={t("basic.storage")} description={t("basic.storageDesc")} variant="settings">
+      <div className="grid gap-4 p-5 sm:p-6">
         {error ? <div className="rounded border p-3 text-xs ucd-status-danger">{error}</div> : null}
         <div className="grid gap-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-4">
           <div className="flex items-center gap-3">

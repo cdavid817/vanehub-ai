@@ -43,7 +43,8 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByRole("button", { name: "选择工作区打开工具" })).toBeFocused();
     await page.getByRole("button", { name: "选择工作区打开工具" }).click();
     await page.getByRole("menuitem", { name: "管理工作区打开工具" }).click();
-    await expect(page.getByRole("heading", { name: "打开工作区" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "工作区", exact: true })).toBeVisible();
+    await page.getByText("管理工作区打开工具", { exact: true }).click();
     const gitBash = page.getByRole("checkbox", { name: /Git Bash/ });
     await expect(gitBash).toBeChecked();
     await gitBash.uncheck();
