@@ -96,5 +96,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-01 | add-custom-agent-registration | agent-tool-registry, api-agent-runtime, chat-experience, interaction-modes | `openspec/changes/archive/2026-08-01-add-custom-agent-registration/` |
 | 2026-08-01 | add-loop-api-agent-support | loop-engineering-runtime | `openspec/changes/archive/2026-08-01-add-loop-api-agent-support/` |
 | 2026-08-01 | fix-terminal-usage-integrity | agent-execution-observability, agent-terminal-runtime, usage-statistics | `openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/` |
+| 2026-08-02 | optimize-runtime-performance-foundation | agent-terminal-runtime, runtime-performance-governance, session-management, settings-center-ui | `openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
+  it("registers every page as a lazy first-visit module", () => {
+    expect(settingsPages).toHaveLength(14);
+    expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
+    expect(settingsPages.every((page) => !("component" in page))).toBe(true);
+  });
+
   it("hides SDK dependencies from primary navigation", () => {
     expect(settingsPages.map((page) => page.id as string)).not.toContain("sdk");
   });

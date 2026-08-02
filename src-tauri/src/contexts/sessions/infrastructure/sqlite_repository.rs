@@ -1,7 +1,7 @@
 use super::rows::{
     deserialize_configuration, file_references_json, json_values, load_category, load_message,
     load_session, repository_error, serialize_configuration, CategoryRow, MessageRow, SessionRow,
-    CATEGORY_SELECT, MESSAGE_SELECT, SESSION_SELECT,
+    CATEGORY_SELECT, MESSAGE_SELECT, SESSION_SEARCH_SELECT, SESSION_SELECT,
 };
 use crate::contexts::sessions::application::{
     CategoryRecord, ChatConfigurationValues, MessagePageQuery, MessageRecord,
@@ -59,48 +59,71 @@ impl SessionRepository for SqliteSessionsRepository {
     ) -> Result<Vec<SessionSearchResult>, SessionsApplicationError> {
         let connection = self.connection()?;
         let pattern = like_pattern(&query.text);
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT DISTINCT sessions.id
-                FROM sessions
-                WHERE sessions.loop_run_id IS NULL
-                  AND (sessions.title LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.project_path, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.folder, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_path, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_name, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_branch, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_host, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_user, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_path, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_display_name, '') LIKE ?1 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_uri, '') LIKE ?1 ESCAPE '\'
-                   OR EXISTS (
-                        SELECT 1 FROM messages
-                        WHERE messages.session_id = sessions.id
-                          AND messages.content LIKE ?1 ESCAPE '\'
-                   ))
-                ORDER BY sessions.updated_at DESC
-                LIMIT ?2
-                "#,
+        let (message_source, message_query) = if query.text.chars().count() >= 3 {
+            (
+                "FROM session_message_fts
+                 JOIN messages ON messages.rowid = session_message_fts.rowid
+                 WHERE session_message_fts MATCH ?1",
+                fts_literal(&query.text),
             )
+        } else {
+            (
+                "FROM messages WHERE messages.content LIKE ?1 ESCAPE '\\'",
+                pattern.clone(),
+            )
+        };
+        let mut statement = connection
+            .prepare(&format!(
+                r#"
+                WITH ranked_message_matches AS (
+                    SELECT messages.session_id, messages.id, messages.content,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY messages.session_id
+                               ORDER BY messages.created_at DESC, messages.rowid DESC
+                           ) AS match_rank
+                    {message_source}
+                ),
+                message_matches AS (
+                    SELECT session_id, id, content
+                    FROM ranked_message_matches
+                    WHERE match_rank = 1
+                )
+                {SESSION_SEARCH_SELECT}
+                LEFT JOIN message_matches ON message_matches.session_id = sessions.id
+                WHERE sessions.loop_run_id IS NULL
+                  AND (sessions.title LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.project_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.folder, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_name, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_branch, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_host, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_user, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_display_name, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_uri, '') LIKE ?2 ESCAPE '\'
+                   OR message_matches.id IS NOT NULL)
+                ORDER BY sessions.updated_at DESC
+                LIMIT ?3
+                "#,
+            ))
             .map_err(repository_error)?;
-        let session_ids = statement
-            .query_map(params![pattern, query.limit as i64], |row| {
-                row.get::<_, String>(0)
+        let rows = statement
+            .query_map(params![message_query, pattern, query.limit as i64], |row| {
+                Ok((
+                    SessionRow::read(row)?,
+                    row.get::<_, Option<String>>(29)?,
+                    row.get::<_, Option<String>>(30)?,
+                ))
             })
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
-        session_ids
-            .into_iter()
-            .map(|session_id| {
-                let session_id = SessionId::parse(session_id)?;
-                let session = load_session(&connection, &session_id)?.ok_or_else(|| {
-                    SessionsApplicationError::SessionNotFound(session_id.as_str().to_string())
-                })?;
-                let matches = search_matches(&connection, &session, &query.text, &pattern)?;
+        rows.into_iter()
+            .map(|(row, message_id, message_content)| {
+                let session = row.into_record()?;
+                let matches =
+                    search_matches(&session, &query.text, message_id.zip(message_content));
                 Ok(SessionSearchResult { session, matches })
             })
             .collect()
@@ -595,11 +618,10 @@ pub(super) fn update_message(
 }
 
 fn search_matches(
-    connection: &Connection,
     session: &SessionRecord,
     query: &str,
-    pattern: &str,
-) -> Result<Vec<SessionSearchMatch>, SessionsApplicationError> {
+    message_match: Option<(String, String)>,
+) -> Vec<SessionSearchMatch> {
     let mut matches = Vec::new();
     if contains_case_insensitive(Some(session.aggregate.title().as_str()), query) {
         matches.push(SessionSearchMatch {
@@ -633,14 +655,6 @@ fn search_matches(
             message_id: None,
         });
     }
-    let message_match = connection
-        .query_row(
-            "SELECT id, content FROM messages WHERE session_id = ?1 AND content LIKE ?2 ESCAPE '\\' ORDER BY created_at DESC LIMIT 1",
-            params![session.id(), pattern],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()
-        .map_err(repository_error)?;
     if let Some((message_id, content)) = message_match {
         matches.push(SessionSearchMatch {
             kind: SessionSearchMatchKind::Message,
@@ -648,7 +662,11 @@ fn search_matches(
             message_id: Some(message_id),
         });
     }
-    Ok(matches)
+    matches
+}
+
+fn fts_literal(query: &str) -> String {
+    format!("\"{}\"", query.replace('"', "\"\""))
 }
 
 fn like_pattern(query: &str) -> String {

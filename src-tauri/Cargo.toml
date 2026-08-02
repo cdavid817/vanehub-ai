@@ -61,12 +61,7 @@ syn = { version = "3", features = ["full", "visit"] }
 tempfile = "3"
 
 [profile.release]
-#opt-level = 3
-opt-level = 0    # 关闭优化，断点才不会乱跳
-debug = true
-debug-assertions = true
-split-debuginfo = "unpacked" # Windows/macOS 必备，调试信息完整
-
+opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "debuginfo"

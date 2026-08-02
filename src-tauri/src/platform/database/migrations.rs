@@ -184,7 +184,45 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "agent-tool-trust",
         crate::contexts::agent_runtime::infrastructure::apply_agent_tool_trust_schema,
     )?;
+    apply_migration(
+        conn,
+        33,
+        "session-message-search-index",
+        apply_session_message_search_migration,
+    )?;
 
+    Ok(())
+}
+
+fn apply_session_message_search_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE VIRTUAL TABLE IF NOT EXISTS session_message_fts USING fts5(
+            content,
+            content='messages',
+            content_rowid='rowid',
+            tokenize='trigram'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_insert
+        AFTER INSERT ON messages BEGIN
+            INSERT INTO session_message_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_fts_delete
+        AFTER DELETE ON messages BEGIN
+            INSERT INTO session_message_fts(session_message_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_fts_update
+        AFTER UPDATE OF content ON messages BEGIN
+            INSERT INTO session_message_fts(session_message_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+            INSERT INTO session_message_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+
+        INSERT INTO session_message_fts(session_message_fts) VALUES ('rebuild');
+        "#,
+    )?;
     Ok(())
 }
 
@@ -590,4 +628,47 @@ pub(crate) fn table_has_column(
         }
     }
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_message_search_migration_backfills_existing_messages() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        connection
+            .execute_batch(
+                "CREATE TABLE sessions (id TEXT PRIMARY KEY); \
+                 INSERT INTO sessions (id) VALUES ('session-before-fts');",
+            )
+            .expect("session fixture");
+        apply_chat_messages_migration(&connection).expect("message schema");
+        connection
+            .execute(
+                "INSERT INTO messages \
+                 (id, session_id, role, content, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![
+                    "message-before-fts",
+                    "session-before-fts",
+                    "user",
+                    "content persisted before migration",
+                    "2026-08-02T00:00:00Z"
+                ],
+            )
+            .expect("pre-migration message");
+
+        apply_session_message_search_migration(&connection).expect("search migration");
+
+        let matches: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM session_message_fts \
+                 WHERE session_message_fts MATCH ?1",
+                ["\"persisted before\""],
+                |row| row.get(0),
+            )
+            .expect("backfilled FTS count");
+        assert_eq!(matches, 1);
+    }
 }

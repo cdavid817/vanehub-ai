@@ -294,7 +294,18 @@ The settings center SHALL include SSH connection management as a first-class set
 - **THEN** the settings center SHALL render the SSH connection settings page while preserving mounted state for other stateful settings pages
 
 ### Requirement: Lazy settings module loading
-The settings center SHALL load designated heavy settings page modules on first visit while preserving the established mounted state of every visited page.
+The settings center SHALL load every service-backed settings page module on first visit while preserving the established mounted state of every visited page.
+
+#### Scenario: Open settings before visiting another page
+- **WHEN** the settings center opens and a settings page has not been visited
+- **THEN** that page module SHALL remain unloaded and unmounted
+- **AND** it SHALL NOT start service-backed page work
+- **AND** the active settings page SHALL remain usable
+
+#### Scenario: Visit a settings page
+- **WHEN** the user selects a settings page for the first time
+- **THEN** the settings content region SHALL show a localized loading state while its module loads
+- **AND** the navigation and settings shell SHALL remain mounted
 
 #### Scenario: Open settings before visiting a heavy page
 - **WHEN** the settings center opens and a designated heavy page has not been visited

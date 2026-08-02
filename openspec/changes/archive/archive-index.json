@@ -1341,6 +1341,23 @@
                                               "agent-terminal-runtime",
                                               "usage-statistics"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
+                         "changeName":  "optimize-runtime-performance-foundation",
+                         "path":  "openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "runtime-performance-governance",
+                                              "session-management",
+                                              "settings-center-ui"
+                                          ]
                      }
                  ]
 }

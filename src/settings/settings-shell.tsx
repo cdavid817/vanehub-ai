@@ -6,14 +6,14 @@ import { SettingsTopBar } from "./settings-topbar";
 
 export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
   const [activePageId, setActivePageId] = useState<SettingsPageId>(defaultSettingsPageId);
-  const [visitedLazyPages, setVisitedLazyPages] = useState<Set<SettingsPageId>>(() => new Set());
+  const [visitedPages, setVisitedPages] = useState<Set<SettingsPageId>>(
+    () => new Set([defaultSettingsPageId]),
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 
   function handleSelectPage(pageId: SettingsPageId) {
-    if (getSettingsPage(pageId).loader) {
-      setVisitedLazyPages((current) => new Set(current).add(pageId));
-    }
+    setVisitedPages((current) => new Set(current).add(pageId));
     setActivePageId(pageId);
     setSearchTerm("");
   }
@@ -25,8 +25,7 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
         <SettingsSidebar activePageId={activePageId} onSelectPage={handleSelectPage} />
         <section className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-background shadow-xs">
           {settingsPages.map((page) => {
-            const Page = page.component;
-            if (!Page && (!page.loader || !visitedLazyPages.has(page.id))) return null;
+            if (!visitedPages.has(page.id)) return null;
             const pageProps = {
               onNavigate: handleSelectPage,
               searchTerm: page.id === activePageId ? searchTerm : "",
@@ -34,9 +33,7 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
             return (
               <div className="h-full overflow-y-auto" hidden={page.id !== activePageId} key={page.id}>
                 <div className="mx-auto w-full max-w-[1680px] px-5 py-5 sm:px-6 lg:px-8 xl:px-10">
-                  {Page ? <Page {...pageProps} /> : page.loader ? (
-                    <LazyFeature componentProps={pageProps} loader={page.loader} />
-                  ) : null}
+                  <LazyFeature componentProps={pageProps} loader={page.loader} />
                 </div>
               </div>
             );

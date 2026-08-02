@@ -8,25 +8,26 @@ import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
 import type { AgentTerminalState, Session } from "../types/agent";
 import { createTerminalTheme } from "./terminal-theme";
+import { BoundedTextBuffer } from "../lib/bounded-text-buffer";
 import { WorkspaceState } from "./workspace-state";
 import { workspaceErrorKey, type WorkspaceErrorKey } from "./workspace-error";
 
-const retainedTerminalReplayBytes = 1_000_000;
-const replayBySession = new Map<string, string>();
+const retainedTerminalReplayBytes = 1024 * 1024;
+const replayBySession = new Map<string, BoundedTextBuffer>();
 export const agentTerminalInputClassName =
   "ucd-agent-terminal-input min-h-20 w-full resize-none border-0 px-2 py-1 text-sm outline-hidden disabled:cursor-not-allowed";
 
 function readReplay(sessionId: string) {
-  return replayBySession.get(sessionId) ?? "";
+  return replayBySession.get(sessionId)?.snapshot() ?? "";
 }
 
 function appendReplay(sessionId: string, content: string) {
-  const current = replayBySession.get(sessionId) ?? "";
-  let next = `${current}${content}`;
-  if (next.length > retainedTerminalReplayBytes) {
-    next = next.slice(next.length - retainedTerminalReplayBytes);
+  let replay = replayBySession.get(sessionId);
+  if (!replay) {
+    replay = new BoundedTextBuffer(retainedTerminalReplayBytes);
+    replayBySession.set(sessionId, replay);
   }
-  replayBySession.set(sessionId, next);
+  replay.append(content);
 }
 
 function clearReplay(sessionId: string) {

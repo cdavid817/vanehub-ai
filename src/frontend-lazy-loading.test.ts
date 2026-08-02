@@ -2,12 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("frontend feature module boundaries", () => {
-  it("keeps heavy settings pages behind dynamic imports", () => {
+  it("keeps every settings page behind a first-visit dynamic import", () => {
     const source = read("settings/settings-pages.ts");
-    expect(source).toContain('import("./pages/agents-page")');
-    expect(source).toContain('import("./pages/prompt-hooks-page")');
-    expect(source).not.toContain('from "./pages/agents-page"');
-    expect(source).not.toContain('from "./pages/prompt-hooks-page"');
+    const pageModules = source.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
+    expect(pageModules).toHaveLength(14);
+    expect(source).not.toMatch(/from "\.\/pages\//);
   });
 
   it("keeps Loop Center and non-default session tabs behind dynamic imports", () => {
@@ -24,7 +23,9 @@ describe("frontend feature module boundaries", () => {
   it("retains visited settings and tab panels in mounted collections", () => {
     const settingsShell = read("settings/settings-shell.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
-    expect(settingsShell).toContain("visitedLazyPages");
+    expect(settingsShell).toContain("new Set([defaultSettingsPageId])");
+    expect(settingsShell).toContain("if (!visitedPages.has(page.id)) return null");
+    expect(settingsShell).toContain("new Set(current).add(pageId)");
     expect(settingsShell).toContain("hidden={page.id !== activePageId}");
     expect(sessionTabs).toContain("mountedTabs");
     expect(sessionTabs).toContain('activeTab === id ? "block" : "hidden"');
