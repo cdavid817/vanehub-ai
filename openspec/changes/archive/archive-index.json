@@ -1358,6 +1358,39 @@
                      },
                      {
                          "archivedOn":  "2026-08-02",
+                         "changeName":  "add-common-application-locales",
+                         "path":  "openspec/changes/archive/2026-08-02-add-common-application-locales/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "application-localization",
+                                              "app-settings",
+                                              "desktop-background-lifecycle",
+                                              "settings-basic-configuration-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
+                         "changeName":  "harden-skill-management-reliability",
+                         "path":  "openspec/changes/archive/2026-08-02-harden-skill-management-reliability/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-lifecycle-management",
+                                              "agent-skill-injection",
+                                              "settings-skill-management-ui",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
                          "changeName":  "optimize-runtime-performance-foundation",
                          "path":  "openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/",
                          "artifacts":  [
@@ -1371,6 +1404,33 @@
                                               "runtime-performance-governance",
                                               "session-management",
                                               "settings-center-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
+                         "changeName":  "recover-webview-white-screen",
+                         "path":  "openspec/changes/archive/2026-08-02-recover-webview-white-screen/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-webview-reliability"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
+                         "changeName":  "refine-basic-settings-information-architecture",
+                         "path":  "openspec/changes/archive/2026-08-02-refine-basic-settings-information-architecture/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-basic-configuration-ui",
+                                              "settings-floating-assistant-ui"
                                           ]
                      }
                  ]

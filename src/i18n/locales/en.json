@@ -1,5 +1,8 @@
 {
   "app.error.title": "Page Failed to Load",
+  "app.bootstrapFailure.title": "VaneHub Failed to Start",
+  "app.bootstrapFailure.description": "The application surface could not load. Retry to restore it without starting duplicate sessions.",
+  "app.bootstrapFailure.retry": "Reload",
   "featureLoad.loading": "Loading feature...",
   "featureLoad.error": "This feature could not be loaded.",
   "featureLoad.retry": "Retry",

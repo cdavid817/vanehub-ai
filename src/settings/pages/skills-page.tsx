@@ -181,6 +181,13 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const cliAgents = overviewQuery.data?.agents.filter((agent) => agent.kind === "cli") ?? [];
   const apiAgents = overviewQuery.data?.agents.filter((agent) => agent.kind === "api") ?? [];
   const apiBindingsBySkillId = overviewQuery.data?.apiAgentBindings ?? {};
+  const busySkillId = enabledMutation.isPending
+    ? enabledMutation.variables?.skill.id ?? null
+    : bindingMutation.isPending
+      ? bindingMutation.variables?.skill.id ?? null
+      : apiBindingMutation.isPending
+        ? apiBindingMutation.variables?.skill.id ?? null
+        : null;
 
   async function browseWorkspace() {
     const selected = await agentService.selectWorkspaceDirectory();
@@ -232,7 +239,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
             mountPaths={overviewQuery.data.mountPaths}
             drafts={mountDrafts}
             migration={mountMutation.data ?? null}
-            savingAgentId={mountMutation.variables?.agentId ?? null}
+            savingAgentId={mountMutation.isPending ? mountMutation.variables?.agentId ?? null : null}
             onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))}
             onSave={(agentId) => {
               const mountPath = mountDrafts[agentId] ?? overviewQuery.data.mountPaths.find((path) => path.agentId === agentId)?.mountPath ?? "";
@@ -245,7 +252,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
             agents={cliAgents}
             apiAgents={apiAgents}
             apiBindingsBySkillId={apiBindingsBySkillId}
-            busySkillId={enabledMutation.variables?.skill.id ?? bindingMutation.variables?.skill.id ?? apiBindingMutation.variables?.skill.id ?? null}
+            busySkillId={busySkillId}
             skills={visibleSkills}
             onDelete={(skill) => {
               if (globalThis.confirm?.(t("skills.delete")) ?? true) deleteMutation.mutate(skill);

@@ -1,5 +1,8 @@
 {
   "app.error.title": "페이지를 로드하지 못했습니다.",
+  "app.bootstrapFailure.title": "VaneHub를 시작하지 못했습니다.",
+  "app.bootstrapFailure.description": "애플리케이션 화면을 로드하지 못했습니다. 다시 시도해도 실행 중인 세션이 중복 시작되지 않습니다.",
+  "app.bootstrapFailure.retry": "다시 로드",
   "featureLoad.loading": "기능 로드 중...",
   "featureLoad.error": "이 기능을 로드할 수 없습니다.",
   "featureLoad.retry": "재시도",

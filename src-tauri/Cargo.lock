@@ -6363,6 +6363,7 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots 1.0.9",
+ "webview2-com",
  "windows-sys 0.61.2",
  "zeroize",
 ]

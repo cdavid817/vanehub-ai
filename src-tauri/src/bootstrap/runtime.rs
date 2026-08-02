@@ -75,6 +75,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
     let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    crate::contexts::desktop::infrastructure::install_main_webview_recovery(
+        app.handle(),
+        fallback_log_directory.clone(),
+    )
+    .map_err(boxed_message)?;
 
     let (desktop_settings_api, desktop_locale_bridge) =
         super::assemble_desktop_settings_api(database.clone(), app.handle().clone());

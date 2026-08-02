@@ -1,5 +1,8 @@
 {
   "app.error.title": "頁面載入失敗",
+  "app.bootstrapFailure.title": "VaneHub 啟動失敗",
+  "app.bootstrapFailure.description": "應用程式介面未能載入。請重試；已執行的工作階段不會因此重複啟動。",
+  "app.bootstrapFailure.retry": "重新載入",
   "featureLoad.loading": "正在加載功能...",
   "featureLoad.error": "該功能加載失敗。",
   "featureLoad.retry": "重試",
