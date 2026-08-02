@@ -26,18 +26,18 @@ The system SHALL let a user update a registered API agent's display name, model 
 - **THEN** the system SHALL NOT apply that change
 
 ### Requirement: Deleting a registered API agent
-The system SHALL let a user delete a registered API agent and its stored credential, and SHALL reject the deletion without making any changes if the agent is still referenced by other stored data.
+The system SHALL let a user delete a registered API Agent and its stored credential, SHALL reject the deletion without making any changes if the Agent is still referenced by blocking stored data, and SHALL remove every non-blocking Skill binding and Skill mount-path configuration owned by that Agent when deletion succeeds.
 
 #### Scenario: Delete an unreferenced agent
-- **WHEN** a user deletes an API agent that has no sessions, messages, memories, usage records, or Loop worker/verifier assignments referencing it
-- **THEN** the system SHALL remove the agent and its stored credential
-- **AND** SHALL remove any Skill-to-agent bindings for that agent
+- **WHEN** a user deletes an API Agent that has no sessions, messages, memories, usage records, or Loop worker/verifier assignments referencing it
+- **THEN** the system SHALL remove the Agent and its stored credential
+- **AND** SHALL remove its API Skill bindings, any legacy CLI Skill bindings, and its Skill mount-path configuration in the same transaction
 
 #### Scenario: Delete rejected when the agent is still referenced
-- **WHEN** a user deletes an API agent that has at least one session, memory, usage record, or Loop worker/verifier assignment referencing it
+- **WHEN** a user deletes an API Agent that has at least one session, memory, usage record, or Loop worker/verifier assignment referencing it
 - **THEN** the system SHALL reject the deletion
-- **AND** SHALL report which kinds of data still reference the agent
-- **AND** SHALL NOT remove the agent, its credential, or any of the referencing data
+- **AND** SHALL report which kinds of data still reference the Agent
+- **AND** SHALL NOT remove the Agent, its credential, Skill bindings, mount-path configuration, or any referencing data
 
 ### Requirement: Web runtime lifecycle-management parity
 The Web/mock runtime SHALL simulate editing and deleting a registered API agent through the same service contracts the desktop runtime uses, including rejecting deletion of a referenced mock agent.

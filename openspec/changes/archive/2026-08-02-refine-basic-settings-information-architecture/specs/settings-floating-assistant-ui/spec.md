@@ -3,7 +3,7 @@
 ### Requirement: Bottom-positioned floating assistant setting
 The Basic Configuration page SHALL place the floating-assistant setting inside the startup and window behavior group while preserving its localized service-backed behavior.
 
-#### Scenario: Group floating assistant with window behavior
+#### Scenario: Render floating assistant at bottom
 - **WHEN** Basic Configuration renders
 - **THEN** the floating-assistant control SHALL appear with launch-on-startup under the localized startup and window behavior group
 - **AND** SHALL remain available without opening advanced configuration

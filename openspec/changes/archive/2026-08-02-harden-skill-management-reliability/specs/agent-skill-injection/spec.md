@@ -34,7 +34,7 @@ The system SHALL inject enabled global Skills and enabled Skills bound for the a
 - **WHEN** a generation has multiple applicable bound and enabled Skills
 - **THEN** the system SHALL concatenate their content in deterministic scope, workspace, and Skill-id order
 
-#### Scenario: Disabled Skill excluded
+#### Scenario: Disabled binding excluded
 - **WHEN** a Skill is bound to an API Agent but the Skill is disabled
 - **THEN** the system SHALL exclude that Skill's content from the system prompt
 
@@ -42,7 +42,7 @@ The system SHALL inject enabled global Skills and enabled Skills bound for the a
 - **WHEN** one applicable bound Skill cannot be read but other applicable Skills are healthy
 - **THEN** the system SHALL log the failed Skill, omit it, and inject the healthy Skills
 
-#### Scenario: No bound Skills means no Skill section
+#### Scenario: No bound Skills means no system prompt
 - **WHEN** an API Agent has no applicable bound and enabled Skills
 - **THEN** the system SHALL send the request without a Skill section, unchanged from current behavior apart from any independently assembled memory section
 
