@@ -10,13 +10,19 @@ The Basic Configuration page SHALL render common application settings through th
 - **WHEN** a user opens the Basic Configuration page
 - **THEN** the page SHALL display controls for application language, font size, visual theme, default folder path, and read-only Node.js environment information
 
+#### Scenario: Display every supported application locale
+- **WHEN** the application-language control renders
+- **THEN** it SHALL present `zh-CN`, `en`, `zh-TW`, `ja`, and `ko` from the supported-locale registry in deterministic order
+- **AND** each option SHALL have a recognizable localized label rather than a binary Chinese-or-English fallback label
+
 #### Scenario: Update common setting
 - **WHEN** a user changes language, font size, visual theme, or default folder path from the Basic Configuration page
 - **THEN** the page SHALL save the setting through the shared settings provider without directly calling a Tauri command
 
 #### Scenario: Preserve settings page layout
-- **WHEN** Basic Configuration renders common settings controls
+- **WHEN** Basic Configuration renders common settings controls in any supported locale
 - **THEN** the page SHALL use the shared settings center layout, semantic design tokens, controls, and internal scrolling behavior
+- **AND** the language selector SHALL remain readable and operable at desktop and narrow viewport widths
 
 ### Requirement: Basic Settings network proxy section
 The Basic Configuration page SHALL provide a Network Proxy section for configuring the active runtime's outbound proxy behavior.
@@ -80,12 +86,17 @@ The Basic Settings page SHALL provide a log management section for the active ru
 - **THEN** it SHALL display the mock log path and keep the open log directory action disabled
 
 ### Requirement: Polished Basic Configuration information architecture
-The Basic Configuration page SHALL organize common settings, desktop behavior, data management, network proxy, log management, runtime information, storage notes, and floating assistant controls into a scannable layout.
+The Basic Configuration page SHALL organize common preferences, startup and window behavior, workspace defaults, and advanced operational configuration into a scannable intent-based layout.
 
 #### Scenario: Render optimized Basic Configuration sections
 - **WHEN** a user opens Basic Configuration
-- **THEN** the page SHALL group controls into clear localized sections for application preferences, startup or system behavior, data management, network proxy, logs, runtime information, storage notes, and desktop floating assistant
-- **AND** the desktop floating assistant section SHALL appear after the other Basic Configuration sections
+- **THEN** the page SHALL present common preferences, startup and window behavior, and workspace defaults before advanced operational configuration
+- **AND** language, font size, visual theme, default folder path, default folder opener, launch-on-startup, and floating-assistant controls SHALL be available without opening the advanced disclosure
+
+#### Scenario: Disclose advanced configuration progressively
+- **WHEN** Basic Configuration first renders
+- **THEN** network proxy, logs, data management, storage notes, and runtime information SHALL be grouped in a collapsed localized advanced disclosure
+- **AND** opening the disclosure SHALL expose the existing service-backed controls without changing their behavior
 
 #### Scenario: Preserve service-backed common settings
 - **WHEN** a user changes language, font size, visual theme, default folder path, log directory, network proxy, launch-on-startup, or floating-assistant state
@@ -93,7 +104,7 @@ The Basic Configuration page SHALL organize common settings, desktop behavior, d
 
 #### Scenario: Preserve responsive settings layout
 - **WHEN** Basic Configuration renders on desktop or narrower viewports
-- **THEN** sections SHALL keep stable spacing, readable text, non-overlapping controls, and internal page scrolling consistent with the settings center shell
+- **THEN** setting rows SHALL keep stable spacing, readable text, non-overlapping controls, and internal page scrolling consistent with the settings center shell
 
 ### Requirement: Basic Configuration startup controls
 The Basic Configuration page SHALL expose launch-on-startup controls through the settings provider.
@@ -107,10 +118,14 @@ The Basic Configuration page SHALL expose launch-on-startup controls through the
 - **THEN** Basic Configuration SHALL show localized user feedback and report a durable client diagnostic through the service boundary
 
 ### Requirement: Folder-opener settings section
-The Basic Configuration page SHALL provide a service-backed folder-opener section for viewing detected programs, choosing one default, selecting enabled openers, and refreshing bounded discovery.
+The Basic Configuration page SHALL provide a service-backed workspace-defaults group for choosing the default opener and progressively disclosing detected-program management, enabled openers, ordering, and bounded discovery.
+
+#### Scenario: Display default opener immediately
+- **WHEN** a user opens Basic Configuration
+- **THEN** the workspace-defaults group SHALL display the current default opener without requiring expansion of opener management
 
 #### Scenario: Display supported opener status
-- **WHEN** a user opens Basic Configuration
+- **WHEN** a user expands opener management
 - **THEN** the page SHALL list all supported opener ids with localized name, recognizable icon, availability state, and resolved version, edition, or executable path when provided
 
 #### Scenario: Configure enabled openers
@@ -125,7 +140,7 @@ The Basic Configuration page SHALL provide a service-backed folder-opener sectio
 
 #### Scenario: Prevent an unavailable default
 - **WHEN** an opener is not installed, invalid, unsupported, or failed detection
-- **THEN** the page SHALL display its status
+- **THEN** the expanded management view SHALL display its status
 - **AND** SHALL prevent selecting it as a new default while retaining any existing enabled selection
 
 #### Scenario: Refresh local discovery
@@ -137,3 +152,26 @@ The Basic Configuration page SHALL provide a service-backed folder-opener sectio
 - **WHEN** the settings section runs through the Web/mock adapter
 - **THEN** it SHALL remain interactive with deterministic data
 - **AND** SHALL identify native installation status and launch behavior as simulated or unavailable
+
+### Requirement: Default project directory setting row
+The Basic Configuration workspace-defaults group SHALL expose the existing default folder path through the shared settings provider.
+
+#### Scenario: Save default project directory
+- **WHEN** a user changes and commits the default project directory field
+- **THEN** the page SHALL save `defaultFolderPath` through the shared settings provider
+- **AND** SHALL NOT call a Tauri command directly
+
+#### Scenario: Display runtime-restored default directory
+- **WHEN** Basic Configuration loads after a default folder path has been persisted
+- **THEN** the workspace-defaults group SHALL display the restored path in the localized setting row
+
+### Requirement: Deliberate global settings reset
+The Basic Configuration page SHALL present global reset as a low-frequency footer action with explicit confirmation.
+
+#### Scenario: Confirm global reset
+- **WHEN** a user activates the reset action
+- **THEN** the page SHALL describe that application settings will return to defaults and require confirmation before invoking reset
+
+#### Scenario: Cancel global reset
+- **WHEN** a user declines the reset confirmation
+- **THEN** the page SHALL leave every persisted setting unchanged

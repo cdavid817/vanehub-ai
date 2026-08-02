@@ -3,11 +3,11 @@
 ## Purpose
 
 This capability defines desktop close-to-tray behavior and background lifecycle.
-
 ## Requirements
 
 Wall time: 1 seconds
 Output:
+
 ### Requirement: Desktop close-to-tray behavior
 The Tauri desktop runtime SHALL keep the VaneHub process and enabled IM connectors running when the user closes the main window.
 
@@ -17,10 +17,11 @@ The Tauri desktop runtime SHALL keep the VaneHub process and enabled IM connecto
 
 #### Scenario: Explain first close-to-tray action
 - **WHEN** close-to-tray occurs for the first time
-- **THEN** the desktop runtime SHALL provide a localized indication that VaneHub remains available from the system tray
+- **THEN** the desktop runtime SHALL indicate in the active supported application locale that VaneHub remains available from the system tray
+- **AND** an unavailable native locale resolution SHALL use the shared `zh-CN` fallback
 
 ### Requirement: Tray window controls
-The desktop runtime SHALL provide system-tray actions to restore or hide the main window.
+The desktop runtime SHALL provide localized system-tray actions to restore or hide the main window and to quit the application.
 
 #### Scenario: Restore main window
 - **WHEN** the user activates the tray show action or tray icon
@@ -29,6 +30,15 @@ The desktop runtime SHALL provide system-tray actions to restore or hide the mai
 #### Scenario: Hide main window from tray
 - **WHEN** the user activates the tray hide action while the window is visible
 - **THEN** the runtime SHALL hide the main window without stopping connectors
+
+#### Scenario: Render tray controls in the active locale
+- **WHEN** the tray initializes with `zh-CN`, `en`, `zh-TW`, `ja`, or `ko`
+- **THEN** show, hide, and quit labels SHALL render in that locale
+
+#### Scenario: Update tray controls after a locale change
+- **WHEN** the persisted application language changes while the tray is available
+- **THEN** the existing tray controls SHALL update to the new supported locale without restarting the application
+- **AND** a failed native label update SHALL preserve the previous usable tray controls and record a redacted warning through unified logging
 
 ### Requirement: Explicit graceful quit
 The desktop runtime SHALL provide an explicit tray quit action that stops connector work before process exit.

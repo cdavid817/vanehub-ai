@@ -22,7 +22,7 @@ Each Skill card SHALL provide enablement, CLI Agent mount binding, API Agent pro
 - **WHEN** a user toggles a Skill enabled state
 - **THEN** the page SHALL submit the change through the frontend service boundary, prevent a duplicate pending mutation, and refresh the affected overview state
 
-#### Scenario: Toggle CLI Agent binding
+#### Scenario: Toggle Agent binding
 - **WHEN** a user changes a CLI Agent binding checkbox
 - **THEN** the page SHALL submit a granular bind or unbind operation and SHALL NOT lose another completed checkbox change
 

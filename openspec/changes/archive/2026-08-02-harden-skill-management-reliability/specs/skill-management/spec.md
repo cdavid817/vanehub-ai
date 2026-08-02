@@ -23,7 +23,7 @@ The system SHALL use registered CLI-capable Agent ids as Skill mount carriers, S
 ### Requirement: Skill Agent bindings and link mounts
 The system SHALL bind Skills to zero or more registered CLI-capable Agents and SHALL mount bound enabled Skills into each CLI Agent's configured mount path by symlink or directory link.
 
-#### Scenario: Bind Skill to CLI Agent
+#### Scenario: Bind Skill to Agent
 - **WHEN** a user binds an enabled Skill to a registered CLI-capable Agent
 - **THEN** the system SHALL create a managed link from the Agent mount path to the Skill source directory
 
