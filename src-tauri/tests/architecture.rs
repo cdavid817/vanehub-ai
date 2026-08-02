@@ -5,6 +5,88 @@ use syn::spanned::Spanned;
 use syn::visit::Visit;
 use syn::{Attribute, Expr, ExprLit, ImplItem, Item, ItemFn, ItemUse, Lit, UseTree};
 
+#[test]
+fn distributable_release_profile_stays_optimized() {
+    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let manifest = fs::read_to_string(manifest_path).expect("read native manifest");
+    let document = manifest
+        .parse::<toml::Table>()
+        .expect("parse native manifest");
+    let release = document
+        .get("profile")
+        .and_then(toml::Value::as_table)
+        .and_then(|profiles| profiles.get("release"))
+        .and_then(toml::Value::as_table)
+        .expect("release profile");
+
+    assert_eq!(
+        release.get("opt-level").and_then(toml::Value::as_integer),
+        Some(3)
+    );
+    assert_eq!(
+        release.get("lto").and_then(toml::Value::as_str),
+        Some("thin")
+    );
+    assert_eq!(
+        release
+            .get("codegen-units")
+            .and_then(toml::Value::as_integer),
+        Some(1)
+    );
+    assert_eq!(
+        release.get("strip").and_then(toml::Value::as_str),
+        Some("debuginfo")
+    );
+    assert!(
+        release_debug_information_is_disabled(release.get("debug")),
+        "release builds must not carry debug information"
+    );
+    assert_ne!(
+        release
+            .get("debug-assertions")
+            .and_then(toml::Value::as_bool),
+        Some(true),
+        "release builds must not enable debug assertions"
+    );
+}
+
+fn release_debug_information_is_disabled(debug: Option<&toml::Value>) -> bool {
+    match debug {
+        None | Some(toml::Value::Boolean(false)) | Some(toml::Value::Integer(0)) => true,
+        Some(toml::Value::String(level)) => level == "none",
+        _ => false,
+    }
+}
+
+#[test]
+fn release_profile_guard_rejects_every_enabled_debug_information_form() {
+    let enabled_debug_values = [
+        toml::Value::Boolean(true),
+        toml::Value::Integer(1),
+        toml::Value::Integer(2),
+        toml::Value::String("line-directives-only".to_string()),
+        toml::Value::String("line-tables-only".to_string()),
+        toml::Value::String("limited".to_string()),
+        toml::Value::String("full".to_string()),
+    ];
+
+    for debug in &enabled_debug_values {
+        assert!(
+            !release_debug_information_is_disabled(Some(debug)),
+            "expected release debug value {debug:?} to be rejected"
+        );
+    }
+
+    assert!(release_debug_information_is_disabled(None));
+    for debug in [
+        toml::Value::Boolean(false),
+        toml::Value::Integer(0),
+        toml::Value::String("none".to_string()),
+    ] {
+        assert!(release_debug_information_is_disabled(Some(&debug)));
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Layer {
     Domain,

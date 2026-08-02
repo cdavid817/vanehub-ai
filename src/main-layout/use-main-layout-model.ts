@@ -5,6 +5,7 @@ import { useChatConfig } from "../components/chat/hooks/useChatConfig";
 import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { normalizeDisplayPath } from "../lib/session-path";
+import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { applyChatEvent } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { settingsService } from "../services/runtime-settings-client";
@@ -20,14 +21,16 @@ export function useMainLayoutModel() {
   const [fileReferences, setFileReferences] = useState<ChatFileReference[]>([]);
   const [messageLimit, setMessageLimit] = useState(50);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
+  const normalizedSessionSearchQuery = sessionSearchQuery.trim();
+  const debouncedSessionSearchQuery = useDebouncedValue(normalizedSessionSearchQuery, 250);
   const agentsQuery = useQuery({ queryKey: ["agents"], queryFn: () => agentService.listAgents() });
   const sessionsQuery = useQuery({ queryKey: ["sessions"], queryFn: () => agentService.listSessions() });
   const archivedQuery = useQuery({ queryKey: ["sessions", "archived"], queryFn: () => agentService.listArchivedSessions() });
   const categoriesQuery = useQuery({ queryKey: ["session-categories"], queryFn: () => agentService.listSessionCategories() });
   const sessionSearch = useQuery({
-    enabled: sessionSearchQuery.trim().length > 0,
-    queryKey: ["sessions", "search", sessionSearchQuery],
-    queryFn: () => agentService.searchSessions({ query: sessionSearchQuery, limit: 50 }),
+    enabled: debouncedSessionSearchQuery.length >= 2,
+    queryKey: ["sessions", "search", debouncedSessionSearchQuery],
+    queryFn: () => agentService.searchSessions({ query: debouncedSessionSearchQuery, limit: 50 }),
   });
   const activeQuery = useQuery({ queryKey: ["sessions", "active"], queryFn: () => agentService.getActiveSession() });
   const agents = agentsQuery.data ?? [];
@@ -172,7 +175,9 @@ export function useMainLayoutModel() {
     renameSession: (session: Session, title: string) => renameSession.mutate({ sessionId: session.id, title }),
     sessionCreated,
     sessionSearchQuery,
-    sessionSearchResults: sessionSearch.data ?? [],
+    sessionSearchResults: normalizedSessionSearchQuery === debouncedSessionSearchQuery
+      ? sessionSearch.data ?? []
+      : [],
     sessions: sessionsQuery.data ?? [],
     setDraft,
     addFileReference: (document: SessionDocument) => setFileReferences((current) => current.some((reference) => reference.path === document.path) ? current : [...current, { id: document.path, path: document.path, name: document.name }]),

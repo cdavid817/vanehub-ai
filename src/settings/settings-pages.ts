@@ -15,20 +15,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import type { ComponentType } from "react";
 import type { LazyFeatureLoader } from "../components/lazy-feature";
-import { AboutPage } from "./pages/about-page";
-import { BasicSettingsPage } from "./pages/basic-settings-page";
-import { CliParametersPage } from "./pages/cli-parameters-page";
-import { ExtensionsPage } from "./pages/extensions-page";
-import { McpPage } from "./pages/mcp-page";
-import { ImPage } from "./pages/im-page";
-import { PluginIntegrationsPage } from "./pages/plugin-integrations-page";
-import { ProvidersPage } from "./pages/providers-page";
-import { SkillsPage } from "./pages/skills-page";
-import { SshConnectionsPage } from "./pages/ssh-connections-page";
-import { UsageStatisticsPage } from "./pages/usage-statistics-page";
-import { ObservabilitySettingsPage } from "./pages/observability-settings-page";
 
 export type SettingsPageId =
   | "basic"
@@ -58,14 +45,37 @@ export interface SettingsPageDefinition {
   icon: LucideIcon;
   badge?: number;
   searchPlaceholderKey: string;
-  component?: ComponentType<SettingsPageContext>;
-  loader?: LazyFeatureLoader<SettingsPageContext>;
+  loader: LazyFeatureLoader<SettingsPageContext>;
 }
 
+const loadBasicPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/basic-settings-page")
+  .then((module) => ({ default: module.BasicSettingsPage }));
+const loadProvidersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/providers-page")
+  .then((module) => ({ default: module.ProvidersPage }));
+const loadCliParametersPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/cli-parameters-page")
+  .then((module) => ({ default: module.CliParametersPage }));
+const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/extensions-page")
+  .then((module) => ({ default: module.ExtensionsPage }));
+const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/mcp-page")
+  .then((module) => ({ default: module.McpPage }));
 const loadAgentsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agents-page")
   .then((module) => ({ default: module.AgentsPage }));
+const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
+  .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
   .then((module) => ({ default: module.PromptHooksPage }));
+const loadImPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/im-page")
+  .then((module) => ({ default: module.ImPage }));
+const loadSshConnectionsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/ssh-connections-page")
+  .then((module) => ({ default: module.SshConnectionsPage }));
+const loadPluginIntegrationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/plugin-integrations-page")
+  .then((module) => ({ default: module.PluginIntegrationsPage }));
+const loadObservabilityPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/observability-settings-page")
+  .then((module) => ({ default: module.ObservabilitySettingsPage }));
+const loadUsagePage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/usage-statistics-page")
+  .then((module) => ({ default: module.UsageStatisticsPage }));
+const loadAboutPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/about-page")
+  .then((module) => ({ default: module.AboutPage }));
 
 export const settingsPages: SettingsPageDefinition[] = [
   {
@@ -74,7 +84,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.basic",
     icon: Settings,
     searchPlaceholderKey: "settings.search.basic",
-    component: BasicSettingsPage,
+    loader: loadBasicPage,
   },
   {
     id: "providers",
@@ -82,7 +92,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.providers",
     icon: Terminal,
     searchPlaceholderKey: "settings.search.providers",
-    component: ProvidersPage,
+    loader: loadProvidersPage,
   },
   {
     id: "cli-parameters",
@@ -90,7 +100,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.cliParameters",
     icon: SlidersHorizontal,
     searchPlaceholderKey: "settings.search.cliParameters",
-    component: CliParametersPage,
+    loader: loadCliParametersPage,
   },
   {
     id: "mcp",
@@ -98,7 +108,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.mcp",
     icon: Boxes,
     searchPlaceholderKey: "settings.search.mcp",
-    component: McpPage,
+    loader: loadMcpPage,
   },
   {
     id: "agents",
@@ -114,7 +124,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.skills",
     icon: Puzzle,
     searchPlaceholderKey: "settings.search.skills",
-    component: SkillsPage,
+    loader: loadSkillsPage,
   },
   {
     id: "prompt-hooks",
@@ -130,7 +140,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.im",
     icon: MessagesSquare,
     searchPlaceholderKey: "settings.search.im",
-    component: ImPage,
+    loader: loadImPage,
   },
   {
     id: "ssh-connections",
@@ -138,7 +148,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.sshConnections",
     icon: KeyRound,
     searchPlaceholderKey: "settings.search.sshConnections",
-    component: SshConnectionsPage,
+    loader: loadSshConnectionsPage,
   },
   {
     id: "extensions",
@@ -146,7 +156,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.extensions",
     icon: Cpu,
     searchPlaceholderKey: "settings.search.extensions",
-    component: ExtensionsPage,
+    loader: loadExtensionsPage,
   },
   {
     id: "plugins",
@@ -154,7 +164,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.plugins",
     icon: Plug,
     searchPlaceholderKey: "settings.search.plugins",
-    component: PluginIntegrationsPage,
+    loader: loadPluginIntegrationsPage,
   },
   {
     id: "observability",
@@ -162,7 +172,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.observability",
     icon: Activity,
     searchPlaceholderKey: "settings.search.observability",
-    component: ObservabilitySettingsPage,
+    loader: loadObservabilityPage,
   },
   {
     id: "usage",
@@ -170,7 +180,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.usage",
     icon: BarChart3,
     searchPlaceholderKey: "settings.search.usage",
-    component: UsageStatisticsPage,
+    loader: loadUsagePage,
   },
   {
     id: "about",
@@ -178,7 +188,7 @@ export const settingsPages: SettingsPageDefinition[] = [
     crumbKey: "settings.pages.about",
     icon: Info,
     searchPlaceholderKey: "settings.search.about",
-    component: AboutPage,
+    loader: loadAboutPage,
   },
 ];
 

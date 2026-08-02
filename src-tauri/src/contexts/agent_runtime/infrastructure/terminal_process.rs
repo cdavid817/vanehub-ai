@@ -24,7 +24,7 @@ use crate::contexts::agent_runtime::domain::AgentLifecycle;
 use crate::contexts::execution_observability::api::ExecutionStatus;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const RETAINED_TERMINAL_TRANSCRIPT_BYTES: usize = 1_000_000;
+const RETAINED_TERMINAL_TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
 /// Larger reads coalesce bursty PTY output into fewer IPC events without adding latency:
 /// a read still returns as soon as any bytes are available, so interactive echo is
@@ -60,7 +60,57 @@ struct ManagedAgentTerminal {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
-    transcript: String,
+    transcript: BoundedTextBuffer,
+}
+
+struct BoundedTextBuffer {
+    chunks: VecDeque<String>,
+    bytes: usize,
+    max_bytes: usize,
+}
+
+impl BoundedTextBuffer {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            chunks: VecDeque::new(),
+            bytes: 0,
+            max_bytes,
+        }
+    }
+
+    fn append(&mut self, content: &str) {
+        if content.is_empty() || self.max_bytes == 0 {
+            return;
+        }
+        self.chunks.push_back(content.to_string());
+        self.bytes += content.len();
+        while self.bytes > self.max_bytes {
+            let excess = self.bytes - self.max_bytes;
+            let Some(front) = self.chunks.front_mut() else {
+                self.bytes = 0;
+                return;
+            };
+            if front.len() <= excess {
+                self.bytes -= front.len();
+                self.chunks.pop_front();
+                continue;
+            }
+            let mut trim_to = excess;
+            while !front.is_char_boundary(trim_to) {
+                trim_to += 1;
+            }
+            front.drain(..trim_to);
+            self.bytes -= trim_to;
+        }
+    }
+
+    fn snapshot(&self) -> String {
+        let mut snapshot = String::with_capacity(self.bytes);
+        for chunk in &self.chunks {
+            snapshot.push_str(chunk);
+        }
+        snapshot
+    }
 }
 
 #[derive(Clone)]
@@ -175,7 +225,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         if let Some(terminal) = terminal_registry.get_mut(session_id) {
             terminal.last_active_at = now_timestamp(self.clock.as_ref());
             let session = agent_terminal_session(terminal);
-            let transcript = terminal.transcript.clone();
+            let transcript = terminal.transcript.snapshot();
             let agent_id = terminal.agent_id.clone();
             drop(terminal_registry);
             self.record_log(
@@ -210,7 +260,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         if let Some(terminal) = terminal_registry.get_mut(&request.session.id) {
             terminal.last_active_at = now_timestamp(self.clock.as_ref());
             let session = agent_terminal_session(terminal);
-            let transcript = terminal.transcript.clone();
+            let transcript = terminal.transcript.snapshot();
             drop(terminal_registry);
             self.record_log(
                 AgentLogLevel::Info,
@@ -415,7 +465,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             master: pair.master,
             writer,
             child: child.clone(),
-            transcript: String::new(),
+            transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         };
         let response = agent_terminal_session(&terminal);
         terminal_registry.insert(request.session.id.clone(), terminal);
@@ -551,7 +601,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                         if let Ok(mut terminals) = terminals.lock() {
                             if let Some(terminal) = terminals.get_mut(&session_id) {
                                 terminal.last_active_at = now_timestamp(clock.as_ref());
-                                append_terminal_transcript(&mut terminal.transcript, &content);
+                                terminal.transcript.append(&content);
                             }
                         }
                         line_buffer.push_str(&content);
@@ -1080,18 +1130,6 @@ fn drain_complete_lines(line_buffer: &mut String, mut on_line: impl FnMut(&str))
     }
 }
 
-fn append_terminal_transcript(transcript: &mut String, content: &str) {
-    transcript.push_str(content);
-    if transcript.len() <= RETAINED_TERMINAL_TRANSCRIPT_BYTES {
-        return;
-    }
-    let mut trim_to = transcript.len() - RETAINED_TERMINAL_TRANSCRIPT_BYTES;
-    while !transcript.is_char_boundary(trim_to) {
-        trim_to += 1;
-    }
-    transcript.drain(..trim_to);
-}
-
 fn terminal_size(size: &AgentTerminalSize) -> PtySize {
     PtySize {
         rows: size.rows.clamp(1, 200),
@@ -1229,7 +1267,7 @@ mod tests {
                 .master,
             writer: Box::new(Vec::<u8>::new()),
             child: Arc::new(Mutex::new(dummy_child())),
-            transcript: String::new(),
+            transcript: BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES),
         }
     }
 
@@ -1459,16 +1497,24 @@ mod tests {
 
     #[test]
     fn terminal_transcript_retention_keeps_recent_utf8_content() {
-        let mut transcript = String::new();
-        append_terminal_transcript(&mut transcript, "older");
-        append_terminal_transcript(
-            &mut transcript,
-            &"好".repeat(RETAINED_TERMINAL_TRANSCRIPT_BYTES / "好".len() + 2),
-        );
+        let mut transcript = BoundedTextBuffer::new(RETAINED_TERMINAL_TRANSCRIPT_BYTES);
+        transcript.append("older");
+        transcript.append(&"好".repeat(RETAINED_TERMINAL_TRANSCRIPT_BYTES / "好".len() + 2));
 
-        assert!(transcript.len() <= RETAINED_TERMINAL_TRANSCRIPT_BYTES);
-        assert!(transcript.is_char_boundary(0));
-        assert!(!transcript.contains("older"));
+        let snapshot = transcript.snapshot();
+        assert!(transcript.bytes <= RETAINED_TERMINAL_TRANSCRIPT_BYTES);
+        assert_eq!(snapshot.len(), transcript.bytes);
+        assert!(!snapshot.contains("older"));
+    }
+
+    #[test]
+    fn terminal_transcript_appends_independent_chunks_below_the_limit() {
+        let mut transcript = BoundedTextBuffer::new(64);
+        transcript.append("first");
+        transcript.append("second");
+
+        assert_eq!(transcript.chunks.len(), 2);
+        assert_eq!(transcript.snapshot(), "firstsecond");
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::contexts::sessions::domain::{
     SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
     SessionTitle,
 };
-use crate::platform::database::NativeDatabase;
+use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use serde_json::json;
@@ -423,6 +423,164 @@ fn sqlite_search_and_message_queries_honor_limits_and_cursors() {
             .collect::<Vec<_>>(),
         ["message-page-1"]
     );
+}
+
+#[test]
+fn message_search_index_tracks_content_mutations_and_uses_fts() {
+    let fixture = fixture("sessions-message-search-index");
+    let repository = &fixture.repository;
+    let session = session_record(
+        "session-indexed-search",
+        SessionLifecycle::Idle,
+        "Indexed search",
+        "2026-07-18T10:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(repository, &session, SessionActivation::PreserveActive)
+        .expect("create indexed session");
+    let mut message = message_record(
+        "message-indexed-search",
+        session.id(),
+        MessageRole::User,
+        MessageStatus::Completed,
+        "alpha indexed needle omega",
+    );
+    SessionMessageRepository::insert(repository, &message).expect("insert indexed message");
+
+    assert_eq!(fts_match_count(&fixture, "\"indexed needle\""), 1);
+    let short_query_results = SessionRepository::search(
+        repository,
+        &SessionSearchQuery {
+            text: "ph".to_string(),
+            limit: 10,
+        },
+    )
+    .expect("two-character compatibility search");
+    assert_eq!(short_query_results.len(), 1);
+    assert!(short_query_results[0]
+        .matches
+        .iter()
+        .any(|matched| matched.kind == SessionSearchMatchKind::Message));
+    let plan = fts_query_plan(&fixture, "\"indexed needle\"");
+    assert!(
+        plan.iter()
+            .any(|detail| detail.contains("VIRTUAL TABLE INDEX")),
+        "expected FTS virtual-table plan, got {plan:?}"
+    );
+
+    message.content = "replacement searchable phrase".to_string();
+    SessionMessageRepository::save(repository, &message).expect("update indexed message");
+    assert_eq!(fts_match_count(&fixture, "\"indexed needle\""), 0);
+    assert_eq!(fts_match_count(&fixture, "\"searchable phrase\""), 1);
+
+    fixture
+        .database
+        .connection()
+        .expect("delete connection")
+        .execute(
+            "DELETE FROM messages WHERE id = ?1",
+            [message.message.id().as_str()],
+        )
+        .expect("delete indexed message");
+    assert_eq!(fts_match_count(&fixture, "\"searchable phrase\""), 0);
+}
+
+#[test]
+fn fts_migration_keeps_archived_sessions_with_existing_messages_searchable() {
+    let fixture = fixture("sessions-archived-search-migration");
+    let repository = &fixture.repository;
+    {
+        let connection = fixture
+            .database
+            .connection()
+            .expect("pre-migration connection");
+        connection
+            .execute_batch(
+                r#"
+                DROP TRIGGER messages_fts_insert;
+                DROP TRIGGER messages_fts_delete;
+                DROP TRIGGER messages_fts_update;
+                DROP TABLE session_message_fts;
+                DELETE FROM schema_migrations WHERE version = 33;
+                "#,
+            )
+            .expect("simulate schema before message search migration");
+    }
+
+    let session = session_record(
+        "session-archived-before-fts",
+        SessionLifecycle::Idle,
+        "Archived migration fixture",
+        "2026-07-18T11:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(repository, &session, SessionActivation::PreserveActive)
+        .expect("create pre-migration session");
+    fixture
+        .database
+        .connection()
+        .expect("archive connection")
+        .execute(
+            "UPDATE sessions SET archived = 1 WHERE id = ?1",
+            [session.id()],
+        )
+        .expect("archive pre-migration session");
+    let message = message_record(
+        "message-archived-before-fts",
+        session.id(),
+        MessageRole::User,
+        MessageStatus::Completed,
+        "quartz migration searchable payload",
+    );
+    SessionMessageRepository::insert(repository, &message).expect("insert pre-migration message");
+
+    {
+        let connection = fixture.database.connection().expect("migration connection");
+        migrate(&connection).expect("apply message search migration");
+    }
+
+    let results = SessionRepository::search(
+        repository,
+        &SessionSearchQuery {
+            text: "quartz migration".to_string(),
+            limit: 10,
+        },
+    )
+    .expect("search migrated archived session");
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].session.id(), session.id());
+    assert!(results[0].session.aggregate.is_archived());
+    assert!(results[0].matches.iter().any(|matched| {
+        matched.kind == SessionSearchMatchKind::Message
+            && matched.message_id.as_deref() == Some(message.message.id().as_str())
+    }));
+}
+
+fn fts_match_count(fixture: &Fixture, query: &str) -> i64 {
+    fixture
+        .database
+        .connection()
+        .expect("FTS count connection")
+        .query_row(
+            "SELECT COUNT(*) FROM session_message_fts WHERE session_message_fts MATCH ?1",
+            [query],
+            |row| row.get(0),
+        )
+        .expect("FTS match count")
+}
+
+fn fts_query_plan(fixture: &Fixture, query: &str) -> Vec<String> {
+    let connection = fixture.database.connection().expect("FTS plan connection");
+    let mut statement = connection
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT rowid FROM session_message_fts \
+             WHERE session_message_fts MATCH ?1",
+        )
+        .expect("prepare FTS query plan");
+    statement
+        .query_map([query], |row| row.get(3))
+        .expect("query FTS plan")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect FTS plan")
 }
 
 #[test]
