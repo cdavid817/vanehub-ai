@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { resolveModelLabel } from "../components/chat/models";
 import { Button } from "../components/ui/button";
+import { formatAppNumber } from "../i18n/format";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
@@ -47,11 +48,11 @@ function Field({ icon, label, value }: { icon: ReactNode; label: string; value: 
   );
 }
 
-function UsageMetric({ label, value }: { label: string; value: number }) {
+function UsageMetric({ label, language, value }: { label: string; language: string; value: number }) {
   return (
     <div className="rounded border border-border bg-background p-2">
       <dt className="truncate text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-lg font-semibold tabular-nums text-primary">{value.toLocaleString()}</dd>
+      <dd className="mt-1 text-lg font-semibold tabular-nums text-primary">{formatAppNumber(value, language)}</dd>
     </div>
   );
 }
@@ -81,7 +82,7 @@ function EmptyState({ children }: { children: ReactNode }) {
 }
 
 function TokenUsagePane({ loading, summary }: { loading: boolean; summary: SessionUsageSummary | undefined }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   if (loading) return <EmptyState>{t("layout.info.loading")}</EmptyState>;
   if (!summary) return <EmptyState>{t("layout.info.noUsage")}</EmptyState>;
 
@@ -96,16 +97,16 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
             <Gauge className="h-4 w-4 shrink-0 text-primary" />
             <span className="truncate">{t("layout.info.usage.reported")}</span>
           </h3>
-          <span className="text-xs text-muted-foreground">{summary.coverage.reportedResponses.toLocaleString()}</span>
+          <span className="text-xs text-muted-foreground">{formatAppNumber(summary.coverage.reportedResponses, i18n.language)}</span>
         </div>
         {hasReported ? (
           <dl className="grid grid-cols-2 gap-2">
-            <UsageMetric label={t("layout.info.usage.input")} value={summary.reported.inputTokens} />
-            <UsageMetric label={t("layout.info.usage.output")} value={summary.reported.outputTokens} />
-            <UsageMetric label={t("layout.info.usage.cacheRead")} value={summary.reported.cacheReadTokens} />
-            <UsageMetric label={t("layout.info.usage.cacheCreation")} value={summary.reported.cacheCreationTokens} />
+            <UsageMetric label={t("layout.info.usage.input")} language={i18n.language} value={summary.reported.inputTokens} />
+            <UsageMetric label={t("layout.info.usage.output")} language={i18n.language} value={summary.reported.outputTokens} />
+            <UsageMetric label={t("layout.info.usage.cacheRead")} language={i18n.language} value={summary.reported.cacheReadTokens} />
+            <UsageMetric label={t("layout.info.usage.cacheCreation")} language={i18n.language} value={summary.reported.cacheCreationTokens} />
             <div className="col-span-2">
-              <UsageMetric label={t("layout.info.usage.total")} value={summary.reported.totalTokens} />
+              <UsageMetric label={t("layout.info.usage.total")} language={i18n.language} value={summary.reported.totalTokens} />
             </div>
           </dl>
         ) : (
@@ -116,8 +117,8 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
         <h3 className="mb-3 text-sm font-semibold">{t("layout.info.usage.estimated")}</h3>
         {hasEstimated ? (
           <dl className="grid grid-cols-2 gap-2">
-            <UsageMetric label={t("layout.info.usage.estimatedResponses")} value={summary.coverage.estimatedResponses} />
-            <UsageMetric label={t("layout.info.usage.totalCharacters")} value={summary.estimated.totalCharacters} />
+            <UsageMetric label={t("layout.info.usage.estimatedResponses")} language={i18n.language} value={summary.coverage.estimatedResponses} />
+            <UsageMetric label={t("layout.info.usage.totalCharacters")} language={i18n.language} value={summary.estimated.totalCharacters} />
           </dl>
         ) : (
           <EmptyState>{t("layout.info.usage.noEstimated")}</EmptyState>

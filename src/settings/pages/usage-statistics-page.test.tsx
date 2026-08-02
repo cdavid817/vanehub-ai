@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { i18n } from "../../i18n";
+import { activateAppLanguage, i18n } from "../../i18n";
 import type { UsageStatistics } from "../../types/chat";
 import { UsageStatisticsPage } from "./usage-statistics-page";
 import { UsageAgentBreakdown } from "./usage/usage-agent-breakdown";
@@ -84,7 +84,6 @@ describe("UsageStatisticsPage", () => {
     const html = renderToString(
       <UsageAgentBreakdown
         agents={[{ agentId: "codex-cli", reported: statistics.reported, estimated: statistics.estimated, responseCount: 2 }]}
-        language="en"
       />,
     );
     expect(html).toContain("codex-cli");
@@ -112,7 +111,7 @@ describe("UsageStatisticsPage", () => {
     expect(usagePollingInterval).toBe(30_000);
   });
 
-  it("states every accounting boundary in both locales", () => {
+  it("states every accounting boundary in both locales", async () => {
     const zhHtml = renderToString(<UsageAccountingNote language="zh-CN" />);
     expect(zhHtml).toContain("外部 CLI 历史");
     expect(zhHtml).toContain("供应商账单对账");
@@ -120,11 +119,13 @@ describe("UsageStatisticsPage", () => {
     expect(zhHtml).toContain("请求详情日志");
     expect(zhHtml).toContain("Provider/模型过滤");
 
-    const enText = i18n.t("usage.accounting.limitations", { lng: "en" });
+    await activateAppLanguage("en");
+    const enText = i18n.t("usage.accounting.limitations");
     expect(enText).toContain("external CLI history");
     expect(enText).toContain("provider billing reconciliation");
     expect(enText).toContain("cost estimates");
     expect(enText).toContain("request-detail logs");
     expect(enText).toContain("Provider/model filtering");
+    await activateAppLanguage("zh-CN");
   });
 });

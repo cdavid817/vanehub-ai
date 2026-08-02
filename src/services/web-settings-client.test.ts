@@ -19,4 +19,15 @@ describe("web-settings-client", () => {
       fontSize: "12px",
     });
   });
+
+  it("persists every supported application locale through the unchanged setting contract", async () => {
+    for (const applicationLanguage of ["zh-CN", "en", "zh-TW", "ja", "ko"] as const) {
+      const savedSettings = await webSettingsClient.saveSetting({
+        key: "applicationLanguage",
+        value: applicationLanguage,
+      });
+      expect(savedSettings.applicationLanguage).toBe(applicationLanguage);
+      await expect(webSettingsClient.getSettings()).resolves.toMatchObject({ applicationLanguage });
+    }
+  });
 });

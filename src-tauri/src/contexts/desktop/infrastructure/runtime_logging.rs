@@ -18,6 +18,22 @@ pub(super) fn record_runtime_error(
     });
 }
 
+pub(super) fn record_native_locale_warning(
+    logging: &dyn DiagnosticLogPort,
+    operation: &str,
+    error: &str,
+) {
+    let mut context = BTreeMap::new();
+    context.insert("operation".to_string(), operation.to_string());
+    context.insert("error".to_string(), error.to_string());
+    let _ = logging.write_diagnostic(DiagnosticLog {
+        severity: LogSeverity::Warn,
+        category: "desktop.lifecycle.locale".to_string(),
+        message: "Desktop native localization refresh failed".to_string(),
+        context,
+    });
+}
+
 pub(super) fn record_shutdown_warning(logging: &dyn DiagnosticLogPort) {
     let mut context = BTreeMap::new();
     context.insert("operation".to_string(), "explicit-quit".to_string());
@@ -46,19 +62,20 @@ mod tests {
     use crate::test_support::TempDirectory;
 
     #[test]
-    fn runtime_errors_use_the_unified_redaction_boundary() {
+    fn native_locale_warnings_use_warn_severity_and_the_unified_redaction_boundary() {
         let directory = TempDirectory::new("desktop-runtime-log");
         let logging = UnifiedLoggingAdapter::new(directory.path().to_path_buf());
 
-        record_runtime_error(
+        record_native_locale_warning(
             &logging,
-            "floating-assistant.window",
-            "ensure",
+            "update-tray-labels",
             "password=window-secret Bearer runtime-token",
         );
 
         let raw = std::fs::read_to_string(directory.path().join(LOG_FILE_NAME)).expect("log");
-        assert!(raw.contains("floating-assistant.window"));
+        assert!(raw.contains("desktop.lifecycle.locale"));
+        assert!(raw.contains("update-tray-labels"));
+        assert!(raw.contains("\"warn\""));
         assert!(raw.contains("[REDACTED]"));
         assert!(!raw.contains("window-secret"));
         assert!(!raw.contains("runtime-token"));

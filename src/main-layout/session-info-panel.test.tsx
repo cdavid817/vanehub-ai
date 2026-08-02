@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "../i18n";
-import { i18n } from "../i18n";
+import { activateAppLanguage } from "../i18n";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
 import type { Skill } from "../types/skill";
@@ -100,7 +100,7 @@ function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Sessio
 
 describe("SessionInfoPanel", () => {
   beforeEach(async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
   });
 
   it("renders the optimized three-tab information panel and selected model", () => {

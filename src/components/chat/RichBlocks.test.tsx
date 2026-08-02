@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it } from "vitest";
-import { i18n } from "../../i18n";
+import { activateAppLanguage } from "../../i18n";
 import { RichBlocks } from "./RichBlocks";
 
 describe("RichBlocks", () => {
   beforeAll(async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
   });
 
   it("renders representative first-version block kinds", () => {

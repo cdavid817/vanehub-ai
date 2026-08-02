@@ -2,11 +2,12 @@ import { Cpu, FolderOpen, RotateCcw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { supportedLocales, type AppLanguage } from "../../i18n/supported-locales";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
-import { appFontSizes, appLanguages, type AppFontSize, type AppLanguage } from "../../types/settings";
+import { appFontSizes, type AppFontSize } from "../../types/settings";
 import { NetworkProxySection } from "./network-proxy-section";
 import { SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
@@ -126,9 +127,9 @@ export function BasicSettingsPage() {
               disabled={busy}
               label={t("basic.language")}
               onChange={(value) => void saveSetting("applicationLanguage", value)}
-              options={appLanguages.map((language) => ({
-                label: language === "zh-CN" ? t("basic.language.zh") : t("basic.language.en"),
-                value: language,
+              options={supportedLocales.map((locale) => ({
+                label: t(locale.labelKey),
+                value: locale.id,
               }))}
               value={settings.applicationLanguage}
             />

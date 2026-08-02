@@ -1,15 +1,19 @@
 use super::runtime_logging::{
-    record_exit_requested, record_runtime_error, record_shutdown_warning,
+    record_exit_requested, record_native_locale_warning, record_runtime_error,
+    record_shutdown_warning,
 };
 use super::tauri_floating_assistant_window::FLOATING_ASSISTANT_LABEL;
 use crate::contexts::desktop::api::FloatingAssistantApi;
 use crate::contexts::desktop::application::{
-    DesktopLifecycleApplicationError, DesktopLifecyclePort, DesktopShutdownPort,
+    DesktopLifecycleApplicationError, DesktopLifecyclePort, DesktopLocalePort,
+    DesktopSettingsApplicationError, DesktopShutdownPort,
 };
-use crate::contexts::desktop::domain::should_hide_main_for_tray;
+use crate::contexts::desktop::domain::{
+    should_hide_main_for_tray, ApplicationLanguage, NativeCopy,
+};
 use crate::contexts::operations::application::DiagnosticLogPort;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -37,10 +41,19 @@ impl TauriDesktopLifecycleAdapter {
                     tray_available: AtomicBool::new(false),
                     quitting: AtomicBool::new(false),
                     close_notice_shown: AtomicBool::new(false),
-                    copy: TrayCopy::for_language(language),
+                    copy: RwLock::new(NativeCopy::resolve(language)),
+                    menu_items: Mutex::new(None),
                 }),
             },
         }
+    }
+}
+
+impl DesktopLocalePort for TauriDesktopLifecycleAdapter {
+    fn apply(&self, language: ApplicationLanguage) -> Result<(), DesktopSettingsApplicationError> {
+        self.runtime
+            .update_language(language)
+            .map_err(|error| DesktopSettingsApplicationError::NativeLocale(error.to_string()))
     }
 }
 
@@ -66,67 +79,31 @@ struct DesktopLifecycleRuntimeInner {
     tray_available: AtomicBool,
     quitting: AtomicBool,
     close_notice_shown: AtomicBool,
-    copy: TrayCopy,
+    copy: RwLock<NativeCopy>,
+    menu_items: Mutex<Option<TrayMenuItems>>,
 }
 
 #[derive(Clone)]
-struct TrayCopy {
-    show: &'static str,
-    hide: &'static str,
-    quit: &'static str,
-    notice_title: &'static str,
-    notice: &'static str,
-}
-
-impl TrayCopy {
-    fn for_language(language: &str) -> Self {
-        if language == "en" {
-            Self {
-                show: "Show VaneHub AI",
-                hide: "Hide VaneHub AI",
-                quit: "Quit",
-                notice_title: "VaneHub AI is still running",
-                notice: "VaneHub AI will keep receiving IM messages in the background. Use the system tray to restore or quit.",
-            }
-        } else {
-            Self {
-                show: "显示 VaneHub AI",
-                hide: "隐藏 VaneHub AI",
-                quit: "退出",
-                notice_title: "VaneHub AI 仍在运行",
-                notice: "VaneHub AI 将在后台继续接收 IM 消息。可通过系统托盘恢复窗口或退出。",
-            }
-        }
-    }
+struct TrayMenuItems {
+    show: MenuItem<tauri::Wry>,
+    hide: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
 }
 
 impl DesktopLifecycleRuntime {
     fn initialize(&self) -> Result<(), DesktopLifecycleApplicationError> {
         self.inner.app.manage(self.clone());
-        let show = MenuItem::with_id(
-            &self.inner.app,
-            "show",
-            self.inner.copy.show,
-            true,
-            None::<&str>,
-        )
-        .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
-        let hide = MenuItem::with_id(
-            &self.inner.app,
-            "hide",
-            self.inner.copy.hide,
-            true,
-            None::<&str>,
-        )
-        .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
-        let quit = MenuItem::with_id(
-            &self.inner.app,
-            "quit",
-            self.inner.copy.quit,
-            true,
-            None::<&str>,
-        )
-        .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
+        let copy = *self
+            .inner
+            .copy
+            .read()
+            .map_err(|_| lifecycle_error("native-copy-lock-poisoned"))?;
+        let show = MenuItem::with_id(&self.inner.app, "show", copy.tray_show, true, None::<&str>)
+            .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
+        let hide = MenuItem::with_id(&self.inner.app, "hide", copy.tray_hide, true, None::<&str>)
+            .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
+        let quit = MenuItem::with_id(&self.inner.app, "quit", copy.tray_quit, true, None::<&str>)
+            .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
         let menu = Menu::with_items(&self.inner.app, &[&show, &hide, &quit])
             .map_err(|_| lifecycle_error("tray-menu-create-failed"))?;
         let icon = self
@@ -164,7 +141,52 @@ impl DesktopLifecycleRuntime {
             })
             .build(&self.inner.app)
             .map_err(|_| lifecycle_error("tray-build-failed"))?;
+        *self
+            .inner
+            .menu_items
+            .lock()
+            .map_err(|_| lifecycle_error("tray-menu-lock-poisoned"))? =
+            Some(TrayMenuItems { show, hide, quit });
         self.inner.tray_available.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn update_language(
+        &self,
+        language: ApplicationLanguage,
+    ) -> Result<(), DesktopLifecycleApplicationError> {
+        let next = NativeCopy::for_language(language);
+        let previous = *self
+            .inner
+            .copy
+            .read()
+            .map_err(|_| lifecycle_error("native-copy-lock-poisoned"))?;
+        if next == previous {
+            return Ok(());
+        }
+
+        let menu_items = self
+            .inner
+            .menu_items
+            .lock()
+            .map_err(|_| lifecycle_error("tray-menu-lock-poisoned"))?;
+        if let Some(items) = menu_items.as_ref() {
+            if let Err(code) = update_tray_labels(items, next) {
+                let _ = update_tray_labels(items, previous);
+                record_native_locale_warning(
+                    self.inner.logging.as_ref(),
+                    "update-tray-labels",
+                    code,
+                );
+                return Err(lifecycle_error(code));
+            }
+        }
+        drop(menu_items);
+        *self
+            .inner
+            .copy
+            .write()
+            .map_err(|_| lifecycle_error("native-copy-lock-poisoned"))? = next;
         Ok(())
     }
 
@@ -217,14 +239,34 @@ impl DesktopLifecycleRuntime {
             );
         }
         if !self.inner.close_notice_shown.swap(true, Ordering::AcqRel) {
+            let copy = match self.inner.copy.read() {
+                Ok(copy) => *copy,
+                Err(_) => NativeCopy::resolve("zh-CN"),
+            };
             window
                 .app_handle()
                 .dialog()
-                .message(self.inner.copy.notice)
-                .title(self.inner.copy.notice_title)
+                .message(copy.close_notice)
+                .title(copy.close_notice_title)
                 .show(|_| {});
         }
     }
+}
+
+fn update_tray_labels(items: &TrayMenuItems, copy: NativeCopy) -> Result<(), &'static str> {
+    items
+        .show
+        .set_text(copy.tray_show)
+        .map_err(|_| "tray-show-label-update-failed")?;
+    items
+        .hide
+        .set_text(copy.tray_hide)
+        .map_err(|_| "tray-hide-label-update-failed")?;
+    items
+        .quit
+        .set_text(copy.tray_quit)
+        .map_err(|_| "tray-quit-label-update-failed")?;
+    Ok(())
 }
 
 fn lifecycle_error(code: &str) -> DesktopLifecycleApplicationError {
@@ -331,12 +373,6 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(())
         }
-    }
-
-    #[test]
-    fn tray_copy_is_localized() {
-        assert_eq!(TrayCopy::for_language("en").quit, "Quit");
-        assert_eq!(TrayCopy::for_language("zh-CN").quit, "退出");
     }
 
     #[tokio::test]

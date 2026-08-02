@@ -11,6 +11,7 @@ use crate::contexts::communications::infrastructure::{
     SqliteCommunicationsRepository, SystemCommunicationsClock,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
+use crate::contexts::desktop::domain::NativeCopy;
 use crate::contexts::operations::api::{DiagnosticLogPort, OperationLogPort, OperationsApi};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::SessionsApi;
@@ -62,17 +63,11 @@ pub(crate) fn assemble_communications(
     let desktop_settings = dependencies.desktop_settings.clone();
     // 步骤3：构建消息过载提示文案提供器闭包，根据系统语言返回对应多语言提示
     let busy_message: BusyMessageProvider = Arc::new(move || {
-        // 读取桌面全局配置中的应用语言标识
-        let language = desktop_settings
-            .get_settings()
-            .map(|view| view.settings.application_language().as_str().to_string())
-            .unwrap_or_else(|_| "en".to_string());
-        // 判断语言前缀，中文返回中文提示，其余默认英文提示
-        if language.to_ascii_lowercase().starts_with("zh") {
-            "待处理消息过多，请稍后重试。".to_string()
-        } else {
-            "Too many pending messages. Please try again later.".to_string()
-        }
+        let copy = match desktop_settings.get_settings() {
+            Ok(view) => NativeCopy::for_language(view.settings.application_language()),
+            Err(_) => NativeCopy::resolve("zh-CN"),
+        };
+        copy.communications_overload.to_string()
     });
     // 步骤4：初始化通信入站消息桥接器，承载外部消息接收、限流提示能力
     let inbound = Arc::new(CommunicationsInboundBridge::new(

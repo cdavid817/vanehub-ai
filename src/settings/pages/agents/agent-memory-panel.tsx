@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { formatAppDateTime } from "../../../i18n/format";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
 import type { AgentMemory } from "../../../types/agent";
@@ -11,7 +12,7 @@ import { SectionPanel } from "../page-parts";
 const agentMemoriesQueryKey = (agentId: string) => ["agents", "memories", agentId] as const;
 
 export function AgentMemoryPanel({ agentId, service = defaultAgentService }: { agentId: string | null; service?: AgentService }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const queryClient = useQueryClient();
 
   const memoriesQuery = useQuery({
@@ -58,7 +59,7 @@ export function AgentMemoryPanel({ agentId, service = defaultAgentService }: { a
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge tone={memory.source === "automatic" ? "muted" : "default"}>{t(`agents.memory.source.${memory.source}`)}</Badge>
                 <span>{memory.folder ?? t("agents.memory.folder.global")}</span>
-                <span>{new Date(memory.createdAt).toLocaleString()}</span>
+                <span>{formatAppDateTime(memory.createdAt, i18n.language, { dateStyle: "short", timeStyle: "medium" })}</span>
               </div>
             </li>
           ))}

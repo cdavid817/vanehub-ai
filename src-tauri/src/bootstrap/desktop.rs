@@ -8,7 +8,7 @@ use crate::contexts::desktop::application::{
     DesktopSettingsApplicationService, DesktopShutdownPort, FloatingAssistantApplicationService,
 };
 use crate::contexts::desktop::infrastructure::{
-    DesktopDirectoryAdapter, FolderOpenerService, PlatformNodeInfoAdapter,
+    DesktopDirectoryAdapter, DesktopLocaleBridge, FolderOpenerService, PlatformNodeInfoAdapter,
     RuntimeLogDirectoryAdapter, RuntimeNetworkProxyActionsAdapter, RuntimeNetworkProxyAdapter,
     SqliteDesktopSettingsRepository, SqliteFloatingAssistantRepository, SystemDesktopClock,
     TauriDesktopLifecycleAdapter, TauriDesktopStartupAdapter, TauriFloatingAssistantWindowAdapter,
@@ -26,7 +26,7 @@ use tauri::AppHandle;
 pub(crate) fn assemble_desktop_settings_api(
     database: NativeDatabase,
     app: AppHandle,
-) -> DesktopSettingsApi {
+) -> (DesktopSettingsApi, DesktopLocaleBridge) {
     let default_log_directory = database
         .db_path
         .parent()
@@ -35,12 +35,14 @@ pub(crate) fn assemble_desktop_settings_api(
         .to_string_lossy()
         .to_string();
     let settings_repository = SqliteDesktopSettingsRepository::new(database.clone());
+    let locale_bridge = DesktopLocaleBridge::default();
     let settings = DesktopSettingsApplicationService::new(
         Arc::new(settings_repository.clone()),
         Arc::new(SystemDesktopClock),
         Arc::new(RuntimeNetworkProxyAdapter),
         Arc::new(RuntimeLogDirectoryAdapter),
         Arc::new(TauriDesktopStartupAdapter::new(app)),
+        Arc::new(locale_bridge.clone()),
         default_log_directory,
     );
     let environment = DesktopEnvironmentApplicationService::new(
@@ -49,10 +51,13 @@ pub(crate) fn assemble_desktop_settings_api(
         Arc::new(RuntimeNetworkProxyActionsAdapter),
         Arc::new(UnifiedClientLoggingAdapter),
     );
-    DesktopSettingsApi::new(
-        settings,
-        environment,
-        FolderOpenerService::new(settings_repository),
+    (
+        DesktopSettingsApi::new(
+            settings,
+            environment,
+            FolderOpenerService::new(settings_repository),
+        ),
+        locale_bridge,
     )
 }
 
@@ -81,11 +86,12 @@ pub(crate) fn assemble_desktop_lifecycle_api(
     language: &str,
     agents: AgentRuntimeApi,
     communications: CommunicationsApi,
+    locale_bridge: DesktopLocaleBridge,
     fallback_log_directory: PathBuf,
-) -> DesktopLifecycleApi {
+) -> Result<DesktopLifecycleApi, String> {
     let logging: Arc<dyn DiagnosticLogPort> =
         Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
-    let lifecycle = TauriDesktopLifecycleAdapter::new(
+    let lifecycle = Arc::new(TauriDesktopLifecycleAdapter::new(
         app,
         language,
         Arc::new(RuntimeShutdownAdapter {
@@ -93,8 +99,11 @@ pub(crate) fn assemble_desktop_lifecycle_api(
             communications,
         }),
         logging,
-    );
-    DesktopLifecycleApi::new(DesktopLifecycleApplicationService::new(Arc::new(lifecycle)))
+    ));
+    locale_bridge.attach(lifecycle.clone())?;
+    Ok(DesktopLifecycleApi::new(
+        DesktopLifecycleApplicationService::new(lifecycle),
+    ))
 }
 
 pub(crate) fn initialize_desktop_runtime(

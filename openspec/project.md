@@ -3,9 +3,9 @@
 ## Frontend i18n
 
 - All new or changed user-visible React UI text MUST use i18n resources instead of hard-coded literals.
-- Every user-visible translation key MUST be present in both `src/i18n/locales/zh-CN.json` and `src/i18n/locales/en.json`.
-- Page titles, descriptions, button labels, placeholders, status labels, notices, confirmations, modal labels, empty states, tooltips, and frontend-owned user-facing errors MUST support Simplified Chinese and English.
-- Locale resources MUST stay semantically aligned: matching keys in zh-CN and en describe the same concept and action.
+- Every user-visible translation key MUST be present in every locale registered by `src/i18n/supported-locales.ts`.
+- Page titles, descriptions, button labels, placeholders, status labels, notices, confirmations, modal labels, empty states, tooltips, and frontend-owned user-facing errors MUST support every registered application locale.
+- Locale resources MUST stay semantically aligned: matching keys in all registered locales describe the same concept and action.
 - User-visible date and time formatting MUST use the active application language or a locale derived from it.
 
 Allowed literal exceptions:
@@ -15,7 +15,7 @@ Allowed literal exceptions:
 
 Required checks:
 
-- `src/i18n/i18n-resource-parity.test.ts` MUST pass for locale key parity.
+- `src/i18n/i18n-resource-parity.test.ts` MUST pass for registered-locale key, interpolation, duplicate-key, and plural-form parity.
 - Frontend page changes SHOULD keep the hard-coded visible text guardrail passing, updating only the explicit allowlist for stable identifiers or fixture data.
 
 ## Frontend Visual Design

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import ReactMarkdown from "react-markdown";
 import { beforeAll, describe, expect, it } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage } from "../i18n";
 import { managedCliAgentIds } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
@@ -24,7 +24,7 @@ const message: ChatMessage = {
 
 describe("session workspace components", () => {
   beforeAll(async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
   });
   it("renders all tab labels and the terminal badge", () => {
     const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 1 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);

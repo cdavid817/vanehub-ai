@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage, i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings } from "../services/settings-service";
+import { loadLocaleResource } from "../i18n/supported-locales";
 import type { AppSettings } from "../types/settings";
 import { SettingsProvider, useSettings } from "./settings-provider";
 
@@ -12,6 +13,8 @@ vi.mock("../services/runtime-settings-client", () => ({
   settingsService: {
     getSettings: vi.fn(),
     getNodeInfo: vi.fn(),
+    reportClientLogEvent: vi.fn(),
+    saveSetting: vi.fn(),
     subscribeSettingsEvents: vi.fn(),
   },
 }));
@@ -25,7 +28,7 @@ interface HydrationSnapshot {
 }
 
 function HydratedSurface({ onRender }: { onRender: (snapshot: HydrationSnapshot) => void }) {
-  const { error, settings } = useSettings();
+  const { error, saveSetting, settings } = useSettings();
   onRender({
     contextFontSize: settings.fontSize,
     documentFontSize: document.documentElement.style.fontSize,
@@ -33,7 +36,12 @@ function HydratedSurface({ onRender }: { onRender: (snapshot: HydrationSnapshot)
     language: i18n.language,
     theme: document.documentElement.dataset.theme,
   });
-  return <div data-testid="hydrated-surface">ready</div>;
+  return (
+    <div data-testid="hydrated-surface">
+      ready
+      <button type="button" onClick={() => void saveSetting("applicationLanguage", "ko")}>switch</button>
+    </div>
+  );
 }
 
 function deferred<T>() {
@@ -56,9 +64,10 @@ describe("SettingsProvider hydration", () => {
       version: null,
     });
     vi.mocked(settingsService.subscribeSettingsEvents).mockResolvedValue(() => undefined);
+    vi.mocked(settingsService.reportClientLogEvent).mockResolvedValue(undefined);
     document.documentElement.style.removeProperty("font-size");
     delete document.documentElement.dataset.theme;
-    await i18n.changeLanguage("zh-CN");
+    await activateAppLanguage("zh-CN");
   });
 
   afterEach(() => {
@@ -113,9 +122,92 @@ describe("SettingsProvider hydration", () => {
     expect(onRender).toHaveBeenLastCalledWith({
       contextFontSize: defaultAppSettings.fontSize,
       documentFontSize: defaultAppSettings.fontSize,
-      error: "settings unavailable",
+      error: "无法加载应用设置，已恢复默认设置。",
       language: defaultAppSettings.applicationLanguage,
       theme: defaultAppSettings.theme,
     });
+    expect(settingsService.reportClientLogEvent).toHaveBeenCalledWith({
+      level: "error",
+      kind: "critical-operation-failure",
+      message: "settings unavailable",
+      source: "SettingsProvider.loadSettings",
+    });
+  });
+
+  it("waits for an optional locale resource before rendering children", async () => {
+    const pendingLocale = deferred<void>();
+    const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
+    vi.mocked(settingsService.getSettings).mockResolvedValue({
+      ...defaultAppSettings,
+      applicationLanguage: "ja",
+    });
+    const activateLanguage = vi.fn(async (language: AppSettings["applicationLanguage"]) => {
+      if (language === "ja") await pendingLocale.promise;
+      await activateAppLanguage(language);
+    });
+
+    render(
+      <SettingsProvider activateLanguage={activateLanguage}>
+        <HydratedSurface onRender={onRender} />
+      </SettingsProvider>,
+    );
+
+    await waitFor(() => expect(activateLanguage).toHaveBeenCalledWith("ja"));
+    expect(screen.queryByTestId("hydrated-surface")).toBeNull();
+    pendingLocale.resolve();
+
+    await screen.findByTestId("hydrated-surface");
+    expect(i18n.language).toBe("ja");
+    expect(document.documentElement.lang).toBe("ja");
+  });
+
+  it("falls back to localized defaults when an optional locale resource fails", async () => {
+    const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
+    vi.mocked(settingsService.getSettings).mockResolvedValue({
+      ...defaultAppSettings,
+      applicationLanguage: "ja",
+    });
+    i18n.removeResourceBundle("ja", "translation");
+    const activateLanguage = vi.fn((language: AppSettings["applicationLanguage"]) => activateAppLanguage(
+      language,
+      async (requestedLanguage) => {
+        if (requestedLanguage === "ja") throw new Error("optional chunk unavailable");
+        return loadLocaleResource(requestedLanguage);
+      },
+    ));
+
+    render(
+      <SettingsProvider activateLanguage={activateLanguage}>
+        <HydratedSurface onRender={onRender} />
+      </SettingsProvider>,
+    );
+
+    await screen.findByTestId("hydrated-surface");
+    await waitFor(() => expect(onRender).toHaveBeenCalled());
+    expect(i18n.language).toBe(defaultAppSettings.applicationLanguage);
+    expect(onRender.mock.lastCall?.[0].error).toContain("ja");
+    expect(onRender.mock.lastCall?.[0].error).not.toContain("optional chunk unavailable");
+  });
+
+  it("switches immediately and keeps the language returned by persistence", async () => {
+    const onRender = vi.fn<(snapshot: HydrationSnapshot) => void>();
+    vi.mocked(settingsService.getSettings).mockResolvedValue(defaultAppSettings);
+    vi.mocked(settingsService.saveSetting).mockResolvedValue({
+      ...defaultAppSettings,
+      applicationLanguage: "ko",
+    });
+
+    render(
+      <SettingsProvider>
+        <HydratedSurface onRender={onRender} />
+      </SettingsProvider>,
+    );
+
+    await screen.findByTestId("hydrated-surface");
+    fireEvent.click(screen.getByRole("button", { name: "switch" }));
+
+    await waitFor(() => expect(i18n.language).toBe("ko"));
+    expect(document.documentElement.lang).toBe("ko");
+    expect(settingsService.saveSetting).toHaveBeenCalledWith({ key: "applicationLanguage", value: "ko" });
   });
 });

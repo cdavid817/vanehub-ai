@@ -1,7 +1,7 @@
 use super::*;
 use crate::contexts::desktop::domain::{
-    AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation, DesktopSettings,
-    NetworkProxyPreferences, StartupPreference,
+    ApplicationLanguage, AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation,
+    DesktopSettings, NetworkProxyPreferences, StartupPreference,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -156,12 +156,32 @@ impl DesktopStartupPort for FakeStartup {
     }
 }
 
+#[derive(Clone)]
+struct FakeLocale {
+    calls: Arc<Mutex<Vec<String>>>,
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+impl DesktopLocalePort for FakeLocale {
+    fn apply(&self, language: ApplicationLanguage) -> Result<(), DesktopSettingsApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("locale:{}", language.as_str()));
+        if let Some(message) = self.failure.lock().expect("failure").take() {
+            return Err(DesktopSettingsApplicationError::NativeLocale(message));
+        }
+        Ok(())
+    }
+}
+
 struct Fixture {
     service: DesktopSettingsApplicationService,
     repository: FakeRepository,
     calls: Arc<Mutex<Vec<String>>>,
     log_validation_failure: Arc<Mutex<Option<String>>>,
     startup_failure: Arc<Mutex<Option<String>>>,
+    locale_failure: Arc<Mutex<Option<String>>>,
 }
 
 impl Fixture {
@@ -173,6 +193,7 @@ impl Fixture {
         };
         let log_validation_failure = Arc::new(Mutex::new(None));
         let startup_failure = Arc::new(Mutex::new(None));
+        let locale_failure = Arc::new(Mutex::new(None));
         let service = DesktopSettingsApplicationService::new(
             Arc::new(repository.clone()),
             Arc::new(FixedClock),
@@ -187,6 +208,10 @@ impl Fixture {
                 calls: calls.clone(),
                 failure: startup_failure.clone(),
             }),
+            Arc::new(FakeLocale {
+                calls: calls.clone(),
+                failure: locale_failure.clone(),
+            }),
             "D:/data/logs",
         );
         Self {
@@ -195,6 +220,7 @@ impl Fixture {
             calls,
             log_validation_failure,
             startup_failure,
+            locale_failure,
         }
     }
 
@@ -231,6 +257,52 @@ fn query_merges_valid_stored_values_and_falls_back_for_invalid_legacy_values() {
         fixture.calls.lock().expect("calls").as_slice(),
         ["repository:load", "network::localhost,127.0.0.1"]
     );
+}
+
+#[test]
+fn language_save_persists_then_applies_the_native_locale_side_effect() {
+    let fixture = Fixture::new();
+
+    let settings = fixture
+        .service
+        .save_setting(
+            DesktopSettingMutation::parse("applicationLanguage", "ja").expect("supported locale"),
+        )
+        .expect("save locale");
+
+    assert_eq!(settings.application_language().as_str(), "ja");
+    let calls = fixture.calls.lock().expect("calls");
+    let save_index = calls
+        .iter()
+        .position(|call| call.starts_with("repository:save:applicationLanguage"))
+        .expect("repository save");
+    let locale_index = calls
+        .iter()
+        .position(|call| call == "locale:ja")
+        .expect("locale side effect");
+    assert!(save_index < locale_index);
+}
+
+#[test]
+fn native_locale_refresh_failure_does_not_rollback_the_persisted_language() {
+    let fixture = Fixture::new();
+    *fixture.locale_failure.lock().expect("failure") = Some("tray-label-failed".to_string());
+
+    let settings = fixture
+        .service
+        .save_setting(
+            DesktopSettingMutation::parse("applicationLanguage", "ko").expect("supported locale"),
+        )
+        .expect("locale persistence remains successful");
+
+    assert_eq!(settings.application_language().as_str(), "ko");
+    assert_eq!(fixture.settings().application_language().as_str(), "ko");
+    assert!(fixture
+        .calls
+        .lock()
+        .expect("calls")
+        .iter()
+        .any(|call| call == "locale:ko"));
 }
 
 #[test]

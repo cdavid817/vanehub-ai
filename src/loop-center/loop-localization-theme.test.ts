@@ -26,14 +26,20 @@ function exactValues<Union>() {
   ) => values;
 }
 
+function hasStaticOrPluralTranslation(resource: Record<string, string>, key: string) {
+  return Object.prototype.hasOwnProperty.call(resource, key)
+    || (Object.prototype.hasOwnProperty.call(resource, `${key}_one`)
+      && Object.prototype.hasOwnProperty.call(resource, `${key}_other`));
+}
+
 describe("Loop Center localization and themes", () => {
   it("keeps every static Loop translation key synchronized", () => {
     const keys = [...componentSource.matchAll(/["'](loops\.[A-Za-z0-9.-]+)["']/g)]
       .map((match) => match[1]);
 
     for (const key of new Set(keys)) {
-      expect(en, `missing en key: ${key}`).toHaveProperty(key);
-      expect(zhCN, `missing zh-CN key: ${key}`).toHaveProperty(key);
+      expect(hasStaticOrPluralTranslation(en, key), `missing en key: ${key}`).toBe(true);
+      expect(hasStaticOrPluralTranslation(zhCN, key), `missing zh-CN key: ${key}`).toBe(true);
     }
   });
 
