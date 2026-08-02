@@ -1,10 +1,16 @@
+#[cfg(windows)]
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
+#[cfg(windows)]
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+#[cfg(windows)]
 use std::collections::BTreeMap;
+#[cfg(any(windows, test))]
 use std::time::Duration;
 
+#[cfg(any(windows, test))]
 const UNRESPONSIVE_REPEAT_WINDOW: Duration = Duration::from_secs(45);
 
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WebviewFailureKind {
     BrowserProcessExited,
@@ -18,6 +24,7 @@ enum WebviewFailureKind {
     UnknownProcessExited,
 }
 
+#[cfg(any(windows, test))]
 impl WebviewFailureKind {
     fn label(self) -> &'static str {
         match self {
@@ -34,6 +41,7 @@ impl WebviewFailureKind {
     }
 }
 
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WebviewRecoveryAction {
     Observe,
@@ -41,6 +49,7 @@ enum WebviewRecoveryAction {
     Restart,
 }
 
+#[cfg(any(windows, test))]
 impl WebviewRecoveryAction {
     fn label(self) -> &'static str {
         match self {
@@ -51,11 +60,13 @@ impl WebviewRecoveryAction {
     }
 }
 
+#[cfg(any(windows, test))]
 #[derive(Default)]
 struct WebviewRecoveryPolicy {
     last_unresponsive: Option<Duration>,
 }
 
+#[cfg(any(windows, test))]
 impl WebviewRecoveryPolicy {
     fn decide(&mut self, failure: WebviewFailureKind, elapsed: Duration) -> WebviewRecoveryAction {
         match failure {
@@ -86,6 +97,7 @@ impl WebviewRecoveryPolicy {
     }
 }
 
+#[cfg(windows)]
 fn record_process_failure(
     logging: &dyn DiagnosticLogPort,
     failure: WebviewFailureKind,
@@ -107,6 +119,7 @@ fn record_process_failure(
     });
 }
 
+#[cfg(windows)]
 fn record_recovery_failure(logging: &dyn DiagnosticLogPort, operation: &str, error: &str) {
     let mut context = BTreeMap::new();
     context.insert("source".to_string(), "native".to_string());
