@@ -11,6 +11,7 @@ export interface SkillDialogState {
   mode: DialogMode;
   skill: Skill | null;
   preview: SkillPreview | null;
+  editBody?: string;
 }
 
 export function SkillDialogs({
@@ -22,6 +23,11 @@ export function SkillDialogs({
   onUpdate,
   onImport,
   onRestore,
+  onReloadEdit,
+  restoreCandidates,
+  editConflict,
+  editError,
+  reloadingEdit,
 }: {
   state: SkillDialogState;
   scope: SkillScope;
@@ -31,6 +37,11 @@ export function SkillDialogs({
   onUpdate: (skill: Skill, metadata: SkillMetadata, body: string) => void;
   onImport: (sourcePath: string) => void;
   onRestore: (skillId: string) => void;
+  onReloadEdit: (skill: Skill) => void;
+  restoreCandidates: string[];
+  editConflict: boolean;
+  editError: string | null;
+  reloadingEdit: boolean;
 }) {
   const { t } = useTranslation();
   const [metadata, setMetadata] = useState<SkillMetadata>(emptyMetadata());
@@ -41,12 +52,18 @@ export function SkillDialogs({
   useEffect(() => {
     if (state.mode === "edit" && state.skill) {
       setMetadata(state.skill.metadata);
-      setBody("");
+      setBody(state.editBody ?? "");
     } else if (state.mode === "create") {
       setMetadata(emptyMetadata());
       setBody("");
     }
-  }, [state.mode, state.skill]);
+  }, [state.editBody, state.mode, state.skill]);
+
+  useEffect(() => {
+    if (state.mode === "restore" && !restoreCandidates.includes(restoreId)) {
+      setRestoreId(restoreCandidates[0] ?? "");
+    }
+  }, [restoreCandidates, restoreId, state.mode]);
 
   if (state.preview) {
     return (
@@ -80,13 +97,13 @@ export function SkillDialogs({
     return (
       <Modal title={t("skills.dialog.restoreTitle")} onClose={onClose}>
         <select className="w-full rounded-md border border-border px-3 py-2 text-sm" onChange={(event) => setRestoreId(event.target.value)} value={restoreId}>
-          {["tdd-discipline", "code-review", "code-security-scan", "api-doc-generation", "unit-test-generation", "readme-generation"].map((id) => (
+          {restoreCandidates.map((id) => (
             <option key={id} value={id}>{id}</option>
           ))}
         </select>
         <div className="mt-4 flex justify-end gap-2">
           <Button onClick={onClose} variant="outline">{t("skills.dialog.cancel")}</Button>
-          <Button onClick={() => onRestore(restoreId)}>{t("skills.dialog.restore")}</Button>
+          <Button disabled={restoreCandidates.length === 0} onClick={() => onRestore(restoreId)}>{t("skills.dialog.restore")}</Button>
         </div>
       </Modal>
     );
@@ -110,9 +127,22 @@ export function SkillDialogs({
       <p className="mt-2 text-xs text-muted-foreground">
         {t("skills.dialog.scope")}: {t(`skills.scope.${scope}`)}{workspacePath ? ` (${normalizeDisplayPath(workspacePath)})` : ""}
       </p>
+      {editing && editError ? (
+        <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          <p>{editError}</p>
+          {editConflict ? (
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <p>{t("skills.dialog.editConflict")}</p>
+              <Button disabled={reloadingEdit} onClick={() => onReloadEdit(state.skill!)} variant="outline">
+                {reloadingEdit ? t("skills.dialog.reloading") : t("skills.dialog.reload")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose} variant="outline">{t("skills.dialog.cancel")}</Button>
-        <Button onClick={() => editing ? onUpdate(state.skill!, metadata, body) : onCreate(metadata, body, "user")}>
+        <Button disabled={reloadingEdit} onClick={() => editing ? onUpdate(state.skill!, metadata, body) : onCreate(metadata, body, "user")}>
           {t("skills.dialog.save")}
         </Button>
       </div>

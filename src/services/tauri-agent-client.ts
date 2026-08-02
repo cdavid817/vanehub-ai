@@ -78,6 +78,7 @@ import type {
   SkillListResult,
   SkillMountMigrationReport,
   SkillMutationInput,
+  SkillOverview,
   SkillPreview,
   SkillScopeInput,
   SkillSyncResult,
@@ -568,6 +569,18 @@ export const tauriAgentClient: AgentService = {
 
   setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]) {
     return invoke<Skill>("set_skill_agent_bindings", { skillId, input, agentIds });
+  },
+
+  getSkillOverview(input: SkillScopeInput) {
+    return invoke<SkillOverview>("get_skill_overview", { input });
+  },
+
+  bindSkillToCliAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<Skill>("bind_skill_to_cli_agent", { skillId, input, agentId });
+  },
+
+  unbindSkillFromCliAgent(skillId: string, input: SkillScopeInput, agentId: string) {
+    return invoke<Skill>("unbind_skill_from_cli_agent", { skillId, input, agentId });
   },
 
   bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string) {

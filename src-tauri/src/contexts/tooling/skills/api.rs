@@ -3,7 +3,8 @@ use crate::contexts::tooling::skills::application::SkillApplicationService;
 pub(crate) use crate::contexts::tooling::skills::application::{
     SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry, SkillCreateRequest,
     SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillMountMigrationReport,
-    SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery, SkillSyncResult,
+    SkillAgentKind, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery,
+    SkillSyncResult,
     SkillUpdateRequest,
 };
 pub(crate) use crate::contexts::tooling::skills::domain::{
@@ -69,6 +70,26 @@ impl SkillApi {
         self.service.set_bindings(key, agent_ids)
     }
 
+    pub(crate) fn overview(&self, query: SkillScopeQuery) -> Result<SkillOverview, SkillError> {
+        self.service.skill_overview(query)
+    }
+
+    pub(crate) fn bind_to_cli_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<SkillRecord, SkillError> {
+        self.service.bind_skill_to_cli_agent(key, agent_id)
+    }
+
+    pub(crate) fn unbind_from_cli_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<SkillRecord, SkillError> {
+        self.service.unbind_skill_from_cli_agent(key, agent_id)
+    }
+
     pub(crate) fn preview(&self, key: SkillKey) -> Result<SkillPreview, SkillError> {
         self.service.preview_skill(key)
     }
@@ -96,8 +117,10 @@ impl SkillApi {
     pub(crate) fn bound_skill_prompts_for_api_agent(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<SkillPromptForAgent>, SkillError> {
-        self.service.bound_skill_prompts_for_api_agent(agent_id)
+        self.service
+            .bound_skill_prompts_for_api_agent(agent_id, workspace_path)
     }
 
     pub(crate) fn import(&self, request: SkillImportRequest) -> Result<SkillRecord, SkillError> {

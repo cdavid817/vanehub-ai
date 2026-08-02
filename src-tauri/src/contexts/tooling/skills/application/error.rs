@@ -7,6 +7,7 @@ pub(crate) enum SkillApplicationError {
     Validation(String),
     NotFound(String),
     Conflict(String),
+    ConcurrentModification(String),
     Repository(String),
     Filesystem(String),
     Selection(String),
@@ -20,6 +21,9 @@ impl fmt::Display for SkillApplicationError {
             Self::Validation(message) => formatter.write_str(message),
             Self::NotFound(skill_id) => write!(formatter, "Skill not found: {skill_id}"),
             Self::Conflict(skill_id) => write!(formatter, "Skill already exists: {skill_id}"),
+            Self::ConcurrentModification(skill_id) => {
+                write!(formatter, "Skill changed since it was loaded: {skill_id}")
+            }
             Self::Repository(message)
             | Self::Filesystem(message)
             | Self::Selection(message)

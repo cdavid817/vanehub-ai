@@ -50,6 +50,22 @@ export interface SkillListResult {
   stats: SkillStats;
 }
 
+export interface SkillCompatibleAgent {
+  id: string;
+  displayName: string;
+  kind: "cli" | "api";
+}
+
+export interface SkillOverview {
+  skills: Skill[];
+  stats: SkillStats;
+  mountPaths: SkillAgentMountPath[];
+  agents: SkillCompatibleAgent[];
+  apiAgentBindings: Record<string, string[]>;
+  drift: SkillDriftReport;
+  restoreCandidates: string[];
+}
+
 export interface SkillAgentMountPath {
   agentId: string;
   mountPath: string;
@@ -68,8 +84,7 @@ export interface SkillMutationInput extends SkillScopeInput {
 export interface SkillUpdateInput extends SkillScopeInput {
   metadata: SkillMetadata;
   body: string;
-  enabled: boolean;
-  boundAgentIds: string[];
+  expectedContentHash: string;
 }
 
 export interface SkillImportInput extends SkillScopeInput {

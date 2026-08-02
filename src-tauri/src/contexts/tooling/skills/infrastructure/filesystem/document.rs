@@ -3,6 +3,11 @@ use crate::contexts::tooling::skills::domain::SkillMetadata;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
+const MAX_IMPORT_FILES: usize = 512;
+const MAX_IMPORT_DEPTH: usize = 16;
+const MAX_IMPORT_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_SKILL_DOCUMENT_BYTES: u64 = 256 * 1024;
+
 pub(super) fn compose(document: &SkillDocument) -> String {
     let triggers = document
         .metadata
@@ -81,6 +86,33 @@ pub(super) fn content_hash(content: &str) -> String {
 }
 
 pub(super) fn copy_directory(source: &Path, target: &Path) -> Result<(), SkillApplicationError> {
+    let mut budget = ImportBudget::default();
+    copy_directory_bounded(source, target, 0, &mut budget)
+}
+
+pub(super) fn read_import_document(path: &Path) -> Result<String, SkillApplicationError> {
+    let size = std::fs::metadata(path).map_err(filesystem_error)?.len();
+    if size > MAX_SKILL_DOCUMENT_BYTES {
+        return Err(validation_error("SKILL.md exceeds 256 KiB"));
+    }
+    std::fs::read_to_string(path).map_err(filesystem_error)
+}
+
+#[derive(Default)]
+struct ImportBudget {
+    files: usize,
+    bytes: u64,
+}
+
+fn copy_directory_bounded(
+    source: &Path,
+    target: &Path,
+    depth: usize,
+    budget: &mut ImportBudget,
+) -> Result<(), SkillApplicationError> {
+    if depth > MAX_IMPORT_DEPTH {
+        return Err(validation_error("Invalid Skill source: import depth exceeds 16"));
+    }
     std::fs::create_dir_all(target).map_err(filesystem_error)?;
     for entry in std::fs::read_dir(source).map_err(filesystem_error)? {
         let entry = entry.map_err(filesystem_error)?;
@@ -92,8 +124,26 @@ pub(super) fn copy_directory(source: &Path, target: &Path) -> Result<(), SkillAp
             ));
         }
         if file_type.is_dir() {
-            copy_directory(&entry.path(), &destination)?;
+            copy_directory_bounded(&entry.path(), &destination, depth + 1, budget)?;
         } else if file_type.is_file() {
+            budget.files += 1;
+            let size = entry.metadata().map_err(filesystem_error)?.len();
+            budget.bytes = budget.bytes.saturating_add(size);
+            if budget.files > MAX_IMPORT_FILES {
+                return Err(validation_error(
+                    "Invalid Skill source: import file count exceeds 512",
+                ));
+            }
+            if budget.bytes > MAX_IMPORT_BYTES {
+                return Err(validation_error(
+                    "Invalid Skill source: import size exceeds 16 MiB",
+                ));
+            }
+            if entry.file_name() == "SKILL.md" && size > MAX_SKILL_DOCUMENT_BYTES {
+                return Err(validation_error(
+                    "Invalid Skill source: SKILL.md exceeds 256 KiB",
+                ));
+            }
             std::fs::copy(entry.path(), destination).map_err(filesystem_error)?;
         }
     }

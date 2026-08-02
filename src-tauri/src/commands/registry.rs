@@ -188,6 +188,7 @@ pub(crate) fn invoke_handler(
         // Tooling: Skills
         crate::commands::tooling::skills::list_skills::list_skills,
         crate::commands::tooling::skills::list_skill_mount_paths::list_skill_mount_paths,
+        crate::commands::tooling::skills::get_skill_overview::get_skill_overview,
         crate::commands::tooling::skills::update_skill_mount_path::update_skill_mount_path,
         crate::commands::tooling::skills::create_skill::create_skill,
         crate::commands::tooling::skills::update_skill::update_skill,
@@ -195,6 +196,8 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::skills::restore_builtin_skill::restore_builtin_skill,
         crate::commands::tooling::skills::set_skill_enabled::set_skill_enabled,
         crate::commands::tooling::skills::set_skill_agent_bindings::set_skill_agent_bindings,
+        crate::commands::tooling::skills::bind_skill_to_cli_agent::bind_skill_to_cli_agent,
+        crate::commands::tooling::skills::unbind_skill_from_cli_agent::unbind_skill_from_cli_agent,
         crate::commands::tooling::skills::bind_skill_to_api_agent::bind_skill_to_api_agent,
         crate::commands::tooling::skills::unbind_skill_from_api_agent::unbind_skill_from_api_agent,
         crate::commands::tooling::skills::list_skill_api_agent_bindings::list_skill_api_agent_bindings,

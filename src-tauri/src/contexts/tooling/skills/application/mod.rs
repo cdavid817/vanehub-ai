@@ -8,11 +8,12 @@ mod tests;
 
 pub(crate) use error::SkillApplicationError;
 pub(crate) use models::{
-    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillAgentMountPath,
-    SkillBackupEntry, SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure,
+    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillAgentKind,
+    SkillAgentMountPath, SkillBackupEntry, SkillCompatibleAgent, SkillCreateRequest,
+    SkillDocument, SkillDriftReport, SkillFailure,
     SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource, SkillListResult,
     SkillLogAction, SkillLogEvent, SkillLogLevel, SkillMountMigrationReport, SkillMountRepair,
-    SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery, SkillSourceRefresh,
+    SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery, SkillSourceRefresh,
     SkillStats, SkillSyncResult, SkillUpdateRequest,
 };
 pub(crate) use ports::{

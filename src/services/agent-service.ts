@@ -73,6 +73,7 @@ import type {
   SkillListResult,
   SkillMountMigrationReport,
   SkillMutationInput,
+  SkillOverview,
   SkillPreview,
   SkillScopeInput,
   SkillSyncResult,
@@ -231,6 +232,7 @@ export interface AgentService {
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
+  getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
   updateSkillMountPath(agentId: string, mountPath: string): Promise<SkillMountMigrationReport>;
   createSkill(input: SkillMutationInput): Promise<Skill>;
@@ -239,6 +241,8 @@ export interface AgentService {
   restoreBuiltinSkill(skillId: string): Promise<Skill>;
   setSkillEnabled(skillId: string, input: SkillScopeInput, enabled: boolean): Promise<Skill>;
   setSkillAgentBindings(skillId: string, input: SkillScopeInput, agentIds: string[]): Promise<Skill>;
+  bindSkillToCliAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<Skill>;
+  unbindSkillFromCliAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<Skill>;
   bindSkillToApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
   unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
   listSkillApiAgentBindings(skillId: string, input: SkillScopeInput): Promise<string[]>;

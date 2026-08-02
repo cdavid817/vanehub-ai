@@ -855,28 +855,163 @@ describe("webAgentClient", () => {
 
     await webAgentClient.deleteSkill("code-review", { scope: "global" });
     const drift = await webAgentClient.detectSkillDrift({ scope: "global" });
-    expect(drift.issues.some((issue) => issue.type === "deleted-builtin")).toBe(true);
+    expect(drift.issues).toEqual([]);
+    const overview = await webAgentClient.getSkillOverview({ scope: "global" });
+    expect(overview.restoreCandidates).toContain("code-review");
 
     const sync = await webAgentClient.syncSkillDrift({ scope: "global" });
-    expect(sync.restored).toContain("code-review");
+    expect(sync.restored).toEqual([]);
+    await webAgentClient.restoreBuiltinSkill("code-review");
   });
 
   it("binds and unbinds mock Skills to API agents independently of CLI mount bindings", async () => {
     const scope = { scope: "global" as const };
+    const apiAgent =
+      (await webAgentClient.listAgents()).find((agent) => agent.launch.kind === "api") ??
+      (await webAgentClient.registerApiAgent({
+        displayName: "Skill Binding Agent",
+        provider: "Anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-test",
+        interfaceFormat: "anthropic",
+        baseUrl: null,
+      }));
     expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([]);
 
-    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, "my-api-agent");
-    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual(["my-api-agent"]);
+    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, apiAgent.id);
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([apiAgent.id]);
 
-    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, "my-api-agent");
-    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual(["my-api-agent"]);
+    await webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, apiAgent.id);
+    expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([apiAgent.id]);
 
-    await webAgentClient.unbindSkillFromApiAgent("tdd-discipline", scope, "my-api-agent");
+    await webAgentClient.unbindSkillFromApiAgent("tdd-discipline", scope, apiAgent.id);
     expect(await webAgentClient.listSkillApiAgentBindings("tdd-discipline", scope)).toEqual([]);
 
-    await expect(webAgentClient.bindSkillToApiAgent("does-not-exist", scope, "my-api-agent")).rejects.toThrow(
+    await expect(webAgentClient.bindSkillToApiAgent("does-not-exist", scope, apiAgent.id)).rejects.toThrow(
       "Skill not found",
     );
+    await expect(
+      webAgentClient.bindSkillToApiAgent("tdd-discipline", scope, "codex-cli"),
+    ).rejects.toThrow("API Agent");
+  });
+
+  it("preserves Web Skill documents, detects edit conflicts, and cleans every binding on delete", async () => {
+    const scope = { scope: "global" as const };
+    const created = await webAgentClient.createSkill({
+      ...scope,
+      id: "web-document-parity",
+      metadata: {
+        id: "web-document-parity",
+        name: "Web Document Parity",
+        description: "Preserves content.",
+        category: "testing",
+        version: "1.0.0",
+        triggers: ["parity"],
+      },
+      body: "Original body with a distinctive marker.",
+      enabled: true,
+      boundAgentIds: [],
+      source: "user",
+    });
+    expect((await webAgentClient.previewSkill(created.id, scope)).content).toContain(
+      "Original body with a distinctive marker.",
+    );
+
+    const updated = await webAgentClient.updateSkill(created.id, {
+      ...scope,
+      metadata: { ...created.metadata, description: "Updated description." },
+      body: "Updated body.",
+      expectedContentHash: created.contentHash,
+    });
+    expect((await webAgentClient.previewSkill(updated.id, scope)).content).toContain("Updated body.");
+    await expect(
+      webAgentClient.updateSkill(created.id, {
+        ...scope,
+        metadata: updated.metadata,
+        body: "Stale overwrite.",
+        expectedContentHash: created.contentHash,
+      }),
+    ).rejects.toThrow("changed since it was loaded");
+
+    await webAgentClient.bindSkillToCliAgent(created.id, scope, "codex-cli");
+    const apiAgent =
+      (await webAgentClient.listAgents()).find((agent) => agent.launch.kind === "api");
+    if (apiAgent) await webAgentClient.bindSkillToApiAgent(created.id, scope, apiAgent.id);
+    await webAgentClient.deleteSkill(created.id, scope);
+    await expect(webAgentClient.previewSkill(created.id, scope)).rejects.toThrow("Skill not found");
+    expect(
+      (await webAgentClient.getSkillOverview(scope)).apiAgentBindings[created.id],
+    ).toBeUndefined();
+  });
+
+  it("matches native Skill identity, workspace, and import validation at the Web boundary", async () => {
+    const metadata = {
+      id: "web-scope-parity",
+      name: "Web Scope Parity",
+      description: "Validates mock boundary behavior.",
+      category: "testing",
+      version: "1.0.0",
+      triggers: ["parity"],
+    };
+
+    await expect(
+      webAgentClient.createSkill({
+        id: "bad_id",
+        scope: "global",
+        metadata: { ...metadata, id: "bad_id" },
+        body: "Body",
+        enabled: true,
+        boundAgentIds: [],
+      }),
+    ).rejects.toThrow("kebab-case");
+    await expect(
+      webAgentClient.createSkill({
+        id: "web-scope-parity",
+        scope: "global",
+        metadata: { ...metadata, id: "different-id" },
+        body: "Body",
+        enabled: true,
+        boundAgentIds: [],
+      }),
+    ).rejects.toThrow("must match");
+    await expect(
+      webAgentClient.createSkill({
+        id: metadata.id,
+        scope: "workspace",
+        workspacePath: " ",
+        metadata,
+        body: "Body",
+        enabled: true,
+        boundAgentIds: [],
+      }),
+    ).rejects.toThrow("Workspace path");
+
+    await webAgentClient.createSkill({
+      id: metadata.id,
+      scope: "workspace",
+      workspacePath: "D:\\web-parity\\.\\project",
+      metadata,
+      body: "Body",
+      enabled: true,
+      boundAgentIds: [],
+    });
+    expect(
+      (await webAgentClient.listSkills({ scope: "workspace", workspacePath: "D:/web-parity/project" })).skills
+        .some((skill) => skill.id === metadata.id),
+    ).toBe(true);
+
+    await expect(
+      webAgentClient.importSkill({ scope: "global", sourcePath: " ", enabled: true, boundAgentIds: [] }),
+    ).rejects.toThrow("External Skill directory");
+    await expect(
+      webAgentClient.importSkill({
+        scope: "workspace",
+        workspacePath: "D:/web-parity/project",
+        sourcePath: "D:/web-parity/project/.vanehub/skills/overlap-skill",
+        enabled: true,
+        boundAgentIds: [],
+      }),
+    ).rejects.toThrow("overlaps");
   });
 
   it("updates a mock API agent's display name, model, and base URL", async () => {

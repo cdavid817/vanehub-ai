@@ -1,6 +1,7 @@
 use crate::contexts::tooling::skills::application::{
     AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApiBindingRepository,
-    SkillApplicationError, SkillDriftReport, SkillRecord, SkillRepository,
+    SkillAgentKind, SkillApplicationError, SkillCompatibleAgent, SkillDriftReport, SkillRecord,
+    SkillRepository,
 };
 use crate::contexts::tooling::skills::domain::{
     default_mount_path, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
@@ -10,6 +11,7 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone)]
 pub(crate) struct SqliteSkillRepository {
@@ -24,32 +26,13 @@ impl SqliteSkillRepository {
 
 impl SkillRepository for SqliteSkillRepository {
     fn list(&self, location: &SkillLocation) -> Result<Vec<SkillRecord>, SkillApplicationError> {
+        reconcile_workspace_aliases(&self.database, location)?;
         let connection = self.database.connection().map_err(app_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT id, scope, workspace_path, source, enabled, skill_dir, skill_md_path,
-                       content_hash, metadata_json, created_at, updated_at
-                FROM skills
-                WHERE scope = ?1 AND workspace_path = ?2
-                ORDER BY source ASC, id ASC
-                "#,
-            )
-            .map_err(repository_error)?;
-        let rows = statement
-            .query_map(
-                params![location.scope.as_str(), location.storage_workspace_key()],
-                SkillRow::read,
-            )
-            .map_err(repository_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(repository_error)?;
-        rows.into_iter()
-            .map(|row| row.into_record(&connection))
-            .collect()
+        list_records(&connection, location)
     }
 
     fn get(&self, key: &SkillKey) -> Result<Option<SkillRecord>, SkillApplicationError> {
+        reconcile_workspace_aliases(&self.database, &key.location)?;
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
             .prepare(
@@ -102,6 +85,7 @@ impl SkillRepository for SqliteSkillRepository {
                 FROM agents
                 LEFT JOIN skill_agent_mount_paths
                   ON skill_agent_mount_paths.agent_id = agents.id
+                WHERE agents.launch_kind <> 'api'
                 ORDER BY agents.id
                 "#,
             )
@@ -124,6 +108,78 @@ impl SkillRepository for SqliteSkillRepository {
                 })
             })
             .collect()
+    }
+
+    fn is_api_agent(&self, agent_id: &str) -> Result<bool, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM agents WHERE id = ?1 AND launch_kind = 'api')",
+                params![agent_id],
+                |row| row.get(0),
+            )
+            .map_err(repository_error)
+    }
+
+    fn compatible_agents(&self) -> Result<Vec<SkillCompatibleAgent>, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT id, display_name, launch_kind FROM agents ORDER BY launch_kind, id",
+            )
+            .map_err(repository_error)?;
+        let agents = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(repository_error)?
+            .map(|row| {
+                let (id, display_name, launch_kind) = row.map_err(repository_error)?;
+                Ok(SkillCompatibleAgent {
+                    id,
+                    display_name,
+                    kind: if launch_kind == "api" {
+                        SkillAgentKind::Api
+                    } else {
+                        SkillAgentKind::Cli
+                    },
+                })
+            })
+            .collect();
+        agents
+    }
+
+    fn api_agent_bindings_for_location(
+        &self,
+        location: &SkillLocation,
+    ) -> Result<BTreeMap<String, Vec<String>>, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT skill_id, agent_id
+                FROM skill_api_agent_bindings
+                WHERE scope = ?1 AND workspace_path = ?2
+                ORDER BY skill_id, agent_id
+                "#,
+            )
+            .map_err(repository_error)?;
+        let rows = statement
+            .query_map(
+                params![location.scope.as_str(), location.storage_workspace_key()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(repository_error)?;
+        let mut bindings = BTreeMap::<String, Vec<String>>::new();
+        for row in rows {
+            let (skill_id, agent_id) = row.map_err(repository_error)?;
+            bindings.entry(skill_id).or_default().push(agent_id);
+        }
+        Ok(bindings)
     }
 
     fn enabled_skills_bound_to(
@@ -332,6 +388,7 @@ impl SkillApiBindingRepository for SqliteSkillRepository {
     fn enabled_skills_bound_to_api_agent(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<SkillRecord>, SkillApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
@@ -346,13 +403,18 @@ impl SkillApiBindingRepository for SqliteSkillRepository {
                   ON skills.id = skill_api_agent_bindings.skill_id
                  AND skills.scope = skill_api_agent_bindings.scope
                  AND skills.workspace_path = skill_api_agent_bindings.workspace_path
-                WHERE skill_api_agent_bindings.agent_id = ?1 AND skills.enabled = 1
+                WHERE skill_api_agent_bindings.agent_id = ?1
+                  AND skills.enabled = 1
+                  AND (
+                    skills.scope = 'global'
+                    OR (skills.scope = 'workspace' AND skills.workspace_path = ?2)
+                  )
                 ORDER BY skills.scope, skills.workspace_path, skills.id
                 "#,
             )
             .map_err(repository_error)?;
         let rows = statement
-            .query_map(params![agent_id], SkillRow::read)
+            .query_map(params![agent_id, workspace_path.unwrap_or("")], SkillRow::read)
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
@@ -424,6 +486,97 @@ pub(crate) fn apply_schema(
             updated_at TEXT NOT NULL,
             PRIMARY KEY (scope, workspace_path)
         );
+
+        CREATE INDEX IF NOT EXISTS idx_skills_scope_workspace_source_id
+          ON skills(scope, workspace_path, source, id);
+        CREATE INDEX IF NOT EXISTS idx_skill_agent_bindings_agent_scope_workspace
+          ON skill_agent_bindings(agent_id, scope, workspace_path);
+        CREATE INDEX IF NOT EXISTS idx_skill_api_bindings_agent_scope_workspace_skill
+          ON skill_api_agent_bindings(agent_id, scope, workspace_path, skill_id);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn list_records(
+    connection: &Connection,
+    location: &SkillLocation,
+) -> Result<Vec<SkillRecord>, SkillApplicationError> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT id, scope, workspace_path, source, enabled, skill_dir, skill_md_path,
+                   content_hash, metadata_json, created_at, updated_at
+            FROM skills
+            WHERE scope = ?1 AND workspace_path = ?2
+            ORDER BY source ASC, id ASC
+            "#,
+        )
+        .map_err(repository_error)?;
+    let rows = statement
+        .query_map(
+            params![location.scope.as_str(), location.storage_workspace_key()],
+            SkillRow::read,
+        )
+        .map_err(repository_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(repository_error)?;
+    let mut records = rows
+        .into_iter()
+        .map(SkillRow::into_record_without_bindings)
+        .collect::<Result<Vec<_>, _>>()?;
+    let bindings = load_bindings_for_location(connection, location)?;
+    for record in &mut records {
+        record.bindings = bindings
+            .get(record.key.id.as_str())
+            .cloned()
+            .unwrap_or_default();
+    }
+    Ok(records)
+}
+
+pub(crate) fn apply_reliability_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    connection.execute_batch(
+        r#"
+        DELETE FROM skill_agent_bindings
+        WHERE NOT EXISTS (
+            SELECT 1 FROM skills
+            WHERE skills.id = skill_agent_bindings.skill_id
+              AND skills.scope = skill_agent_bindings.scope
+              AND skills.workspace_path = skill_agent_bindings.workspace_path
+        ) OR NOT EXISTS (
+            SELECT 1 FROM agents
+            WHERE agents.id = skill_agent_bindings.agent_id
+              AND agents.launch_kind <> 'api'
+        );
+
+        DELETE FROM skill_api_agent_bindings
+        WHERE NOT EXISTS (
+            SELECT 1 FROM skills
+            WHERE skills.id = skill_api_agent_bindings.skill_id
+              AND skills.scope = skill_api_agent_bindings.scope
+              AND skills.workspace_path = skill_api_agent_bindings.workspace_path
+        ) OR NOT EXISTS (
+            SELECT 1 FROM agents
+            WHERE agents.id = skill_api_agent_bindings.agent_id
+              AND agents.launch_kind = 'api'
+        );
+
+        DELETE FROM skill_agent_mount_paths
+        WHERE NOT EXISTS (
+            SELECT 1 FROM agents
+            WHERE agents.id = skill_agent_mount_paths.agent_id
+              AND agents.launch_kind <> 'api'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_skills_scope_workspace_source_id
+          ON skills(scope, workspace_path, source, id);
+        CREATE INDEX IF NOT EXISTS idx_skill_agent_bindings_agent_scope_workspace
+          ON skill_agent_bindings(agent_id, scope, workspace_path);
+        CREATE INDEX IF NOT EXISTS idx_skill_api_bindings_agent_scope_workspace_skill
+          ON skill_api_agent_bindings(agent_id, scope, workspace_path, skill_id);
         "#,
     )?;
     Ok(())
@@ -461,6 +614,12 @@ impl SkillRow {
     }
 
     fn into_record(self, connection: &Connection) -> Result<SkillRecord, SkillApplicationError> {
+        let mut record = self.into_record_without_bindings()?;
+        record.bindings = load_bindings(connection, &record.key)?;
+        Ok(record)
+    }
+
+    fn into_record_without_bindings(self) -> Result<SkillRecord, SkillApplicationError> {
         let scope = SkillScope::parse(&self.scope)
             .ok_or_else(|| invalid_data(format!("unknown Skill scope: {}", self.scope)))?;
         let location = SkillLocation::new(
@@ -474,7 +633,6 @@ impl SkillRow {
             return Err(invalid_data("Skill metadata id does not match its row key"));
         }
         let key = SkillKey::new(id, location);
-        let bindings = load_bindings(connection, &key)?;
         Ok(SkillRecord {
             key,
             source: SkillSource::parse(&self.source)
@@ -486,11 +644,60 @@ impl SkillRow {
                 content_hash: self.content_hash,
             },
             metadata,
-            bindings,
+            bindings: Vec::new(),
             created_at: self.created_at,
             updated_at: self.updated_at,
         })
     }
+}
+
+fn load_bindings_for_location(
+    connection: &Connection,
+    location: &SkillLocation,
+) -> Result<BTreeMap<String, Vec<SkillAgentBinding>>, SkillApplicationError> {
+    let mut statement = connection
+        .prepare(
+            r#"
+            SELECT bindings.skill_id, bindings.agent_id, bindings.mounted_path, bindings.status,
+                   mount_paths.mount_path
+            FROM skill_agent_bindings bindings
+            LEFT JOIN skill_agent_mount_paths mount_paths
+              ON mount_paths.agent_id = bindings.agent_id
+            WHERE bindings.scope = ?1 AND bindings.workspace_path = ?2
+            ORDER BY bindings.skill_id, bindings.agent_id
+            "#,
+        )
+        .map_err(repository_error)?;
+    let rows = statement
+        .query_map(
+            params![location.scope.as_str(), location.storage_workspace_key()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .map_err(repository_error)?;
+    let mut result = BTreeMap::<String, Vec<SkillAgentBinding>>::new();
+    for row in rows {
+        let (skill_id, agent_id, mounted_path, status, configured_path) =
+            row.map_err(repository_error)?;
+        let mount_path = SkillMountPath::parse(
+            configured_path.unwrap_or_else(|| default_mount_path(&agent_id).to_string()),
+        )
+        .map_err(domain_data_error)?;
+        result.entry(skill_id).or_default().push(SkillAgentBinding {
+            agent_id,
+            mount_path,
+            mounted_path,
+            mounted: status == "mounted",
+        });
+    }
+    Ok(result)
 }
 
 fn load_bindings(
@@ -789,11 +996,142 @@ fn invalid_data(message: impl Into<String>) -> SkillApplicationError {
     SkillApplicationError::Repository(format!("Invalid persisted Skill data: {}", message.into()))
 }
 
+fn reconcile_workspace_aliases(
+    database: &NativeDatabase,
+    location: &SkillLocation,
+) -> Result<(), SkillApplicationError> {
+    if location.scope != SkillScope::Workspace {
+        return Ok(());
+    }
+    let canonical_key = location.storage_workspace_key();
+    let canonical_comparison = if cfg!(windows) {
+        canonical_key.to_lowercase()
+    } else {
+        canonical_key.to_string()
+    };
+    let connection = database.connection().map_err(app_error)?;
+    let mut statement = connection
+        .prepare("SELECT DISTINCT workspace_path FROM skills WHERE scope = 'workspace'")
+        .map_err(repository_error)?;
+    let persisted = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(repository_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(repository_error)?;
+    drop(statement);
+    let mut aliases = persisted
+        .into_iter()
+        .filter(|path| path != canonical_key)
+        .filter(|path| {
+            std::path::Path::new(path)
+                .canonicalize()
+                .ok()
+                .map(|resolved| canonical_path_key(&resolved) == canonical_comparison)
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    if aliases.is_empty() {
+        return Ok(());
+    }
+    aliases.sort();
+    let mut connection = connection;
+    let transaction = connection.transaction().map_err(repository_error)?;
+    for alias in &aliases {
+        let duplicate_ids: i64 = transaction
+            .query_row(
+                r#"
+                SELECT COUNT(*)
+                FROM skills alias
+                INNER JOIN skills canonical
+                  ON canonical.id = alias.id
+                 AND canonical.scope = 'workspace'
+                 AND canonical.workspace_path = ?1
+                WHERE alias.scope = 'workspace' AND alias.workspace_path = ?2
+                "#,
+                params![canonical_key, alias],
+                |row| row.get(0),
+            )
+            .map_err(repository_error)?;
+        let duplicate_snapshots: i64 = transaction
+            .query_row(
+                r#"
+                SELECT (
+                    EXISTS(SELECT 1 FROM skill_drift_snapshots
+                           WHERE scope = 'workspace' AND workspace_path = ?1)
+                    AND
+                    EXISTS(SELECT 1 FROM skill_drift_snapshots
+                           WHERE scope = 'workspace' AND workspace_path = ?2)
+                )
+                "#,
+                params![canonical_key, alias],
+                |row| row.get(0),
+            )
+            .map_err(repository_error)?;
+        if duplicate_ids > 0 || duplicate_snapshots > 0 {
+            return Err(SkillApplicationError::Validation(format!(
+                "Conflicting legacy Workspace Skill aliases require manual reconciliation: {alias}"
+            )));
+        }
+        for table in [
+            "skill_agent_bindings",
+            "skill_api_agent_bindings",
+            "skill_drift_snapshots",
+            "skills",
+        ] {
+            transaction
+                .execute(
+                    &format!(
+                        "UPDATE {table} SET workspace_path = ?1 \
+                         WHERE scope = 'workspace' AND workspace_path = ?2"
+                    ),
+                    params![canonical_key, alias],
+                )
+                .map_err(repository_error)?;
+        }
+    }
+    transaction.commit().map_err(repository_error)
+}
+
+fn canonical_path_key(path: &std::path::Path) -> String {
+    let value = path.to_string_lossy();
+    let value = value.strip_prefix(r"\\?\").unwrap_or(&value).to_string();
+    if cfg!(windows) {
+        value.to_lowercase()
+    } else {
+        value
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::contexts::tooling::skills::domain::{SkillDriftIssue, SkillDriftIssueType};
     use crate::test_support::TempDirectory;
+    use rusqlite::trace::{TraceEvent, TraceEventCodes};
+    use std::cell::Cell;
+
+    thread_local! {
+        static SKILL_LIST_STATEMENT_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn count_skill_list_statement(event: TraceEvent<'_>) {
+        if matches!(event, TraceEvent::Stmt(_, _)) {
+            SKILL_LIST_STATEMENT_COUNT.with(|count| count.set(count.get() + 1));
+        }
+    }
+
+    fn measured_list(fixture: &Fixture) -> (Vec<SkillRecord>, usize) {
+        let connection = fixture.database.connection().expect("database connection");
+        SKILL_LIST_STATEMENT_COUNT.with(|count| count.set(0));
+        connection.trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(count_skill_list_statement),
+        );
+        let records = list_records(&connection, &location()).expect("batch list");
+        connection.trace_v2(TraceEventCodes::empty(), None);
+        let count = SKILL_LIST_STATEMENT_COUNT.with(Cell::get);
+        (records, count)
+    }
 
     struct Fixture {
         _directory: TempDirectory,
@@ -1085,7 +1423,7 @@ mod tests {
 
         let bound = fixture
             .repository
-            .enabled_skills_bound_to_api_agent("my-api-agent")
+            .enabled_skills_bound_to_api_agent("my-api-agent", Some("D:/fixture"))
             .expect("enabled skills");
 
         assert_eq!(bound.len(), 1);
@@ -1115,5 +1453,135 @@ mod tests {
             .api_agent_bindings(&expected.key)
             .expect("bindings")
             .is_empty());
+    }
+
+    #[test]
+    fn reliability_migration_cleans_invalid_rows_and_creates_lookup_indexes() {
+        let fixture = Fixture::new("Skill reliability migration");
+        let connection = fixture.database.connection().expect("database connection");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind) VALUES ('api-only', 'API', 'Test', 'api')",
+                [],
+            )
+            .expect("API Agent");
+        connection
+            .execute(
+                "INSERT INTO skill_agent_bindings \
+                 (skill_id, scope, workspace_path, agent_id, mounted_path, status, created_at, updated_at) \
+                 VALUES ('missing-skill', 'global', '', 'api-only', '.skills/missing', 'pending', 'now', 'now')",
+                [],
+            )
+            .expect("invalid CLI binding");
+        connection
+            .execute(
+                "INSERT INTO skill_agent_mount_paths (agent_id, mount_path, created_at, updated_at) \
+                 VALUES ('api-only', '.skills', 'now', 'now')",
+                [],
+            )
+            .expect("invalid mount path");
+
+        apply_reliability_schema(&connection).expect("reliability migration");
+
+        let invalid_rows: i64 = connection
+            .query_row(
+                "SELECT \
+                    (SELECT COUNT(*) FROM skill_agent_bindings WHERE agent_id = 'api-only') + \
+                    (SELECT COUNT(*) FROM skill_agent_mount_paths WHERE agent_id = 'api-only')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("invalid row count");
+        let indexes = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_skill%'")
+            .expect("index query")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("index rows")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("index names");
+        assert_eq!(invalid_rows, 0);
+        assert!(indexes.contains(&"idx_skills_scope_workspace_source_id".to_string()));
+        assert!(indexes.contains(&"idx_skill_agent_bindings_agent_scope_workspace".to_string()));
+        assert!(indexes.contains(
+            &"idx_skill_api_bindings_agent_scope_workspace_skill".to_string()
+        ));
+    }
+
+    #[test]
+    fn list_statement_count_is_constant_as_skill_count_grows() {
+        let small = Fixture::new("Skill batch overview small");
+        small
+            .repository
+            .save_skills(&[record("skill-small", Some("codex-cli"))], &[])
+            .expect("save one Skill");
+        let (small_records, small_statement_count) = measured_list(&small);
+
+        let large = Fixture::new("Skill batch overview large");
+        let records = (0..100)
+            .map(|index| record(&format!("skill-{index}"), Some("codex-cli")))
+            .collect::<Vec<_>>();
+        large
+            .repository
+            .save_skills(&records, &[])
+            .expect("save many Skills");
+        let (large_records, large_statement_count) = measured_list(&large);
+        let api_bindings = large
+            .repository
+            .api_agent_bindings_for_location(&location())
+            .expect("batch API bindings");
+        let agents = large
+            .repository
+            .compatible_agents()
+            .expect("compatible agents");
+
+        assert_eq!(small_records.len(), 1);
+        assert_eq!(large_records.len(), 100);
+        assert!(large_records.iter().all(|skill| skill.bindings.len() == 1));
+        assert_eq!(small_statement_count, 2);
+        assert_eq!(large_statement_count, small_statement_count);
+        assert!(api_bindings.is_empty());
+        assert!(!agents.is_empty());
+    }
+
+    #[test]
+    fn workspace_aliases_merge_when_unambiguous_and_report_duplicate_identity_conflicts() {
+        let fixture = Fixture::new("Skill workspace aliases");
+        let workspace = TempDirectory::new("Skill canonical workspace");
+        let canonical_path = canonical_path_key(
+            &workspace.path().canonicalize().expect("canonical workspace"),
+        );
+        let alias_path = workspace.path().join(".").to_string_lossy().to_string();
+        let canonical_location =
+            SkillLocation::new(SkillScope::Workspace, Some(&canonical_path)).expect("canonical");
+        let alias_location =
+            SkillLocation::new(SkillScope::Workspace, Some(&alias_path)).expect("alias");
+        let mut aliased = record("aliased-skill", None);
+        aliased.key.location = alias_location.clone();
+        fixture
+            .repository
+            .save_skills(std::slice::from_ref(&aliased), &[])
+            .expect("save alias");
+
+        let merged = fixture
+            .repository
+            .list(&canonical_location)
+            .expect("unambiguous merge");
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].key.location, canonical_location);
+
+        let mut alias_duplicate = record("duplicate-skill", None);
+        alias_duplicate.key.location = alias_location;
+        let mut canonical_duplicate = record("duplicate-skill", None);
+        canonical_duplicate.key.location = canonical_location.clone();
+        fixture
+            .repository
+            .save_skills(&[alias_duplicate, canonical_duplicate], &[])
+            .expect("save conflicting aliases");
+
+        let error = fixture
+            .repository
+            .list(&canonical_location)
+            .expect_err("ambiguous alias conflict");
+        assert!(matches!(error, SkillApplicationError::Validation(_)));
     }
 }

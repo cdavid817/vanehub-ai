@@ -21,13 +21,15 @@ impl AgentSkillPort for RuntimeAgentSkillAdapter {
     fn bound_skill_prompts(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
         self.skills
-            .bound_skill_prompts_for_api_agent(agent_id)
+            .bound_skill_prompts_for_api_agent(agent_id, workspace_path)
             .map(|prompts| {
                 prompts
                     .into_iter()
                     .map(|prompt| BoundSkillPrompt {
+                        id: prompt.id,
                         name: prompt.name,
                         body: prompt.body,
                     })

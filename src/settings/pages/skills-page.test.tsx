@@ -5,24 +5,28 @@ import "../../i18n";
 import { SkillsPage } from "./skills-page";
 
 describe("SkillsPage", () => {
+  it("renders only the explicit loading state before the overview is available", () => {
+    const queryClient = new QueryClient();
+    const html = renderToString(
+      <QueryClientProvider client={queryClient}>
+        <SkillsPage searchTerm="" />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("Skill 加载中...");
+    expect(html).not.toContain("没有匹配的 Skill。");
+    expect(html).not.toContain("Agent 挂载路径");
+  });
+
   it("renders the service-backed Skill management modules", () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(["agents", "skills"], [
-      {
-        id: "codex-cli",
-        displayName: "Codex CLI",
-        provider: "OpenAI",
-        launch: { kind: "cli", command: "codex" },
-        supportedInteractionModes: ["cli"],
-        availabilityState: "unknown",
-        capabilityTags: ["cli"],
-      },
-    ]);
-    queryClient.setQueryData(["skill-mount-paths"], [
-      { agentId: "codex-cli", mountPath: ".codex/skills", isDefault: true },
-    ]);
-    queryClient.setQueryData(["skills", { scope: "global", workspacePath: null }], {
+    queryClient.setQueryData(["skill-overview", { scope: "global", workspacePath: null }], {
       stats: { total: 1, enabled: 1, mounted: 1 },
+      agents: [{ id: "codex-cli", displayName: "Codex CLI", kind: "cli" }],
+      mountPaths: [{ agentId: "codex-cli", mountPath: ".codex/skills", isDefault: true }],
+      apiAgentBindings: {},
+      restoreCandidates: [],
+      drift: { scope: "global", workspacePath: null, issues: [], driftHash: "clean" },
       skills: [
         {
           id: "tdd-discipline",
@@ -48,13 +52,6 @@ describe("SkillsPage", () => {
         },
       ],
     });
-    queryClient.setQueryData(["skill-drift", { scope: "global", workspacePath: null }], {
-      scope: "global",
-      workspacePath: null,
-      issues: [],
-      driftHash: "clean",
-    });
-
     const html = renderToString(
       <QueryClientProvider client={queryClient}>
         <SkillsPage searchTerm="" />
@@ -69,20 +66,13 @@ describe("SkillsPage", () => {
 
   it("renders API agent binding controls when a registered agent is API-kind", () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(["agents", "skills"], [
-      {
-        id: "my-api-agent",
-        displayName: "My API Agent",
-        provider: "Anthropic",
-        launch: { kind: "api" },
-        supportedInteractionModes: ["api"],
-        availabilityState: "available",
-        capabilityTags: ["api"],
-      },
-    ]);
-    queryClient.setQueryData(["skill-mount-paths"], []);
-    queryClient.setQueryData(["skills", { scope: "global", workspacePath: null }], {
+    queryClient.setQueryData(["skill-overview", { scope: "global", workspacePath: null }], {
       stats: { total: 1, enabled: 1, mounted: 0 },
+      agents: [{ id: "my-api-agent", displayName: "My API Agent", kind: "api" }],
+      mountPaths: [],
+      apiAgentBindings: { "tdd-discipline": ["my-api-agent"] },
+      restoreCandidates: [],
+      drift: { scope: "global", workspacePath: null, issues: [], driftHash: "clean" },
       skills: [
         {
           id: "tdd-discipline",
@@ -108,17 +98,6 @@ describe("SkillsPage", () => {
         },
       ],
     });
-    queryClient.setQueryData(["skill-drift", { scope: "global", workspacePath: null }], {
-      scope: "global",
-      workspacePath: null,
-      issues: [],
-      driftHash: "clean",
-    });
-    queryClient.setQueryData(
-      ["skill-api-agent-bindings", "tdd-discipline", { scope: "global", workspacePath: null }],
-      ["my-api-agent"],
-    );
-
     const html = renderToString(
       <QueryClientProvider client={queryClient}>
         <SkillsPage searchTerm="" />

@@ -135,13 +135,21 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("CLI configuration migration");
+        let skill_reliability_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 37",
+                [],
+                |row| row.get(0),
+            )
+            .expect("Skill reliability migration");
 
-        assert_eq!(migration_count, 35);
+        assert_eq!(migration_count, 37);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 4);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
+        assert_eq!(skill_reliability_migration, "skill-management-reliability");
     }
 
     #[test]
@@ -173,7 +181,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 35);
+        assert_eq!(migration_count, 37);
     }
 
     #[test]

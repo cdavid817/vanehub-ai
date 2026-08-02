@@ -696,6 +696,7 @@ pub(crate) trait AgentSkillPort: Send + Sync {
     fn bound_skill_prompts(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
 }
 
