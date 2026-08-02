@@ -3,6 +3,7 @@ import { AlertTriangle, Clock3, Network } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../components/ui/badge";
+import { formatAppDateTime } from "../i18n/format";
 import { cn } from "../lib/utils";
 import type { ExecutionObservabilityService } from "../services/execution-observability-service";
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
@@ -76,7 +77,7 @@ export function ExecutionTimelineTab({
 }
 
 function TimelineDetail({ timeline }: { timeline: Awaited<ReturnType<ExecutionObservabilityService["getTimeline"]>> }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const roots = useMemo(() => spanTree(timeline.spans), [timeline.spans]);
   return (
     <div className="grid gap-4">
@@ -104,7 +105,7 @@ function TimelineDetail({ timeline }: { timeline: Awaited<ReturnType<ExecutionOb
       </section>
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("traces.events")}</h3>
-        {timeline.events.length ? <div className="grid gap-2">{timeline.events.map((event) => <div className="rounded border border-border p-2 text-xs" key={`${event.spanId}-${event.sequence}`}><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono font-medium">{event.name}</span><time className="text-muted-foreground">{new Date(event.timestamp).toLocaleString()}</time></div><div className="mt-1 text-muted-foreground">{t("traces.eventCorrelation", { sequence: event.sequence, spanId: event.spanId })}</div></div>)}</div> : <p className="text-xs text-muted-foreground">{t("traces.noEvents")}</p>}
+        {timeline.events.length ? <div className="grid gap-2">{timeline.events.map((event) => <div className="rounded border border-border p-2 text-xs" key={`${event.spanId}-${event.sequence}`}><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-mono font-medium">{event.name}</span><time className="text-muted-foreground">{formatAppDateTime(event.timestamp, i18n.language, { dateStyle: "short", timeStyle: "medium" })}</time></div><div className="mt-1 text-muted-foreground">{t("traces.eventCorrelation", { sequence: event.sequence, spanId: event.spanId })}</div></div>)}</div> : <p className="text-xs text-muted-foreground">{t("traces.noEvents")}</p>}
       </section>
     </div>
   );

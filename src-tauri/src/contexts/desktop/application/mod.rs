@@ -22,9 +22,9 @@ pub(crate) use models::{
     NodeInformation, StoredDesktopSetting,
 };
 pub(crate) use ports::{
-    DesktopClientLoggingPort, DesktopClockPort, DesktopDirectoryPort, DesktopLogDirectoryPort,
-    DesktopNetworkProxyActionsPort, DesktopNetworkProxyPort, DesktopNodeInfoPort,
-    DesktopSettingsRepository, DesktopStartupPort,
+    DesktopClientLoggingPort, DesktopClockPort, DesktopDirectoryPort, DesktopLocalePort,
+    DesktopLogDirectoryPort, DesktopNetworkProxyActionsPort, DesktopNetworkProxyPort,
+    DesktopNodeInfoPort, DesktopSettingsRepository, DesktopStartupPort,
 };
 pub(crate) use service::DesktopSettingsApplicationService;
 

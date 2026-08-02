@@ -1,6 +1,7 @@
 import { QrCode, RefreshCw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { formatAppDateTime } from "../../../i18n/format";
 import type { WeChatAuthorization } from "../../../contracts/im";
 
 interface ImWeChatAuthorizationProps {
@@ -12,7 +13,7 @@ interface ImWeChatAuthorizationProps {
 }
 
 export function ImWeChatAuthorization({ authorization, pending, onBegin, onPoll, onCancel }: ImWeChatAuthorizationProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   if (!authorization || authorization.status === "expired" || authorization.status === "error" || authorization.status === "confirmed") {
     return (
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -33,7 +34,7 @@ export function ImWeChatAuthorization({ authorization, pending, onBegin, onPoll,
       <div className="flex min-w-0 flex-col justify-center">
         <p className="font-medium">{t(`im.wechat.${authorization.status}`)}</p>
         <p className="mt-2 text-sm text-muted-foreground">{t("im.wechat.scanHint")}</p>
-        {authorization.expiresAt ? <p className="mt-2 text-xs text-muted-foreground">{t("im.wechat.expiresAt", { time: new Date(authorization.expiresAt).toLocaleTimeString() })}</p> : null}
+        {authorization.expiresAt ? <p className="mt-2 text-xs text-muted-foreground">{t("im.wechat.expiresAt", { time: formatAppDateTime(authorization.expiresAt, i18n.language, { timeStyle: "medium" }) })}</p> : null}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button disabled={pending} onClick={onPoll} size="sm" variant="outline"><RefreshCw aria-hidden="true" />{t("im.wechat.check")}</Button>
           <Button disabled={pending} onClick={onCancel} size="sm" variant="ghost"><X aria-hidden="true" />{t("im.actions.cancel")}</Button>

@@ -8,6 +8,7 @@ pub(crate) enum DesktopSettingsApplicationError {
     NetworkProxy(String),
     LogDirectory(String),
     Startup(String),
+    NativeLocale(String),
     Directory(String),
     ClientLogging(String),
 }
@@ -20,6 +21,7 @@ impl fmt::Display for DesktopSettingsApplicationError {
             Self::NetworkProxy(message) => write!(formatter, "network proxy error: {message}"),
             Self::LogDirectory(message) => write!(formatter, "log directory error: {message}"),
             Self::Startup(message) => write!(formatter, "startup preference error: {message}"),
+            Self::NativeLocale(message) => write!(formatter, "native locale error: {message}"),
             Self::Directory(message) => write!(formatter, "directory action error: {message}"),
             Self::ClientLogging(message) => write!(formatter, "client logging error: {message}"),
         }

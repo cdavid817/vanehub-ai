@@ -227,6 +227,11 @@ impl From<DesktopSettingsError> for CommandError {
                 message,
                 "launch failed: ",
             ),
+            DesktopSettingsError::NativeLocale(message) => command_error_with_default(
+                CommandErrorCategory::Unavailable,
+                message,
+                "native localization failed: ",
+            ),
             DesktopSettingsError::LogDirectory(message)
             | DesktopSettingsError::Startup(message)
             | DesktopSettingsError::Directory(message)

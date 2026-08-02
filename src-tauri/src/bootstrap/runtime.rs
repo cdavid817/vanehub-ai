@@ -76,7 +76,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let fallback_log_directory = logging::fallback_log_dir();
     let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
 
-    let desktop_settings_api =
+    let (desktop_settings_api, desktop_locale_bridge) =
         super::assemble_desktop_settings_api(database.clone(), app.handle().clone());
     let floating_assistant_api = super::assemble_floating_assistant_api(
         database.clone(),
@@ -240,8 +240,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         &tray_language,
         agent_runtime_api.clone(),
         communications_api.clone(),
+        desktop_locale_bridge,
         fallback_log_directory.clone(),
-    );
+    )
+    .map_err(boxed_message)?;
     app.manage(desktop_lifecycle_api.clone());
     super::initialize_desktop_runtime(
         &desktop_lifecycle_api,

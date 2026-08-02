@@ -3,7 +3,8 @@ use super::{
     DetectedNetworkProxy, NetworkProxyTestResult, NodeInformation, StoredDesktopSetting,
 };
 use crate::contexts::desktop::domain::{
-    AutomaticArchivalSettings, DesktopSettingMutation, NetworkProxyPreferences, StartupPreference,
+    ApplicationLanguage, AutomaticArchivalSettings, DesktopSettingMutation,
+    NetworkProxyPreferences, StartupPreference,
 };
 use async_trait::async_trait;
 
@@ -42,6 +43,10 @@ pub(crate) trait DesktopLogDirectoryPort: Send + Sync {
 
 pub(crate) trait DesktopStartupPort: Send + Sync {
     fn apply(&self, preference: StartupPreference) -> Result<(), DesktopSettingsApplicationError>;
+}
+
+pub(crate) trait DesktopLocalePort: Send + Sync {
+    fn apply(&self, language: ApplicationLanguage) -> Result<(), DesktopSettingsApplicationError>;
 }
 
 pub(crate) trait DesktopDirectoryPort: Send + Sync {

@@ -1,6 +1,7 @@
 mod error;
 mod floating_assistant;
 mod lifecycle;
+mod localization;
 mod settings;
 
 pub(crate) use error::DesktopSettingsDomainError;
@@ -11,7 +12,8 @@ pub(crate) use floating_assistant::{
     SurfaceSize, SurfaceTransition, WindowPlacement,
 };
 pub(crate) use lifecycle::should_hide_main_for_tray;
+pub(crate) use localization::NativeCopy;
 pub(crate) use settings::{
-    AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation, DesktopSettings,
-    NetworkProxyPreferences, StartupPreference,
+    ApplicationLanguage, AutomaticArchivalSettings, DesktopSettingKey, DesktopSettingMutation,
+    DesktopSettings, NetworkProxyPreferences, StartupPreference,
 };

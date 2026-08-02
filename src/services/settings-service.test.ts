@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage } from "../i18n";
+import { appLanguages } from "../i18n/supported-locales";
 import { defaultAppSettings, normalizeAppSettings, normalizeNetworkProxyBypass } from "./settings-service";
 import { webSettingsClient } from "./web-settings-client";
 
 describe("settings-service", () => {
+  it.each(appLanguages)("accepts and preserves the supported locale %s", (applicationLanguage) => {
+    expect(normalizeAppSettings({ applicationLanguage }).applicationLanguage).toBe(applicationLanguage);
+  });
+
   it("normalizes logging settings with defaults", () => {
     const settings = normalizeAppSettings({
       applicationLanguage: "en",
@@ -63,7 +68,7 @@ describe("settings-service", () => {
   });
 
   it("keeps web mock client log events as no-op and blocks opening local directories", async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
 
     await expect(
       webSettingsClient.reportClientLogEvent({

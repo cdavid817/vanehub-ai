@@ -1,5 +1,6 @@
 mod environment;
 mod folder_openers;
+mod locale_bridge;
 mod runtime_logging;
 mod runtime_settings;
 mod sqlite_floating_assistant_repository;
@@ -15,6 +16,7 @@ pub(crate) use folder_openers::{
     FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferencesView, FolderOpenerService,
     OpenSessionFolderResult, SaveFolderOpenerPreferences,
 };
+pub(crate) use locale_bridge::DesktopLocaleBridge;
 pub(crate) use runtime_settings::{
     RuntimeLogDirectoryAdapter, RuntimeNetworkProxyAdapter, SystemDesktopClock,
     TauriDesktopStartupAdapter,

@@ -1,7 +1,8 @@
 import type { UcdThemeId } from "../theme/theme-registry";
+import { appLanguages, type AppLanguage } from "../i18n/supported-locales";
 
-export const appLanguages = ["zh-CN", "en"] as const;
-export type AppLanguage = (typeof appLanguages)[number];
+export { appLanguages };
+export type { AppLanguage };
 
 export const appFontSizes = ["12px", "14px", "16px", "18px"] as const;
 export type AppFontSize = (typeof appFontSizes)[number];

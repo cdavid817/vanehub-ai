@@ -38,6 +38,11 @@ describe("BasicSettingsPage", () => {
     expect(html).toContain("error / warn / info / debug");
     expect(html).toContain("disabled");
     expect(screen.getByRole("combobox", { name: "应用语言" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "简体中文" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "English" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "繁體中文" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "日本語" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "한국어" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "主题" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "字体大小" })).toBeTruthy();
     expect(html).toContain("打开项目文件和文件夹时优先使用的程序");
@@ -71,6 +76,35 @@ describe("BasicSettingsPage", () => {
       const stored = JSON.parse(window.localStorage.getItem("vanehub.appSettings") ?? "{}") as { defaultFolderPath?: string };
       expect(stored.defaultFolderPath).toBe("D:\\Projects");
     });
+  });
+
+  it("switches language immediately and restores the persisted Web setting", async () => {
+    const user = userEvent.setup();
+    const firstRender = render(
+      <SettingsProvider>
+        <BasicSettingsPage />
+      </SettingsProvider>,
+    );
+
+    const language = await screen.findByRole("combobox", { name: "应用语言" });
+    await user.selectOptions(language, "ja");
+
+    await waitFor(() => {
+      expect(document.documentElement.lang).toBe("ja");
+      const stored = JSON.parse(window.localStorage.getItem("vanehub.appSettings") ?? "{}") as { applicationLanguage?: string };
+      expect(stored.applicationLanguage).toBe("ja");
+    });
+    await screen.findByRole("heading", { name: "一般設定" });
+
+    firstRender.unmount();
+    render(
+      <SettingsProvider>
+        <BasicSettingsPage />
+      </SettingsProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "一般設定" });
+    expect((screen.getByRole("combobox", { name: "アプリケーション言語" }) as HTMLSelectElement).value).toBe("ja");
   });
 
   it("keeps settings unchanged when reset confirmation is cancelled", async () => {
