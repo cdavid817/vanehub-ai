@@ -49,10 +49,15 @@ webpki-roots = "1"
 zeroize = "1"
 portable-pty = "0.9.0"
 toml = "0.8"
+toml_edit = "0.25.12"
+json5 = "0.4.1"
 dirs = "6"
 tracing = { version = "=0.1.44", features = ["attributes", "std"] }
 tracing-opentelemetry = { version = "=0.33.0", default-features = false }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "testing"] }

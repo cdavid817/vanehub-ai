@@ -190,6 +190,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-message-search-index",
         apply_session_message_search_migration,
     )?;
+    apply_migration(
+        conn,
+        34,
+        "cli-agent-global-config",
+        crate::contexts::tooling::cli_config::infrastructure::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        35,
+        "cli-agent-applied-ownership-snapshot",
+        crate::contexts::tooling::cli_config::infrastructure::apply_applied_snapshot_schema,
+    )?;
 
     Ok(())
 }

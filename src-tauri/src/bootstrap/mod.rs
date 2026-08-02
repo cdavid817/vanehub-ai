@@ -2,6 +2,7 @@
 
 mod agent_runtime;
 mod cli;
+mod cli_config;
 mod cli_parameters;
 mod communications;
 mod desktop;
@@ -25,6 +26,7 @@ pub(crate) use agent_runtime::{
     assemble_agent_runtime_api, AgentRuntimeAssembly, AgentRuntimeDependencies,
 };
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
+pub(crate) use cli_config::assemble_cli_config_api;
 pub(crate) use cli_parameters::assemble_cli_parameters_api;
 pub(crate) use communications::{assemble_communications, CommunicationsDependencies};
 pub(crate) use desktop::{

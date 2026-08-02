@@ -1344,6 +1344,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-02",
+                         "changeName":  "add-cli-agent-global-config-switching",
+                         "path":  "openspec/changes/archive/2026-08-02-add-cli-agent-global-config-switching/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-switching",
+                                              "cli-agent-config-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
                          "changeName":  "optimize-runtime-performance-foundation",
                          "path":  "openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/",
                          "artifacts":  [

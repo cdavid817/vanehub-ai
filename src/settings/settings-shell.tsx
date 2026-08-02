@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { LazyFeature } from "../components/lazy-feature";
-import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsPageId } from "./settings-pages";
+import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
 
@@ -9,12 +9,14 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
   const [visitedPages, setVisitedPages] = useState<Set<SettingsPageId>>(
     () => new Set([defaultSettingsPageId]),
   );
+  const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 
-  function handleSelectPage(pageId: SettingsPageId) {
+  function handleSelectPage(pageId: SettingsPageId, target?: SettingsNavigationTarget) {
     setVisitedPages((current) => new Set(current).add(pageId));
     setActivePageId(pageId);
+    setNavigationTarget(target ?? null);
     setSearchTerm("");
   }
 
@@ -27,6 +29,7 @@ export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
           {settingsPages.map((page) => {
             if (!visitedPages.has(page.id)) return null;
             const pageProps = {
+              navigationTarget: page.id === activePageId ? navigationTarget : null,
               onNavigate: handleSelectPage,
               searchTerm: page.id === activePageId ? searchTerm : "",
             };

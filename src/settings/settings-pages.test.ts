@@ -3,13 +3,25 @@ import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(14);
+    expect(settingsPages).toHaveLength(15);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });
 
   it("hides SDK dependencies from primary navigation", () => {
     expect(settingsPages.map((page) => page.id as string)).not.toContain("sdk");
+  });
+
+  it("registers lazy Agent configurations directly after Agent management", () => {
+    const agentsIndex = settingsPages.findIndex((page) => page.id === "agents");
+    const configurationsIndex = settingsPages.findIndex((page) => page.id === "agent-configurations");
+
+    expect(configurationsIndex).toBe(agentsIndex + 1);
+    expect(settingsPages[configurationsIndex]).toMatchObject({
+      labelKey: "settings.pages.agentConfigurations",
+      searchPlaceholderKey: "settings.search.agentConfigurations",
+    });
+    expect(settingsPages[configurationsIndex].loader).toBeTypeOf("function");
   });
 
   it("registers extensions below higher-frequency management pages", () => {

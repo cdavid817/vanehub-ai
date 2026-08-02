@@ -10,12 +10,14 @@ import {
   Puzzle,
   Plug,
   Settings,
+  Settings2,
   SlidersHorizontal,
   Terminal,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { LazyFeatureLoader } from "../components/lazy-feature";
+import type { CliConfigAgentId } from "../types/cli-agent-config";
 
 export type SettingsPageId =
   | "basic"
@@ -25,6 +27,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agents"
+  | "agent-configurations"
   | "skills"
   | "prompt-hooks"
   | "im"
@@ -35,7 +38,12 @@ export type SettingsPageId =
 
 export interface SettingsPageContext {
   searchTerm: string;
-  onNavigate: (pageId: SettingsPageId) => void;
+  navigationTarget: SettingsNavigationTarget | null;
+  onNavigate: (pageId: SettingsPageId, target?: SettingsNavigationTarget) => void;
+}
+
+export interface SettingsNavigationTarget {
+  cliConfigAgentId?: CliConfigAgentId;
 }
 
 export interface SettingsPageDefinition {
@@ -60,6 +68,8 @@ const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./page
   .then((module) => ({ default: module.McpPage }));
 const loadAgentsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agents-page")
   .then((module) => ({ default: module.AgentsPage }));
+const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
+  .then((module) => ({ default: module.AgentConfigurationsPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
   .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
@@ -117,6 +127,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Bot,
     searchPlaceholderKey: "settings.search.agents",
     loader: loadAgentsPage,
+  },
+  {
+    id: "agent-configurations",
+    labelKey: "settings.pages.agentConfigurations",
+    crumbKey: "settings.pages.agentConfigurations",
+    icon: Settings2,
+    searchPlaceholderKey: "settings.search.agentConfigurations",
+    loader: loadAgentConfigurationsPage,
   },
   {
     id: "skills",

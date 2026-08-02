@@ -96,6 +96,19 @@ import type {
   SavePromptHookDraftInput,
 } from "../types/prompt-hook";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences, OpenSessionFolderResult, SaveFolderOpenerPreferencesInput } from "../types/folder-opener";
+import type {
+  ApplyCliConfigProfileInput,
+  CliConfigApplyResult,
+  CliConfigDiscoveryResult,
+  CliConfigPreset,
+  CliConfigProfile,
+  CliConfigStatus,
+  DeleteCliConfigProfileInput,
+  ImportCliConfigProfileInput,
+  ImportDiscoveredCliConfigInput,
+  ImportDiscoveredCliConfigResult,
+  SaveCliConfigProfileInput,
+} from "../types/cli-agent-config";
 
 export interface AgentService {
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
@@ -113,6 +126,16 @@ export interface AgentService {
   listCliParameterProfiles(): Promise<CliParameterProfile[]>;
   saveCliParameterProfile(input: SaveCliParameterProfileInput): Promise<CliParameterProfile>;
   resetCliParameterProfile(agentId: ManagedCliAgentId): Promise<CliParameterProfile>;
+  listCliConfigPresets(agentId: string): Promise<CliConfigPreset[]>;
+  listCliConfigProfiles(agentId: string): Promise<CliConfigProfile[]>;
+  getCliConfigStatus(agentId: string): Promise<CliConfigStatus>;
+  saveCliConfigProfile(input: SaveCliConfigProfileInput): Promise<CliConfigProfile>;
+  duplicateCliConfigProfile(agentId: string, profileId: string): Promise<CliConfigProfile>;
+  deleteCliConfigProfile(input: DeleteCliConfigProfileInput): Promise<void>;
+  importCliConfigProfile(input: ImportCliConfigProfileInput): Promise<CliConfigProfile>;
+  discoverCliConfigProfiles(agentId: string): Promise<CliConfigDiscoveryResult>;
+  importDiscoveredCliConfigProfiles(input: ImportDiscoveredCliConfigInput): Promise<ImportDiscoveredCliConfigResult>;
+  applyCliConfigProfile(input: ApplyCliConfigProfileInput): Promise<CliConfigApplyResult>;
   getAgentById(agentId: string): Promise<AgentRegistryEntry | null>;
   getWorkflowState(): Promise<WorkflowState>;
   selectAgent(agentId: string, interactionMode: InteractionMode): Promise<WorkflowState>;
