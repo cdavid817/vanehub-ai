@@ -1,6 +1,7 @@
 //! CLI, MCP, SDK, extension, plugin, Skill, and Prompt Hook subdomains.
 
 pub(crate) mod cli;
+pub(crate) mod cli_config;
 pub(crate) mod cli_parameters;
 pub(crate) mod extensions;
 pub(crate) mod mcp;

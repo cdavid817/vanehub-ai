@@ -28,6 +28,17 @@ export function createAgentServiceDouble(overrides: Partial<AgentService>): Agen
     get(_target, property) {
       const implementation = Reflect.get(overrides, property);
       if (implementation !== undefined) return implementation;
+      if (property === "discoverCliConfigProfiles") {
+        return async (agentId: "claude-code" | "opencode" | "codex-cli") => ({
+          agentId,
+          state: "unavailable" as const,
+          candidates: [],
+          resolvedPaths: [],
+          warnings: [],
+          error: null,
+          simulated: true,
+        });
+      }
       return () => Promise.reject(new Error(`Unexpected AgentService call: ${String(property)}`));
     },
   });

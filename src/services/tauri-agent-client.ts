@@ -86,6 +86,26 @@ import type {
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
+import type {
+  ApplyCliConfigProfileInput,
+  CliConfigApplyResult,
+  CliConfigDiscoveryResult,
+  CliConfigAgentId,
+  CliConfigProfile,
+  CliConfigStatus,
+  DeleteCliConfigProfileInput,
+  ImportCliConfigProfileInput,
+  ImportDiscoveredCliConfigInput,
+  ImportDiscoveredCliConfigResult,
+  SaveCliConfigProfileInput,
+} from "../types/cli-agent-config";
+import { cliConfigAgentIds } from "../types/cli-agent-config";
+import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
+
+function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
+  if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
+  throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
+}
 
 export const tauriAgentClient: AgentService = {
   listAgents(capabilityTag) {
@@ -150,6 +170,46 @@ export const tauriAgentClient: AgentService = {
 
   resetCliParameterProfile(agentId: ManagedCliAgentId) {
     return invoke<CliParameterProfile>("reset_cli_parameter_profile", { agentId });
+  },
+
+  listCliConfigPresets(agentId: string) {
+    return Promise.resolve(getCliConfigPresets(requireCliConfigAgentId(agentId)));
+  },
+
+  listCliConfigProfiles(agentId: string) {
+    return invoke<CliConfigProfile[]>("list_cli_config_profiles", { agentId });
+  },
+
+  getCliConfigStatus(agentId: string) {
+    return invoke<CliConfigStatus>("get_cli_config_status", { agentId });
+  },
+
+  saveCliConfigProfile(input: SaveCliConfigProfileInput) {
+    return invoke<CliConfigProfile>("save_cli_config_profile", { input });
+  },
+
+  duplicateCliConfigProfile(agentId: string, profileId: string) {
+    return invoke<CliConfigProfile>("duplicate_cli_config_profile", { agentId, profileId });
+  },
+
+  deleteCliConfigProfile(input: DeleteCliConfigProfileInput) {
+    return invoke<void>("delete_cli_config_profile", { input });
+  },
+
+  importCliConfigProfile(input: ImportCliConfigProfileInput) {
+    return invoke<CliConfigProfile>("import_cli_config_profile", { input });
+  },
+
+  discoverCliConfigProfiles(agentId: string) {
+    return invoke<CliConfigDiscoveryResult>("discover_cli_config_profiles", { agentId });
+  },
+
+  importDiscoveredCliConfigProfiles(input: ImportDiscoveredCliConfigInput) {
+    return invoke<ImportDiscoveredCliConfigResult>("import_discovered_cli_config_profiles", { input });
+  },
+
+  applyCliConfigProfile(input: ApplyCliConfigProfileInput) {
+    return invoke<CliConfigApplyResult>("apply_cli_config_profile", { input });
   },
 
   startCoordination(input: StartCoordinationInput) {

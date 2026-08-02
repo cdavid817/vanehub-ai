@@ -108,6 +108,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let operations_api = super::assemble_operations_api();
     let cli_parameters_api =
         super::assemble_cli_parameters_api(database.clone(), fallback_log_directory.clone());
+    let cli_config_api =
+        super::assemble_cli_config_api(database.clone(), fallback_log_directory.clone())
+            .map_err(boxed_message)?;
+    cli_config_api.synchronize_startup();
     let mcp_api = super::assemble_mcp_api(
         database.clone(),
         operations_api.clone(),
@@ -201,6 +205,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
 
     app.manage(operations_api);
     app.manage(cli_api.clone());
+    app.manage(cli_config_api);
     app.manage(cli_parameters_api);
     app.manage(mcp_api);
     app.manage(sdk_api);

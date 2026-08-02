@@ -179,6 +179,32 @@ fn mcp_command_registration_and_frontend_invokes_keep_stable_names() {
 }
 
 #[test]
+fn cli_config_command_registration_and_frontend_invokes_keep_stable_names() {
+    let native_registration = include_str!("commands/registry.rs");
+    let tauri_client = include_str!("../../src/services/tauri-agent-client.ts");
+    for command in [
+        "list_cli_config_profiles",
+        "get_cli_config_status",
+        "save_cli_config_profile",
+        "duplicate_cli_config_profile",
+        "delete_cli_config_profile",
+        "import_cli_config_profile",
+        "discover_cli_config_profiles",
+        "import_discovered_cli_config_profiles",
+        "apply_cli_config_profile",
+    ] {
+        assert!(
+            native_registration.contains(&format!("::{command}")),
+            "native command registration missing {command}"
+        );
+        assert!(
+            tauri_client.contains(&format!("\"{command}\"")),
+            "frontend invoke missing {command}"
+        );
+    }
+}
+
+#[test]
 fn extension_command_registration_and_frontend_invokes_keep_stable_names() {
     let native_registration = include_str!("commands/registry.rs");
     let tauri_client = include_str!("../../src/services/tauri-extension-client.ts");
