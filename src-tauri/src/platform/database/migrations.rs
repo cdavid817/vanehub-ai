@@ -202,7 +202,49 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "cli-agent-applied-ownership-snapshot",
         crate::contexts::tooling::cli_config::infrastructure::apply_applied_snapshot_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        36,
+        "mcp-truthful-url-transports",
+        apply_mcp_truthful_url_transport_migration,
+    )?;
+    apply_transactional_migration(
+        conn,
+        37,
+        "skill-management-reliability",
+        crate::contexts::tooling::skills::infrastructure::apply_reliability_schema,
+    )?;
 
+    Ok(())
+}
+
+fn apply_mcp_truthful_url_transport_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS mcp_transport_migration_journal (
+            migration_version INTEGER NOT NULL,
+            server_name TEXT NOT NULL,
+            previous_transport_type TEXT NOT NULL,
+            migrated_transport_type TEXT NOT NULL,
+            migrated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now')),
+            PRIMARY KEY (migration_version, server_name)
+        );
+
+        INSERT OR IGNORE INTO mcp_transport_migration_journal (
+            migration_version,
+            server_name,
+            previous_transport_type,
+            migrated_transport_type
+        )
+        SELECT 36, name, 'sse', 'streamable_http'
+        FROM mcp_servers
+        WHERE transport_type = 'sse';
+
+        UPDATE mcp_servers
+        SET transport_type = 'streamable_http'
+        WHERE transport_type = 'sse';
+        "#,
+    )?;
     Ok(())
 }
 
@@ -508,6 +550,34 @@ fn apply_migration(
     Ok(())
 }
 
+fn apply_transactional_migration(
+    conn: &Connection,
+    version: i64,
+    name: &str,
+    migration: fn(&Connection) -> Result<(), DatabaseError>,
+) -> Result<(), DatabaseError> {
+    let applied = conn
+        .query_row(
+            "SELECT 1 FROM schema_migrations WHERE version = ?1",
+            params![version],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if applied {
+        return Ok(());
+    }
+
+    let transaction = conn.unchecked_transaction()?;
+    migration(&transaction)?;
+    transaction.execute(
+        "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+        params![version, name],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn apply_initial_schema(conn: &Connection) -> Result<(), DatabaseError> {
     conn.execute_batch(
         r#"
@@ -645,6 +715,53 @@ pub(crate) fn table_has_column(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDirectory;
+
+    fn mcp_migration_fixture(connection: &Connection) {
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
+                );
+                CREATE TABLE mcp_servers (
+                    name TEXT PRIMARY KEY,
+                    transport_type TEXT NOT NULL
+                );
+                "#,
+            )
+            .expect("MCP migration fixture");
+    }
+
+    fn insert_mcp_server(connection: &Connection, name: &str, transport_type: &str) {
+        connection
+            .execute(
+                "INSERT INTO mcp_servers (name, transport_type) VALUES (?1, ?2)",
+                params![name, transport_type],
+            )
+            .expect("MCP server fixture");
+    }
+
+    fn run_mcp_transport_migration(connection: &Connection) -> Result<(), DatabaseError> {
+        apply_transactional_migration(
+            connection,
+            36,
+            "mcp-truthful-url-transports",
+            apply_mcp_truthful_url_transport_migration,
+        )
+    }
+
+    fn transport_type(connection: &Connection, name: &str) -> String {
+        connection
+            .query_row(
+                "SELECT transport_type FROM mcp_servers WHERE name = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .expect("persisted transport type")
+    }
 
     #[test]
     fn session_message_search_migration_backfills_existing_messages() {
@@ -682,5 +799,198 @@ mod tests {
             )
             .expect("backfilled FTS count");
         assert_eq!(matches, 1);
+    }
+
+    #[test]
+    fn mcp_transport_migration_upgrades_an_old_database_and_journals_the_row() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        mcp_migration_fixture(&connection);
+        insert_mcp_server(&connection, "historical-url", "sse");
+
+        run_mcp_transport_migration(&connection).expect("transport migration");
+
+        let journal: (String, String, String) = connection
+            .query_row(
+                "SELECT server_name, previous_transport_type, migrated_transport_type \
+                 FROM mcp_transport_migration_journal WHERE migration_version = 36",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migration journal row");
+        assert_eq!(
+            transport_type(&connection, "historical-url"),
+            "streamable_http"
+        );
+        assert_eq!(
+            journal,
+            (
+                "historical-url".into(),
+                "sse".into(),
+                "streamable_http".into()
+            )
+        );
+    }
+
+    #[test]
+    fn mcp_transport_migration_is_idempotent_for_an_already_migrated_database() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        mcp_migration_fixture(&connection);
+        insert_mcp_server(&connection, "modern-url", "streamable_http");
+
+        run_mcp_transport_migration(&connection).expect("first migration");
+        run_mcp_transport_migration(&connection).expect("idempotent reopen migration");
+
+        let versions: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 36",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migration version count");
+        let journal_rows: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM mcp_transport_migration_journal",
+                [],
+                |row| row.get(0),
+            )
+            .expect("journal count");
+        assert_eq!(versions, 1);
+        assert_eq!(journal_rows, 0);
+        assert_eq!(transport_type(&connection, "modern-url"), "streamable_http");
+    }
+
+    #[test]
+    fn mcp_transport_migration_only_changes_legacy_sse_in_mixed_transports() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        mcp_migration_fixture(&connection);
+        insert_mcp_server(&connection, "local-command", "stdio");
+        insert_mcp_server(&connection, "historical-url", "sse");
+        insert_mcp_server(&connection, "modern-url", "streamable_http");
+
+        run_mcp_transport_migration(&connection).expect("transport migration");
+
+        let journal_names: Vec<String> = connection
+            .prepare(
+                "SELECT server_name FROM mcp_transport_migration_journal \
+                 WHERE migration_version = 36 ORDER BY server_name",
+            )
+            .expect("journal query")
+            .query_map([], |row| row.get(0))
+            .expect("journal rows")
+            .collect::<Result<_, _>>()
+            .expect("journal names");
+        assert_eq!(transport_type(&connection, "local-command"), "stdio");
+        assert_eq!(
+            transport_type(&connection, "historical-url"),
+            "streamable_http"
+        );
+        assert_eq!(transport_type(&connection, "modern-url"), "streamable_http");
+        assert_eq!(journal_names, vec!["historical-url"]);
+    }
+
+    #[test]
+    fn mcp_transport_migration_rolls_back_all_changes_on_failure() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        mcp_migration_fixture(&connection);
+        insert_mcp_server(&connection, "reject-update", "sse");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TRIGGER reject_mcp_transport_update
+                BEFORE UPDATE OF transport_type ON mcp_servers
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected migration failure');
+                END;
+                "#,
+            )
+            .expect("failure trigger");
+
+        assert!(run_mcp_transport_migration(&connection).is_err());
+
+        let version_rows: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 36",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migration version count");
+        let journal_table_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type = 'table' AND name = 'mcp_transport_migration_journal'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("journal table check");
+        assert_eq!(transport_type(&connection, "reject-update"), "sse");
+        assert_eq!(version_rows, 0);
+        assert_eq!(journal_table_exists, 0);
+    }
+
+    #[test]
+    fn mcp_transport_journal_supports_a_targeted_down_migration() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        mcp_migration_fixture(&connection);
+        insert_mcp_server(&connection, "historical-url", "sse");
+        insert_mcp_server(&connection, "modern-url", "streamable_http");
+        run_mcp_transport_migration(&connection).expect("transport migration");
+
+        let transaction = connection
+            .unchecked_transaction()
+            .expect("down migration transaction");
+        transaction
+            .execute_batch(
+                r#"
+                UPDATE mcp_servers
+                SET transport_type = (
+                    SELECT journal.previous_transport_type
+                    FROM mcp_transport_migration_journal AS journal
+                    WHERE journal.migration_version = 36
+                      AND journal.server_name = mcp_servers.name
+                )
+                WHERE transport_type = 'streamable_http'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM mcp_transport_migration_journal AS journal
+                    WHERE journal.migration_version = 36
+                      AND journal.server_name = mcp_servers.name
+                      AND journal.migrated_transport_type = mcp_servers.transport_type
+                  );
+                DELETE FROM schema_migrations WHERE version = 36;
+                DELETE FROM mcp_transport_migration_journal WHERE migration_version = 36;
+                "#,
+            )
+            .expect("journal down migration");
+        transaction.commit().expect("commit down migration");
+
+        assert_eq!(transport_type(&connection, "historical-url"), "sse");
+        assert_eq!(transport_type(&connection, "modern-url"), "streamable_http");
+    }
+
+    #[test]
+    fn mcp_transport_migration_survives_reopen_without_reapplying() {
+        let directory = TempDirectory::new("mcp-transport-migration-reopen");
+        let path = directory.path().join("migration.sqlite");
+        {
+            let connection = Connection::open(&path).expect("fixture database");
+            mcp_migration_fixture(&connection);
+            insert_mcp_server(&connection, "historical-url", "sse");
+            run_mcp_transport_migration(&connection).expect("transport migration");
+        }
+
+        let reopened = Connection::open(&path).expect("reopened database");
+        run_mcp_transport_migration(&reopened).expect("reopen migration");
+        let journal_rows: i64 = reopened
+            .query_row(
+                "SELECT COUNT(*) FROM mcp_transport_migration_journal",
+                [],
+                |row| row.get(0),
+            )
+            .expect("journal count");
+        assert_eq!(
+            transport_type(&reopened, "historical-url"),
+            "streamable_http"
+        );
+        assert_eq!(journal_rows, 1);
     }
 }

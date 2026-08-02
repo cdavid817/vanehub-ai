@@ -789,6 +789,7 @@ pub(crate) struct ApiProviderConfig {
 /// `agent_runtime` has no use for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BoundSkillPrompt {
+    pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) body: String,
 }

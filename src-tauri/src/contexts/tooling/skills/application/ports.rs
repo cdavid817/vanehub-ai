@@ -1,7 +1,7 @@
 use super::{
     AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
-    SkillDocument, SkillDriftReport, SkillFilesystemTransaction, SkillImportedSource,
-    SkillLogEvent, SkillMountRepair, SkillRecord, SkillSourceRefresh,
+    SkillCompatibleAgent, SkillDocument, SkillDriftReport, SkillFilesystemTransaction,
+    SkillImportedSource, SkillLogEvent, SkillMountRepair, SkillRecord, SkillSourceRefresh,
 };
 use crate::contexts::tooling::skills::domain::{
     SkillBindingPlan, SkillDriftInspection, SkillDriftIssue, SkillId, SkillKey, SkillLocation,
@@ -15,6 +15,12 @@ pub(crate) trait SkillRepository: Send + Sync {
     fn agent_mount_configurations(
         &self,
     ) -> Result<Vec<AgentMountConfiguration>, SkillApplicationError>;
+    fn is_api_agent(&self, agent_id: &str) -> Result<bool, SkillApplicationError>;
+    fn compatible_agents(&self) -> Result<Vec<SkillCompatibleAgent>, SkillApplicationError>;
+    fn api_agent_bindings_for_location(
+        &self,
+        location: &SkillLocation,
+    ) -> Result<std::collections::BTreeMap<String, Vec<String>>, SkillApplicationError>;
     fn enabled_skills_bound_to(
         &self,
         agent_id: &str,
@@ -63,6 +69,7 @@ pub(crate) trait SkillFilesystemPort: Send + Sync {
         transaction: &SkillFilesystemTransaction,
         record: &SkillRecord,
         document: &SkillDocument,
+        expected_content_hash: &str,
     ) -> Result<ManagedSkillSource, SkillApplicationError>;
     fn import_source(
         &self,
@@ -144,5 +151,6 @@ pub(crate) trait SkillApiBindingRepository: Send + Sync {
     fn enabled_skills_bound_to_api_agent(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<SkillRecord>, SkillApplicationError>;
 }

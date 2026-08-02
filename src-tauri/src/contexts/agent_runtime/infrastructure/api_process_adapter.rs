@@ -26,6 +26,8 @@ const HISTORY_LIMIT: i64 = 50;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const MAX_TOOL_ROUND_TRIPS: u32 = 25;
+const SKILL_PER_ITEM_CHARACTER_BUDGET: usize = 8_000;
+const SKILL_AGGREGATE_CHARACTER_BUDGET: usize = 16_000;
 const APPROVAL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// A conservative proxy for "the turns list is getting large enough to risk exceeding the
 /// model's real context window" — character count, not a real token count, matching the
@@ -718,9 +720,11 @@ fn resolve_system_prompt(
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
-    let skill_section = match skills.bound_skill_prompts(agent_id) {
+    let skill_section = match skills
+        .bound_skill_prompts(agent_id, request.session.folder.as_deref())
+    {
         Ok(prompts) if prompts.is_empty() => None,
-        Ok(prompts) => Some(format_system_prompt(&prompts)),
+        Ok(prompts) => format_system_prompt(&prompts, logging, clock, request),
         Err(error) => {
             let _ = logging.record(AgentLog {
                 level: AgentLogLevel::Warn,
@@ -770,12 +774,46 @@ fn resolve_system_prompt(
     }
 }
 
-fn format_system_prompt(prompts: &[BoundSkillPrompt]) -> String {
-    prompts
-        .iter()
-        .map(|prompt| format!("## {}\n{}", prompt.name, prompt.body))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+fn format_system_prompt(
+    prompts: &[BoundSkillPrompt],
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+) -> Option<String> {
+    let mut used = 0usize;
+    let mut sections = Vec::new();
+    for prompt in prompts {
+        let section = format!("## {}\n{}", prompt.name, prompt.body);
+        let length = section.chars().count();
+        let reason = if length > SKILL_PER_ITEM_CHARACTER_BUDGET {
+            Some("per-Skill 8,000-character budget")
+        } else if used.saturating_add(length) > SKILL_AGGREGATE_CHARACTER_BUDGET {
+            Some("aggregate 16,000-character budget")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.skills".to_string(),
+                message: format!(
+                    "Skipped Skill {} because it exceeds the {reason}",
+                    prompt.id
+                ),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            continue;
+        }
+        used += length;
+        sections.push(section);
+    }
+    (!sections.is_empty()).then(|| sections.join("\n\n"))
 }
 
 /// Formats `memories` (already recency-ordered — most recent first — by the port's `list`
@@ -1352,6 +1390,7 @@ mod tests {
         fn bound_skill_prompts(
             &self,
             _agent_id: &str,
+            _workspace_path: Option<&str>,
         ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
             Ok(Vec::new())
         }
@@ -1505,6 +1544,7 @@ mod tests {
         fn bound_skill_prompts(
             &self,
             _agent_id: &str,
+            _workspace_path: Option<&str>,
         ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
             self.0
                 .clone()
@@ -2356,18 +2396,81 @@ mod tests {
     fn format_system_prompt_joins_multiple_skills_with_headers() {
         let prompts = vec![
             BoundSkillPrompt {
+                id: "first".to_string(),
                 name: "First".to_string(),
                 body: "Do the first thing.".to_string(),
             },
             BoundSkillPrompt {
+                id: "second".to_string(),
                 name: "Second".to_string(),
                 body: "Do the second thing.".to_string(),
             },
         ];
+        let request = sample_request("api");
         assert_eq!(
-            format_system_prompt(&prompts),
-            "## First\nDo the first thing.\n\n## Second\nDo the second thing."
+            format_system_prompt(&prompts, &NoopLogging, &FixedClock, &request),
+            Some("## First\nDo the first thing.\n\n## Second\nDo the second thing.".to_string())
         );
+    }
+
+    #[test]
+    fn format_system_prompt_skips_an_oversized_skill_as_a_whole_and_logs_it() {
+        let prompts = vec![
+            BoundSkillPrompt {
+                id: "oversized".to_string(),
+                name: "Oversized".to_string(),
+                body: "x".repeat(SKILL_PER_ITEM_CHARACTER_BUDGET + 1),
+            },
+            BoundSkillPrompt {
+                id: "healthy".to_string(),
+                name: "Healthy".to_string(),
+                body: "Keep this.".to_string(),
+            },
+        ];
+        let request = sample_request("api");
+        let logging = RecordingLogging::default();
+
+        let result = format_system_prompt(&prompts, &logging, &FixedClock, &request);
+
+        assert_eq!(result, Some("## Healthy\nKeep this.".to_string()));
+        let logs = logging.logs.lock().expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].message.contains("oversized"));
+        assert!(logs[0].message.contains("8,000"));
+    }
+
+    #[test]
+    fn format_system_prompt_enforces_the_aggregate_budget_in_input_order() {
+        let prompts = vec![
+            BoundSkillPrompt {
+                id: "first".to_string(),
+                name: "First".to_string(),
+                body: "a".repeat(7_000),
+            },
+            BoundSkillPrompt {
+                id: "second".to_string(),
+                name: "Second".to_string(),
+                body: "b".repeat(7_000),
+            },
+            BoundSkillPrompt {
+                id: "third".to_string(),
+                name: "Third".to_string(),
+                body: "c".repeat(3_000),
+            },
+        ];
+        let request = sample_request("api");
+        let logging = RecordingLogging::default();
+
+        let result = format_system_prompt(&prompts, &logging, &FixedClock, &request)
+            .expect("bounded prompt");
+
+        assert!(result.starts_with("## First\n"));
+        assert!(result.contains("\n\n## Second\n"));
+        assert!(!result.contains("## Third"));
+        let logs = logging.logs.lock().expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].message.contains("third"));
+        assert!(logs[0].message.contains("16,000"));
     }
 
     #[test]
@@ -2390,6 +2493,7 @@ mod tests {
         let system = resolve_system_prompt(
             "my-agent",
             &FakeSkills(Ok(vec![BoundSkillPrompt {
+                id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
             }])),
@@ -2422,6 +2526,7 @@ mod tests {
         let system = resolve_system_prompt(
             "my-agent",
             &FakeSkills(Ok(vec![BoundSkillPrompt {
+                id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
             }])),

@@ -48,8 +48,7 @@ pub(super) fn update_request(
         ),
         metadata: metadata(input.metadata)?,
         body: input.body,
-        enabled: input.enabled,
-        bound_agent_ids: input.bound_agent_ids,
+        expected_content_hash: input.expected_content_hash,
     })
 }
 
@@ -193,7 +192,57 @@ fn location(
     scope: dto::SkillScope,
     workspace_path: Option<&str>,
 ) -> Result<skill::SkillLocation, skill::SkillError> {
-    skill::SkillLocation::new(scope_to_domain(scope), workspace_path).map_err(Into::into)
+    let scope = scope_to_domain(scope);
+    let canonical_workspace = if scope == skill::SkillScope::Workspace {
+        let raw = workspace_path
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                skill::SkillError::Validation("Workspace path is required".to_string())
+            })?;
+        let canonical = std::path::Path::new(raw).canonicalize().map_err(|error| {
+            skill::SkillError::Validation(format!(
+                "Workspace path must identify an existing directory: {error}"
+            ))
+        })?;
+        if !canonical.is_dir() {
+            return Err(skill::SkillError::Validation(
+                "Workspace path must identify a directory".to_string(),
+            ));
+        }
+        let value = canonical.to_string_lossy();
+        Some(value.strip_prefix(r"\\?\").unwrap_or(&value).to_string())
+    } else {
+        None
+    };
+    skill::SkillLocation::new(scope, canonical_workspace.as_deref()).map_err(Into::into)
+}
+
+pub(super) fn overview_to_dto(result: skill::SkillOverview) -> dto::SkillOverview {
+    dto::SkillOverview {
+        skills: result.skills.into_iter().map(record_to_dto).collect(),
+        stats: dto::SkillStats {
+            total: result.stats.total,
+            enabled: result.stats.enabled,
+            mounted: result.stats.mounted,
+        },
+        mount_paths: mount_paths_to_dto(result.mount_paths),
+        agents: result
+            .agents
+            .into_iter()
+            .map(|agent| dto::SkillCompatibleAgent {
+                id: agent.id,
+                display_name: agent.display_name,
+                kind: match agent.kind {
+                    skill::SkillAgentKind::Cli => dto::SkillAgentKind::Cli,
+                    skill::SkillAgentKind::Api => dto::SkillAgentKind::Api,
+                },
+            })
+            .collect(),
+        api_agent_bindings: result.api_agent_bindings,
+        drift: drift_to_dto(result.drift),
+        restore_candidates: result.restore_candidates,
+    }
 }
 
 fn metadata(value: dto::SkillMetadata) -> Result<skill::SkillMetadata, skill::SkillError> {
@@ -272,10 +321,19 @@ mod tests {
 
     #[test]
     fn mutation_request_accepts_the_existing_camel_case_contract() {
+        let workspace = std::env::current_dir()
+            .expect("current directory")
+            .canonicalize()
+            .expect("canonical current directory");
+        let workspace_value = workspace.to_string_lossy();
+        let expected_workspace = workspace_value
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&workspace_value)
+            .to_string();
         let input: dto::SkillMutationInput = serde_json::from_value(json!({
             "id": "fixture-skill",
             "scope": "workspace",
-            "workspacePath": "D:/fixture",
+            "workspacePath": expected_workspace.clone(),
             "metadata": {
                 "id": "fixture-skill",
                 "name": "Fixture",
@@ -297,7 +355,7 @@ mod tests {
         assert_eq!(request.location.scope, skill::SkillScope::Workspace);
         assert_eq!(
             request.location.workspace_path.as_deref(),
-            Some("D:/fixture")
+            Some(expected_workspace.as_str())
         );
         assert_eq!(request.bound_agent_ids, vec!["codex-cli"]);
     }

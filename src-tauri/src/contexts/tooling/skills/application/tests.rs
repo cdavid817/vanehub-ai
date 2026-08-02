@@ -5,6 +5,7 @@ use crate::contexts::tooling::skills::domain::{
     SkillKey, SkillLocation, SkillMetadata, SkillMountObservation, SkillMountPath, SkillScope,
     SkillSource, SkillSourceInspection,
 };
+use crate::test_support::TempDirectory;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +16,7 @@ struct RepositoryState {
     drift_snapshots: Vec<SkillDriftReport>,
     synchronization_count: usize,
     api_agent_bindings: BTreeSet<(SkillKey, String)>,
+    api_agents: BTreeSet<String>,
 }
 
 impl Default for RepositoryState {
@@ -32,6 +34,7 @@ impl Default for RepositoryState {
             drift_snapshots: Vec::new(),
             synchronization_count: 0,
             api_agent_bindings: BTreeSet::new(),
+            api_agents: BTreeSet::new(),
         }
     }
 }
@@ -120,6 +123,56 @@ impl SkillRepository for FakeRepository {
             .expect("repository state")
             .mount_configurations
             .clone())
+    }
+
+    fn is_api_agent(&self, agent_id: &str) -> Result<bool, SkillApplicationError> {
+        Ok(self
+            .state
+            .lock()
+            .expect("repository state")
+            .api_agents
+            .contains(agent_id))
+    }
+
+    fn compatible_agents(&self) -> Result<Vec<SkillCompatibleAgent>, SkillApplicationError> {
+        let state = self.state.lock().expect("repository state");
+        let mut agents = state
+            .mount_configurations
+            .iter()
+            .map(|configuration| SkillCompatibleAgent {
+                id: configuration.agent_id.clone(),
+                display_name: configuration.agent_id.clone(),
+                kind: SkillAgentKind::Cli,
+            })
+            .collect::<Vec<_>>();
+        agents.extend(
+            state
+                .api_agents
+                .iter()
+                .map(|agent_id| SkillCompatibleAgent {
+                    id: agent_id.clone(),
+                    display_name: agent_id.clone(),
+                    kind: SkillAgentKind::Api,
+                }),
+        );
+        Ok(agents)
+    }
+
+    fn api_agent_bindings_for_location(
+        &self,
+        location: &SkillLocation,
+    ) -> Result<BTreeMap<String, Vec<String>>, SkillApplicationError> {
+        let state = self.state.lock().expect("repository state");
+        let mut result = BTreeMap::<String, Vec<String>>::new();
+        for (key, agent_id) in &state.api_agent_bindings {
+            if &key.location == location {
+                result
+                    .entry(key.id.as_str().to_string())
+                    .or_default()
+                    .push(agent_id.clone());
+            }
+        }
+        Ok(result)
     }
 
     fn enabled_skills_bound_to(
@@ -268,6 +321,7 @@ impl SkillApiBindingRepository for FakeRepository {
     fn enabled_skills_bound_to_api_agent(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<SkillRecord>, SkillApplicationError> {
         let state = self.state.lock().expect("repository state");
         Ok(state
@@ -275,7 +329,11 @@ impl SkillApiBindingRepository for FakeRepository {
             .iter()
             .filter(|(_, bound_agent_id)| bound_agent_id == agent_id)
             .filter_map(|(key, _)| state.records.get(key))
-            .filter(|record| record.enabled)
+            .filter(|record| {
+                record.enabled
+                    && (record.key.location.scope == SkillScope::Global
+                        || record.key.location.workspace_path.as_deref() == workspace_path)
+            })
             .cloned()
             .collect())
     }
@@ -289,6 +347,8 @@ struct FakeFilesystem {
     inspection: Mutex<Option<SkillDriftInspection>>,
     preview_content: Mutex<String>,
     migration_failure_for: Mutex<Option<String>>,
+    refresh_id_override: Mutex<Option<String>>,
+    unreadable_ids: Mutex<BTreeSet<String>>,
 }
 
 impl FakeFilesystem {
@@ -350,6 +410,7 @@ impl SkillFilesystemPort for FakeFilesystem {
         _transaction: &SkillFilesystemTransaction,
         record: &SkillRecord,
         _document: &SkillDocument,
+        _expected_content_hash: &str,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
         self.push_event(format!("replace:{}", record.key.id.as_str()));
         Ok(Self::source(
@@ -450,7 +511,17 @@ impl SkillFilesystemPort for FakeFilesystem {
         })
     }
 
-    fn read_source(&self, _record: &SkillRecord) -> Result<String, SkillApplicationError> {
+    fn read_source(&self, record: &SkillRecord) -> Result<String, SkillApplicationError> {
+        if self
+            .unreadable_ids
+            .lock()
+            .expect("unreadable ids")
+            .contains(record.key.id.as_str())
+        {
+            return Err(SkillApplicationError::Filesystem(
+                "injected unreadable Skill".to_string(),
+            ));
+        }
         Ok(self
             .preview_content
             .lock()
@@ -508,9 +579,15 @@ impl SkillFilesystemPort for FakeFilesystem {
         _issue: &SkillDriftIssue,
     ) -> Result<SkillSourceRefresh, SkillApplicationError> {
         self.push_event(format!("refresh:{}", record.key.id.as_str()));
+        let refreshed_id = self
+            .refresh_id_override
+            .lock()
+            .expect("refresh id override")
+            .clone()
+            .unwrap_or_else(|| record.key.id.as_str().to_string());
         Ok(SkillSourceRefresh {
             metadata: SkillMetadata::new(
-                record.key.id.as_str(),
+                refreshed_id,
                 format!("Refreshed {}", record.key.id.as_str()),
                 "Refreshed description",
                 "testing",
@@ -781,8 +858,7 @@ fn update_rejects_an_identity_change_before_opening_a_filesystem_transaction() {
             key: existing.key,
             metadata: metadata("different-skill"),
             body: "Changed".to_string(),
-            enabled: true,
-            bound_agent_ids: Vec::new(),
+            expected_content_hash: existing.managed_source.content_hash,
         })
         .expect_err("immutable id");
 
@@ -1115,7 +1191,7 @@ fn drift_sync_merges_multiple_repairs_and_commits_successful_changes_once() {
 
     assert_eq!(result.mounted, vec!["drifted-skill"]);
     assert!(result.restored.contains(&"drifted-skill".to_string()));
-    assert!(result.restored.contains(&"code-review".to_string()));
+    assert!(!result.restored.contains(&"code-review".to_string()));
     assert!(result.failed.is_empty());
     let synchronized = fixture
         .repository
@@ -1127,9 +1203,9 @@ fn drift_sync_merges_multiple_repairs_and_commits_successful_changes_once() {
     assert!(fixture
         .repository
         .record(&SkillKey::new(id("code-review"), global()))
-        .is_some());
+        .is_none());
     let state = fixture.repository.state.lock().expect("repository state");
-    assert!(state.deleted_builtin_ids.is_empty());
+    assert!(state.deleted_builtin_ids.contains(&id("code-review")));
     assert_eq!(state.synchronization_count, 1);
     drop(state);
     assert!(fixture
@@ -1174,11 +1250,8 @@ fn register_known_agent(fixture: &Fixture, agent_id: &str) {
         .state
         .lock()
         .expect("repository state")
-        .mount_configurations
-        .push(AgentMountConfiguration {
-            agent_id: agent_id.to_string(),
-            configured_path: None,
-        });
+        .api_agents
+        .insert(agent_id.to_string());
 }
 
 #[test]
@@ -1191,6 +1264,132 @@ fn binding_to_an_unknown_agent_is_rejected() {
         .service
         .bind_skill_to_api_agent(existing.key, "never-registered".to_string())
         .expect_err("unknown Agent id");
+
+    assert!(matches!(error, SkillApplicationError::Validation(_)));
+}
+
+fn canonical_test_path(directory: &TempDirectory) -> String {
+    let canonical = directory
+        .path()
+        .canonicalize()
+        .expect("canonical test path");
+    let value = canonical.to_string_lossy();
+    value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
+}
+
+#[test]
+fn drift_sync_refuses_refreshed_metadata_with_a_different_identity() {
+    let fixture = Fixture::new();
+    let existing = record("stable-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+    *fixture
+        .filesystem
+        .refresh_id_override
+        .lock()
+        .expect("refresh override") = Some("different-skill".to_string());
+    *fixture
+        .filesystem
+        .inspection
+        .lock()
+        .expect("drift inspection") = Some(SkillDriftInspection {
+        location: global(),
+        registered: vec![RegisteredSkillInspection {
+            id: existing.key.id.clone(),
+            enabled: true,
+            expected_content_hash: existing.managed_source.content_hash.clone(),
+            source: SkillSourceInspection::Present {
+                path: existing.managed_source.skill_md_path.clone(),
+                content_hash: "changed-hash".to_string(),
+            },
+            bindings: Vec::new(),
+        }],
+        unregistered_sources: Vec::new(),
+        deleted_builtin_ids: Vec::new(),
+    });
+
+    let result = fixture
+        .service
+        .sync_skill_drift(SkillScopeQuery { location: global() })
+        .expect("best-effort drift sync");
+
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].skill_id, "stable-skill");
+    assert_eq!(
+        fixture
+            .repository
+            .record(&existing.key)
+            .expect("unchanged record")
+            .metadata
+            .id,
+        existing.metadata.id
+    );
+}
+
+#[test]
+fn api_and_cli_binding_operations_reject_the_wrong_agent_kind() {
+    let fixture = Fixture::new();
+    register_known_agent(&fixture, "my-api-agent");
+    let existing = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+
+    let api_error = fixture
+        .service
+        .bind_skill_to_api_agent(existing.key.clone(), "codex-cli".to_string())
+        .expect_err("CLI agent rejected for API binding");
+    let cli_error = fixture
+        .service
+        .bind_skill_to_cli_agent(existing.key, "my-api-agent".to_string())
+        .expect_err("API agent rejected for CLI binding");
+
+    assert!(matches!(api_error, SkillApplicationError::Validation(_)));
+    assert!(matches!(
+        cli_error,
+        SkillApplicationError::Domain(SkillDomainError::UnknownAgent(_))
+    ));
+}
+
+#[test]
+fn granular_cli_bindings_do_not_lose_independent_concurrent_changes() {
+    let fixture = Fixture::new();
+    let existing = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+    let first = fixture.service.clone();
+    let second = fixture.service.clone();
+    let first_key = existing.key.clone();
+    let second_key = existing.key.clone();
+
+    let first_thread = std::thread::spawn(move || {
+        first.bind_skill_to_cli_agent(first_key, "codex-cli".to_string())
+    });
+    let second_thread = std::thread::spawn(move || {
+        second.bind_skill_to_cli_agent(second_key, "claude-code".to_string())
+    });
+    first_thread
+        .join()
+        .expect("first thread")
+        .expect("first bind");
+    second_thread
+        .join()
+        .expect("second thread")
+        .expect("second bind");
+
+    let stored = fixture
+        .repository
+        .record(&existing.key)
+        .expect("stored Skill");
+    assert_eq!(
+        stored.bound_agent_ids(),
+        vec!["claude-code".to_string(), "codex-cli".to_string()]
+    );
+}
+
+#[test]
+fn restoring_a_builtin_requires_an_explicit_tombstone() {
+    let fixture = Fixture::new();
+    let error = fixture
+        .service
+        .restore_builtin(id("code-review"))
+        .expect_err("restore without tombstone");
 
     assert!(matches!(error, SkillApplicationError::Validation(_)));
 }
@@ -1218,12 +1417,74 @@ fn bound_skill_prompts_strip_frontmatter_and_exclude_disabled_skills() {
 
     let prompts = fixture
         .service
-        .bound_skill_prompts_for_api_agent("my-api-agent")
+        .bound_skill_prompts_for_api_agent("my-api-agent", None)
         .expect("bound skill prompts");
 
     assert_eq!(prompts.len(), 1);
     assert_eq!(prompts[0].name, "Name enabled-skill");
     assert_eq!(prompts[0].body, "# Enabled Skill\n\nDo the thing.");
+}
+
+#[test]
+fn bound_skill_prompts_are_workspace_isolated_and_skip_one_unreadable_source() {
+    let fixture = Fixture::new();
+    register_known_agent(&fixture, "my-api-agent");
+    let first_workspace = TempDirectory::new("Skill API workspace first");
+    let second_workspace = TempDirectory::new("Skill API workspace second");
+    let first_path = canonical_test_path(&first_workspace);
+    let second_path = canonical_test_path(&second_workspace);
+    let global_record = record("global-skill", global(), SkillSource::User, true, &[]);
+    let first_record = record(
+        "first-workspace-skill",
+        SkillLocation::new(SkillScope::Workspace, Some(&first_path)).expect("first location"),
+        SkillSource::User,
+        true,
+        &[],
+    );
+    let second_record = record(
+        "second-workspace-skill",
+        SkillLocation::new(SkillScope::Workspace, Some(&second_path)).expect("second location"),
+        SkillSource::User,
+        true,
+        &[],
+    );
+    for skill in [&global_record, &first_record, &second_record] {
+        fixture.repository.insert(skill.clone());
+        fixture
+            .service
+            .bind_skill_to_api_agent(skill.key.clone(), "my-api-agent".to_string())
+            .expect("API binding");
+    }
+    fixture
+        .filesystem
+        .unreadable_ids
+        .lock()
+        .expect("unreadable ids")
+        .insert(global_record.key.id.as_str().to_string());
+    *fixture.filesystem.preview_content.lock().expect("preview content") =
+        "---\nid: placeholder\nname: Placeholder\ndescription: d\ncategory: c\nversion: 1.0.0\ntriggers:\n  - t\n---\n\nHealthy body"
+            .to_string();
+
+    let prompts = fixture
+        .service
+        .bound_skill_prompts_for_api_agent("my-api-agent", Some(&first_path))
+        .expect("workspace prompts");
+
+    assert_eq!(
+        prompts
+            .iter()
+            .map(|prompt| prompt.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first-workspace-skill"]
+    );
+    assert!(fixture
+        .logging
+        .events
+        .lock()
+        .expect("log events")
+        .iter()
+        .any(|event| event.level == SkillLogLevel::Warn
+            && event.skill_id.as_deref() == Some("global-skill")));
 }
 
 #[test]

@@ -2,8 +2,7 @@ import { Cloud, Eye, Link2, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
-import type { AgentRegistryEntry } from "../../../types/agent";
-import type { Skill } from "../../../types/skill";
+import type { Skill, SkillCompatibleAgent } from "../../../types/skill";
 
 export function SkillCardList({
   skills,
@@ -19,8 +18,8 @@ export function SkillCardList({
   onDelete,
 }: {
   skills: Skill[];
-  agents: AgentRegistryEntry[];
-  apiAgents: AgentRegistryEntry[];
+  agents: SkillCompatibleAgent[];
+  apiAgents: SkillCompatibleAgent[];
   apiBindingsBySkillId: Record<string, string[]>;
   busySkillId: string | null;
   onToggleEnabled: (skill: Skill, enabled: boolean) => void;
@@ -95,6 +94,7 @@ export function SkillCardList({
                   <input
                     className="h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
                     checked={skill.boundAgentIds.includes(agent.id)}
+                    disabled={busySkillId === skill.id}
                     onChange={(event) => onToggleAgent(skill, agent.id, event.target.checked)}
                     type="checkbox"
                   />
@@ -117,6 +117,7 @@ export function SkillCardList({
                       <input
                         className="h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
                         checked={(apiBindingsBySkillId[skill.id] ?? []).includes(agent.id)}
+                        disabled={busySkillId === skill.id}
                         onChange={(event) => onToggleApiAgent(skill, agent.id, event.target.checked)}
                         type="checkbox"
                       />

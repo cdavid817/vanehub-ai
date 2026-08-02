@@ -595,6 +595,10 @@ impl From<SkillError> for CommandError {
                 category: CommandErrorCategory::Conflict,
                 message: format!("validation error: Skill already exists: {skill_id}"),
             },
+            SkillError::ConcurrentModification(skill_id) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!("validation error: Skill changed since it was loaded: {skill_id}"),
+            },
             SkillError::Repository(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),

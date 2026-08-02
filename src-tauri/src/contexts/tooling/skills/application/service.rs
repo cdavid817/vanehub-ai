@@ -3,8 +3,9 @@ use super::{
     SkillClockPort, SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure,
     SkillFilesystemPort, SkillFilesystemTransaction, SkillImportRequest, SkillListResult,
     SkillLogAction, SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport,
-    SkillMountRepair, SkillPreview, SkillPromptForAgent, SkillRecord, SkillRepository,
-    SkillScopeQuery, SkillStats, SkillSyncResult, SkillUpdateRequest, SkillWorkspaceSelectionPort,
+    SkillMountRepair, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
+    SkillRepository, SkillScopeQuery, SkillStats, SkillSyncResult, SkillUpdateRequest,
+    SkillWorkspaceSelectionPort,
 };
 use crate::contexts::tooling::skills::domain::{
     builtin_definitions, builtin_restore_plan, default_mount_path, deletion_policy, detect_drift,
@@ -14,7 +15,7 @@ use crate::contexts::tooling::skills::domain::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub(crate) struct SkillApplicationService {
@@ -24,6 +25,7 @@ pub(crate) struct SkillApplicationService {
     selection: Arc<dyn SkillWorkspaceSelectionPort>,
     clock: Arc<dyn SkillClockPort>,
     logging: Arc<dyn SkillLoggingPort>,
+    mutation_coordinator: Arc<Mutex<()>>,
 }
 
 impl SkillApplicationService {
@@ -43,6 +45,7 @@ impl SkillApplicationService {
             selection,
             clock,
             logging,
+            mutation_coordinator: Arc::new(Mutex::new(())),
         }
     }
 
@@ -62,6 +65,48 @@ impl SkillApplicationService {
                 .count(),
         };
         Ok(SkillListResult { skills, stats })
+    }
+
+    pub(crate) fn skill_overview(
+        &self,
+        query: SkillScopeQuery,
+    ) -> Result<SkillOverview, SkillApplicationError> {
+        self.ensure_builtins()?;
+        let mut skills = self.repository.list(&query.location)?;
+        self.filesystem.observe_bindings(&mut skills)?;
+        let stats = skill_stats(&skills);
+        let mount_paths = self.list_mount_paths()?;
+        let agents = self.repository.compatible_agents()?;
+        let api_agent_bindings = self
+            .repository
+            .api_agent_bindings_for_location(&query.location)?;
+        let inspection = self
+            .filesystem
+            .inspect_drift(&query.location, &skills, &[])?;
+        let issues = drift_issues_without_tombstones(detect_drift(&inspection));
+        let drift = SkillDriftReport {
+            location: query.location.clone(),
+            drift_hash: drift_hash(&issues),
+            issues,
+        };
+        let restore_candidates = if query.location.scope == SkillScope::Global {
+            self.repository
+                .deleted_builtin_ids()?
+                .into_iter()
+                .map(|id| id.as_str().to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(SkillOverview {
+            skills,
+            stats,
+            mount_paths,
+            agents,
+            api_agent_bindings,
+            drift,
+            restore_candidates,
+        })
     }
 
     pub(crate) fn list_mount_paths(
@@ -153,6 +198,26 @@ impl SkillApplicationService {
         self.observe(SkillLogAction::SetBindings, Some(skill_id), result)
     }
 
+    pub(crate) fn bind_skill_to_cli_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<SkillRecord, SkillApplicationError> {
+        let skill_id = key.id.as_str().to_string();
+        let result = self.change_cli_binding(&key, &agent_id, true);
+        self.observe(SkillLogAction::BindCliAgent, Some(skill_id), result)
+    }
+
+    pub(crate) fn unbind_skill_from_cli_agent(
+        &self,
+        key: SkillKey,
+        agent_id: String,
+    ) -> Result<SkillRecord, SkillApplicationError> {
+        let skill_id = key.id.as_str().to_string();
+        let result = self.change_cli_binding(&key, &agent_id, false);
+        self.observe(SkillLogAction::UnbindCliAgent, Some(skill_id), result)
+    }
+
     /// Binds `key` to `agent_id` for API-agent system-prompt injection (`add-agent-skill-support`)
     /// — a non-mount binding, distinct from `set_bindings`' CLI mount-path binding.
     pub(crate) fn bind_skill_to_api_agent(
@@ -171,7 +236,11 @@ impl SkillApplicationService {
         agent_id: String,
     ) -> Result<(), SkillApplicationError> {
         let skill_id = key.id.as_str().to_string();
-        let result = self.api_bindings.unbind_api_agent(&key, &agent_id);
+        let result = (|| {
+            self.load(&key)?;
+            self.ensure_api_agent(&agent_id)?;
+            self.api_bindings.unbind_api_agent(&key, &agent_id)
+        })();
         self.observe(SkillLogAction::SetApiAgentBinding, Some(skill_id), result)
     }
 
@@ -188,18 +257,49 @@ impl SkillApplicationService {
     pub(crate) fn bound_skill_prompts_for_api_agent(
         &self,
         agent_id: &str,
+        workspace_path: Option<&str>,
     ) -> Result<Vec<SkillPromptForAgent>, SkillApplicationError> {
-        self.api_bindings
-            .enabled_skills_bound_to_api_agent(agent_id)?
-            .iter()
-            .map(|record| {
-                let raw = self.filesystem.read_source(record)?;
-                Ok(SkillPromptForAgent {
-                    name: record.metadata.name.clone(),
-                    body: strip_frontmatter(&raw),
-                })
+        let canonical_workspace = workspace_path
+            .map(|path| {
+                std::path::Path::new(path)
+                    .canonicalize()
+                    .map(|canonical| {
+                        let value = canonical.to_string_lossy();
+                        value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
+                    })
+                    .map_err(|error| {
+                        SkillApplicationError::Validation(format!(
+                            "Active workspace path is invalid: {error}"
+                        ))
+                    })
             })
-            .collect()
+            .transpose()?;
+        let records = self
+            .api_bindings
+            .enabled_skills_bound_to_api_agent(agent_id, canonical_workspace.as_deref())?;
+        let mut prompts = Vec::with_capacity(records.len());
+        for record in records {
+            match self.filesystem.read_source(&record) {
+                Ok(raw) => prompts.push(SkillPromptForAgent {
+                    id: record.key.id.as_str().to_string(),
+                    name: record.metadata.name,
+                    body: strip_frontmatter(&raw),
+                }),
+                Err(error) => {
+                    let mut context = BTreeMap::new();
+                    context.insert("error".to_string(), error.to_string());
+                    let _ = self.logging.record(&SkillLogEvent {
+                        action: SkillLogAction::ResolveApiPrompt,
+                        level: SkillLogLevel::Warn,
+                        skill_id: Some(record.key.id.as_str().to_string()),
+                        message: "Skipped unreadable Skill during API prompt assembly".to_string(),
+                        timestamp: self.clock.now(),
+                        context,
+                    });
+                }
+            }
+        }
+        Ok(prompts)
     }
 
     fn bind_skill_to_api_agent_work(
@@ -208,18 +308,13 @@ impl SkillApplicationService {
         agent_id: &str,
     ) -> Result<(), SkillApplicationError> {
         self.load(key)?;
-        self.ensure_known_agent(agent_id)?;
+        self.ensure_api_agent(agent_id)?;
         self.api_bindings
             .bind_api_agent(key, agent_id, &self.clock.now())
     }
 
-    fn ensure_known_agent(&self, agent_id: &str) -> Result<(), SkillApplicationError> {
-        let known = self
-            .repository
-            .agent_mount_configurations()?
-            .into_iter()
-            .any(|configuration| configuration.agent_id == agent_id);
-        if known {
+    fn ensure_api_agent(&self, agent_id: &str) -> Result<(), SkillApplicationError> {
+        if self.repository.is_api_agent(agent_id)? {
             Ok(())
         } else {
             Err(SkillApplicationError::Validation(format!(
@@ -448,13 +543,6 @@ impl SkillApplicationService {
     ) -> Result<SkillRecord, SkillApplicationError> {
         validate_update_identity(&request.key.id, &request.metadata)?;
         let mut record = self.load(&request.key)?;
-        let mount_paths = self.effective_mount_configurations()?;
-        let plan = plan_binding_change(
-            &record.bound_agent_ids(),
-            &request.bound_agent_ids,
-            &registered_agent_ids(&mount_paths),
-            request.enabled,
-        )?;
         self.transact(|transaction| {
             record.managed_source = self.filesystem.replace_source(
                 transaction,
@@ -463,13 +551,10 @@ impl SkillApplicationService {
                     metadata: request.metadata.clone(),
                     body: request.body.clone(),
                 },
+                &request.expected_content_hash,
             )?;
             record.metadata = request.metadata.clone();
-            record.enabled = request.enabled;
             record.updated_at = self.clock.now();
-            record.bindings =
-                self.filesystem
-                    .reconcile_bindings(transaction, &record, &plan, &mount_paths)?;
             self.repository.save_skills(&[record.clone()], &[])?;
             Ok(record.clone())
         })
@@ -489,6 +574,17 @@ impl SkillApplicationService {
 
     fn restore_builtin_work(&self, id: &SkillId) -> Result<SkillRecord, SkillApplicationError> {
         let plan = builtin_restore_plan(id)?;
+        if self
+            .repository
+            .get(&SkillKey::new(id.clone(), plan.location.clone()))?
+            .is_some()
+            || !self.repository.deleted_builtin_ids()?.contains(id)
+        {
+            return Err(SkillApplicationError::Validation(format!(
+                "Built-in Skill is not eligible for restore: {}",
+                id.as_str()
+            )));
+        }
         self.transact(|transaction| {
             let managed_source = self.filesystem.create_source(
                 transaction,
@@ -558,6 +654,43 @@ impl SkillApplicationService {
         })
     }
 
+    fn change_cli_binding(
+        &self,
+        key: &SkillKey,
+        agent_id: &str,
+        bind: bool,
+    ) -> Result<SkillRecord, SkillApplicationError> {
+        self.transact(|transaction| {
+            let mut record = self.load(key)?;
+            let mount_paths = self.effective_mount_configurations()?;
+            if !registered_agent_ids(&mount_paths).contains(agent_id) {
+                return Err(SkillDomainError::UnknownAgent(agent_id.to_string()).into());
+            }
+            let mut desired = record
+                .bound_agent_ids()
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            if bind {
+                desired.insert(agent_id.to_string());
+            } else {
+                desired.remove(agent_id);
+            }
+            let desired = desired.into_iter().collect::<Vec<_>>();
+            let plan = plan_binding_change(
+                &record.bound_agent_ids(),
+                &desired,
+                &registered_agent_ids(&mount_paths),
+                record.enabled,
+            )?;
+            record.updated_at = self.clock.now();
+            record.bindings =
+                self.filesystem
+                    .reconcile_bindings(transaction, &record, &plan, &mount_paths)?;
+            self.repository.save_skills(&[record.clone()], &[])?;
+            Ok(record)
+        })
+    }
+
     fn import_skill_work(
         &self,
         request: SkillImportRequest,
@@ -604,11 +737,8 @@ impl SkillApplicationService {
     ) -> Result<SkillDriftReport, SkillApplicationError> {
         self.ensure_builtins()?;
         let records = self.repository.list(location)?;
-        let deleted = self.repository.deleted_builtin_ids()?;
-        let inspection = self
-            .filesystem
-            .inspect_drift(location, &records, &deleted)?;
-        let issues = detect_drift(&inspection);
+        let inspection = self.filesystem.inspect_drift(location, &records, &[])?;
+        let issues = drift_issues_without_tombstones(detect_drift(&inspection));
         let report = SkillDriftReport {
             location: location.clone(),
             drift_hash: drift_hash(&issues),
@@ -632,7 +762,7 @@ impl SkillApplicationService {
             .collect::<BTreeMap<_, _>>();
         self.transact(|transaction| {
             let mut changed = BTreeMap::new();
-            let mut cleared_tombstones = Vec::new();
+            let cleared_tombstones = Vec::new();
             let mut result = SkillSyncResult {
                 mounted: Vec::new(),
                 unmounted: Vec::new(),
@@ -696,6 +826,7 @@ impl SkillApplicationService {
                                     SkillApplicationError::NotFound(issue.skill_id.clone())
                                 })?;
                             let refreshed = self.filesystem.refresh_source(&record, issue)?;
+                            validate_update_identity(&record.key.id, &refreshed.metadata)?;
                             record.metadata = refreshed.metadata;
                             record.managed_source.content_hash = refreshed.content_hash;
                             record.updated_at = self.clock.now();
@@ -712,44 +843,7 @@ impl SkillApplicationService {
                             }),
                         }
                     }
-                    SkillDriftIssueType::DeletedBuiltin => {
-                        let restore = (|| {
-                            let id = SkillId::parse(&issue.skill_id)?;
-                            let plan = builtin_restore_plan(&id)?;
-                            let managed_source = self.filesystem.create_source(
-                                transaction,
-                                &plan.location,
-                                &id,
-                                &SkillDocument {
-                                    metadata: plan.metadata.clone(),
-                                    body: plan.body.to_string(),
-                                },
-                            )?;
-                            let now = self.clock.now();
-                            let record = SkillRecord {
-                                key: SkillKey::new(id.clone(), plan.location),
-                                source: plan.source,
-                                enabled: plan.enabled,
-                                managed_source,
-                                metadata: plan.metadata,
-                                bindings: Vec::new(),
-                                created_at: now.clone(),
-                                updated_at: now,
-                            };
-                            Ok::<_, SkillApplicationError>((id, record))
-                        })();
-                        match restore {
-                            Ok((id, record)) => {
-                                result.restored.push(issue.skill_id.clone());
-                                changed.insert(record.key.clone(), record);
-                                cleared_tombstones.push(id);
-                            }
-                            Err(error) => result.failed.push(SkillFailure {
-                                skill_id: issue.skill_id.clone(),
-                                reason: error.to_string(),
-                            }),
-                        }
-                    }
+                    SkillDriftIssueType::DeletedBuiltin => {}
                     SkillDriftIssueType::MissingSource
                     | SkillDriftIssueType::UnregisteredSource => {}
                 }
@@ -793,6 +887,11 @@ impl SkillApplicationService {
         &self,
         work: impl FnOnce(&SkillFilesystemTransaction) -> Result<T, SkillApplicationError>,
     ) -> Result<T, SkillApplicationError> {
+        let _guard = self.mutation_coordinator.lock().map_err(|error| {
+            SkillApplicationError::Filesystem(format!(
+                "Skill mutation coordinator is unavailable: {error}"
+            ))
+        })?;
         let transaction = self.filesystem.begin_mutation()?;
         match work(&transaction) {
             Ok(value) => {
@@ -862,6 +961,17 @@ fn registered_agent_ids(configurations: &[AgentMountConfiguration]) -> BTreeSet<
         .collect()
 }
 
+fn skill_stats(skills: &[SkillRecord]) -> SkillStats {
+    SkillStats {
+        total: skills.len(),
+        enabled: skills.iter().filter(|skill| skill.enabled).count(),
+        mounted: skills
+            .iter()
+            .filter(|skill| skill.bindings.iter().any(|binding| binding.mounted))
+            .count(),
+    }
+}
+
 fn mount_path_for_agent(
     configurations: &[AgentMountConfiguration],
     agent_id: &str,
@@ -898,4 +1008,13 @@ fn drift_hash(issues: &[crate::contexts::tooling::skills::domain::SkillDriftIssu
         .hash(&mut hasher);
     }
     format!("{:016x}", hasher.finish())
+}
+
+fn drift_issues_without_tombstones(
+    issues: Vec<crate::contexts::tooling::skills::domain::SkillDriftIssue>,
+) -> Vec<crate::contexts::tooling::skills::domain::SkillDriftIssue> {
+    issues
+        .into_iter()
+        .filter(|issue| issue.issue_type != SkillDriftIssueType::DeletedBuiltin)
+        .collect()
 }

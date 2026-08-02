@@ -11,11 +11,14 @@ impl SkillMountPath {
         let invalid_segment = path
             .split(['/', '\\'])
             .any(|segment| segment.is_empty() || segment == "." || segment == "..");
+        let first_segment = path.split(['/', '\\']).next().unwrap_or_default();
+        let overlaps_managed_namespace = first_segment.eq_ignore_ascii_case(".vanehub");
         if path.is_empty()
             || path.starts_with('/')
             || path.starts_with('\\')
             || has_drive_prefix
             || invalid_segment
+            || overlaps_managed_namespace
             || path.chars().any(char::is_control)
         {
             return Err(SkillDomainError::InvalidMountPath(raw));
@@ -34,7 +37,7 @@ pub(crate) fn default_mount_path(agent_id: &str) -> &'static str {
         "codex-cli" => ".codex/skills",
         "gemini-cli" => ".gemini/skills",
         "opencode" => ".opencode/skills",
-        _ => ".vanehub/skills",
+        _ => ".skills",
     }
 }
 
@@ -49,7 +52,7 @@ mod tests {
             ("codex-cli", ".codex/skills"),
             ("gemini-cli", ".gemini/skills"),
             ("opencode", ".opencode/skills"),
-            ("custom", ".vanehub/skills"),
+            ("custom", ".skills"),
         ] {
             assert_eq!(default_mount_path(agent), path);
             assert_eq!(SkillMountPath::parse(path).expect("default").as_str(), path);
@@ -69,6 +72,9 @@ mod tests {
             ".codex//skills",
             ".codex/./skills",
             ".codex/skills\nnext",
+            ".vanehub",
+            ".vanehub/skills",
+            ".VANEHUB/skills",
         ] {
             assert!(matches!(
                 SkillMountPath::parse(path),

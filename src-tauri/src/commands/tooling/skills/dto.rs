@@ -103,8 +103,34 @@ pub(crate) struct SkillUpdateInput {
     pub(crate) workspace_path: Option<String>,
     pub(crate) metadata: SkillMetadata,
     pub(crate) body: String,
-    pub(crate) enabled: bool,
-    pub(crate) bound_agent_ids: Vec<String>,
+    pub(crate) expected_content_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SkillAgentKind {
+    Cli,
+    Api,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillCompatibleAgent {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) kind: SkillAgentKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillOverview {
+    pub(crate) skills: Vec<Skill>,
+    pub(crate) stats: SkillStats,
+    pub(crate) mount_paths: Vec<SkillAgentMountPath>,
+    pub(crate) agents: Vec<SkillCompatibleAgent>,
+    pub(crate) api_agent_bindings: std::collections::BTreeMap<String, Vec<String>>,
+    pub(crate) drift: SkillDriftReport,
+    pub(crate) restore_candidates: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

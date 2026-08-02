@@ -98,8 +98,31 @@ pub(crate) struct SkillUpdateRequest {
     pub(crate) key: SkillKey,
     pub(crate) metadata: SkillMetadata,
     pub(crate) body: String,
-    pub(crate) enabled: bool,
-    pub(crate) bound_agent_ids: Vec<String>,
+    pub(crate) expected_content_hash: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillAgentKind {
+    Cli,
+    Api,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillCompatibleAgent {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) kind: SkillAgentKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillOverview {
+    pub(crate) skills: Vec<SkillRecord>,
+    pub(crate) stats: SkillStats,
+    pub(crate) mount_paths: Vec<SkillAgentMountPath>,
+    pub(crate) agents: Vec<SkillCompatibleAgent>,
+    pub(crate) api_agent_bindings: BTreeMap<String, Vec<String>>,
+    pub(crate) drift: SkillDriftReport,
+    pub(crate) restore_candidates: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +138,7 @@ pub(crate) struct SkillImportRequest {
 /// its frontmatter stripped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SkillPromptForAgent {
+    pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) body: String,
 }
@@ -197,7 +221,10 @@ pub(crate) enum SkillLogAction {
     Restore,
     SetEnabled,
     SetBindings,
+    BindCliAgent,
+    UnbindCliAgent,
     SetApiAgentBinding,
+    ResolveApiPrompt,
     Import,
     DetectDrift,
     SyncDrift,
@@ -214,7 +241,10 @@ impl SkillLogAction {
             Self::Restore => "restore",
             Self::SetEnabled => "set-enabled",
             Self::SetBindings => "set-bindings",
+            Self::BindCliAgent => "bind-cli-agent",
+            Self::UnbindCliAgent => "unbind-cli-agent",
             Self::SetApiAgentBinding => "set-api-agent-binding",
+            Self::ResolveApiPrompt => "resolve-api-prompt",
             Self::Import => "import",
             Self::DetectDrift => "detect-drift",
             Self::SyncDrift => "sync-drift",

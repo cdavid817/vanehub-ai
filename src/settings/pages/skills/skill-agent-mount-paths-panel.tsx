@@ -1,8 +1,7 @@
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
-import type { AgentRegistryEntry } from "../../../types/agent";
-import type { SkillAgentMountPath, SkillMountMigrationReport } from "../../../types/skill";
+import type { SkillAgentMountPath, SkillCompatibleAgent, SkillMountMigrationReport } from "../../../types/skill";
 import { SectionPanel } from "../page-parts";
 
 export function SkillAgentMountPathsPanel({
@@ -14,7 +13,7 @@ export function SkillAgentMountPathsPanel({
   onDraftChange,
   onSave,
 }: {
-  agents: AgentRegistryEntry[];
+  agents: SkillCompatibleAgent[];
   mountPaths: SkillAgentMountPath[];
   drafts: Record<string, string>;
   migration: SkillMountMigrationReport | null;

@@ -37,7 +37,7 @@ impl ManagedSkillFilesystem {
         }
     }
 
-    fn write_source(
+    fn create_document(
         &self,
         transaction: &SkillFilesystemTransaction,
         location: &SkillLocation,
@@ -45,6 +45,9 @@ impl ManagedSkillFilesystem {
         document: &SkillDocument,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
         let (directory, skill_file) = self.paths.source_paths(location, id)?;
+        if path_exists(&directory) {
+            return Err(SkillApplicationError::Conflict(id.as_str().to_string()));
+        }
         if let Some(parent) = directory.parent() {
             std::fs::create_dir_all(parent).map_err(filesystem_error)?;
         }
@@ -52,6 +55,29 @@ impl ManagedSkillFilesystem {
             .stage_replace_or_create(transaction, &directory)?;
         std::fs::create_dir_all(&directory).map_err(filesystem_error)?;
         let content = document::compose(document);
+        std::fs::write(&skill_file, &content).map_err(filesystem_error)?;
+        Ok(managed_source(directory, skill_file, &content))
+    }
+
+    fn replace_document(
+        &self,
+        transaction: &SkillFilesystemTransaction,
+        record: &SkillRecord,
+        document: &SkillDocument,
+        expected_content_hash: &str,
+    ) -> Result<ManagedSkillSource, SkillApplicationError> {
+        let (directory, skill_file) = self
+            .paths
+            .source_paths(&record.key.location, &record.key.id)?;
+        let current = std::fs::read_to_string(&skill_file).map_err(filesystem_error)?;
+        if document::content_hash(&current) != expected_content_hash {
+            return Err(SkillApplicationError::ConcurrentModification(
+                record.key.id.as_str().to_string(),
+            ));
+        }
+        let content = document::compose(document);
+        self.transactions
+            .stage_replace_or_create(transaction, &skill_file)?;
         std::fs::write(&skill_file, &content).map_err(filesystem_error)?;
         Ok(managed_source(directory, skill_file, &content))
     }
@@ -77,6 +103,12 @@ impl ManagedSkillFilesystem {
             let target =
                 self.paths
                     .mount_target(&record.key.location, &record.key.id, mount_path)?;
+            if paths_overlap(&source, &target) {
+                return Err(SkillApplicationError::Validation(format!(
+                    "Skill mount target overlaps its managed source: {}",
+                    target.display()
+                )));
+            }
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).map_err(filesystem_error)?;
             }
@@ -180,7 +212,7 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         id: &SkillId,
         document: &SkillDocument,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
-        self.write_source(transaction, location, id, document)
+        self.create_document(transaction, location, id, document)
     }
 
     fn replace_source(
@@ -188,8 +220,9 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         transaction: &SkillFilesystemTransaction,
         record: &SkillRecord,
         document: &SkillDocument,
+        expected_content_hash: &str,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
-        self.write_source(transaction, &record.key.location, &record.key.id, document)
+        self.replace_document(transaction, record, document, expected_content_hash)
     }
 
     fn import_source(
@@ -204,13 +237,18 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         if !source.is_dir() {
             return Err(invalid_import("source is not a directory"));
         }
-        let content = std::fs::read_to_string(source.join(SKILL_FILE))
+        let content = document::read_import_document(&source.join(SKILL_FILE))
             .map_err(|error| invalid_import(error.to_string()))?;
         let metadata = document::parse(&content)?;
         let (target, skill_file) = self.paths.source_paths(location, &metadata.id)?;
-        if source == target {
+        if paths_overlap(&source, &target) {
             return Err(invalid_import(
-                "source is already in the managed Skill directory",
+                "source overlaps the managed Skill destination",
+            ));
+        }
+        if path_exists(&target) {
+            return Err(SkillApplicationError::Conflict(
+                metadata.id.as_str().to_string(),
             ));
         }
         if let Some(parent) = target.parent() {
@@ -501,6 +539,18 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    if cfg!(windows) {
+        let left = PathBuf::from(left.to_string_lossy().to_lowercase());
+        let right = PathBuf::from(right.to_string_lossy().to_lowercase());
+        left.starts_with(&right) || right.starts_with(&left)
+    } else {
+        left.starts_with(&right) || right.starts_with(&left)
+    }
+}
+
 fn create_dir_link(source: &Path, target: &Path) -> Result<(), SkillApplicationError> {
     #[cfg(windows)]
     {
@@ -634,6 +684,11 @@ mod tests {
             .expect("create source");
         filesystem.commit_mutation(create);
         let existing = record("fixture-skill", source.clone());
+        std::fs::write(
+            Path::new(&source.skill_dir).join("template.txt"),
+            "preserve-me",
+        )
+        .expect("attachment");
 
         let replace = filesystem.begin_mutation().expect("replace transaction");
         filesystem
@@ -641,8 +696,14 @@ mod tests {
                 &replace,
                 &existing,
                 &document("fixture-skill", "replacement"),
+                &source.content_hash,
             )
             .expect("replace source");
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&source.skill_dir).join("template.txt"))
+                .expect("preserved attachment"),
+            "preserve-me"
+        );
         assert!(filesystem
             .read_source(&existing)
             .expect("replacement content")
@@ -660,6 +721,217 @@ mod tests {
         assert!(!Path::new(&source.skill_dir).exists());
         filesystem.rollback_mutation(remove);
         assert!(Path::new(&source.skill_md_path).is_file());
+    }
+
+    #[test]
+    fn replacement_rejects_a_stale_hash_without_touching_the_document() {
+        let home = TempDirectory::new("Skill stale edit");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("stale-skill").expect("Skill id");
+        let create = filesystem.begin_mutation().expect("create transaction");
+        let source = filesystem
+            .create_source(&create, &location(), &id, &document("stale-skill", "newer"))
+            .expect("source");
+        filesystem.commit_mutation(create);
+        let existing = record("stale-skill", source);
+        let replace = filesystem.begin_mutation().expect("replace transaction");
+
+        let error = filesystem
+            .replace_source(
+                &replace,
+                &existing,
+                &document("stale-skill", "stale overwrite"),
+                "older-hash",
+            )
+            .expect_err("stale edit");
+        filesystem.rollback_mutation(replace);
+
+        assert!(matches!(
+            error,
+            SkillApplicationError::ConcurrentModification(ref id) if id == "stale-skill"
+        ));
+        assert!(filesystem
+            .read_source(&existing)
+            .expect("current document")
+            .contains("newer"));
+    }
+
+    #[test]
+    fn create_and_import_refuse_an_existing_managed_source() {
+        let home = TempDirectory::new("Skill source collision");
+        let incoming = TempDirectory::new("Skill collision import");
+        incoming.write(
+            "SKILL.md",
+            "---\nid: collision-skill\nname: Collision\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - collision\n---\n\nincoming",
+        );
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("collision-skill").expect("Skill id");
+        let create = filesystem.begin_mutation().expect("create transaction");
+        filesystem
+            .create_source(
+                &create,
+                &location(),
+                &id,
+                &document("collision-skill", "original"),
+            )
+            .expect("original source");
+        filesystem.commit_mutation(create);
+
+        let duplicate = filesystem.begin_mutation().expect("duplicate transaction");
+        assert!(matches!(
+            filesystem.create_source(
+                &duplicate,
+                &location(),
+                &id,
+                &document("collision-skill", "replacement")
+            ),
+            Err(SkillApplicationError::Conflict(_))
+        ));
+        filesystem.rollback_mutation(duplicate);
+
+        let import = filesystem.begin_mutation().expect("import transaction");
+        assert!(matches!(
+            filesystem.import_source(&import, &location(), &incoming.path().to_string_lossy()),
+            Err(SkillApplicationError::Conflict(_))
+        ));
+        filesystem.rollback_mutation(import);
+    }
+
+    #[test]
+    fn import_rejects_sources_deeper_than_the_limit() {
+        let home = TempDirectory::new("Skill import depth target");
+        let incoming = TempDirectory::new("Skill import depth source");
+        incoming.write(
+            "SKILL.md",
+            "---\nid: deep-skill\nname: Deep\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - deep\n---\n\nbody",
+        );
+        let mut nested = incoming.path().to_path_buf();
+        for index in 0..17 {
+            nested = nested.join(format!("level-{index}"));
+            std::fs::create_dir_all(&nested).expect("nested directory");
+        }
+        std::fs::write(nested.join("file.txt"), "too deep").expect("deep file");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("import transaction");
+
+        let error = filesystem
+            .import_source(
+                &transaction,
+                &location(),
+                &incoming.path().to_string_lossy(),
+            )
+            .expect_err("depth rejection");
+        filesystem.rollback_mutation(transaction);
+
+        assert!(error.to_string().contains("depth exceeds 16"));
+        assert!(!home.path().join(".vanehub/skills/deep-skill").exists());
+    }
+
+    #[test]
+    fn import_rejects_an_oversized_skill_document_before_copying() {
+        let home = TempDirectory::new("Skill import document target");
+        let incoming = TempDirectory::new("Skill import document source");
+        incoming.write("SKILL.md", &"x".repeat(256 * 1024 + 1));
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("import transaction");
+
+        let error = filesystem
+            .import_source(
+                &transaction,
+                &location(),
+                &incoming.path().to_string_lossy(),
+            )
+            .expect_err("document size rejection");
+        filesystem.rollback_mutation(transaction);
+
+        assert!(error.to_string().contains("SKILL.md exceeds 256 KiB"));
+        assert!(!home.path().join(".vanehub/skills").exists());
+    }
+
+    #[test]
+    fn import_rejects_more_than_512_files_and_rolls_back_the_target() {
+        let home = TempDirectory::new("Skill import file-count target");
+        let incoming = TempDirectory::new("Skill import file-count source");
+        incoming.write(
+            "SKILL.md",
+            "---\nid: many-files-skill\nname: Many Files\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - files\n---\n\nbody",
+        );
+        for index in 0..512 {
+            incoming.write(&format!("asset-{index}.txt"), "x");
+        }
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("import transaction");
+
+        let error = filesystem
+            .import_source(
+                &transaction,
+                &location(),
+                &incoming.path().to_string_lossy(),
+            )
+            .expect_err("file-count rejection");
+        filesystem.rollback_mutation(transaction);
+
+        assert!(error.to_string().contains("file count exceeds 512"));
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/many-files-skill")
+            .exists());
+    }
+
+    #[test]
+    fn import_rejects_more_than_16_mib_and_rolls_back_the_target() {
+        let home = TempDirectory::new("Skill import aggregate-size target");
+        let incoming = TempDirectory::new("Skill import aggregate-size source");
+        incoming.write(
+            "SKILL.md",
+            "---\nid: oversized-import\nname: Oversized Import\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - size\n---\n\nbody",
+        );
+        std::fs::write(
+            incoming.path().join("payload.bin"),
+            vec![b'x'; 16 * 1024 * 1024],
+        )
+        .expect("large payload");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("import transaction");
+
+        let error = filesystem
+            .import_source(
+                &transaction,
+                &location(),
+                &incoming.path().to_string_lossy(),
+            )
+            .expect_err("aggregate-size rejection");
+        filesystem.rollback_mutation(transaction);
+
+        assert!(error.to_string().contains("import size exceeds 16 MiB"));
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/oversized-import")
+            .exists());
+    }
+
+    #[test]
+    fn import_rejects_a_source_that_contains_its_managed_destination() {
+        let home = TempDirectory::new("Skill overlapping import source");
+        home.write(
+            "SKILL.md",
+            "---\nid: overlapping-import\nname: Overlapping Import\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - overlap\n---\n\nbody",
+        );
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let transaction = filesystem.begin_mutation().expect("import transaction");
+
+        let error = filesystem
+            .import_source(&transaction, &location(), &home.path().to_string_lossy())
+            .expect_err("overlap rejection");
+        filesystem.rollback_mutation(transaction);
+
+        assert!(error
+            .to_string()
+            .contains("overlaps the managed Skill destination"));
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/overlapping-import")
+            .exists());
     }
 
     #[test]

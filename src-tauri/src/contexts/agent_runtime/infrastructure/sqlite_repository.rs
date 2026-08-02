@@ -379,6 +379,18 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
             )
             .map_err(registry_error)?;
         transaction
+            .execute(
+                "DELETE FROM skill_agent_bindings WHERE agent_id = ?1",
+                [agent_id],
+            )
+            .map_err(registry_error)?;
+        transaction
+            .execute(
+                "DELETE FROM skill_agent_mount_paths WHERE agent_id = ?1",
+                [agent_id],
+            )
+            .map_err(registry_error)?;
+        transaction
             .execute("DELETE FROM agents WHERE id = ?1", [agent_id])
             .map_err(registry_error)?;
         transaction.commit().map_err(registry_error)
@@ -829,6 +841,26 @@ mod tests {
                 [],
             )
             .expect("seed skill binding");
+        connection
+            .execute(
+                r#"
+                INSERT INTO skill_agent_bindings
+                    (skill_id, scope, workspace_path, agent_id, mounted_path, status, created_at, updated_at)
+                VALUES ('some-skill', 'global', '', 'my-agent', '.skills/some-skill', 'pending', '2026-01-01', '2026-01-01')
+                "#,
+                [],
+            )
+            .expect("seed legacy CLI binding");
+        connection
+            .execute(
+                r#"
+                INSERT INTO skill_agent_mount_paths
+                    (agent_id, mount_path, created_at, updated_at)
+                VALUES ('my-agent', '.skills', '2026-01-01', '2026-01-01')
+                "#,
+                [],
+            )
+            .expect("seed legacy mount path");
         drop(connection);
 
         repository.delete("my-agent").expect("delete");
@@ -842,5 +874,21 @@ mod tests {
             )
             .expect("count bindings");
         assert_eq!(bindings, 0);
+        let legacy_bindings: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM skill_agent_bindings WHERE agent_id = 'my-agent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count legacy bindings");
+        let mount_paths: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM skill_agent_mount_paths WHERE agent_id = 'my-agent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count mount paths");
+        assert_eq!(legacy_bindings, 0);
+        assert_eq!(mount_paths, 0);
     }
 }

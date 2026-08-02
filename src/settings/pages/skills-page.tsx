@@ -1,6 +1,6 @@
 import { Plus, Puzzle, RotateCcw, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
@@ -23,7 +23,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const [scope, setScope] = useState<SkillScope>("global");
   const [workspacePath, setWorkspacePath] = useState("");
   const [category, setCategory] = useState("__all__");
-  const [query, setQuery] = useState(searchTerm);
+  const [query, setQuery] = useState("");
   const [mountDrafts, setMountDrafts] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<SkillDialogState>({ mode: null, skill: null, preview: null });
 
@@ -33,25 +33,14 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   );
   const scopeReady = scope === "global" || workspacePath.trim().length > 0;
 
-  const agentsQuery = useQuery({ queryKey: ["agents", "skills"], queryFn: () => agentService.listAgents() });
-  const mountPathsQuery = useQuery({ queryKey: ["skill-mount-paths"], queryFn: () => agentService.listSkillMountPaths() });
-  const skillsQuery = useQuery({
+  const overviewQuery = useQuery({
     enabled: scopeReady,
-    queryKey: ["skills", scopeInput],
-    queryFn: () => agentService.listSkills(scopeInput),
-  });
-  const driftQuery = useQuery({
-    enabled: scopeReady,
-    queryKey: ["skill-drift", scopeInput],
-    queryFn: () => agentService.detectSkillDrift(scopeInput),
+    queryKey: ["skill-overview", scopeInput],
+    queryFn: () => agentService.getSkillOverview(scopeInput),
   });
 
   const invalidate = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["skills"] }),
-      queryClient.invalidateQueries({ queryKey: ["skill-drift"] }),
-      queryClient.invalidateQueries({ queryKey: ["skill-mount-paths"] }),
-    ]);
+    await queryClient.invalidateQueries({ queryKey: ["skill-overview", scopeInput], exact: true });
   };
 
   const mountMutation = useMutation({
@@ -65,8 +54,10 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
     onSuccess: () => void invalidate(),
   });
   const bindingMutation = useMutation({
-    mutationFn: ({ skill, agentIds }: { skill: Skill; agentIds: string[] }) =>
-      agentService.setSkillAgentBindings(skill.id, scopeInput, agentIds),
+    mutationFn: ({ skill, agentId, bound }: { skill: Skill; agentId: string; bound: boolean }) =>
+      bound
+        ? agentService.bindSkillToCliAgent(skill.id, scopeInput, agentId)
+        : agentService.unbindSkillFromCliAgent(skill.id, scopeInput, agentId),
     onSuccess: () => void invalidate(),
   });
   const apiBindingMutation = useMutation({
@@ -74,7 +65,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       bound
         ? agentService.bindSkillToApiAgent(skill.id, scopeInput, agentId)
         : agentService.unbindSkillFromApiAgent(skill.id, scopeInput, agentId),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["skill-api-agent-bindings"] }),
+    onSuccess: () => void invalidate(),
   });
   const createMutation = useMutation({
     mutationFn: ({ metadata, body, source }: { metadata: SkillMetadata; body: string; source: SkillSource }) =>
@@ -94,10 +85,39 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   });
   const updateMutation = useMutation({
     mutationFn: ({ skill, metadata, body }: { skill: Skill; metadata: SkillMetadata; body: string }) =>
-      agentService.updateSkill(skill.id, { metadata, body, enabled: skill.enabled, boundAgentIds: skill.boundAgentIds, ...scopeInput }),
+      agentService.updateSkill(skill.id, {
+        metadata,
+        body,
+        expectedContentHash: skill.contentHash,
+        ...scopeInput,
+      }),
     onSuccess: () => {
       setDialog({ mode: null, skill: null, preview: null });
       void invalidate();
+    },
+  });
+  const editPreviewMutation = useMutation({
+    mutationFn: async (skill: Skill) => ({
+      skill,
+      preview: await agentService.previewSkill(skill.id, scopeInput),
+    }),
+    onSuccess: ({ skill, preview }) => {
+      updateMutation.reset();
+      setDialog({ mode: "edit", skill, preview: null, editBody: extractSkillBody(preview.content, skill.metadata.name) });
+    },
+  });
+  const editReloadMutation = useMutation({
+    mutationFn: async (skill: Skill) => {
+      const overview = await overviewQuery.refetch();
+      if (overview.isError) throw overview.error;
+      const current = overview.data?.skills.find((candidate) => candidate.id === skill.id);
+      if (!current) throw new Error(`Skill no longer exists: ${skill.id}`);
+      const preview = await agentService.previewSkill(current.id, scopeInput);
+      return { skill: current, body: extractSkillBody(preview.content, current.metadata.name) };
+    },
+    onSuccess: ({ skill, body }) => {
+      updateMutation.reset();
+      setDialog({ mode: "edit", skill, preview: null, editBody: body });
     },
   });
   const deleteMutation = useMutation({
@@ -126,36 +146,41 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
     mutationFn: () => agentService.syncSkillDrift(scopeInput),
     onSuccess: () => void invalidate(),
   });
+  const mutationError = [
+    mountMutation,
+    enabledMutation,
+    bindingMutation,
+    apiBindingMutation,
+    createMutation,
+    deleteMutation,
+    importMutation,
+    restoreMutation,
+    previewMutation,
+    editPreviewMutation,
+    syncMutation,
+  ].find((mutation) => mutation.isError)?.error;
+  const editError = editReloadMutation.error?.message ?? updateMutation.error?.message ?? null;
+  const editConflict = updateMutation.error ? isSkillConflictError(updateMutation.error) : false;
 
-  const skills = skillsQuery.data?.skills ?? emptySkills;
-  const stats = skillsQuery.data?.stats ?? { total: 0, enabled: 0, mounted: 0 };
+  const skills = overviewQuery.data?.skills ?? emptySkills;
+  const stats = overviewQuery.data?.stats ?? { total: 0, enabled: 0, mounted: 0 };
   const categories = useMemo(() => ["__all__", ...Array.from(new Set(skills.map((skill) => skill.metadata.category)))], [skills]);
   const visibleSkills = useMemo(() => {
-    const needle = `${query} ${searchTerm}`.trim().toLowerCase();
+    const needles = [query, searchTerm]
+      .flatMap((value) => value.trim().toLowerCase().split(/\s+/))
+      .filter(Boolean);
     return skills.filter((skill) => {
       if (category !== "__all__" && skill.metadata.category !== category) return false;
-      if (!needle) return true;
-      return `${skill.id} ${skill.metadata.name} ${skill.metadata.description} ${skill.metadata.category} ${skill.metadata.triggers.join(" ")} ${skill.source}`
-        .toLowerCase()
-        .includes(needle);
+      if (needles.length === 0) return true;
+      const haystack = `${skill.id} ${skill.metadata.name} ${skill.metadata.description} ${skill.metadata.category} ${skill.metadata.triggers.join(" ")} ${skill.source}`
+        .toLowerCase();
+      return needles.every((needle) => haystack.includes(needle));
     });
   }, [category, query, searchTerm, skills]);
 
-  const apiAgents = useMemo(() => (agentsQuery.data ?? []).filter((agent) => agent.launch.kind === "api"), [agentsQuery.data]);
-  const apiBindingQueries = useQueries({
-    queries: visibleSkills.map((skill) => ({
-      queryKey: ["skill-api-agent-bindings", skill.id, scopeInput],
-      queryFn: () => agentService.listSkillApiAgentBindings(skill.id, scopeInput),
-      enabled: apiAgents.length > 0,
-    })),
-  });
-  const apiBindingsBySkillId = useMemo(() => {
-    const entries: Array<[string, string[]]> = [];
-    apiBindingQueries.forEach((result, index) => {
-      if (result.data) entries.push([visibleSkills[index].id, result.data]);
-    });
-    return Object.fromEntries(entries) as Record<string, string[]>;
-  }, [apiBindingQueries, visibleSkills]);
+  const cliAgents = overviewQuery.data?.agents.filter((agent) => agent.kind === "cli") ?? [];
+  const apiAgents = overviewQuery.data?.agents.filter((agent) => agent.kind === "api") ?? [];
+  const apiBindingsBySkillId = overviewQuery.data?.apiAgentBindings ?? {};
 
   async function browseWorkspace() {
     const selected = await agentService.selectWorkspaceDirectory();
@@ -163,10 +188,7 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   }
 
   function toggleAgent(skill: Skill, agentId: string, checked: boolean) {
-    const agentIds = checked
-      ? Array.from(new Set([...skill.boundAgentIds, agentId]))
-      : skill.boundAgentIds.filter((id) => id !== agentId);
-    bindingMutation.mutate({ skill, agentIds });
+    bindingMutation.mutate({ skill, agentId, bound: checked });
   }
 
   function toggleApiAgent(skill: Skill, agentId: string, checked: boolean) {
@@ -198,49 +220,79 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
       />
 
       <SkillScopeTabs scope={scope} workspacePath={workspacePath} onScopeChange={setScope} onWorkspacePathChange={setWorkspacePath} onBrowse={() => void browseWorkspace()} />
-      <SkillStatsCards stats={stats} />
-      <SkillAgentMountPathsPanel
-        agents={agentsQuery.data ?? []}
-        mountPaths={mountPathsQuery.data ?? []}
-        drafts={mountDrafts}
-        migration={mountMutation.data ?? null}
-        savingAgentId={mountMutation.variables?.agentId ?? null}
-        onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))}
-        onSave={(agentId) => {
-          const mountPath = mountDrafts[agentId] ?? mountPathsQuery.data?.find((path) => path.agentId === agentId)?.mountPath ?? "";
-          mountMutation.mutate({ agentId, mountPath });
-        }}
-      />
-      <SkillFilterToolbar categories={categories} category={category} query={query} onCategoryChange={setCategory} onQueryChange={setQuery} />
-      <SkillDriftBanner drift={driftQuery.data ?? null} syncResult={syncMutation.data ?? null} syncing={syncMutation.isPending} onSync={() => syncMutation.mutate()} />
       {!scopeReady ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.selectWorkspace")}</div> : null}
-      {skillsQuery.isLoading ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.loading")}</div> : null}
-      <SkillCardList
-        agents={agentsQuery.data ?? []}
-        apiAgents={apiAgents}
-        apiBindingsBySkillId={apiBindingsBySkillId}
-        busySkillId={enabledMutation.variables?.skill.id ?? bindingMutation.variables?.skill.id ?? null}
-        skills={visibleSkills}
-        onDelete={(skill) => deleteMutation.mutate(skill)}
-        onEdit={(skill) => setDialog({ mode: "edit", skill, preview: null })}
-        onPreview={(skill) => previewMutation.mutate(skill)}
-        onToggleAgent={toggleAgent}
-        onToggleApiAgent={toggleApiAgent}
-        onToggleEnabled={(skill, enabled) => enabledMutation.mutate({ skill, enabled })}
-      />
-      <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
-        {t("skills.showing", { visible: visibleSkills.length, total: skills.length, scope: t(`skills.scope.${scope}`) })}
-      </div>
+      {overviewQuery.isLoading ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("skills.loading")}</div> : null}
+      {overviewQuery.isError ? <div className="ucd-panel rounded-lg p-4 text-sm text-destructive">{overviewQuery.error.message}</div> : null}
+      {mutationError ? <div className="ucd-panel rounded-lg p-4 text-sm text-destructive">{mutationError.message}</div> : null}
+      {overviewQuery.data ? (
+        <>
+          <SkillStatsCards stats={stats} />
+          <SkillAgentMountPathsPanel
+            agents={cliAgents}
+            mountPaths={overviewQuery.data.mountPaths}
+            drafts={mountDrafts}
+            migration={mountMutation.data ?? null}
+            savingAgentId={mountMutation.variables?.agentId ?? null}
+            onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))}
+            onSave={(agentId) => {
+              const mountPath = mountDrafts[agentId] ?? overviewQuery.data.mountPaths.find((path) => path.agentId === agentId)?.mountPath ?? "";
+              mountMutation.mutate({ agentId, mountPath });
+            }}
+          />
+          <SkillFilterToolbar categories={categories} category={category} query={query} onCategoryChange={setCategory} onQueryChange={setQuery} />
+          <SkillDriftBanner drift={overviewQuery.data.drift} syncResult={syncMutation.data ?? null} syncing={syncMutation.isPending} onSync={() => syncMutation.mutate()} />
+          <SkillCardList
+            agents={cliAgents}
+            apiAgents={apiAgents}
+            apiBindingsBySkillId={apiBindingsBySkillId}
+            busySkillId={enabledMutation.variables?.skill.id ?? bindingMutation.variables?.skill.id ?? apiBindingMutation.variables?.skill.id ?? null}
+            skills={visibleSkills}
+            onDelete={(skill) => {
+              if (globalThis.confirm?.(t("skills.delete")) ?? true) deleteMutation.mutate(skill);
+            }}
+            onEdit={(skill) => {
+              editPreviewMutation.mutate(skill);
+            }}
+            onPreview={(skill) => previewMutation.mutate(skill)}
+            onToggleAgent={toggleAgent}
+            onToggleApiAgent={toggleApiAgent}
+            onToggleEnabled={(skill, enabled) => enabledMutation.mutate({ skill, enabled })}
+          />
+          <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
+            {t("skills.showing", { visible: visibleSkills.length, total: skills.length, scope: t(`skills.scope.${scope}`) })}
+          </div>
+        </>
+      ) : null}
       <SkillDialogs
         scope={scope}
         state={dialog}
+        restoreCandidates={overviewQuery.data?.restoreCandidates ?? []}
+        editConflict={editConflict}
+        editError={editError}
+        reloadingEdit={editReloadMutation.isPending}
         workspacePath={scope === "workspace" ? workspacePath : null}
         onClose={() => setDialog({ mode: null, skill: null, preview: null })}
         onCreate={(metadata, body, source) => createMutation.mutate({ metadata, body, source })}
         onImport={(sourcePath) => importMutation.mutate(sourcePath)}
+        onReloadEdit={(skill) => editReloadMutation.mutate(skill)}
         onRestore={(skillId) => restoreMutation.mutate(skillId)}
         onUpdate={(skill, metadata, body) => updateMutation.mutate({ skill, metadata, body })}
       />
     </div>
   );
+}
+
+function extractSkillBody(content: string, name: string) {
+  const normalized = content.replaceAll("\r\n", "\n");
+  const afterFrontmatter = normalized.startsWith("---\n")
+    ? (normalized.split("\n---\n", 2)[1] ?? normalized)
+    : normalized;
+  const heading = `# ${name}\n`;
+  return afterFrontmatter.trimStart().startsWith(heading)
+    ? afterFrontmatter.trimStart().slice(heading.length).trim()
+    : afterFrontmatter.trim();
+}
+
+function isSkillConflictError(error: Error) {
+  return error.message.toLowerCase().includes("skill changed since it was loaded");
 }
