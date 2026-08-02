@@ -541,6 +541,16 @@ pub(crate) fn apply_reliability_schema(
 ) -> Result<(), crate::platform::database::DatabaseError> {
     connection.execute_batch(
         r#"
+        CREATE TABLE IF NOT EXISTS skill_api_agent_bindings (
+            skill_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            workspace_path TEXT NOT NULL DEFAULT '',
+            agent_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (skill_id, scope, workspace_path, agent_id)
+        );
+
         DELETE FROM skill_agent_bindings
         WHERE NOT EXISTS (
             SELECT 1 FROM skills

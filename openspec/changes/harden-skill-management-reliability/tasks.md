@@ -49,3 +49,9 @@
 - [x] 7.4 Instrument the batch overview repository test to prove SQL statement count remains constant as Skill count grows.
 - [x] 7.5 Add native import tests for file-count, aggregate-size, and source/destination overlap limits, then rerun all required validation.
 - [x] 7.6 Apply repository rustfmt output and rerun native quality gates after the Linux CI formatting failure.
+
+## 8. Existing-database migration remediation
+
+- [x] 8.1 Create `skill_api_agent_bindings` idempotently at the start of migration 37 before its cleanup and index statements.
+- [x] 8.2 Add an upgrade regression test for a database with migrations 1-36 recorded and no `skill_api_agent_bindings` table.
+- [x] 8.3 Rerun the complete frontend, Rust, and strict OpenSpec validation suite and record the results.

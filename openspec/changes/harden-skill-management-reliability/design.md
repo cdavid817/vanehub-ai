@@ -92,7 +92,7 @@ Web/mock stores `{skill, document}` records, uses the same externally visible va
 
 ## Migration Plan
 
-1. Add indexes and migration cleanup for orphan bindings, API-Agent CLI bindings, and API-Agent mount-path rows; preserve all Skill source directories.
+1. Ensure the reliability migration creates the API-Agent Skill binding table before cleanup so databases that already recorded the historical Skill migration can upgrade safely, then add indexes and clean up orphan bindings, API-Agent CLI bindings, and API-Agent mount-path rows while preserving all Skill source directories.
 2. Add canonical location, Agent-kind validation, reserved-path validation, mutation serialization, narrow edit semantics, and restore/drift safety.
 3. Add batch repository/service/command/adapter DTOs while retaining old read commands temporarily for compatibility.
 4. Switch the settings UI to the batch overview and granular CLI binding mutations, then remove active use of per-Skill API binding queries.
