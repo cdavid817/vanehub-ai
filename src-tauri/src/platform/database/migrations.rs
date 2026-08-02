@@ -802,6 +802,71 @@ mod tests {
     }
 
     #[test]
+    fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        migrate(&connection).expect("current schema");
+        connection
+            .execute(
+                "INSERT INTO skills (id, scope, workspace_path, source, enabled, skill_dir, \
+                 skill_md_path, content_hash, metadata_json, created_at, updated_at) \
+                 VALUES (?1, 'global', '', 'user-created', 1, ?2, ?3, 'hash', '{}', ?4, ?4)",
+                params![
+                    "preserved-skill",
+                    "/managed/preserved-skill",
+                    "/managed/preserved-skill/SKILL.md",
+                    "2026-08-02T00:00:00Z"
+                ],
+            )
+            .expect("existing Skill record");
+        connection
+            .execute_batch(
+                r#"
+                DELETE FROM schema_migrations WHERE version = 37;
+                DROP TABLE skill_api_agent_bindings;
+                "#,
+            )
+            .expect("pre-migration-37 fixture");
+
+        let migration_state: (i64, i64) = connection
+            .query_row(
+                "SELECT COUNT(*), MAX(version) FROM schema_migrations",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("fixture migration state");
+        assert_eq!(migration_state, (36, 36));
+
+        migrate(&connection).expect("upgrade migration");
+
+        let api_binding_table: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type = 'table' AND name = 'skill_api_agent_bindings'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("API binding table");
+        let reliability_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 37",
+                [],
+                |row| row.get(0),
+            )
+            .expect("reliability migration");
+        let preserved_skill: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM skills WHERE id = 'preserved-skill'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("preserved Skill record");
+
+        assert_eq!(api_binding_table, 1);
+        assert_eq!(reliability_migration, "skill-management-reliability");
+        assert_eq!(preserved_skill, 1);
+    }
+
+    #[test]
     fn mcp_transport_migration_upgrades_an_old_database_and_journals_the_row() {
         let connection = Connection::open_in_memory().expect("in-memory database");
         mcp_migration_fixture(&connection);

@@ -107,6 +107,14 @@ The system SHALL return the selected scope's Skills, CLI/API bindings, statistic
 - **WHEN** the overview contains many Skills
 - **THEN** native loading SHALL use batch binding queries rather than one query or IPC request per Skill
 
+### Requirement: Existing Skill database upgrade compatibility
+The system SHALL create all Skill binding storage required by a pending reliability migration before that migration cleans or indexes binding rows.
+
+#### Scenario: Upgrade a database created before API Skill bindings
+- **WHEN** an existing database has recorded migrations 1 through 36 but does not contain the API-Agent Skill binding table
+- **THEN** migration 37 SHALL create the missing table before cleanup
+- **AND** SHALL complete without deleting Skill source records or directories
+
 ### Requirement: Behavioral Web adapter parity
 The Web/mock adapter SHALL preserve Skill documents and enforce the same identity, scope, binding-type, lifecycle, validation, and cleanup outcomes as the native adapter, while simulating filesystem-only effects deterministically.
 
