@@ -55,3 +55,7 @@
 - [x] 8.1 Create `skill_api_agent_bindings` idempotently at the start of migration 37 before its cleanup and index statements.
 - [x] 8.2 Add an upgrade regression test for a database with migrations 1-36 recorded and no `skill_api_agent_bindings` table.
 - [x] 8.3 Rerun the complete frontend, Rust, and strict OpenSpec validation suite and record the results.
+
+## 9. UI interaction coverage remediation
+
+- [x] 9.1 Add direct component interaction coverage for Skill loading errors, guarded mutations, CLI/API Agent separation, preview, create, edit, import, restore, and destructive deletion confirmation.

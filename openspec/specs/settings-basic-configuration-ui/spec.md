@@ -88,7 +88,7 @@ The Basic Settings page SHALL provide a log management section for the active ru
 ### Requirement: Polished Basic Configuration information architecture
 The Basic Configuration page SHALL organize common preferences, startup and window behavior, workspace defaults, and advanced operational configuration into a scannable intent-based layout.
 
-#### Scenario: Render optimized Basic Configuration sections
+#### Scenario: Render prioritized Basic Configuration groups
 - **WHEN** a user opens Basic Configuration
 - **THEN** the page SHALL present common preferences, startup and window behavior, and workspace defaults before advanced operational configuration
 - **AND** language, font size, visual theme, default folder path, default folder opener, launch-on-startup, and floating-assistant controls SHALL be available without opening the advanced disclosure

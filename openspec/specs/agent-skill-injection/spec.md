@@ -37,7 +37,7 @@ The system SHALL inject enabled global Skills and enabled Skills bound for the a
 - **WHEN** a generation has multiple applicable bound and enabled Skills
 - **THEN** the system SHALL concatenate their content in deterministic scope, workspace, and Skill-id order
 
-#### Scenario: Disabled binding excluded
+#### Scenario: Disabled Skill excluded
 - **WHEN** a Skill is bound to an API Agent but the Skill is disabled
 - **THEN** the system SHALL exclude that Skill's content from the system prompt
 
@@ -45,9 +45,20 @@ The system SHALL inject enabled global Skills and enabled Skills bound for the a
 - **WHEN** one applicable bound Skill cannot be read but other applicable Skills are healthy
 - **THEN** the system SHALL log the failed Skill, omit it, and inject the healthy Skills
 
-#### Scenario: No bound Skills means no system prompt
+#### Scenario: No bound Skills means no Skill section
 - **WHEN** an API Agent has no applicable bound and enabled Skills
 - **THEN** the system SHALL send the request without a Skill section, unchanged from current behavior apart from any independently assembled memory section
+
+### Requirement: Bounded Skill prompt assembly
+The system SHALL limit each injected Skill to 8,000 characters and all injected Skills together to 16,000 characters without partially truncating a Skill instruction body.
+
+#### Scenario: Skill exceeds individual budget
+- **WHEN** a Skill body exceeds the individual character budget
+- **THEN** the system SHALL skip it and write a warning through the unified logging boundary
+
+#### Scenario: Aggregate budget exhausted
+- **WHEN** the next deterministically ordered Skill would exceed the remaining aggregate budget
+- **THEN** the system SHALL skip it, continue evaluating later smaller Skills, and log the omission
 
 ### Requirement: Provider-native system prompt placement
 The system SHALL place the assembled system prompt using each wire format's native mechanism rather than a synthetic user-role message.
@@ -72,7 +83,7 @@ The system SHALL proceed with generation when Skill lookup fails rather than fai
 
 #### Scenario: Skill lookup fails
 - **WHEN** looking up an API agent's bound Skills fails
-- **THEN** the system SHALL log the failure and send the request without a system prompt
+- **THEN** the system SHALL log the failure and send the request without a Skill section while preserving any independently assembled system-prompt sections
 
 ### Requirement: Web runtime parity
 The Web/mock runtime SHALL expose equivalent Skill-to-API-agent binding behavior and a deterministic signal that bound Skills influenced a mock response.

@@ -1,5 +1,8 @@
 {
   "app.error.title": "ページの読み込みに失敗しました",
+  "app.bootstrapFailure.title": "VaneHub を起動できませんでした",
+  "app.bootstrapFailure.description": "アプリ画面を読み込めませんでした。再試行しても、実行中のセッションが重複して開始されることはありません。",
+  "app.bootstrapFailure.retry": "再読み込み",
   "featureLoad.loading": "機能を読み込み中...",
   "featureLoad.error": "この機能をロードできませんでした。",
   "featureLoad.retry": "再試行",

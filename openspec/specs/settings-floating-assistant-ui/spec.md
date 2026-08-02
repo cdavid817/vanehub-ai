@@ -26,10 +26,10 @@ The Basic Configuration page SHALL provide a localized floating-assistant settin
 - **WHEN** the floating-assistant setting renders in `futuristic` or `minimal` style and either supported language
 - **THEN** it SHALL use shared settings primitives, semantic tokens, accessible focus/disabled states, and synchronized zh-CN/en translation keys
 
-### Requirement: Bottom-positioned floating assistant setting
+### Requirement: Startup and window floating assistant setting
 The Basic Configuration page SHALL place the floating-assistant setting inside the startup and window behavior group while preserving its localized service-backed behavior.
 
-#### Scenario: Render floating assistant at bottom
+#### Scenario: Group floating assistant with window behavior
 - **WHEN** Basic Configuration renders
 - **THEN** the floating-assistant control SHALL appear with launch-on-startup under the localized startup and window behavior group
 - **AND** SHALL remain available without opening advanced configuration

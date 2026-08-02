@@ -1,8 +1,11 @@
 # application-localization Specification
 
 ## Purpose
-TBD - created by archiving change add-common-application-locales. Update Purpose after archive.
+
+Define the supported application locale catalog, bundled frontend resource guarantees, locale-correct formatting, and native desktop localization behavior.
+
 ## Requirements
+
 ### Requirement: Supported application locale catalog
 The application SHALL define one deterministic catalog of canonical BCP 47 locale ids for `zh-CN`, `en`, `zh-TW`, `ja`, and `ko`, and SHALL treat `zh-CN` as the default and fallback locale.
 

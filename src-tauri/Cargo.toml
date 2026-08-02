@@ -57,6 +57,7 @@ tracing-opentelemetry = { version = "=0.33.0", default-features = false }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]

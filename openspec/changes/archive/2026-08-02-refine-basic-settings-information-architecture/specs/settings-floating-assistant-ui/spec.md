@@ -1,6 +1,11 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Bottom-positioned floating assistant setting`
+- TO: `### Requirement: Startup and window floating assistant setting`
+
 ## MODIFIED Requirements
 
-### Requirement: Bottom-positioned floating assistant setting
+### Requirement: Startup and window floating assistant setting
 The Basic Configuration page SHALL place the floating-assistant setting inside the startup and window behavior group while preserving its localized service-backed behavior.
 
 #### Scenario: Render floating assistant at bottom

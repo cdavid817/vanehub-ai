@@ -37,11 +37,11 @@ The Skills settings page SHALL display core Skill metrics and a bottom summary f
 - **THEN** the bottom summary SHALL reflect the current visible Skill set and active scope
 
 ### Requirement: Agent mount path panel
-The Skills settings page SHALL show all registered Agents with editable Skill mount paths.
+The Skills settings page SHALL show registered CLI-capable Agents with editable Skill mount paths and SHALL exclude API-only Agents from mount controls.
 
 #### Scenario: Display Agent mount paths
-- **WHEN** registered Agents are loaded
-- **THEN** the page SHALL display each Agent with its current Skill mount path as a code-style label
+- **WHEN** registered CLI-capable Agents are loaded
+- **THEN** the page SHALL display each CLI-capable Agent with its current Skill mount path as a code-style label
 
 #### Scenario: Edit Agent mount path
 - **WHEN** a user changes an Agent mount path
@@ -80,7 +80,7 @@ Each Skill card SHALL provide enablement, CLI Agent mount binding, API Agent pro
 - **WHEN** a user toggles a Skill enabled state
 - **THEN** the page SHALL submit the change through the frontend service boundary, prevent a duplicate pending mutation, and refresh the affected overview state
 
-#### Scenario: Toggle Agent binding
+#### Scenario: Toggle CLI Agent binding
 - **WHEN** a user changes a CLI Agent binding checkbox
 - **THEN** the page SHALL submit a granular bind or unbind operation and SHALL NOT lose another completed checkbox change
 

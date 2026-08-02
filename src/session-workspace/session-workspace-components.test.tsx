@@ -60,6 +60,10 @@ describe("session workspace components", () => {
 
     expect(managedCliAgentIds).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
     expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
+    expect(source).toContain("requestAnimationFrame");
+    expect(source).toContain("fitRef.current?.fit()");
+    expect(source).toContain("resizeAgentTerminal");
+    expect(source).toContain("}, [active]);");
     expect(source).not.toContain("bg-zinc-950");
     // Full-screen TUIs paint 256-color/truecolor backgrounds that no per-class CSS
     // override can catch, so the terminal renders on an opaque dark canvas with a

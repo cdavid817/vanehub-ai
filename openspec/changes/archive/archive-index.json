@@ -1408,6 +1408,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-02",
+                         "changeName":  "recover-webview-white-screen",
+                         "path":  "openspec/changes/archive/2026-08-02-recover-webview-white-screen/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-webview-reliability"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-02",
                          "changeName":  "refine-basic-settings-information-architecture",
                          "path":  "openspec/changes/archive/2026-08-02-refine-basic-settings-information-architecture/",
                          "artifacts":  [
