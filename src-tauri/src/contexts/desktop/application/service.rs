@@ -1,5 +1,5 @@
 use super::{
-    DesktopClockPort, DesktopLogDirectoryPort, DesktopNetworkProxyPort,
+    DesktopClockPort, DesktopLocalePort, DesktopLogDirectoryPort, DesktopNetworkProxyPort,
     DesktopSettingsApplicationError, DesktopSettingsRepository, DesktopStartupPort,
 };
 use crate::contexts::desktop::domain::{
@@ -14,6 +14,7 @@ pub(crate) struct DesktopSettingsApplicationService {
     network_proxy: Arc<dyn DesktopNetworkProxyPort>,
     log_directory: Arc<dyn DesktopLogDirectoryPort>,
     startup: Arc<dyn DesktopStartupPort>,
+    locale: Arc<dyn DesktopLocalePort>,
     defaults: DesktopSettings,
 }
 
@@ -24,6 +25,7 @@ impl DesktopSettingsApplicationService {
         network_proxy: Arc<dyn DesktopNetworkProxyPort>,
         log_directory: Arc<dyn DesktopLogDirectoryPort>,
         startup: Arc<dyn DesktopStartupPort>,
+        locale: Arc<dyn DesktopLocalePort>,
         default_log_directory: impl Into<String>,
     ) -> Self {
         Self {
@@ -32,6 +34,7 @@ impl DesktopSettingsApplicationService {
             network_proxy,
             log_directory,
             startup,
+            locale,
             defaults: DesktopSettings::defaults(default_log_directory),
         }
     }
@@ -56,6 +59,11 @@ impl DesktopSettingsApplicationService {
             }
             DesktopSettingKey::LaunchOnStartup => {
                 self.startup.apply(settings.startup())?;
+            }
+            DesktopSettingKey::ApplicationLanguage => {
+                // Native adapters own diagnostics for refresh failures; persistence and React
+                // must keep the newly selected language even if framework-owned copy cannot refresh.
+                let _ = self.locale.apply(settings.application_language());
             }
             _ => {}
         }

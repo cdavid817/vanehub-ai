@@ -2,14 +2,12 @@ import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { UsageAgentBreakdown as AgentUsage } from "../../../types/chat";
 import { SectionPanel } from "../page-parts";
-import { formatUsageNumber } from "./usage-format";
 
 interface UsageAgentBreakdownProps {
   agents: AgentUsage[];
-  language: string;
 }
 
-export function UsageAgentBreakdown({ agents, language }: UsageAgentBreakdownProps) {
+export function UsageAgentBreakdown({ agents }: UsageAgentBreakdownProps) {
   const { t } = useTranslation();
   return (
     <SectionPanel description={t("usage.agents.description")} title={t("usage.agents.title")}>
@@ -26,13 +24,13 @@ export function UsageAgentBreakdown({ agents, language }: UsageAgentBreakdownPro
                     <span className="truncate">{agent.agentId}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t("usage.agents.responses", { count: formatUsageNumber(agent.responseCount, language) })}
+                    {t("usage.agents.responses", { count: agent.responseCount })}
                   </p>
                 </div>
                 <div className="shrink-0 text-right text-xs">
-                  <p>{t("usage.agents.tokens", { count: formatUsageNumber(agent.reported.totalTokens, language) })}</p>
+                  <p>{t("usage.agents.tokens", { count: agent.reported.totalTokens })}</p>
                   <p className="mt-1 text-muted-foreground">
-                    {t("usage.agents.characters", { count: formatUsageNumber(agent.estimated.totalCharacters, language) })}
+                    {t("usage.agents.characters", { count: agent.estimated.totalCharacters })}
                   </p>
                 </div>
               </div>

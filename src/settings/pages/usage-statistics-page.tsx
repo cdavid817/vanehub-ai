@@ -51,7 +51,7 @@ export function UsageStatisticsPage() {
       ) : null}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
         <UsageTrend daily={stats?.daily ?? []} language={i18n.language} />
-        <UsageAgentBreakdown agents={stats?.byAgent ?? []} language={i18n.language} />
+        <UsageAgentBreakdown agents={stats?.byAgent ?? []} />
       </div>
 
       <UsageAccountingNote generatedAt={stats?.generatedAt} language={i18n.language} />

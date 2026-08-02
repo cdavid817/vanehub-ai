@@ -1,4 +1,5 @@
-import { appFontSizes, appLanguages, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { isSupportedAppLanguage } from "../i18n/supported-locales";
+import { appFontSizes, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
@@ -41,7 +42,7 @@ export const defaultAppSettings: AppSettings = {
 };
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
-  return typeof value === "string" && appLanguages.includes(value as AppLanguage);
+  return isSupportedAppLanguage(value);
 }
 
 export function isAppFontSize(value: unknown): value is AppFontSize {

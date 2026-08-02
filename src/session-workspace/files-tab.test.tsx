@@ -2,7 +2,7 @@
 
 import { screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
 import { FilesTab } from "./files-tab";
 
@@ -19,7 +19,7 @@ vi.mock("../services/runtime-agent-client", () => ({
 
 describe("FilesTab", () => {
   beforeAll(async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
   });
 
   beforeEach(() => {

@@ -1,10 +1,11 @@
 import { ChevronDown, Clock3, FileJson2, RefreshCw, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
+import { formatAppDateTime } from "../../../i18n/format";
 import type { CliConfigStatus } from "../../../types/cli-agent-config";
 
 export function CliConfigStatusSummary({ status }: { status: CliConfigStatus }) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const tone = status.driftState === "applied" ? "success" : status.driftState === "drifted" || status.driftState === "malformed" ? "warning" : "muted";
 
   return (
@@ -12,7 +13,7 @@ export function CliConfigStatusSummary({ status }: { status: CliConfigStatus }) 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck className="h-4 w-4 text-primary" />{t("agentConfigurations.status.title")}</div>
         <div className="flex flex-wrap gap-2"><Badge tone={tone}>{t(`agents.globalConfig.drift.${status.driftState}`)}</Badge>{status.simulated ? <Badge tone="muted">{t("agents.globalConfig.webSimulation")}</Badge> : null}</div>
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto"><Clock3 className="h-3.5 w-3.5" />{t("agentConfigurations.status.lastApplied")}: {status.lastAppliedAt ? new Date(status.lastAppliedAt).toLocaleString() : t("agentConfigurations.status.neverApplied")}</p>
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto"><Clock3 className="h-3.5 w-3.5" />{t("agentConfigurations.status.lastApplied")}: {status.lastAppliedAt ? formatAppDateTime(status.lastAppliedAt, i18n.language, { dateStyle: "short", timeStyle: "medium" }) : t("agentConfigurations.status.neverApplied")}</p>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <RefreshCw className="h-3.5 w-3.5" />

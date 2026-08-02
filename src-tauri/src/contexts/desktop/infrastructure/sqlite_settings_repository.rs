@@ -202,6 +202,25 @@ mod tests {
     }
 
     #[test]
+    fn persists_and_restores_a_new_supported_locale_without_a_schema_migration() {
+        let (_directory, _database, repository) = fixture();
+        let mutation =
+            DesktopSettingMutation::parse("applicationLanguage", "zh-TW").expect("locale");
+
+        repository
+            .save_setting(&mutation, "2026-08-02T12:00:00Z")
+            .expect("save locale");
+
+        assert!(repository
+            .load_settings()
+            .expect("settings")
+            .contains(&StoredDesktopSetting {
+                key: DesktopSettingKey::ApplicationLanguage,
+                value: "zh-TW".to_string(),
+            }));
+    }
+
+    #[test]
     fn upsert_keeps_created_at_and_updates_value_and_timestamp() {
         let (_directory, database, repository) = fixture();
         let mutation = DesktopSettingMutation::parse("fontSize", "16px").expect("mutation");

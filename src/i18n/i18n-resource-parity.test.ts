@@ -1,8 +1,21 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { i18n } from ".";
+import { activateAppLanguage, i18n } from ".";
 import en from "./locales/en.json";
+import ja from "./locales/ja.json";
+import ko from "./locales/ko.json";
 import zhCN from "./locales/zh-CN.json";
+import zhTW from "./locales/zh-TW.json";
+import { appLanguages, supportedLocales, type AppLanguage, type TranslationResource } from "./supported-locales";
+
+const resources: Record<AppLanguage, TranslationResource> = {
+  "zh-CN": zhCN,
+  en,
+  "zh-TW": zhTW,
+  ja,
+  ko,
+};
+const canonicalResource: TranslationResource = en;
 
 function findDuplicateKeys(filePath: string): string[] {
   const raw = readFileSync(filePath, "utf8");
@@ -16,41 +29,68 @@ function findDuplicateKeys(filePath: string): string[] {
   return [...duplicates];
 }
 
+function interpolationVariables(value: string): string[] {
+  return [...value.matchAll(/\{\{\s*([^,}\s]+)(?:\s*,[^}]*)?}}/g)]
+    .map((match) => match[1])
+    .sort();
+}
+
 describe("i18n resources", () => {
-  it("keeps zh-CN and en key sets aligned", () => {
-    expect(Object.keys(en).sort()).toEqual(Object.keys(zhCN).sort());
+  it("keeps the locale registry and bundled resources aligned", () => {
+    expect(appLanguages).toEqual(["zh-CN", "en", "zh-TW", "ja", "ko"]);
+    expect(supportedLocales.map(({ id }) => id)).toEqual(Object.keys(resources));
   });
 
-  it("has no duplicate keys in the raw locale JSON source", () => {
-    expect(findDuplicateKeys("src/i18n/locales/zh-CN.json")).toEqual([]);
-    expect(findDuplicateKeys("src/i18n/locales/en.json")).toEqual([]);
+  it.each(appLanguages)("keeps %s keys and interpolation variables aligned with English", (language) => {
+    const resource = resources[language];
+    expect(Object.keys(resource).sort()).toEqual(Object.keys(canonicalResource).sort());
+    for (const key of Object.keys(canonicalResource)) {
+      expect(interpolationVariables(resource[key]), `${language}:${key}`).toEqual(interpolationVariables(canonicalResource[key]));
+    }
   });
 
-  it("provides representative page translations in both supported languages", async () => {
-    await i18n.changeLanguage("zh-CN");
-    expect(i18n.t("agents.title")).toBe("Agent 管理");
-    expect(i18n.t("sdk.title")).toBe("SDK 依赖");
-    expect(i18n.t("mcp.title")).toBe("MCP 服务器");
-    expect(i18n.t("createSession.title")).toBe("创建会话");
-    expect(i18n.t("chat.config.configure")).toBe("配置");
-    expect(i18n.t("im.platform.weixin.name")).toBe("个人微信");
-    expect(i18n.t("im.routing.title")).toBe("默认路由");
-    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("定时任务");
-    expect(i18n.t("loops.title")).toBe("循环工程");
-    expect(i18n.t("loops.inspection.back")).toBe("返回循环工程");
-    expect(i18n.t("loops.web.evidence.decisionReady")).toContain("独立验证者建议验收");
+  it.each(appLanguages)("has no duplicate keys in the raw %s locale source", (language) => {
+    expect(findDuplicateKeys(`src/i18n/locales/${language}.json`)).toEqual([]);
+  });
 
-    await i18n.changeLanguage("en");
-    expect(i18n.t("agents.title")).toBe("Agent Management");
-    expect(i18n.t("sdk.title")).toBe("SDK Dependencies");
-    expect(i18n.t("mcp.title")).toBe("MCP Servers");
-    expect(i18n.t("createSession.title")).toBe("Create Session");
-    expect(i18n.t("chat.config.configure")).toBe("Configure");
-    expect(i18n.t("im.platform.weixin.name")).toBe("Personal WeChat");
-    expect(i18n.t("im.routing.title")).toBe("Default Routing");
-    expect(i18n.t("layout.activityBar.scheduledTasks")).toBe("Scheduled tasks");
-    expect(i18n.t("loops.title")).toBe("Loops");
-    expect(i18n.t("loops.inspection.back")).toBe("Back to Loop Center");
-    expect(i18n.t("loops.web.evidence.decisionReady")).toContain("independent Verifier recommends acceptance");
+  it("uses complete i18next v4 plural pairs for count-sensitive messages", () => {
+    const pluralKeys = Object.keys(canonicalResource).filter((key) => /_(?:one|other)$/.test(key));
+    const pluralBases = new Set(pluralKeys.map((key) => key.replace(/_(?:one|other)$/, "")));
+    expect(pluralBases.size).toBeGreaterThan(0);
+    for (const base of pluralBases) {
+      expect(canonicalResource).toHaveProperty(`${base}_one`);
+      expect(canonicalResource).toHaveProperty(`${base}_other`);
+      expect(canonicalResource).not.toHaveProperty(base);
+      for (const language of appLanguages) {
+        expect(resources[language][`${base}_one`], `${language}:${base}_one`).toContain("{{count, number}}");
+        expect(resources[language][`${base}_other`], `${language}:${base}_other`).toContain("{{count, number}}");
+      }
+    }
+  });
+
+  it.each([
+    ["zh-CN", "Agent 管理"],
+    ["en", "Agent Management"],
+    ["zh-TW", "Agent 管理"],
+    ["ja", "Agent 管理"],
+    ["ko", "Agent 관리"],
+  ] as const)("activates representative %s translations without fallback copy", async (language, title) => {
+    await activateAppLanguage(language);
+    expect(i18n.t("agents.title")).toBe(title);
+    expect(i18n.resolvedLanguage).toBe(language);
+  });
+
+  it("selects English plural forms and formats numeric counts", async () => {
+    await activateAppLanguage("en");
+    expect(i18n.t("cli.installationsCount", { count: 1 })).toBe("1 installation");
+    expect(i18n.t("cli.installationsCount", { count: 1200 })).toBe("1,200 installations");
+  });
+
+  it("formats representative locale-sensitive dates, numbers, and percentages", () => {
+    const date = new Date("2026-08-02T00:00:00.000Z");
+    expect(new Intl.DateTimeFormat("ja", { dateStyle: "long", timeZone: "UTC" }).format(date)).toContain("2026年");
+    expect(new Intl.DateTimeFormat("ko", { dateStyle: "long", timeZone: "UTC" }).format(date)).toContain("2026년");
+    expect(new Intl.NumberFormat("zh-TW").format(12_345)).toContain("12,345");
+    expect(new Intl.NumberFormat("ko", { style: "percent" }).format(0.25)).toContain("25%");
   });
 });

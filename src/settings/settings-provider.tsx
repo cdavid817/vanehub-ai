@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { i18n } from "../i18n";
+import { activateAppLanguage, i18n } from "../i18n";
 import { settingsService } from "../services/runtime-settings-client";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "../services/settings-service";
 import type { AppSettingKey, AppSettings, ClientLogEvent, DataManagementInfo, DetectedNetworkProxy, NetworkProxyTestResult, NodeInfo } from "../types/settings";
@@ -24,13 +24,15 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-async function applySettings(settings: AppSettings) {
+type ActivateLanguage = typeof activateAppLanguage;
+
+async function applySettings(settings: AppSettings, activateLanguage: ActivateLanguage) {
   document.documentElement.style.fontSize = settings.fontSize;
   document.documentElement.dataset.theme = settings.theme;
-  await i18n.changeLanguage(settings.applicationLanguage);
+  await activateLanguage(settings.applicationLanguage);
 }
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
+export function SettingsProvider({ children, activateLanguage = activateAppLanguage }: { children: ReactNode; activateLanguage?: ActivateLanguage }) {
   const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
   const [nodeInfo, setNodeInfo] = useState<NodeInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,16 +52,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     async function loadSettings() {
       try {
-        const loadedSettings = normalizeAppSettings(await settingsService.getSettings());
+        let loadedSettings: AppSettings;
+        try {
+          loadedSettings = normalizeAppSettings(await settingsService.getSettings());
+        } catch (err) {
+          if (cancelled) return;
+          const message = err instanceof Error ? err.message : String(err);
+          const fallback = defaultAppSettings;
+          await applySettings(fallback, activateLanguage);
+          if (cancelled) return;
+          setSettings(fallback);
+          setError(i18n.t("basic.settingsLoadError"));
+          void settingsService.reportClientLogEvent({
+            level: "error",
+            kind: "critical-operation-failure",
+            message,
+            source: "SettingsProvider.loadSettings",
+          }).catch(() => undefined);
+          return;
+        }
         if (cancelled) return;
-        await applySettings(loadedSettings);
+        await applySettings(loadedSettings, activateLanguage);
         if (cancelled) return;
         setSettings(loadedSettings);
         setError(null);
       } catch (err) {
         if (cancelled) return;
         const fallback = defaultAppSettings;
-        await applySettings(fallback);
+        await applySettings(fallback, activateLanguage);
         if (cancelled) return;
         setSettings(fallback);
         setError(err instanceof Error ? err.message : String(err));
@@ -72,7 +92,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [refreshNodeInfo]);
+  }, [activateLanguage, refreshNodeInfo]);
 
   useEffect(() => {
     let active = true;
@@ -82,8 +102,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         try {
           const nextSettings = normalizeAppSettings(await settingsService.getSettings());
           if (!active) return;
+          await applySettings(nextSettings, activateLanguage);
+          if (!active) return;
           setSettings(nextSettings);
-          void applySettings(nextSettings);
           setError(null);
         } catch (err) {
           if (active) setError(err instanceof Error ? err.message : String(err));
@@ -97,7 +118,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       active = false;
       unsubscribe?.();
     };
-  }, []);
+  }, [activateLanguage]);
 
   const saveSetting = useCallback(
     async <K extends AppSettingKey>(key: K, value: AppSettings[K]) => {
@@ -106,22 +127,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setError(null);
       const previousSettings = settings;
       const optimisticSettings = normalizeAppSettings({ ...settings, [key]: value });
-      setSettings(optimisticSettings);
-      void applySettings(optimisticSettings);
       try {
+        await applySettings(optimisticSettings, activateLanguage);
+        setSettings(optimisticSettings);
         const nextSettings = normalizeAppSettings(await settingsService.saveSetting({ key, value }));
+        await applySettings(nextSettings, activateLanguage);
         setSettings(nextSettings);
-        void applySettings(nextSettings);
       } catch (err) {
         setSettings(previousSettings);
-        void applySettings(previousSettings);
+        await applySettings(previousSettings, activateLanguage);
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
         setSavingKey(null);
       }
     },
-    [settings],
+    [activateLanguage, settings],
   );
 
   const resetSettings = useCallback(async () => {
@@ -147,22 +168,22 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setError(null);
       const previousSettings = settings;
       const optimisticSettings = normalizeAppSettings({ ...settings, launchOnStartup: enabled });
-      setSettings(optimisticSettings);
-      void applySettings(optimisticSettings);
       try {
+        await applySettings(optimisticSettings, activateLanguage);
+        setSettings(optimisticSettings);
         const nextSettings = normalizeAppSettings(await settingsService.setLaunchOnStartup(enabled));
+        await applySettings(nextSettings, activateLanguage);
         setSettings(nextSettings);
-        void applySettings(nextSettings);
       } catch (err) {
         setSettings(previousSettings);
-        void applySettings(previousSettings);
+        await applySettings(previousSettings, activateLanguage);
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
         setSavingKey(null);
       }
     },
-    [settings],
+    [activateLanguage, settings],
   );
 
   const getDataManagementInfo = useCallback(async () => {

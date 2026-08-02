@@ -193,7 +193,7 @@ mod tests {
     fn settings_response_preserves_the_complete_legacy_contract() {
         let mut settings = DesktopSettings::defaults("D:/data/logs");
         settings
-            .apply(DesktopSettingMutation::parse("applicationLanguage", "en").expect("language"));
+            .apply(DesktopSettingMutation::parse("applicationLanguage", "ko").expect("language"));
         settings.apply(DesktopSettingMutation::parse("fontSize", "18px").expect("font"));
         settings.apply(DesktopSettingMutation::parse("theme", "minimal").expect("theme"));
         let value = serde_json::to_value(settings_to_dto(DesktopSettingsView::native(settings)))
@@ -202,7 +202,7 @@ mod tests {
         assert_eq!(
             value,
             json!({
-                "applicationLanguage": "en",
+                "applicationLanguage": "ko",
                 "fontSize": "18px",
                 "theme": "minimal",
                 "defaultFolderPath": "",

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { formatAppDateTime } from "../../../i18n/format";
 import type { ImConnectorView } from "../../../contracts/im";
 import { cn } from "../../../lib/utils";
 import { compactCredentials, connectorDocumentation, credentialFields, hasCompleteCredentials } from "./im-form";
@@ -24,7 +25,7 @@ const statusTone = (lifecycle: ImConnectorView["health"]["lifecycle"]): "success
 };
 
 export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, onAction, authorization }: ImConnectorRowProps) {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const fields = view.descriptor.kind === "weixin" ? [] : credentialFields[view.descriptor.kind];
@@ -61,7 +62,7 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
               <Badge tone={statusTone(view.health.lifecycle)}>{t(`im.status.${view.health.lifecycle}`)}</Badge>
             </span>
             <span className="mt-1 block truncate text-xs text-muted-foreground">{t(`im.platform.${view.descriptor.kind}.description`)}</span>
-            <span className="mt-1 block text-xs text-muted-foreground">{t("im.status.updatedAt", { time: new Date(view.health.updatedAt).toLocaleTimeString() })}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">{t("im.status.updatedAt", { time: formatAppDateTime(view.health.updatedAt, i18n.language, { timeStyle: "medium" }) })}</span>
           </span>
           <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", expanded && "rotate-180")} aria-hidden="true" />
         </button>

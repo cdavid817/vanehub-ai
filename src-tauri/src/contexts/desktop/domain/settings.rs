@@ -6,13 +6,24 @@ pub(crate) const DEFAULT_NETWORK_PROXY_BYPASS: &str = "localhost,127.0.0.1,::1";
 pub(crate) enum ApplicationLanguage {
     ChineseSimplified,
     English,
+    ChineseTraditional,
+    Japanese,
+    Korean,
 }
 
 impl ApplicationLanguage {
+    pub(crate) const SUPPORTED_IDS: [&'static str; 5] = ["zh-CN", "en", "zh-TW", "ja", "ko"];
+
     pub(crate) fn parse(value: &str) -> Option<Self> {
+        if !Self::SUPPORTED_IDS.contains(&value) {
+            return None;
+        }
         match value {
             "zh-CN" => Some(Self::ChineseSimplified),
             "en" => Some(Self::English),
+            "zh-TW" => Some(Self::ChineseTraditional),
+            "ja" => Some(Self::Japanese),
+            "ko" => Some(Self::Korean),
             _ => None,
         }
     }
@@ -21,7 +32,14 @@ impl ApplicationLanguage {
         match self {
             Self::ChineseSimplified => "zh-CN",
             Self::English => "en",
+            Self::ChineseTraditional => "zh-TW",
+            Self::Japanese => "ja",
+            Self::Korean => "ko",
         }
+    }
+
+    pub(crate) fn resolve(value: &str) -> Self {
+        Self::parse(value).unwrap_or(Self::ChineseSimplified)
     }
 }
 
@@ -440,6 +458,24 @@ mod tests {
             AutomaticArchivalSettings::new(true, 10).expect("archival defaults")
         );
         assert!(!settings.startup().enabled());
+    }
+
+    #[test]
+    fn application_language_supports_the_frontend_locale_contract() {
+        assert_eq!(
+            ApplicationLanguage::SUPPORTED_IDS,
+            ["zh-CN", "en", "zh-TW", "ja", "ko"]
+        );
+        for id in ApplicationLanguage::SUPPORTED_IDS {
+            assert_eq!(
+                ApplicationLanguage::parse(id).map(ApplicationLanguage::as_str),
+                Some(id)
+            );
+        }
+        assert_eq!(
+            ApplicationLanguage::resolve("unsupported"),
+            ApplicationLanguage::ChineseSimplified
+        );
     }
 
     #[test]

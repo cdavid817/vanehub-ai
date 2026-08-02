@@ -2,7 +2,7 @@
 
 import { screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { i18n } from "../i18n";
+import { activateAppLanguage } from "../i18n";
 import { renderWithAppProviders } from "../test/render";
 import type { GitDiffHunk, GitStatusEntry } from "../types/session-workspace";
 import { ChangesTab } from "./changes-tab";
@@ -62,7 +62,7 @@ const sampleDiffFiles = [
 
 describe("ChangesTab", () => {
   beforeAll(async () => {
-    await i18n.changeLanguage("en");
+    await activateAppLanguage("en");
   });
 
   beforeEach(() => {
