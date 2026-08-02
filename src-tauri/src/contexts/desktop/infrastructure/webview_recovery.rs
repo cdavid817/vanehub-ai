@@ -24,7 +24,7 @@ enum WebviewFailureKind {
     UnknownProcessExited,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 impl WebviewFailureKind {
     fn label(self) -> &'static str {
         match self {
@@ -49,7 +49,7 @@ enum WebviewRecoveryAction {
     Restart,
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 impl WebviewRecoveryAction {
     fn label(self) -> &'static str {
         match self {
