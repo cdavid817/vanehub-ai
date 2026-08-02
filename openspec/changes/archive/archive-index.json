@@ -1252,7 +1252,8 @@
                          "artifacts":  [
                                            "proposal",
                                            "design",
-                                           "tasks"
+                                           "tasks",
+                                           "verification"
                                        ],
                          "capabilities":  [
                                               "agent-mcp-tools"

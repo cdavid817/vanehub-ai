@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { LucideIcon } from "lucide-react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { cn } from "../../lib/utils";
 
@@ -42,13 +42,34 @@ export function SectionPanel({
   children,
   className,
   icon: Icon,
+  variant = "card",
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   className?: string;
   icon?: LucideIcon;
+  variant?: "card" | "settings";
 }) {
+  if (variant === "settings") {
+    return (
+      <section className={cn("overflow-hidden rounded-xl border border-border bg-background", className)}>
+        <div className="flex items-start gap-3 border-b border-border bg-muted/20 px-5 py-4 sm:px-6">
+          {Icon ? (
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--nav-active-soft))] text-primary">
+              <Icon className="h-4 w-4" aria-hidden="true" />
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h3 className="wrap-break-word text-sm font-semibold leading-5">{title}</h3>
+            {description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-muted-foreground">{description}</p> : null}
+          </div>
+        </div>
+        {children}
+      </section>
+    );
+  }
+
   return (
     <section className={cn("rounded-lg border border-border bg-background p-5 shadow-xs sm:p-6", className)}>
       <div className="mb-5 flex gap-4 border-b border-border/70 pb-4">
@@ -64,6 +85,49 @@ export function SectionPanel({
       </div>
       {children}
     </section>
+  );
+}
+
+export function SettingsRow({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid min-h-18 gap-3 border-b border-border/70 px-5 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(180px,auto)] sm:items-center sm:px-6">
+      <div className="min-w-0">
+        <div className="text-sm font-medium leading-5 text-foreground">{title}</div>
+        {description ? <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</div> : null}
+      </div>
+      <div className="min-w-0 sm:justify-self-end">{children}</div>
+    </div>
+  );
+}
+
+export function SettingsDisclosure({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="group overflow-hidden rounded-xl border border-border bg-background">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 hover:bg-muted/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-6">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold leading-5 text-foreground">{title}</span>
+          <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{description}</span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+      </summary>
+      <div className="grid gap-5 border-t border-border bg-muted/10 p-4 sm:p-5">{children}</div>
+    </details>
   );
 }
 

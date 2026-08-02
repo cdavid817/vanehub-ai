@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FolderOpen, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
@@ -6,7 +6,7 @@ import { FolderOpenerIcon } from "../../components/folder-opener-icon";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { agentService } from "../../services/runtime-agent-client";
 import type { FolderOpenerAvailability, FolderOpenerId, FolderOpenerPreferences } from "../../types/folder-opener";
-import { SectionPanel } from "./page-parts";
+import { SettingsRow } from "./page-parts";
 
 export function FolderOpenersSection() {
   const { t } = useTranslation();
@@ -51,16 +51,23 @@ export function FolderOpenersSection() {
   }
 
   return (
-    <SectionPanel icon={FolderOpen} title={t("folderOpeners.title")} description={t("folderOpeners.description")}>
-      <div className="grid gap-4">
-        {error ? <div className="rounded border p-2 text-xs ucd-status-danger">{error}</div> : null}
-        <label className="grid max-w-md gap-1.5 text-sm">
-          <span className="font-medium text-muted-foreground">{t("folderOpeners.default")}</span>
-          <select className="ucd-input h-9 w-full rounded px-3" disabled={busy || !preferences} value={preferences?.configuredDefaultOpenerId ?? "file-explorer"} onChange={(event) => void save(event.target.value as FolderOpenerId, preferences?.enabledOpenerIds ?? ["file-explorer"])}>
+    <>
+      {error ? <div className="m-5 rounded border p-2 text-xs ucd-status-danger">{error}</div> : null}
+      <SettingsRow description={t("folderOpeners.defaultDescription")} title={t("folderOpeners.default")}>
+        <label className="block text-sm">
+          <span className="sr-only">{t("folderOpeners.default")}</span>
+          <select className="ucd-input h-9 min-w-48 rounded-lg px-3" disabled={busy || !preferences} value={preferences?.configuredDefaultOpenerId ?? "file-explorer"} onChange={(event) => void save(event.target.value as FolderOpenerId, preferences?.enabledOpenerIds ?? ["file-explorer"])}>
             {openers.filter((item) => item.status === "available" && preferences?.enabledOpenerIds.includes(item.id)).map((item) => <option key={item.id} value={item.id}>{t(`folderOpeners.name.${item.id}`)}</option>)}
           </select>
         </label>
-        <div className="grid gap-3 lg:grid-cols-2">
+      </SettingsRow>
+      <details className="group border-t border-border/70">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-sm font-medium text-foreground hover:bg-muted/30 sm:px-6">
+          {t("folderOpeners.manage")}
+          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+        </summary>
+        <div className="grid gap-4 border-t border-border/70 p-5 sm:p-6">
+          <div className="grid gap-3 lg:grid-cols-2">
           {(preferences?.enabledOpenerIds ?? [])
             .map((openerId) => openers.find((item) => item.id === openerId))
             .filter((opener): opener is FolderOpenerAvailability => Boolean(opener))
@@ -69,7 +76,7 @@ export function FolderOpenersSection() {
             const checked = preferences?.enabledOpenerIds.includes(opener.id) ?? false;
             const locked = opener.id === "file-explorer";
             const index = preferences?.enabledOpenerIds.indexOf(opener.id) ?? -1;
-            return <label className="grid gap-3 rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3" key={opener.id}>
+            return <label className="grid gap-3 rounded-lg border border-border bg-muted/20 p-3" key={opener.id}>
               <span className="flex items-start gap-3">
                 <input checked={checked} className="mt-2" disabled={busy || locked || !preferences} onChange={(event) => {
                 if (!preferences) return;
@@ -99,10 +106,11 @@ export function FolderOpenersSection() {
               </span> : null}
             </label>;
           })}
+          </div>
+          {preferences?.fallbackActive ? <div className="rounded border p-2 text-xs ucd-status-warning">{t("folderOpeners.fallbackActive")}</div> : null}
+          <Button className="justify-self-start" disabled={busy} onClick={() => void load(true)} variant="outline"><RefreshCw className={busy ? "h-4 w-4 animate-spin" : "h-4 w-4"} />{t("folderOpeners.refresh")}</Button>
         </div>
-        {preferences?.fallbackActive ? <div className="rounded border p-2 text-xs ucd-status-warning">{t("folderOpeners.fallbackActive")}</div> : null}
-        <Button className="justify-self-start" disabled={busy} onClick={() => void load(true)} variant="outline"><RefreshCw className={busy ? "h-4 w-4 animate-spin" : "h-4 w-4"} />{t("folderOpeners.refresh")}</Button>
-      </div>
-    </SectionPanel>
+      </details>
+    </>
   );
 }
