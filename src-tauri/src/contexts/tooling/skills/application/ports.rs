@@ -1,7 +1,7 @@
 use super::{
     AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
-    SkillDocument, SkillDriftReport, SkillFilesystemTransaction, SkillImportedSource,
-    SkillCompatibleAgent, SkillLogEvent, SkillMountRepair, SkillRecord, SkillSourceRefresh,
+    SkillCompatibleAgent, SkillDocument, SkillDriftReport, SkillFilesystemTransaction,
+    SkillImportedSource, SkillLogEvent, SkillMountRepair, SkillRecord, SkillSourceRefresh,
 };
 use crate::contexts::tooling::skills::domain::{
     SkillBindingPlan, SkillDriftInspection, SkillDriftIssue, SkillId, SkillKey, SkillLocation,

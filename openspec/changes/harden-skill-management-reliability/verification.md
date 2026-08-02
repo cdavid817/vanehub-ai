@@ -10,6 +10,7 @@ Verified on 2026-08-02.
 
 ## Native
 
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`: passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: passed, 1,030 tests passed and 3 fixture-only tests ignored; architecture tests also passed 11/11.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: passed.
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`: passed.
@@ -21,6 +22,7 @@ Verified on 2026-08-02.
 
 ## Verification Remediation
 
+- Linux CI rustfmt output was applied to the nine affected Rust files, and the native format, check, Clippy, and test gates were rerun successfully.
 - Loading and failed overview requests no longer render healthy empty-state modules.
 - Stale edits remain in the dialog with an explicit latest-document reload; edit-preview failures use a tracked mutation error state.
 - Web Skill mutations enforce native-compatible id, required metadata, workspace normalization, source-kind, and observable import path validation.

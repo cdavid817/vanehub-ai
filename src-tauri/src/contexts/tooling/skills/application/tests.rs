@@ -5,9 +5,9 @@ use crate::contexts::tooling::skills::domain::{
     SkillKey, SkillLocation, SkillMetadata, SkillMountObservation, SkillMountPath, SkillScope,
     SkillSource, SkillSourceInspection,
 };
+use crate::test_support::TempDirectory;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
-use crate::test_support::TempDirectory;
 
 struct RepositoryState {
     records: BTreeMap<SkillKey, SkillRecord>,
@@ -145,11 +145,16 @@ impl SkillRepository for FakeRepository {
                 kind: SkillAgentKind::Cli,
             })
             .collect::<Vec<_>>();
-        agents.extend(state.api_agents.iter().map(|agent_id| SkillCompatibleAgent {
-            id: agent_id.clone(),
-            display_name: agent_id.clone(),
-            kind: SkillAgentKind::Api,
-        }));
+        agents.extend(
+            state
+                .api_agents
+                .iter()
+                .map(|agent_id| SkillCompatibleAgent {
+                    id: agent_id.clone(),
+                    display_name: agent_id.clone(),
+                    kind: SkillAgentKind::Api,
+                }),
+        );
         Ok(agents)
     }
 
@@ -1264,7 +1269,10 @@ fn binding_to_an_unknown_agent_is_rejected() {
 }
 
 fn canonical_test_path(directory: &TempDirectory) -> String {
-    let canonical = directory.path().canonicalize().expect("canonical test path");
+    let canonical = directory
+        .path()
+        .canonicalize()
+        .expect("canonical test path");
     let value = canonical.to_string_lossy();
     value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
 }
@@ -1356,7 +1364,10 @@ fn granular_cli_bindings_do_not_lose_independent_concurrent_changes() {
     let second_thread = std::thread::spawn(move || {
         second.bind_skill_to_cli_agent(second_key, "claude-code".to_string())
     });
-    first_thread.join().expect("first thread").expect("first bind");
+    first_thread
+        .join()
+        .expect("first thread")
+        .expect("first bind");
     second_thread
         .join()
         .expect("second thread")
@@ -1460,7 +1471,10 @@ fn bound_skill_prompts_are_workspace_isolated_and_skip_one_unreadable_source() {
         .expect("workspace prompts");
 
     assert_eq!(
-        prompts.iter().map(|prompt| prompt.id.as_str()).collect::<Vec<_>>(),
+        prompts
+            .iter()
+            .map(|prompt| prompt.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["first-workspace-skill"]
     );
     assert!(fixture

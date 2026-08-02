@@ -48,3 +48,4 @@
 - [x] 7.3 Align Web Skill identity, scope, and import validation outcomes with the native boundary and add parity tests.
 - [x] 7.4 Instrument the batch overview repository test to prove SQL statement count remains constant as Skill count grows.
 - [x] 7.5 Add native import tests for file-count, aggregate-size, and source/destination overlap limits, then rerun all required validation.
+- [x] 7.6 Apply repository rustfmt output and rerun native quality gates after the Linux CI formatting failure.

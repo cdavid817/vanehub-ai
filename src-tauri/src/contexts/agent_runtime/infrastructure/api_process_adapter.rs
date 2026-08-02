@@ -720,7 +720,9 @@ fn resolve_system_prompt(
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
-    let skill_section = match skills.bound_skill_prompts(agent_id, request.session.folder.as_deref()) {
+    let skill_section = match skills
+        .bound_skill_prompts(agent_id, request.session.folder.as_deref())
+    {
         Ok(prompts) if prompts.is_empty() => None,
         Ok(prompts) => format_system_prompt(&prompts, logging, clock, request),
         Err(error) => {
@@ -794,7 +796,10 @@ fn format_system_prompt(
             let _ = logging.record(AgentLog {
                 level: AgentLogLevel::Warn,
                 category: "session.runtime.api.skills".to_string(),
-                message: format!("Skipped Skill {} because it exceeds the {reason}", prompt.id),
+                message: format!(
+                    "Skipped Skill {} because it exceeds the {reason}",
+                    prompt.id
+                ),
                 agent_id: Some(request.agent.id.clone()),
                 session_id: Some(request.session.id.clone()),
                 operation_id: Some(request.operation_id.clone()),

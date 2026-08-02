@@ -1,7 +1,7 @@
 use crate::contexts::tooling::skills::application::{
-    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApiBindingRepository,
-    SkillAgentKind, SkillApplicationError, SkillCompatibleAgent, SkillDriftReport, SkillRecord,
-    SkillRepository,
+    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillAgentKind,
+    SkillApiBindingRepository, SkillApplicationError, SkillCompatibleAgent, SkillDriftReport,
+    SkillRecord, SkillRepository,
 };
 use crate::contexts::tooling::skills::domain::{
     default_mount_path, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
@@ -124,9 +124,7 @@ impl SkillRepository for SqliteSkillRepository {
     fn compatible_agents(&self) -> Result<Vec<SkillCompatibleAgent>, SkillApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
-            .prepare(
-                "SELECT id, display_name, launch_kind FROM agents ORDER BY launch_kind, id",
-            )
+            .prepare("SELECT id, display_name, launch_kind FROM agents ORDER BY launch_kind, id")
             .map_err(repository_error)?;
         let agents = statement
             .query_map([], |row| {
@@ -414,7 +412,10 @@ impl SkillApiBindingRepository for SqliteSkillRepository {
             )
             .map_err(repository_error)?;
         let rows = statement
-            .query_map(params![agent_id, workspace_path.unwrap_or("")], SkillRow::read)
+            .query_map(
+                params![agent_id, workspace_path.unwrap_or("")],
+                SkillRow::read,
+            )
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
@@ -1493,7 +1494,9 @@ mod tests {
             )
             .expect("invalid row count");
         let indexes = connection
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_skill%'")
+            .prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_skill%'",
+            )
             .expect("index query")
             .query_map([], |row| row.get::<_, String>(0))
             .expect("index rows")
@@ -1502,9 +1505,7 @@ mod tests {
         assert_eq!(invalid_rows, 0);
         assert!(indexes.contains(&"idx_skills_scope_workspace_source_id".to_string()));
         assert!(indexes.contains(&"idx_skill_agent_bindings_agent_scope_workspace".to_string()));
-        assert!(indexes.contains(
-            &"idx_skill_api_bindings_agent_scope_workspace_skill".to_string()
-        ));
+        assert!(indexes.contains(&"idx_skill_api_bindings_agent_scope_workspace_skill".to_string()));
     }
 
     #[test]
@@ -1548,7 +1549,10 @@ mod tests {
         let fixture = Fixture::new("Skill workspace aliases");
         let workspace = TempDirectory::new("Skill canonical workspace");
         let canonical_path = canonical_path_key(
-            &workspace.path().canonicalize().expect("canonical workspace"),
+            &workspace
+                .path()
+                .canonicalize()
+                .expect("canonical workspace"),
         );
         let alias_path = workspace.path().join(".").to_string_lossy().to_string();
         let canonical_location =

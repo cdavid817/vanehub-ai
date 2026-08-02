@@ -80,7 +80,9 @@ impl SkillApplicationService {
         let api_agent_bindings = self
             .repository
             .api_agent_bindings_for_location(&query.location)?;
-        let inspection = self.filesystem.inspect_drift(&query.location, &skills, &[])?;
+        let inspection = self
+            .filesystem
+            .inspect_drift(&query.location, &skills, &[])?;
         let issues = drift_issues_without_tombstones(detect_drift(&inspection));
         let drift = SkillDriftReport {
             location: query.location.clone(),
@@ -272,10 +274,9 @@ impl SkillApplicationService {
                     })
             })
             .transpose()?;
-        let records = self.api_bindings.enabled_skills_bound_to_api_agent(
-            agent_id,
-            canonical_workspace.as_deref(),
-        )?;
+        let records = self
+            .api_bindings
+            .enabled_skills_bound_to_api_agent(agent_id, canonical_workspace.as_deref())?;
         let mut prompts = Vec::with_capacity(records.len());
         for record in records {
             match self.filesystem.read_source(&record) {
@@ -573,7 +574,10 @@ impl SkillApplicationService {
 
     fn restore_builtin_work(&self, id: &SkillId) -> Result<SkillRecord, SkillApplicationError> {
         let plan = builtin_restore_plan(id)?;
-        if self.repository.get(&SkillKey::new(id.clone(), plan.location.clone()))?.is_some()
+        if self
+            .repository
+            .get(&SkillKey::new(id.clone(), plan.location.clone()))?
+            .is_some()
             || !self.repository.deleted_builtin_ids()?.contains(id)
         {
             return Err(SkillApplicationError::Validation(format!(
@@ -733,9 +737,7 @@ impl SkillApplicationService {
     ) -> Result<SkillDriftReport, SkillApplicationError> {
         self.ensure_builtins()?;
         let records = self.repository.list(location)?;
-        let inspection = self
-            .filesystem
-            .inspect_drift(location, &records, &[])?;
+        let inspection = self.filesystem.inspect_drift(location, &records, &[])?;
         let issues = drift_issues_without_tombstones(detect_drift(&inspection));
         let report = SkillDriftReport {
             location: location.clone(),

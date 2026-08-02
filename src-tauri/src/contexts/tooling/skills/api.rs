@@ -1,11 +1,10 @@
 use crate::contexts::tooling::skills::application::SkillApplicationService;
 
 pub(crate) use crate::contexts::tooling::skills::application::{
-    SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry, SkillCreateRequest,
-    SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult, SkillMountMigrationReport,
-    SkillAgentKind, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord, SkillScopeQuery,
-    SkillSyncResult,
-    SkillUpdateRequest,
+    SkillAgentKind, SkillAgentMountPath, SkillApplicationError as SkillError, SkillBackupEntry,
+    SkillCreateRequest, SkillDriftReport, SkillFailure, SkillImportRequest, SkillListResult,
+    SkillMountMigrationReport, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
+    SkillScopeQuery, SkillSyncResult, SkillUpdateRequest,
 };
 pub(crate) use crate::contexts::tooling::skills::domain::{
     SkillDomainError, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,

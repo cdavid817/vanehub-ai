@@ -791,11 +791,7 @@ mod tests {
 
         let import = filesystem.begin_mutation().expect("import transaction");
         assert!(matches!(
-            filesystem.import_source(
-                &import,
-                &location(),
-                &incoming.path().to_string_lossy()
-            ),
+            filesystem.import_source(&import, &location(), &incoming.path().to_string_lossy()),
             Err(SkillApplicationError::Conflict(_))
         ));
         filesystem.rollback_mutation(import);
@@ -876,7 +872,10 @@ mod tests {
         filesystem.rollback_mutation(transaction);
 
         assert!(error.to_string().contains("file count exceeds 512"));
-        assert!(!home.path().join(".vanehub/skills/many-files-skill").exists());
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/many-files-skill")
+            .exists());
     }
 
     #[test]
@@ -887,8 +886,11 @@ mod tests {
             "SKILL.md",
             "---\nid: oversized-import\nname: Oversized Import\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\ntriggers:\n  - size\n---\n\nbody",
         );
-        std::fs::write(incoming.path().join("payload.bin"), vec![b'x'; 16 * 1024 * 1024])
-            .expect("large payload");
+        std::fs::write(
+            incoming.path().join("payload.bin"),
+            vec![b'x'; 16 * 1024 * 1024],
+        )
+        .expect("large payload");
         let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
         let transaction = filesystem.begin_mutation().expect("import transaction");
 
@@ -902,7 +904,10 @@ mod tests {
         filesystem.rollback_mutation(transaction);
 
         assert!(error.to_string().contains("import size exceeds 16 MiB"));
-        assert!(!home.path().join(".vanehub/skills/oversized-import").exists());
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/oversized-import")
+            .exists());
     }
 
     #[test]
@@ -916,16 +921,17 @@ mod tests {
         let transaction = filesystem.begin_mutation().expect("import transaction");
 
         let error = filesystem
-            .import_source(
-                &transaction,
-                &location(),
-                &home.path().to_string_lossy(),
-            )
+            .import_source(&transaction, &location(), &home.path().to_string_lossy())
             .expect_err("overlap rejection");
         filesystem.rollback_mutation(transaction);
 
-        assert!(error.to_string().contains("overlaps the managed Skill destination"));
-        assert!(!home.path().join(".vanehub/skills/overlapping-import").exists());
+        assert!(error
+            .to_string()
+            .contains("overlaps the managed Skill destination"));
+        assert!(!home
+            .path()
+            .join(".vanehub/skills/overlapping-import")
+            .exists());
     }
 
     #[test]

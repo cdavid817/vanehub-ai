@@ -111,7 +111,9 @@ fn copy_directory_bounded(
     budget: &mut ImportBudget,
 ) -> Result<(), SkillApplicationError> {
     if depth > MAX_IMPORT_DEPTH {
-        return Err(validation_error("Invalid Skill source: import depth exceeds 16"));
+        return Err(validation_error(
+            "Invalid Skill source: import depth exceeds 16",
+        ));
     }
     std::fs::create_dir_all(target).map_err(filesystem_error)?;
     for entry in std::fs::read_dir(source).map_err(filesystem_error)? {
