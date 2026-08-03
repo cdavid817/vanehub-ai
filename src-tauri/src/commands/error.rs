@@ -462,6 +462,10 @@ impl From<McpError> for CommandError {
                 category: CommandErrorCategory::Validation,
                 message: format!("validation error: {message}"),
             },
+            McpError::LimitExceeded => Self {
+                category: CommandErrorCategory::Validation,
+                message: "validation error: limit_exceeded".to_string(),
+            },
             McpError::Database(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),

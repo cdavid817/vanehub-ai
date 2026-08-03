@@ -593,6 +593,9 @@ fn execute(
                 mcp,
                 plan_mode,
             );
+            if cancelled.load(Ordering::SeqCst) {
+                return failed_non_retryable("Generation was cancelled.");
+            }
             tool_use.status = if outcome.is_error {
                 "failed".to_string()
             } else {
@@ -1150,7 +1153,7 @@ fn execute_tool_call(
     // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
     // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
     if name.starts_with(MCP_TOOL_NAME_PREFIX) {
-        let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input);
+        let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input, cancelled);
         return ToolExecutionOutcome {
             output: outcome.output,
             is_error: outcome.is_error,
@@ -1411,6 +1414,7 @@ mod tests {
             _project_path: &str,
             name: &str,
             _arguments: &Value,
+            _cancellation: Arc<AtomicBool>,
         ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
             crate::contexts::agent_runtime::application::AgentToolCallOutcome {
                 output: format!("NoopMcp cannot call \"{name}\"."),
@@ -1426,6 +1430,7 @@ mod tests {
         catalog_result: Result<Vec<ToolDefinition>, &'static str>,
         call_outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
         calls: Mutex<Vec<(String, String, Value)>>,
+        cancellations: Mutex<Vec<Arc<AtomicBool>>>,
         catalog_lookups: Mutex<u32>,
     }
 
@@ -1438,6 +1443,7 @@ mod tests {
                 catalog_result,
                 call_outcome,
                 calls: Mutex::new(Vec::new()),
+                cancellations: Mutex::new(Vec::new()),
                 catalog_lookups: Mutex::new(0),
             }
         }
@@ -1459,13 +1465,47 @@ mod tests {
             project_path: &str,
             tool_name: &str,
             arguments: &Value,
+            cancellation: Arc<AtomicBool>,
         ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
             self.calls.lock().expect("calls").push((
                 project_path.to_string(),
                 tool_name.to_string(),
                 arguments.clone(),
             ));
+            self.cancellations
+                .lock()
+                .expect("cancellations")
+                .push(cancellation);
             self.call_outcome.clone()
+        }
+    }
+
+    #[derive(Default)]
+    struct CancellingMcp {
+        calls: Mutex<u32>,
+    }
+
+    impl AgentMcpToolPort for CancellingMcp {
+        fn catalog_entries(
+            &self,
+            _project_path: &str,
+        ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError> {
+            Ok(Vec::new())
+        }
+
+        fn call_tool(
+            &self,
+            _project_path: &str,
+            _tool_name: &str,
+            _arguments: &Value,
+            cancellation: Arc<AtomicBool>,
+        ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            *self.calls.lock().expect("calls") += 1;
+            cancellation.store(true, Ordering::SeqCst);
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "MCP call cancelled.".to_string(),
+                is_error: true,
+            }
         }
     }
 
@@ -1690,6 +1730,29 @@ mod tests {
         Arc::new(Mutex::new(HashMap::new()))
     }
 
+    fn resolve_tool_call_once(
+        pending_approvals: &PendingApprovals,
+        tool_call_id: &'static str,
+        decision: ToolApprovalDecision,
+    ) -> thread::JoinHandle<()> {
+        let pending_approvals = pending_approvals.clone();
+        thread::spawn(move || {
+            for _ in 0..100 {
+                let sender = pending_approvals
+                    .lock()
+                    .expect("pending approvals")
+                    .get(tool_call_id)
+                    .cloned();
+                if let Some(sender) = sender {
+                    sender.send(decision).expect("resolve tool call approval");
+                    return;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            panic!("tool call did not request approval");
+        })
+    }
+
     #[test]
     fn execute_fails_non_retryably_when_no_credential_is_stored() {
         let request = sample_request("api");
@@ -1894,6 +1957,201 @@ mod tests {
             )),
             "trusted agent's shell call must still run to completion"
         );
+    }
+
+    #[test]
+    fn execute_returns_mcp_failure_as_tool_data_and_continues_generation() {
+        let first_response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let second_response = sse_body(&["[DONE]"]);
+        let (address, server) =
+            http_fixture_sequence("200 OK", vec![first_response, second_response]);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let approver =
+            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Approved);
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "MCP transport failed.".to_string(),
+                is_error: true,
+            },
+        );
+
+        let event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        approver.join().expect("approval resolver");
+        assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+        assert_eq!(mcp.calls.lock().expect("calls").len(), 1);
+        let requests = server.join().expect("fixture server");
+        assert_eq!(
+            requests.len(),
+            2,
+            "the failed tool result must reach a follow-up model turn"
+        );
+        assert!(String::from_utf8_lossy(&requests[1]).contains("MCP transport failed."));
+        assert!(sink.events.lock().expect("events").iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed"
+                    && tool_use.output == Some(Value::String("MCP transport failed.".to_string()))
+        )));
+    }
+
+    #[test]
+    fn execute_denied_mcp_call_returns_denial_data_without_reaching_the_mcp_port() {
+        let first_response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let second_response = sse_body(&["[DONE]"]);
+        let (address, server) =
+            http_fixture_sequence("200 OK", vec![first_response, second_response]);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let resolver =
+            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Denied);
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "must not be called".to_string(),
+                is_error: false,
+            },
+        );
+
+        let event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        resolver.join().expect("approval resolver");
+        assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+        assert!(mcp.calls.lock().expect("calls").is_empty());
+        let requests = server.join().expect("fixture server");
+        assert!(String::from_utf8_lossy(&requests[1]).contains("Denied by user."));
+        let events = sink.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "awaiting_approval"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed"
+                    && tool_use.output == Some(Value::String("Denied by user.".to_string()))
+        )));
+    }
+
+    #[test]
+    fn execute_stops_tool_loop_immediately_when_mcp_call_cancels_generation() {
+        let response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let (address, server) = http_fixture("200 OK", response);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let approver =
+            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Approved);
+        let mcp = CancellingMcp::default();
+
+        let event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        approver.join().expect("approval resolver");
+        match event {
+            GenerationProcessEvent::Failed(failure) => {
+                assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
+                assert!(failure.diagnostic.contains("cancelled"));
+            }
+            other => panic!("expected cancellation failure, got {other:?}"),
+        }
+        assert_eq!(*mcp.calls.lock().expect("calls"), 1);
+        assert!(!server.join().expect("fixture server").is_empty());
+        let events = sink.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "running"
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed" || tool_use.status == "completed"
+        )));
     }
 
     #[test]
@@ -2175,6 +2433,35 @@ mod tests {
     }
 
     #[test]
+    fn execute_tool_call_passes_generation_cancellation_to_the_mcp_port() {
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "cancelled".to_string(),
+                is_error: true,
+            },
+        );
+        let cancellation = Arc::new(AtomicBool::new(true));
+
+        let outcome = execute_tool_call(
+            "mcp__user-scoped-server__ping",
+            &json!({}),
+            None,
+            cancellation.clone(),
+            "test-agent",
+            &FakeMemories::default(),
+            &mcp,
+            false,
+        );
+
+        assert!(outcome.is_error);
+        let captured = mcp.cancellations.lock().expect("cancellations");
+        assert_eq!(captured.len(), 1);
+        assert!(Arc::ptr_eq(&captured[0], &cancellation));
+        assert!(captured[0].load(Ordering::SeqCst));
+    }
+
+    #[test]
     fn execute_tool_call_rejects_shell_in_plan_mode() {
         let outcome = execute_tool_call(
             SHELL_TOOL_NAME,
@@ -2281,6 +2568,38 @@ mod tests {
         assert_eq!(tools.len(), 4);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn resolve_tool_catalog_preserves_all_fixed_tools_with_a_full_mcp_budget() {
+        let request = sample_request("api");
+        let mcp_tools = (0..256)
+            .map(|index| ToolDefinition {
+                name: format!("mcp__server__tool-{index:03}"),
+                description: String::new(),
+                input_schema: json!({ "type": "object" }),
+            })
+            .collect();
+        let mcp = FakeMcp::new(
+            Ok(mcp_tools),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+
+        let tools = resolve_tool_catalog(
+            &request,
+            &mcp,
+            &RecordingLogging::default(),
+            &FixedClock,
+            false,
+        );
+
+        assert_eq!(tools.len(), 259);
+        assert_eq!(tools[0].name, SHELL_TOOL_NAME);
+        assert_eq!(tools[1].name, FILE_TOOL_NAME);
+        assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
     }
 
     #[test]

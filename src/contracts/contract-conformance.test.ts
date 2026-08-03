@@ -9,6 +9,14 @@ import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
 import type * as ChatTypes from "../types/chat";
 import type * as McpTypes from "../types/mcp";
+import {
+  MCP_ERROR_CODES as contractMcpErrorCodes,
+  MCP_LIMITS as contractMcpLimits,
+} from "./mcp";
+import {
+  MCP_ERROR_CODES as frontendMcpErrorCodes,
+  MCP_LIMITS as frontendMcpLimits,
+} from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
 import type * as OperationTypes from "../types/operation";
@@ -97,12 +105,18 @@ type McpAssertions = [
   Assert<Equal<McpContracts.McpTransportType, McpTypes.McpTransportType>>,
   Assert<Equal<McpContracts.McpConnectionStatus, McpTypes.McpConnectionStatus>>,
   Assert<Equal<McpContracts.McpScope, McpTypes.McpScope>>,
+  Assert<Equal<McpContracts.McpImportTransportType, McpTypes.McpImportTransportType>>,
+  Assert<Equal<McpContracts.McpErrorCode, McpTypes.McpErrorCode>>,
+  Assert<Equal<typeof McpContracts.MCP_ERROR_CODES, typeof McpTypes.MCP_ERROR_CODES>>,
+  Assert<Equal<typeof McpContracts.MCP_LIMITS, typeof McpTypes.MCP_LIMITS>>,
   Assert<Equal<McpContracts.McpServerConfig, McpTypes.McpServerConfig>>,
   Assert<Equal<McpContracts.PartialMcpServerConfig, McpTypes.PartialMcpServerConfig>>,
   Assert<Equal<McpContracts.McpToolInfo, McpTypes.McpToolInfo>>,
   Assert<Equal<McpContracts.McpServerStatus, McpTypes.McpServerStatus>>,
   Assert<Equal<McpContracts.McpTestResult, McpTypes.McpTestResult>>,
+  Assert<Equal<McpContracts.McpToolCallResult, McpTypes.McpToolCallResult>>,
   Assert<Equal<McpContracts.McpImportResult, McpTypes.McpImportResult>>,
+  Assert<Equal<McpContracts.McpImportFailure, McpTypes.McpImportFailure>>,
   Assert<Equal<McpContracts.McpImportServerEntry, McpTypes.McpImportServerEntry>>,
   Assert<Equal<McpContracts.McpImportExport, McpTypes.McpImportExport>>,
 ];
@@ -219,5 +233,41 @@ void (0 as unknown as SessionWorkspaceAssertions);
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {
     expect(true).toBe(true);
+  });
+
+  it("keeps MCP safety constants aligned with the native runtime contract", () => {
+    const expectedErrorCodes = [
+      "validation",
+      "spawn",
+      "timeout",
+      "cancelled",
+      "protocol",
+      "upstream_http",
+      "limit_exceeded",
+      "transport",
+      "cleanup",
+    ];
+    const expectedLimits = {
+      importDocumentBytes: 1024 * 1024,
+      importServerEntries: 128,
+      configurationCollectionEntries: 128,
+      configurationSerializedBytes: 256 * 1024,
+      protocolMessageBytes: 2 * 1024 * 1024,
+      toolsPerServer: 128,
+      catalogSerializedBytes: 2 * 1024 * 1024,
+      providerTools: 256,
+      toolNameBytes: 256,
+      toolDescriptionBytes: 8 * 1024,
+      schemaBytes: 128 * 1024,
+      jsonDepth: 32,
+      toolArgumentsBytes: 256 * 1024,
+      toolResultBytes: 1024 * 1024,
+      stderrBytes: 64 * 1024,
+    };
+
+    expect(contractMcpErrorCodes).toEqual(expectedErrorCodes);
+    expect(frontendMcpErrorCodes).toEqual(expectedErrorCodes);
+    expect(contractMcpLimits).toEqual(expectedLimits);
+    expect(frontendMcpLimits).toEqual(expectedLimits);
   });
 });

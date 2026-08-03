@@ -1,5 +1,10 @@
 import { z } from "zod";
 import type { McpScope, McpServerConfig, McpTransportType } from "../../../types/mcp";
+import {
+  isMcpTransportType,
+  validateMcpServerConfig,
+  type McpValidationField,
+} from "../../../services/mcp-validation";
 
 export type McpServerFormMessages = {
   name: string;
@@ -21,7 +26,7 @@ function mcpServerFormSchema(messages: McpServerFormMessages) {
   return z
     .object({
     name: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, messages.name),
-    transportType: z.enum(["stdio", "sse", "streamable_http"]),
+    transportType: z.custom<McpTransportType>(isMcpTransportType, "Unknown MCP transport type"),
     scope: z.enum(["user", "project"]),
     command: z.string(),
     args: z.string(),
@@ -75,9 +80,11 @@ function parseRecord(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { error: { [label]: messages.jsonObject } };
     }
-    return {
-      value: Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([key, item]) => [key, String(item)])),
-    };
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.some(([, item]) => typeof item !== "string")) {
+      return { error: { [label]: `MCP ${label} values must contain only strings` } };
+    }
+    return { value: Object.fromEntries(entries) as Record<string, string> };
   } catch (err) {
     return { error: { [label]: err instanceof Error ? err.message : String(err) } };
   }
@@ -90,7 +97,10 @@ function parseArgs(value: string, messages: McpServerFormMessages): { value?: st
     try {
       const parsed: unknown = JSON.parse(trimmed);
       if (!Array.isArray(parsed)) return { error: { args: messages.argsArray } };
-      return { value: parsed.map(String) };
+      if (parsed.some((item) => typeof item !== "string")) {
+        return { error: { args: "MCP args must contain only strings" } };
+      }
+      return { value: parsed as string[] };
     } catch (err) {
       return { error: { args: err instanceof Error ? err.message : String(err) } };
     }
@@ -112,28 +122,52 @@ export function validateMcpServerForm(
     };
   }
 
-  const args = parseArgs(values.args, messages);
+  const args = parsed.data.transportType === "stdio" ? parseArgs(values.args, messages) : { value: [] };
   if (args.error) return { success: false, errors: args.error };
 
-  const env = parseRecord(values.env, "env", messages);
+  const env = parsed.data.transportType === "stdio" ? parseRecord(values.env, "env", messages) : { value: {} };
   if (env.error) return { success: false, errors: env.error };
 
-  const headers = parseRecord(values.headers, "headers", messages);
+  const headers = parsed.data.transportType !== "stdio" ? parseRecord(values.headers, "headers", messages) : { value: {} };
   if (headers.error) return { success: false, errors: headers.error };
+
+  const config: McpServerConfig = {
+    name: values.name.trim(),
+    transportType: parsed.data.transportType,
+    command: parsed.data.transportType === "stdio" ? values.command.trim() : null,
+    args: parsed.data.transportType === "stdio" ? args.value ?? [] : null,
+    env: parsed.data.transportType === "stdio" ? env.value ?? {} : null,
+    url: parsed.data.transportType !== "stdio" ? values.url.trim() : null,
+    headers: parsed.data.transportType !== "stdio" ? headers.value ?? {} : null,
+    description: values.description.trim() || null,
+    active: values.active,
+    scope: values.scope,
+  };
+  const configValidation = validateMcpServerConfig(config);
+  if (!configValidation.success) {
+    return {
+      success: false,
+      errors: { [formField(configValidation.field)]: configValidation.message },
+    };
+  }
 
   return {
     success: true,
-    config: {
-      name: values.name.trim(),
-      transportType: values.transportType,
-      command: values.transportType === "stdio" ? values.command.trim() : null,
-      args: values.transportType === "stdio" ? args.value ?? [] : null,
-      env: values.transportType === "stdio" ? env.value ?? {} : null,
-      url: values.transportType !== "stdio" ? values.url.trim() : null,
-      headers: values.transportType !== "stdio" ? headers.value ?? {} : null,
-      description: values.description.trim() || null,
-      active: values.active,
-      scope: values.scope,
-    },
+    config,
   };
+}
+
+function formField(field: McpValidationField): keyof McpServerFormErrors {
+  switch (field) {
+    case "name":
+    case "transportType":
+    case "command":
+    case "url":
+    case "args":
+    case "env":
+    case "headers":
+      return field;
+    default:
+      return "form";
+  }
 }

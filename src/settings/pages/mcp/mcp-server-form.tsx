@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { McpScope, McpServerConfig, McpTransportType } from "../../../types/mcp";
+import { formatMcpFailure, mcpErrorFromUnknown, mcpTransportTranslationKey } from "./mcp-presentation";
 import { type McpServerFormErrors, validateMcpServerForm } from "./mcp-server-validation";
 
 function jsonText(value: Record<string, string> | null | undefined) {
@@ -71,7 +72,8 @@ export function McpServerForm({
     try {
       await onSave(result.config);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
     } finally {
       setSaving(false);
     }
@@ -103,9 +105,9 @@ export function McpServerForm({
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">{t("mcp.form.transport")}</span>
             <select className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={transportType} onChange={(event) => setTransportType(event.target.value as McpTransportType)}>
-              <option value="stdio">stdio</option>
-              <option value="sse">sse</option>
-              <option value="streamable_http">streamable_http</option>
+              <option value="stdio">{t(mcpTransportTranslationKey("stdio"))}</option>
+              <option value="sse">{t(mcpTransportTranslationKey("sse"))}</option>
+              <option value="streamable_http">{t(mcpTransportTranslationKey("streamable_http"))}</option>
             </select>
           </label>
           <label className="flex items-center gap-2 pt-5 text-sm">

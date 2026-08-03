@@ -126,6 +126,7 @@ import type {
 } from "../types/cli-agent-config";
 import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
+import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -322,7 +323,10 @@ let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
-const pendingMockToolApprovals = new Map<string, { sessionId: string; messageId: string; toolName: string }>();
+const pendingMockToolApprovals = new Map<
+  string,
+  { sessionId: string; messageId: string; toolName: string; input?: unknown; output?: unknown }
+>();
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
 const terminalTranscriptsBySession = new Map<string, string>();
@@ -2979,22 +2983,41 @@ export const webAgentClient: AgentService = {
       // real backend classifies every MCP-sourced tool call `RequiresApproval` unconditionally,
       // with no auto-approve path, unlike `remember`.
       const mcpCallId = `web-tool-approval-mcp-${assistantMessage.id}`;
+      const mcpSimulation = createWebMcpToolSimulationPlan({
+        callId: mcpCallId,
+        catalog: [
+          {
+            name: "mcp__mock-server__search",
+            description: "Search deterministic Web preview data",
+            inputSchema: { type: "object", properties: { query: { type: "string" } } },
+          },
+        ],
+        toolName: "mcp__mock-server__search",
+        arguments: { query: "mock" },
+        result: "mock MCP result",
+      });
       const mcpApprovalTimeoutId = setTimeout(() => {
+        if (!mcpSimulation.success) {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: mcpSimulation.failed,
+          });
+          return;
+        }
         pendingMockToolApprovals.set(mcpCallId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
-          toolName: "mcp__mock-server__search",
+          toolName: mcpSimulation.awaitingApproval.name,
+          input: mcpSimulation.completed.input,
+          output: mcpSimulation.completed.output,
         });
         publishChatEvent({
           type: "tool_use",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
-          toolUse: {
-            id: mcpCallId,
-            name: "mcp__mock-server__search",
-            input: { query: "mock" },
-            status: "awaiting_approval",
-          },
+          toolUse: mcpSimulation.awaitingApproval,
         });
       }, 237);
       timeoutIds.push(mcpApprovalTimeoutId);
@@ -3105,8 +3128,8 @@ export const webAgentClient: AgentService = {
       toolUse: {
         id: callId,
         name: pending.toolName,
-        input: { command: "echo mock" },
-        output: approved ? "mock\n" : "Denied by user.",
+        input: pending.input ?? { command: "echo mock" },
+        output: approved ? pending.output ?? "mock\n" : "Denied by user.",
         status: approved ? "completed" : "failed",
       },
     });

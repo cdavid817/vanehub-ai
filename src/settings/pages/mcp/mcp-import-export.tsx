@@ -2,7 +2,13 @@ import { Clipboard, Download, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
-import type { McpImportExport, McpScope, McpServerConfig } from "../../../types/mcp";
+import { previewMcpImportNames } from "../../../services/mcp-import";
+import type { McpImportExport, McpImportResult, McpScope, McpServerConfig } from "../../../types/mcp";
+import {
+  formatMcpFailure,
+  mcpErrorFromUnknown,
+  mcpTransportTranslationKey,
+} from "./mcp-presentation";
 
 export function McpImportExportModal({
   servers,
@@ -12,7 +18,7 @@ export function McpImportExportModal({
 }: {
   servers: McpServerConfig[];
   onCancel: () => void;
-  onImport: (data: McpImportExport, scope: McpScope) => Promise<string>;
+  onImport: (input: string, scope: McpScope) => Promise<McpImportResult>;
   onExport: (names: string[]) => Promise<McpImportExport>;
 }) {
   const { t } = useTranslation();
@@ -22,37 +28,41 @@ export function McpImportExportModal({
   const [selected, setSelected] = useState<string[]>(servers.map((server) => server.name));
   const [output, setOutput] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<McpImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const importNames = useMemo(() => {
-    try {
-      const parsed = JSON.parse(input) as McpImportExport;
-      return Object.keys(parsed.mcpServers ?? {});
-    } catch {
-      return [];
-    }
-  }, [input]);
+  const importNames = useMemo(() => previewMcpImportNames(input), [input]);
+
+  function switchMode(nextMode: "import" | "export") {
+    setMode(nextMode);
+    setMessage(null);
+    setImportResult(null);
+    setError(null);
+  }
 
   async function handleImport() {
     setError(null);
     setMessage(null);
+    setImportResult(null);
     try {
-      const parsed = JSON.parse(input) as McpImportExport;
-      setMessage(await onImport(parsed, scope));
+      setImportResult(await onImport(input, scope));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
     }
   }
 
   async function handleExport() {
     setError(null);
     setMessage(null);
+    setImportResult(null);
     try {
       const data = await onExport(selected);
       setOutput(JSON.stringify(data, null, 2));
       setMessage(t("mcp.modal.exported", { count: Object.keys(data.mcpServers).length }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
     }
   }
 
@@ -66,11 +76,11 @@ export function McpImportExportModal({
       <section className="ucd-panel max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg p-4">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex gap-2">
-            <Button variant={mode === "import" ? "default" : "outline"} onClick={() => setMode("import")}>
+            <Button variant={mode === "import" ? "default" : "outline"} onClick={() => switchMode("import")}>
               <Upload className="h-4 w-4" aria-hidden="true" />
               {t("mcp.modal.import")}
             </Button>
-            <Button variant={mode === "export" ? "default" : "outline"} onClick={() => setMode("export")}>
+            <Button variant={mode === "export" ? "default" : "outline"} onClick={() => switchMode("export")}>
               <Download className="h-4 w-4" aria-hidden="true" />
               {t("mcp.modal.export")}
             </Button>
@@ -89,7 +99,15 @@ export function McpImportExportModal({
                 <option value="project">{t("mcp.scope.projectConfig")}</option>
               </select>
             </label>
-            <textarea className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={input} onChange={(event) => setInput(event.target.value)} />
+            <textarea
+              className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+                setImportResult(null);
+              }}
+            />
+            <div className="text-xs text-muted-foreground">{t("mcp.modal.importTransportHint")}</div>
             {importNames.length ? <div className="text-xs text-muted-foreground">{t("mcp.modal.preview", { names: importNames.join(", ") })}</div> : null}
             <Button onClick={() => void handleImport()}>
               <Upload className="h-4 w-4" aria-hidden="true" />
@@ -110,10 +128,14 @@ export function McpImportExportModal({
                     }
                     type="checkbox"
                   />
-                  <span className="truncate">{server.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{server.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t(mcpTransportTranslationKey(server.transportType))}
+                  </span>
                 </label>
               ))}
             </div>
+            <div className="text-xs text-muted-foreground">{t("mcp.modal.exportTransportHint")}</div>
             <Button onClick={() => void handleExport()}>
               <Download className="h-4 w-4" aria-hidden="true" />
               {t("mcp.modal.generateJson")}
@@ -127,6 +149,32 @@ export function McpImportExportModal({
         )}
 
         {message ? <div className="mt-3 rounded-md border p-3 text-sm ucd-status-success">{message}</div> : null}
+        {importResult ? (
+          <div
+            className={`mt-3 rounded-md border p-3 text-sm ${importResult.failures.length ? "ucd-status-warning" : "ucd-status-success"}`}
+            role="status"
+          >
+            <div>
+              {t("mcp.modal.importSummary", {
+                imported: importResult.imported.length,
+                skipped: importResult.skipped.length,
+                failed: importResult.failures.length,
+              })}
+            </div>
+            {importResult.failures.length ? (
+              <ul className="mt-2 grid gap-1 text-xs">
+                {importResult.failures.map((failure) => (
+                  <li className="wrap-break-word" key={`${failure.stage}:${failure.name}`}>
+                    <span className="font-medium">{failure.name}</span>: {t(`mcp.modal.failure.${failure.stage}`)} ·{" "}
+                    {failure.errorCode
+                      ? formatMcpFailure(t, failure.errorCode, failure.message)
+                      : failure.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         {error ? <div className="mt-3 rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
       </section>
     </div>
