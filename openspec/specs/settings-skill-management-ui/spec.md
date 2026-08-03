@@ -4,136 +4,273 @@
 TBD - created by archiving change split-settings-center-ui-spec. Update Purpose after archive.
 ## Requirements
 ### Requirement: Service-backed Skills settings page
-The Skills settings page SHALL render from one service-backed overview per active scope and SHALL expose explicit loading, error, stale-conflict, and partial-operation states rather than interpreting absent data as an empty healthy result.
+The Skills settings page SHALL render the global Skill library from one service-backed global overview and SHALL expose explicit loading, retryable error, stale-conflict, empty, pending, and partial-operation states rather than interpreting absent data as an empty healthy result.
 
-#### Scenario: Load Skills settings data
+#### Scenario: Load global Skills settings data
 - **WHEN** a user opens the Skills settings page
-- **THEN** the page SHALL load Skills, compatible CLI/API Agents, Agent mount paths, both binding types, Skill statistics, drift status, and restore candidates through the frontend service boundary
+- **THEN** the page SHALL load global Skills, compatible CLI/API Agents, global Agent mount paths, both binding types, global Skill statistics, global drift status, and restore candidates through the frontend service boundary
+- **AND** SHALL use `{ scope: "global", workspacePath: null }` for its overview and mutation context
+
+#### Scenario: Exclude project selection from Settings
+- **WHEN** the Skills settings page renders
+- **THEN** it SHALL NOT ask the user to select or enter a workspace path
+- **AND** SHALL NOT load or mutate project Skills from the Settings surface
 
 #### Scenario: Load failure
-- **WHEN** the overview request fails or drift is not yet available
-- **THEN** the page SHALL display a loading or error state and SHALL NOT display an empty list or an in-sync success state as if it were confirmed data
+- **WHEN** the global overview request fails or global drift is not yet available
+- **THEN** the page SHALL display a loading or retryable error state
+- **AND** SHALL NOT display an empty list or in-sync state as confirmed data
+
+#### Scenario: Targeted mutation state
+- **WHEN** an operation targets a specific global Skill, binding, Agent mount path, or dialog
+- **THEN** its pending or failed state SHALL be presented at the affected control or interaction surface
+- **AND** unrelated global Skill controls SHALL remain available unless the service operation requires broader serialization
 
 #### Scenario: No static demo data
 - **WHEN** the Skills settings page renders
 - **THEN** it SHALL NOT use hard-coded demo Skill arrays as the source of displayed Skill data
 
 ### Requirement: Skills page module composition
-The Skills settings page SHALL be composed from seven reusable child components: `SkillStatsCards`, `SkillAgentMountPathsPanel`, `SkillScopeTabs`, `SkillFilterToolbar`, `SkillCardList`, `SkillDialogs`, and `SkillDriftBanner`.
+The Skills settings page SHALL use focused child components for dynamic Agent navigation, global inventory filtering, assigned/available lists, global Skill dialogs, global drift status, and selected-CLI mount configuration while keeping service query and mutation orchestration in the page container.
 
-#### Scenario: Render Skill management modules
+#### Scenario: Render global Skill management modules
 - **WHEN** the Skills settings page has loaded data
-- **THEN** it SHALL show statistics, Agent mount paths, scope controls, filters, Skill cards, dialogs, drift status, and bottom summary behavior through the composed modules
+- **THEN** it SHALL render a responsive two-column Agent-navigation and inventory layout consistent with CLI Parameter Management
+- **AND** each child component SHALL receive service-backed data and callbacks instead of invoking runtime APIs directly
+
+#### Scenario: Preserve maintainable component boundaries
+- **WHEN** Agent navigation, Skill lifecycle dialogs, or inventory rendering require additional UI surfaces
+- **THEN** the implementation SHALL keep those concerns in focused components without causing the page container or a child component to exceed the project file-size limit
 
 ### Requirement: Skill statistics and summary
-The Skills settings page SHALL display core Skill metrics and a bottom summary for the active scope and filters.
+The Skills settings page SHALL display a compact global summary and SHALL display counts relevant to the selected All Skills, Agent, or Unassigned view.
 
-#### Scenario: Display Skill statistics
-- **WHEN** the page renders loaded Skill data
-- **THEN** it SHALL show counts for all Skills, enabled Skills, and mounted Skills
+#### Scenario: Display global Skill summary
+- **WHEN** the page renders the All Skills view
+- **THEN** it SHALL show total, enabled, CLI-bound, API-bound, and unassigned global Skill counts without requiring multiple full-size statistic cards
 
-#### Scenario: Display filtered summary
-- **WHEN** a user changes scope, category, search query, enabled state, or Agent binding
-- **THEN** the bottom summary SHALL reflect the current visible Skill set and active scope
+#### Scenario: Display selected Agent summary
+- **WHEN** a user selects a compatible Agent
+- **THEN** the inventory SHALL show assigned, active or paused, and available global Skill counts for that stable Agent id
+
+#### Scenario: Display filtered result count
+- **WHEN** a user changes selected Agent, assigned/available view, category, source, status, sort order, or keyword search
+- **THEN** the inventory toolbar SHALL reflect the current visible global Skill count
 
 ### Requirement: Agent mount path panel
-The Skills settings page SHALL show registered CLI-capable Agents with editable Skill mount paths and SHALL exclude API-only Agents from mount controls.
+The Skills settings page SHALL provide the selected CLI-capable Agent's editable global Skill mount path inside a default-collapsed advanced disclosure and SHALL not show filesystem mount controls for API-only Agents.
 
-#### Scenario: Display Agent mount paths
-- **WHEN** registered CLI-capable Agents are loaded
-- **THEN** the page SHALL display each CLI-capable Agent with its current Skill mount path as a code-style label
+#### Scenario: Keep mount paths secondary
+- **WHEN** a CLI Agent view loads without a failed mount-path migration
+- **THEN** its mount-path editor SHALL remain collapsed by default
+- **AND** assigned and available global Skills SHALL remain reachable before expanding advanced settings
+
+#### Scenario: Display selected CLI mount path
+- **WHEN** a user expands advanced settings for a selected CLI Agent
+- **THEN** the page SHALL display that Agent's current Skill mount path as a code-style editable value
+
+#### Scenario: Exclude API mount configuration
+- **WHEN** an API Agent view is active
+- **THEN** the page SHALL NOT display a filesystem mount-path editor
 
 #### Scenario: Edit Agent mount path
-- **WHEN** a user changes an Agent mount path
+- **WHEN** a user changes the selected CLI Agent's mount path
 - **THEN** the page SHALL submit the change through the frontend service boundary and display the migration result returned by the service
 
-### Requirement: Skill scope selection
-The Skills settings page SHALL support `global` and `workspace` scope selection.
-
-#### Scenario: Switch to global scope
-- **WHEN** a user selects the global scope tab
-- **THEN** the page SHALL load global Skills and global drift status
-
-#### Scenario: Select workspace directory
-- **WHEN** a user selects the workspace scope
-- **THEN** the page SHALL provide a directory picker for choosing the local project directory
-
-#### Scenario: Workspace scope load
-- **WHEN** a workspace directory is selected
-- **THEN** the page SHALL load Skills and drift status for that workspace directory only
+#### Scenario: Failed migration remains visible
+- **WHEN** a mount-path migration reports one or more failures
+- **THEN** the page SHALL expose the failure summary without requiring the user to discover it inside a collapsed disclosure
 
 ### Requirement: Skill filtering and search
-The Skills settings page SHALL allow users to filter Skills by category and search by keyword.
-
-#### Scenario: Category filter
-- **WHEN** a user selects a Skill category
-- **THEN** the Skill card list SHALL show only Skills in that category
+The Skills settings page SHALL use the settings top-bar query as its single keyword search and SHALL allow users to filter and sort the current global inventory view without changing persisted Skill data.
 
 #### Scenario: Keyword search
-- **WHEN** a user enters a search query
-- **THEN** the Skill card list SHALL match Skills by id, name, description, category, triggers, or source label
+- **WHEN** a user enters a query in the settings top-bar Skill search
+- **THEN** the current global inventory SHALL match Skills by id, name, description, category, triggers, or localized source label
+- **AND** the page SHALL NOT present a second competing keyword input
+
+#### Scenario: Combine inventory filters
+- **WHEN** a user selects category, source, or enabled-state filters within an All, selected-Agent, or Unassigned view
+- **THEN** the global Skill inventory SHALL apply all active filters together
+- **AND** SHALL display the resulting count
+
+#### Scenario: Sort Skill inventory
+- **WHEN** a user selects a supported sort order
+- **THEN** the current inventory SHALL reorder the filtered global Skills deterministically without changing persisted Skill data
+
+#### Scenario: Clear Skill filters
+- **WHEN** one or more inventory filters are active and the user activates clear filters
+- **THEN** the page SHALL restore the default filters and sort order while preserving the selected Agent or inventory view
 
 ### Requirement: Skill card controls
-Each Skill card SHALL provide enablement, CLI Agent mount binding, API Agent prompt binding, source labeling, preview, edit, and guarded delete controls, with the two Agent target types displayed separately.
+Each global Skill inventory row SHALL provide bounded metadata, source and version labeling, global enablement state, preview, edit, guarded delete, and assignment controls appropriate to the active All Skills, CLI Agent, API Agent, or Unassigned view.
 
-#### Scenario: Toggle Skill enabled state
-- **WHEN** a user toggles a Skill enabled state
-- **THEN** the page SHALL submit the change through the frontend service boundary, prevent a duplicate pending mutation, and refresh the affected overview state
+#### Scenario: Compact inventory remains bounded by Agent count
+- **WHEN** the global overview contains many compatible Agents
+- **THEN** a Skill row SHALL NOT render the complete Agent checkbox matrix
+- **AND** Agent-specific assignment SHALL be performed in the selected Agent view
 
-#### Scenario: Toggle CLI Agent binding
-- **WHEN** a user changes a CLI Agent binding checkbox
-- **THEN** the page SHALL submit a granular bind or unbind operation and SHALL NOT lose another completed checkbox change
+#### Scenario: Toggle global Skill enabled state
+- **WHEN** a user toggles a global Skill enabled state from All Skills
+- **THEN** the page SHALL explain that enablement applies to the global Skill across its bindings
+- **AND** SHALL submit the change through the frontend service boundary, prevent a duplicate pending mutation, and refresh the global overview
+- **AND** SHALL preserve every existing CLI and API Agent assignment without assigning the Skill to any additional Agent
 
-#### Scenario: Toggle API Agent binding
-- **WHEN** a user changes an API Agent binding checkbox
-- **THEN** the page SHALL submit the non-mount binding change without creating or editing a filesystem mount path
+#### Scenario: Keep global enablement read-only in selected Agent views
+- **WHEN** a user views Assigned or Available Skills for a selected CLI or API Agent
+- **THEN** each row SHALL present global enabled, paused, or unavailable status without rendering a mutable global enablement control
+- **AND** a paused assigned Skill MAY provide navigation to All Skills where global enablement is managed
 
-#### Scenario: Agent type separation
-- **WHEN** Skill cards and the mount-path panel render
-- **THEN** API-only Agents SHALL NOT appear in CLI mount controls and CLI-only Agents SHALL NOT appear in API prompt-binding controls
+#### Scenario: Assign global Skill to CLI Agent
+- **WHEN** a user assigns or removes a global Skill in a selected CLI Agent view
+- **THEN** the page SHALL submit a granular CLI bind or unbind operation using the selected stable Agent id
+- **AND** SHALL NOT change global Skill enablement or any other Agent assignment
+- **AND** SHALL NOT lose another completed binding change
 
-#### Scenario: Source badge
-- **WHEN** a Skill card renders
+#### Scenario: Assign global Skill to API Agent
+- **WHEN** a user assigns or removes a global Skill in a selected API Agent view
+- **THEN** the page SHALL submit the non-mount API bind or unbind operation using the selected stable Agent id
+- **AND** SHALL NOT change global Skill enablement or any other Agent assignment
+- **AND** SHALL NOT create or edit a filesystem mount path
+
+#### Scenario: Explain configured and active CLI bindings
+- **WHEN** a global Skill is disabled while retaining a CLI Agent binding
+- **THEN** the selected CLI view SHALL identify it as assigned but paused rather than currently mounted
+
+#### Scenario: Source and version labels
+- **WHEN** a global Skill row renders
 - **THEN** it SHALL display whether the Skill source is built-in, user-created, or imported
+- **AND** SHALL display its version without allowing long metadata to resize the inventory layout
 
 ### Requirement: Skill dialogs
-The Skills settings page SHALL provide dialogs for `SKILL.md` preview, Skill creation, conflict-aware Skill editing, bounded external Skill import, and restore of currently deleted built-in Skills.
+The Skills settings page SHALL provide accessible application dialogs for readable global `SKILL.md` preview, global Skill creation, conflict-aware editing, bounded external import, confirmed deletion, and restore of currently deleted built-in global Skills.
 
-#### Scenario: Preview SKILL.md
-- **WHEN** a user opens Skill preview
-- **THEN** the dialog SHALL display the current `SKILL.md` source content loaded through the frontend service boundary
+#### Scenario: Preview global SKILL.md
+- **WHEN** a user opens global Skill preview
+- **THEN** the dialog SHALL load the current global `SKILL.md` content through the frontend service boundary
+- **AND** SHALL provide a readable Markdown presentation and access to the source content
 
-#### Scenario: Create Skill
-- **WHEN** a user submits a valid create Skill form
-- **THEN** the page SHALL create a Skill with immutable id and valid `SKILL.md` frontmatter through the frontend service boundary
+#### Scenario: Create global Skill
+- **WHEN** a user submits a valid create Skill form from Settings
+- **THEN** the page SHALL create a global Skill with immutable id and valid `SKILL.md` frontmatter through the frontend service boundary
 
-#### Scenario: Edit Skill
-- **WHEN** a user opens an existing Skill for editing
-- **THEN** the form SHALL load its current metadata and body, prevent changing the id, and submit the previewed content hash for conflict detection
+#### Scenario: Edit global Skill
+- **WHEN** a user opens an existing global Skill for editing
+- **THEN** the form SHALL load its current metadata and body, prevent changing the id, and submit the loaded content hash for conflict detection
+- **AND** SHALL provide Edit and Preview modes for the Markdown body
 
 #### Scenario: Stale edit conflict
-- **WHEN** the submitted content hash no longer matches the live Skill document
+- **WHEN** the submitted content hash no longer matches the live global Skill document
 - **THEN** the dialog SHALL remain open, explain that the Skill changed, and offer a reload without overwriting the newer document
 
-#### Scenario: Import external Skill
-- **WHEN** a user imports an external Skill directory
-- **THEN** the page SHALL call the frontend service boundary, display validation or limit failures, and refresh the Skill overview only after success
+#### Scenario: Import global Skill
+- **WHEN** a user imports an external Skill directory from Settings
+- **THEN** the page SHALL create it in global scope, display validation or limit failures, and refresh the global overview only after success
 
-#### Scenario: Restore built-in Skill
+#### Scenario: Restore built-in global Skill
 - **WHEN** a user opens built-in restore
-- **THEN** the dialog SHALL list only currently deleted built-in Skill ids returned by the service
+- **THEN** the dialog SHALL list only currently deleted built-in global Skill ids returned by the service
 
 #### Scenario: Guard destructive deletion
-- **WHEN** a user requests deletion of a user-created or imported Skill
-- **THEN** the page SHALL require confirmation before removing its managed source directory
+- **WHEN** a user requests deletion of a global Skill
+- **THEN** the page SHALL use a localized application confirmation dialog before removing its managed source directory
+- **AND** SHALL NOT rely on the browser-native confirmation prompt
+
+#### Scenario: Dialog accessibility
+- **WHEN** a global Skill dialog opens or closes
+- **THEN** it SHALL expose a translated accessible name, contain keyboard focus while open, support keyboard dismissal when safe, and restore focus to the triggering control
 
 ### Requirement: Skill drift banner
-The Skills settings page SHALL display a drift banner when Skill registry, source files, or mount paths are inconsistent.
+The Skills settings page SHALL present healthy global drift status as a compact indicator and SHALL display a prominent actionable banner when global Skill registry, source files, or CLI mount paths are inconsistent or a synchronization result needs review.
 
-#### Scenario: Display drift issues
-- **WHEN** drift detection reports one or more issues
-- **THEN** the page SHALL show a banner with the issue count and a path to review or synchronize the issues
+#### Scenario: Display healthy global drift status
+- **WHEN** global drift detection completes with no issues and no synchronization result requires review
+- **THEN** the page SHALL show a compact in-sync indicator without inserting a full-width success banner above the global inventory
 
-#### Scenario: Synchronize drift
-- **WHEN** a user activates one-click drift synchronization
-- **THEN** the page SHALL call the frontend service boundary and display the synchronization report, including backup and overwrite results
+#### Scenario: Display global drift issues
+- **WHEN** global drift detection reports one or more issues
+- **THEN** the page SHALL show a prominent banner with the issue count, a bounded issue summary, and a path to synchronize the issues
+
+#### Scenario: Synchronize global drift
+- **WHEN** a user activates one-click global drift synchronization
+- **THEN** the page SHALL call the frontend service boundary and display the synchronization report, including backup, overwrite, restored, and failed results
+
+#### Scenario: Preserve actionable synchronization result
+- **WHEN** global synchronization completes with failures or backup/overwrite activity
+- **THEN** the result SHALL remain reviewable until the user explicitly dismisses it or leaves the page
+
+### Requirement: Explicit Agent Skill selection board
+The Skills settings page SHALL present the selected stable Agent's Skill relationships as an assignment-focused, responsive selection board without representing immediate binding mutations as checkboxes.
+
+#### Scenario: Compare Assigned and Available Skills on a wide layout
+- **WHEN** a user selects a compatible CLI or API Agent on a wide settings layout
+- **THEN** the page SHALL present separately labeled Assigned and Available panels in parallel columns
+- **AND** each panel SHALL show its own deterministic count and empty state
+
+#### Scenario: Preserve selection order on a narrow layout
+- **WHEN** the selected-Agent view is rendered below the wide-layout breakpoint
+- **THEN** the Assigned and Available panels SHALL stack in a single document order with Assigned first
+- **AND** every row action SHALL remain visible without horizontal page scrolling
+
+#### Scenario: Assign an Available Skill
+- **WHEN** a user activates Assign for a Skill in the Available panel
+- **THEN** the page SHALL invoke the existing granular bind operation with the selected stable Agent id
+- **AND** SHALL keep the Skill in its original panel until the refreshed overview confirms success
+- **AND** SHALL disable duplicate actions only for the affected Skill while the operation is pending
+
+#### Scenario: Remove an Assigned Skill
+- **WHEN** a user activates Remove for a Skill in the Assigned panel
+- **THEN** the page SHALL invoke the existing granular unbind operation with the selected stable Agent id
+- **AND** SHALL keep global enablement and every other Agent assignment unchanged
+
+#### Scenario: Keep a failed relationship mutation attached to its row
+- **WHEN** an Agent assignment or removal fails
+- **THEN** the Skill SHALL remain in its original panel
+- **AND** the actionable error SHALL remain associated with that Skill row
+- **AND** unrelated rows and filters SHALL remain operable
+
+#### Scenario: Focus selected-Agent rows on relationship management
+- **WHEN** the page renders a selected-Agent Skill row
+- **THEN** the row SHALL show global enabled or paused state, Agent binding state, preview, and one explicit Assign or Remove action
+- **AND** SHALL NOT render mutable global enablement, edit, or delete controls
+- **AND** the action accessible name SHALL identify the selected Agent without using its display name as the service identity
+
+#### Scenario: Distinguish CLI and API relationships
+- **WHEN** the selected Agent is CLI-kind or API-kind
+- **THEN** the page SHALL continue to describe CLI relationships as configured, mounted, or paused and API relationships as prompt injection or paused
+- **AND** SHALL use the same selection-board interaction without hard-coded provider branches
+
+### Requirement: Global Skill Agent navigation
+The Skills settings page SHALL organize the global Skill library through dynamic stable-Agent navigation with All Skills, compatible CLI Agent, compatible API Agent, and Unassigned views.
+
+#### Scenario: Render Agent navigation
+- **WHEN** the global Skill overview contains compatible Agents
+- **THEN** the page SHALL render each Agent from its stable id and display name without hard-coded provider branches
+- **AND** known Agents SHALL use the registered visual identity and brand icon
+
+#### Scenario: Select CLI Agent
+- **WHEN** a user selects a CLI-capable Agent
+- **THEN** the page SHALL show separately labeled Assigned and Available global Skills for that Agent
+- **AND** SHALL describe the assignment as a CLI mount binding
+
+#### Scenario: Select API Agent
+- **WHEN** a user selects an API Agent
+- **THEN** the page SHALL show separately labeled Assigned and Available global Skills for that Agent
+- **AND** SHALL describe the assignment as API prompt injection rather than a filesystem mount
+
+#### Scenario: Show unassigned global Skills
+- **WHEN** a global Skill has no CLI or API Agent binding
+- **THEN** the Unassigned view SHALL include that Skill regardless of its enabled state
+
+### Requirement: Actionable mount-root assignment failure
+The Skills settings page SHALL keep a failed CLI Agent assignment attached to the affected Skill row and SHALL not present the Skill as assigned when native mount-root preflight rejects the operation.
+
+#### Scenario: Show externally managed root failure
+- **WHEN** assignment fails because the selected CLI Agent's Skill root is an externally managed directory link
+- **THEN** the affected row SHALL show a concise error identifying the selected Agent and explaining that the whole-directory link must be migrated before assignment
+- **AND** the Skill SHALL remain in the selected Agent's Available group after the overview refreshes
+
+#### Scenario: Show broken root failure
+- **WHEN** assignment fails because the selected CLI Agent's Skill root is a broken or unavailable directory link
+- **THEN** the affected row SHALL show a concise error identifying the selected Agent and explaining that the stale link must be repaired or removed before assignment
+- **AND** unrelated Skill and Agent controls SHALL remain available

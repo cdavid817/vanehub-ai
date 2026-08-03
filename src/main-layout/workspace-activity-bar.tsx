@@ -65,7 +65,7 @@ export function WorkspaceActivityBar({
         </button>
       </div>
       <div className="flex flex-col items-center gap-1" data-activity-group="utility">
-        <button aria-label={labels.settings} className={activityButtonClass} onClick={onOpenSettings} title={labels.settings} type="button">
+        <button aria-label={labels.settings} className={activityButtonClass} onClick={() => onOpenSettings()} title={labels.settings} type="button">
           <Settings aria-hidden="true" className="h-5 w-5" />
         </button>
         <button aria-label={labels.help} className={activityButtonClass} title={labels.help} type="button">

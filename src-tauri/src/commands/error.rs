@@ -603,6 +603,12 @@ impl From<SkillError> for CommandError {
                 category: CommandErrorCategory::Conflict,
                 message: format!("validation error: Skill changed since it was loaded: {skill_id}"),
             },
+            error @ (SkillError::MountRootExternalLink(_)
+            | SkillError::MountRootBrokenLink(_)
+            | SkillError::MountRootNotDirectory(_)) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!("validation error: {error}"),
+            },
             SkillError::Repository(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),

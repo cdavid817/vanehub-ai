@@ -1,43 +1,38 @@
-import { Search } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../../../components/ui/button";
+import type { SkillInventoryFilters, SkillSort, SkillSourceFilter, SkillStatusFilter } from "../../../lib/skill-management";
 
 export function SkillFilterToolbar({
   categories,
-  category,
-  query,
-  onCategoryChange,
-  onQueryChange,
+  filters,
+  onChange,
+  resultCount,
 }: {
   categories: string[];
-  category: string;
-  query: string;
-  onCategoryChange: (category: string) => void;
-  onQueryChange: (query: string) => void;
+  filters: SkillInventoryFilters;
+  onChange: (filters: SkillInventoryFilters) => void;
+  resultCount: number;
 }) {
   const { t } = useTranslation();
-
+  const selectClass = "min-h-9 rounded-md border border-border bg-background px-2 text-sm";
+  const change = (patch: Partial<SkillInventoryFilters>) => onChange({ ...filters, ...patch });
   return (
-    <div className="ucd-panel flex flex-col gap-3 rounded-lg p-3 md:flex-row md:items-center">
-      <select
-        className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-        onChange={(event) => onCategoryChange(event.target.value)}
-        value={category}
-      >
-        {categories.map((item) => (
-          <option key={item} value={item}>
-            {item === "__all__" ? t("skills.filters.all") : item}
-          </option>
-        ))}
+    <div className="ucd-panel grid gap-2 rounded-lg p-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,auto)]">
+      <span className="text-sm tabular-nums text-muted-foreground sm:col-span-2 xl:col-span-4">{t("skills.resultCount", { count: resultCount })}</span>
+      <select aria-label={t("skills.filters.category")} className={selectClass} onChange={(event) => change({ category: event.target.value })} value={filters.category}>
+        {categories.map((item) => <option key={item} value={item}>{item === "all" ? t("skills.filters.allCategories") : item}</option>)}
       </select>
-      <label className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-        <input
-          className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm"
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={t("skills.filters.searchPlaceholder")}
-          value={query}
-        />
-      </label>
+      <select aria-label={t("skills.filters.source")} className={selectClass} onChange={(event) => change({ source: event.target.value as SkillSourceFilter })} value={filters.source}>
+        <option value="all">{t("skills.filters.allSources")}</option><option value="builtin">{t("skills.source.builtin")}</option><option value="user">{t("skills.source.user")}</option><option value="imported">{t("skills.source.imported")}</option>
+      </select>
+      <select aria-label={t("skills.filters.status")} className={selectClass} onChange={(event) => change({ status: event.target.value as SkillStatusFilter })} value={filters.status}>
+        <option value="all">{t("skills.filters.allStatuses")}</option><option value="enabled">{t("skills.enabled")}</option><option value="disabled">{t("basic.disabled")}</option>
+      </select>
+      <select aria-label={t("skills.filters.sort")} className={selectClass} onChange={(event) => change({ sort: event.target.value as SkillSort })} value={filters.sort}>
+        <option value="name">{t("skills.filters.sortName")}</option><option value="updated">{t("skills.filters.sortUpdated")}</option><option value="source">{t("skills.filters.sortSource")}</option>
+      </select>
+      <Button className="sm:col-span-2 xl:col-span-4 xl:justify-self-end" onClick={() => onChange({ category: "all", query: "", sort: "name", source: "all", status: "all" })} variant="ghost"><RotateCcw />{t("skills.filters.clear")}</Button>
     </div>
   );
 }

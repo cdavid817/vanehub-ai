@@ -205,7 +205,12 @@ impl SkillApplicationService {
     ) -> Result<SkillRecord, SkillApplicationError> {
         let skill_id = key.id.as_str().to_string();
         let result = self.change_cli_binding(&key, &agent_id, true);
-        self.observe(SkillLogAction::BindCliAgent, Some(skill_id), result)
+        self.observe_for_agent(
+            SkillLogAction::BindCliAgent,
+            Some(skill_id),
+            &agent_id,
+            result,
+        )
     }
 
     pub(crate) fn unbind_skill_from_cli_agent(
@@ -215,7 +220,12 @@ impl SkillApplicationService {
     ) -> Result<SkillRecord, SkillApplicationError> {
         let skill_id = key.id.as_str().to_string();
         let result = self.change_cli_binding(&key, &agent_id, false);
-        self.observe(SkillLogAction::UnbindCliAgent, Some(skill_id), result)
+        self.observe_for_agent(
+            SkillLogAction::UnbindCliAgent,
+            Some(skill_id),
+            &agent_id,
+            result,
+        )
     }
 
     /// Binds `key` to `agent_id` for API-agent system-prompt injection (`add-agent-skill-support`)
@@ -914,11 +924,38 @@ impl SkillApplicationService {
         self.observe_with_level(action, skill_id, SkillLogLevel::Info, result)
     }
 
+    fn observe_for_agent<T>(
+        &self,
+        action: SkillLogAction,
+        skill_id: Option<String>,
+        agent_id: &str,
+        result: Result<T, SkillApplicationError>,
+    ) -> Result<T, SkillApplicationError> {
+        self.observe_with_context(
+            action,
+            skill_id,
+            SkillLogLevel::Info,
+            BTreeMap::from([("agentId".to_string(), agent_id.to_string())]),
+            result,
+        )
+    }
+
     fn observe_with_level<T>(
         &self,
         action: SkillLogAction,
         skill_id: Option<String>,
         success_level: SkillLogLevel,
+        result: Result<T, SkillApplicationError>,
+    ) -> Result<T, SkillApplicationError> {
+        self.observe_with_context(action, skill_id, success_level, BTreeMap::new(), result)
+    }
+
+    fn observe_with_context<T>(
+        &self,
+        action: SkillLogAction,
+        skill_id: Option<String>,
+        success_level: SkillLogLevel,
+        context: BTreeMap<String, String>,
         result: Result<T, SkillApplicationError>,
     ) -> Result<T, SkillApplicationError> {
         let (level, message) = match &result {
@@ -934,7 +971,7 @@ impl SkillApplicationService {
             skill_id,
             message,
             timestamp: self.clock.now(),
-            context: BTreeMap::new(),
+            context,
         });
         result
     }
