@@ -21,6 +21,7 @@ import { useMainLayoutModel } from "./use-main-layout-model";
 import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
+import type { SettingsPageId } from "../settings/settings-pages";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
@@ -84,7 +85,7 @@ export function MainLayout({
   onOpenSettings,
   openCreateSession = false,
 }: {
-  onOpenSettings: () => void;
+  onOpenSettings: (pageId?: SettingsPageId) => void;
   openCreateSession?: boolean;
 }) {
   const model = useMainLayoutModel();
@@ -282,6 +283,7 @@ export function MainLayout({
               activeSession={displayedSession}
               collapsed={infoPanelCollapsed}
               onCollapsedChange={setInfoPanelCollapsed}
+              onOpenSkillSettings={() => onOpenSettings("skills")}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : null}
             />
           </div>

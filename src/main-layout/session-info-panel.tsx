@@ -6,7 +6,6 @@ import {
   Brain,
   FolderGit2,
   Gauge,
-  Layers3,
   PanelRightClose,
   PanelRightOpen,
   Sparkles,
@@ -22,7 +21,7 @@ import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
-import type { Skill } from "../types/skill";
+import { SessionSkillsPane } from "./session-skills-pane";
 
 export type InfoTab = "basic" | "usage" | "skills";
 
@@ -54,26 +53,6 @@ function UsageMetric({ label, language, value }: { label: string; language: stri
       <dt className="truncate text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-1 text-lg font-semibold tabular-nums text-primary">{formatAppNumber(value, language)}</dd>
     </div>
-  );
-}
-
-function skillMatchesAgent(skill: Skill, agentId: string) {
-  return skill.boundAgentIds.includes(agentId) || skill.bindings.some((binding) => binding.agentId === agentId && binding.mounted);
-}
-
-function skillKey(skill: Skill) {
-  return `${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`;
-}
-
-function SkillRow({ muted, skill }: { muted?: boolean; skill: Skill }) {
-  return (
-    <article className={cn("rounded border border-border bg-background p-2 text-sm", muted && "opacity-55")}>
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <h4 className="truncate font-medium" title={skill.metadata.name}>{skill.metadata.name}</h4>
-        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[0.68rem] uppercase text-muted-foreground">{skill.scope}</span>
-      </div>
-      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{skill.metadata.description}</p>
-    </article>
   );
 }
 
@@ -133,11 +112,13 @@ export function SessionInfoPanel({
   collapsed,
   onCollapsedChange,
   requestedTab,
+  onOpenSkillSettings,
 }: {
   activeSession: Session | null;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   requestedTab?: InfoTab | null;
+  onOpenSkillSettings?: () => void;
 }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<InfoTab>("basic");
@@ -158,21 +139,10 @@ export function SessionInfoPanel({
     queryFn: () => agentService.getSessionUsageSummary(sessionId ?? ""),
     refetchInterval: activeSession?.lifecycleState === "running" ? 5000 : false,
   });
-  const globalSkills = useQuery({ enabled: Boolean(sessionId), queryKey: ["skills", "global", sessionId], queryFn: () => agentService.listSkills({ scope: "global" }) });
-  const workspaceSkills = useQuery({ enabled: Boolean(sessionId && workspacePath), queryKey: ["skills", "workspace", workspacePath], queryFn: () => agentService.listSkills({ scope: "workspace", workspacePath }) });
 
   useEffect(() => {
     if (requestedTab) setActiveTab(requestedTab);
   }, [requestedTab, sessionId]);
-
-  const skillGroups = useMemo(() => {
-    const allSkills = [...(globalSkills.data?.skills ?? []), ...(workspaceSkills.data?.skills ?? [])];
-    const available = allSkills.filter((skill) => activeSession ? skill.enabled && skillMatchesAgent(skill, activeSession.agentId) : false);
-    return {
-      available: [...new Map(available.map((skill) => [skillKey(skill), skill])).values()],
-      project: workspaceSkills.data?.skills ?? [],
-    };
-  }, [activeSession, globalSkills.data?.skills, workspaceSkills.data?.skills]);
 
   return <>
     <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-lg transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
@@ -197,16 +167,7 @@ export function SessionInfoPanel({
           </Pane>
           <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
           <Pane active={activeTab === "skills"}>
-            <div className="grid gap-3">
-              <section className="ucd-muted-panel rounded-lg p-3">
-                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><Layers3 className="h-4 w-4 text-primary" />{t("layout.info.skills.available")}</h3>
-                <div className="grid gap-2">{skillGroups.available.map((skill) => <SkillRow key={skillKey(skill)} skill={skill} />)}{globalSkills.isLoading || workspaceSkills.isLoading ? <EmptyState>{t("layout.info.loading")}</EmptyState> : null}{!globalSkills.isLoading && !workspaceSkills.isLoading && skillGroups.available.length === 0 ? <EmptyState>{t("layout.info.skills.noAvailable")}</EmptyState> : null}</div>
-              </section>
-              <section className="ucd-muted-panel rounded-lg p-3">
-                <h3 className="mb-2 text-sm font-semibold">{t("layout.info.skills.project")}</h3>
-                <div className="grid gap-2">{skillGroups.project.map((skill) => <SkillRow key={skillKey(skill)} muted={!skill.enabled} skill={skill} />)}{!workspacePath ? <EmptyState>{t("layout.info.skills.noWorkspace")}</EmptyState> : null}{workspacePath && !workspaceSkills.isLoading && skillGroups.project.length === 0 ? <EmptyState>{t("layout.info.skills.noProject")}</EmptyState> : null}</div>
-              </section>
-            </div>
+            <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
           </Pane>
         </div>
       </div>
