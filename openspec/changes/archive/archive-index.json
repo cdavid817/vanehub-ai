@@ -1432,6 +1432,62 @@
                                               "settings-basic-configuration-ui",
                                               "settings-floating-assistant-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-03",
+                         "changeName":  "harden-mcp-runtime-reliability",
+                         "path":  "openspec/changes/archive/2026-08-03-harden-mcp-runtime-reliability/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-mcp-tools",
+                                              "mcp-client-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-03",
+                         "changeName":  "harden-skill-mount-root-links",
+                         "path":  "openspec/changes/archive/2026-08-03-harden-skill-mount-root-links/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-skill-management-ui",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-03",
+                         "changeName":  "optimize-skill-management-ui",
+                         "path":  "openspec/changes/archive/2026-08-03-optimize-skill-management-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "settings-skill-management-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-03",
+                         "changeName":  "refine-skill-agent-selection-ui",
+                         "path":  "openspec/changes/archive/2026-08-03-refine-skill-agent-selection-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-skill-management-ui"
+                                          ]
                      }
                  ]
 }

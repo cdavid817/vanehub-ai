@@ -1,6 +1,14 @@
 //! Explicit-argument external process construction and bounded execution.
 #![allow(dead_code)]
 
+mod managed_child;
+mod stderr_drain;
+#[cfg(windows)]
+mod windows_job;
+
+pub(crate) use managed_child::{ManagedChild, ManagedTokioChild};
+pub(crate) use stderr_drain::{BlockingStderrDrain, TokioStderrDrain};
+
 use crate::platform::network;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -13,29 +21,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-/// 启动带管道的子进程
-/// 创建stdin/stdout管道，stderr继承父进程，用于交互式命令执行
-/// # 参数
-/// * `executable` - 可执行文件路径或名称
-/// * `args` - 命令行参数列表
-/// * `environment` - 环境变量映射
-/// # 返回
-/// 成功返回子进程句柄，失败返回进程启动错误
-pub(crate) fn spawn_piped(
-    executable: &str,
-    args: &[String],
-    environment: &BTreeMap<String, String>,
-) -> Result<std::process::Child, ProcessError> {
-    Command::new(executable)
-        .args(args)
-        .envs(environment)
-        .stdin(Stdio::piped()) // 标准输入：管道，支持向子进程写入
-        .stdout(Stdio::piped()) // 标准输出：管道，支持读取子进程输出
-        .stderr(Stdio::inherit()) // 标准错误：继承，直接输出到父进程stderr
-        .spawn()
-        .map_err(|error| ProcessError::Spawn(error.to_string()))
-}
-
 #[derive(Debug, Error)]
 pub(crate) enum ProcessError {
     #[error("{0}")]
@@ -44,6 +29,10 @@ pub(crate) enum ProcessError {
     Spawn(String),
     #[error("failed while waiting for external process: {0}")]
     Wait(String),
+    #[error("managed process pipe is unavailable: {0}")]
+    PipeUnavailable(&'static str),
+    #[error("managed process shutdown exceeded its deadline")]
+    ShutdownTimedOut,
     #[error("command timed out after {timeout_seconds} seconds")]
     TimedOut {
         timeout_seconds: u64,

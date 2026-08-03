@@ -79,16 +79,26 @@ function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Sessio
     longContext: false,
   });
   queryClient.setQueryData(["session-usage-summary", activeSession.id], usage);
-  queryClient.setQueryData(["skills", "global", activeSession.id], {
+  queryClient.setQueryData(["skill-overview", { scope: "global", workspacePath: null }], {
     skills: [skill("global-codex", true, ["codex-cli"], "global")],
     stats: { total: 1, enabled: 1, mounted: 1 },
+    agents: [{ id: "codex-cli", displayName: "Codex CLI", kind: "cli" }],
+    apiAgentBindings: {},
+    mountPaths: [],
+    restoreCandidates: [],
+    drift: { scope: "global", workspacePath: null, issues: [], driftHash: "clean" },
   });
-  queryClient.setQueryData(["skills", "workspace", activeSession.worktreePath], {
+  queryClient.setQueryData(["skill-overview", { scope: "workspace", workspacePath: activeSession.worktreePath }], {
     skills: [
       skill("project-codex", true, ["codex-cli"], "workspace"),
       skill("project-disabled", false, ["codex-cli"], "workspace"),
     ],
     stats: { total: 2, enabled: 1, mounted: 1 },
+    agents: [{ id: "codex-cli", displayName: "Codex CLI", kind: "cli" }],
+    apiAgentBindings: {},
+    mountPaths: [],
+    restoreCandidates: [],
+    drift: { scope: "workspace", workspacePath: activeSession.worktreePath, issues: [], driftHash: "clean" },
   });
 
   return renderToString(
@@ -170,7 +180,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("46");
   });
 
-  it("groups available CLI Skills separately from project Skills", () => {
+  it("keeps Effective, Global, and Project Skill views mounted", () => {
     const html = renderPanel({
       sessionId: "session-info-fixture",
       reported: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 2 },
@@ -180,19 +190,23 @@ describe("SessionInfoPanel", () => {
       generatedAt: "2026-07-20T00:00:00.000Z",
     });
 
-    expect(html).toContain("Available Skills");
-    expect(html).toContain("Project Skills");
+    expect(html).toContain("Effective");
+    expect(html).toContain("Global");
+    expect(html).toContain("Project");
     expect(html).toContain("global-codex");
     expect(html).toContain("project-codex");
     expect(html).toContain("project-disabled");
   });
 
   it("uses shared theme tokens without branching on registered style ids", () => {
-    const source = readFileSync(new URL("./session-info-panel.tsx", import.meta.url), "utf8");
+    const source = ["./session-info-panel.tsx", "./session-skills-pane.tsx"]
+      .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+      .join("\n");
 
     expect(source).toContain("ucd-panel");
     expect(source).toContain("ucd-muted-panel");
     expect(source).toContain("ucd-segmented");
     expect(source).not.toMatch(/theme\s*===\s*["'](?:minimal|futuristic)/);
+    expect(source).not.toContain("invoke(");
   });
 });

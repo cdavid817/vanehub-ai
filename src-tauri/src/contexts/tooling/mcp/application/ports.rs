@@ -1,6 +1,7 @@
-use super::{ConnectionTestResult, McpApplicationError, StartedOperation};
+use super::{ConnectionTestResult, McpApplicationError, McpExecutionControl, StartedOperation};
 use crate::contexts::tooling::mcp::domain::{
-    ConnectionOutcome, ServerConfiguration, ServerName, ServerStatus, ToolCallOutcome,
+    ConnectionOutcome, McpFailureCode, ServerConfiguration, ServerName, ServerStatus,
+    ToolCallOutcome,
 };
 use async_trait::async_trait;
 use serde_json::Value;
@@ -49,13 +50,19 @@ pub(crate) trait McpServerRepository: Send + Sync {
 
 #[async_trait]
 pub(crate) trait McpConnectionPort: Send + Sync {
-    async fn test(&self, server: &ServerConfiguration) -> ConnectionOutcome;
+    async fn test(
+        &self,
+        server: &ServerConfiguration,
+        control: &McpExecutionControl,
+        operation_id: Option<&str>,
+    ) -> ConnectionOutcome;
 
     async fn call_tool(
         &self,
         server: &ServerConfiguration,
         tool_name: &str,
         arguments: Value,
+        control: &McpExecutionControl,
     ) -> ToolCallOutcome;
 }
 
@@ -66,6 +73,11 @@ pub(crate) trait McpOperationPort: Send + Sync {
     ) -> Result<StartedOperation, McpApplicationError>;
 
     fn append_log(&self, operation_id: &str, line: String) -> Result<(), McpApplicationError>;
+
+    fn connection_test_cancellation(
+        &self,
+        operation_id: &str,
+    ) -> Result<super::McpCancellation, McpApplicationError>;
 
     fn complete_connection_test(
         &self,
@@ -90,6 +102,18 @@ pub(crate) trait McpLoggingPort: Send + Sync {
         operation_id: &str,
         server_name: &str,
         outcome: &ConnectionOutcome,
+    ) -> Result<(), McpApplicationError>;
+
+    fn record_catalog_rejection(
+        &self,
+        server_name: &str,
+        error_code: McpFailureCode,
+    ) -> Result<(), McpApplicationError>;
+
+    fn record_catalog_overflow(
+        &self,
+        omitted_tools: usize,
+        maximum_tools: usize,
     ) -> Result<(), McpApplicationError>;
 }
 

@@ -1,5 +1,5 @@
 use crate::contexts::tooling::mcp::domain::{
-    ConnectionOutcome, Scope, ServerConfiguration, ToolDescriptor, TransportType,
+    ConnectionOutcome, McpFailureCode, Scope, ServerConfiguration, ToolDescriptor, TransportType,
 };
 use std::collections::BTreeMap;
 
@@ -19,11 +19,19 @@ pub(crate) struct ServerPatch {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ImportEntry {
+    pub(crate) transport_type: Option<ImportTransportType>,
     pub(crate) command: Option<String>,
     pub(crate) args: Option<Vec<String>>,
     pub(crate) env: Option<BTreeMap<String, String>>,
     pub(crate) url: Option<String>,
     pub(crate) headers: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImportTransportType {
+    Sse,
+    Http,
+    StreamableHttp,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -35,6 +43,21 @@ pub(crate) struct ImportBundle {
 pub(crate) struct ImportResult {
     pub(crate) imported: Vec<String>,
     pub(crate) skipped: Vec<String>,
+    pub(crate) failures: Vec<ImportFailure>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImportFailureStage {
+    Validation,
+    Storage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImportFailure {
+    pub(crate) name: String,
+    pub(crate) stage: ImportFailureStage,
+    pub(crate) error_code: Option<McpFailureCode>,
+    pub(crate) message: String,
 }
 
 pub(crate) type ExportBundle = ImportBundle;
@@ -53,6 +76,7 @@ pub(crate) struct PreparedConnectionTest {
     pub(crate) operation: StartedOperation,
     pub(super) server: ServerConfiguration,
     pub(super) observation_id: Option<String>,
+    pub(super) cancellation: super::McpCancellation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +85,7 @@ pub(crate) struct ConnectionTestResult {
     pub(crate) operation_id: String,
     pub(crate) tools: Vec<ToolDescriptor>,
     pub(crate) error: Option<String>,
+    pub(crate) error_code: Option<McpFailureCode>,
     pub(crate) duration_ms: u64,
 }
 
@@ -71,6 +96,7 @@ impl ConnectionTestResult {
             operation_id,
             tools: outcome.tools().to_vec(),
             error: outcome.error().map(str::to_string),
+            error_code: outcome.error_code(),
             duration_ms: outcome.duration_ms(),
         }
     }

@@ -4,6 +4,8 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::tooling::mcp::api::{McpApi, McpServerToolEntry};
 use serde_json::{json, Value};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Wraps `tooling::mcp`'s public facade to satisfy `agent_runtime`'s own `AgentMcpToolPort` —
 /// mirrors `RuntimeAgentSkillAdapter`'s existing pattern for depending on another context's API
@@ -37,6 +39,7 @@ impl AgentMcpToolPort for RuntimeAgentMcpToolAdapter {
         project_path: &str,
         tool_name: &str,
         arguments: &Value,
+        cancellation: Arc<AtomicBool>,
     ) -> AgentToolCallOutcome {
         let Some((server_name, remote_tool_name)) = split_tool_name(tool_name) else {
             return AgentToolCallOutcome {
@@ -44,11 +47,12 @@ impl AgentMcpToolPort for RuntimeAgentMcpToolAdapter {
                 is_error: true,
             };
         };
-        let result = tauri::async_runtime::block_on(self.mcp.call_tool(
+        let result = tauri::async_runtime::block_on(self.mcp.call_tool_with_cancellation(
             project_path,
             server_name,
             remote_tool_name,
             arguments.clone(),
+            cancellation,
         ));
         match result {
             Ok(outcome) => AgentToolCallOutcome {

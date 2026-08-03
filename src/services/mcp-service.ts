@@ -4,6 +4,7 @@ import type {
   McpScope,
   McpServerConfig,
   McpServerStatus,
+  McpToolCallResult,
   PartialMcpServerConfig,
 } from "../types/mcp";
 import type { OperationTask } from "../types/operation";
@@ -16,7 +17,7 @@ export interface McpService {
   toggleServer(name: string, active: boolean): Promise<void>;
   testConnection(name: string): Promise<OperationTask>;
   getServerStatus(name: string): Promise<McpServerStatus>;
-  callTool(serverName: string, toolName: string, args?: Record<string, unknown>): Promise<unknown>;
-  importServers(data: McpImportExport, scope: McpScope): Promise<McpImportResult>;
+  callTool(serverName: string, toolName: string, args?: Record<string, unknown>): Promise<McpToolCallResult>;
+  importServers(input: string, scope: McpScope): Promise<McpImportResult>;
   exportServers(names: string[]): Promise<McpImportExport>;
 }
