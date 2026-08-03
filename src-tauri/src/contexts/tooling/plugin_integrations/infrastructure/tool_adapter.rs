@@ -50,6 +50,8 @@ fn process_failure_outcome(error: ProcessError) -> PluginIntegrationToolOutcome 
         ProcessError::InvalidExecutable(_)
         | ProcessError::Spawn(_)
         | ProcessError::Wait(_)
+        | ProcessError::PipeUnavailable(_)
+        | ProcessError::ShutdownTimedOut
         | ProcessError::Cancelled { .. } => PluginIntegrationToolOutcome::LaunchFailed,
     }
 }

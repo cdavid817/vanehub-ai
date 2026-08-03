@@ -19,7 +19,9 @@ pub(super) struct RelayObserver {
 }
 
 pub(super) struct RelayRequest {
+    repository: SqliteExecutionTimelineRepository,
     context: ExecutionContext,
+    finished: bool,
 }
 
 impl RelayObserver {
@@ -81,16 +83,20 @@ impl RelayObserver {
                 links: Vec::new(),
             })
             .ok()?;
-        Some(RelayRequest { context })
+        Some(RelayRequest {
+            repository: self.repository.clone(),
+            context,
+            finished: false,
+        })
     }
 
     pub(super) fn finish_request(
         &self,
-        request: &RelayRequest,
+        mut request: RelayRequest,
         success: bool,
         error_classification: Option<&str>,
     ) {
-        let _ = self.repository.finish_span(
+        let _ = request.repository.finish_span(
             &request.context.run_id,
             &request.context.span_id,
             if success {
@@ -101,6 +107,23 @@ impl RelayObserver {
             &now(),
             error_classification,
         );
+        request.finished = true;
+    }
+}
+
+impl Drop for RelayRequest {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let _ = self.repository.finish_span(
+            &self.context.run_id,
+            &self.context.span_id,
+            ExecutionStatus::Failed,
+            &now(),
+            Some("mcp_relay_terminated"),
+        );
+        self.finished = true;
     }
 }
 

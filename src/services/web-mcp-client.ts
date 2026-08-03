@@ -1,4 +1,10 @@
 import type { McpService } from "./mcp-service";
+import { parseMcpImportText } from "./mcp-import";
+import {
+  McpValidationError,
+  validateMcpServerConfig,
+  withMcpServiceValidation,
+} from "./mcp-validation";
 import { unsupportedRuntimeError } from "./service-error";
 import type {
   McpImportExport,
@@ -10,7 +16,7 @@ import type {
 } from "../types/mcp";
 import { createWebMockOperation } from "./web-operation-client";
 
-let mockServers: McpServerConfig[] = [
+const defaultServers: McpServerConfig[] = [
   {
     name: "filesystem-tools",
     transportType: "stdio",
@@ -26,14 +32,14 @@ let mockServers: McpServerConfig[] = [
     transportType: "sse",
     url: "http://localhost:8000/mcp",
     headers: {},
-    description: "Example URL MCP server",
+    description: "Example legacy SSE MCP server",
     active: false,
     scope: "project",
     projectPath: "web-preview",
   },
 ];
 
-const mockStatuses: Record<string, McpServerStatus> = {
+const defaultStatuses: Record<string, McpServerStatus> = {
   "filesystem-tools": {
     name: "filesystem-tools",
     connectionStatus: "connected",
@@ -47,96 +53,125 @@ const mockStatuses: Record<string, McpServerStatus> = {
     lastConnected: "preview",
     durationMs: 42,
   },
-  "remote-docs": {
-    name: "remote-docs",
-    connectionStatus: "disabled",
-    tools: [],
-    error: null,
-  },
 };
 
-export const webMcpClient: McpService = {
-  async listServers() {
-    return mockServers;
-  },
+type WebMcpClientState = {
+  servers?: McpServerConfig[];
+  statuses?: Record<string, McpServerStatus>;
+};
 
-  async addServer(config) {
-    if (mockServers.some((server) => server.name === config.name)) {
+export function createWebMcpClient(initial: WebMcpClientState = {}): McpService {
+  let servers = (initial.servers ?? defaultServers).map(cloneServer);
+  const statuses = Object.fromEntries(
+    Object.entries(initial.statuses ?? defaultStatuses).map(([name, status]) => [name, cloneStatus(status)]),
+  );
+
+  function addServer(config: McpServerConfig) {
+    if (servers.some((server) => server.name === config.name)) {
       throw new Error(`MCP server already exists: ${config.name}`);
     }
-    mockServers = [...mockServers, config];
-  },
+    delete statuses[config.name];
+    servers = [...servers, cloneServer(config)];
+  }
 
-  async updateServer(name: string, config: PartialMcpServerConfig) {
-    mockServers = mockServers.map((server) => (server.name === name ? { ...server, ...config } : server));
-  },
+  const client: McpService = {
+    async listServers() {
+      return servers.map(cloneServer);
+    },
 
-  async removeServer(name: string) {
-    mockServers = mockServers.filter((server) => server.name !== name);
-  },
+    async addServer(config) {
+      addServer(config);
+    },
 
-  async toggleServer(name: string, active: boolean) {
-    await this.updateServer(name, { active });
-  },
+    async updateServer(name: string, config: PartialMcpServerConfig) {
+      const index = servers.findIndex((server) => server.name === name);
+      if (index < 0) throw new Error(`MCP server not found: ${name}`);
 
-  async testConnection(name: string) {
-    const result = {
-      success: true,
-      durationMs: 38,
-      tools: [
-        {
-          name: "preview_tool",
-          description: "Mock MCP tool for browser preview",
-          inputSchema: { type: "object", properties: {} },
-        },
-      ],
-    };
-    mockStatuses[name] = {
-      name,
-      connectionStatus: "connected",
-      tools: result.tools,
-      lastConnected: "preview",
-      durationMs: result.durationMs,
-    };
-    return createWebMockOperation({
-      id: `web-mcp-test-${name}-${Date.now()}`,
-      kind: "mcp",
-      relatedEntityId: name,
-      message: `Mock MCP connection test for ${name}`,
-      terminalStatus: "succeeded",
-      error: null,
-      result: result as unknown as Record<string, unknown>,
-    });
-  },
-
-  async getServerStatus(name: string) {
-    const server = mockServers.find((item) => item.name === name);
-    return (
-      mockStatuses[name] ?? {
-        name,
-        connectionStatus: server?.active === false ? "disabled" : "disconnected",
-        tools: [],
+      const updated = { ...servers[index], ...config };
+      if (updated.name !== name && servers.some((server) => server.name === updated.name)) {
+        throw new Error(`MCP server already exists: ${updated.name}`);
       }
-    );
-  },
+      const validation = validateMcpServerConfig(updated);
+      if (!validation.success) throw new McpValidationError(validation);
 
-  async callTool() {
-    throw unsupportedRuntimeError("MCP tool calling is reserved for a later VaneHub release.");
-  },
-
-  async importServers(data: McpImportExport, scope: McpScope): Promise<McpImportResult> {
-    const imported: string[] = [];
-    const skipped: string[] = [];
-    for (const [name, entry] of Object.entries(data.mcpServers)) {
-      if (mockServers.some((server) => server.name === name)) {
-        skipped.push(name);
-        continue;
+      servers = servers.map((server, serverIndex) => (serverIndex === index ? cloneServer(updated) : server));
+      const previousStatus = statuses[name];
+      delete statuses[name];
+      if (updated.active && previousStatus) {
+        statuses[updated.name] = { ...cloneStatus(previousStatus), name: updated.name };
+      } else {
+        delete statuses[updated.name];
       }
-      mockServers = [
-        ...mockServers,
-        {
+    },
+
+    async removeServer(name: string) {
+      servers = servers.filter((server) => server.name !== name);
+      delete statuses[name];
+    },
+
+    async toggleServer(name: string, active: boolean) {
+      await client.updateServer(name, { active });
+    },
+
+    async testConnection(name: string) {
+      const server = servers.find((item) => item.name === name);
+      if (!server) throw new Error(`MCP server not found: ${name}`);
+
+      const result = {
+        success: true,
+        durationMs: 38,
+        tools: [
+          {
+            name: "preview_tool",
+            description: "Mock MCP tool for browser preview",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      };
+      if (server.active) {
+        statuses[name] = {
           name,
-          transportType: entry.command ? "stdio" : "sse",
+          connectionStatus: "connected",
+          tools: result.tools,
+          lastConnected: "preview",
+          durationMs: result.durationMs,
+        };
+      }
+      return createWebMockOperation({
+        id: `web-mcp-test-${name}-${Date.now()}`,
+        kind: "mcp",
+        relatedEntityId: name,
+        message: `Mock MCP connection test for ${name}`,
+        terminalStatus: "succeeded",
+        error: null,
+        result: result as unknown as Record<string, unknown>,
+      });
+    },
+
+    async getServerStatus(name: string) {
+      const server = servers.find((item) => item.name === name);
+      if (!server?.active) {
+        return { name, connectionStatus: server ? "disabled" : "disconnected", tools: [] };
+      }
+      return statuses[name] ? cloneStatus(statuses[name]) : { name, connectionStatus: "disconnected", tools: [] };
+    },
+
+    async callTool() {
+      throw unsupportedRuntimeError("MCP tool calling is reserved for a later VaneHub release.");
+    },
+
+    async importServers(input: string, scope: McpScope): Promise<McpImportResult> {
+      const parsed = parseMcpImportText(input);
+      const imported: string[] = [];
+      const skipped: string[] = [];
+      for (const [name, entry] of Object.entries(parsed.data.mcpServers)) {
+        if (servers.some((server) => server.name === name)) {
+          skipped.push(name);
+          continue;
+        }
+        addServer({
+          name,
+          transportType: entry.command ? "stdio" : entry.type === "sse" ? "sse" : "streamable_http",
           command: entry.command,
           args: entry.args,
           env: entry.env,
@@ -145,28 +180,52 @@ export const webMcpClient: McpService = {
           active: true,
           scope,
           projectPath: scope === "project" ? "web-preview" : undefined,
-        },
-      ];
-      imported.push(name);
-    }
-    return { imported, skipped };
-  },
+        });
+        imported.push(name);
+      }
+      return { imported, skipped, failures: parsed.failures };
+    },
 
-  async exportServers(names: string[]): Promise<McpImportExport> {
-    const mcpServers: McpImportExport["mcpServers"] = {};
-    for (const server of mockServers.filter((item) => names.includes(item.name))) {
-      mcpServers[server.name] =
-        server.transportType === "stdio"
-          ? {
-              command: server.command ?? undefined,
-              args: server.args ?? undefined,
-              env: server.env ?? undefined,
-            }
-          : {
-              url: server.url ?? undefined,
-              headers: server.headers ?? undefined,
-            };
-    }
-    return { mcpServers };
-  },
-};
+    async exportServers(names: string[]): Promise<McpImportExport> {
+      const mcpServers: McpImportExport["mcpServers"] = {};
+      for (const server of servers.filter((item) => names.includes(item.name))) {
+        mcpServers[server.name] =
+          server.transportType === "stdio"
+            ? {
+                command: server.command ?? undefined,
+                args: server.args ?? undefined,
+                env: server.env ?? undefined,
+              }
+            : {
+                type: server.transportType === "sse" ? "sse" : "http",
+                url: server.url ?? undefined,
+                headers: server.headers ?? undefined,
+              };
+      }
+      return { mcpServers };
+    },
+  };
+
+  return withMcpServiceValidation(client);
+}
+
+function cloneServer(server: McpServerConfig): McpServerConfig {
+  return {
+    ...server,
+    args: server.args ? [...server.args] : server.args,
+    env: server.env ? { ...server.env } : server.env,
+    headers: server.headers ? { ...server.headers } : server.headers,
+  };
+}
+
+function cloneStatus(status: McpServerStatus): McpServerStatus {
+  return {
+    ...status,
+    tools: status.tools.map((tool) => ({
+      ...tool,
+      inputSchema: tool.inputSchema ? { ...tool.inputSchema } : tool.inputSchema,
+    })),
+  };
+}
+
+export const webMcpClient = createWebMcpClient();

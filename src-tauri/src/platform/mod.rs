@@ -9,4 +9,5 @@ pub(crate) mod git;
 pub(crate) mod ids;
 pub(crate) mod logging;
 pub(crate) mod network;
+pub(crate) mod private_relay_fs;
 pub(crate) mod process;

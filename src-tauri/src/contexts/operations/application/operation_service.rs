@@ -1,7 +1,10 @@
 use super::ApplicationError;
 use crate::contexts::operations::domain::{OperationKind, OperationTask};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 pub(crate) trait OperationRepository: Send + Sync {
     fn insert(&self, operation: OperationTask) -> Result<(), ApplicationError>;
@@ -30,6 +33,7 @@ pub(crate) struct OperationService {
     repository: Arc<dyn OperationRepository>,
     clock: Arc<dyn OperationClock>,
     ids: Arc<dyn OperationIdGenerator>,
+    cancellations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 impl OperationService {
@@ -42,6 +46,7 @@ impl OperationService {
             repository,
             clock,
             ids,
+            cancellations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -60,6 +65,10 @@ impl OperationService {
             now,
         );
         self.repository.insert(operation.clone())?;
+        self.cancellations
+            .lock()
+            .map_err(|_| cancellation_registry_error())?
+            .insert(operation.id.clone(), Arc::new(AtomicBool::new(false)));
         Ok(operation)
     }
 
@@ -97,7 +106,21 @@ impl OperationService {
         let mut mutation = |operation: &mut OperationTask| {
             operation.succeed(result.clone(), updated_at.clone());
         };
-        self.repository.update(operation_id, &mut mutation)
+        let operation = self.repository.update(operation_id, &mut mutation)?;
+        self.remove_cancellation(operation_id)?;
+        Ok(operation)
+    }
+
+    pub(crate) fn cancellation_flag(
+        &self,
+        operation_id: &str,
+    ) -> Result<Arc<AtomicBool>, ApplicationError> {
+        self.cancellations
+            .lock()
+            .map_err(|_| cancellation_registry_error())?
+            .get(operation_id)
+            .cloned()
+            .ok_or_else(|| ApplicationError::NotFound(operation_id.to_string()))
     }
 
     pub(crate) fn fail(
@@ -109,7 +132,9 @@ impl OperationService {
         let mut mutation = |operation: &mut OperationTask| {
             operation.fail(error.clone(), updated_at.clone());
         };
-        self.repository.update(operation_id, &mut mutation)
+        let operation = self.repository.update(operation_id, &mut mutation)?;
+        self.remove_cancellation(operation_id)?;
+        Ok(operation)
     }
 
     pub(crate) fn cancel(&self, operation_id: &str) -> Result<OperationTask, ApplicationError> {
@@ -117,7 +142,16 @@ impl OperationService {
         let mut mutation = |operation: &mut OperationTask| {
             operation.cancel(updated_at.clone());
         };
-        self.repository.update(operation_id, &mut mutation)
+        let operation = self.repository.update(operation_id, &mut mutation)?;
+        if let Some(cancellation) = self
+            .cancellations
+            .lock()
+            .map_err(|_| cancellation_registry_error())?
+            .remove(operation_id)
+        {
+            cancellation.store(true, Ordering::SeqCst);
+        }
+        Ok(operation)
     }
 
     pub(crate) fn get(&self, operation_id: &str) -> Result<OperationTask, ApplicationError> {
@@ -127,120 +161,20 @@ impl OperationService {
     pub(crate) fn list(&self) -> Result<Vec<OperationTask>, ApplicationError> {
         self.repository.list()
     }
+
+    fn remove_cancellation(&self, operation_id: &str) -> Result<(), ApplicationError> {
+        self.cancellations
+            .lock()
+            .map_err(|_| cancellation_registry_error())?
+            .remove(operation_id);
+        Ok(())
+    }
+}
+
+fn cancellation_registry_error() -> ApplicationError {
+    ApplicationError::Internal("operation cancellation registry unavailable".to_string())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::contexts::operations::domain::OperationStatus;
-    use std::collections::{BTreeMap, VecDeque};
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct FakeRepository {
-        operations: Mutex<BTreeMap<String, OperationTask>>,
-    }
-
-    impl OperationRepository for FakeRepository {
-        fn insert(&self, operation: OperationTask) -> Result<(), ApplicationError> {
-            self.operations
-                .lock()
-                .expect("operations")
-                .insert(operation.id.clone(), operation);
-            Ok(())
-        }
-
-        fn update(
-            &self,
-            operation_id: &str,
-            mutation: &mut dyn FnMut(&mut OperationTask),
-        ) -> Result<OperationTask, ApplicationError> {
-            let mut operations = self.operations.lock().expect("operations");
-            let operation = operations
-                .get_mut(operation_id)
-                .ok_or_else(|| ApplicationError::NotFound("operation not found".to_string()))?;
-            mutation(operation);
-            Ok(operation.clone())
-        }
-
-        fn get(&self, operation_id: &str) -> Result<OperationTask, ApplicationError> {
-            self.operations
-                .lock()
-                .expect("operations")
-                .get(operation_id)
-                .cloned()
-                .ok_or_else(|| ApplicationError::NotFound("operation not found".to_string()))
-        }
-
-        fn list(&self) -> Result<Vec<OperationTask>, ApplicationError> {
-            Ok(self
-                .operations
-                .lock()
-                .expect("operations")
-                .values()
-                .cloned()
-                .collect())
-        }
-    }
-
-    struct FakeClock {
-        values: Mutex<VecDeque<String>>,
-    }
-
-    impl OperationClock for FakeClock {
-        fn now(&self) -> String {
-            self.values
-                .lock()
-                .expect("clock")
-                .pop_front()
-                .expect("clock value")
-        }
-    }
-
-    struct FakeIds;
-
-    impl OperationIdGenerator for FakeIds {
-        fn next_id(&self, timestamp: &str) -> String {
-            format!("op-{timestamp}-fixed")
-        }
-    }
-
-    #[test]
-    fn use_case_coordinates_deterministic_ids_timestamps_logs_and_results() {
-        let repository = Arc::new(FakeRepository::default());
-        let service = OperationService::new(
-            repository,
-            Arc::new(FakeClock {
-                values: Mutex::new(
-                    ["100", "101", "102", "103"]
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect(),
-                ),
-            }),
-            Arc::new(FakeIds),
-        );
-
-        let started = service
-            .start(
-                OperationKind::Extension,
-                None,
-                Some("Installing".to_string()),
-            )
-            .expect("start");
-        service
-            .append_log(&started.id, "downloaded".to_string())
-            .expect("append log");
-        let completed = service
-            .complete(&started.id, Some(serde_json::json!({ "ok": true })))
-            .expect("complete");
-
-        assert_eq!(completed.id, "op-100-fixed");
-        assert_eq!(completed.created_at, "100");
-        assert_eq!(completed.updated_at, "103");
-        assert_eq!(completed.logs[0].timestamp, "101");
-        assert_eq!(completed.logs[0].operation_id, completed.id);
-        assert_eq!(completed.status, OperationStatus::Succeeded);
-        assert_eq!(completed.result, Some(serde_json::json!({ "ok": true })));
-    }
-}
+#[path = "operation_service_tests.rs"]
+mod tests;

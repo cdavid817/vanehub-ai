@@ -1270,6 +1270,9 @@ describe("webAgentClient", () => {
         event.toolUse.status === "completed",
     );
     expect(completedEvent).toBeDefined();
+    if (completedEvent?.type === "tool_use") {
+      expect(completedEvent.toolUse.output).toBe("mock MCP result");
+    }
     unsubscribe();
   });
 
