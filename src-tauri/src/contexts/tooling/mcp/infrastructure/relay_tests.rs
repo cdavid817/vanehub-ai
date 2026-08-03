@@ -411,6 +411,35 @@ fn http_routing_has_a_bounded_timeout_and_rejects_protocol_errors() {
 }
 
 #[test]
+fn http_routing_reports_connection_failures() {
+    let error = relay_http_stream(
+        "http://127.0.0.1:1",
+        &BTreeMap::new(),
+        "traceparent",
+        control(Duration::from_secs(1)),
+        None,
+        Cursor::new(
+            br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+"#,
+        ),
+        &mut Vec::new(),
+    )
+    .expect_err("closed endpoint must fail");
+
+    assert!(!error.is_empty());
+}
+
+#[test]
+fn json_rpc_method_requires_a_string_method() {
+    assert_eq!(
+        json_rpc_method(&serde_json::json!({"method": "tools/list"})),
+        Some("tools/list")
+    );
+    assert_eq!(json_rpc_method(&serde_json::json!({"method": 1})), None);
+    assert_eq!(json_rpc_method(&serde_json::json!({})), None);
+}
+
+#[test]
 fn http_routing_reuses_session_identity_and_propagates_output_failure() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind session fixture");
     let address = listener.local_addr().expect("session fixture address");
