@@ -177,7 +177,7 @@ async fn streamed_body_limit_plus_one_is_rejected() {
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n41\r\n")
             .await
             .expect("headers");
-        stream.write_all(&vec![b'x'; 65]).await.expect("body");
+        stream.write_all(&[b'x'; 65]).await.expect("body");
         stream.write_all(b"\r\n0\r\n\r\n").await.expect("end");
     });
     let client = network::no_redirect_http_client(Duration::from_secs(2)).expect("client");

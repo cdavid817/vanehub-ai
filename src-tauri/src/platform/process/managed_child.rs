@@ -707,7 +707,7 @@ mod tests {
     #[ignore = "spawned only by the Windows Job Object descendant test"]
     fn managed_child_descendant_launcher_fixture() {
         let executable = std::env::current_exe().expect("test executable");
-        let descendant = Command::new(executable)
+        let mut descendant = Command::new(executable)
             .args(fixture_args("managed_child_descendant_fixture"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -717,11 +717,14 @@ mod tests {
         println!("DESCENDANT_PID {}", descendant.id());
         std::io::stdout().flush().expect("flush pid");
         thread::sleep(Duration::from_secs(30));
+        let _ = descendant.kill();
+        let _ = descendant.wait();
     }
 
     #[cfg(windows)]
     #[test]
     #[ignore = "spawned only by the Windows Job Object tree-wait test"]
+    #[allow(clippy::zombie_processes)] // This fixture must exit before its Job-owned descendant to exercise tree-aware wait semantics.
     fn managed_child_exiting_launcher_fixture() {
         let executable = std::env::current_exe().expect("test executable");
         let descendant = Command::new(executable)
@@ -749,7 +752,7 @@ mod tests {
         let previous = unsafe {
             libc::signal(
                 libc::SIGTERM,
-                graceful_termination_handler as libc::sighandler_t,
+                graceful_termination_handler as *const () as libc::sighandler_t,
             )
         };
         assert_ne!(previous, libc::SIG_ERR);
@@ -770,7 +773,7 @@ mod tests {
         let previous = unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
         assert_ne!(previous, libc::SIG_ERR);
         let executable = std::env::current_exe().expect("test executable");
-        let descendant = Command::new(executable)
+        let mut descendant = Command::new(executable)
             .args(fixture_args("managed_child_descendant_fixture"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -780,6 +783,8 @@ mod tests {
         println!("DESCENDANT_PID {}", descendant.id());
         std::io::stdout().flush().expect("flush pid");
         thread::sleep(Duration::from_secs(30));
+        let _ = descendant.kill();
+        let _ = descendant.wait();
     }
 
     #[cfg(windows)]
