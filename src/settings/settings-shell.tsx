@@ -1,17 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { LazyFeature } from "../components/lazy-feature";
 import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNavigationTarget, type SettingsPageId } from "./settings-pages";
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
 
 export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
-  const [activePageId, setActivePageId] = useState<SettingsPageId>(defaultSettingsPageId);
+  const [searchParams] = useSearchParams();
+  const requestedPage = searchParams.get("section");
+  const initialPage = settingsPages.some((page) => page.id === requestedPage) ? requestedPage as SettingsPageId : defaultSettingsPageId;
+  const [activePageId, setActivePageId] = useState<SettingsPageId>(initialPage);
   const [visitedPages, setVisitedPages] = useState<Set<SettingsPageId>>(
-    () => new Set([defaultSettingsPageId]),
+    () => new Set([initialPage]),
   );
   const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
+
+  useEffect(() => {
+    if (requestedPage && settingsPages.some((page) => page.id === requestedPage)) handleSelectPage(requestedPage as SettingsPageId);
+  }, [requestedPage]);
 
   function handleSelectPage(pageId: SettingsPageId, target?: SettingsNavigationTarget) {
     setVisitedPages((current) => new Set(current).add(pageId));

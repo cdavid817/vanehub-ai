@@ -344,6 +344,7 @@ struct FakeFilesystem {
     events: Mutex<Vec<String>>,
     transactions: Mutex<usize>,
     binding_plans: Mutex<Vec<SkillBindingPlan>>,
+    binding_failure: Mutex<Option<SkillApplicationError>>,
     inspection: Mutex<Option<SkillDriftInspection>>,
     preview_content: Mutex<String>,
     migration_failure_for: Mutex<Option<String>>,
@@ -455,6 +456,9 @@ impl SkillFilesystemPort for FakeFilesystem {
             .lock()
             .expect("binding plans")
             .push(plan.clone());
+        if let Some(error) = self.binding_failure.lock().expect("binding failure").take() {
+            return Err(error);
+        }
         Ok(plan
             .desired_agent_ids
             .iter()
@@ -1381,6 +1385,70 @@ fn granular_cli_bindings_do_not_lose_independent_concurrent_changes() {
         stored.bound_agent_ids(),
         vec!["claude-code".to_string(), "codex-cli".to_string()]
     );
+}
+
+#[test]
+fn mount_root_rejection_preserves_bindings_and_logs_safe_agent_context() {
+    let fixture = Fixture::new();
+    let existing = record("fixture-skill", global(), SkillSource::User, true, &[]);
+    fixture.repository.insert(existing.clone());
+    *fixture
+        .filesystem
+        .binding_failure
+        .lock()
+        .expect("binding failure") = Some(SkillApplicationError::MountRootExternalLink(
+        "codex-cli".to_string(),
+    ));
+
+    let error = fixture
+        .service
+        .bind_skill_to_cli_agent(existing.key.clone(), "codex-cli".to_string())
+        .expect_err("external mount root rejection");
+
+    assert_eq!(
+        error,
+        SkillApplicationError::MountRootExternalLink("codex-cli".to_string())
+    );
+    assert!(fixture
+        .repository
+        .record(&existing.key)
+        .expect("unchanged record")
+        .bound_agent_ids()
+        .is_empty());
+    assert!(fixture
+        .filesystem
+        .events
+        .lock()
+        .expect("filesystem events")
+        .last()
+        .expect("rollback event")
+        .starts_with("rollback:"));
+    let log = fixture
+        .logging
+        .events
+        .lock()
+        .expect("log events")
+        .last()
+        .expect("binding log")
+        .clone();
+    assert_eq!(log.action, SkillLogAction::BindCliAgent);
+    assert_eq!(log.level, SkillLogLevel::Error);
+    assert_eq!(log.skill_id.as_deref(), Some("fixture-skill"));
+    assert_eq!(
+        log.context,
+        BTreeMap::from([("agentId".to_string(), "codex-cli".to_string())])
+    );
+    let sensitive_paths = [
+        r"C:\Users\developer\.codex\skills",
+        r"D:\external-skill-manager\skills",
+    ];
+    for sensitive_path in sensitive_paths {
+        assert!(!log.message.contains(sensitive_path));
+        assert!(!log
+            .context
+            .values()
+            .any(|value| value.contains(sensitive_path)));
+    }
 }
 
 #[test]

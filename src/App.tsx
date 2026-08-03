@@ -38,7 +38,7 @@ function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  return <MainLayout onOpenSettings={() => navigate("/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
+  return <MainLayout onOpenSettings={(pageId) => navigate(pageId ? `/settings?section=${pageId}` : "/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
 }
 
 function AppRoutes() {
