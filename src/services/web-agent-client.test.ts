@@ -933,6 +933,10 @@ describe("webAgentClient", () => {
       }),
     ).rejects.toThrow("changed since it was loaded");
 
+    const bound = await webAgentClient.bindSkillToCliAgent(created.id, scope, "codex-cli");
+    expect(bound.boundAgentIds).toEqual(["codex-cli"]);
+    const unbound = await webAgentClient.unbindSkillFromCliAgent(created.id, scope, "codex-cli");
+    expect(unbound.boundAgentIds).toEqual([]);
     await webAgentClient.bindSkillToCliAgent(created.id, scope, "codex-cli");
     const apiAgent =
       (await webAgentClient.listAgents()).find((agent) => agent.launch.kind === "api");

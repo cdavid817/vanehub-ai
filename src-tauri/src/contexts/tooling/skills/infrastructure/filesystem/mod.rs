@@ -109,9 +109,13 @@ impl ManagedSkillFilesystem {
                     target.display()
                 )));
             }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(filesystem_error)?;
-            }
+            let mount_root =
+                self.preflight_mount_root(&record.key.location, agent_id, mount_path)?;
+            std::fs::create_dir_all(&mount_root).map_err(|error| {
+                SkillApplicationError::Filesystem(format!(
+                    "Unable to prepare the Skill root for {agent_id}: {error}"
+                ))
+            })?;
             let mut overwritten = Vec::new();
             let mut backed_up = Vec::new();
             if path_exists(&target) {
@@ -189,6 +193,46 @@ impl ManagedSkillFilesystem {
                     "Agent mount path is unavailable: {agent_id}"
                 ))
             })
+    }
+
+    fn preflight_mount_root(
+        &self,
+        location: &SkillLocation,
+        agent_id: &str,
+        mount_path: &SkillMountPath,
+    ) -> Result<PathBuf, SkillApplicationError> {
+        let scope_root = self.paths.scope_root(location)?;
+        let mount_root = self.paths.mount_root(location, mount_path)?;
+        let mut current = scope_root;
+        for component in Path::new(mount_path.as_str()).components() {
+            current.push(component.as_os_str());
+            match std::fs::symlink_metadata(&current) {
+                Ok(metadata) if is_link_or_reparse_point(&metadata) => {
+                    return if current.canonicalize().is_ok_and(|target| target.is_dir()) {
+                        Err(SkillApplicationError::MountRootExternalLink(
+                            agent_id.to_string(),
+                        ))
+                    } else {
+                        Err(SkillApplicationError::MountRootBrokenLink(
+                            agent_id.to_string(),
+                        ))
+                    };
+                }
+                Ok(metadata) if !metadata.is_dir() => {
+                    return Err(SkillApplicationError::MountRootNotDirectory(
+                        agent_id.to_string(),
+                    ));
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => {
+                    return Err(SkillApplicationError::Filesystem(format!(
+                        "Unable to inspect the Skill root for {agent_id}: {error}"
+                    )));
+                }
+            }
+        }
+        Ok(mount_root)
     }
 }
 
@@ -551,6 +595,20 @@ fn paths_overlap(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn is_link_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 fn create_dir_link(source: &Path, target: &Path) -> Result<(), SkillApplicationError> {
     #[cfg(windows)]
     {
@@ -612,6 +670,7 @@ fn filesystem_error(error: std::io::Error) -> SkillApplicationError {
 
 #[cfg(test)]
 mod tests {
+    use super::transaction::remove_path;
     use super::*;
     use crate::contexts::tooling::skills::domain::{
         SkillId, SkillKey, SkillLocation, SkillMetadata, SkillScope, SkillSource,
@@ -1009,6 +1068,95 @@ mod tests {
             .observe_bindings(std::slice::from_mut(&mut stored))
             .expect("mounted binding observation");
         assert!(stored.bindings[0].mounted);
+    }
+
+    #[test]
+    fn mount_root_preflight_allows_absent_and_normal_directories() {
+        let home = TempDirectory::new("Skill normal mount root");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("normal-root-skill").expect("Skill id");
+        let source_transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &source_transaction,
+                &location(),
+                &id,
+                &document("normal-root-skill", "body"),
+            )
+            .expect("source");
+        filesystem.commit_mutation(source_transaction);
+        let stored = record("normal-root-skill", source);
+        let mount_path = SkillMountPath::parse(".codex/skills").expect("mount path");
+
+        let absent_transaction = filesystem.begin_mutation().expect("absent transaction");
+        filesystem
+            .repair_binding(&absent_transaction, &stored, "codex-cli", &mount_path)
+            .expect("absent mount root");
+        filesystem.commit_mutation(absent_transaction);
+
+        let target = home.path().join(".codex/skills/normal-root-skill");
+        remove_path(&target).expect("remove managed target");
+        assert!(home.path().join(".codex/skills").is_dir());
+        let normal_transaction = filesystem.begin_mutation().expect("normal transaction");
+        filesystem
+            .repair_binding(&normal_transaction, &stored, "codex-cli", &mount_path)
+            .expect("normal mount root");
+        filesystem.commit_mutation(normal_transaction);
+        assert!(is_managed_link(
+            &target,
+            Path::new(&stored.managed_source.skill_dir)
+        ));
+    }
+
+    #[test]
+    fn mount_root_preflight_rejects_live_and_broken_directory_links_without_writes() {
+        let home = TempDirectory::new("Skill linked mount root");
+        let external = TempDirectory::new("Skill external mount root");
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let id = SkillId::parse("linked-root-skill").expect("Skill id");
+        let source_transaction = filesystem.begin_mutation().expect("source transaction");
+        let source = filesystem
+            .create_source(
+                &source_transaction,
+                &location(),
+                &id,
+                &document("linked-root-skill", "body"),
+            )
+            .expect("source");
+        filesystem.commit_mutation(source_transaction);
+        let stored = record("linked-root-skill", source);
+        let mount_path = SkillMountPath::parse(".claude/skills").expect("mount path");
+        let linked_root = home.path().join(".claude").join("skills");
+        std::fs::create_dir_all(linked_root.parent().expect("mount parent")).expect("mount parent");
+        create_dir_link(external.path(), &linked_root).expect("live mount-root link");
+
+        let live_transaction = filesystem.begin_mutation().expect("live transaction");
+        let live_error = filesystem
+            .repair_binding(&live_transaction, &stored, "claude-code", &mount_path)
+            .expect_err("live directory link rejection");
+        filesystem.rollback_mutation(live_transaction);
+        assert_eq!(
+            live_error,
+            SkillApplicationError::MountRootExternalLink("claude-code".to_string())
+        );
+        assert!(!external.path().join("linked-root-skill").exists());
+        remove_path(&linked_root).expect("remove live link");
+
+        let broken_target = home.path().join("removed-external-root");
+        std::fs::create_dir_all(&broken_target).expect("broken target seed");
+        create_dir_link(&broken_target, &linked_root).expect("breakable mount-root link");
+        std::fs::remove_dir(&broken_target).expect("remove linked target");
+        let broken_transaction = filesystem.begin_mutation().expect("broken transaction");
+        let broken_error = filesystem
+            .repair_binding(&broken_transaction, &stored, "claude-code", &mount_path)
+            .expect_err("broken directory link rejection");
+        filesystem.rollback_mutation(broken_transaction);
+        assert_eq!(
+            broken_error,
+            SkillApplicationError::MountRootBrokenLink("claude-code".to_string())
+        );
+        assert!(std::fs::symlink_metadata(&linked_root).is_ok());
+        remove_path(&linked_root).expect("remove broken link");
     }
 
     #[test]

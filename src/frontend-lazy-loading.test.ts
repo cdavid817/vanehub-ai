@@ -23,7 +23,7 @@ describe("frontend feature module boundaries", () => {
   it("retains visited settings and tab panels in mounted collections", () => {
     const settingsShell = read("settings/settings-shell.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
-    expect(settingsShell).toContain("new Set([defaultSettingsPageId])");
+    expect(settingsShell).toContain("new Set([initialPage])");
     expect(settingsShell).toContain("if (!visitedPages.has(page.id)) return null");
     expect(settingsShell).toContain("new Set(current).add(pageId)");
     expect(settingsShell).toContain("hidden={page.id !== activePageId}");

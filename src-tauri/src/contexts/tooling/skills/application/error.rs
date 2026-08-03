@@ -10,6 +10,9 @@ pub(crate) enum SkillApplicationError {
     ConcurrentModification(String),
     Repository(String),
     Filesystem(String),
+    MountRootExternalLink(String),
+    MountRootBrokenLink(String),
+    MountRootNotDirectory(String),
     Selection(String),
     Logging(String),
 }
@@ -24,6 +27,18 @@ impl fmt::Display for SkillApplicationError {
             Self::ConcurrentModification(skill_id) => {
                 write!(formatter, "Skill changed since it was loaded: {skill_id}")
             }
+            Self::MountRootExternalLink(agent_id) => write!(
+                formatter,
+                "The Skill root for {agent_id} is managed by an external directory link. Migrate the whole-directory link to a normal directory before assigning Skills."
+            ),
+            Self::MountRootBrokenLink(agent_id) => write!(
+                formatter,
+                "The Skill root for {agent_id} is a broken directory link. Repair or remove the stale link before assigning Skills."
+            ),
+            Self::MountRootNotDirectory(agent_id) => write!(
+                formatter,
+                "The Skill root for {agent_id} is not a directory. Move the conflicting entry before assigning Skills."
+            ),
             Self::Repository(message)
             | Self::Filesystem(message)
             | Self::Selection(message)
