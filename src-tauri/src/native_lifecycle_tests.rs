@@ -20,11 +20,11 @@ use crate::contexts::operations::application::{
 use crate::contexts::operations::domain::{OperationStatus, OperationTask};
 use crate::contexts::sessions::api::{NewSessionRequest, NewSessionWorkspace, SessionsApi};
 use crate::contexts::sessions::application::{
-    ChatConfigurationValues, CreatedSessionWorktree, NewRemoteWorkspace, SessionApplicationLog,
-    SessionApplicationPorts, SessionChatProfilePort, SessionClockPort, SessionCreationContextPort,
-    SessionFileContentPort, SessionIdentityPort, SessionLoggingPort, SessionProject, SessionRecord,
-    SessionRemoteWorkspace, SessionRuntimePort, SessionsApplicationError,
-    SessionsApplicationService, UsageStatisticsRange,
+    ChatConfigurationValues, CreatedSessionWorktree, NewRemoteWorkspace,
+    SessionAgentEligibilityPort, SessionApplicationLog, SessionApplicationPorts,
+    SessionChatProfilePort, SessionClockPort, SessionCreationContextPort, SessionFileContentPort,
+    SessionIdentityPort, SessionLoggingPort, SessionProject, SessionRecord, SessionRemoteWorkspace,
+    SessionRuntimePort, SessionsApplicationError, SessionsApplicationService, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{SessionActivation, SessionOwner};
 use crate::contexts::sessions::infrastructure::{
@@ -71,6 +71,7 @@ impl LifecycleHarness {
             logging: doubles.clone(),
             chat_profiles: doubles.clone(),
             creation: doubles.clone(),
+            eligibility: doubles.clone(),
             runtime: doubles.clone(),
         });
         let sessions = SessionsApi::new(service);
@@ -405,20 +406,6 @@ impl SessionCreationContextPort for LifecycleDoubles {
         None
     }
 
-    fn ensure_agent_supports(
-        &self,
-        agent_id: &str,
-        interaction_mode: &str,
-    ) -> Result<(), SessionsApplicationError> {
-        if agent_id == "codex-cli" && interaction_mode == "cli" {
-            Ok(())
-        } else {
-            Err(SessionsApplicationError::Validation(
-                "unsupported test agent".to_string(),
-            ))
-        }
-    }
-
     fn ensure_worktree_compatible(
         &self,
         _remote_workspace_selected: bool,
@@ -465,6 +452,22 @@ impl SessionCreationContextPort for LifecycleDoubles {
         Err(SessionsApplicationError::Validation(
             "worktree creation unused".to_string(),
         ))
+    }
+}
+
+impl SessionAgentEligibilityPort for LifecycleDoubles {
+    fn ensure_agent_supports(
+        &self,
+        agent_id: &str,
+        interaction_mode: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        if agent_id == "codex-cli" && interaction_mode == "cli" {
+            Ok(())
+        } else {
+            Err(SessionsApplicationError::Validation(
+                "unsupported test agent".to_string(),
+            ))
+        }
     }
 }
 

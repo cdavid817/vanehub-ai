@@ -3,6 +3,8 @@ export type InteractionMode = "browser" | "native-desktop" | "cli" | "api";
 export type AvailabilityState =
   "available" | "unavailable" | "needs-auth" | "unknown";
 
+export type AgentOrigin = "builtin" | "user";
+
 export type SessionLifecycleState =
   "idle" | "starting" | "running" | "failed" | "stopped";
 
@@ -31,9 +33,15 @@ export interface AgentRegistryEntry {
   availabilityState: AvailabilityState;
   unavailableReason?: string;
   capabilityTags: string[];
+  agentOrigin: AgentOrigin;
 }
 
 export type ApiInterfaceFormat = "anthropic" | "openai-compatible";
+export type ProviderEndpointType =
+  | "anthropic-messages"
+  | "openai-chat-completions"
+  | "openai-responses";
+export type ProviderAuthStrategy = "x-api-key" | "bearer";
 
 export interface RegisterApiAgentInput {
   displayName: string;
@@ -42,6 +50,104 @@ export interface RegisterApiAgentInput {
   modelId: string;
   interfaceFormat: ApiInterfaceFormat;
   baseUrl: string | null;
+}
+
+export interface OnePieceProviderConfig {
+  provider: string;
+  modelId: string | null;
+  interfaceFormat: ApiInterfaceFormat | null;
+  baseUrl: string | null;
+  autoApproveTools: boolean;
+  credentialPresent: boolean;
+}
+
+export interface SaveOnePieceProviderConfigInput {
+  provider: string;
+  modelId: string;
+  interfaceFormat: ApiInterfaceFormat;
+  baseUrl: string | null;
+  apiKey?: string | null;
+}
+
+export interface OnePieceProviderProfile {
+  id: string;
+  name: string;
+  sourceProviderId: string | null;
+  sourceEndpointType: ProviderEndpointType | null;
+  sourcePresetVersion: number | null;
+  provider: string;
+  modelId: string;
+  interfaceFormat: ApiInterfaceFormat;
+  baseUrl: string | null;
+  active: boolean;
+  credentialPresent: boolean;
+}
+
+export interface OnePieceProviderPreset {
+  id: string;
+  catalogVersion: number;
+  displayName: string;
+  category: "official" | "common";
+  iconKey: string;
+  provider: string;
+  defaultModelId: string;
+  fallbackModels: string[];
+  interfaceFormat: ApiInterfaceFormat;
+  baseUrl: string | null;
+  apiKeyUrl: string;
+  docsUrl: string;
+  defaultEndpointType: ProviderEndpointType;
+  endpoints: OnePieceProviderEndpoint[];
+  modelDiscovery: {
+    strategy: "anthropic" | "openai" | "openai-array" | "catalog";
+  };
+}
+
+export interface OnePieceProviderEndpoint {
+  type: ProviderEndpointType;
+  baseUrl: string;
+  interfaceFormat: ApiInterfaceFormat;
+  authStrategy: ProviderAuthStrategy;
+  source: string;
+  modelDiscovery: {
+    strategy: "anthropic" | "openai" | "openai-array" | "catalog";
+    url: string | null;
+  };
+}
+
+export interface OnePieceProviderProfiles {
+  profiles: OnePieceProviderProfile[];
+  activeProfileId: string | null;
+}
+
+export interface DiscoverOnePieceProviderModelsInput {
+  providerId: string;
+  endpointType: ProviderEndpointType;
+  profileId?: string | null;
+  apiKey?: string | null;
+}
+
+export interface OnePieceProviderModelOption {
+  id: string;
+  displayName: string;
+  source: "api" | "catalog" | "profile";
+}
+
+export interface OnePieceProviderModelDiscoveryResult {
+  providerId: string;
+  endpointType: ProviderEndpointType;
+  models: OnePieceProviderModelOption[];
+  source: "merged" | "catalog";
+  warning: "live-unavailable" | null;
+}
+
+export interface SaveOnePieceProviderProfileInput {
+  id?: string | null;
+  name: string;
+  providerId: string;
+  endpointType: ProviderEndpointType;
+  modelId: string;
+  apiKey?: string | null;
 }
 
 export interface WorkflowState {

@@ -30,8 +30,13 @@ export function MermaidDiagram({ chart }: { chart: string }) {
   if (error) {
     return (
       <div className="my-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-        <AlertTriangle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
-        {t("chat.mermaidFailed")}
+        <div>
+          <AlertTriangle className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+          {t("chat.mermaidFailed")}
+        </div>
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded border border-destructive/20 bg-background/70 p-2 font-mono text-foreground">
+          <code>{chart}</code>
+        </pre>
       </div>
     );
   }

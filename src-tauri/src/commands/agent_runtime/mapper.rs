@@ -11,9 +11,9 @@ use crate::contexts::agent_runtime::api::{
     CoordinationNodeStatus as ApiCoordinationNodeStatus,
     CoordinationOutput as ApiCoordinationOutput, CoordinationRun as ApiCoordinationRun,
     CoordinationRunStatus as ApiCoordinationRunStatus, InteractionMode, LaunchWorkflowResult,
-    OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest,
-    SendMessageRequest, StopAgentTerminalRequest, ToolApprovalDecision, UpdateApiAgentInput,
-    WorkflowView,
+    OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SendMessageRequest,
+    StopAgentTerminalRequest, ToolApprovalDecision, UpdateApiAgentInput, WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
@@ -227,6 +227,159 @@ pub(super) fn agent_to_dto(agent: AgentView) -> dto::AgentRegistryEntry {
         availability_state: availability_to_dto(agent.availability),
         unavailable_reason: agent.unavailable_reason,
         capability_tags: agent.capability_tags,
+        agent_origin: match agent.origin {
+            crate::contexts::agent_runtime::domain::AgentOrigin::Builtin => {
+                dto::AgentOrigin::Builtin
+            }
+            crate::contexts::agent_runtime::domain::AgentOrigin::User => dto::AgentOrigin::User,
+        },
+    }
+}
+
+pub(super) fn onepiece_provider_config_to_dto(
+    config: OnePieceProviderConfig,
+) -> dto::OnePieceProviderConfig {
+    dto::OnePieceProviderConfig {
+        provider: config.provider,
+        model_id: config.model_id,
+        interface_format: config.interface_format,
+        base_url: config.base_url,
+        auto_approve_tools: config.auto_approve_tools,
+        credential_present: config.credential_present,
+    }
+}
+
+pub(super) fn save_onepiece_provider_config_request(
+    input: dto::SaveOnePieceProviderConfigInput,
+) -> SaveOnePieceProviderConfigInput {
+    SaveOnePieceProviderConfigInput {
+        provider: input.provider,
+        model_id: input.model_id,
+        interface_format: input.interface_format,
+        base_url: input.base_url,
+        api_key: input.api_key,
+    }
+}
+
+pub(super) fn onepiece_provider_profiles_to_dto(
+    overview: crate::contexts::agent_runtime::api::OnePieceProviderProfiles,
+) -> dto::OnePieceProviderProfiles {
+    dto::OnePieceProviderProfiles {
+        profiles: overview
+            .profiles
+            .into_iter()
+            .map(|profile| dto::OnePieceProviderProfile {
+                id: profile.id,
+                name: profile.name,
+                source_provider_id: profile.source_provider_id,
+                source_endpoint_type: profile.source_endpoint_type,
+                source_preset_version: profile.source_preset_version,
+                provider: profile.provider,
+                model_id: profile.model_id,
+                interface_format: profile.interface_format,
+                base_url: profile.base_url,
+                active: profile.active,
+                credential_present: profile.credential_present,
+            })
+            .collect(),
+        active_profile_id: overview.active_profile_id,
+    }
+}
+
+pub(super) fn onepiece_provider_presets_to_dto(
+    presets: Vec<crate::contexts::agent_runtime::api::OnePieceProviderPreset>,
+) -> Vec<dto::OnePieceProviderPreset> {
+    presets
+        .into_iter()
+        .map(|preset| dto::OnePieceProviderPreset {
+            id: preset.id,
+            catalog_version: preset.catalog_version,
+            display_name: preset.display_name,
+            category: preset.category,
+            icon_key: preset.icon_key,
+            provider: preset.provider,
+            default_model_id: preset.default_model_id,
+            fallback_models: preset.fallback_models,
+            interface_format: preset.interface_format,
+            base_url: preset.base_url,
+            api_key_url: preset.api_key_url,
+            docs_url: preset.docs_url,
+            model_discovery: dto::OnePieceModelDiscoveryMetadata {
+                strategy: preset.model_discovery_strategy,
+            },
+            default_endpoint_type: preset.default_endpoint_type,
+            endpoints: preset
+                .endpoints
+                .into_iter()
+                .map(|endpoint| dto::OnePieceProviderEndpoint {
+                    endpoint_type: endpoint.endpoint_type,
+                    base_url: endpoint.base_url,
+                    interface_format: endpoint.interface_format,
+                    auth_strategy: endpoint.auth_strategy,
+                    source: endpoint.source,
+                    model_discovery: dto::OnePieceEndpointDiscoveryMetadata {
+                        strategy: endpoint.model_discovery_strategy,
+                        url: endpoint.model_discovery_url,
+                    },
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+pub(super) fn save_onepiece_provider_profile_request(
+    input: dto::SaveOnePieceProviderProfileInput,
+) -> crate::contexts::agent_runtime::api::SaveOnePieceProviderProfileInput {
+    crate::contexts::agent_runtime::api::SaveOnePieceProviderProfileInput {
+        id: input.id,
+        name: input.name,
+        provider_id: input.provider_id,
+        endpoint_type: input.endpoint_type,
+        model_id: input.model_id,
+        api_key: input.api_key,
+    }
+}
+
+pub(super) fn discover_onepiece_provider_models_request(
+    input: dto::DiscoverOnePieceProviderModelsInput,
+) -> crate::contexts::agent_runtime::api::DiscoverOnePieceProviderModelsInput {
+    crate::contexts::agent_runtime::api::DiscoverOnePieceProviderModelsInput {
+        provider_id: input.provider_id,
+        endpoint_type: input.endpoint_type,
+        profile_id: input.profile_id,
+        api_key: input.api_key,
+    }
+}
+
+pub(super) fn validate_onepiece_provider_credential_request(
+    input: dto::ValidateOnePieceProviderCredentialInput,
+) -> crate::contexts::agent_runtime::api::ValidateOnePieceProviderCredentialInput {
+    crate::contexts::agent_runtime::api::ValidateOnePieceProviderCredentialInput {
+        provider_id: input.provider_id,
+        endpoint_type: input.endpoint_type,
+        model_id: input.model_id,
+        profile_id: input.profile_id,
+        api_key: input.api_key,
+    }
+}
+
+pub(super) fn onepiece_provider_model_discovery_to_dto(
+    result: crate::contexts::agent_runtime::api::OnePieceProviderModelDiscoveryResult,
+) -> dto::OnePieceProviderModelDiscoveryResult {
+    dto::OnePieceProviderModelDiscoveryResult {
+        provider_id: result.provider_id,
+        endpoint_type: result.endpoint_type,
+        models: result
+            .models
+            .into_iter()
+            .map(|model| dto::OnePieceProviderModelOption {
+                id: model.id,
+                display_name: model.display_name,
+                source: model.source,
+            })
+            .collect(),
+        source: result.source,
+        warning: result.warning,
     }
 }
 
@@ -494,6 +647,7 @@ mod tests {
             availability: AgentAvailability::NeedsAuthentication,
             unavailable_reason: Some("authentication required".to_string()),
             capability_tags: vec!["coding".to_string()],
+            origin: crate::contexts::agent_runtime::domain::AgentOrigin::Builtin,
         }))
         .expect("serialize agent");
 
@@ -503,6 +657,37 @@ mod tests {
         assert_eq!(value["availabilityState"], "needs-auth");
         assert_eq!(value["launch"]["executableName"], "codex");
         assert!(value.get("availability_state").is_none());
+    }
+
+    #[test]
+    fn onepiece_configuration_mapping_preserves_non_secret_camel_case_contract() {
+        let value = serde_json::to_value(onepiece_provider_config_to_dto(OnePieceProviderConfig {
+            provider: "OpenAI Proxy".to_string(),
+            model_id: Some("gpt-test".to_string()),
+            interface_format: Some("openai-compatible".to_string()),
+            base_url: Some("https://gateway.example.test/v1".to_string()),
+            auto_approve_tools: false,
+            credential_present: true,
+        }))
+        .expect("serialize OnePiece config");
+        let request = save_onepiece_provider_config_request(
+            serde_json::from_value(serde_json::json!({
+                "provider": "Anthropic",
+                "modelId": "claude-test",
+                "interfaceFormat": "anthropic",
+                "baseUrl": null,
+                "apiKey": "sk-input-only"
+            }))
+            .expect("deserialize OnePiece input"),
+        );
+
+        assert_eq!(value["provider"], "OpenAI Proxy");
+        assert_eq!(value["modelId"], "gpt-test");
+        assert_eq!(value["interfaceFormat"], "openai-compatible");
+        assert_eq!(value["credentialPresent"], true);
+        assert!(value.get("apiKey").is_none());
+        assert!(value.get("credential").is_none());
+        assert_eq!(request.api_key.as_deref(), Some("sk-input-only"));
     }
 
     #[test]

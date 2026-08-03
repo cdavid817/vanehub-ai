@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import ReactMarkdown from "react-markdown";
 import { beforeAll, describe, expect, it } from "vitest";
 import { activateAppLanguage } from "../i18n";
-import { managedCliAgentIds } from "../types/agent";
+import { managedCliAgentIds, type Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
 import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
+import { SessionTabs } from "./session-tabs";
 import { TerminalTab, toolUseCount } from "./terminal-tab";
 
 const message: ChatMessage = {
@@ -43,6 +44,45 @@ describe("session workspace components", () => {
     expect(report).toContain("Message status");
     expect(report).toContain("Completed");
     expect(report).toContain("Completion");
+  });
+
+  it("renders API chat instead of an Agent Terminal for OnePiece sessions", () => {
+    const session: Session = {
+      id: "session-onepiece",
+      title: "OnePiece session",
+      agentId: "onepiece",
+      interactionMode: "api",
+      lifecycleState: "idle",
+      folder: "D:/project",
+      projectPath: "D:/project",
+      worktreePath: null,
+      worktreeName: null,
+      worktreeBranch: null,
+      remoteWorkspace: null,
+      remoteSshConnectionId: null,
+      remoteSshConnectionRevision: null,
+      runtimeSessionId: null,
+      categoryId: null,
+      pinned: false,
+      archived: false,
+      createdAt: "2026-08-02T00:00:00.000Z",
+      updatedAt: "2026-08-02T00:00:00.000Z",
+    };
+    const html = renderToStaticMarkup(
+      <SessionTabs
+        activeSession={session}
+        apiComposer={<div>API composer</div>}
+        messages={[message]}
+        messagesPartial={false}
+        onOpenSettings={() => undefined}
+        sessionActivationKey={0}
+      />,
+    );
+
+    expect(html).toContain("OnePiece session");
+    expect(html).toContain("onepiece · api");
+    expect(html).toContain("API composer");
+    expect(html).not.toContain("Agent CLI workspace");
   });
 
   it("does not render raw Markdown HTML", () => {

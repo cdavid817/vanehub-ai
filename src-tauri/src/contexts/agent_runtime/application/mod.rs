@@ -14,6 +14,7 @@ mod loop_verifier;
 mod loop_worker;
 mod loop_worker_prompt;
 mod models;
+mod onepiece_provider_catalog;
 mod ports;
 mod service;
 mod terminal_service;
@@ -53,29 +54,37 @@ pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationSe
 #[cfg(test)]
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
-    AgentChatConfiguration, AgentEvent, AgentFileReference, AgentLog, AgentLogLevel, AgentMemory,
-    AgentMessage, AgentMessageSource, AgentOperation, AgentSession, AgentSessionDetails,
-    AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
+    AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference, AgentLog,
+    AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentOperation, AgentSession,
+    AgentSessionDetails, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
-    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage, EffectivePrompt,
-    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessFailureKind, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
-    LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
-    LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
-    LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
-    MemorySource, MessageTokenUsage, NewAgentMessage, OpenAgentTerminalRequest,
-    PendingPromptExecution, ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport,
-    PromptTrace, PromptVersionReference, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
-    ResizeAgentTerminalRequest, SendMessageRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, ToolDefinition,
-    ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock, UpdateApiAgentInput,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
+    DiscoverOnePieceProviderModelsInput, EffectivePrompt, GenerationCancellation, GenerationLease,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessFailureKind,
+    GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
+    LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
+    LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
+    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemorySource, MessageTokenUsage,
+    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
+    OnePieceProviderConfig, OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult,
+    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
+    OnePieceProviderProfiles, OpenAgentTerminalRequest, PendingPromptExecution,
+    ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
+    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
+    ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
+    ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
+    SendMessageRequest, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
+    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
+    ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{
-    AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentEventPort,
-    AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
+    AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
+    AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
     AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository, AgentSessionGateway,
     AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
     AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort,
@@ -83,7 +92,7 @@ pub(crate) use ports::{
     LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, ToolApprovalPort,
+    LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, ToolApprovalPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};

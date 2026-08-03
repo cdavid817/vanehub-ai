@@ -5,6 +5,7 @@ import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { LazyFeature, type LazyFeatureLoader } from "../components/lazy-feature";
 import { NotificationHost, useNotifications } from "../notifications/notification-provider";
 import { SessionTabs } from "../session-workspace/session-tabs";
+import { ApiSessionComposer } from "../session-workspace/api-session-composer";
 import type { SessionTabId } from "../session-workspace/session-tab-bar";
 import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
@@ -82,10 +83,12 @@ export function ConversationCard({
 }
 
 export function MainLayout({
+  onConfigureOnePiece,
   onOpenSettings,
   openCreateSession = false,
 }: {
   onOpenSettings: (pageId?: SettingsPageId) => void;
+  onConfigureOnePiece?: () => void;
   openCreateSession?: boolean;
 }) {
   const model = useMainLayoutModel();
@@ -178,6 +181,9 @@ export function MainLayout({
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
     : null;
+  const apiComposer = !loopInspection && displayedSession?.interactionMode === "api" ? (
+    <ApiSessionComposer model={model} />
+  ) : null;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -271,8 +277,11 @@ export function MainLayout({
               <div className="min-h-0 flex-1">
                 <SessionTabs
                   activeSession={displayedSession}
+                  apiComposer={apiComposer}
+                  isStreaming={loopInspection ? false : model.isStreaming}
                   messages={displayedMessages}
                   messagesPartial={loopInspection ? false : model.messagesPartial}
+                  onLoadEarlier={model.loadEarlier}
                   onOpenSettings={onOpenSettings}
                   requestedTab={requestedWorkspaceTab}
                   sessionActivationKey={sessionActivationKey}
@@ -324,7 +333,7 @@ export function MainLayout({
         onRename={model.renameSession}
         value={contextPanel}
       />
-      <CreateSessionDialog agents={model.agents} onClose={() => setCreateSessionOpen(false)} onCreated={(session) => { setCreateSessionOpen(false); setLoopInspection(null); model.sessionCreated(session); }} open={createSessionOpen} />
+      <CreateSessionDialog agents={model.agents} onClose={() => setCreateSessionOpen(false)} onConfigureOnePiece={() => { setCreateSessionOpen(false); (onConfigureOnePiece ?? onOpenSettings)(); }} onCreated={(session) => { setCreateSessionOpen(false); setLoopInspection(null); model.sessionCreated(session); }} open={createSessionOpen} />
       <ScheduledTasksDialog agents={model.agents} onClose={() => setScheduledTasksOpen(false)} open={scheduledTasksOpen} />
       <NotificationHost activeSessionId={model.activeSessionId} />
     </main>

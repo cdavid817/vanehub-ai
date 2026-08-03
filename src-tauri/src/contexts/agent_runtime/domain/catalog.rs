@@ -126,13 +126,6 @@ impl LaunchMetadata {
 pub(crate) enum AgentAvailability {
     Available,
     Unavailable,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "retained for the stable agent availability contract"
-        )
-    )]
     NeedsAuthentication,
     Unknown,
 }
@@ -199,6 +192,24 @@ pub(crate) struct AvailabilityProbe {
     pub(crate) executable: ExecutableStatus,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentOrigin {
+    Builtin,
+    User,
+}
+
+impl AgentOrigin {
+    pub(crate) fn parse(value: &str) -> Result<Self, AgentRuntimeDomainError> {
+        match value {
+            "builtin" => Ok(Self::Builtin),
+            "user" => Ok(Self::User),
+            _ => Err(AgentRuntimeDomainError::UnsupportedAgentOrigin(
+                value.to_string(),
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentDefinitionInput {
     pub(crate) id: String,
@@ -221,10 +232,19 @@ pub(crate) struct AgentDefinition {
     supported_interaction_modes: Vec<InteractionMode>,
     availability: AvailabilityAssessment,
     capability_tags: Vec<String>,
+    origin: AgentOrigin,
 }
 
 impl AgentDefinition {
+    #[cfg(test)]
     pub(crate) fn new(input: AgentDefinitionInput) -> Result<Self, AgentRuntimeDomainError> {
+        Self::new_with_origin(input, AgentOrigin::User)
+    }
+
+    pub(crate) fn new_with_origin(
+        input: AgentDefinitionInput,
+        origin: AgentOrigin,
+    ) -> Result<Self, AgentRuntimeDomainError> {
         let mut modes = Vec::new();
         for mode in input.supported_interaction_modes {
             if !modes.contains(&mode) {
@@ -250,6 +270,7 @@ impl AgentDefinition {
             supported_interaction_modes: modes,
             availability: input.availability,
             capability_tags: tags,
+            origin,
         })
     }
 
@@ -275,6 +296,22 @@ impl AgentDefinition {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn ensure_session_selectable(
+        &self,
+        mode: InteractionMode,
+    ) -> Result<(), AgentRuntimeDomainError> {
+        if mode == InteractionMode::Cli
+            && self.supports(mode)
+            && self
+                .managed_sdk_dependency_id
+                .as_deref()
+                .is_some_and(|sdk_id| self.availability.is_missing_managed_sdk(sdk_id))
+        {
+            return Ok(());
+        }
+        self.ensure_selectable(mode)
     }
 
     pub(crate) fn supports(&self, mode: InteractionMode) -> bool {
@@ -315,8 +352,25 @@ impl AgentDefinition {
         &self.availability
     }
 
+    pub(crate) fn with_availability(mut self, availability: AvailabilityAssessment) -> Self {
+        self.availability = availability;
+        self
+    }
+
     pub(crate) fn capability_tags(&self) -> &[String] {
         &self.capability_tags
+    }
+
+    pub(crate) fn origin(&self) -> AgentOrigin {
+        self.origin
+    }
+}
+
+impl AvailabilityAssessment {
+    fn is_missing_managed_sdk(&self, sdk_id: &str) -> bool {
+        self.state == AgentAvailability::Unavailable
+            && self.reason.as_deref()
+                == Some(format!("Managed SDK dependency '{sdk_id}' is not installed.").as_str())
     }
 }
 

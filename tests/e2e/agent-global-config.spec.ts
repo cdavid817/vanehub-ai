@@ -3,9 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function openAgentConfigurations(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /设置|Settings/ }).click();
-  await page.getByRole("button", { name: /^(Agent 管理|Agent Management)$/ }).click();
-  const claudeCard = page.locator("section.ucd-interactive").filter({ has: page.getByRole("heading", { name: "Claude Code", exact: true }) });
-  await claudeCard.getByRole("button", { name: /管理全局配置|Manage global configurations/ }).click();
+  await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await expect(page.getByRole("heading", { name: /^(Agent 配置|Agent Configurations)$/, level: 2 })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Claude Code" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByText(/Web 模式不会同步本地 CLI 配置|Web mode does not synchronize local CLI configuration/)).toBeVisible();
@@ -19,7 +17,14 @@ async function createAndApplyProfile(page: Page, agentName: string, presetName: 
   const editor = page.getByRole("dialog");
   await editor.getByRole("button", { name: new RegExp(`^${presetName}`) }).click();
   await editor.getByRole("textbox", { name: /配置名称|Profile name/ }).fill(profileName);
-  if (credential) await editor.getByLabel(/API Key 或 Token|API key or token/).fill(credential);
+  if (credential) {
+    await editor.getByLabel(/API Key 或 Token|API key or token/).fill(credential);
+    await editor.getByRole("button", { name: /验证 API 密钥|Verify API key/ }).click();
+    await expect(editor.getByText(/API 密钥有效|API key is valid/)).toBeVisible();
+  } else {
+    await editor.getByRole("button", { name: /验证 API 密钥|Verify API key/ }).click();
+    await expect(editor.getByText(/没有可验证的 API 密钥|has no API key to verify/)).toBeVisible();
+  }
   await editor.getByRole("button", { name: /保存修改|Save changes/ }).click();
 
   const profile = page.locator("article").filter({ hasText: profileName });
@@ -32,7 +37,7 @@ async function createAndApplyProfile(page: Page, agentName: string, presetName: 
 }
 
 test.describe("Agent global CLI configuration", () => {
-  test("navigates from Agent management and applies independent profiles", async ({ page }) => {
+  test("opens Agent configurations and applies independent profiles", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await openAgentConfigurations(page);
 

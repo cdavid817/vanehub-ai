@@ -8,4 +8,5 @@ pub(crate) use domain::{
     ApplyCliConfigProfileInput, CliConfigApplyResult, CliConfigDiscoveryResult, CliConfigProfile,
     CliConfigStatus, DeleteCliConfigProfileInput, ImportCliConfigProfileInput,
     ImportDiscoveredCliConfigInput, ImportDiscoveredCliConfigResult, SaveCliConfigProfileInput,
+    ValidateCliConfigCredentialInput,
 };

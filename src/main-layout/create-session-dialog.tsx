@@ -7,9 +7,11 @@ import { CreateSessionDialogContent } from "./create-session-dialog-content";
 import {
   canCreateSession,
   conciseError,
+  defaultSessionAgent,
   defaultSshConnectionDraft,
   firstMode,
-  preferredAgentIds,
+  previousSessionAgentStorageKey,
+  selectSessionAgents,
   sessionResult,
   submitCreateSession,
 } from "./create-session-dialog-utils";
@@ -34,20 +36,19 @@ import {
 export function CreateSessionDialog({
   agents,
   onClose,
+  onConfigureOnePiece,
   onCreated,
   open,
 }: {
   agents: AgentRegistryEntry[];
   onClose: () => void;
+  onConfigureOnePiece: () => void;
   onCreated: (session: Session) => void;
   open: boolean;
 }) {
   const { t } = useTranslation();
   const availableAgents = useMemo(
-    () =>
-      preferredAgentIds
-        .map((agentId) => agents.find((agent) => agent.id === agentId))
-        .filter((agent): agent is AgentRegistryEntry => Boolean(agent)),
+    () => selectSessionAgents(agents),
     [agents],
   );
   const [agentId, setAgentId] = useState("");
@@ -82,7 +83,10 @@ export function CreateSessionDialog({
   const [handledCreateOperationId, setHandledCreateOperationId] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    const agent = availableAgents[0] ?? null;
+    const agent = defaultSessionAgent(
+      availableAgents,
+      window.localStorage.getItem(previousSessionAgentStorageKey),
+    );
     setAgentId(agent?.id ?? "");
     setInteractionMode(firstMode(agent));
     setAgentMode("single");
@@ -231,9 +235,11 @@ export function CreateSessionDialog({
       onAgentSelect={(agent) => {
         setAgentId(agent.id);
         setInteractionMode(firstMode(agent));
+        window.localStorage.setItem(previousSessionAgentStorageKey, agent.id);
       }}
       onBrowseProject={() => void browseProject()}
       onClose={onClose}
+      onConfigureOnePiece={onConfigureOnePiece}
       onInspectPath={(path) => void inspectPath(path)}
       onSubmit={() =>
         void submitCreateSession({

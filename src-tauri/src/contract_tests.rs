@@ -192,6 +192,7 @@ fn cli_config_command_registration_and_frontend_invokes_keep_stable_names() {
         "discover_cli_config_profiles",
         "import_discovered_cli_config_profiles",
         "apply_cli_config_profile",
+        "validate_cli_config_credential",
     ] {
         assert!(
             native_registration.contains(&format!("::{command}")),
@@ -287,6 +288,9 @@ fn agent_runtime_command_registration_and_frontend_invokes_keep_stable_names() {
     let tauri_client = include_str!("../../src/services/tauri-agent-client.ts");
     for command in [
         "list_agents",
+        "list_onepiece_provider_presets",
+        "discover_onepiece_provider_models",
+        "validate_onepiece_provider_credential",
         "get_agent_by_id",
         "get_workflow_state",
         "select_agent",
@@ -305,6 +309,10 @@ fn agent_runtime_command_registration_and_frontend_invokes_keep_stable_names() {
             "frontend invoke missing {command}"
         );
     }
+
+    let preset_command = include_str!("commands/agent_runtime/list_onepiece_provider_presets.rs");
+    assert!(preset_command.contains("State<'_, AgentRuntimeApi>"));
+    assert!(!preset_command.contains("Arc<AgentRuntimeApi>"));
 }
 
 #[test]

@@ -8,8 +8,9 @@ mod loop_progress;
 mod workflow;
 
 pub(crate) use catalog::{
-    AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentId, AvailabilityAssessment,
-    AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata, ManagedSdkStatus,
+    AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentId, AgentOrigin,
+    AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
+    ManagedSdkStatus,
 };
 pub(crate) use coordination::{
     CoordinationAttempt, CoordinationAttemptStatus, CoordinationCandidateRole,
@@ -121,6 +122,25 @@ mod tests {
             unknown_sdk.reason(),
             Some("Managed SDK dependency 'other-sdk' is not recognized.")
         );
+    }
+
+    #[test]
+    fn missing_managed_sdk_does_not_block_cli_session_selection() {
+        let agent = agent(
+            AvailabilityAssessment::new(
+                AgentAvailability::Unavailable,
+                Some("Managed SDK dependency 'codex-sdk' is not installed.".to_string()),
+            ),
+            vec![InteractionMode::Cli, InteractionMode::NativeDesktop],
+        );
+
+        agent
+            .ensure_session_selectable(InteractionMode::Cli)
+            .expect("CLI remains selectable");
+        assert!(matches!(
+            agent.ensure_session_selectable(InteractionMode::NativeDesktop),
+            Err(AgentRuntimeDomainError::AgentUnavailable(_))
+        ));
     }
 
     #[test]

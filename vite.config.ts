@@ -8,6 +8,18 @@ export default defineConfig({
   plugins: [tailwindcss(), react()],
   build: {
     manifest: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "rich-markdown-katex",
+              test: /node_modules[\\/]rehype-katex[\\/]node_modules[\\/]katex[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   clearScreen: false,
   server: {

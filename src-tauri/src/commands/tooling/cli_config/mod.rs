@@ -7,3 +7,4 @@ pub(crate) mod import_cli_config_profile;
 pub(crate) mod import_discovered_cli_config_profiles;
 pub(crate) mod list_cli_config_profiles;
 pub(crate) mod save_cli_config_profile;
+pub(crate) mod validate_cli_config_credential;

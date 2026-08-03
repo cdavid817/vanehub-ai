@@ -5,6 +5,7 @@ import { agentService } from "../../../services/runtime-agent-client";
 import { PERMISSION_MODES, PROVIDER_MODELS, REASONING_DEPTHS, resolveModelLabel } from "../models";
 
 function providerIdFromAgent(agent?: AgentRegistryEntry | null) {
+  if (agent?.id === "onepiece") return "onepiece";
   const provider = agent?.provider.toLowerCase() ?? "";
   if (provider.includes("anthropic") || agent?.id.includes("claude")) return "anthropic";
   if (provider.includes("openai") || agent?.id.includes("codex")) return "openai";
@@ -94,11 +95,13 @@ export function useChatConfig({
   }, [activeSessionAgentId, activeSessionId, sessionAgent]);
 
   const availableAgents = useMemo(
-    () => agents.filter((agent) => providerIdFromAgent(agent) === providerId),
-    [agents, providerId],
+    () => sessionAgent?.id === "onepiece"
+      ? agents.filter((agent) => agent.id === "onepiece")
+      : agents.filter((agent) => providerIdFromAgent(agent) === providerId),
+    [agents, providerId, sessionAgent?.id],
   );
   const availableModels = useMemo(() => {
-    const catalogModels = PROVIDER_MODELS[providerId] ?? PROVIDER_MODELS.anthropic;
+    const catalogModels = PROVIDER_MODELS[providerId] ?? [];
     if (catalogModels.some((m) => m.id === modelId)) return catalogModels;
     // Surface custom model IDs that are not in the static catalog
     const customModel: ModelInfo = {

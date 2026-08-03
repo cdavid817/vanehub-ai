@@ -5,18 +5,25 @@ use super::{
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot, CompleteAgentMessage,
-    EffectivePrompt, EffectivePromptGateway, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, LaunchWorkflowResult, LoopGenerationControlPort,
-    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage,
+    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EffectivePromptGateway, GenerationLease,
+    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
-    ReadinessView, RegisterApiAgentInput, ReportedUsageTotals, SendMessageRequest,
-    StopGenerationResult, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
-    ToolLifecyclePhase, UpdateApiAgentInput, WorkflowLaunchRequest, WorkflowView,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
+    RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
+    SaveOnePieceProviderProfileInput, SendMessageRequest, StopGenerationResult,
+    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
+    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, UpdateApiAgentInput,
+    ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest, WorkflowView,
     INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow, InteractionMode,
+    AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -26,6 +33,57 @@ use crate::contexts::execution_observability::api::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use uuid::Uuid;
+
+fn onepiece_profile_credential_key(profile_id: &str) -> String {
+    format!("onepiece-profile:{profile_id}")
+}
+
+fn restore_credential(credentials: &dyn ApiCredentialPort, key: &str, value: Option<&str>) {
+    match value {
+        Some(secret) => {
+            let _ = credentials.store(key, secret);
+        }
+        None => {
+            let _ = credentials.remove(key);
+        }
+    }
+}
+
+fn push_model_option(
+    models: &mut Vec<OnePieceProviderModelOption>,
+    seen: &mut BTreeSet<String>,
+    id: &str,
+    display_name: &str,
+    source: &str,
+) {
+    let normalized = id.trim();
+    if !normalized.is_empty() && seen.insert(normalized.to_ascii_lowercase()) {
+        models.push(OnePieceProviderModelOption {
+            id: normalized.to_string(),
+            display_name: display_name.trim().to_string(),
+            source: source.to_string(),
+        });
+    }
+}
+
+fn is_chat_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    ![
+        "embedding",
+        "rerank",
+        "whisper",
+        "tts",
+        "audio",
+        "image",
+        "moderation",
+        "realtime",
+        "sora",
+        "stable-diffusion",
+    ]
+    .iter()
+    .any(|excluded| id.contains(excluded))
+}
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationPorts {
@@ -46,6 +104,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
+    pub(crate) onepiece_model_discovery: Arc<dyn OnePieceModelDiscoveryPort>,
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
     pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
 }
@@ -75,6 +134,46 @@ fn generation_failure(
         safe_error: safe_error.into(),
         diagnostic: diagnostic.into(),
     }
+}
+
+fn normalize_api_provider_config(
+    provider: &str,
+    model_id: &str,
+    interface_format: &str,
+    base_url: Option<&str>,
+) -> Result<(String, String, String, Option<String>), AgentRuntimeApplicationError> {
+    let provider = provider.trim().to_string();
+    if provider.is_empty() {
+        return Err(AgentRuntimeApplicationError::Validation(
+            "Agent provider cannot be empty.".to_string(),
+        ));
+    }
+    let model_id = model_id.trim().to_string();
+    if model_id.is_empty() {
+        return Err(AgentRuntimeApplicationError::Validation(
+            "Model id cannot be empty.".to_string(),
+        ));
+    }
+    let interface_format = interface_format.trim().to_string();
+    if interface_format != INTERFACE_FORMAT_ANTHROPIC
+        && interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE
+    {
+        return Err(AgentRuntimeApplicationError::Validation(
+            "Interface format must be either \"anthropic\" or \"openai-compatible\".".to_string(),
+        ));
+    }
+    let base_url = if interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+        let value = base_url.unwrap_or_default().trim().to_string();
+        if value.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Base URL is required for an OpenAI-compatible agent.".to_string(),
+            ));
+        }
+        Some(value)
+    } else {
+        None
+    };
+    Ok((provider, model_id, interface_format, base_url))
 }
 
 impl AgentRuntimeApplicationService {
@@ -141,49 +240,18 @@ impl AgentRuntimeApplicationService {
                 "Agent display name cannot be empty.".to_string(),
             ));
         }
-        let provider = input.provider.trim().to_string();
-        if provider.is_empty() {
-            return Err(AgentRuntimeApplicationError::Validation(
-                "Agent provider cannot be empty.".to_string(),
-            ));
-        }
         let api_key = input.api_key.trim().to_string();
         if api_key.is_empty() {
             return Err(AgentRuntimeApplicationError::Validation(
                 "API key cannot be empty.".to_string(),
             ));
         }
-        let model_id = input.model_id.trim().to_string();
-        if model_id.is_empty() {
-            return Err(AgentRuntimeApplicationError::Validation(
-                "Model id cannot be empty.".to_string(),
-            ));
-        }
-        let interface_format = input.interface_format.trim().to_string();
-        if interface_format != INTERFACE_FORMAT_ANTHROPIC
-            && interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE
-        {
-            return Err(AgentRuntimeApplicationError::Validation(
-                "Interface format must be either \"anthropic\" or \"openai-compatible\"."
-                    .to_string(),
-            ));
-        }
-        let base_url = if interface_format == INTERFACE_FORMAT_OPENAI_COMPATIBLE {
-            let base_url = input
-                .base_url
-                .as_deref()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if base_url.is_empty() {
-                return Err(AgentRuntimeApplicationError::Validation(
-                    "Base URL is required for an OpenAI-compatible agent.".to_string(),
-                ));
-            }
-            Some(base_url)
-        } else {
-            None
-        };
+        let (provider, model_id, interface_format, base_url) = normalize_api_provider_config(
+            &input.provider,
+            &input.model_id,
+            &input.interface_format,
+            input.base_url.as_deref(),
+        )?;
 
         let agent_id = self.unique_api_agent_id(&display_name)?;
         self.ports.api_credentials.store(&agent_id, &api_key)?;
@@ -216,6 +284,655 @@ impl AgentRuntimeApplicationService {
         agent_id: &str,
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
         self.ports.api_agents.provider_config(agent_id)
+    }
+
+    pub(crate) fn onepiece_provider_config(
+        &self,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        let stored = self.ports.api_agents.onepiece_provider_config()?;
+        let credential_present = self.ports.api_credentials.fetch("onepiece")?.is_some();
+        Ok(OnePieceProviderConfig {
+            provider: stored.provider,
+            model_id: stored.model_id,
+            interface_format: stored.interface_format,
+            base_url: stored.base_url,
+            auto_approve_tools: stored.auto_approve_tools,
+            credential_present,
+        })
+    }
+
+    pub(crate) fn save_onepiece_provider_config(
+        &self,
+        input: SaveOnePieceProviderConfigInput,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        let (provider, model_id, interface_format, base_url) = normalize_api_provider_config(
+            &input.provider,
+            &input.model_id,
+            &input.interface_format,
+            input.base_url.as_deref(),
+        )?;
+        let replacement = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty());
+        if input.api_key.is_some() && replacement.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "API key cannot be empty.".to_string(),
+            ));
+        }
+        let previous_credential = self.ports.api_credentials.fetch("onepiece")?;
+        if replacement.is_none() && previous_credential.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "API key is required for the first OnePiece configuration.".to_string(),
+            ));
+        }
+        let current = self.ports.api_agents.onepiece_provider_config()?;
+        if let Some(api_key) = replacement.as_deref() {
+            self.ports.api_credentials.store("onepiece", api_key)?;
+        }
+        let stored = StoredOnePieceProviderConfig {
+            provider,
+            model_id: Some(model_id),
+            interface_format: Some(interface_format),
+            base_url,
+            auto_approve_tools: current.auto_approve_tools,
+        };
+        if let Err(error) = self.ports.api_agents.save_onepiece_provider_config(&stored) {
+            if replacement.is_some() {
+                match previous_credential.as_deref() {
+                    Some(previous) => {
+                        let _ = self.ports.api_credentials.store("onepiece", previous);
+                    }
+                    None => {
+                        let _ = self.ports.api_credentials.remove("onepiece");
+                    }
+                }
+            }
+            return Err(error);
+        }
+        self.onepiece_provider_config()
+    }
+
+    pub(crate) fn reset_onepiece_provider_config(
+        &self,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        self.ports.api_agents.reset_onepiece_provider_config()?;
+        self.ports.api_credentials.remove("onepiece")?;
+        for profile in profiles {
+            self.ports
+                .api_credentials
+                .remove(&onepiece_profile_credential_key(&profile.id))?;
+        }
+        self.onepiece_provider_config()
+    }
+
+    pub(crate) fn onepiece_provider_profiles(
+        &self,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        let stored = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let active_profile_id = stored
+            .iter()
+            .find(|profile| profile.active)
+            .map(|profile| profile.id.clone());
+        let mut profiles = Vec::with_capacity(stored.len());
+        for profile in stored {
+            let credential_key = onepiece_profile_credential_key(&profile.id);
+            let mut credential_present =
+                self.ports.api_credentials.fetch(&credential_key)?.is_some();
+            if profile.active && !credential_present {
+                if let Some(legacy) = self.ports.api_credentials.fetch("onepiece")? {
+                    self.ports.api_credentials.store(&credential_key, &legacy)?;
+                    credential_present = true;
+                }
+            }
+            profiles.push(OnePieceProviderProfile {
+                id: profile.id,
+                name: profile.name,
+                source_provider_id: profile.source_provider_id,
+                source_endpoint_type: profile.source_endpoint_type,
+                source_preset_version: profile.source_preset_version,
+                provider: profile.provider,
+                model_id: profile.model_id,
+                interface_format: profile.interface_format,
+                base_url: profile.base_url,
+                active: profile.active,
+                credential_present,
+            });
+        }
+        Ok(OnePieceProviderProfiles {
+            profiles,
+            active_profile_id,
+        })
+    }
+
+    pub(crate) fn onepiece_provider_presets(&self) -> Vec<OnePieceProviderPreset> {
+        super::onepiece_provider_catalog::list()
+    }
+
+    pub(crate) fn discover_onepiece_provider_models(
+        &self,
+        input: DiscoverOnePieceProviderModelsInput,
+    ) -> Result<OnePieceProviderModelDiscoveryResult, AgentRuntimeApplicationError> {
+        let provider_id = input.provider_id.trim().to_string();
+        let endpoint_type = input.endpoint_type.trim().to_string();
+        let preset = super::onepiece_provider_catalog::resolve(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = input
+            .profile_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|profile_id| {
+                profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id)
+                    .ok_or_else(|| {
+                        AgentRuntimeApplicationError::Validation(
+                            "OnePiece provider profile was not found.".to_string(),
+                        )
+                    })
+            })
+            .transpose()?;
+        if profile.is_some_and(|value| {
+            value.source_provider_id.as_deref() != Some(provider_id.as_str())
+                || value.source_endpoint_type.as_deref() != Some(endpoint_type.as_str())
+        }) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile does not belong to the selected provider.".to_string(),
+            ));
+        }
+
+        let transient_key = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let stored_key = profile
+            .map(|value| {
+                self.ports
+                    .api_credentials
+                    .fetch(&onepiece_profile_credential_key(&value.id))
+            })
+            .transpose()?
+            .flatten();
+        let credential = transient_key.or(stored_key);
+
+        let mut models = Vec::new();
+        let mut seen = BTreeSet::new();
+        for id in &preset.fallback_models {
+            push_model_option(&mut models, &mut seen, id, id, "catalog");
+        }
+        if let Some(value) = profile {
+            push_model_option(
+                &mut models,
+                &mut seen,
+                &value.model_id,
+                &value.model_id,
+                "profile",
+            );
+        }
+        if preset.model_discovery_strategy == "catalog" {
+            return Ok(OnePieceProviderModelDiscoveryResult {
+                provider_id,
+                endpoint_type,
+                models,
+                source: "catalog".to_string(),
+                warning: None,
+            });
+        }
+        let credential = credential.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "API key is required to fetch models for this OnePiece provider.".to_string(),
+            )
+        })?;
+        let url = super::onepiece_provider_catalog::discovery_url(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The OnePiece provider has no model discovery endpoint.".to_string(),
+                )
+            })?;
+        match self
+            .ports
+            .onepiece_model_discovery
+            .list_models(OnePieceModelDiscoveryRequest {
+                strategy: preset.model_discovery_strategy,
+                url,
+                api_key: credential,
+            }) {
+            Ok(discovered) => {
+                let discovered_count = discovered.len();
+                for model in discovered
+                    .into_iter()
+                    .filter(|model| is_chat_model(&model.id))
+                    .take(1_000)
+                {
+                    push_model_option(
+                        &mut models,
+                        &mut seen,
+                        &model.id,
+                        &model.display_name,
+                        "api",
+                    );
+                }
+                self.record_log(
+                    AgentLogLevel::Info,
+                    "onepiece.model-discovery",
+                    format!(
+                        "Fetched {discovered_count} model entries for provider {}.",
+                        preset.id
+                    ),
+                    Some("onepiece"),
+                    None,
+                    None,
+                );
+                Ok(OnePieceProviderModelDiscoveryResult {
+                    provider_id,
+                    endpoint_type,
+                    source: if models.iter().any(|model| model.source == "api") {
+                        "merged".to_string()
+                    } else {
+                        "catalog".to_string()
+                    },
+                    models,
+                    warning: None,
+                })
+            }
+            Err(_) => {
+                self.record_log(
+                    AgentLogLevel::Warn,
+                    "onepiece.model-discovery",
+                    format!(
+                        "Model discovery was unavailable for provider {}; catalog fallback used.",
+                        preset.id
+                    ),
+                    Some("onepiece"),
+                    None,
+                    None,
+                );
+                Ok(OnePieceProviderModelDiscoveryResult {
+                    provider_id,
+                    endpoint_type,
+                    models,
+                    source: "catalog".to_string(),
+                    warning: Some("live-unavailable".to_string()),
+                })
+            }
+        }
+    }
+
+    pub(crate) fn validate_onepiece_provider_credential(
+        &self,
+        input: ValidateOnePieceProviderCredentialInput,
+    ) -> Result<ProviderCredentialValidationResult, AgentRuntimeApplicationError> {
+        let provider_id = input.provider_id.trim();
+        let endpoint_type = input.endpoint_type.trim();
+        let model_id = input.model_id.trim();
+        if model_id.is_empty()
+            || model_id.len() > 256
+            || model_id.contains("..")
+            || model_id.contains('\\')
+            || model_id.chars().any(char::is_control)
+        {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "A valid model is required to verify the OnePiece API key.".to_string(),
+            ));
+        }
+        let preset = super::onepiece_provider_catalog::resolve(provider_id, endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let endpoint = preset
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_type == endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = input
+            .profile_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|profile_id| {
+                profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id)
+                    .ok_or_else(|| {
+                        AgentRuntimeApplicationError::Validation(
+                            "OnePiece provider profile was not found.".to_string(),
+                        )
+                    })
+            })
+            .transpose()?;
+        if profile.is_some_and(|value| {
+            value.source_provider_id.as_deref() != Some(provider_id)
+                || value.source_endpoint_type.as_deref() != Some(endpoint_type)
+        }) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile does not belong to the selected provider.".to_string(),
+            ));
+        }
+        let transient_key = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let stored_key = match (transient_key, profile) {
+            (Some(_), _) => None,
+            (None, Some(profile)) => self
+                .ports
+                .api_credentials
+                .fetch(&onepiece_profile_credential_key(&profile.id))?,
+            (None, None) => None,
+        };
+        let credential = transient_key.or(stored_key.as_deref()).ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "API key is required to verify this OnePiece provider.".to_string(),
+            )
+        })?;
+        let protocol = match endpoint.endpoint_type.as_str() {
+            "anthropic-messages" => ProviderCredentialProbeProtocol::AnthropicMessages,
+            "openai-chat-completions" => ProviderCredentialProbeProtocol::OpenAiChatCompletions,
+            "openai-responses" => ProviderCredentialProbeProtocol::OpenAiResponses,
+            _ => {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece endpoint cannot verify API credentials.".to_string(),
+                ));
+            }
+        };
+        let authentication = match endpoint.auth_strategy.as_str() {
+            "x-api-key" => ProviderCredentialProbeAuthentication::AnthropicApiKey,
+            "bearer" => ProviderCredentialProbeAuthentication::Bearer,
+            _ => {
+                return Err(AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece authentication strategy is unsupported.".to_string(),
+                ));
+            }
+        };
+        let result = self.ports.onepiece_model_discovery.validate_credential(
+            ProviderCredentialProbeRequest {
+                base_url: endpoint.base_url.clone(),
+                model: model_id.to_string(),
+                protocol,
+                authentication,
+                credential: credential.to_string(),
+            },
+        )?;
+        self.record_log(
+            AgentLogLevel::Info,
+            "onepiece.credential-validation",
+            format!(
+                "OnePiece provider credential validation completed for {}: status={:?}.",
+                preset.id, result.status
+            ),
+            Some("onepiece"),
+            None,
+            None,
+        );
+        Ok(result)
+    }
+
+    pub(crate) fn save_onepiece_provider_profile(
+        &self,
+        input: SaveOnePieceProviderProfileInput,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        let name = input.name.trim().to_string();
+        if name.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Profile name cannot be empty.".to_string(),
+            ));
+        }
+        let provider_id = input.provider_id.trim().to_string();
+        let endpoint_type = input.endpoint_type.trim().to_string();
+        let preset = super::onepiece_provider_catalog::resolve(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let model_id = input.model_id.trim().to_string();
+        if model_id.is_empty() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Model id cannot be empty.".to_string(),
+            ));
+        }
+        let existing = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let id = input
+            .id
+            .unwrap_or_else(|| format!("onepiece-profile-{}", Uuid::new_v4()));
+        let previous = existing.iter().find(|profile| profile.id == id).cloned();
+        if previous.as_ref().is_some_and(|profile| {
+            profile
+                .source_provider_id
+                .as_deref()
+                .is_some_and(|value| value != provider_id)
+                || profile
+                    .source_endpoint_type
+                    .as_deref()
+                    .is_some_and(|value| value != endpoint_type)
+        }) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "The provider of an existing OnePiece Profile cannot be changed.".to_string(),
+            ));
+        }
+        let active = previous.as_ref().is_some_and(|profile| profile.active) || existing.is_empty();
+        let credential_key = onepiece_profile_credential_key(&id);
+        let previous_scoped = self.ports.api_credentials.fetch(&credential_key)?;
+        let previous_runtime = active
+            .then(|| self.ports.api_credentials.fetch("onepiece"))
+            .transpose()?
+            .flatten();
+        let replacement = input
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if input.api_key.is_some() && replacement.is_none() {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "API key cannot be empty.".to_string(),
+            ));
+        }
+        let effective = replacement
+            .clone()
+            .or(previous_scoped.clone())
+            .or_else(|| active.then_some(previous_runtime.clone()).flatten());
+        let Some(effective_credential) = effective else {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "API key is required for a new OnePiece provider Profile.".to_string(),
+            ));
+        };
+        let scoped_credential_changed = replacement.is_some() || previous_scoped.is_none();
+        if scoped_credential_changed {
+            self.ports
+                .api_credentials
+                .store(&credential_key, &effective_credential)?;
+        }
+        if active {
+            if let Err(error) = self
+                .ports
+                .api_credentials
+                .store("onepiece", &effective_credential)
+            {
+                if scoped_credential_changed {
+                    restore_credential(
+                        self.ports.api_credentials.as_ref(),
+                        &credential_key,
+                        previous_scoped.as_deref(),
+                    );
+                }
+                restore_credential(
+                    self.ports.api_credentials.as_ref(),
+                    "onepiece",
+                    previous_runtime.as_deref(),
+                );
+                return Err(error);
+            }
+        }
+        let stored = StoredOnePieceProviderProfile {
+            id,
+            name,
+            source_preset_id: Some(provider_id.clone()),
+            source_provider_id: Some(provider_id),
+            source_endpoint_type: Some(endpoint_type),
+            source_preset_version: Some(preset.catalog_version),
+            provider: preset.provider,
+            model_id,
+            interface_format: preset.interface_format,
+            base_url: preset.base_url,
+            active,
+        };
+        if let Err(error) = self
+            .ports
+            .api_agents
+            .save_onepiece_provider_profile(&stored)
+        {
+            restore_credential(
+                self.ports.api_credentials.as_ref(),
+                &credential_key,
+                previous_scoped.as_deref(),
+            );
+            if active {
+                restore_credential(
+                    self.ports.api_credentials.as_ref(),
+                    "onepiece",
+                    previous_runtime.as_deref(),
+                );
+            }
+            return Err(error);
+        }
+        self.onepiece_provider_profiles()
+    }
+
+    pub(crate) fn activate_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let target = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        let target_key = onepiece_profile_credential_key(profile_id);
+        let target_credential =
+            self.ports
+                .api_credentials
+                .fetch(&target_key)?
+                .ok_or_else(|| {
+                    AgentRuntimeApplicationError::Validation(
+                        "The selected OnePiece provider Profile has no API key.".to_string(),
+                    )
+                })?;
+        let previous_runtime = self.ports.api_credentials.fetch("onepiece")?;
+        if let Some(current) = profiles.iter().find(|profile| profile.active) {
+            let current_key = onepiece_profile_credential_key(&current.id);
+            if self.ports.api_credentials.fetch(&current_key)?.is_none() {
+                if let Some(secret) = previous_runtime.as_deref() {
+                    self.ports.api_credentials.store(&current_key, secret)?;
+                }
+            }
+        }
+        if let Err(error) = self
+            .ports
+            .api_credentials
+            .store("onepiece", &target_credential)
+        {
+            restore_credential(
+                self.ports.api_credentials.as_ref(),
+                "onepiece",
+                previous_runtime.as_deref(),
+            );
+            return Err(error);
+        }
+        if let Err(error) = self
+            .ports
+            .api_agents
+            .activate_onepiece_provider_profile(&target.id)
+        {
+            restore_credential(
+                self.ports.api_credentials.as_ref(),
+                "onepiece",
+                previous_runtime.as_deref(),
+            );
+            return Err(error);
+        }
+        self.onepiece_provider_profiles()
+    }
+
+    pub(crate) fn delete_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        let credential_key = onepiece_profile_credential_key(profile_id);
+        let previous_scoped = self.ports.api_credentials.fetch(&credential_key)?;
+        let previous_runtime = profile
+            .active
+            .then(|| self.ports.api_credentials.fetch("onepiece"))
+            .transpose()?
+            .flatten();
+        self.ports.api_credentials.remove(&credential_key)?;
+        if profile.active {
+            if let Err(error) = self.ports.api_credentials.remove("onepiece") {
+                restore_credential(
+                    self.ports.api_credentials.as_ref(),
+                    &credential_key,
+                    previous_scoped.as_deref(),
+                );
+                restore_credential(
+                    self.ports.api_credentials.as_ref(),
+                    "onepiece",
+                    previous_runtime.as_deref(),
+                );
+                return Err(error);
+            }
+        }
+        if let Err(error) = self
+            .ports
+            .api_agents
+            .delete_onepiece_provider_profile(profile_id)
+        {
+            restore_credential(
+                self.ports.api_credentials.as_ref(),
+                &credential_key,
+                previous_scoped.as_deref(),
+            );
+            if profile.active {
+                restore_credential(
+                    self.ports.api_credentials.as_ref(),
+                    "onepiece",
+                    previous_runtime.as_deref(),
+                );
+            }
+            return Err(error);
+        }
+        self.onepiece_provider_profiles()
     }
 
     /// Edits an existing API agent's `display_name`/`model_id`/`base_url`, and optionally
@@ -309,6 +1026,17 @@ impl AgentRuntimeApplicationService {
         &self,
         agent_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError> {
+        if self
+            .ports
+            .registry
+            .find(agent_id)?
+            .is_some_and(|agent| agent.origin() == AgentOrigin::Builtin)
+        {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Built-in agents cannot be deleted; reset their provider configuration instead."
+                    .to_string(),
+            ));
+        }
         self.ports.api_agents.delete(agent_id)?;
         if let Err(error) = self.ports.api_credentials.remove(agent_id) {
             self.record_log(
@@ -1495,11 +2223,9 @@ impl GenerationEventHandler {
             if state.phase != GenerationStreamPhase::Active {
                 return Ok(());
             }
-            let content_delta = if state.response.is_empty() {
-                delta
-            } else {
-                format!("\n{delta}")
-            };
+            // Provider adapters own text boundaries. API streams emit exact token deltas,
+            // while line-oriented CLI adapters restore the line break they consumed.
+            let content_delta = delta;
             state.response.push_str(&content_delta);
             state.pending_content.push_str(&content_delta);
             let flushed = state.should_flush().then(|| state.take_pending_content());
@@ -1791,11 +2517,18 @@ impl GenerationEventHandler {
         Ok(())
     }
 
-    fn failed(&self, diagnostic: String) -> Result<(), AgentRuntimeApplicationError> {
+    fn failed(
+        &self,
+        diagnostic: String,
+        safe_error: Option<String>,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         if self.begin_terminal()?.is_none() {
             return Ok(());
         }
-        let result = self.fail_claimed(diagnostic);
+        let result = self.fail_claimed(
+            diagnostic,
+            safe_error.as_deref().unwrap_or(&self.safe_error),
+        );
         if result.is_err() {
             self.finish_execution(ExecutionStatus::Failed, Some("failure_persistence_failed"));
         }
@@ -1803,7 +2536,11 @@ impl GenerationEventHandler {
         result
     }
 
-    fn fail_claimed(&self, diagnostic: String) -> Result<(), AgentRuntimeApplicationError> {
+    fn fail_claimed(
+        &self,
+        diagnostic: String,
+        safe_error: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
         let current = self.current_message()?;
         if current.status == "cancelled" {
             self.mark_cancelled();
@@ -1812,7 +2549,7 @@ impl GenerationEventHandler {
         self.record_log(AgentLogLevel::Error, diagnostic);
         self.ports
             .sessions
-            .fail_message(&self.message_id, &self.session_id, &self.safe_error)?;
+            .fail_message(&self.message_id, &self.session_id, safe_error)?;
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Failed)?;
@@ -1820,17 +2557,17 @@ impl GenerationEventHandler {
         let _ = self
             .ports
             .operations
-            .fail(&self.operation_id, self.safe_error.clone());
+            .fail(&self.operation_id, safe_error.to_string());
         self.finish_execution(ExecutionStatus::Failed, Some("agent_generation_failed"));
         let _ = self.ports.events.publish(AgentEvent::MessageFailed {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
-            error: self.safe_error.clone(),
+            error: safe_error.to_string(),
         });
         self.deliver_loop_terminal(
             LoopRoleGenerationOutcome::Failed,
             None,
-            Some(self.safe_error.clone()),
+            Some(safe_error.to_string()),
         )?;
         self.record_prompt_execution(PromptExecutionOutcome::Failed);
         Ok(())
@@ -2040,7 +2777,9 @@ impl AgentProcessEventSink for GenerationEventHandler {
                 Ok(())
             }
             GenerationProcessEvent::Completed(usage) => self.completed(usage),
-            GenerationProcessEvent::Failed(failure) => self.failed(failure.diagnostic),
+            GenerationProcessEvent::Failed(failure) => {
+                self.failed(failure.diagnostic, failure.safe_error)
+            }
         }
     }
 }

@@ -23,7 +23,8 @@ mod workspaces;
 
 pub(crate) use crate::contexts::sessions::infrastructure::scheduled_tasks::ScheduledTaskLogDirectory;
 pub(crate) use agent_runtime::{
-    assemble_agent_runtime_api, AgentRuntimeAssembly, AgentRuntimeDependencies,
+    assemble_agent_runtime_api, assemble_shared_agent_registry, AgentRuntimeAssembly,
+    AgentRuntimeDependencies,
 };
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_config::assemble_cli_config_api;

@@ -148,6 +148,7 @@ const agent: AgentRegistryEntry = {
   supportedInteractionModes: ["cli"],
   availabilityState: "available",
   capabilityTags: [],
+  agentOrigin: "builtin",
 };
 
 function userHook(): PromptHook {

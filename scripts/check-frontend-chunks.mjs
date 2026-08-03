@@ -21,7 +21,7 @@ const requiredDynamicEntries = [
   "src/settings/pages/skills-page.tsx",
   "src/settings/pages/ssh-connections-page.tsx",
   "src/settings/pages/usage-statistics-page.tsx",
-  "src/settings/pages/agents-page.tsx",
+  "src/settings/pages/agent-configurations-page.tsx",
   "src/settings/pages/prompt-hooks-page.tsx",
 ];
 const maxStaticEntryGzipBytes = 350 * 1024;

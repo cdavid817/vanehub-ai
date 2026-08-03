@@ -612,6 +612,11 @@ impl ProcessMonitor {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
+                        let delta = if emitted_content {
+                            format!("\n{delta}")
+                        } else {
+                            delta
+                        };
                         emitted_content = true;
                         Some(GenerationProcessEvent::Token(delta))
                     }

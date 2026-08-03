@@ -13,10 +13,11 @@ use super::{
     GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView, LoopGitStateView,
     LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
     LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, MemorySource, NewAgentMessage, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
-    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
+    OnePieceModelDiscoveryRequest, RegisterApiAgentInput, ResizeAgentTerminalRequest,
+    SaveLoopVerifierResultRequest, StartedGenerationProcess, StopAgentTerminalRequest,
+    ToolApprovalDecision, ToolDefinition, ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -662,6 +663,65 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
         agent_id: &str,
         enabled: bool,
     ) -> Result<(), AgentRuntimeApplicationError>;
+
+    fn onepiece_provider_config(
+        &self,
+    ) -> Result<super::StoredOnePieceProviderConfig, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn save_onepiece_provider_config(
+        &self,
+        input: &super::StoredOnePieceProviderConfig,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        let _ = input;
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn reset_onepiece_provider_config(
+        &self,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn list_onepiece_provider_profiles(
+        &self,
+    ) -> Result<Vec<super::StoredOnePieceProviderProfile>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+
+    fn save_onepiece_provider_profile(
+        &self,
+        _profile: &super::StoredOnePieceProviderProfile,
+    ) -> Result<super::StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn activate_onepiece_provider_profile(
+        &self,
+        _profile_id: &str,
+    ) -> Result<super::StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
+
+    fn delete_onepiece_provider_profile(
+        &self,
+        _profile_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::AgentNotFound(
+            "onepiece".to_string(),
+        ))
+    }
 }
 
 /// Secret storage boundary for API-based agent provider credentials.
@@ -671,6 +731,18 @@ pub(crate) trait ApiCredentialPort: Send + Sync {
     fn fetch(&self, agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError>;
 
     fn remove(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait OnePieceModelDiscoveryPort: Send + Sync {
+    fn list_models(
+        &self,
+        request: OnePieceModelDiscoveryRequest,
+    ) -> Result<Vec<OnePieceDiscoveredModel>, AgentRuntimeApplicationError>;
+
+    fn validate_credential(
+        &self,
+        request: super::ProviderCredentialProbeRequest,
+    ) -> Result<super::ProviderCredentialValidationResult, AgentRuntimeApplicationError>;
 }
 
 /// Resolution boundary for a native-agent tool call paused awaiting user approval. Only
@@ -698,6 +770,13 @@ pub(crate) trait AgentSkillPort: Send + Sync {
         agent_id: &str,
         workspace_path: Option<&str>,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait AgentCoreInstructionsPort: Send + Sync {
+    fn instructions_for(
+        &self,
+        agent_id: &str,
+    ) -> Result<Option<super::AgentCoreInstructions>, AgentRuntimeApplicationError>;
 }
 
 /// Bridges the native tool-use loop to MCP-sourced tools (`add-agent-mcp-tools`), through

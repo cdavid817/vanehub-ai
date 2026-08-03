@@ -3,7 +3,7 @@ import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(15);
+    expect(settingsPages).toHaveLength(14);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });
@@ -12,11 +12,11 @@ describe("settingsPages", () => {
     expect(settingsPages.map((page) => page.id as string)).not.toContain("sdk");
   });
 
-  it("registers lazy Agent configurations directly after Agent management", () => {
-    const agentsIndex = settingsPages.findIndex((page) => page.id === "agents");
+  it("registers Agent configurations as the only Agent settings destination", () => {
     const configurationsIndex = settingsPages.findIndex((page) => page.id === "agent-configurations");
 
-    expect(configurationsIndex).toBe(agentsIndex + 1);
+    expect(settingsPages.map((page) => page.id as string)).not.toContain("agents");
+    expect(configurationsIndex).toBeGreaterThan(-1);
     expect(settingsPages[configurationsIndex]).toMatchObject({
       labelKey: "settings.pages.agentConfigurations",
       searchPlaceholderKey: "settings.search.agentConfigurations",

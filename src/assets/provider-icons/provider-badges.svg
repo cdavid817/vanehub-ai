@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="provider-anthropic" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">A</text></symbol>
+  <symbol id="provider-openai" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">O</text></symbol>
+  <symbol id="provider-openrouter" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">OR</text></symbol>
+  <symbol id="provider-deepseek" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">DS</text></symbol>
+  <symbol id="provider-zhipu" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">GLM</text></symbol>
+  <symbol id="provider-moonshot" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">K</text></symbol>
+  <symbol id="provider-siliconflow" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">SF</text></symbol>
+  <symbol id="provider-bailian" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">Q</text></symbol>
+  <symbol id="provider-volcengine" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">V</text></symbol>
+  <symbol id="provider-groq" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">G</text></symbol>
+  <symbol id="provider-xai" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">x</text></symbol>
+  <symbol id="provider-mistral" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">M</text></symbol>
+  <symbol id="provider-together" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">T</text></symbol>
+  <symbol id="provider-fireworks" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">F</text></symbol>
+  <symbol id="provider-nvidia" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">N</text></symbol>
+  <symbol id="provider-cerebras" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">C</text></symbol>
+  <symbol id="provider-minimax" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">MM</text></symbol>
+  <symbol id="provider-stepfun" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">S</text></symbol>
+  <symbol id="provider-baichuan" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">B</text></symbol>
+  <symbol id="provider-ppio" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">P</text></symbol>
+  <symbol id="provider-qiniu" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">7N</text></symbol>
+  <symbol id="provider-modelscope" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">MS</text></symbol>
+  <symbol id="provider-xiaomi" viewBox="0 0 24 24"><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="700" fill="currentColor">MI</text></symbol>
+  <symbol id="provider-zai" viewBox="0 0 24 24"><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">Z</text></symbol>
+</svg>

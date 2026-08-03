@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import type {
   AgentMemory,
@@ -16,15 +17,23 @@ import type {
   CliToolStatus,
   CreateSessionCategoryInput,
   CreateScheduledTaskInput,
+  DiscoverOnePieceProviderModelsInput,
   ExportSessionInput,
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
   LaunchResult,
   ManagedCliAgentId,
+  OnePieceProviderConfig,
+  OnePieceProviderProfiles,
+  OnePieceProviderModelDiscoveryResult,
+  OnePieceProviderPreset,
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  SaveOnePieceProviderConfigInput,
+  SaveOnePieceProviderProfileInput,
+  ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
   RenameSessionCategoryInput,
   Session,
@@ -99,9 +108,12 @@ import type {
   ImportDiscoveredCliConfigInput,
   ImportDiscoveredCliConfigResult,
   SaveCliConfigProfileInput,
+  ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
+import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
+import { requireHttpsExternalUrl } from "./external-url";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -109,6 +121,10 @@ function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
 }
 
 export const tauriAgentClient: AgentService = {
+  async openExternalUrl(url) {
+    await openUrl(requireHttpsExternalUrl(url));
+  },
+
   listAgents(capabilityTag) {
     return invoke<AgentRegistryEntry[]>("list_agents", { capabilityTag: capabilityTag ?? null });
   },
@@ -119,6 +135,46 @@ export const tauriAgentClient: AgentService = {
 
   getApiAgentProviderConfig(agentId: string) {
     return invoke<ApiAgentProviderConfig | null>("get_api_agent_provider_config", { agentId });
+  },
+
+  getOnePieceProviderConfig() {
+    return invoke<OnePieceProviderConfig>("get_onepiece_provider_config");
+  },
+
+  saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput) {
+    return invoke<OnePieceProviderConfig>("save_onepiece_provider_config", { input });
+  },
+
+  resetOnePieceProviderConfig() {
+    return invoke<OnePieceProviderConfig>("reset_onepiece_provider_config");
+  },
+
+  listOnePieceProviderProfiles() {
+    return invoke<OnePieceProviderProfiles>("list_onepiece_provider_profiles");
+  },
+
+  listOnePieceProviderPresets() {
+    return invoke<OnePieceProviderPreset[]>("list_onepiece_provider_presets");
+  },
+
+  discoverOnePieceProviderModels(input: DiscoverOnePieceProviderModelsInput) {
+    return invoke<OnePieceProviderModelDiscoveryResult>("discover_onepiece_provider_models", { input });
+  },
+
+  validateOnePieceProviderCredential(input: ValidateOnePieceProviderCredentialInput) {
+    return invoke<ProviderCredentialValidationResult>("validate_onepiece_provider_credential", { input });
+  },
+
+  saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput) {
+    return invoke<OnePieceProviderProfiles>("save_onepiece_provider_profile", { input });
+  },
+
+  activateOnePieceProviderProfile(profileId: string) {
+    return invoke<OnePieceProviderProfiles>("activate_onepiece_provider_profile", { profileId });
+  },
+
+  deleteOnePieceProviderProfile(profileId: string) {
+    return invoke<OnePieceProviderProfiles>("delete_onepiece_provider_profile", { profileId });
   },
 
   updateApiAgent(agentId: string, input: UpdateApiAgentInput) {
@@ -187,6 +243,10 @@ export const tauriAgentClient: AgentService = {
 
   saveCliConfigProfile(input: SaveCliConfigProfileInput) {
     return invoke<CliConfigProfile>("save_cli_config_profile", { input });
+  },
+
+  validateCliConfigCredential(input: ValidateCliConfigCredentialInput) {
+    return invoke<ProviderCredentialValidationResult>("validate_cli_config_credential", { input });
   },
 
   duplicateCliConfigProfile(agentId: string, profileId: string) {

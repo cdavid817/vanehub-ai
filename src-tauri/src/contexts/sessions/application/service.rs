@@ -38,6 +38,7 @@ pub(crate) struct SessionApplicationPorts {
     pub(crate) logging: Arc<dyn SessionLoggingPort>,
     pub(crate) chat_profiles: Arc<dyn SessionChatProfilePort>,
     pub(crate) creation: Arc<dyn SessionCreationContextPort>,
+    pub(crate) eligibility: Arc<dyn super::SessionAgentEligibilityPort>,
     pub(crate) runtime: Arc<dyn SessionRuntimePort>,
 }
 
@@ -93,7 +94,7 @@ impl SessionsApplicationService {
             required_value(value, label)?;
         }
         self.ports
-            .creation
+            .eligibility
             .ensure_agent_supports(&request.agent_id, &request.interaction_mode)?;
         let role = request.role;
         self.create_session_record(CreateSessionRequest {
@@ -163,8 +164,13 @@ impl SessionsApplicationService {
         request: NewSessionRequest,
     ) -> Result<SessionRecord, SessionsApplicationError> {
         request.owner.validate_activation(request.activation)?;
+        if request.agent_id == "onepiece" && request.workspace.remote_workspace.is_some() {
+            return Err(SessionsApplicationError::Validation(
+                "OnePiece supports local projects and local Git worktrees only.".to_string(),
+            ));
+        }
         self.ports
-            .creation
+            .eligibility
             .ensure_agent_supports(&request.agent_id, &request.interaction_mode)?;
         let workspace = self.prepare_new_session_workspace(&request.workspace)?;
         self.create_session_record(CreateSessionRequest {

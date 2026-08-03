@@ -16,7 +16,7 @@ pub(crate) use usage::apply_schema as apply_usage_schema;
 #[cfg(test)]
 mod tests;
 pub(crate) use chat_profile::SqliteSessionChatProfileAdapter;
-pub(crate) use creation_context::SessionCreationContextAdapter;
+pub(crate) use creation_context::{SessionAgentEligibilityAdapter, SessionCreationContextAdapter};
 pub(crate) use operation_adapter::SessionOperationAdapter;
 pub(crate) use runtime_support::{
     AgentSessionRuntimeAdapter, SessionFileAdapter, SystemSessionClock,
