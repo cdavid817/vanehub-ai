@@ -5,6 +5,8 @@
 
 use crate::contexts::operations::application::{ApplicationError, OperationService};
 use serde_json::Value;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 pub(crate) use crate::contexts::operations::application::ApplicationError as OperationsError;
 pub(crate) use crate::contexts::operations::application::{
@@ -69,6 +71,13 @@ impl OperationsApi {
 
     pub(crate) fn cancel(&self, operation_id: &str) -> Result<OperationTask, ApplicationError> {
         self.service.cancel(operation_id)
+    }
+
+    pub(crate) fn cancellation_flag(
+        &self,
+        operation_id: &str,
+    ) -> Result<Arc<AtomicBool>, ApplicationError> {
+        self.service.cancellation_flag(operation_id)
     }
 
     pub(crate) fn get(&self, operation_id: &str) -> Result<OperationTask, ApplicationError> {

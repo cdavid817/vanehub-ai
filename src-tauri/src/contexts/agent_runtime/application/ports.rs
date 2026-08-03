@@ -721,12 +721,14 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
     /// Infallible by design — every failure mode (server no longer visible/active, connection
     /// failure, tool-level error reported by the remote server) resolves to
     /// `AgentToolCallOutcome{is_error: true, ..}`, matching `execute_shell`/`execute_file`'s
-    /// existing infallible-signature convention.
+    /// existing infallible-signature convention. The shared cancellation flag belongs to the
+    /// active generation and must remain connected to the MCP session until cleanup completes.
     fn call_tool(
         &self,
         project_path: &str,
         tool_name: &str,
         arguments: &Value,
+        cancellation: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> AgentToolCallOutcome;
 }
 

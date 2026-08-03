@@ -5,10 +5,11 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
 import { operationService } from "../../services/runtime-operation-client";
-import type { McpImportExport, McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
+import type { McpScope, McpServerConfig, McpServerStatus, McpTestResult } from "../../types/mcp";
 import type { OperationTask } from "../../types/operation";
 import { PageHeader, SectionPanel, StatCard } from "./page-parts";
 import { McpImportExportModal } from "./mcp/mcp-import-export";
+import { formatMcpFailure, mcpErrorFromUnknown } from "./mcp/mcp-presentation";
 import { McpServerCard } from "./mcp/mcp-server-card";
 import { McpServerForm } from "./mcp/mcp-server-form";
 
@@ -88,7 +89,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   });
 
   const importServersMutation = useMutation({
-    mutationFn: ({ data, scope }: { data: McpImportExport; scope: McpScope }) => mcpService.importServers(data, scope),
+    mutationFn: ({ input, scope }: { input: string; scope: McpScope }) => mcpService.importServers(input, scope),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpServersQueryKey }),
   });
 
@@ -100,7 +101,10 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     : activeTestStatus === "queued" || activeTestStatus === "running"
       ? activeTestOperationQuery.data?.relatedEntityId ?? null
       : null;
-  const queryError = serversQuery.error instanceof Error ? serversQuery.error.message : serversQuery.error ? String(serversQuery.error) : null;
+  const queryFailure = mcpErrorFromUnknown(serversQuery.error);
+  const queryError = serversQuery.error
+    ? formatMcpFailure(t, queryFailure.errorCode, queryFailure.message)
+    : null;
   const visibleError = error ?? queryError;
 
   useEffect(() => {
@@ -112,7 +116,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     const name = operation.relatedEntityId ?? testServerMutation.variables?.name ?? "";
     if (operation.status === "failed" || !result?.success) {
       setNotice(t("mcp.notice.testFailed", { name }));
-      setError(operation.error ?? result?.error ?? t("mcp.notice.testFailed", { name }));
+      setError(formatMcpFailure(t, result?.errorCode, operation.error ?? result?.error));
     } else {
       setNotice(t("mcp.notice.testPassed", { name, count: result.tools.length }));
     }
@@ -140,29 +144,40 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
 
   async function saveServer(server: McpServerConfig) {
     setError(null);
-    await saveServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    await saveServerMutation.mutateAsync(server).catch((err) => {
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
+    });
   }
 
   async function testServer(server: McpServerConfig) {
     setError(null);
     setNotice(null);
-    await testServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    await testServerMutation.mutateAsync(server).catch((err) => {
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
+    });
   }
 
   async function toggleServer(server: McpServerConfig) {
     setError(null);
-    await toggleServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    await toggleServerMutation.mutateAsync(server).catch((err) => {
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
+    });
   }
 
   async function deleteServer(server: McpServerConfig) {
     if (!window.confirm(t("mcp.confirm.delete", { name: server.name }))) return;
     setError(null);
-    await deleteServerMutation.mutateAsync(server).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    await deleteServerMutation.mutateAsync(server).catch((err) => {
+      const failure = mcpErrorFromUnknown(err);
+      setError(formatMcpFailure(t, failure.errorCode, failure.message));
+    });
   }
 
-  async function importServers(data: McpImportExport, scope: McpScope) {
-    const result = await importServersMutation.mutateAsync({ data, scope });
-    return t("mcp.notice.imported", { imported: result.imported.length, skipped: result.skipped.length });
+  async function importServers(input: string, scope: McpScope) {
+    return importServersMutation.mutateAsync({ input, scope });
   }
 
   async function exportServers(names: string[]) {

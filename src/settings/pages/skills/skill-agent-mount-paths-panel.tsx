@@ -2,13 +2,13 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { SkillAgentMountPath, SkillCompatibleAgent, SkillMountMigrationReport } from "../../../types/skill";
-import { SectionPanel } from "../page-parts";
 
 export function SkillAgentMountPathsPanel({
   agents,
   mountPaths,
   drafts,
   migration,
+  error,
   savingAgentId,
   onDraftChange,
   onSave,
@@ -17,6 +17,7 @@ export function SkillAgentMountPathsPanel({
   mountPaths: SkillAgentMountPath[];
   drafts: Record<string, string>;
   migration: SkillMountMigrationReport | null;
+  error?: string | null;
   savingAgentId: string | null;
   onDraftChange: (agentId: string, value: string) => void;
   onSave: (agentId: string) => void;
@@ -24,7 +25,7 @@ export function SkillAgentMountPathsPanel({
   const { t } = useTranslation();
   const pathFor = (agentId: string) => mountPaths.find((path) => path.agentId === agentId);
   return (
-    <SectionPanel title={t("skills.mountPaths.title")} description={t("skills.mountPaths.description")}>
+    <div>
       <div className="grid gap-3 lg:grid-cols-2">
         {agents.map((agent) => {
           const saved = pathFor(agent.id);
@@ -41,12 +42,13 @@ export function SkillAgentMountPathsPanel({
               <div className="flex gap-2">
                 <code className="min-w-0 flex-1 rounded bg-muted px-2 py-2 text-xs">
                   <input
+                    aria-label={`${agent.displayName} ${t("skills.mountPaths.title")}`}
                     className="w-full bg-transparent outline-hidden"
                     onChange={(event) => onDraftChange(agent.id, event.target.value)}
                     value={value}
                   />
                 </code>
-                <Button disabled={savingAgentId === agent.id} onClick={() => onSave(agent.id)} variant="outline">
+                <Button aria-label={t("skills.dialog.save")} disabled={savingAgentId === agent.id} onClick={() => onSave(agent.id)} variant="outline">
                   <Save className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
@@ -60,6 +62,7 @@ export function SkillAgentMountPathsPanel({
           {migration.failed.length > 0 ? ` ${t("skills.mountPaths.failed", { count: migration.failed.length })}` : ""}
         </div>
       ) : null}
-    </SectionPanel>
+      {error ? <p className="mt-3 text-xs text-destructive" role="alert">{error}</p> : null}
+    </div>
   );
 }

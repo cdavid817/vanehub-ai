@@ -3,13 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import type { McpServerConfig, McpServerStatus } from "../../../types/mcp";
+import { mcpTransportTranslationKey } from "./mcp-presentation";
 import { McpTestResultPanel } from "./mcp-test-result";
-
-const transportLabels = {
-  stdio: "stdio",
-  sse: "sse",
-  streamable_http: "http",
-};
 
 export function McpServerCard({
   server,
@@ -46,7 +41,7 @@ export function McpServerCard({
             <h3 className="truncate text-sm font-semibold">{server.name}</h3>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Badge tone="muted">{transportLabels[server.transportType]}</Badge>
+            <Badge tone="muted">{t(mcpTransportTranslationKey(server.transportType))}</Badge>
             <Badge tone={server.scope === "project" ? "warning" : "muted"}>{t(`mcp.scope.${server.scope}`)}</Badge>
             <span>{t(statusKey)}</span>
           </div>

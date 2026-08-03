@@ -71,7 +71,17 @@ impl SkillPathResolver {
         mount_path: &SkillMountPath,
     ) -> Result<PathBuf, SkillApplicationError> {
         let root = self.scope_root(location)?;
-        descendant(&root, root.join(mount_path.as_str()).join(id.as_str()))
+        let mount_root = descendant(&root, root.join(mount_path.as_str()))?;
+        descendant(&root, mount_root.join(id.as_str()))
+    }
+
+    pub(super) fn mount_root(
+        &self,
+        location: &SkillLocation,
+        mount_path: &SkillMountPath,
+    ) -> Result<PathBuf, SkillApplicationError> {
+        let root = self.scope_root(location)?;
+        descendant(&root, root.join(mount_path.as_str()))
     }
 
     pub(super) fn durable_backup(

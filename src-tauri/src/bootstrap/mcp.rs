@@ -171,7 +171,7 @@ pub(crate) fn assemble_mcp_api(
     let operation_logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_dir));
     McpApi::new(McpApplicationService::new(
         Arc::new(SqliteMcpServerRepository::new(database)),
-        Arc::new(RmcpConnectionAdapter::default()),
+        Arc::new(RmcpConnectionAdapter),
         Arc::new(McpOperationAdapter::new(operations)),
         Arc::new(SystemMcpClock),
         Arc::new(UnifiedMcpLoggingAdapter::new(operation_logging)),

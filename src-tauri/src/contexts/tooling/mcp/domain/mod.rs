@@ -15,6 +15,51 @@ pub(crate) enum McpDomainError {
     MissingUrl,
     #[error("project MCP server requires project path")]
     MissingProjectPath,
+    #[error("unsupported MCP transport: {0}")]
+    InvalidTransport(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum McpFailureCode {
+    Validation,
+    Spawn,
+    Timeout,
+    Cancelled,
+    Protocol,
+    UpstreamHttp,
+    LimitExceeded,
+    Transport,
+    Cleanup,
+}
+
+impl McpFailureCode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Validation => "validation",
+            Self::Spawn => "spawn",
+            Self::Timeout => "timeout",
+            Self::Cancelled => "cancelled",
+            Self::Protocol => "protocol",
+            Self::UpstreamHttp => "upstream_http",
+            Self::LimitExceeded => "limit_exceeded",
+            Self::Transport => "transport",
+            Self::Cleanup => "cleanup",
+        }
+    }
+
+    pub(crate) fn safe_message(self) -> &'static str {
+        match self {
+            Self::Validation => "MCP request validation failed.",
+            Self::Spawn => "The MCP server could not be started.",
+            Self::Timeout => "The MCP operation timed out.",
+            Self::Cancelled => "The MCP operation was cancelled.",
+            Self::Protocol => "The MCP server returned an invalid protocol response.",
+            Self::UpstreamHttp => "The MCP HTTP server returned an error.",
+            Self::LimitExceeded => "The MCP operation exceeded a safety limit.",
+            Self::Transport => "The MCP transport failed.",
+            Self::Cleanup => "The MCP operation could not release all resources.",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -56,11 +101,12 @@ impl TransportType {
         }
     }
 
-    pub(crate) fn from_persisted(value: &str) -> Self {
+    pub(crate) fn from_persisted(value: &str) -> Result<Self, McpDomainError> {
         match value {
-            "sse" => Self::Sse,
-            "streamable_http" => Self::StreamableHttp,
-            _ => Self::Stdio,
+            "stdio" => Ok(Self::Stdio),
+            "sse" => Ok(Self::Sse),
+            "streamable_http" => Ok(Self::StreamableHttp),
+            other => Err(McpDomainError::InvalidTransport(other.to_string())),
         }
     }
 }
@@ -256,6 +302,7 @@ pub(crate) enum ConnectionOutcome {
     },
     Failed {
         error: String,
+        error_code: Option<McpFailureCode>,
         duration_ms: u64,
     },
 }
@@ -267,6 +314,7 @@ pub(crate) struct ServerStatus {
     pub(crate) tools: Vec<ToolDescriptor>,
     pub(crate) last_connected: Option<String>,
     pub(crate) error: Option<String>,
+    pub(crate) error_code: Option<McpFailureCode>,
     pub(crate) duration_ms: Option<u64>,
 }
 
@@ -275,9 +323,23 @@ impl ConnectionOutcome {
         Self::Connected { tools, duration_ms }
     }
 
+    #[cfg(test)]
     pub(crate) fn failed(error: impl Into<String>, duration_ms: u64) -> Self {
         Self::Failed {
             error: error.into(),
+            error_code: None,
+            duration_ms,
+        }
+    }
+
+    pub(crate) fn failed_with_code(
+        error: impl Into<String>,
+        error_code: McpFailureCode,
+        duration_ms: u64,
+    ) -> Self {
+        Self::Failed {
+            error: error.into(),
+            error_code: Some(error_code),
             duration_ms,
         }
     }
@@ -307,6 +369,13 @@ impl ConnectionOutcome {
         }
     }
 
+    pub(crate) fn error_code(&self) -> Option<McpFailureCode> {
+        match self {
+            Self::Connected { .. } => None,
+            Self::Failed { error_code, .. } => *error_code,
+        }
+    }
+
     pub(crate) fn duration_ms(&self) -> u64 {
         match self {
             Self::Connected { duration_ms, .. } | Self::Failed { duration_ms, .. } => *duration_ms,
@@ -323,6 +392,7 @@ impl ConnectionOutcome {
 pub(crate) struct ToolCallOutcome {
     pub(crate) content: String,
     pub(crate) is_error: bool,
+    pub(crate) error_code: Option<McpFailureCode>,
 }
 
 impl ToolCallOutcome {
@@ -330,6 +400,7 @@ impl ToolCallOutcome {
         Self {
             content: content.into(),
             is_error: false,
+            error_code: None,
         }
     }
 
@@ -337,6 +408,15 @@ impl ToolCallOutcome {
         Self {
             content: content.into(),
             is_error: true,
+            error_code: None,
+        }
+    }
+
+    pub(crate) fn failed_with_code(content: impl Into<String>, error_code: McpFailureCode) -> Self {
+        Self {
+            content: content.into(),
+            is_error: true,
+            error_code: Some(error_code),
         }
     }
 }
@@ -395,6 +475,26 @@ mod tests {
     }
 
     #[test]
+    fn persisted_transport_values_are_explicit_and_unknown_values_fail_closed() {
+        assert_eq!(
+            TransportType::from_persisted("stdio").expect("stdio"),
+            TransportType::Stdio
+        );
+        assert_eq!(
+            TransportType::from_persisted("sse").expect("sse"),
+            TransportType::Sse
+        );
+        assert_eq!(
+            TransportType::from_persisted("streamable_http").expect("http"),
+            TransportType::StreamableHttp
+        );
+        assert_eq!(
+            TransportType::from_persisted("future_transport").expect_err("unknown"),
+            McpDomainError::InvalidTransport("future_transport".to_string())
+        );
+    }
+
+    #[test]
     fn scope_controls_project_ownership_without_leaking_stale_paths() {
         let user = ServerConfiguration::create(draft(TransportType::Stdio)).expect("user config");
         assert_eq!(user.project_path(), None);
@@ -427,6 +527,7 @@ mod tests {
         assert_eq!(failure.status(), ConnectionStatus::Error);
         assert!(failure.tools().is_empty());
         assert_eq!(failure.error(), Some("handshake failed"));
+        assert_eq!(failure.error_code(), None);
         assert_eq!(failure.duration_ms(), 23);
         assert_eq!(
             ConnectionStatus::Connected.visible_for(false),
@@ -439,9 +540,31 @@ mod tests {
         let success = ToolCallOutcome::success("42");
         assert_eq!(success.content, "42");
         assert!(!success.is_error);
+        assert_eq!(success.error_code, None);
 
         let failure = ToolCallOutcome::failed("boom");
         assert_eq!(failure.content, "boom");
         assert!(failure.is_error);
+        assert_eq!(failure.error_code, None);
+    }
+
+    #[test]
+    fn failure_codes_have_stable_safe_values() {
+        let codes = [
+            (McpFailureCode::Validation, "validation"),
+            (McpFailureCode::Spawn, "spawn"),
+            (McpFailureCode::Timeout, "timeout"),
+            (McpFailureCode::Cancelled, "cancelled"),
+            (McpFailureCode::Protocol, "protocol"),
+            (McpFailureCode::UpstreamHttp, "upstream_http"),
+            (McpFailureCode::LimitExceeded, "limit_exceeded"),
+            (McpFailureCode::Transport, "transport"),
+            (McpFailureCode::Cleanup, "cleanup"),
+        ];
+
+        for (code, expected) in codes {
+            assert_eq!(code.as_str(), expected);
+            assert!(!code.safe_message().is_empty());
+        }
     }
 }

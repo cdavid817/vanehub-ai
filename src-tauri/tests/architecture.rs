@@ -787,7 +787,7 @@ fn runtime_processes_and_append_logs_use_shared_adapters() {
             let allowed = match usage.kind {
                 "direct external-process construction" => relative == "platform/process/mod.rs",
                 "feature-local append-file construction" | "feature-local append-file writer" => {
-                    relative == "platform/logging.rs"
+                    relative == "platform/logging.rs" || relative == "platform/private_relay_fs.rs"
                 }
                 _ => false,
             };

@@ -44,6 +44,7 @@ describe("SkillDialogs", () => {
         onReloadEdit={reload}
         onRestore={vi.fn()}
         onUpdate={vi.fn()}
+        operationPending={false}
         reloadingEdit={false}
         restoreCandidates={[]}
         scope="global"
@@ -56,5 +57,52 @@ describe("SkillDialogs", () => {
     await user.click(screen.getByRole("button", { name: "重新加载最新内容" }));
     expect(reload).toHaveBeenCalledWith(skill);
     expect(screen.getByDisplayValue("Draft body")).toBeTruthy();
+  });
+
+  it("offers rendered and source views for the loaded SKILL.md", async () => {
+    const user = userEvent.setup();
+    render(
+      <SkillDialogs
+        editConflict={false}
+        editError={null}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onImport={vi.fn()}
+        onReloadEdit={vi.fn()}
+        onUpdate={vi.fn()}
+        operationPending={false}
+        reloadingEdit={false}
+        scope="global"
+        state={{ mode: null, skill: null, preview: { id: skill.id, scope: "global", workspacePath: null, path: skill.skillMdPath, content: "---\nid: conflicted-skill\n---\n# Conflicted Skill\n\nBody" } }}
+        workspacePath={null}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "渲染结果" })).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "源内容" }));
+    expect(screen.getByText(/id: conflicted-skill/)).toBeTruthy();
+  });
+
+  it("locks submission and dismissal while a dialog operation is pending", () => {
+    render(
+      <SkillDialogs
+        editConflict={false}
+        editError={null}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onImport={vi.fn()}
+        onReloadEdit={vi.fn()}
+        onUpdate={vi.fn()}
+        operationPending
+        reloadingEdit={false}
+        scope="global"
+        state={{ mode: "create", skill: null, preview: null }}
+        workspacePath={null}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("处理中");
+    expect((screen.getByRole("button", { name: "取消" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
