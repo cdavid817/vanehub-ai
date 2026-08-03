@@ -24,7 +24,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
-rmcp = { version = "2.2.0", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.0.1", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 http = "1"
 opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { version = "=0.32.0", default-features = false }
