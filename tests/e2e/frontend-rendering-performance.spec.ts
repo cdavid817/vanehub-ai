@@ -48,8 +48,8 @@ test.describe("frontend rendering performance", () => {
 
     const filter = page.getByPlaceholder("按 ID、名称、描述、分类或来源搜索");
     await filter.fill("Hook 500");
-    await page.getByRole("button", { name: "Agent 管理" }).click();
-    await expect(page.getByRole("heading", { name: "Agent 管理" })).toBeVisible();
+    await page.getByRole("button", { name: "Agent 配置" }).click();
+    await expect(page.getByRole("heading", { name: "Agent 配置" })).toBeVisible();
     await page.getByRole("button", { name: "Prompt Hook" }).click();
     await expect(filter).toHaveValue("Hook 500");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

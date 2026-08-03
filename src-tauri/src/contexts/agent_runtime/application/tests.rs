@@ -60,12 +60,18 @@ struct FakeWorld {
     /// per test so `update_api_agent`'s "re-validate against the *stored* interface_format"
     /// logic (`add-agent-lifecycle-management` design.md Decision 4) has something to read.
     provider_config: Mutex<Option<ApiProviderConfig>>,
+    onepiece_config: Mutex<StoredOnePieceProviderConfig>,
+    onepiece_profiles: Mutex<Vec<StoredOnePieceProviderProfile>>,
+    save_onepiece_failure: AtomicBool,
+    model_discovery_failure: AtomicBool,
     updated_agents: Mutex<Vec<(String, UpdateApiAgentInput)>>,
     delete_api_agent_failure: AtomicBool,
     deleted_agent_ids: Mutex<Vec<String>>,
     set_auto_approve_tools_calls: Mutex<Vec<(String, bool)>>,
     set_auto_approve_tools_failure: AtomicBool,
     stored_credentials: Mutex<Vec<(String, String)>>,
+    current_onepiece_credential: Mutex<Option<String>>,
+    profile_credentials: Mutex<BTreeMap<String, String>>,
     removed_credentials: Mutex<Vec<String>>,
 }
 
@@ -108,10 +114,22 @@ impl FakeWorld {
             resolved_approvals: Mutex::new(Vec::new()),
             memories: Mutex::new(Vec::new()),
             provider_config: Mutex::new(None),
+            onepiece_config: Mutex::new(StoredOnePieceProviderConfig {
+                provider: "VaneHub".to_string(),
+                model_id: None,
+                interface_format: None,
+                base_url: None,
+                auto_approve_tools: false,
+            }),
+            onepiece_profiles: Mutex::new(Vec::new()),
+            save_onepiece_failure: AtomicBool::new(false),
+            model_discovery_failure: AtomicBool::new(false),
             updated_agents: Mutex::new(Vec::new()),
             delete_api_agent_failure: AtomicBool::new(false),
             deleted_agent_ids: Mutex::new(Vec::new()),
             stored_credentials: Mutex::new(Vec::new()),
+            current_onepiece_credential: Mutex::new(None),
+            profile_credentials: Mutex::new(BTreeMap::new()),
             removed_credentials: Mutex::new(Vec::new()),
             set_auto_approve_tools_calls: Mutex::new(Vec::new()),
             set_auto_approve_tools_failure: AtomicBool::new(false),
@@ -472,6 +490,119 @@ impl ApiAgentGateway for FakeWorld {
             .push((agent_id.to_string(), enabled));
         Ok(())
     }
+
+    fn onepiece_provider_config(
+        &self,
+    ) -> Result<StoredOnePieceProviderConfig, AgentRuntimeApplicationError> {
+        Ok(self
+            .onepiece_config
+            .lock()
+            .expect("onepiece config")
+            .clone())
+    }
+
+    fn save_onepiece_provider_config(
+        &self,
+        input: &StoredOnePieceProviderConfig,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        if self.save_onepiece_failure.load(Ordering::SeqCst) {
+            return Err(AgentRuntimeApplicationError::Registry(
+                "simulated OnePiece persistence failure".to_string(),
+            ));
+        }
+        *self.onepiece_config.lock().expect("onepiece config") = input.clone();
+        Ok(api_agent("onepiece", "OnePiece", vec!["api", "native"]))
+    }
+
+    fn reset_onepiece_provider_config(
+        &self,
+    ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
+        *self.onepiece_config.lock().expect("onepiece config") = StoredOnePieceProviderConfig {
+            provider: "VaneHub".to_string(),
+            model_id: None,
+            interface_format: None,
+            base_url: None,
+            auto_approve_tools: false,
+        };
+        self.onepiece_profiles
+            .lock()
+            .expect("onepiece profiles")
+            .clear();
+        Ok(api_agent("onepiece", "OnePiece", vec!["api", "native"]))
+    }
+
+    fn list_onepiece_provider_profiles(
+        &self,
+    ) -> Result<Vec<StoredOnePieceProviderProfile>, AgentRuntimeApplicationError> {
+        Ok(self
+            .onepiece_profiles
+            .lock()
+            .expect("onepiece profiles")
+            .clone())
+    }
+
+    fn save_onepiece_provider_profile(
+        &self,
+        profile: &StoredOnePieceProviderProfile,
+    ) -> Result<StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
+        let mut profiles = self.onepiece_profiles.lock().expect("onepiece profiles");
+        if profile.active {
+            for candidate in profiles.iter_mut() {
+                candidate.active = false;
+            }
+        }
+        if let Some(existing) = profiles
+            .iter_mut()
+            .find(|candidate| candidate.id == profile.id)
+        {
+            *existing = profile.clone();
+        } else {
+            profiles.push(profile.clone());
+        }
+        Ok(profile.clone())
+    }
+
+    fn activate_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<StoredOnePieceProviderProfile, AgentRuntimeApplicationError> {
+        let mut profiles = self.onepiece_profiles.lock().expect("onepiece profiles");
+        if !profiles.iter().any(|profile| profile.id == profile_id) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "OnePiece provider profile was not found.".to_string(),
+            ));
+        }
+        for profile in profiles.iter_mut() {
+            profile.active = profile.id == profile_id;
+        }
+        profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .cloned()
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })
+    }
+
+    fn delete_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let mut profiles = self.onepiece_profiles.lock().expect("onepiece profiles");
+        let active = profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+            .map(|profile| profile.active)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        profiles.retain(|profile| profile.id != profile_id);
+        Ok(active)
+    }
 }
 
 impl ApiCredentialPort for FakeWorld {
@@ -480,11 +611,34 @@ impl ApiCredentialPort for FakeWorld {
             .lock()
             .expect("stored credentials")
             .push((agent_id.to_string(), api_key.to_string()));
+        if agent_id == "onepiece" {
+            *self
+                .current_onepiece_credential
+                .lock()
+                .expect("onepiece credential") = Some(api_key.to_string());
+        } else {
+            self.profile_credentials
+                .lock()
+                .expect("profile credentials")
+                .insert(agent_id.to_string(), api_key.to_string());
+        }
         Ok(())
     }
 
-    fn fetch(&self, _agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
-        Ok(None)
+    fn fetch(&self, agent_id: &str) -> Result<Option<String>, AgentRuntimeApplicationError> {
+        if agent_id == "onepiece" {
+            return Ok(self
+                .current_onepiece_credential
+                .lock()
+                .expect("onepiece credential")
+                .clone());
+        }
+        Ok(self
+            .profile_credentials
+            .lock()
+            .expect("profile credentials")
+            .get(agent_id)
+            .cloned())
     }
 
     fn remove(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
@@ -492,6 +646,17 @@ impl ApiCredentialPort for FakeWorld {
             .lock()
             .expect("removed credentials")
             .push(agent_id.to_string());
+        if agent_id == "onepiece" {
+            *self
+                .current_onepiece_credential
+                .lock()
+                .expect("onepiece credential") = None;
+        } else {
+            self.profile_credentials
+                .lock()
+                .expect("profile credentials")
+                .remove(agent_id);
+        }
         Ok(())
     }
 }
@@ -763,6 +928,44 @@ impl AgentLoggingPort for FakeWorld {
     fn record(&self, log: AgentLog) -> Result<(), AgentRuntimeApplicationError> {
         self.logs.lock().expect("logs").push(log);
         Ok(())
+    }
+}
+
+impl OnePieceModelDiscoveryPort for FakeWorld {
+    fn list_models(
+        &self,
+        _request: OnePieceModelDiscoveryRequest,
+    ) -> Result<Vec<OnePieceDiscoveredModel>, AgentRuntimeApplicationError> {
+        if self.model_discovery_failure.load(Ordering::SeqCst) {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "simulated model discovery failure".to_string(),
+            ));
+        }
+        Ok(vec![
+            OnePieceDiscoveredModel {
+                id: "test-chat-model".to_string(),
+                display_name: "Test Chat Model".to_string(),
+            },
+            OnePieceDiscoveredModel {
+                id: "test-chat-model".to_string(),
+                display_name: "Duplicate".to_string(),
+            },
+            OnePieceDiscoveredModel {
+                id: "test-embedding-model".to_string(),
+                display_name: "Embedding".to_string(),
+            },
+        ])
+    }
+
+    fn validate_credential(
+        &self,
+        _request: ProviderCredentialProbeRequest,
+    ) -> Result<ProviderCredentialValidationResult, AgentRuntimeApplicationError> {
+        Ok(ProviderCredentialValidationResult {
+            status: ProviderCredentialValidationStatus::Valid,
+            latency_ms: 1,
+            http_status: Some(200),
+        })
     }
 }
 
@@ -1051,6 +1254,7 @@ fn service_with_telemetry(
         loop_completions: world.clone(),
         api_agents: world.clone(),
         api_credentials: world.clone(),
+        onepiece_model_discovery: world.clone(),
         tool_approvals: world.clone(),
         memories: world,
     });
@@ -1107,6 +1311,455 @@ fn query_selection_and_readiness_use_only_registry_workflow_and_event_ports() {
         .lock()
         .expect("stopped processes")
         .is_empty());
+}
+
+#[test]
+fn onepiece_first_configuration_normalizes_fields_and_never_returns_the_secret() {
+    let world = test_world();
+
+    let configured = service(world.clone())
+        .save_onepiece_provider_config(SaveOnePieceProviderConfigInput {
+            provider: "  Anthropic  ".to_string(),
+            model_id: "  claude-sonnet-test  ".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: None,
+            api_key: Some("  sk-secret  ".to_string()),
+        })
+        .expect("configure OnePiece");
+
+    assert_eq!(configured.provider, "Anthropic");
+    assert_eq!(configured.model_id.as_deref(), Some("claude-sonnet-test"));
+    assert_eq!(
+        configured.interface_format.as_deref(),
+        Some(INTERFACE_FORMAT_ANTHROPIC)
+    );
+    assert_eq!(configured.base_url, None);
+    assert!(configured.credential_present);
+    assert_eq!(
+        world
+            .current_onepiece_credential
+            .lock()
+            .expect("onepiece credential")
+            .as_deref(),
+        Some("sk-secret")
+    );
+}
+
+#[test]
+fn onepiece_provider_and_interface_can_be_replaced_on_the_stable_identity() {
+    let world = test_world();
+    *world
+        .current_onepiece_credential
+        .lock()
+        .expect("onepiece credential") = Some("sk-existing".to_string());
+
+    let configured = service(world.clone())
+        .save_onepiece_provider_config(SaveOnePieceProviderConfigInput {
+            provider: "OpenAI Proxy".to_string(),
+            model_id: "gpt-test".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some(" https://gateway.example.test/v1/ ".to_string()),
+            api_key: None,
+        })
+        .expect("replace provider");
+
+    assert_eq!(configured.provider, "OpenAI Proxy");
+    assert_eq!(configured.model_id.as_deref(), Some("gpt-test"));
+    assert_eq!(
+        configured.interface_format.as_deref(),
+        Some(INTERFACE_FORMAT_OPENAI_COMPATIBLE)
+    );
+    assert_eq!(
+        configured.base_url.as_deref(),
+        Some("https://gateway.example.test/v1/")
+    );
+    assert!(configured.credential_present);
+    assert!(world
+        .stored_credentials
+        .lock()
+        .expect("stored credentials")
+        .is_empty());
+}
+
+#[test]
+fn onepiece_configuration_rejects_invalid_or_credentialless_first_setup() {
+    let world = test_world();
+    let application = service(world.clone());
+
+    let missing_key = application.save_onepiece_provider_config(SaveOnePieceProviderConfigInput {
+        provider: "Anthropic".to_string(),
+        model_id: "claude-test".to_string(),
+        interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+        base_url: None,
+        api_key: None,
+    });
+    let missing_url = application.save_onepiece_provider_config(SaveOnePieceProviderConfigInput {
+        provider: "OpenAI".to_string(),
+        model_id: "gpt-test".to_string(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        base_url: None,
+        api_key: Some("sk-secret".to_string()),
+    });
+
+    assert!(matches!(
+        missing_key,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    assert!(matches!(
+        missing_url,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    assert!(world
+        .stored_credentials
+        .lock()
+        .expect("stored credentials")
+        .is_empty());
+}
+
+#[test]
+fn onepiece_configuration_restores_the_previous_credential_on_persistence_failure() {
+    let world = test_world();
+    *world
+        .current_onepiece_credential
+        .lock()
+        .expect("onepiece credential") = Some("sk-old".to_string());
+    world.save_onepiece_failure.store(true, Ordering::SeqCst);
+
+    let result =
+        service(world.clone()).save_onepiece_provider_config(SaveOnePieceProviderConfigInput {
+            provider: "Anthropic".to_string(),
+            model_id: "claude-test".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: None,
+            api_key: Some("sk-new".to_string()),
+        });
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Registry(_))
+    ));
+    assert_eq!(
+        world
+            .current_onepiece_credential
+            .lock()
+            .expect("onepiece credential")
+            .as_deref(),
+        Some("sk-old")
+    );
+    assert_eq!(
+        world
+            .stored_credentials
+            .lock()
+            .expect("stored credentials")
+            .as_slice(),
+        [
+            ("onepiece".to_string(), "sk-new".to_string()),
+            ("onepiece".to_string(), "sk-old".to_string())
+        ]
+    );
+}
+
+#[test]
+fn onepiece_reset_clears_provider_state_trust_and_credential() {
+    let world = test_world();
+    *world.onepiece_config.lock().expect("onepiece config") = StoredOnePieceProviderConfig {
+        provider: "OpenAI".to_string(),
+        model_id: Some("gpt-test".to_string()),
+        interface_format: Some(INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string()),
+        base_url: Some("https://gateway.example.test/v1".to_string()),
+        auto_approve_tools: true,
+    };
+    *world
+        .current_onepiece_credential
+        .lock()
+        .expect("onepiece credential") = Some("sk-existing".to_string());
+
+    let reset = service(world.clone())
+        .reset_onepiece_provider_config()
+        .expect("reset OnePiece");
+
+    assert_eq!(reset.provider, "VaneHub");
+    assert_eq!(reset.model_id, None);
+    assert_eq!(reset.interface_format, None);
+    assert_eq!(reset.base_url, None);
+    assert!(!reset.auto_approve_tools);
+    assert!(!reset.credential_present);
+    assert_eq!(
+        world
+            .removed_credentials
+            .lock()
+            .expect("removed credentials")
+            .as_slice(),
+        ["onepiece".to_string()]
+    );
+}
+
+#[test]
+fn onepiece_profiles_keep_independent_credentials_and_delete_active_without_fallback() {
+    let world = test_world();
+    let runtime = service(world.clone());
+    let first = runtime
+        .save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+            id: Some("anthropic-primary".to_string()),
+            name: "  Anthropic primary  ".to_string(),
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            model_id: "claude-test".to_string(),
+            api_key: Some("sk-anthropic".to_string()),
+        })
+        .expect("save first profile");
+    assert_eq!(
+        first.active_profile_id.as_deref(),
+        Some("anthropic-primary")
+    );
+    assert_eq!(first.profiles[0].name, "Anthropic primary");
+    assert!(first.profiles[0].credential_present);
+
+    let second = runtime
+        .save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+            id: Some("deepseek-anthropic".to_string()),
+            name: "DeepSeek Anthropic".to_string(),
+            provider_id: "deepseek".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            model_id: "deepseek-chat".to_string(),
+            api_key: Some("sk-deepseek".to_string()),
+        })
+        .expect("save second profile");
+    assert_eq!(second.profiles.len(), 2);
+    assert_eq!(
+        second.active_profile_id.as_deref(),
+        Some("anthropic-primary")
+    );
+    assert!(
+        !second
+            .profiles
+            .iter()
+            .find(|profile| profile.id == "deepseek-anthropic")
+            .expect("second profile")
+            .active
+    );
+    let deepseek = second
+        .profiles
+        .iter()
+        .find(|profile| profile.id == "deepseek-anthropic")
+        .expect("DeepSeek profile");
+    assert_eq!(deepseek.source_provider_id.as_deref(), Some("deepseek"));
+    assert_eq!(
+        deepseek.source_endpoint_type.as_deref(),
+        Some("anthropic-messages")
+    );
+    assert_eq!(deepseek.interface_format, "anthropic");
+    assert_eq!(
+        deepseek.base_url.as_deref(),
+        Some("https://api.deepseek.com/anthropic")
+    );
+
+    let activated = runtime
+        .activate_onepiece_provider_profile("deepseek-anthropic")
+        .expect("activate second profile");
+    assert_eq!(
+        activated.active_profile_id.as_deref(),
+        Some("deepseek-anthropic")
+    );
+    assert_eq!(
+        world
+            .current_onepiece_credential
+            .lock()
+            .expect("runtime credential")
+            .as_deref(),
+        Some("sk-deepseek")
+    );
+
+    let deleted = runtime
+        .delete_onepiece_provider_profile("deepseek-anthropic")
+        .expect("delete active profile");
+    assert_eq!(deleted.active_profile_id, None);
+    assert_eq!(deleted.profiles.len(), 1);
+    assert!(!deleted.profiles[0].active);
+    assert_eq!(
+        world
+            .current_onepiece_credential
+            .lock()
+            .expect("runtime credential")
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        world
+            .profile_credentials
+            .lock()
+            .expect("profile credentials")
+            .get("onepiece-profile:anthropic-primary")
+            .map(String::as_str),
+        Some("sk-anthropic")
+    );
+}
+
+#[test]
+fn onepiece_profile_rejects_unknown_presets_before_storing_credentials() {
+    let world = test_world();
+
+    let result =
+        service(world.clone()).save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+            id: None,
+            name: "Unknown provider".to_string(),
+            provider_id: "custom-provider".to_string(),
+            endpoint_type: "openai-chat-completions".to_string(),
+            model_id: "custom-model".to_string(),
+            api_key: Some("sk-must-not-be-stored".to_string()),
+        });
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    assert!(world
+        .stored_credentials
+        .lock()
+        .expect("stored credentials")
+        .is_empty());
+}
+
+#[test]
+fn onepiece_profile_edit_keeps_its_catalog_provider() {
+    let world = test_world();
+    let runtime = service(world.clone());
+    runtime
+        .save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+            id: Some("stable-profile".to_string()),
+            name: "Anthropic".to_string(),
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            model_id: "claude-test".to_string(),
+            api_key: Some("sk-existing".to_string()),
+        })
+        .expect("save initial profile");
+
+    let result = runtime.save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+        id: Some("stable-profile".to_string()),
+        name: "OpenRouter".to_string(),
+        provider_id: "openrouter".to_string(),
+        endpoint_type: "openai-chat-completions".to_string(),
+        model_id: "gpt-test".to_string(),
+        api_key: None,
+    });
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+    let stored = world.onepiece_profiles.lock().expect("onepiece profiles");
+    assert_eq!(stored[0].source_provider_id.as_deref(), Some("anthropic"));
+    assert_eq!(
+        stored[0].source_endpoint_type.as_deref(),
+        Some("anthropic-messages")
+    );
+    assert_eq!(stored[0].provider, "Anthropic");
+}
+
+#[test]
+fn onepiece_model_discovery_merges_catalog_and_api_models() {
+    let world = test_world();
+    let result = service(world)
+        .discover_onepiece_provider_models(DiscoverOnePieceProviderModelsInput {
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            profile_id: None,
+            api_key: Some("sk-transient".to_string()),
+        })
+        .expect("discover models");
+
+    assert_eq!(result.provider_id, "anthropic");
+    assert_eq!(result.endpoint_type, "anthropic-messages");
+    assert_eq!(result.source, "merged");
+    assert!(result.warning.is_none());
+    assert!(result
+        .models
+        .iter()
+        .any(|model| { model.id == "test-chat-model" && model.source == "api" }));
+    assert_eq!(
+        result
+            .models
+            .iter()
+            .filter(|model| model.id == "test-chat-model")
+            .count(),
+        1
+    );
+    assert!(!result
+        .models
+        .iter()
+        .any(|model| model.id.contains("embedding")));
+    assert!(result.models.iter().any(|model| model.source == "catalog"));
+}
+
+#[test]
+fn onepiece_model_discovery_requires_a_transient_or_profile_credential() {
+    let result = service(test_world()).discover_onepiece_provider_models(
+        DiscoverOnePieceProviderModelsInput {
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            profile_id: None,
+            api_key: None,
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+}
+
+#[test]
+fn onepiece_credential_validation_rejects_a_profile_from_another_catalog_target() {
+    let world = test_world();
+    let created = service(world.clone())
+        .save_onepiece_provider_profile(SaveOnePieceProviderProfileInput {
+            id: None,
+            name: "Anthropic".to_string(),
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            model_id: "claude-test".to_string(),
+            api_key: Some("sk-never-send".to_string()),
+        })
+        .expect("save profile");
+    let profile_id = created.profiles[0].id.clone();
+
+    let result = service(world).validate_onepiece_provider_credential(
+        ValidateOnePieceProviderCredentialInput {
+            provider_id: "deepseek".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            model_id: "deepseek-chat".to_string(),
+            profile_id: Some(profile_id),
+            api_key: None,
+        },
+    );
+
+    assert!(matches!(
+        result,
+        Err(AgentRuntimeApplicationError::Validation(_))
+    ));
+}
+
+#[test]
+fn onepiece_model_discovery_falls_back_and_logs_without_the_secret() {
+    let world = test_world();
+    world.model_discovery_failure.store(true, Ordering::SeqCst);
+    let result = service(world.clone())
+        .discover_onepiece_provider_models(DiscoverOnePieceProviderModelsInput {
+            provider_id: "anthropic".to_string(),
+            endpoint_type: "anthropic-messages".to_string(),
+            profile_id: None,
+            api_key: Some("sk-never-log-this".to_string()),
+        })
+        .expect("catalog fallback");
+
+    assert_eq!(result.source, "catalog");
+    assert_eq!(result.warning.as_deref(), Some("live-unavailable"));
+    let logs = world.logs.lock().expect("logs");
+    let log = logs.last().expect("model discovery log");
+    assert_eq!(log.level, AgentLogLevel::Warn);
+    assert_eq!(log.category, "onepiece.model-discovery");
+    assert!(!log.message.contains("sk-never-log-this"));
 }
 
 #[test]
@@ -1693,7 +2346,7 @@ fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
     // Both small deltas arrive within the flush window, so persistence is coalesced
     // rather than one full-content rewrite per token (the O(N²) path we removed).
     assert!(
-        persisted_content().len() < "alpha\nbeta".len(),
+        persisted_content().len() < "alphabeta".len(),
         "streaming deltas must not be persisted per token, got {:?}",
         persisted_content()
     );
@@ -1702,7 +2355,7 @@ fn streaming_tokens_are_coalesced_and_flushed_on_completion() {
         .expect("completed");
 
     // The terminal transition flushes the coalesced tail and the full content is durable.
-    assert_eq!(persisted_content(), "alpha\nbeta");
+    assert_eq!(persisted_content(), "alphabeta");
 }
 
 #[test]
@@ -1787,7 +2440,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
         .cloned()
         .expect("completed message");
     assert_eq!(completed.status, "completed");
-    assert_eq!(completed.content, "first\nsecond");
+    assert_eq!(completed.content, "firstsecond");
     assert_eq!(completed.thinking_content.as_deref(), Some("plan"));
     assert_eq!(completed.tool_use.len(), 1);
     assert_eq!(completed.rich_blocks.len(), 1);
@@ -1795,7 +2448,7 @@ fn stream_events_persist_complete_usage_and_operation_once() {
         completed.token_usage,
         Some(MessageTokenUsage {
             input: "effective::hello\nfiles=0".chars().count() as i64,
-            output: "first\nsecond".chars().count() as i64,
+            output: "firstsecond".chars().count() as i64,
         })
     );
     assert_eq!(
@@ -2033,6 +2686,58 @@ fn stream_failure_uses_safe_message_and_keeps_diagnostic_in_associated_log() {
     assert_eq!(prompt_reports[0].outcome, PromptExecutionOutcome::Failed);
     assert_eq!(prompt_reports[0].versions.len(), 2);
     assert!(prompt_reports[0].elapsed_ms >= 0);
+}
+
+#[test]
+fn stream_failure_uses_provider_safe_error_without_exposing_diagnostic() {
+    let world = test_world();
+    let service = service(world.clone());
+    let message = service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "hello".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("send");
+    let sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("sink");
+    let safe_error =
+        "Provider authentication failed. Check the API key in the active OnePiece configuration.";
+
+    sink.handle(GenerationProcessEvent::Failed(
+        GenerationProcessFailure::non_retryable("invalid secret credential")
+            .with_safe_error(safe_error),
+    ))
+    .expect("failed");
+
+    let failed = world
+        .messages
+        .lock()
+        .expect("messages")
+        .get(&message.id)
+        .cloned()
+        .expect("failed message");
+    assert_eq!(failed.error.as_deref(), Some(safe_error));
+    assert!(!failed
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("secret"));
+    let log = world
+        .logs
+        .lock()
+        .expect("logs")
+        .last()
+        .cloned()
+        .expect("log");
+    assert_eq!(log.message, "invalid secret credential");
 }
 
 #[test]

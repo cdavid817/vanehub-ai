@@ -1,60 +1,59 @@
-import { Check, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Plus } from "lucide-react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "../../../components/ui/badge";
+import { ProviderCatalog } from "../../../components/provider-directory/provider-catalog";
+import { ProviderEndpointBadge, ProviderEndpointSelector, ProviderHelpLinks } from "../../../components/provider-directory/provider-endpoint-controls";
 import { Button } from "../../../components/ui/button";
-import type { CliConfigPreset, CliConfigPresetCategory } from "../../../types/cli-agent-config";
+import { getOnePieceProviderPresets } from "../../../config/onepiece-provider-presets";
+import type { CliConfigPreset } from "../../../types/cli-agent-config";
 
-type CatalogFilter = "all" | Extract<CliConfigPresetCategory, "official" | "common">;
+function presetBaseUrl(preset: CliConfigPreset) { return preset.payload.baseUrl; }
 
-export function CliConfigProviderCatalog({
-  presets,
-  selectedPresetId,
-  onCreateCustom,
-  onSelectPreset,
-}: {
+export function CliConfigProviderCatalog({ presets, selectedPresetId, onCreateCustom, onSelectPreset, onOpenUrl = () => undefined }: {
   presets: CliConfigPreset[];
   selectedPresetId: string | null;
   onCreateCustom: () => void;
   onSelectPreset: (preset: CliConfigPreset) => void;
+  onOpenUrl?: (url: string) => void;
 }) {
   const { t } = useTranslation();
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<CatalogFilter>("all");
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return presets.filter((preset) =>
-      (category === "all" || preset.category === category)
-      && (!query || `${preset.displayName} ${preset.description}`.toLowerCase().includes(query)),
-    );
-  }, [category, presets, search]);
+  const groups = useMemo(() => {
+    const map = new Map<string, CliConfigPreset[]>();
+    for (const preset of presets) map.set(preset.providerId, [...(map.get(preset.providerId) ?? []), preset]);
+    return [...map.entries()].map(([providerId, entries]) => {
+      const sorted = [...entries].sort((left, right) => {
+        if (left.agentId !== "codex-cli") return 0;
+        const rank = { "openai-responses": 0, "openai-chat-completions": 1, "anthropic-messages": 2 } as const;
+        return rank[left.endpointType] - rank[right.endpointType];
+      });
+      return { providerId, entries: sorted, primary: sorted[0] };
+    });
+  }, [presets]);
+  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
+  const selectedProviderId = selectedPreset?.providerId ?? null;
+  const selectedGroup = groups.find((group) => group.providerId === selectedProviderId) ?? null;
+  const providerMetadata = getOnePieceProviderPresets().find((provider) => provider.id === selectedProviderId) ?? null;
 
-  return (
-    <section aria-labelledby="provider-preset-heading" className="rounded-lg border border-border bg-muted/25 p-4">
-      <div>
-        <h3 className="font-semibold" id="provider-preset-heading">{t("agentConfigurations.dialog.create.chooseProvider")}</h3>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">{t("agentConfigurations.providers.description")}</p>
-      </div>
-      <div className="relative mt-4">
-        <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-        <input aria-label={t("agents.globalConfig.searchPresets")} className="ucd-input h-10 w-full rounded-md pl-9 pr-3 text-sm" onChange={(event) => setSearch(event.target.value)} placeholder={t("agents.globalConfig.searchPresets")} value={search} />
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={t("agentConfigurations.providers.categories")}>
-        {(["all", "official", "common"] as const).map((candidate) => <Button className="h-8 px-3 text-xs" key={candidate} onClick={() => setCategory(candidate)} variant={category === candidate ? "default" : "outline"}>{t(`agentConfigurations.providers.category.${candidate}`)}</Button>)}
-      </div>
-      <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
-        {filtered.map((preset) => (
-          <button aria-pressed={selectedPresetId === preset.id} className={`group relative min-h-24 rounded-md border p-3 text-left transition-colors ${selectedPresetId === preset.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border bg-background hover:border-primary/50 hover:bg-muted/50"}`} key={preset.id} onClick={() => onSelectPreset(preset)} type="button">
-            {selectedPresetId === preset.id ? <Check className="absolute right-2 top-2 h-4 w-4 text-primary" /> : null}
-            <span className="block pr-5 font-medium group-hover:text-primary">{preset.displayName}</span>
-            <span className="mt-2 flex flex-wrap gap-1.5"><Badge tone={preset.category === "official" ? "success" : "muted"}>{t(`agents.globalConfig.presetCategory.${preset.category}`)}</Badge><Badge tone="muted">v{preset.catalogVersion}</Badge></span>
-            <span className="mt-1 block text-xs leading-5 text-muted-foreground">{preset.description}</span>
-            {preset.deprecated ? <span className="mt-2 block text-xs ucd-status-warning">{t("agents.globalConfig.deprecated")}</span> : null}
-          </button>
-        ))}
-        {filtered.length === 0 ? <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">{t("agentConfigurations.providers.empty")}</p> : null}
-      </div>
-      <Button aria-pressed={selectedPresetId === null} className="mt-3 w-full" onClick={onCreateCustom} variant={selectedPresetId === null ? "default" : "outline"}><Plus className="h-4 w-4" />{t("agents.globalConfig.custom")}</Button>
-    </section>
-  );
+  return <div className="grid gap-3">
+    <ProviderCatalog
+      description={t("agentConfigurations.providers.description")}
+      emptyLabel={t("agentConfigurations.providers.empty")}
+      items={groups.map(({ providerId, entries, primary }) => ({
+        id: providerId,
+        displayName: primary.displayName,
+        category: primary.category === "official" ? "official" : "common",
+        iconKey: primary.iconKey,
+        catalogVersion: primary.catalogVersion,
+        searchText: `${primary.description} ${entries.map((entry) => entry.endpointType).join(" ")}`,
+        detail: <><span className="block">{primary.description}</span><span className="mt-1.5 flex flex-wrap gap-1.5">{entries.map((entry) => <ProviderEndpointBadge key={entry.endpointType} type={entry.endpointType} />)}</span></>,
+      }))}
+      onSelect={(providerId) => { const group = groups.find((candidate) => candidate.providerId === providerId); if (group) onSelectPreset(group.entries[0]); }}
+      searchLabel={t("agents.globalConfig.searchPresets")}
+      selectedId={selectedProviderId}
+      title={t("agentConfigurations.dialog.create.chooseProvider")}
+    />
+    {selectedGroup && selectedPreset ? <ProviderEndpointSelector endpoints={selectedGroup.entries.map((preset) => ({ type: preset.endpointType, baseUrl: presetBaseUrl(preset) }))} label={t("onepiece.endpoint")} onChange={(type) => { const preset = selectedGroup.entries.find((candidate) => candidate.endpointType === type); if (preset) onSelectPreset(preset); }} value={selectedPreset.endpointType} /> : null}
+    {providerMetadata ? <ProviderHelpLinks apiKeyLabel={t("onepiece.openApiKeyPage")} apiKeyUrl={providerMetadata.apiKeyUrl} docsLabel={t("onepiece.openProviderDocs")} docsUrl={providerMetadata.docsUrl} onOpenUrl={onOpenUrl} /> : null}
+    <Button aria-pressed={selectedPresetId === null} className="w-full" onClick={onCreateCustom} variant={selectedPresetId === null ? "default" : "outline"}><Plus className="h-4 w-4" />{t("agents.globalConfig.custom")}</Button>
+  </div>;
 }

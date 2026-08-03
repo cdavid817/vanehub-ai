@@ -1,5 +1,4 @@
 import {
-  Bot,
   BarChart3,
   Boxes,
   Cpu,
@@ -26,7 +25,6 @@ export type SettingsPageId =
   | "extensions"
   | "plugins"
   | "mcp"
-  | "agents"
   | "agent-configurations"
   | "skills"
   | "prompt-hooks"
@@ -44,6 +42,7 @@ export interface SettingsPageContext {
 
 export interface SettingsNavigationTarget {
   cliConfigAgentId?: CliConfigAgentId;
+  agentConfigAgentId?: CliConfigAgentId | "onepiece";
 }
 
 export interface SettingsPageDefinition {
@@ -66,8 +65,6 @@ const loadExtensionsPage: LazyFeatureLoader<SettingsPageContext> = () => import(
   .then((module) => ({ default: module.ExtensionsPage }));
 const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/mcp-page")
   .then((module) => ({ default: module.McpPage }));
-const loadAgentsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agents-page")
-  .then((module) => ({ default: module.AgentsPage }));
 const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
   .then((module) => ({ default: module.AgentConfigurationsPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
@@ -119,14 +116,6 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Boxes,
     searchPlaceholderKey: "settings.search.mcp",
     loader: loadMcpPage,
-  },
-  {
-    id: "agents",
-    labelKey: "settings.pages.agents",
-    crumbKey: "settings.pages.agents",
-    icon: Bot,
-    searchPlaceholderKey: "settings.search.agents",
-    loader: loadAgentsPage,
   },
   {
     id: "agent-configurations",

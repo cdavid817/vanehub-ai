@@ -106,5 +106,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-03 | harden-skill-mount-root-links | settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-03-harden-skill-mount-root-links/` |
 | 2026-08-03 | optimize-skill-management-ui | main-layout-ui, settings-skill-management-ui | `openspec/changes/archive/2026-08-03-optimize-skill-management-ui/` |
 | 2026-08-03 | refine-skill-agent-selection-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-03-refine-skill-agent-selection-ui/` |
+| 2026-08-04 | add-onepiece-native-agent | agent-lifecycle-management, agent-skill-injection, api-agent-runtime, onepiece-native-agent, session-management | `openspec/changes/archive/2026-08-04-add-onepiece-native-agent/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

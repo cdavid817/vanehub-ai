@@ -143,9 +143,9 @@ mod tests {
             )
             .expect("Skill reliability migration");
 
-        assert_eq!(migration_count, 37);
+        assert_eq!(migration_count, 41);
         assert_eq!(foreign_keys, 1);
-        assert_eq!(agent_count, 4);
+        assert_eq!(agent_count, 5);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
@@ -181,7 +181,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 37);
+        assert_eq!(migration_count, 41);
     }
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
 
         assert_eq!(written, workers as i64, "every concurrent writer committed");
         assert_eq!(
-            agents, 4,
+            agents, 5,
             "registry seeding ran exactly once, not per connection"
         );
     }

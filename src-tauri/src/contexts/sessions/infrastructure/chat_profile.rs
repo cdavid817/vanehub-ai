@@ -6,22 +6,27 @@ use crate::contexts::sessions::domain::{
 };
 use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
+use crate::platform::database::NativeDatabase;
+use rusqlite::OptionalExtension;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct SqliteSessionChatProfileAdapter {
+    database: NativeDatabase,
     cli_parameters: CliParametersApi,
     native_config: Arc<dyn NativeConfigPort>,
 }
 
 impl SqliteSessionChatProfileAdapter {
     pub(crate) fn new(
+        database: NativeDatabase,
         cli_parameters: CliParametersApi,
         native_config: Arc<dyn NativeConfigPort>,
     ) -> Self {
         Self {
+            database,
             cli_parameters,
             native_config,
         }
@@ -34,6 +39,9 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
         agent_id: &str,
         workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError> {
+        if agent_id == "onepiece" {
+            return self.onepiece_defaults();
+        }
         let selections = self
             .cli_parameters
             .load_selections(agent_id)
@@ -85,6 +93,36 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
             long_context: agent_id != "opencode",
+        })
+    }
+}
+
+impl SqliteSessionChatProfileAdapter {
+    fn onepiece_defaults(&self) -> Result<ChatConfigurationValues, SessionsApplicationError> {
+        let connection = self.database.connection().map_err(profile_error)?;
+        let model_id = connection
+            .query_row(
+                "SELECT model_id FROM agents WHERE id = 'onepiece' AND launch_kind = 'api' AND agent_origin = 'builtin'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map_err(profile_error)?
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                SessionsApplicationError::Validation(
+                    "OnePiece does not have an active configured model.".to_string(),
+                )
+            })?;
+        Ok(ChatConfigurationValues {
+            permission_mode: "default".to_string(),
+            provider_id: Some("onepiece".to_string()),
+            model_id: Some(model_id),
+            reasoning_depth: None,
+            streaming: true,
+            thinking: true,
+            long_context: true,
         })
     }
 }

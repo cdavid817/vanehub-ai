@@ -21,6 +21,13 @@ describe("CLI Agent provider presets", () => {
     }
   });
 
+  it("projects only compatible endpoint types from the shared directory", () => {
+    expect(getCliConfigPresets("claude-code").every((preset) => preset.endpointType === "anthropic-messages")).toBe(true);
+    expect(getCliConfigPresets("codex-cli").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
+    expect(getCliConfigPresets("opencode").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
+    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(25);
+  });
+
   it("returns editable copies instead of mutating the catalog", () => {
     const first = getCliConfigPresets("claude-code");
     const payload = first[0]?.payload;

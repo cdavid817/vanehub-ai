@@ -28,6 +28,23 @@ function profileFixture(): CliConfigProfile {
 }
 
 describe("AgentGlobalConfigPanel", () => {
+  it("verifies a saved CLI credential without exposing it to the page", async () => {
+    const profile = { ...profileFixture(), credentialConfigured: true };
+    const validateCliConfigCredential = vi.fn(async () => ({ status: "valid" as const, latencyMs: 14, httpStatus: 200 }));
+    const service = createAgentServiceDouble({
+      listCliConfigPresets: async () => [],
+      listCliConfigProfiles: async () => [profile],
+      getCliConfigStatus: async () => status,
+      validateCliConfigCredential,
+    });
+    const { user } = renderWithAppProviders(<AgentGlobalConfigPanel agentId="claude-code" service={service} />);
+
+    await user.click(await screen.findByRole("button", { name: "验证 API 密钥" }));
+    await waitFor(() => expect(validateCliConfigCredential).toHaveBeenCalledWith({ agentId: "claude-code", profileId: profile.id }));
+    expect(await screen.findByText("API 密钥有效。")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("sk-");
+  });
+
   it("creates an editable preset draft, restores focus, and does not apply it", async () => {
     const preset = getCliConfigPresets("claude-code")[0]!;
     const save = vi.fn(async (input) => ({ ...profileFixture(), name: input.name, payload: input.payload }));

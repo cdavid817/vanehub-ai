@@ -12,6 +12,8 @@ import type {
   UpdateApiAgentInput,
   AgentTerminalSize,
   RegisterApiAgentInput,
+  SaveOnePieceProviderConfigInput,
+  SaveOnePieceProviderProfileInput,
   CliParameterSelections,
   CliToolStatus,
   CreateSessionCategoryInput,
@@ -21,6 +23,8 @@ import type {
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
+  OnePieceProviderConfig,
+  OnePieceProviderProfiles,
   ProjectInspection,
   RemoteWorkspace,
   RenameSessionCategoryInput,
@@ -37,7 +41,9 @@ import type {
   ImSessionConnector,
 } from "../types/agent";
 import { managedCliAgentIds } from "../types/agent";
+import { getOnePieceProviderPresets, resolveOnePieceProviderPreset } from "../config/onepiece-provider-presets";
 import { findWebSshConnection } from "./web-ssh-connection-client";
+import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -498,6 +504,64 @@ const deletedBuiltinSkillIds = new Set<string>();
  * behind a separate read path (`getApiAgentProviderConfig`) rather than on the CLI/API-agnostic
  * registry view. */
 const webApiAgentProviderConfigs = new Map<string, ApiAgentProviderConfig>();
+let webOnePieceProviderConfig: OnePieceProviderConfig = {
+  provider: "VaneHub",
+  modelId: null,
+  interfaceFormat: null,
+  baseUrl: null,
+  autoApproveTools: false,
+  credentialPresent: false,
+};
+let webOnePieceProviderProfiles: OnePieceProviderProfiles = { profiles: [], activeProfileId: null };
+let nextOnePieceProviderProfileId = 1;
+
+function applyWebOnePieceActiveProfile(profileId: string | null) {
+  const active = profileId == null
+    ? null
+    : webOnePieceProviderProfiles.profiles.find((profile) => profile.id === profileId) ?? null;
+  webOnePieceProviderProfiles = {
+    activeProfileId: active?.id ?? null,
+    profiles: webOnePieceProviderProfiles.profiles.map((profile) => ({
+      ...profile,
+      active: profile.id === active?.id,
+    })),
+  };
+  webOnePieceProviderConfig = active ? {
+    provider: active.provider,
+    modelId: active.modelId,
+    interfaceFormat: active.interfaceFormat,
+    baseUrl: active.baseUrl,
+    autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
+    credentialPresent: active.credentialPresent,
+  } : {
+    provider: "VaneHub",
+    modelId: null,
+    interfaceFormat: null,
+    baseUrl: null,
+    autoApproveTools: false,
+    credentialPresent: false,
+  };
+  if (active) {
+    webApiAgentProviderConfigs.set("onepiece", {
+      modelId: active.modelId,
+      interfaceFormat: active.interfaceFormat,
+      baseUrl: active.baseUrl,
+      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
+    });
+  } else {
+    webApiAgentProviderConfigs.delete("onepiece");
+  }
+  const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
+  if (agent) {
+    agent.provider = active?.provider ?? "VaneHub";
+    agent.availabilityState = active?.credentialPresent ? "available" : active ? "needs-auth" : "unavailable";
+    agent.unavailableReason = active?.credentialPresent
+      ? undefined
+      : active
+        ? "OnePiece requires an API key."
+        : "OnePiece requires provider configuration.";
+  }
+}
 
 /** Mock cross-session memories (`add-agent-cross-session-memory`) — starts empty, since real
  * memories only ever come from a `remember` tool call or extraction, both simulated in
@@ -1772,6 +1836,11 @@ function scheduleWebLoopPhase(run: LoopRun) {
 
 export const webAgentClient: AgentService = {
   ...webSessionWorkspaceClient,
+  async openExternalUrl(url) {
+    const target = requireHttpsExternalUrl(url);
+    const opened = window.open(target, "_blank", "noopener,noreferrer");
+    if (!opened) throw new Error("The browser blocked the external link.");
+  },
   async listAgents(capabilityTag) {
     return capabilityTag
       ? mockAgents.filter((agent) => agent.capabilityTags.includes(capabilityTag))
@@ -1805,6 +1874,7 @@ export const webAgentClient: AgentService = {
       supportedInteractionModes: ["api"],
       availabilityState: "available",
       capabilityTags: ["api"],
+      agentOrigin: "user",
     };
     mockAgents.push(entry);
     webApiAgentProviderConfigs.set(candidateId, {
@@ -1818,6 +1888,191 @@ export const webAgentClient: AgentService = {
 
   async getApiAgentProviderConfig(agentId: string) {
     return webApiAgentProviderConfigs.get(agentId) ?? null;
+  },
+
+  async getOnePieceProviderConfig() {
+    return { ...webOnePieceProviderConfig };
+  },
+
+  async saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput) {
+    const provider = input.provider.trim();
+    const modelId = input.modelId.trim();
+    const baseUrl = input.baseUrl?.trim() || null;
+    if (!provider || !modelId) throw new Error("Provider and model are required.");
+    if (input.interfaceFormat === "openai-compatible" && !baseUrl) {
+      throw new Error(i18n.t("agents.registerApiAgent.errors.baseUrlRequired"));
+    }
+    const hasReplacement = Boolean(input.apiKey?.trim());
+    if (input.apiKey != null && !hasReplacement) throw new Error("API key cannot be empty.");
+    if (!hasReplacement && !webOnePieceProviderConfig.credentialPresent) {
+      throw new Error("API key is required for the first OnePiece configuration.");
+    }
+    webOnePieceProviderConfig = {
+      provider,
+      modelId,
+      interfaceFormat: input.interfaceFormat,
+      baseUrl: input.interfaceFormat === "anthropic" ? null : baseUrl,
+      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
+      credentialPresent: hasReplacement || webOnePieceProviderConfig.credentialPresent,
+    };
+    webApiAgentProviderConfigs.set("onepiece", {
+      modelId,
+      interfaceFormat: input.interfaceFormat,
+      baseUrl: webOnePieceProviderConfig.baseUrl,
+      autoApproveTools: webOnePieceProviderConfig.autoApproveTools,
+    });
+    const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
+    if (agent) {
+      agent.provider = provider;
+      agent.availabilityState = "available";
+      agent.unavailableReason = undefined;
+    }
+    return { ...webOnePieceProviderConfig };
+  },
+
+  async resetOnePieceProviderConfig() {
+    webOnePieceProviderProfiles = { profiles: [], activeProfileId: null };
+    webOnePieceProviderConfig = {
+      provider: "VaneHub",
+      modelId: null,
+      interfaceFormat: null,
+      baseUrl: null,
+      autoApproveTools: false,
+      credentialPresent: false,
+    };
+    webApiAgentProviderConfigs.delete("onepiece");
+    const agent = mockAgents.find((candidate) => candidate.id === "onepiece");
+    if (agent) {
+      agent.provider = "VaneHub";
+      agent.availabilityState = "unavailable";
+      agent.unavailableReason = "OnePiece requires provider configuration.";
+    }
+    return { ...webOnePieceProviderConfig };
+  },
+
+  async listOnePieceProviderProfiles() {
+    return structuredClone(webOnePieceProviderProfiles);
+  },
+
+  async listOnePieceProviderPresets() {
+    return getOnePieceProviderPresets();
+  },
+
+  async discoverOnePieceProviderModels(input) {
+    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
+    if (!preset) throw new Error("OnePiece provider preset was not found.");
+    const profile = input.profileId
+      ? webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === input.profileId)
+      : undefined;
+    if (input.profileId && !profile) throw new Error("OnePiece provider profile was not found.");
+    if (profile && (profile.sourceProviderId !== input.providerId || profile.sourceEndpointType !== input.endpointType)) {
+      throw new Error("The OnePiece profile does not belong to the selected provider.");
+    }
+    if (!input.apiKey?.trim() && !profile?.credentialPresent) {
+      throw new Error("API key is required to fetch models for this OnePiece provider.");
+    }
+    const ids = [profile?.modelId, ...preset.fallbackModels]
+      .filter((value): value is string => Boolean(value));
+    return {
+      providerId: input.providerId,
+      endpointType: input.endpointType,
+      models: [...new Set(ids)].map((id) => ({
+        id,
+        displayName: id,
+        source: id === profile?.modelId ? "profile" as const : "catalog" as const,
+      })),
+      source: "catalog" as const,
+      warning: null,
+    };
+  },
+
+  async validateOnePieceProviderCredential(input) {
+    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
+    if (!preset) throw new Error("OnePiece provider preset was not found.");
+    const profile = input.profileId
+      ? webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === input.profileId)
+      : undefined;
+    if (input.profileId && !profile) throw new Error("OnePiece provider profile was not found.");
+    if (profile && (profile.sourceProviderId !== input.providerId || profile.sourceEndpointType !== input.endpointType)) {
+      throw new Error("The OnePiece profile does not belong to the selected provider.");
+    }
+    if (!input.modelId.trim()) throw new Error("A model is required to verify the API key.");
+    const credential = input.apiKey?.trim();
+    if (!credential && !profile?.credentialPresent) throw new Error("API key is required to verify this provider.");
+    const status = credential === "web-invalid"
+      ? "invalid-credential" as const
+      : credential === "web-rate-limited"
+        ? "rate-limited" as const
+        : credential === "web-unavailable"
+          ? "provider-unavailable" as const
+          : "valid" as const;
+    return { status, latencyMs: 12, httpStatus: status === "valid" ? 200 : status === "invalid-credential" ? 401 : status === "rate-limited" ? 429 : null };
+  },
+
+  async saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput) {
+    const name = input.name.trim();
+    const modelId = input.modelId.trim();
+    const preset = resolveOnePieceProviderPreset(input.providerId, input.endpointType);
+    if (!preset) {
+      throw new Error("OnePiece provider preset was not found.");
+    }
+    if (!name || !modelId) {
+      throw new Error("Profile name and model are required.");
+    }
+    const existing = input.id
+      ? webOnePieceProviderProfiles.profiles.find((profile) => profile.id === input.id)
+      : undefined;
+    if (existing?.sourceProviderId && (existing.sourceProviderId !== input.providerId || existing.sourceEndpointType !== input.endpointType)) {
+      throw new Error("The provider of an existing OnePiece Profile cannot be changed.");
+    }
+    const credentialPresent = Boolean(input.apiKey?.trim()) || Boolean(existing?.credentialPresent);
+    if (!credentialPresent) {
+      throw new Error("API key is required for a new OnePiece provider Profile.");
+    }
+    const id = existing?.id ?? `onepiece-profile-${nextOnePieceProviderProfileId++}`;
+    const active = existing?.active ?? webOnePieceProviderProfiles.profiles.length === 0;
+    const profile = {
+      id,
+      name,
+      sourceProviderId: input.providerId,
+      sourceEndpointType: input.endpointType,
+      sourcePresetVersion: preset.catalogVersion,
+      provider: preset.provider,
+      modelId,
+      interfaceFormat: preset.interfaceFormat,
+      baseUrl: preset.baseUrl,
+      active,
+      credentialPresent,
+    };
+    webOnePieceProviderProfiles = {
+      activeProfileId: webOnePieceProviderProfiles.activeProfileId,
+      profiles: existing
+        ? webOnePieceProviderProfiles.profiles.map((candidate) => candidate.id === id ? profile : candidate)
+        : [...webOnePieceProviderProfiles.profiles, profile],
+    };
+    if (active) applyWebOnePieceActiveProfile(id);
+    return structuredClone(webOnePieceProviderProfiles);
+  },
+
+  async activateOnePieceProviderProfile(profileId: string) {
+    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error("OnePiece provider profile was not found.");
+    if (!profile.credentialPresent) {
+      throw new Error("The selected OnePiece provider Profile has no API key.");
+    }
+    applyWebOnePieceActiveProfile(profileId);
+    return structuredClone(webOnePieceProviderProfiles);
+  },
+
+  async deleteOnePieceProviderProfile(profileId: string) {
+    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error("OnePiece provider profile was not found.");
+    webOnePieceProviderProfiles = {
+      activeProfileId: profile.active ? null : webOnePieceProviderProfiles.activeProfileId,
+      profiles: webOnePieceProviderProfiles.profiles.filter((candidate) => candidate.id !== profileId),
+    };
+    if (profile.active) applyWebOnePieceActiveProfile(null);
+    return structuredClone(webOnePieceProviderProfiles);
   },
 
   async updateApiAgent(agentId: string, input: UpdateApiAgentInput) {
@@ -1841,6 +2096,9 @@ export const webAgentClient: AgentService = {
   },
 
   async deleteApiAgent(agentId: string) {
+    if (mockAgents.find((agent) => agent.id === agentId)?.agentOrigin === "builtin") {
+      throw new Error("Built-in agents cannot be deleted; reset their provider configuration instead.");
+    }
     const blocking: string[] = [];
     const sessionCount = sessions.filter((session) => session.agentId === agentId).length;
     if (sessionCount > 0) blocking.push(`${sessionCount} sessions`);
@@ -1977,6 +2235,29 @@ export const webAgentClient: AgentService = {
 
   async saveCliConfigProfile(input) {
     return saveWebCliConfigProfile(input);
+  },
+
+  async validateCliConfigCredential(input) {
+    const supportedAgentId = requireCliConfigAgentId(input.agentId);
+    const profile = input.profileId
+      ? webCliConfigProfiles.find((candidate) => candidate.agentId === supportedAgentId && candidate.id === input.profileId)
+      : undefined;
+    if (input.profileId && !profile) throw new Error("Profile not found.");
+    const payload = input.payload ?? profile?.payload;
+    if (!payload || payload.kind !== supportedAgentId) throw new Error("A complete provider configuration is required.");
+    if (!cliConfigNeedsCredential(payload)) {
+      return { status: "unsupported" as const, latencyMs: 0, httpStatus: null };
+    }
+    const credential = input.credential?.trim();
+    if (!credential && !profile?.credentialConfigured) throw new Error("Credential repair is required.");
+    const status = credential === "web-invalid"
+      ? "invalid-credential" as const
+      : credential === "web-rate-limited"
+        ? "rate-limited" as const
+        : credential === "web-unavailable"
+          ? "provider-unavailable" as const
+          : "valid" as const;
+    return { status, latencyMs: 12, httpStatus: status === "valid" ? 200 : status === "invalid-credential" ? 401 : status === "rate-limited" ? 429 : null };
   },
 
   async duplicateCliConfigProfile(agentId, profileId) {
@@ -2560,7 +2841,13 @@ export const webAgentClient: AgentService = {
     if (!agent.supportedInteractionModes.includes(input.interactionMode)) {
       throw new Error(`${agent.displayName} does not support ${input.interactionMode}.`);
     }
+    if (agent.availabilityState !== "available" && agent.availabilityState !== "unknown") {
+      throw new Error(agent.unavailableReason ?? `${agent.displayName} is not available.`);
+    }
     const remoteWorkspace = input.remoteWorkspace ? normalizeRemoteWorkspace(input.remoteWorkspace) : null;
+    if (agent.id === "onepiece" && remoteWorkspace) {
+      throw new Error("OnePiece supports local projects and local Git worktrees only.");
+    }
     const sshConnection = input.remoteWorkspace?.sshConnectionId
       ? findWebSshConnection(input.remoteWorkspace.sshConnectionId)
       : null;

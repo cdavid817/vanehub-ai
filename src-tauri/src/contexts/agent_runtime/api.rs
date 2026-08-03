@@ -15,10 +15,13 @@ pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
     AgentRuntimeApplicationError, AgentSessionDetails, AgentTerminalInputRequest,
     AgentTerminalSession, AgentTerminalSize, AgentView, ApiProviderConfig, ContinueLoopRequest,
-    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, OpenAgentTerminalRequest, ReadinessView,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
-    SendMessageRequest, StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult,
-    ToolApprovalDecision, UpdateApiAgentInput, WorkflowView,
+    DiscoverOnePieceProviderModelsInput, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderPreset,
+    OnePieceProviderProfiles, OpenAgentTerminalRequest, ProviderCredentialValidationResult,
+    ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -245,6 +248,88 @@ impl AgentRuntimeApi {
         agent_id: &str,
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
         self.service.api_agent_provider_config(agent_id)
+    }
+
+    pub(crate) fn onepiece_provider_config(
+        &self,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        self.service.onepiece_provider_config()
+    }
+
+    pub(crate) fn save_onepiece_provider_config(
+        &self,
+        input: SaveOnePieceProviderConfigInput,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        self.service.save_onepiece_provider_config(input)
+    }
+
+    pub(crate) fn reset_onepiece_provider_config(
+        &self,
+    ) -> Result<OnePieceProviderConfig, AgentRuntimeApplicationError> {
+        self.service.reset_onepiece_provider_config()
+    }
+
+    pub(crate) fn onepiece_provider_profiles(
+        &self,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        self.service.onepiece_provider_profiles()
+    }
+
+    pub(crate) fn onepiece_provider_presets(&self) -> Vec<OnePieceProviderPreset> {
+        self.service.onepiece_provider_presets()
+    }
+
+    pub(crate) async fn discover_onepiece_provider_models(
+        &self,
+        input: DiscoverOnePieceProviderModelsInput,
+    ) -> Result<OnePieceProviderModelDiscoveryResult, AgentRuntimeApplicationError> {
+        let service = self.service.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            service.discover_onepiece_provider_models(input)
+        })
+        .await
+        .map_err(|error| {
+            AgentRuntimeApplicationError::Validation(format!(
+                "OnePiece model discovery task failed: {error}"
+            ))
+        })?
+    }
+
+    pub(crate) async fn validate_onepiece_provider_credential(
+        &self,
+        input: ValidateOnePieceProviderCredentialInput,
+    ) -> Result<ProviderCredentialValidationResult, AgentRuntimeApplicationError> {
+        let service = self.service.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            service.validate_onepiece_provider_credential(input)
+        })
+        .await
+        .map_err(|error| {
+            AgentRuntimeApplicationError::Validation(format!(
+                "OnePiece credential validation task failed: {error}"
+            ))
+        })?
+    }
+
+    pub(crate) fn save_onepiece_provider_profile(
+        &self,
+        input: SaveOnePieceProviderProfileInput,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        self.service.save_onepiece_provider_profile(input)
+    }
+
+    pub(crate) fn activate_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        self.service.activate_onepiece_provider_profile(profile_id)
+    }
+
+    pub(crate) fn delete_onepiece_provider_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
+        self.service.delete_onepiece_provider_profile(profile_id)
     }
 
     pub(crate) fn update_api_agent(

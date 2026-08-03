@@ -14,6 +14,7 @@ export function ChatInputBox({
   config,
   disabled,
   isStreaming,
+  lockRuntimeIdentity = false,
   fileReferenceCandidates,
   fileReferences,
   onAddFileReference,
@@ -39,6 +40,7 @@ export function ChatInputBox({
   config: ChatConfig;
   disabled?: boolean;
   isStreaming: boolean;
+  lockRuntimeIdentity?: boolean;
   fileReferenceCandidates: SessionDocument[];
   fileReferences: ChatFileReference[];
   onChange: (value: string) => void;
@@ -145,6 +147,7 @@ export function ChatInputBox({
         config={config}
         disabled={disabled}
         isStreaming={isStreaming}
+        lockRuntimeIdentity={lockRuntimeIdentity}
         onAgentChange={onConfigAgentChange}
         onLongContextChange={onConfigLongContextChange}
         onModeChange={onConfigModeChange}

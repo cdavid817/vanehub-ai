@@ -5,15 +5,23 @@ import { defaultSettingsPageId, getSettingsPage, settingsPages, type SettingsNav
 import { SettingsSidebar } from "./settings-sidebar";
 import { SettingsTopBar } from "./settings-topbar";
 
-export function SettingsShell({ onReturn }: { onReturn?: () => void }) {
+export function SettingsShell({
+  initialNavigationTarget = null,
+  initialPageId = defaultSettingsPageId,
+  onReturn,
+}: {
+  initialNavigationTarget?: SettingsNavigationTarget | null;
+  initialPageId?: SettingsPageId;
+  onReturn?: () => void;
+}) {
   const [searchParams] = useSearchParams();
   const requestedPage = searchParams.get("section");
-  const initialPage = settingsPages.some((page) => page.id === requestedPage) ? requestedPage as SettingsPageId : defaultSettingsPageId;
+  const initialPage = settingsPages.some((page) => page.id === requestedPage) ? requestedPage as SettingsPageId : initialPageId;
   const [activePageId, setActivePageId] = useState<SettingsPageId>(initialPage);
   const [visitedPages, setVisitedPages] = useState<Set<SettingsPageId>>(
     () => new Set([initialPage]),
   );
-  const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(null);
+  const [navigationTarget, setNavigationTarget] = useState<SettingsNavigationTarget | null>(initialNavigationTarget);
   const [searchTerm, setSearchTerm] = useState("");
   const activePage = useMemo(() => getSettingsPage(activePageId), [activePageId]);
 

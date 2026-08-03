@@ -111,6 +111,26 @@ pub(crate) fn blocking_http_client(
         .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
 }
 
+pub(crate) fn blocking_no_redirect_http_client(
+    timeout: Duration,
+) -> Result<reqwest::blocking::Client, AppError> {
+    let state = current_state();
+    let mut builder = reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        .pool_max_idle_per_host(0)
+        .redirect(reqwest::redirect::Policy::none());
+    if !state.url.is_empty() {
+        let no_proxy = reqwest::NoProxy::from_string(&state.bypass);
+        let proxy = reqwest::Proxy::all(&state.url)
+            .map_err(|error| AppError::Validation(format!("Invalid network proxy: {error}")))?
+            .no_proxy(no_proxy);
+        builder = builder.proxy(proxy);
+    }
+    builder
+        .build()
+        .map_err(|error| AppError::Storage(format!("HTTP client initialization failed: {error}")))
+}
+
 pub(crate) fn no_redirect_http_client(timeout: Duration) -> Result<reqwest::Client, AppError> {
     build_http_client(
         reqwest::Client::builder()
@@ -558,6 +578,8 @@ pub async fn scan_local() -> Vec<DetectedNetworkProxy> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     #[test]
     fn normalizes_bypass_list() {
@@ -586,5 +608,29 @@ mod tests {
         assert!(host_is_bypassed("localhost", "localhost,127.0.0.1"));
         assert!(host_is_bypassed("api.example.com", ".example.com"));
         assert!(!host_is_bypassed("api.example.com", "example.org"));
+    }
+
+    #[test]
+    fn blocking_model_discovery_client_does_not_follow_redirects() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("test connection");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(
+                    b"HTTP/1.1 302 Found\r\nLocation: https://example.com/redirected\r\nContent-Length: 0\r\n\r\n",
+                )
+                .expect("redirect response");
+        });
+        let client =
+            blocking_no_redirect_http_client(Duration::from_secs(2)).expect("no-redirect client");
+        let response = client
+            .get(format!("http://{address}/models"))
+            .send()
+            .expect("redirect response");
+        server.join().expect("server thread");
+        assert!(response.status().is_redirection());
     }
 }

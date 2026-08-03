@@ -10,6 +10,7 @@ export const mockAgents: AgentRegistryEntry[] = [
     supportedInteractionModes: ["cli", "native-desktop"],
     availabilityState: "unknown",
     capabilityTags: ["coding", "cli", "agent"],
+    agentOrigin: "builtin",
   },
   {
     id: "opencode",
@@ -19,6 +20,7 @@ export const mockAgents: AgentRegistryEntry[] = [
     supportedInteractionModes: ["cli"],
     availabilityState: "unknown",
     capabilityTags: ["coding", "cli", "open-source"],
+    agentOrigin: "builtin",
   },
   {
     id: "codex-cli",
@@ -29,6 +31,7 @@ export const mockAgents: AgentRegistryEntry[] = [
     supportedInteractionModes: ["cli", "native-desktop"],
     availabilityState: "unknown",
     capabilityTags: ["coding", "cli", "agent"],
+    agentOrigin: "builtin",
   },
   {
     id: "gemini-cli",
@@ -38,6 +41,18 @@ export const mockAgents: AgentRegistryEntry[] = [
     supportedInteractionModes: ["cli", "browser"],
     availabilityState: "unknown",
     capabilityTags: ["coding", "cli", "browser"],
+    agentOrigin: "builtin",
+  },
+  {
+    id: "onepiece",
+    displayName: "OnePiece",
+    provider: "VaneHub",
+    launch: { kind: "api" },
+    supportedInteractionModes: ["api"],
+    availabilityState: "unavailable",
+    unavailableReason: "OnePiece requires provider configuration.",
+    capabilityTags: ["coding", "api", "agent", "native"],
+    agentOrigin: "builtin",
   },
 ];
 

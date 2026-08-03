@@ -784,18 +784,6 @@ impl SessionCreationContextPort for FakeCreationContext {
         }))
     }
 
-    fn ensure_agent_supports(
-        &self,
-        agent_id: &str,
-        interaction_mode: &str,
-    ) -> Result<(), SessionsApplicationError> {
-        self.events
-            .lock()
-            .expect("creation events")
-            .push(format!("agent:{agent_id}:{interaction_mode}"));
-        Ok(())
-    }
-
     fn ensure_worktree_compatible(
         &self,
         remote_workspace_selected: bool,
@@ -903,6 +891,20 @@ struct Fixture {
     runtime: Arc<FakeRuntime>,
 }
 
+impl SessionAgentEligibilityPort for FakeCreationContext {
+    fn ensure_agent_supports(
+        &self,
+        agent_id: &str,
+        interaction_mode: &str,
+    ) -> Result<(), SessionsApplicationError> {
+        self.events
+            .lock()
+            .expect("creation events")
+            .push(format!("agent:{agent_id}:{interaction_mode}"));
+        Ok(())
+    }
+}
+
 fn fixture() -> Fixture {
     let store = Arc::new(FakeStore::default());
     let clock = Arc::new(FakeClock::default());
@@ -925,6 +927,7 @@ fn fixture() -> Fixture {
         logging: logging.clone(),
         chat_profiles: Arc::new(FakeChatProfiles),
         creation: creation.clone(),
+        eligibility: creation.clone(),
         runtime: runtime.clone(),
     });
     Fixture {
@@ -1229,6 +1232,47 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
 }
 
 #[test]
+fn ready_onepiece_creates_a_local_worktree_session_in_api_mode() {
+    let fixture = fixture();
+    let prepared = fixture
+        .service
+        .prepare_new_session_creation(NewSessionRequest {
+            agent_id: "onepiece".to_string(),
+            interaction_mode: "api".to_string(),
+            title: Some("OnePiece Worktree".to_string()),
+            workspace: NewSessionWorkspace {
+                project_path: Some("D:\\code\\project".to_string()),
+                worktree: Some(NewWorktree {
+                    enabled: true,
+                    name: Some("onepiece-feature".to_string()),
+                }),
+                ..Default::default()
+            },
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::Activate,
+        })
+        .expect("prepare OnePiece creation");
+
+    let session = fixture
+        .service
+        .execute_new_session_creation(prepared)
+        .expect("create OnePiece worktree session");
+
+    assert_eq!(session.agent_id, "onepiece");
+    assert_eq!(session.interaction_mode, "api");
+    assert_eq!(
+        session.workspace.folder.as_deref(),
+        Some("D:\\code\\project\\.worktrees\\onepiece-feature")
+    );
+    assert!(fixture
+        .creation
+        .events
+        .lock()
+        .expect("creation events")
+        .contains(&"agent:onepiece:api".to_string()));
+}
+
+#[test]
 fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
     let fixture = fixture();
     let prepared = fixture
@@ -1271,6 +1315,39 @@ fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
         .expect("remote workspace snapshot");
     assert_eq!(snapshot.host, "remote.example.test");
     assert_eq!(snapshot.path, "/work/app");
+}
+
+#[test]
+fn onepiece_rejects_remote_creation_before_persistence() {
+    let fixture = fixture();
+    let prepared = fixture
+        .service
+        .prepare_new_session_creation(NewSessionRequest {
+            agent_id: "onepiece".to_string(),
+            interaction_mode: "api".to_string(),
+            title: Some("Remote OnePiece".to_string()),
+            workspace: NewSessionWorkspace {
+                remote_workspace: Some(NewRemoteWorkspace {
+                    host: "remote.example.test".to_string(),
+                    port: Some(22),
+                    user: Some("dev".to_string()),
+                    path: "/work/app".to_string(),
+                    display_name: Some("Remote App".to_string()),
+                    ssh_connection_id: None,
+                }),
+                ..Default::default()
+            },
+            owner: SessionOwner::desktop(),
+            activation: SessionActivation::Activate,
+        })
+        .expect("prepare remote creation");
+
+    let error = fixture
+        .service
+        .execute_new_session_creation(prepared)
+        .expect_err("OnePiece remote workspace must fail");
+    assert!(error.to_string().contains("local projects"));
+    assert!(fixture.store.sessions.lock().expect("sessions").is_empty());
 }
 
 #[test]

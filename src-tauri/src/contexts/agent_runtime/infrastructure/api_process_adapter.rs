@@ -3,13 +3,13 @@ use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     plan_mode_tool_catalog, requires_approval, tool_catalog, AgentChatConfiguration,
-    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory,
-    AgentMemoryPort, AgentMessage, AgentProcessEventSink, AgentProcessGateway,
-    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
-    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
+    AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink,
+    AgentProcessGateway, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
+    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
@@ -24,6 +24,7 @@ use std::time::Duration;
 
 const HISTORY_LIMIT: i64 = 50;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+#[cfg(test)]
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const MAX_TOOL_ROUND_TRIPS: u32 = 25;
 const SKILL_PER_ITEM_CHARACTER_BUDGET: usize = 8_000;
@@ -48,6 +49,7 @@ const MEMORY_EXTRACTION_INSTRUCTION: &str = "Review the conversation above for a
 /// memories share the same system prompt as Skills and, unlike a turn, are never eligible for
 /// compaction, so they must not by themselves risk crowding out the context window.
 const MEMORY_INJECTION_CHARACTER_BUDGET: usize = 4_000;
+const ONEPIECE_CONFIGURATION_ERROR: &str = "OnePiece is not configured. Add or activate a provider configuration with an endpoint, model, and API key in Settings → Agent Configuration.";
 
 type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecision>>>>;
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
@@ -64,6 +66,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
@@ -85,6 +88,7 @@ impl RuntimeAgentApiAdapter {
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
+        core_instructions: Arc<dyn AgentCoreInstructionsPort>,
         memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
     ) -> Self {
@@ -95,6 +99,7 @@ impl RuntimeAgentApiAdapter {
             logging,
             clock,
             skills,
+            core_instructions,
             memories,
             mcp,
             generations: Arc::new(Mutex::new(HashMap::new())),
@@ -172,6 +177,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let logging = self.logging.clone();
         let clock = self.clock.clone();
         let skills = self.skills.clone();
+        let core_instructions = self.core_instructions.clone();
         let memories = self.memories.clone();
         let mcp = self.mcp.clone();
         thread::spawn(move || {
@@ -184,6 +190,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 logging,
                 clock,
                 skills,
+                core_instructions,
                 memories,
                 mcp,
                 sink,
@@ -253,6 +260,7 @@ fn run_generation(
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     sink: Arc<dyn AgentProcessEventSink>,
@@ -269,6 +277,7 @@ fn run_generation(
         logging.as_ref(),
         clock.as_ref(),
         skills.as_ref(),
+        core_instructions.as_ref(),
         memories.as_ref(),
         mcp.as_ref(),
     );
@@ -366,17 +375,37 @@ fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, &'static st
             },
         })
     } else {
+        let base_url = config
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("https://api.anthropic.com");
+        let endpoint = if base_url.ends_with("/v1/messages") {
+            base_url.to_string()
+        } else {
+            format!("{}/v1/messages", base_url.trim_end_matches('/'))
+        };
+        let official_anthropic = base_url.trim_end_matches('/') == "https://api.anthropic.com";
         Ok(WireFormat {
-            endpoint: MESSAGES_ENDPOINT.to_string(),
+            endpoint,
             history_to_turns: anthropic_provider::history_to_turns,
             build_request_body: anthropic_provider::build_request_body,
             translate_sse_data: anthropic_provider::translate_sse_data,
             build_reply_turns: anthropic_provider::build_reply_turns,
             failure_from_http_status: anthropic_provider::failure_from_http_status,
-            apply_auth: |builder, api_key| {
-                builder
-                    .header("x-api-key", api_key)
-                    .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+            apply_auth: if official_anthropic {
+                |builder, api_key| {
+                    builder
+                        .header("x-api-key", api_key)
+                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                }
+            } else {
+                |builder, api_key| {
+                    builder
+                        .header("Authorization", format!("Bearer {api_key}"))
+                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                }
             },
         })
     }
@@ -394,6 +423,7 @@ fn execute(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     skills: &dyn AgentSkillPort,
+    core_instructions: &dyn AgentCoreInstructionsPort,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
 ) -> GenerationProcessEvent {
@@ -401,20 +431,30 @@ fn execute(
     let api_key = match credentials.fetch(agent_id) {
         Ok(Some(key)) => key,
         Ok(None) => {
-            return failed_non_retryable("No API key is stored for this agent.");
+            return failed_configuration(agent_id, "No API key is stored for this agent.");
         }
         Err(error) => return failed_non_retryable(&error.to_string()),
     };
     let provider_config = match config.provider_config(agent_id) {
         Ok(Some(config)) => config,
-        Ok(None) => return failed_non_retryable("No model is configured for this agent."),
+        Ok(None) => {
+            return failed_configuration(agent_id, "No model is configured for this agent.");
+        }
         Err(error) => return failed_non_retryable(&error.to_string()),
     };
     let wire_format = match wire_format_for(&provider_config) {
         Ok(wire_format) => wire_format,
-        Err(message) => return failed_non_retryable(message),
+        Err(message) => return failed_configuration(agent_id, message),
     };
-    let system = resolve_system_prompt(agent_id, skills, memories, logging, clock, request);
+    let system = resolve_system_prompt(
+        agent_id,
+        core_instructions,
+        skills,
+        memories,
+        logging,
+        clock,
+        request,
+    );
     let recent = match history.recent_messages(&request.session.id, HISTORY_LIMIT) {
         Ok(messages) => messages,
         Err(error) => {
@@ -452,6 +492,7 @@ fn execute(
         return failure;
     }
 
+    let mut emitted_visible_content = false;
     for _round_trip in 0..MAX_TOOL_ROUND_TRIPS {
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
@@ -519,8 +560,18 @@ fn execute(
                             return GenerationProcessEvent::Failed(failure)
                         }
                         Some(GenerationProcessEvent::Token(text)) => {
+                            let starts_new_round = assistant_text.is_empty();
                             assistant_text.push_str(&text);
-                            if sink.handle(GenerationProcessEvent::Token(text)).is_err() {
+                            let content_delta = if emitted_visible_content && starts_new_round {
+                                format!("\n{text}")
+                            } else {
+                                text
+                            };
+                            emitted_visible_content = true;
+                            if sink
+                                .handle(GenerationProcessEvent::Token(content_delta))
+                                .is_err()
+                            {
                                 return failed_retryable("Agent generation event handling failed.");
                             }
                         }
@@ -717,12 +768,48 @@ fn resolve_tool_catalog(
 /// in `add-agent-skill-support`).
 fn resolve_system_prompt(
     agent_id: &str,
+    core_instructions: &dyn AgentCoreInstructionsPort,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
+    let core_section = match core_instructions.instructions_for(agent_id) {
+        Ok(Some(core)) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Debug,
+                category: "session.runtime.api.prompt".to_string(),
+                message: format!("Applied core instructions version {}.", core.version),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            Some(core.markdown)
+        }
+        Ok(None) => None,
+        Err(_) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.prompt".to_string(),
+                message:
+                    "Failed to resolve core instructions; continuing with optional prompt sections."
+                        .to_string(),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            None
+        }
+    };
     let skill_section = match skills
         .bound_skill_prompts(agent_id, request.session.folder.as_deref())
     {
@@ -766,7 +853,7 @@ fn resolve_system_prompt(
             None
         }
     };
-    let sections: Vec<String> = [skill_section, memory_section]
+    let sections: Vec<String> = [core_section, skill_section, memory_section]
         .into_iter()
         .flatten()
         .collect();
@@ -1231,6 +1318,16 @@ fn failed_non_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::non_retryable(message.to_string()))
 }
 
+fn failed_configuration(agent_id: &str, diagnostic: &str) -> GenerationProcessEvent {
+    let failure = GenerationProcessFailure::non_retryable(diagnostic.to_string());
+    let failure = if agent_id == "onepiece" {
+        failure.with_safe_error(ONEPIECE_CONFIGURATION_ERROR)
+    } else {
+        failure
+    };
+    GenerationProcessEvent::Failed(failure)
+}
+
 fn failed_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(message.to_string()))
 }
@@ -1640,6 +1737,7 @@ mod tests {
                 availability: AgentAvailability::Available,
                 unavailable_reason: None,
                 capability_tags: vec!["api".to_string()],
+                origin: crate::contexts::agent_runtime::domain::AgentOrigin::User,
             },
             message_id: "message-1".to_string(),
             operation_id: "operation-1".to_string(),
@@ -1663,6 +1761,15 @@ mod tests {
         }
     }
 
+    fn onepiece_request() -> GenerationProcessRequest {
+        let mut request = sample_request("api");
+        request.session.agent_id = "onepiece".to_string();
+        request.agent.id = "onepiece".to_string();
+        request.agent.display_name = "OnePiece".to_string();
+        request.configuration.agent_id = "onepiece".to_string();
+        request
+    }
+
     fn adapter() -> RuntimeAgentApiAdapter {
         RuntimeAgentApiAdapter::new(
             Arc::new(FakeCredentials::default()),
@@ -1671,6 +1778,9 @@ mod tests {
             Arc::new(NoopLogging),
             Arc::new(FixedClock),
             Arc::new(NoopSkills),
+            Arc::new(
+                crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            ),
             Arc::new(FakeMemories::default()),
             Arc::new(NoopMcp),
         )
@@ -1768,6 +1878,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1775,6 +1886,7 @@ mod tests {
             GenerationProcessEvent::Failed(failure) => {
                 assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
                 assert!(failure.diagnostic.contains("API key"));
+                assert_eq!(failure.safe_error, None);
             }
             other => panic!("expected Failed, got {other:?}"),
         }
@@ -1797,6 +1909,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1804,9 +1917,98 @@ mod tests {
             GenerationProcessEvent::Failed(failure) => {
                 assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
                 assert!(failure.diagnostic.contains("model"));
+                assert_eq!(failure.safe_error, None);
             }
             other => panic!("expected Failed, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn onepiece_missing_credential_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials::default(),
+            &anthropic_config("claude-opus-4-8"),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("API key"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
+    }
+
+    #[test]
+    fn onepiece_missing_model_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-ant-test".to_string()),
+            },
+            &FakeConfig::default(),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("model"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
+    }
+
+    #[test]
+    fn onepiece_missing_endpoint_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-ant-test".to_string()),
+            },
+            &openai_compatible_config("deepseek-chat", None),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("base URL"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
     }
 
     #[test]
@@ -1825,6 +2027,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1852,6 +2055,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1880,6 +2084,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1938,6 +2143,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -2003,6 +2209,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
         );
@@ -2069,6 +2276,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
         );
@@ -2128,6 +2336,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
         );
@@ -2170,7 +2379,7 @@ mod tests {
     }
 
     #[test]
-    fn wire_format_for_anthropic_uses_fixed_endpoint() {
+    fn wire_format_for_anthropic_uses_official_endpoint_by_default() {
         let config = ApiProviderConfig {
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
@@ -2179,6 +2388,21 @@ mod tests {
         };
         let wire_format = wire_format_for(&config).expect("wire format");
         assert_eq!(wire_format.endpoint, MESSAGES_ENDPOINT);
+    }
+
+    #[test]
+    fn wire_format_for_anthropic_uses_configured_provider_endpoint() {
+        let config = ApiProviderConfig {
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: Some("https://api.deepseek.com/anthropic".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = wire_format_for(&config).expect("wire format");
+        assert_eq!(
+            wire_format.endpoint,
+            "https://api.deepseek.com/anthropic/v1/messages"
+        );
     }
 
     #[test]
@@ -2797,6 +3021,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(Vec::new())),
             &FakeMemories::default(),
             &NoopLogging,
@@ -2811,6 +3036,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(vec![BoundSkillPrompt {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
@@ -2829,6 +3055,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Err("lookup failed")),
             &FakeMemories::default(),
             &NoopLogging,
@@ -2844,6 +3071,7 @@ mod tests {
         let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(vec![BoundSkillPrompt {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
@@ -2866,6 +3094,7 @@ mod tests {
         let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(Vec::new())),
             &memories,
             &NoopLogging,
@@ -2873,6 +3102,66 @@ mod tests {
             &request,
         );
         assert_eq!(system, Some("## Memory\n- Uses pnpm.".to_string()));
+    }
+
+    #[test]
+    fn onepiece_prompt_orders_core_before_skills_and_memories() {
+        let mut request = sample_request("api");
+        request.agent.id = "onepiece".to_string();
+        let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses npm.")]);
+        let system = resolve_system_prompt(
+            "onepiece",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeSkills(Ok(vec![BoundSkillPrompt {
+                id: "reviewer".to_string(),
+                name: "Reviewer".to_string(),
+                body: "Review the diff.".to_string(),
+            }])),
+            &memories,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        )
+        .expect("system prompt");
+        let core = system.find("# OnePiece Core Instructions").expect("core");
+        let skill = system.find("## Reviewer").expect("Skill");
+        let memory = system.find("## Memory").expect("memory");
+        assert!(core < skill && skill < memory);
+    }
+
+    #[test]
+    fn skill_prompt_budget_skips_oversized_and_non_fitting_items_whole() {
+        let request = sample_request("api");
+        let logging = RecordingLogging::default();
+        let prompts = vec![
+            BoundSkillPrompt {
+                id: "oversized".to_string(),
+                name: "Oversized".to_string(),
+                body: "x".repeat(8_001),
+            },
+            BoundSkillPrompt {
+                id: "first".to_string(),
+                name: "First".to_string(),
+                body: "a".repeat(7_990),
+            },
+            BoundSkillPrompt {
+                id: "second".to_string(),
+                name: "Second".to_string(),
+                body: "b".repeat(7_989),
+            },
+            BoundSkillPrompt {
+                id: "no-room".to_string(),
+                name: "NoRoom".to_string(),
+                body: "c".to_string(),
+            },
+        ];
+        let section = format_system_prompt(&prompts, &logging, &FixedClock, &request)
+            .expect("bounded Skill section");
+        assert!(!section.contains("Oversized"));
+        assert!(section.contains("## First"));
+        assert!(section.contains("## Second"));
+        assert!(!section.contains("NoRoom"));
+        assert_eq!(logging.logs.lock().expect("logs").len(), 2);
     }
 
     #[test]

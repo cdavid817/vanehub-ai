@@ -61,6 +61,9 @@ export interface CliConfigPreset {
   category: CliConfigPresetCategory;
   agentId: CliConfigAgentId;
   deprecated: boolean;
+  providerId: string;
+  endpointType: import("./agent").ProviderEndpointType;
+  iconKey: string;
   payload: CliConfigPayload;
 }
 
@@ -88,6 +91,14 @@ export interface SaveCliConfigProfileInput {
   sourcePresetVersion?: number | null;
   credential?: string | null;
   removeCredential?: boolean;
+}
+
+export interface ValidateCliConfigCredentialInput {
+  agentId: CliConfigAgentId;
+  profileId?: string | null;
+  payload?: CliConfigPayload | null;
+  sourcePresetId?: string | null;
+  credential?: string | null;
 }
 
 export interface ImportCliConfigProfileInput {

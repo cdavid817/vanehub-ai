@@ -9,10 +9,15 @@ use super::domain::{
     CliConfigProfile, CliConfigStartupSyncResult, CliConfigStartupSyncState, CliConfigStatus,
     CliConfigValidationState, DeleteCliConfigProfileInput, ImportCliConfigProfileInput,
     ImportDiscoveredCliConfigInput, ImportDiscoveredCliConfigResult, ProfileRecord,
-    SaveCliConfigProfileInput, SkippedCliConfigDiscoveryCandidate, PAYLOAD_VERSION,
-    SUPPORTED_AGENT_IDS,
+    SaveCliConfigProfileInput, SkippedCliConfigDiscoveryCandidate,
+    ValidateCliConfigCredentialInput, PAYLOAD_VERSION, SUPPORTED_AGENT_IDS,
 };
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
+use crate::platform::network::{
+    probe_provider_credential, unsupported_provider_credential_validation,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
+};
 use chrono::Utc;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -291,6 +296,89 @@ impl CliConfigApi {
             .into_iter()
             .map(|record| self.profile_view(record, &status))
             .collect()
+    }
+
+    pub(crate) async fn validate_credential(
+        &self,
+        input: ValidateCliConfigCredentialInput,
+    ) -> Result<ProviderCredentialValidationResult, CliConfigError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.validate_credential_inner(input))
+            .await
+            .map_err(|_| {
+                CliConfigError::Validation("CLI credential validation task failed".into())
+            })?
+    }
+
+    fn validate_credential_inner(
+        &self,
+        input: ValidateCliConfigCredentialInput,
+    ) -> Result<ProviderCredentialValidationResult, CliConfigError> {
+        validate_supported_agent(&input.agent_id)?;
+        if input
+            .credential
+            .as_deref()
+            .is_some_and(|value| value.is_empty() || value.chars().any(char::is_control))
+        {
+            return Err(CliConfigError::Validation(
+                "credential must not be empty or contain control characters".into(),
+            ));
+        }
+
+        let stored = input
+            .profile_id
+            .as_deref()
+            .map(|profile_id| self.repository.get_profile(&input.agent_id, profile_id))
+            .transpose()?;
+        let payload = input
+            .payload
+            .as_ref()
+            .or_else(|| stored.as_ref().map(|profile| &profile.payload))
+            .ok_or_else(|| {
+                CliConfigError::Validation(
+                    "a profile or a complete provider configuration is required".into(),
+                )
+            })?;
+        if payload.agent_id() != input.agent_id {
+            return Err(CliConfigError::Validation(
+                "profile payload does not match the selected Agent".into(),
+            ));
+        }
+        payload.validate()?;
+        if !payload.requires_credential() {
+            return Ok(unsupported_provider_credential_validation());
+        }
+
+        let stored_credential = match (&input.credential, &input.profile_id) {
+            (Some(_), _) => None,
+            (None, Some(profile_id)) => self.credentials.load(&input.agent_id, profile_id)?,
+            (None, None) => None,
+        };
+        let credential = input
+            .credential
+            .as_deref()
+            .or_else(|| stored_credential.as_deref().map(String::as_str))
+            .ok_or(CliConfigError::CredentialRequired)?;
+        let source_preset_id = input.source_preset_id.as_deref().or_else(|| {
+            stored
+                .as_ref()
+                .and_then(|profile| profile.source_preset_id.as_deref())
+        });
+        let request = cli_probe_request(payload, source_preset_id, credential)?;
+        let result = probe_provider_credential(request)
+            .map_err(|error| CliConfigError::Validation(error.to_string()))?;
+        self.write_log(
+            LogSeverity::Info,
+            "cli.config.credential-validation",
+            &input.agent_id,
+            input.profile_id.as_deref(),
+            None,
+            &format!(
+                "CLI provider credential validation completed: status={:?}",
+                result.status
+            ),
+        );
+        Ok(result)
     }
 
     pub(crate) fn inspect_status(&self, agent_id: &str) -> Result<CliConfigStatus, CliConfigError> {
@@ -1011,6 +1099,87 @@ impl CliConfigApi {
             context,
         });
     }
+}
+
+fn cli_probe_request<'a>(
+    payload: &'a CliConfigPayload,
+    source_preset_id: Option<&str>,
+    credential: &'a str,
+) -> Result<ProviderCredentialProbeRequest<'a>, CliConfigError> {
+    let request = match payload {
+        CliConfigPayload::ClaudeCode {
+            base_url,
+            auth_mode,
+            model,
+            ..
+        } => ProviderCredentialProbeRequest {
+            base_url,
+            model,
+            protocol: ProviderCredentialProbeProtocol::AnthropicMessages,
+            authentication: match auth_mode {
+                super::domain::ClaudeAuthMode::ApiKey => {
+                    ProviderCredentialProbeAuthentication::AnthropicApiKey
+                }
+                super::domain::ClaudeAuthMode::AuthToken => {
+                    ProviderCredentialProbeAuthentication::Bearer
+                }
+                super::domain::ClaudeAuthMode::None => {
+                    return Err(CliConfigError::Validation(
+                        "the selected authentication mode does not use an API key".into(),
+                    ));
+                }
+            },
+            credential,
+        },
+        CliConfigPayload::CodexCli {
+            base_url,
+            model,
+            wire_api,
+            ..
+        } => ProviderCredentialProbeRequest {
+            base_url,
+            model,
+            protocol: match wire_api {
+                super::domain::CodexWireApi::Responses => {
+                    ProviderCredentialProbeProtocol::OpenAiResponses
+                }
+                super::domain::CodexWireApi::Chat => {
+                    ProviderCredentialProbeProtocol::OpenAiChatCompletions
+                }
+            },
+            authentication: ProviderCredentialProbeAuthentication::Bearer,
+            credential,
+        },
+        CliConfigPayload::Opencode {
+            npm,
+            base_url,
+            default_model,
+            ..
+        } => {
+            let anthropic = source_preset_id
+                .is_some_and(|value| value.ends_with("-anthropic-messages"))
+                || npm.contains("anthropic");
+            ProviderCredentialProbeRequest {
+                base_url,
+                model: default_model,
+                protocol: if anthropic {
+                    ProviderCredentialProbeProtocol::AnthropicMessages
+                } else if source_preset_id.is_some_and(|value| value.ends_with("-openai-responses"))
+                {
+                    ProviderCredentialProbeProtocol::OpenAiResponses
+                } else {
+                    ProviderCredentialProbeProtocol::OpenAiChatCompletions
+                },
+                authentication: if anthropic {
+                    ProviderCredentialProbeAuthentication::AnthropicApiKey
+                } else {
+                    ProviderCredentialProbeAuthentication::Bearer
+                },
+                credential,
+            }
+        }
+    };
+    Ok(request)
 }
 
 fn startup_sync_result(
@@ -1987,5 +2156,66 @@ mod tests {
             CliConfigPayload::ClaudeCode { ref base_url, ref model, .. }
                 if base_url == "https://edited.example.com" && model == "claude-edited"
         ));
+    }
+
+    #[test]
+    fn credential_probe_resolution_follows_each_cli_wire_protocol() {
+        let claude = CliConfigPayload::ClaudeCode {
+            base_url: "https://api.example.com/anthropic".into(),
+            auth_mode: ClaudeAuthMode::AuthToken,
+            model: "claude-test".into(),
+            haiku_model: "claude-test".into(),
+            sonnet_model: "claude-test".into(),
+            opus_model: "claude-test".into(),
+            advanced_env: BTreeMap::new(),
+        };
+        let claude_request = cli_probe_request(&claude, None, "secret").expect("Claude probe");
+        assert_eq!(
+            claude_request.protocol,
+            ProviderCredentialProbeProtocol::AnthropicMessages
+        );
+        assert_eq!(
+            claude_request.authentication,
+            ProviderCredentialProbeAuthentication::Bearer
+        );
+
+        let codex = CliConfigPayload::CodexCli {
+            provider_id: "example".into(),
+            base_url: "https://api.example.com/v1".into(),
+            model: "gpt-test".into(),
+            wire_api: super::super::domain::CodexWireApi::Responses,
+            reasoning_effort: "medium".into(),
+            auth_strategy: super::super::domain::CodexAuthStrategy::BearerToken,
+            advanced_toml: BTreeMap::new(),
+        };
+        assert_eq!(
+            cli_probe_request(&codex, None, "secret")
+                .expect("Codex probe")
+                .protocol,
+            ProviderCredentialProbeProtocol::OpenAiResponses
+        );
+
+        let opencode = CliConfigPayload::Opencode {
+            provider_id: "example".into(),
+            provider_name: "Example".into(),
+            npm: "@ai-sdk/openai-compatible".into(),
+            base_url: "https://api.example.com/v1".into(),
+            headers: BTreeMap::new(),
+            models: vec![super::super::domain::OpenCodeModelDefinition {
+                id: "model-test".into(),
+                name: "Model test".into(),
+            }],
+            default_model: "model-test".into(),
+        };
+        assert_eq!(
+            cli_probe_request(
+                &opencode,
+                Some("opencode-example-openai-chat-completions"),
+                "secret",
+            )
+            .expect("OpenCode probe")
+            .protocol,
+            ProviderCredentialProbeProtocol::OpenAiChatCompletions
+        );
     }
 }

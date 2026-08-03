@@ -18,6 +18,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
   google: "Google",
   opencode: "OpenCode",
+  onepiece: "OnePiece",
 };
 
 /**
@@ -150,6 +151,16 @@ export const PROVIDER_MODELS: Record<string, ModelInfo[]> = {
       supportsReasoning: false,
       maxReasoningDepth: "low",
       supportsLongContext: false,
+    },
+  ],
+  onepiece: [
+    {
+      id: "onepiece-active",
+      label: "OnePiece",
+      providerId: "onepiece",
+      supportsReasoning: false,
+      maxReasoningDepth: "low",
+      supportsLongContext: true,
     },
   ],
 };

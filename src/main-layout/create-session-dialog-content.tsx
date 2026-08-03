@@ -37,6 +37,7 @@ export function CreateSessionDialogContent({
   onAgentSelect,
   onBrowseProject,
   onClose,
+  onConfigureOnePiece,
   onInspectPath,
   onSubmit,
   onTitleChange,
@@ -81,6 +82,7 @@ export function CreateSessionDialogContent({
   onAgentSelect: (agent: AgentRegistryEntry) => void;
   onBrowseProject: () => void;
   onClose: () => void;
+  onConfigureOnePiece: () => void;
   onInspectPath: (path: string) => void;
   onSubmit: () => void;
   onTitleChange: (value: string) => void;
@@ -116,10 +118,15 @@ export function CreateSessionDialogContent({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4">
-      <div className="ucd-panel grid max-h-[88vh] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl">
+      <div
+        aria-labelledby="create-session-dialog-title"
+        aria-modal="true"
+        className="ucd-panel grid max-h-[88vh] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl"
+        role="dialog"
+      >
         <div className="flex items-center justify-between border-b border-border p-4">
           <div>
-            <h3 className="text-sm font-semibold">
+            <h3 className="text-sm font-semibold" id="create-session-dialog-title">
               {t("createSession.title")}
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -141,12 +148,15 @@ export function CreateSessionDialogContent({
               disabled={agentMode !== "single"}
               agents={availableAgents}
               onAgentSelect={onAgentSelect}
+              onConfigureOnePiece={onConfigureOnePiece}
               selectedAgent={selectedAgent}
             />
             <WorkspaceModeSelector
               mode={workspaceMode}
               onModeChange={onWorkspaceModeChange}
+              remoteDisabled={selectedAgent?.id === "onepiece"}
             />
+            {selectedAgent?.id === "onepiece" ? <p className="text-xs text-muted-foreground">{t("onepiece.localOnly")}</p> : null}
             {workspaceMode === "local" ? (
               <LocalWorkspaceSection
                 gitCapable={gitCapable}

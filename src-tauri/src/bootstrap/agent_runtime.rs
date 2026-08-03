@@ -12,8 +12,9 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
-    InMemoryGenerationCoordinator, InMemoryLoopExecutionCoordinator,
-    InMemoryLoopRoleGenerationCompletions, NativeCoordinationNodeExecutor,
+    CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter, InMemoryGenerationCoordinator,
+    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
+    NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
@@ -52,7 +53,6 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) database: NativeDatabase,
     pub(crate) app: AppHandle,
     pub(crate) operations: OperationsApi,
-    pub(crate) sdk: SdkApi,
     pub(crate) cli: CliApi,
     pub(crate) cli_parameters: CliParametersApi,
     pub(crate) prompts: PromptHookApi,
@@ -60,7 +60,46 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
-    pub(crate) fallback_log_directory: PathBuf,
+    pub(crate) shared_registry: SharedAgentRegistry,
+}
+
+#[derive(Clone)]
+pub(crate) struct SharedAgentRegistry {
+    pub(crate) repository: Arc<SqliteAgentRuntimeRepository>,
+    pub(crate) registry: Arc<CredentialAwareAgentRegistry>,
+    api_credentials: Arc<OsApiCredentialAdapter>,
+    logging: Arc<AgentRuntimeLoggingAdapter>,
+    clock: Arc<SystemAgentRuntimeClock>,
+    unified_logging: Arc<UnifiedLoggingAdapter>,
+}
+
+pub(crate) fn assemble_shared_agent_registry(
+    database: NativeDatabase,
+    sdk: SdkApi,
+    fallback_log_directory: PathBuf,
+) -> SharedAgentRegistry {
+    let unified_logging = Arc::new(UnifiedLoggingAdapter::active(fallback_log_directory));
+    let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
+    let operation_logs: Arc<dyn OperationLogPort> = unified_logging.clone();
+    let logging = Arc::new(AgentRuntimeLoggingAdapter::new(diagnostics, operation_logs));
+    let clock = Arc::new(SystemAgentRuntimeClock);
+    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(sdk));
+    let repository = Arc::new(SqliteAgentRuntimeRepository::new(database, availability));
+    let api_credentials = Arc::new(OsApiCredentialAdapter::new());
+    let registry = Arc::new(CredentialAwareAgentRegistry::new(
+        repository.clone(),
+        api_credentials.clone(),
+        logging.clone(),
+        clock.clone(),
+    ));
+    SharedAgentRegistry {
+        repository,
+        registry,
+        api_credentials,
+        logging,
+        clock,
+        unified_logging,
+    }
 }
 
 pub(crate) struct AgentRuntimeAssembly {
@@ -76,21 +115,14 @@ type ExecutionExporterSet = (
 pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> AgentRuntimeAssembly {
-    let unified_logging = Arc::new(UnifiedLoggingAdapter::active(
-        dependencies.fallback_log_directory,
-    ));
+    let shared = dependencies.shared_registry;
+    let unified_logging = shared.unified_logging;
     let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
-    let operation_logs: Arc<dyn OperationLogPort> = unified_logging.clone();
-    let logging = Arc::new(AgentRuntimeLoggingAdapter::new(
-        diagnostics.clone(),
-        operation_logs,
-    ));
-    let clock = Arc::new(SystemAgentRuntimeClock);
-    let availability = Arc::new(RuntimeAgentAvailabilityAdapter::new(dependencies.sdk));
-    let repository = Arc::new(SqliteAgentRuntimeRepository::new(
-        dependencies.database.clone(),
-        availability,
-    ));
+    let logging = shared.logging;
+    let clock = shared.clock;
+    let repository = shared.repository;
+    let api_credentials = shared.api_credentials;
+    let registry = shared.registry;
     let execution_ids = Arc::new(RandomExecutionIdentity);
     let timeline = Arc::new(SqliteExecutionTimelineRepository::new(
         dependencies.database.clone(),
@@ -116,7 +148,6 @@ pub(crate) fn assemble_agent_runtime_api(
         )),
     ));
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
-    let api_credentials = Arc::new(OsApiCredentialAdapter::new());
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
     let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
         dependencies.database.clone(),
@@ -129,6 +160,7 @@ pub(crate) fn assemble_agent_runtime_api(
         logging.clone(),
         clock.clone(),
         agent_skills,
+        Arc::new(NativeAgentCoreInstructionsAdapter),
         agent_memories.clone(),
         agent_mcp_tools,
     ));
@@ -160,7 +192,7 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
-        registry: repository.clone(),
+        registry: registry.clone(),
         workflows: repository.clone(),
         sessions: sessions.clone(),
         cli_profiles: cli_profiles.clone(),
@@ -177,11 +209,12 @@ pub(crate) fn assemble_agent_runtime_api(
         loop_completions: loop_completions.clone(),
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
+        onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
         tool_approvals: tool_approvals.clone(),
         memories: agent_memories,
     });
     let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
-        registry: repository.clone(),
+        registry: registry.clone(),
         sessions: sessions.clone(),
         cli_profiles: cli_profiles.clone(),
         terminals: terminal_runtime,
@@ -195,9 +228,9 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let coordination = CoordinationApplicationService::new(CoordinationApplicationPorts {
         repository: coordination_repository,
-        registry: repository.clone(),
+        registry: registry.clone(),
         executor: Arc::new(NativeCoordinationNodeExecutor::new(
-            repository.clone(),
+            registry.clone(),
             cli_profiles.clone(),
             processes,
             execution_ids,
@@ -214,7 +247,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
     let loops = LoopApplicationService::new(LoopApplicationPorts {
         loops: loop_repository.clone(),
-        registry: repository.clone(),
+        registry: registry.clone(),
         api_agents: repository.clone(),
         projects: loop_projects.clone(),
         observer: loop_observer.clone(),
@@ -235,7 +268,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let generations = Arc::new(service.clone());
     let loop_worker = LoopWorkerApplicationService::new(LoopWorkerApplicationPorts {
         iterations: loop_repository.clone(),
-        registry: repository.clone(),
+        registry: registry.clone(),
         roles: sessions.clone(),
         git: loop_projects.clone(),
         generations: generations.clone(),
@@ -250,7 +283,7 @@ pub(crate) fn assemble_agent_runtime_api(
         });
     let loop_verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
         iterations: loop_repository.clone(),
-        registry: repository,
+        registry,
         roles: sessions,
         context: loop_projects.clone(),
         generations,

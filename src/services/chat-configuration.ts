@@ -6,6 +6,7 @@ const agentDefaults: Record<string, { providerId: string; modelId: string; reaso
   "codex-cli": { providerId: "openai", modelId: "gpt-5-5", reasoning: "high" },
   "gemini-cli": { providerId: "google", modelId: "gemini-2-5-pro", reasoning: "high" },
   opencode: { providerId: "opencode", modelId: "opencode-default", reasoning: undefined },
+  onepiece: { providerId: "onepiece", modelId: "onepiece-active", reasoning: undefined },
 };
 
 const permissionModes: readonly PermissionMode[] = ["default", "plan", "agent", "auto"];

@@ -6,6 +6,7 @@ enum ChatAgent {
     Codex,
     Gemini,
     OpenCode,
+    OnePiece,
 }
 
 impl ChatAgent {
@@ -15,6 +16,7 @@ impl ChatAgent {
             "codex-cli" => Ok(Self::Codex),
             "gemini-cli" => Ok(Self::Gemini),
             "opencode" => Ok(Self::OpenCode),
+            "onepiece" => Ok(Self::OnePiece),
             value => Err(SessionsDomainError::UnsupportedChatAgent(value.to_string())),
         }
     }
@@ -25,6 +27,7 @@ impl ChatAgent {
             Self::Codex => "openai",
             Self::Gemini => "google",
             Self::OpenCode => "opencode",
+            Self::OnePiece => "onepiece",
         }
     }
 
@@ -34,6 +37,7 @@ impl ChatAgent {
             Self::Codex => "gpt-5-5",
             Self::Gemini => "gemini-2-5-pro",
             Self::OpenCode => "opencode-default",
+            Self::OnePiece => "onepiece-active",
         }
     }
 
@@ -310,6 +314,21 @@ mod tests {
         assert!(preferences.long_context());
         assert_eq!(provider_for_agent("codex-cli"), Ok("openai"));
         assert_eq!(default_model_for_agent("codex-cli"), Ok("gpt-5-5"));
+        let onepiece = normalize_chat_preferences(
+            "onepiece",
+            ChatConfigurationRequest {
+                permission_mode: "default",
+                provider_id: Some("onepiece"),
+                model_id: Some("deepseek-chat"),
+                reasoning_depth: None,
+                streaming: true,
+                thinking: true,
+                long_context: true,
+            },
+        )
+        .expect("OnePiece preferences");
+        assert_eq!(onepiece.provider_id(), "onepiece");
+        assert_eq!(onepiece.model_id(), "deepseek-chat");
         assert_eq!(
             model_id_from_cli("claude-code", "sonnet").as_deref(),
             Some("claude-sonnet-5")

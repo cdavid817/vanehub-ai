@@ -1488,6 +1488,24 @@
                          "capabilities":  [
                                               "settings-skill-management-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-04",
+                         "changeName":  "add-onepiece-native-agent",
+                         "path":  "openspec/changes/archive/2026-08-04-add-onepiece-native-agent/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-lifecycle-management",
+                                              "agent-skill-injection",
+                                              "api-agent-runtime",
+                                              "onepiece-native-agent",
+                                              "session-management"
+                                          ]
                      }
                  ]
 }

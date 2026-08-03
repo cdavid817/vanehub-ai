@@ -17,6 +17,7 @@ export function ButtonArea({
   config,
   disabled,
   isStreaming,
+  lockRuntimeIdentity = false,
   onAgentChange,
   onEnhance,
   onLongContextChange,
@@ -37,6 +38,7 @@ export function ButtonArea({
   config: ChatConfig;
   disabled?: boolean;
   isStreaming: boolean;
+  lockRuntimeIdentity?: boolean;
   onAgentChange: (value: string) => void;
   onEnhance?: () => void;
   onLongContextChange: (value: boolean) => void;
@@ -72,6 +74,7 @@ export function ButtonArea({
           thinking={config.thinking}
         />
         <ProviderSelect
+          disabled={lockRuntimeIdentity}
           onChange={onProviderChange}
           onClose={close}
           onOpen={() => open("provider")}
@@ -87,6 +90,7 @@ export function ButtonArea({
           value={config.permissionMode}
         />
         <ModelSelect
+          disabled={lockRuntimeIdentity}
           models={availableModels}
           onChange={onModelChange}
           onClose={close}

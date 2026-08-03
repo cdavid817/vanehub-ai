@@ -1587,6 +1587,7 @@ mod tests {
                     availability: AgentAvailability::Available,
                     unavailable_reason: None,
                     capability_tags: Vec::new(),
+                    origin: crate::contexts::agent_runtime::domain::AgentOrigin::Builtin,
                 },
                 cli_profile: CliProfileSnapshot {
                     executable: "codex".to_string(),

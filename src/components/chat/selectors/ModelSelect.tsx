@@ -4,6 +4,7 @@ import type { ModelInfo } from "../../../types/chat";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
 
 export function ModelSelect({
+  disabled,
   models,
   onChange,
   onClose,
@@ -11,6 +12,7 @@ export function ModelSelect({
   open,
   value,
 }: {
+  disabled?: boolean;
   models: ModelInfo[];
   onChange: (value: string) => void;
   onClose: () => void;
@@ -23,6 +25,7 @@ export function ModelSelect({
   return (
     <div className="relative">
       <SelectorButton
+        disabled={disabled}
         icon={<Boxes className="h-3.5 w-3.5" aria-hidden="true" />}
         label={model?.label ?? t("chat.config.model")}
         onClick={onOpen}

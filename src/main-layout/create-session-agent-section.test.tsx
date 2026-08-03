@@ -13,6 +13,7 @@ const agent: AgentRegistryEntry = {
   supportedInteractionModes: ["cli"],
   availabilityState: "available",
   capabilityTags: [],
+  agentOrigin: "builtin",
 };
 
 describe("Create session agent selection", () => {
@@ -33,5 +34,56 @@ describe("Create session agent selection", () => {
     expect(html).toContain("Codex CLI");
     expect(html).toContain("aria-disabled=\"true\"");
     expect(html).toContain("cursor-not-allowed");
+  });
+
+  it("groups and disables unconfigured OnePiece with a configuration action", () => {
+    const onepiece: AgentRegistryEntry = {
+      id: "onepiece",
+      displayName: "OnePiece",
+      provider: "VaneHub",
+      launch: { kind: "api" },
+      supportedInteractionModes: ["api"],
+      availabilityState: "needs-auth",
+      unavailableReason: "API credential is required.",
+      capabilityTags: ["api", "native"],
+      agentOrigin: "builtin",
+    };
+    const html = renderToStaticMarkup(
+      <CreateSessionAgentSection
+        agents={[onepiece, agent]}
+        onAgentSelect={vi.fn()}
+        selectedAgent={agent}
+      />,
+    );
+
+    expect(html).toContain("VaneHub 原生");
+    expect(html).toContain("内置 CLI");
+    expect(html.indexOf("内置 CLI")).toBeLessThan(html.indexOf("VaneHub 原生"));
+    expect(html).toContain("API credential is required.");
+    expect(html).toContain("配置 OnePiece");
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("grid min-w-0 grid-cols-1 gap-2");
+    expect(html).toContain("w-full min-w-0");
+    expect(html).not.toContain("sm:grid-cols-2");
+  });
+
+  it("does not disable a CLI agent when only its optional SDK is missing", () => {
+    const cliAgent: AgentRegistryEntry = {
+      ...agent,
+      availabilityState: "unavailable",
+      managedSdkDependencyId: "codex-sdk",
+      unavailableReason: "Managed SDK dependency 'codex-sdk' is not installed.",
+    };
+    const html = renderToStaticMarkup(
+      <CreateSessionAgentSection
+        agents={[cliAgent]}
+        onAgentSelect={vi.fn()}
+        selectedAgent={cliAgent}
+      />,
+    );
+
+    expect(html).not.toContain("aria-disabled=\"true\"");
+    expect(html).not.toContain("Managed SDK dependency");
+    expect(html).not.toContain("cursor-not-allowed");
   });
 });

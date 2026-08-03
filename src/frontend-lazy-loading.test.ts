@@ -5,7 +5,7 @@ describe("frontend feature module boundaries", () => {
   it("keeps every settings page behind a first-visit dynamic import", () => {
     const source = read("settings/settings-pages.ts");
     const pageModules = source.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
-    expect(pageModules).toHaveLength(15);
+    expect(pageModules).toHaveLength(14);
     expect(source).not.toMatch(/from "\.\/pages\//);
   });
 

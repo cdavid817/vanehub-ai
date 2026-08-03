@@ -187,3 +187,5 @@ export function useMainLayoutModel() {
     switchSession: (session: Session) => { if (!session.archived) switchSession.mutate(session.id); },
   };
 }
+
+export type MainLayoutModel = ReturnType<typeof useMainLayoutModel>;

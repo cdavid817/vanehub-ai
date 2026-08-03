@@ -1,9 +1,10 @@
 use super::loop_models::LoopVerificationCommandView;
 use crate::contexts::agent_runtime::domain::{
-    AgentAvailability, AgentDefinition, AgentLifecycle, AgentReadiness, AgentWorkflow,
+    AgentAvailability, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
     InteractionMode,
 };
 use crate::contexts::execution_observability::api::ExecutionContext;
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +29,7 @@ pub(crate) struct AgentView {
     pub(crate) availability: AgentAvailability,
     pub(crate) unavailable_reason: Option<String>,
     pub(crate) capability_tags: Vec<String>,
+    pub(crate) origin: AgentOrigin,
 }
 
 impl From<&AgentDefinition> for AgentView {
@@ -47,6 +49,7 @@ impl From<&AgentDefinition> for AgentView {
             availability: agent.availability().state(),
             unavailable_reason: agent.availability().reason().map(str::to_string),
             capability_tags: agent.capability_tags().to_vec(),
+            origin: agent.origin(),
         }
     }
 }
@@ -574,6 +577,7 @@ pub(crate) enum GenerationProcessFailureKind {
 pub(crate) struct GenerationProcessFailure {
     pub(crate) kind: GenerationProcessFailureKind,
     pub(crate) diagnostic: String,
+    pub(crate) safe_error: Option<String>,
 }
 
 impl GenerationProcessFailure {
@@ -581,6 +585,7 @@ impl GenerationProcessFailure {
         Self {
             kind: GenerationProcessFailureKind::Retryable,
             diagnostic: diagnostic.into(),
+            safe_error: None,
         }
     }
 
@@ -588,7 +593,13 @@ impl GenerationProcessFailure {
         Self {
             kind: GenerationProcessFailureKind::NonRetryable,
             diagnostic: diagnostic.into(),
+            safe_error: None,
         }
+    }
+
+    pub(crate) fn with_safe_error(mut self, safe_error: impl Into<String>) -> Self {
+        self.safe_error = Some(safe_error.into());
+        self
     }
 }
 
@@ -784,6 +795,197 @@ pub(crate) struct ApiProviderConfig {
     pub(crate) auto_approve_tools: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderConfig {
+    pub(crate) provider: String,
+    pub(crate) model_id: Option<String>,
+    pub(crate) interface_format: Option<String>,
+    pub(crate) base_url: Option<String>,
+    pub(crate) auto_approve_tools: bool,
+    pub(crate) credential_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SaveOnePieceProviderConfigInput {
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredOnePieceProviderConfig {
+    pub(crate) provider: String,
+    pub(crate) model_id: Option<String>,
+    pub(crate) interface_format: Option<String>,
+    pub(crate) base_url: Option<String>,
+    pub(crate) auto_approve_tools: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderProfile {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) source_provider_id: Option<String>,
+    pub(crate) source_endpoint_type: Option<String>,
+    pub(crate) source_preset_version: Option<u32>,
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) active: bool,
+    pub(crate) credential_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderPreset {
+    pub(crate) id: String,
+    pub(crate) catalog_version: u32,
+    pub(crate) display_name: String,
+    pub(crate) category: String,
+    pub(crate) icon_key: String,
+    pub(crate) provider: String,
+    pub(crate) default_model_id: String,
+    pub(crate) fallback_models: Vec<String>,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key_url: String,
+    pub(crate) docs_url: String,
+    pub(crate) model_discovery_strategy: String,
+    pub(crate) default_endpoint_type: String,
+    pub(crate) endpoints: Vec<OnePieceProviderEndpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderEndpoint {
+    pub(crate) endpoint_type: String,
+    pub(crate) base_url: String,
+    pub(crate) interface_format: String,
+    pub(crate) auth_strategy: String,
+    pub(crate) source: String,
+    pub(crate) model_discovery_strategy: String,
+    pub(crate) model_discovery_url: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct DiscoverOnePieceProviderModelsInput {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ValidateOnePieceProviderCredentialInput {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) model_id: String,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderCredentialProbeProtocol {
+    AnthropicMessages,
+    OpenAiChatCompletions,
+    OpenAiResponses,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderCredentialProbeAuthentication {
+    AnthropicApiKey,
+    Bearer,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ProviderCredentialValidationStatus {
+    Valid,
+    InvalidCredential,
+    ConfigurationRejected,
+    RateLimited,
+    ProviderUnavailable,
+    Unsupported,
+    Inconclusive,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderCredentialValidationResult {
+    pub(crate) status: ProviderCredentialValidationStatus,
+    pub(crate) latency_ms: u64,
+    pub(crate) http_status: Option<u16>,
+}
+
+pub(crate) struct ProviderCredentialProbeRequest {
+    pub(crate) base_url: String,
+    pub(crate) model: String,
+    pub(crate) protocol: ProviderCredentialProbeProtocol,
+    pub(crate) authentication: ProviderCredentialProbeAuthentication,
+    pub(crate) credential: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceModelDiscoveryRequest {
+    pub(crate) strategy: String,
+    pub(crate) url: String,
+    pub(crate) api_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceDiscoveredModel {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderModelOption {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderModelDiscoveryResult {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) models: Vec<OnePieceProviderModelOption>,
+    pub(crate) source: String,
+    pub(crate) warning: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OnePieceProviderProfiles {
+    pub(crate) profiles: Vec<OnePieceProviderProfile>,
+    pub(crate) active_profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SaveOnePieceProviderProfileInput {
+    pub(crate) id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) model_id: String,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StoredOnePieceProviderProfile {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) source_preset_id: Option<String>,
+    pub(crate) source_provider_id: Option<String>,
+    pub(crate) source_endpoint_type: Option<String>,
+    pub(crate) source_preset_version: Option<u32>,
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) active: bool,
+}
+
 /// A Skill bound to an API agent, resolved and ready to inject as that agent's generation
 /// requests' system prompt (`add-agent-skill-support`) — `name` and `body` only, no metadata
 /// `agent_runtime` has no use for.
@@ -792,6 +994,12 @@ pub(crate) struct BoundSkillPrompt {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCoreInstructions {
+    pub(crate) version: String,
+    pub(crate) markdown: String,
 }
 
 /// How a memory (`add-agent-cross-session-memory`) was produced.

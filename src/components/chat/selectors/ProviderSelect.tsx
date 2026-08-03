@@ -1,4 +1,4 @@
-import { BrainCircuit, Code2, Sparkles, TerminalSquare } from "lucide-react";
+import { Bot, BrainCircuit, Code2, Sparkles, TerminalSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PROVIDER_LABELS } from "../models";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
@@ -8,15 +8,18 @@ const providerIcons = {
   openai: <Code2 className="h-3.5 w-3.5" aria-hidden="true" />,
   google: <BrainCircuit className="h-3.5 w-3.5" aria-hidden="true" />,
   opencode: <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />,
+  onepiece: <Bot className="h-3.5 w-3.5" aria-hidden="true" />,
 };
 
 export function ProviderSelect({
+  disabled,
   onChange,
   onClose,
   onOpen,
   open,
   value,
 }: {
+  disabled?: boolean;
   onChange: (value: string) => void;
   onClose: () => void;
   onOpen: () => void;
@@ -27,7 +30,7 @@ export function ProviderSelect({
   const label = PROVIDER_LABELS[value] ?? value;
   return (
     <div className="relative">
-      <SelectorButton compact icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={t("chat.config.providerTitle", { label })} />
+      <SelectorButton compact disabled={disabled} icon={providerIcons[value as keyof typeof providerIcons]} label={label} onClick={onOpen} open={open} title={t("chat.config.providerTitle", { label })} />
       {open ? (
         <SelectorDropdown
           onClose={onClose}

@@ -1340,6 +1340,24 @@ mod tests {
     }
 
     #[test]
+    fn api_agent_lookup_includes_seeded_builtin_onepiece_and_excludes_cli_agents() {
+        let fixture = Fixture::new("Skill API agent lookup");
+
+        assert!(fixture
+            .repository
+            .is_api_agent("onepiece")
+            .expect("OnePiece lookup"));
+        assert!(!fixture
+            .repository
+            .is_api_agent("codex-cli")
+            .expect("CLI lookup"));
+        assert!(!fixture
+            .repository
+            .is_api_agent("missing-agent")
+            .expect("missing lookup"));
+    }
+
+    #[test]
     fn api_agent_binding_round_trips_and_unbind_removes_it() {
         let fixture = Fixture::new("Skill API agent binding round trip");
         let expected = record("fixture-skill", None);
