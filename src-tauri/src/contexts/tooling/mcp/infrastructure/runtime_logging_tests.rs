@@ -5,10 +5,15 @@ use crate::contexts::tooling::mcp::domain::{
 use crate::test_support::TempDirectory;
 
 fn secret_server() -> ServerConfiguration {
+    let executable = std::env::temp_dir()
+        .join("private")
+        .join("secret-server.exe")
+        .to_string_lossy()
+        .into_owned();
     ServerConfiguration::create(ServerConfigurationDraft {
         name: "secret-fixture".to_string(),
         transport_type: TransportType::Stdio,
-        command: Some("C:\\private\\secret-server.exe".to_string()),
+        command: Some(executable),
         args: Some(vec!["--token=raw-argument-secret".to_string()]),
         env: Some([("API_TOKEN".to_string(), "raw-env-secret".to_string())].into()),
         url: None,
