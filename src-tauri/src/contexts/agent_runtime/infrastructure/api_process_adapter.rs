@@ -1844,23 +1844,64 @@ mod tests {
         pending_approvals: &PendingApprovals,
         tool_call_id: &'static str,
         decision: ToolApprovalDecision,
-    ) -> thread::JoinHandle<()> {
+        cancellation: Arc<AtomicBool>,
+    ) -> thread::JoinHandle<Result<(), &'static str>> {
+        resolve_tool_call_once_with_timeout(
+            pending_approvals,
+            tool_call_id,
+            decision,
+            cancellation,
+            Duration::from_secs(10),
+        )
+    }
+
+    fn resolve_tool_call_once_with_timeout(
+        pending_approvals: &PendingApprovals,
+        tool_call_id: &'static str,
+        decision: ToolApprovalDecision,
+        cancellation: Arc<AtomicBool>,
+        timeout: Duration,
+    ) -> thread::JoinHandle<Result<(), &'static str>> {
         let pending_approvals = pending_approvals.clone();
         thread::spawn(move || {
-            for _ in 0..100 {
+            let deadline = std::time::Instant::now() + timeout;
+            while std::time::Instant::now() < deadline {
                 let sender = pending_approvals
                     .lock()
                     .expect("pending approvals")
                     .get(tool_call_id)
                     .cloned();
                 if let Some(sender) = sender {
-                    sender.send(decision).expect("resolve tool call approval");
-                    return;
+                    return sender
+                        .send(decision)
+                        .map_err(|_| "tool call approval receiver disconnected");
                 }
                 thread::sleep(Duration::from_millis(5));
             }
-            panic!("tool call did not request approval");
+            // A failed resolver must release `await_approval`; otherwise the assertion failure in
+            // this helper is hidden behind an indefinitely blocked test process.
+            cancellation.store(true, Ordering::SeqCst);
+            Err("tool call did not request approval before the test timeout")
         })
+    }
+
+    #[test]
+    fn approval_resolver_cancels_the_generation_when_the_expected_prompt_never_appears() {
+        let cancellation = not_cancelled();
+        let resolver = resolve_tool_call_once_with_timeout(
+            &no_pending_approvals(),
+            "missing-call",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+            Duration::from_millis(25),
+        );
+
+        let result = resolver.join().expect("approval resolver");
+        assert_eq!(
+            result,
+            Err("tool call did not request approval before the test timeout")
+        );
+        assert!(cancellation.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -2186,8 +2227,13 @@ mod tests {
         };
         let sink = CapturingSink::default();
         let pending_approvals = no_pending_approvals();
-        let approver =
-            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Approved);
+        let cancellation = not_cancelled();
+        let approver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+        );
         let mcp = FakeMcp::new(
             Ok(Vec::new()),
             crate::contexts::agent_runtime::application::AgentToolCallOutcome {
@@ -2198,7 +2244,7 @@ mod tests {
 
         let event = execute(
             &request,
-            not_cancelled(),
+            cancellation,
             &FakeCredentials {
                 value: Some("sk-test".to_string()),
             },
@@ -2214,7 +2260,10 @@ mod tests {
             &mcp,
         );
 
-        approver.join().expect("approval resolver");
+        approver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call approval");
         assert!(matches!(event, GenerationProcessEvent::Completed(None)));
         assert_eq!(mcp.calls.lock().expect("calls").len(), 1);
         let requests = server.join().expect("fixture server");
@@ -2253,8 +2302,13 @@ mod tests {
         };
         let sink = CapturingSink::default();
         let pending_approvals = no_pending_approvals();
-        let resolver =
-            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Denied);
+        let cancellation = not_cancelled();
+        let resolver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Denied,
+            cancellation.clone(),
+        );
         let mcp = FakeMcp::new(
             Ok(Vec::new()),
             crate::contexts::agent_runtime::application::AgentToolCallOutcome {
@@ -2265,7 +2319,7 @@ mod tests {
 
         let event = execute(
             &request,
-            not_cancelled(),
+            cancellation,
             &FakeCredentials {
                 value: Some("sk-test".to_string()),
             },
@@ -2281,7 +2335,10 @@ mod tests {
             &mcp,
         );
 
-        resolver.join().expect("approval resolver");
+        resolver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call denial");
         assert!(matches!(event, GenerationProcessEvent::Completed(None)));
         assert!(mcp.calls.lock().expect("calls").is_empty());
         let requests = server.join().expect("fixture server");
@@ -2319,13 +2376,18 @@ mod tests {
         };
         let sink = CapturingSink::default();
         let pending_approvals = no_pending_approvals();
-        let approver =
-            resolve_tool_call_once(&pending_approvals, "call_1", ToolApprovalDecision::Approved);
+        let cancellation = not_cancelled();
+        let approver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+        );
         let mcp = CancellingMcp::default();
 
         let event = execute(
             &request,
-            not_cancelled(),
+            cancellation,
             &FakeCredentials {
                 value: Some("sk-test".to_string()),
             },
@@ -2341,7 +2403,10 @@ mod tests {
             &mcp,
         );
 
-        approver.join().expect("approval resolver");
+        approver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call approval");
         match event {
             GenerationProcessEvent::Failed(failure) => {
                 assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
