@@ -103,5 +103,8 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-02 | recover-webview-white-screen | desktop-webview-reliability | `openspec/changes/archive/2026-08-02-recover-webview-white-screen/` |
 | 2026-08-02 | refine-basic-settings-information-architecture | settings-basic-configuration-ui, settings-floating-assistant-ui | `openspec/changes/archive/2026-08-02-refine-basic-settings-information-architecture/` |
 | 2026-08-03 | harden-mcp-runtime-reliability | agent-mcp-tools, mcp-client-management | `openspec/changes/archive/2026-08-03-harden-mcp-runtime-reliability/` |
+| 2026-08-03 | harden-skill-mount-root-links | settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-03-harden-skill-mount-root-links/` |
+| 2026-08-03 | optimize-skill-management-ui | main-layout-ui, settings-skill-management-ui | `openspec/changes/archive/2026-08-03-optimize-skill-management-ui/` |
+| 2026-08-03 | refine-skill-agent-selection-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-03-refine-skill-agent-selection-ui/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
