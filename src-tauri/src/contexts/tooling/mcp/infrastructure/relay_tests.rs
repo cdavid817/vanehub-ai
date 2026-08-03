@@ -1,8 +1,25 @@
+use super::super::relay_jsonrpc::{JsonRpcCorrelation, RelayDirection};
+use super::super::relay_stdio_pump::forward_stdio_frames;
+use super::super::relay_stdio_pump::PumpStop;
 use super::*;
+use crate::contexts::tooling::mcp::application::McpCancellation;
+use crate::platform::process::ManagedChild;
 use crate::test_support::TempDirectory;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Instant;
+
+fn control(timeout: Duration) -> McpExecutionControl {
+    McpExecutionControl::with_timeout(timeout)
+}
+
+fn private_directory(label: &str) -> (TempDirectory, PrivateRelayDirectory) {
+    let root = TempDirectory::new(label);
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("private directory");
+    (root, directory)
+}
 
 #[test]
 fn non_relay_process_arguments_are_ignored() {
@@ -14,11 +31,11 @@ fn non_relay_process_arguments_are_ignored() {
 fn relay_process_arguments_require_and_run_the_configuration_path() {
     assert!(run_from_process_args(["vanehub".into(), RELAY_FLAG.into()]).is_err());
 
-    let directory = TempDirectory::new("mcp-relay-process-args");
+    let (_root, directory) = private_directory("mcp-relay-process-args");
     let path = write_configuration(
-        directory.path(),
+        &directory,
         &RelayConfiguration {
-            target: RelayTarget::Http {
+            target: RelayTarget::StreamableHttp {
                 url: "http://127.0.0.1:1".to_string(),
                 headers: BTreeMap::new(),
             },
@@ -59,20 +76,159 @@ fn relay_configuration_round_trip_preserves_literal_json_rpc_arguments() {
 }
 
 #[test]
+fn relay_configuration_serializes_legacy_sse_and_streamable_http_unambiguously() {
+    for (target, expected) in [
+        (
+            RelayTarget::LegacySse {
+                url: "http://localhost/events".to_string(),
+                headers: BTreeMap::new(),
+            },
+            "legacy_sse",
+        ),
+        (
+            RelayTarget::StreamableHttp {
+                url: "http://localhost/mcp".to_string(),
+                headers: BTreeMap::new(),
+            },
+            "streamable_http",
+        ),
+    ] {
+        let encoded = serde_json::to_value(&target).expect("encode target");
+        assert_eq!(encoded["transport"], expected);
+        let decoded: RelayTarget = serde_json::from_value(encoded).expect("decode target");
+        assert!(matches!(
+            (decoded, expected),
+            (RelayTarget::LegacySse { .. }, "legacy_sse")
+                | (RelayTarget::StreamableHttp { .. }, "streamable_http")
+        ));
+    }
+}
+
+#[test]
 fn configuration_never_invents_an_unbounded_timeout() {
     assert_eq!(default_timeout_ms(), DEFAULT_TIMEOUT_MS);
 }
 
 #[test]
-fn stdio_forwarding_is_byte_transparent_for_json_rpc_and_protocol_errors() {
+fn oversized_relay_configuration_is_rejected_before_a_file_is_created() {
+    let (_root, directory) = private_directory("mcp-relay-oversized-config");
+    let configuration = RelayConfiguration {
+        target: RelayTarget::Stdio {
+            command: "node".to_string(),
+            args: Vec::new(),
+            env: BTreeMap::from([(
+                "TOKEN".to_string(),
+                "x".repeat(McpLimits::DEFAULT.configuration_serialized_bytes),
+            )]),
+        },
+        traceparent: "traceparent".to_string(),
+        observation: None,
+        timeout_ms: 10,
+    };
+
+    assert!(write_configuration(&directory, &configuration).is_err());
+    assert_eq!(
+        fs::read_dir(directory.path())
+            .expect("read directory")
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn stdio_forwarding_preserves_notifications_and_server_requests_byte_for_byte() {
     let input = br#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"arguments":{"literal":"a b ; & \"quoted\""}}}
-not-json-but-still-forwarded
+{"jsonrpc":"2.0","method":"notifications/progress","params":{"progress":1}}
+{"jsonrpc":"2.0","id":"server-1","method":"roots/list"}
 "#;
     let mut output = Vec::new();
+    let correlation = Arc::new(Mutex::new(JsonRpcCorrelation::default()));
 
-    forward_stdio_input(Cursor::new(input), &mut output, None).expect("forward");
+    forward_stdio_frames(
+        Cursor::new(input),
+        &mut output,
+        RelayDirection::ParentToUpstream,
+        None,
+        &correlation,
+    )
+    .expect("forward");
 
     assert_eq!(output, input);
+}
+
+#[test]
+fn stdio_forwarding_correlates_same_id_in_both_directions() {
+    let parent_request = br#"{"jsonrpc":"2.0","id":1,"method":"tools/call"}
+"#;
+    let server_request = br#"{"jsonrpc":"2.0","id":1,"method":"roots/list"}
+"#;
+    let parent_response = br#"{"jsonrpc":"2.0","id":1,"result":{"roots":[]}}
+"#;
+    let server_response = br#"{"jsonrpc":"2.0","id":1,"result":{"content":[]}}
+"#;
+    let correlation = Arc::new(Mutex::new(JsonRpcCorrelation::default()));
+    let mut upstream = Vec::new();
+    let mut parent = Vec::new();
+
+    forward_stdio_frames(
+        Cursor::new(parent_request),
+        &mut upstream,
+        RelayDirection::ParentToUpstream,
+        None,
+        &correlation,
+    )
+    .expect("parent request");
+    forward_stdio_frames(
+        Cursor::new(server_request),
+        &mut parent,
+        RelayDirection::UpstreamToParent,
+        None,
+        &correlation,
+    )
+    .expect("server request");
+    forward_stdio_frames(
+        Cursor::new(server_response),
+        &mut parent,
+        RelayDirection::UpstreamToParent,
+        None,
+        &correlation,
+    )
+    .expect("server response");
+    forward_stdio_frames(
+        Cursor::new(parent_response),
+        &mut upstream,
+        RelayDirection::ParentToUpstream,
+        None,
+        &correlation,
+    )
+    .expect("parent response");
+
+    assert_eq!(
+        upstream,
+        [parent_request.as_slice(), parent_response].concat()
+    );
+    assert_eq!(
+        parent,
+        [server_request.as_slice(), server_response].concat()
+    );
+    assert_eq!(correlation.lock().expect("correlation").pending_count(), 0);
+}
+
+#[test]
+fn stdio_forwarding_rejects_invalid_json_rpc_without_forwarding_it() {
+    let mut output = Vec::new();
+    let correlation = Arc::new(Mutex::new(JsonRpcCorrelation::default()));
+
+    let result = forward_stdio_frames(
+        Cursor::new(b"not-json\n"),
+        &mut output,
+        RelayDirection::ParentToUpstream,
+        None,
+        &correlation,
+    );
+
+    assert!(result.is_err());
+    assert!(output.is_empty());
 }
 
 #[test]
@@ -91,13 +247,16 @@ fn stdio_forwarding_propagates_a_bounded_writer_failure() {
         }
     }
 
-    let result = forward_stdio_input(
+    let correlation = Arc::new(Mutex::new(JsonRpcCorrelation::default()));
+    let result = forward_stdio_frames(
         Cursor::new(
             br#"{"jsonrpc":"2.0","id":1,"method":"ping"}
 "#,
         ),
         &mut FailingWriter,
+        RelayDirection::ParentToUpstream,
         None,
+        &correlation,
     );
 
     assert!(result.is_err());
@@ -105,9 +264,9 @@ fn stdio_forwarding_propagates_a_bounded_writer_failure() {
 
 #[test]
 fn configuration_routes_stdio_and_removes_secret_bearing_temporary_files_on_failure() {
-    let directory = TempDirectory::new("mcp-relay-config");
+    let (_root, directory) = private_directory("mcp-relay-config");
     let path = write_configuration(
-        directory.path(),
+        &directory,
         &RelayConfiguration {
             target: RelayTarget::Stdio {
                 command: "definitely-missing-vanehub-relay-command".to_string(),
@@ -138,39 +297,29 @@ fn malformed_configuration_is_removed_and_rejected() {
 
 #[test]
 fn configuration_routes_stdio_through_a_real_bounded_child() {
-    let directory = TempDirectory::new("mcp-relay-stdio-child");
-    let executable = std::env::current_exe().expect("current test executable");
-    let path = write_configuration(
-        directory.path(),
-        &RelayConfiguration {
-            target: RelayTarget::Stdio {
-                command: executable.to_string_lossy().into_owned(),
-                args: vec![
-                    "--ignored".to_string(),
-                    "--exact".to_string(),
-                    "contexts::tooling::mcp::infrastructure::relay::tests::relay_stdio_child_fixture"
-                        .to_string(),
-                ],
-                env: BTreeMap::new(),
-            },
-            traceparent: "traceparent".to_string(),
-            observation: None,
-            timeout_ms: 1_000,
-        },
-    )
-    .expect("write configuration");
+    let child = ManagedChild::spawn("node", &["-e".to_string(), String::new()], &BTreeMap::new())
+        .expect("child");
 
-    run_configuration(&path).expect("stdio child relay");
-    assert!(!path.exists());
+    super::super::relay_stdio::supervise(
+        child,
+        Cursor::new(Vec::<u8>::new()),
+        Vec::<u8>::new(),
+        Duration::from_secs(1),
+        McpCancellation::default(),
+        PumpStop::default(),
+        None,
+        &McpRuntimeLogContext::for_relay("stdio", None, None, None),
+    )
+    .expect("stdio child relay");
 }
 
 #[test]
 fn http_configuration_with_empty_input_uses_the_stream_router() {
-    let directory = TempDirectory::new("mcp-relay-http-config");
+    let (_root, directory) = private_directory("mcp-relay-http-config");
     let path = write_configuration(
-        directory.path(),
+        &directory,
         &RelayConfiguration {
-            target: RelayTarget::Http {
+            target: RelayTarget::StreamableHttp {
                 url: "http://127.0.0.1:1".to_string(),
                 headers: BTreeMap::new(),
             },
@@ -194,7 +343,7 @@ fn http_routing_forwards_json_rpc_and_refuses_redirects() {
         &url,
         &BTreeMap::from([("authorization".to_string(), "Bearer redacted".to_string())]),
         "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-        Duration::from_secs(1),
+        control(Duration::from_secs(1)),
         None,
         Cursor::new(
             br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}
@@ -216,7 +365,7 @@ fn http_routing_forwards_json_rpc_and_refuses_redirects() {
         &redirect_url,
         &BTreeMap::new(),
         "traceparent",
-        Duration::from_secs(1),
+        control(Duration::from_secs(1)),
         None,
         Cursor::new(
             br#"{"jsonrpc":"2.0","id":2,"method":"ping"}
@@ -236,7 +385,7 @@ fn http_routing_has_a_bounded_timeout_and_rejects_protocol_errors() {
         &url,
         &BTreeMap::new(),
         "traceparent",
-        Duration::from_millis(10),
+        control(Duration::from_millis(10)),
         None,
         Cursor::new(
             br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}
@@ -252,13 +401,42 @@ fn http_routing_has_a_bounded_timeout_and_rejects_protocol_errors() {
         "http://127.0.0.1:1",
         &BTreeMap::new(),
         "traceparent",
-        Duration::from_millis(10),
+        control(Duration::from_millis(10)),
         None,
         Cursor::new(b"not-json\n"),
         &mut Vec::new(),
     )
     .expect_err("invalid JSON-RPC");
     assert_eq!(invalid, "relay received invalid JSON-RPC");
+}
+
+#[test]
+fn http_routing_reports_connection_failures() {
+    let error = relay_http_stream(
+        "http://127.0.0.1:1",
+        &BTreeMap::new(),
+        "traceparent",
+        control(Duration::from_secs(1)),
+        None,
+        Cursor::new(
+            br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+"#,
+        ),
+        &mut Vec::new(),
+    )
+    .expect_err("closed endpoint must fail");
+
+    assert!(!error.is_empty());
+}
+
+#[test]
+fn json_rpc_method_requires_a_string_method() {
+    assert_eq!(
+        json_rpc_method(&serde_json::json!({"method": "tools/list"})),
+        Some("tools/list")
+    );
+    assert_eq!(json_rpc_method(&serde_json::json!({"method": 1})), None);
+    assert_eq!(json_rpc_method(&serde_json::json!({})), None);
 }
 
 #[test]
@@ -289,7 +467,7 @@ fn http_routing_reuses_session_identity_and_propagates_output_failure() {
         &format!("http://{address}"),
         &BTreeMap::new(),
         "traceparent",
-        Duration::from_secs(1),
+        control(Duration::from_secs(1)),
         None,
         Cursor::new(input),
         &mut Vec::new(),
@@ -320,7 +498,7 @@ fn http_routing_reuses_session_identity_and_propagates_output_failure() {
         &url,
         &BTreeMap::new(),
         "traceparent",
-        Duration::from_secs(1),
+        control(Duration::from_secs(1)),
         None,
         Cursor::new(
             br#"{"jsonrpc":"2.0","id":3,"method":"ping"}
@@ -332,14 +510,6 @@ fn http_routing_reuses_session_identity_and_propagates_output_failure() {
     output_server.join().expect("output fixture");
 }
 
-#[test]
-#[ignore = "spawned only by the bounded stdio relay test"]
-fn relay_stdio_child_fixture() {
-    let mut input = std::io::stdin().lock();
-    let mut output = std::io::stdout().lock();
-    std::io::copy(&mut input, &mut output).expect("echo relay input");
-}
-
 fn one_response_server(
     status: &'static str,
     body: &'static [u8],
@@ -347,10 +517,26 @@ fn one_response_server(
     delay: Option<Duration>,
 ) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind HTTP fixture");
+    listener
+        .set_nonblocking(true)
+        .expect("configure bounded HTTP fixture accept");
     let address = listener.local_addr().expect("fixture address");
     let body = body.to_vec();
     let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept HTTP request");
+        let accept_deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < accept_deadline =>
+                {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return,
+                Err(error) => panic!("accept HTTP request: {error}"),
+            }
+        };
         let _ = read_http_request(&mut stream);
         if let Some(delay) = delay {
             thread::sleep(delay);

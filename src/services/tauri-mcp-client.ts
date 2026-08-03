@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { McpService } from "./mcp-service";
+import { parseMcpImportText } from "./mcp-import";
 import { unsupportedRuntimeError } from "./service-error";
 import type {
+  McpErrorCode,
   McpImportExport,
   McpImportResult,
   McpScope,
@@ -9,7 +11,32 @@ import type {
   McpServerStatus,
   PartialMcpServerConfig,
 } from "../types/mcp";
+import { MCP_ERROR_CODES } from "../types/mcp";
 import type { OperationTask } from "../types/operation";
+
+type NativeMcpServerStatus = Omit<McpServerStatus, "errorCode"> & { errorCode?: unknown };
+
+function mapMcpErrorCode(value: unknown): McpErrorCode | null | undefined {
+  if (value === null || value === undefined) return value;
+  return typeof value === "string" && (MCP_ERROR_CODES as readonly string[]).includes(value)
+    ? (value as McpErrorCode)
+    : null;
+}
+
+function mapServerStatus(status: NativeMcpServerStatus): McpServerStatus {
+  return { ...status, errorCode: mapMcpErrorCode(status.errorCode) };
+}
+
+function mapConnectionOperation(operation: OperationTask): OperationTask {
+  if (operation.kind !== "mcp" || !operation.result) return operation;
+  return {
+    ...operation,
+    result: {
+      ...operation.result,
+      errorCode: mapMcpErrorCode(operation.result.errorCode) ?? null,
+    },
+  };
+}
 
 export const tauriMcpClient: McpService = {
   listServers() {
@@ -32,20 +59,22 @@ export const tauriMcpClient: McpService = {
     return invoke<void>("toggle_mcp_server", { name, active });
   },
 
-  testConnection(name: string) {
-    return invoke<OperationTask>("test_mcp_connection", { name });
+  async testConnection(name: string) {
+    return mapConnectionOperation(await invoke<OperationTask>("test_mcp_connection", { name }));
   },
 
-  getServerStatus(name: string) {
-    return invoke<McpServerStatus>("get_mcp_server_status", { name });
+  async getServerStatus(name: string) {
+    return mapServerStatus(await invoke<NativeMcpServerStatus>("get_mcp_server_status", { name }));
   },
 
   callTool() {
     return Promise.reject(unsupportedRuntimeError("MCP tool calling is reserved for a later VaneHub release."));
   },
 
-  importServers(data: McpImportExport, scope: McpScope) {
-    return invoke<McpImportResult>("import_mcp_servers", { data, scope });
+  async importServers(input: string, scope: McpScope) {
+    const parsed = parseMcpImportText(input);
+    const result = await invoke<McpImportResult>("import_mcp_servers", { data: parsed.data, scope });
+    return { ...result, failures: [...parsed.failures, ...(result.failures ?? [])] };
   },
 
   exportServers(names: string[]) {

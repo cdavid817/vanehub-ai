@@ -102,5 +102,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-02 | optimize-runtime-performance-foundation | agent-terminal-runtime, runtime-performance-governance, session-management, settings-center-ui | `openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/` |
 | 2026-08-02 | recover-webview-white-screen | desktop-webview-reliability | `openspec/changes/archive/2026-08-02-recover-webview-white-screen/` |
 | 2026-08-02 | refine-basic-settings-information-architecture | settings-basic-configuration-ui, settings-floating-assistant-ui | `openspec/changes/archive/2026-08-02-refine-basic-settings-information-architecture/` |
+| 2026-08-03 | harden-mcp-runtime-reliability | agent-mcp-tools, mcp-client-management | `openspec/changes/archive/2026-08-03-harden-mcp-runtime-reliability/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

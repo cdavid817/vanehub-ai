@@ -1,11 +1,12 @@
 use crate::contexts::operations::api::{
-    LogSeverity, OperationKind, OperationLog, OperationLogPort, OperationsApi,
+    DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
+    OperationsApi,
 };
 use crate::contexts::tooling::mcp::application::{
     ConnectionTestResult, McpApplicationError, McpClockPort, McpLoggingPort, McpOperationPort,
     McpProjectPathPort, StartedOperation,
 };
-use crate::contexts::tooling::mcp::domain::{ConnectionOutcome, ToolDescriptor};
+use crate::contexts::tooling::mcp::domain::{ConnectionOutcome, McpFailureCode, ToolDescriptor};
 use crate::platform::clock::SystemClock;
 use serde::Serialize;
 use serde_json::Value;
@@ -71,6 +72,17 @@ impl McpOperationPort for McpOperationAdapter {
             .map_err(operation_error)
     }
 
+    fn connection_test_cancellation(
+        &self,
+        operation_id: &str,
+    ) -> Result<crate::contexts::tooling::mcp::application::McpCancellation, McpApplicationError>
+    {
+        self.operations
+            .cancellation_flag(operation_id)
+            .map(crate::contexts::tooling::mcp::application::McpCancellation::from_shared)
+            .map_err(operation_error)
+    }
+
     fn complete_connection_test(
         &self,
         operation_id: &str,
@@ -99,12 +111,19 @@ impl McpOperationPort for McpOperationAdapter {
 
 #[derive(Clone)]
 pub(crate) struct UnifiedMcpLoggingAdapter {
-    logging: Arc<dyn OperationLogPort>,
+    operation_logging: Arc<dyn OperationLogPort>,
+    diagnostic_logging: Arc<dyn DiagnosticLogPort>,
 }
 
 impl UnifiedMcpLoggingAdapter {
-    pub(crate) fn new(logging: Arc<dyn OperationLogPort>) -> Self {
-        Self { logging }
+    pub(crate) fn new<T>(logging: Arc<T>) -> Self
+    where
+        T: OperationLogPort + DiagnosticLogPort + 'static,
+    {
+        Self {
+            operation_logging: logging.clone(),
+            diagnostic_logging: logging,
+        }
     }
 }
 
@@ -117,7 +136,12 @@ impl McpLoggingPort for UnifiedMcpLoggingAdapter {
     ) -> Result<(), McpApplicationError> {
         let mut context = BTreeMap::new();
         context.insert("serverName".to_string(), server_name.to_string());
-        self.logging
+        context.insert("durationMs".to_string(), outcome.duration_ms().to_string());
+        context.insert("toolCount".to_string(), outcome.tools().len().to_string());
+        if let Some(code) = outcome.error_code() {
+            context.insert("errorCode".to_string(), code.as_str().to_string());
+        }
+        self.operation_logging
             .write_operation(OperationLog {
                 operation_id: operation_id.to_string(),
                 severity: if outcome.is_success() {
@@ -129,11 +153,44 @@ impl McpLoggingPort for UnifiedMcpLoggingAdapter {
                 message: if outcome.is_success() {
                     "MCP connection test passed".to_string()
                 } else {
-                    outcome
-                        .error()
-                        .unwrap_or("MCP connection test failed")
-                        .to_string()
+                    "MCP connection test failed".to_string()
                 },
+                context,
+            })
+            .map_err(|error| McpApplicationError::Storage(error.to_string()))
+    }
+
+    fn record_catalog_rejection(
+        &self,
+        server_name: &str,
+        error_code: McpFailureCode,
+    ) -> Result<(), McpApplicationError> {
+        let mut context = BTreeMap::new();
+        context.insert("serverName".to_string(), server_name.to_string());
+        context.insert("errorCode".to_string(), error_code.as_str().to_string());
+        self.diagnostic_logging
+            .write_diagnostic(DiagnosticLog {
+                severity: LogSeverity::Warn,
+                category: "mcp.catalog".to_string(),
+                message: "Excluded an invalid cached MCP tool catalog".to_string(),
+                context,
+            })
+            .map_err(|error| McpApplicationError::Storage(error.to_string()))
+    }
+
+    fn record_catalog_overflow(
+        &self,
+        omitted_tools: usize,
+        maximum_tools: usize,
+    ) -> Result<(), McpApplicationError> {
+        let mut context = BTreeMap::new();
+        context.insert("omittedTools".to_string(), omitted_tools.to_string());
+        context.insert("maximumTools".to_string(), maximum_tools.to_string());
+        self.diagnostic_logging
+            .write_diagnostic(DiagnosticLog {
+                severity: LogSeverity::Warn,
+                category: "mcp.catalog".to_string(),
+                message: "Omitted MCP tools that exceeded the provider catalog limit".to_string(),
                 context,
             })
             .map_err(|error| McpApplicationError::Storage(error.to_string()))
@@ -147,6 +204,7 @@ struct ConnectionTestPayload {
     operation_id: Option<String>,
     tools: Vec<ToolPayload>,
     error: Option<String>,
+    error_code: Option<&'static str>,
     duration_ms: Option<u64>,
 }
 
@@ -157,6 +215,7 @@ impl From<&ConnectionTestResult> for ConnectionTestPayload {
             operation_id: Some(result.operation_id.clone()),
             tools: result.tools.iter().map(ToolPayload::from).collect(),
             error: result.error.clone(),
+            error_code: result.error_code.map(McpFailureCode::as_str),
             duration_ms: Some(result.duration_ms),
         }
     }
@@ -199,6 +258,7 @@ mod tests {
                 input_schema: Some(serde_json::json!({ "type": "object" })),
             }],
             error: None,
+            error_code: Some(McpFailureCode::Timeout),
             duration_ms: 17,
         };
 
@@ -209,5 +269,6 @@ mod tests {
         assert_eq!(value["tools"][0]["inputSchema"]["type"], "object");
         assert_eq!(value["durationMs"], 17);
         assert!(value["error"].is_null());
+        assert_eq!(value["errorCode"], "timeout");
     }
 }

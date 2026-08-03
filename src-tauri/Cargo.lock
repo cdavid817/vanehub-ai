@@ -6326,6 +6326,7 @@ dependencies = [
  "http",
  "json5",
  "keyring",
+ "libc",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -6333,6 +6334,7 @@ dependencies = [
  "opentelemetry_sdk",
  "portable-pty",
  "proc-macro2",
+ "process-wrap",
  "prost",
  "qrcode",
  "r2d2",
@@ -6364,6 +6366,7 @@ dependencies = [
  "uuid",
  "webpki-roots 1.0.9",
  "webview2-com",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "zeroize",
 ]

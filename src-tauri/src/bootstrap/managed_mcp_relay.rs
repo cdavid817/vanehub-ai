@@ -7,8 +7,9 @@ use crate::contexts::tooling::mcp::infrastructure::{
     SqliteMcpServerRepository,
 };
 use crate::platform::database::NativeDatabase;
+use crate::platform::private_relay_fs::PrivateRelayDirectory;
 use serde_json::{json, Map, Value};
-use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -19,23 +20,33 @@ pub(crate) struct InvocationScopedMcpRelayAdapter {
     repository: SqliteMcpServerRepository,
     database_path: PathBuf,
     executable: PathBuf,
-    relay_directory: PathBuf,
+    relay_root: Option<PathBuf>,
 }
 
 impl InvocationScopedMcpRelayAdapter {
     pub(crate) fn new(database: NativeDatabase) -> Self {
+        let _ = PrivateRelayDirectory::scavenge_stale();
         Self {
             repository: SqliteMcpServerRepository::new(database.clone()),
             database_path: database.db_path,
             executable: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vanehub")),
-            relay_directory: std::env::temp_dir().join("vanehub-mcp-relay"),
+            relay_root: None,
         }
+    }
+
+    fn create_relay_directory(&self) -> Result<PrivateRelayDirectory, String> {
+        match &self.relay_root {
+            Some(root) => PrivateRelayDirectory::create_in(root),
+            None => PrivateRelayDirectory::create(),
+        }
+        .map_err(|error| error.to_string())
     }
 
     fn prepare_servers(
         &self,
         project_path: Option<&str>,
         context: &ExecutionContext,
+        relay_directory: &PrivateRelayDirectory,
     ) -> Result<Vec<PreparedServer>, String> {
         let servers = self
             .repository
@@ -44,7 +55,7 @@ impl InvocationScopedMcpRelayAdapter {
         servers
             .into_iter()
             .filter(ServerConfiguration::is_active)
-            .map(|server| self.prepare_server(&server, context))
+            .map(|server| self.prepare_server(&server, context, relay_directory))
             .collect()
     }
 
@@ -52,6 +63,7 @@ impl InvocationScopedMcpRelayAdapter {
         &self,
         server: &ServerConfiguration,
         context: &ExecutionContext,
+        relay_directory: &PrivateRelayDirectory,
     ) -> Result<PreparedServer, String> {
         let target = match server.transport_type() {
             TransportType::Stdio => RelayTarget::Stdio {
@@ -59,7 +71,11 @@ impl InvocationScopedMcpRelayAdapter {
                 args: server.args().unwrap_or_default().to_vec(),
                 env: server.env().cloned().unwrap_or_default(),
             },
-            TransportType::Sse | TransportType::StreamableHttp => RelayTarget::Http {
+            TransportType::Sse => RelayTarget::LegacySse {
+                url: server.url().unwrap_or_default().to_string(),
+                headers: server.headers().cloned().unwrap_or_default(),
+            },
+            TransportType::StreamableHttp => RelayTarget::StreamableHttp {
                 url: server.url().unwrap_or_default().to_string(),
                 headers: server.headers().cloned().unwrap_or_default(),
             },
@@ -76,7 +92,7 @@ impl InvocationScopedMcpRelayAdapter {
             }),
             timeout_ms: RELAY_TIMEOUT_MS,
         };
-        let configuration_path = write_configuration(&self.relay_directory, &configuration)?;
+        let configuration_path = write_configuration(relay_directory, &configuration)?;
         Ok(PreparedServer {
             name: server.name().as_str().to_string(),
             configuration_path,
@@ -94,40 +110,30 @@ impl ManagedMcpRelayPort for InvocationScopedMcpRelayAdapter {
         if !matches!(agent_id, "claude-code" | "codex-cli") {
             return Ok(PreparedMcpRelay {
                 invocation_args: Vec::new(),
-                cleanup_paths: Vec::new(),
+                guard: None,
             });
         }
-        let servers = self.prepare_servers(project_path, context)?;
+        let relay_directory = self.create_relay_directory()?;
+        let guard = relay_directory.guard().map_err(|error| error.to_string())?;
+        let servers = self.prepare_servers(project_path, context, &relay_directory)?;
         if servers.is_empty() {
             return Ok(PreparedMcpRelay {
                 invocation_args: Vec::new(),
-                cleanup_paths: Vec::new(),
+                guard: None,
             });
         }
-        let mut cleanup_paths = servers
-            .iter()
-            .map(|server| server.configuration_path.clone())
-            .collect::<Vec<_>>();
         let invocation_args = match provider_invocation_args(
             agent_id,
             &self.executable,
             &servers,
-            &self.relay_directory,
+            &relay_directory,
         ) {
-            Ok((args, provider_path)) => {
-                if let Some(path) = provider_path {
-                    cleanup_paths.push(path);
-                }
-                args
-            }
-            Err(error) => {
-                cleanup(&cleanup_paths);
-                return Err(error);
-            }
+            Ok((args, _provider_path)) => args,
+            Err(error) => return Err(error),
         };
         Ok(PreparedMcpRelay {
             invocation_args,
-            cleanup_paths,
+            guard: Some(guard),
         })
     }
 }
@@ -141,7 +147,7 @@ fn provider_invocation_args(
     agent_id: &str,
     executable: &Path,
     servers: &[PreparedServer],
-    directory: &Path,
+    directory: &PrivateRelayDirectory,
 ) -> Result<(Vec<String>, Option<PathBuf>), String> {
     match agent_id {
         "claude-code" => {
@@ -162,9 +168,8 @@ fn provider_invocation_args(
 fn write_claude_configuration(
     executable: &Path,
     servers: &[PreparedServer],
-    directory: &Path,
+    directory: &PrivateRelayDirectory,
 ) -> Result<PathBuf, String> {
-    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let mut entries = Map::new();
     for server in servers {
         entries.insert(
@@ -175,10 +180,23 @@ fn write_claude_configuration(
             }),
         );
     }
-    let path = directory.join(format!("claude-{}.json", Uuid::new_v4()));
+    let name = format!("claude-{}.json", Uuid::new_v4());
+    let path = directory.path().join(&name);
     let bytes = serde_json::to_vec(&json!({ "mcpServers": Value::Object(entries) }))
         .map_err(|error| error.to_string())?;
-    fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    crate::contexts::tooling::mcp::application::McpLimits::DEFAULT
+        .validate_bytes(
+            "Claude MCP relay configuration",
+            bytes.len(),
+            crate::contexts::tooling::mcp::application::McpLimits::DEFAULT
+                .configuration_serialized_bytes,
+        )
+        .map_err(|error| error.to_string())?;
+    let mut file = directory
+        .create_file(&name)
+        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.flush().map_err(|error| error.to_string())?;
     Ok(path)
 }
 
@@ -210,15 +228,10 @@ fn capture_policy(policy: CapturePolicy) -> &'static str {
     }
 }
 
-fn cleanup(paths: &[PathBuf]) {
-    for path in paths {
-        let _ = fs::remove_file(path);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDirectory;
 
     fn server(name: &str) -> PreparedServer {
         PreparedServer {
@@ -238,12 +251,77 @@ mod tests {
     }
 
     #[test]
+    fn claude_configuration_is_created_inside_the_owned_private_directory() {
+        let root = TempDirectory::new("claude-provider-relay");
+        let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+        let owned_path = directory.path().to_path_buf();
+        let guard = directory.guard().expect("guard");
+
+        let (args, configuration_path) = provider_invocation_args(
+            "claude-code",
+            Path::new("vanehub.exe"),
+            &[server("local-tools")],
+            &directory,
+        )
+        .expect("configuration");
+
+        let configuration_path = configuration_path.expect("configuration path");
+        assert_eq!(configuration_path.parent(), Some(owned_path.as_path()));
+        assert!(configuration_path.is_file());
+        assert_eq!(args[0], "--mcp-config");
+        drop(guard);
+        assert!(!owned_path.exists());
+    }
+
+    #[test]
+    fn provider_configuration_failure_cleans_previously_created_server_artifacts() {
+        let root = TempDirectory::new("claude-provider-failure");
+        let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+        let owned_path = directory.path().to_path_buf();
+        let guard = directory.guard().expect("guard");
+        let mut secret = directory
+            .create_file("relay-secret.json")
+            .expect("server relay artifact");
+        secret
+            .write_all(b"raw-provider-relay-secret")
+            .expect("write relay secret");
+        drop(secret);
+        let servers = (0..4_000)
+            .map(|index| PreparedServer {
+                name: format!("oversized-provider-server-{index}"),
+                configuration_path: owned_path.join(format!("relay-{index}.json")),
+            })
+            .collect::<Vec<_>>();
+
+        let error = provider_invocation_args(
+            "claude-code",
+            Path::new("vanehub.exe"),
+            &servers,
+            &directory,
+        )
+        .expect_err("provider configuration limit");
+
+        assert!(error.contains("safety limit"));
+        assert_eq!(
+            std::fs::read_dir(&owned_path)
+                .expect("owned artifacts")
+                .count(),
+            1,
+            "provider file was created before validation"
+        );
+        drop(guard);
+        assert!(!owned_path.exists());
+    }
+
+    #[test]
     fn unsupported_providers_receive_no_relay_arguments() {
+        let root = TempDirectory::new("unsupported-provider-relay");
+        let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
         let result = provider_invocation_args(
             "gemini-cli",
             Path::new("vanehub"),
             &[server("local-tools")],
-            Path::new("."),
+            &directory,
         )
         .expect("fallback");
         assert!(result.0.is_empty());

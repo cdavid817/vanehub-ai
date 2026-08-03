@@ -1,11 +1,19 @@
+use super::relay_legacy_sse;
 use super::relay_observer::RelayObserver;
+use super::relay_stdio;
+use super::relay_streamable_http;
+use super::runtime_logging::{self, McpRuntimeLogContext};
+use crate::contexts::tooling::mcp::application::{McpExecutionControl, McpLimits};
+use crate::contexts::tooling::mcp::domain::McpFailureCode;
+use crate::platform::private_relay_fs::PrivateRelayDirectory;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+#[cfg(test)]
+use std::io::BufRead;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use uuid::Uuid;
 
 const RELAY_FLAG: &str = "--vanehub-mcp-relay";
@@ -21,7 +29,12 @@ pub(crate) enum RelayTarget {
         #[serde(default)]
         env: BTreeMap<String, String>,
     },
-    Http {
+    LegacySse {
+        url: String,
+        #[serde(default)]
+        headers: BTreeMap<String, String>,
+    },
+    StreamableHttp {
         url: String,
         #[serde(default)]
         headers: BTreeMap<String, String>,
@@ -47,13 +60,24 @@ pub(crate) struct RelayConfiguration {
 }
 
 pub(crate) fn write_configuration(
-    directory: &Path,
+    directory: &PrivateRelayDirectory,
     configuration: &RelayConfiguration,
 ) -> Result<PathBuf, String> {
-    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
-    let path = directory.join(format!("relay-{}.json", Uuid::new_v4()));
     let bytes = serde_json::to_vec(configuration).map_err(|error| error.to_string())?;
-    fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    McpLimits::DEFAULT
+        .validate_bytes(
+            "MCP relay configuration",
+            bytes.len(),
+            McpLimits::DEFAULT.configuration_serialized_bytes,
+        )
+        .map_err(|error| error.to_string())?;
+    let name = format!("relay-{}.json", Uuid::new_v4());
+    let path = directory.path().join(&name);
+    let mut file = directory
+        .create_file(&name)
+        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.flush().map_err(|error| error.to_string())?;
     Ok(path)
 }
 
@@ -79,142 +103,99 @@ fn run_from_process_args(
 }
 
 fn run_configuration(path: &Path) -> Result<(), String> {
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let _ = fs::remove_file(path);
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    fs::remove_file(path).map_err(|error| error.to_string())?;
+    let mut bytes = Vec::new();
+    file.take((McpLimits::DEFAULT.configuration_serialized_bytes + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    McpLimits::DEFAULT
+        .validate_bytes(
+            "MCP relay configuration",
+            bytes.len(),
+            McpLimits::DEFAULT.configuration_serialized_bytes,
+        )
+        .map_err(|error| error.to_string())?;
     let configuration =
         serde_json::from_slice::<RelayConfiguration>(&bytes).map_err(|error| error.to_string())?;
+    let control =
+        McpExecutionControl::with_timeout(Duration::from_millis(configuration.timeout_ms.max(1)));
     let observer = RelayObserver::new(configuration.observation.as_ref());
-    match configuration.target {
-        RelayTarget::Stdio { command, args, env } => relay_stdio(
-            &command,
-            &args,
-            &env,
-            Duration::from_millis(configuration.timeout_ms.max(1)),
-            observer,
-        ),
-        RelayTarget::Http { url, headers } => relay_http(
-            &url,
-            &headers,
-            &configuration.traceparent,
-            Duration::from_millis(configuration.timeout_ms.max(1)),
-            observer,
-        ),
-    }
-}
-
-fn relay_stdio(
-    executable: &str,
-    args: &[String],
-    env: &BTreeMap<String, String>,
-    timeout: Duration,
-    observer: Option<RelayObserver>,
-) -> Result<(), String> {
-    let mut child = crate::platform::process::spawn_piped(executable, args, env)
-        .map_err(|error| error.to_string())?;
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "relay child stdin unavailable".to_string())?;
-    let mut child_stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "relay child stdout unavailable".to_string())?;
-    let input = thread::spawn(move || {
-        let source = BufReader::new(std::io::stdin().lock());
-        forward_stdio_input(source, &mut child_stdin, observer.as_ref())?;
-        drop(child_stdin);
-        Ok::<(), String>(())
-    });
-    let output =
-        thread::spawn(move || std::io::copy(&mut child_stdout, &mut std::io::stdout().lock()));
-    let started = Instant::now();
-    loop {
-        if child
-            .try_wait()
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            break;
-        }
-        if input.is_finished() && started.elapsed() >= timeout {
-            let _ = child.kill();
-            return Err("MCP stdio relay shutdown timed out".to_string());
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    input
-        .join()
-        .map_err(|_| "relay input thread failed".to_string())??;
-    output
-        .join()
-        .map_err(|_| "relay output thread failed".to_string())?
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn forward_stdio_input(
-    mut source: impl BufRead,
-    target: &mut impl Write,
-    observer: Option<&RelayObserver>,
-) -> Result<(), String> {
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        let count = source
-            .read_until(b'\n', &mut line)
-            .map_err(|error| error.to_string())?;
-        if count == 0 {
-            break;
-        }
-        let method = request_method(&line);
-        let request =
-            observer.and_then(|observer| observer.start_request("stdio", method.as_deref()));
-        let result = target
-            .write_all(&line)
-            .and_then(|()| target.flush())
-            .map_err(|error| error.to_string());
-        if let (Some(observer), Some(request)) = (observer, request) {
-            observer.finish_request(
-                &request,
-                result.is_ok(),
-                result.as_ref().err().map(|_| "mcp_stdio_forward_failed"),
+    let transport = match &configuration.target {
+        RelayTarget::Stdio { .. } => "stdio",
+        RelayTarget::LegacySse { .. } => "sse",
+        RelayTarget::StreamableHttp { .. } => "streamable_http",
+    };
+    let log_context = McpRuntimeLogContext::for_relay(
+        transport,
+        configuration
+            .observation
+            .as_ref()
+            .map(|value| value.run_id.as_str()),
+        configuration
+            .observation
+            .as_ref()
+            .map(|value| value.trace_id.as_str()),
+        configuration
+            .observation
+            .as_ref()
+            .map(|value| value.parent_span_id.as_str()),
+    );
+    let (result, failure_code) = match configuration.target {
+        RelayTarget::Stdio { command, args, env } => {
+            let command_context = log_context.clone().with_command(&command, args.len());
+            let result = relay_stdio::run(
+                &command,
+                &args,
+                &env,
+                Duration::from_millis(configuration.timeout_ms.max(1)),
+                control.cancellation(),
+                observer,
+                &command_context,
             );
+            let failure_code = result.is_err().then_some(McpFailureCode::Transport);
+            (result, failure_code)
         }
-        result?;
-    }
-    Ok(())
+        RelayTarget::LegacySse { url, headers } => {
+            let result = relay_legacy_sse::run(
+                &url,
+                &headers,
+                &configuration.traceparent,
+                Duration::from_millis(configuration.timeout_ms.max(1)),
+                control.cancellation(),
+                observer,
+            );
+            let failure_code = result.as_ref().err().map(|error| error.code());
+            (result.map_err(|error| error.to_string()), failure_code)
+        }
+        RelayTarget::StreamableHttp { url, headers } => {
+            let result = relay_streamable_http::run(
+                &url,
+                &headers,
+                &configuration.traceparent,
+                Duration::from_millis(configuration.timeout_ms.max(1)),
+                observer,
+            );
+            let failure_code = result.as_ref().err().map(|error| error.code());
+            (result.map_err(|error| error.to_string()), failure_code)
+        }
+    };
+    runtime_logging::record_relay_terminal(&log_context, failure_code);
+    result
 }
 
-fn relay_http(
-    url: &str,
-    headers: &BTreeMap<String, String>,
-    traceparent: &str,
-    timeout: Duration,
-    observer: Option<RelayObserver>,
-) -> Result<(), String> {
-    relay_http_stream(
-        url,
-        headers,
-        traceparent,
-        timeout,
-        observer,
-        BufReader::new(std::io::stdin().lock()),
-        &mut std::io::stdout().lock(),
-    )
-}
-
+#[cfg(test)]
 fn relay_http_stream(
     url: &str,
     headers: &BTreeMap<String, String>,
     traceparent: &str,
-    timeout: Duration,
+    control: McpExecutionControl,
     observer: Option<RelayObserver>,
     input: impl BufRead,
     output: &mut impl Write,
 ) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(timeout)
         .build()
         .map_err(|error| error.to_string())?;
     let mut session_id: Option<String> = None;
@@ -227,6 +208,7 @@ fn relay_http_stream(
             .and_then(|observer| observer.start_request("http", json_rpc_method(&parsed)));
         let mut request = client
             .post(url)
+            .timeout(control.remaining().map_err(|error| error.to_string())?)
             .header("content-type", "application/json")
             .header("accept", "application/json, text/event-stream")
             .header("traceparent", traceparent)
@@ -242,7 +224,7 @@ fn relay_http_stream(
             Err(error) => {
                 if let (Some(observer), Some(observed_request)) = (&observer, observed_request) {
                     observer.finish_request(
-                        &observed_request,
+                        observed_request,
                         false,
                         Some("mcp_http_request_failed"),
                     );
@@ -252,11 +234,7 @@ fn relay_http_stream(
         };
         if response.status().is_redirection() {
             if let (Some(observer), Some(observed_request)) = (&observer, observed_request) {
-                observer.finish_request(
-                    &observed_request,
-                    false,
-                    Some("mcp_http_redirect_refused"),
-                );
+                observer.finish_request(observed_request, false, Some("mcp_http_redirect_refused"));
             }
             return Err("MCP HTTP relay refused a redirect".to_string());
         }
@@ -272,7 +250,7 @@ fn relay_http_stream(
         output.flush().map_err(|error| error.to_string())?;
         if let (Some(observer), Some(observed_request)) = (&observer, observed_request) {
             observer.finish_request(
-                &observed_request,
+                observed_request,
                 success,
                 (!success).then_some("mcp_http_error_status"),
             );
@@ -281,11 +259,7 @@ fn relay_http_stream(
     Ok(())
 }
 
-fn request_method(bytes: &[u8]) -> Option<String> {
-    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
-    json_rpc_method(&value).map(str::to_string)
-}
-
+#[cfg(test)]
 fn json_rpc_method(value: &serde_json::Value) -> Option<&str> {
     value.get("method").and_then(serde_json::Value::as_str)
 }

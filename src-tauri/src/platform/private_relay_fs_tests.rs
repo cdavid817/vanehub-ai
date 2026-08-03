@@ -1,0 +1,205 @@
+use super::*;
+use std::io::Write;
+use std::time::{Duration, SystemTime};
+
+#[test]
+fn creates_unique_versioned_directory_and_exclusive_file() {
+    let root = crate::test_support::TempDirectory::new("private-relay-fs");
+    let first = PrivateRelayDirectory::create_in(root.path()).expect("first directory");
+    let second = PrivateRelayDirectory::create_in(root.path()).expect("second directory");
+    assert_ne!(first.path(), second.path());
+    assert_eq!(
+        first.path().parent().and_then(Path::file_name),
+        Some("v1".as_ref())
+    );
+
+    let mut file = first.create_file("server.json").expect("private file");
+    file.write_all(b"secret").expect("write");
+    assert_eq!(
+        first
+            .create_file("server.json")
+            .expect_err("create_new")
+            .kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    assert!(first.create_file("../escape.json").is_err());
+}
+
+#[test]
+fn directory_and_guard_creation_failures_leave_no_owned_artifacts() {
+    let root = crate::test_support::TempDirectory::new("private-relay-create-failure");
+    let blocked_root = root.write("blocked-root", "not-a-directory");
+    assert!(PrivateRelayDirectory::create_in(&blocked_root).is_err());
+    assert!(blocked_root.is_file());
+    assert!(!blocked_root.join(RELAY_CACHE_VERSION).exists());
+
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let invocation_path = directory.path().to_path_buf();
+    fs::remove_dir(&invocation_path).expect("inject missing invocation directory");
+    assert!(directory.guard().is_err());
+    assert!(!invocation_path.exists());
+}
+
+#[test]
+fn artifact_creation_failure_remains_owned_by_idempotent_cleanup() {
+    let root = crate::test_support::TempDirectory::new("private-relay-file-failure");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let invocation_path = directory.path().to_path_buf();
+    let guard = directory.guard().expect("guard");
+    let mut file = directory.create_file("secret.json").expect("secret file");
+    file.write_all(b"raw-relay-artifact-secret")
+        .expect("write secret");
+    drop(file);
+
+    assert_eq!(
+        directory
+            .create_file("secret.json")
+            .expect_err("exclusive creation failure")
+            .kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    guard.cleanup().expect("cleanup after creation failure");
+    guard.cleanup().expect("idempotent cleanup");
+    assert!(!invocation_path.exists());
+}
+
+#[test]
+fn guard_cleanup_is_recursive_and_idempotent() {
+    let root = crate::test_support::TempDirectory::new("private-relay-cleanup");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let path = directory.path().to_path_buf();
+    directory.create_file("server.json").expect("file");
+    let guard = directory.guard().expect("guard");
+
+    guard.cleanup().expect("first cleanup");
+    guard.cleanup().expect("second cleanup");
+    assert!(!path.exists());
+}
+
+#[test]
+fn cloned_guard_keeps_the_directory_owned_until_the_last_lifecycle_releases_it() {
+    let root = crate::test_support::TempDirectory::new("private-relay-clone");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let path = directory.path().to_path_buf();
+    let guard = directory.guard().expect("guard");
+    let process_guard = guard.clone();
+
+    drop(guard);
+    assert!(path.exists());
+    drop(process_guard);
+    assert!(!path.exists());
+}
+
+#[test]
+fn scavenger_removes_only_stale_owned_directories() {
+    let root = crate::test_support::TempDirectory::new("private-relay-scavenger");
+    let stale = PrivateRelayDirectory::create_in(root.path()).expect("stale directory");
+    let stale_path = stale.path().to_path_buf();
+    let stale_guard = stale.guard().expect("stale guard");
+    let cutoff = SystemTime::now();
+    std::thread::sleep(Duration::from_millis(50));
+    let fresh = PrivateRelayDirectory::create_in(root.path()).expect("fresh directory");
+    let fresh_path = fresh.path().to_path_buf();
+    let fresh_guard = fresh.guard().expect("fresh guard");
+    let version_root = fresh_path.parent().expect("version root");
+    let unrelated = version_root.join("unrelated-directory");
+    fs::create_dir(&unrelated).expect("unrelated directory");
+    fs::write(version_root.join("unrelated-file"), b"keep").expect("unrelated file");
+
+    scavenge_stale_in(root.path(), cutoff).expect("scavenge");
+
+    assert!(!stale_path.exists());
+    assert!(fresh_path.exists());
+    assert!(unrelated.exists());
+    assert!(version_root.join("unrelated-file").exists());
+    drop(stale_guard);
+    drop(fresh_guard);
+}
+
+#[test]
+fn scavenger_never_follows_an_invocation_symlink_outside_the_version_root() {
+    let root = crate::test_support::TempDirectory::new("private-relay-containment");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let version_root = directory
+        .path()
+        .parent()
+        .expect("version root")
+        .to_path_buf();
+    let guard = directory.guard().expect("guard");
+    let outside = root.path().join("outside");
+    fs::create_dir(&outside).expect("outside");
+    fs::write(outside.join("keep.txt"), b"keep").expect("outside file");
+    let link = version_root.join("invocation-stale-link");
+    if create_directory_symlink(&outside, &link).is_err() {
+        return;
+    }
+
+    scavenge_stale_in(root.path(), SystemTime::now() + Duration::from_secs(60)).expect("scavenge");
+
+    assert!(outside.join("keep.txt").exists());
+    assert!(fs::symlink_metadata(link).is_ok());
+    drop(guard);
+}
+
+#[test]
+fn aborted_preparation_drops_every_partially_written_artifact() {
+    let root = crate::test_support::TempDirectory::new("private-relay-partial");
+    let owned_path = {
+        let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+        let path = directory.path().to_path_buf();
+        let guard = directory.guard().expect("guard");
+        directory.create_file("first.json").expect("first file");
+        directory.create_file("second.json").expect("second file");
+        drop(guard);
+        path
+    };
+    assert!(!owned_path.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_directory_and_file_dacls_allow_only_the_current_user() {
+    let root = crate::test_support::TempDirectory::new("private-relay-windows-acl");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let file_path = directory.path().join("server.json");
+    drop(directory.create_file("server.json").expect("file"));
+
+    assert!(windows_acl::has_private_current_user_dacl(directory.path()).expect("directory ACL"));
+    assert!(windows_acl::has_private_current_user_dacl(&file_path).expect("file ACL"));
+}
+
+#[cfg(unix)]
+fn create_directory_symlink(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_directory_symlink(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_permissions_are_private_before_writing() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_support::TempDirectory::new("private-relay-permissions");
+    let directory = PrivateRelayDirectory::create_in(root.path()).expect("directory");
+    let file = directory.create_file("server.json").expect("file");
+    drop(file);
+    assert_eq!(
+        fs::metadata(directory.path())
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(directory.path().join("server.json"))
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+}
