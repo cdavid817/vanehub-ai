@@ -1444,7 +1444,10 @@ fn mount_root_rejection_preserves_bindings_and_logs_safe_agent_context() {
     ];
     for sensitive_path in sensitive_paths {
         assert!(!log.message.contains(sensitive_path));
-        assert!(!log.context.values().any(|value| value.contains(sensitive_path)));
+        assert!(!log
+            .context
+            .values()
+            .any(|value| value.contains(sensitive_path)));
     }
 }
 
