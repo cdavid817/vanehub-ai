@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, Github, Plug, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { CheckCircle2, ExternalLink, GitFork, Plug, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -164,7 +164,7 @@ function renderCard(
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-[hsl(var(--panel-muted))] text-foreground">
-            <Github className="h-5 w-5" aria-hidden="true" />
+            <GitFork className="h-5 w-5" aria-hidden="true" />
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
