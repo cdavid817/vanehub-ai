@@ -3,13 +3,13 @@ use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     plan_mode_tool_catalog, requires_approval, tool_catalog, AgentChatConfiguration,
-    AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory,
-    AgentMemoryPort, AgentMessage, AgentProcessEventSink, AgentProcessGateway,
-    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
-    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
+    AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink,
+    AgentProcessGateway, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
+    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
+    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
@@ -24,6 +24,7 @@ use std::time::Duration;
 
 const HISTORY_LIMIT: i64 = 50;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+#[cfg(test)]
 const MESSAGES_ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const MAX_TOOL_ROUND_TRIPS: u32 = 25;
 const SKILL_PER_ITEM_CHARACTER_BUDGET: usize = 8_000;
@@ -48,6 +49,7 @@ const MEMORY_EXTRACTION_INSTRUCTION: &str = "Review the conversation above for a
 /// memories share the same system prompt as Skills and, unlike a turn, are never eligible for
 /// compaction, so they must not by themselves risk crowding out the context window.
 const MEMORY_INJECTION_CHARACTER_BUDGET: usize = 4_000;
+const ONEPIECE_CONFIGURATION_ERROR: &str = "OnePiece is not configured. Add or activate a provider configuration with an endpoint, model, and API key in Settings → Agent Configuration.";
 
 type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecision>>>>;
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
@@ -64,6 +66,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
@@ -85,6 +88,7 @@ impl RuntimeAgentApiAdapter {
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
         skills: Arc<dyn AgentSkillPort>,
+        core_instructions: Arc<dyn AgentCoreInstructionsPort>,
         memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
     ) -> Self {
@@ -95,6 +99,7 @@ impl RuntimeAgentApiAdapter {
             logging,
             clock,
             skills,
+            core_instructions,
             memories,
             mcp,
             generations: Arc::new(Mutex::new(HashMap::new())),
@@ -172,6 +177,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let logging = self.logging.clone();
         let clock = self.clock.clone();
         let skills = self.skills.clone();
+        let core_instructions = self.core_instructions.clone();
         let memories = self.memories.clone();
         let mcp = self.mcp.clone();
         thread::spawn(move || {
@@ -184,6 +190,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 logging,
                 clock,
                 skills,
+                core_instructions,
                 memories,
                 mcp,
                 sink,
@@ -253,6 +260,7 @@ fn run_generation(
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     skills: Arc<dyn AgentSkillPort>,
+    core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
     sink: Arc<dyn AgentProcessEventSink>,
@@ -269,6 +277,7 @@ fn run_generation(
         logging.as_ref(),
         clock.as_ref(),
         skills.as_ref(),
+        core_instructions.as_ref(),
         memories.as_ref(),
         mcp.as_ref(),
     );
@@ -366,17 +375,37 @@ fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, &'static st
             },
         })
     } else {
+        let base_url = config
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("https://api.anthropic.com");
+        let endpoint = if base_url.ends_with("/v1/messages") {
+            base_url.to_string()
+        } else {
+            format!("{}/v1/messages", base_url.trim_end_matches('/'))
+        };
+        let official_anthropic = base_url.trim_end_matches('/') == "https://api.anthropic.com";
         Ok(WireFormat {
-            endpoint: MESSAGES_ENDPOINT.to_string(),
+            endpoint,
             history_to_turns: anthropic_provider::history_to_turns,
             build_request_body: anthropic_provider::build_request_body,
             translate_sse_data: anthropic_provider::translate_sse_data,
             build_reply_turns: anthropic_provider::build_reply_turns,
             failure_from_http_status: anthropic_provider::failure_from_http_status,
-            apply_auth: |builder, api_key| {
-                builder
-                    .header("x-api-key", api_key)
-                    .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+            apply_auth: if official_anthropic {
+                |builder, api_key| {
+                    builder
+                        .header("x-api-key", api_key)
+                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                }
+            } else {
+                |builder, api_key| {
+                    builder
+                        .header("Authorization", format!("Bearer {api_key}"))
+                        .header("anthropic-version", anthropic_provider::ANTHROPIC_VERSION)
+                }
             },
         })
     }
@@ -394,6 +423,7 @@ fn execute(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     skills: &dyn AgentSkillPort,
+    core_instructions: &dyn AgentCoreInstructionsPort,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
 ) -> GenerationProcessEvent {
@@ -401,20 +431,30 @@ fn execute(
     let api_key = match credentials.fetch(agent_id) {
         Ok(Some(key)) => key,
         Ok(None) => {
-            return failed_non_retryable("No API key is stored for this agent.");
+            return failed_configuration(agent_id, "No API key is stored for this agent.");
         }
         Err(error) => return failed_non_retryable(&error.to_string()),
     };
     let provider_config = match config.provider_config(agent_id) {
         Ok(Some(config)) => config,
-        Ok(None) => return failed_non_retryable("No model is configured for this agent."),
+        Ok(None) => {
+            return failed_configuration(agent_id, "No model is configured for this agent.");
+        }
         Err(error) => return failed_non_retryable(&error.to_string()),
     };
     let wire_format = match wire_format_for(&provider_config) {
         Ok(wire_format) => wire_format,
-        Err(message) => return failed_non_retryable(message),
+        Err(message) => return failed_configuration(agent_id, message),
     };
-    let system = resolve_system_prompt(agent_id, skills, memories, logging, clock, request);
+    let system = resolve_system_prompt(
+        agent_id,
+        core_instructions,
+        skills,
+        memories,
+        logging,
+        clock,
+        request,
+    );
     let recent = match history.recent_messages(&request.session.id, HISTORY_LIMIT) {
         Ok(messages) => messages,
         Err(error) => {
@@ -452,6 +492,7 @@ fn execute(
         return failure;
     }
 
+    let mut emitted_visible_content = false;
     for _round_trip in 0..MAX_TOOL_ROUND_TRIPS {
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
@@ -519,8 +560,18 @@ fn execute(
                             return GenerationProcessEvent::Failed(failure)
                         }
                         Some(GenerationProcessEvent::Token(text)) => {
+                            let starts_new_round = assistant_text.is_empty();
                             assistant_text.push_str(&text);
-                            if sink.handle(GenerationProcessEvent::Token(text)).is_err() {
+                            let content_delta = if emitted_visible_content && starts_new_round {
+                                format!("\n{text}")
+                            } else {
+                                text
+                            };
+                            emitted_visible_content = true;
+                            if sink
+                                .handle(GenerationProcessEvent::Token(content_delta))
+                                .is_err()
+                            {
                                 return failed_retryable("Agent generation event handling failed.");
                             }
                         }
@@ -593,6 +644,9 @@ fn execute(
                 mcp,
                 plan_mode,
             );
+            if cancelled.load(Ordering::SeqCst) {
+                return failed_non_retryable("Generation was cancelled.");
+            }
             tool_use.status = if outcome.is_error {
                 "failed".to_string()
             } else {
@@ -714,12 +768,48 @@ fn resolve_tool_catalog(
 /// in `add-agent-skill-support`).
 fn resolve_system_prompt(
     agent_id: &str,
+    core_instructions: &dyn AgentCoreInstructionsPort,
     skills: &dyn AgentSkillPort,
     memories: &dyn AgentMemoryPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
+    let core_section = match core_instructions.instructions_for(agent_id) {
+        Ok(Some(core)) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Debug,
+                category: "session.runtime.api.prompt".to_string(),
+                message: format!("Applied core instructions version {}.", core.version),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            Some(core.markdown)
+        }
+        Ok(None) => None,
+        Err(_) => {
+            let _ = logging.record(AgentLog {
+                level: AgentLogLevel::Warn,
+                category: "session.runtime.api.prompt".to_string(),
+                message:
+                    "Failed to resolve core instructions; continuing with optional prompt sections."
+                        .to_string(),
+                agent_id: Some(request.agent.id.clone()),
+                session_id: Some(request.session.id.clone()),
+                operation_id: Some(request.operation_id.clone()),
+                run_id: None,
+                trace_id: None,
+                span_id: None,
+                occurred_at: clock.now(),
+            });
+            None
+        }
+    };
     let skill_section = match skills
         .bound_skill_prompts(agent_id, request.session.folder.as_deref())
     {
@@ -763,7 +853,7 @@ fn resolve_system_prompt(
             None
         }
     };
-    let sections: Vec<String> = [skill_section, memory_section]
+    let sections: Vec<String> = [core_section, skill_section, memory_section]
         .into_iter()
         .flatten()
         .collect();
@@ -1150,7 +1240,7 @@ fn execute_tool_call(
     // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
     // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
     if name.starts_with(MCP_TOOL_NAME_PREFIX) {
-        let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input);
+        let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input, cancelled);
         return ToolExecutionOutcome {
             output: outcome.output,
             is_error: outcome.is_error,
@@ -1226,6 +1316,16 @@ fn execute_remember(
 
 fn failed_non_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::non_retryable(message.to_string()))
+}
+
+fn failed_configuration(agent_id: &str, diagnostic: &str) -> GenerationProcessEvent {
+    let failure = GenerationProcessFailure::non_retryable(diagnostic.to_string());
+    let failure = if agent_id == "onepiece" {
+        failure.with_safe_error(ONEPIECE_CONFIGURATION_ERROR)
+    } else {
+        failure
+    };
+    GenerationProcessEvent::Failed(failure)
 }
 
 fn failed_retryable(message: &str) -> GenerationProcessEvent {
@@ -1411,6 +1511,7 @@ mod tests {
             _project_path: &str,
             name: &str,
             _arguments: &Value,
+            _cancellation: Arc<AtomicBool>,
         ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
             crate::contexts::agent_runtime::application::AgentToolCallOutcome {
                 output: format!("NoopMcp cannot call \"{name}\"."),
@@ -1426,6 +1527,7 @@ mod tests {
         catalog_result: Result<Vec<ToolDefinition>, &'static str>,
         call_outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
         calls: Mutex<Vec<(String, String, Value)>>,
+        cancellations: Mutex<Vec<Arc<AtomicBool>>>,
         catalog_lookups: Mutex<u32>,
     }
 
@@ -1438,6 +1540,7 @@ mod tests {
                 catalog_result,
                 call_outcome,
                 calls: Mutex::new(Vec::new()),
+                cancellations: Mutex::new(Vec::new()),
                 catalog_lookups: Mutex::new(0),
             }
         }
@@ -1459,13 +1562,47 @@ mod tests {
             project_path: &str,
             tool_name: &str,
             arguments: &Value,
+            cancellation: Arc<AtomicBool>,
         ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
             self.calls.lock().expect("calls").push((
                 project_path.to_string(),
                 tool_name.to_string(),
                 arguments.clone(),
             ));
+            self.cancellations
+                .lock()
+                .expect("cancellations")
+                .push(cancellation);
             self.call_outcome.clone()
+        }
+    }
+
+    #[derive(Default)]
+    struct CancellingMcp {
+        calls: Mutex<u32>,
+    }
+
+    impl AgentMcpToolPort for CancellingMcp {
+        fn catalog_entries(
+            &self,
+            _project_path: &str,
+        ) -> Result<Vec<ToolDefinition>, AgentRuntimeApplicationError> {
+            Ok(Vec::new())
+        }
+
+        fn call_tool(
+            &self,
+            _project_path: &str,
+            _tool_name: &str,
+            _arguments: &Value,
+            cancellation: Arc<AtomicBool>,
+        ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            *self.calls.lock().expect("calls") += 1;
+            cancellation.store(true, Ordering::SeqCst);
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "MCP call cancelled.".to_string(),
+                is_error: true,
+            }
         }
     }
 
@@ -1600,6 +1737,7 @@ mod tests {
                 availability: AgentAvailability::Available,
                 unavailable_reason: None,
                 capability_tags: vec!["api".to_string()],
+                origin: crate::contexts::agent_runtime::domain::AgentOrigin::User,
             },
             message_id: "message-1".to_string(),
             operation_id: "operation-1".to_string(),
@@ -1623,6 +1761,15 @@ mod tests {
         }
     }
 
+    fn onepiece_request() -> GenerationProcessRequest {
+        let mut request = sample_request("api");
+        request.session.agent_id = "onepiece".to_string();
+        request.agent.id = "onepiece".to_string();
+        request.agent.display_name = "OnePiece".to_string();
+        request.configuration.agent_id = "onepiece".to_string();
+        request
+    }
+
     fn adapter() -> RuntimeAgentApiAdapter {
         RuntimeAgentApiAdapter::new(
             Arc::new(FakeCredentials::default()),
@@ -1631,6 +1778,9 @@ mod tests {
             Arc::new(NoopLogging),
             Arc::new(FixedClock),
             Arc::new(NoopSkills),
+            Arc::new(
+                crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            ),
             Arc::new(FakeMemories::default()),
             Arc::new(NoopMcp),
         )
@@ -1690,6 +1840,70 @@ mod tests {
         Arc::new(Mutex::new(HashMap::new()))
     }
 
+    fn resolve_tool_call_once(
+        pending_approvals: &PendingApprovals,
+        tool_call_id: &'static str,
+        decision: ToolApprovalDecision,
+        cancellation: Arc<AtomicBool>,
+    ) -> thread::JoinHandle<Result<(), &'static str>> {
+        resolve_tool_call_once_with_timeout(
+            pending_approvals,
+            tool_call_id,
+            decision,
+            cancellation,
+            Duration::from_secs(10),
+        )
+    }
+
+    fn resolve_tool_call_once_with_timeout(
+        pending_approvals: &PendingApprovals,
+        tool_call_id: &'static str,
+        decision: ToolApprovalDecision,
+        cancellation: Arc<AtomicBool>,
+        timeout: Duration,
+    ) -> thread::JoinHandle<Result<(), &'static str>> {
+        let pending_approvals = pending_approvals.clone();
+        thread::spawn(move || {
+            let deadline = std::time::Instant::now() + timeout;
+            while std::time::Instant::now() < deadline {
+                let sender = pending_approvals
+                    .lock()
+                    .expect("pending approvals")
+                    .get(tool_call_id)
+                    .cloned();
+                if let Some(sender) = sender {
+                    return sender
+                        .send(decision)
+                        .map_err(|_| "tool call approval receiver disconnected");
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            // A failed resolver must release `await_approval`; otherwise the assertion failure in
+            // this helper is hidden behind an indefinitely blocked test process.
+            cancellation.store(true, Ordering::SeqCst);
+            Err("tool call did not request approval before the test timeout")
+        })
+    }
+
+    #[test]
+    fn approval_resolver_cancels_the_generation_when_the_expected_prompt_never_appears() {
+        let cancellation = not_cancelled();
+        let resolver = resolve_tool_call_once_with_timeout(
+            &no_pending_approvals(),
+            "missing-call",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+            Duration::from_millis(25),
+        );
+
+        let result = resolver.join().expect("approval resolver");
+        assert_eq!(
+            result,
+            Err("tool call did not request approval before the test timeout")
+        );
+        assert!(cancellation.load(Ordering::SeqCst));
+    }
+
     #[test]
     fn execute_fails_non_retryably_when_no_credential_is_stored() {
         let request = sample_request("api");
@@ -1705,6 +1919,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1712,6 +1927,7 @@ mod tests {
             GenerationProcessEvent::Failed(failure) => {
                 assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
                 assert!(failure.diagnostic.contains("API key"));
+                assert_eq!(failure.safe_error, None);
             }
             other => panic!("expected Failed, got {other:?}"),
         }
@@ -1734,6 +1950,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1741,9 +1958,98 @@ mod tests {
             GenerationProcessEvent::Failed(failure) => {
                 assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
                 assert!(failure.diagnostic.contains("model"));
+                assert_eq!(failure.safe_error, None);
             }
             other => panic!("expected Failed, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn onepiece_missing_credential_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials::default(),
+            &anthropic_config("claude-opus-4-8"),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("API key"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
+    }
+
+    #[test]
+    fn onepiece_missing_model_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-ant-test".to_string()),
+            },
+            &FakeConfig::default(),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("model"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
+    }
+
+    #[test]
+    fn onepiece_missing_endpoint_surfaces_actionable_configuration_error() {
+        let event = execute(
+            &onepiece_request(),
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-ant-test".to_string()),
+            },
+            &openai_compatible_config("deepseek-chat", None),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+        );
+
+        let GenerationProcessEvent::Failed(failure) = event else {
+            panic!("expected configuration failure");
+        };
+        assert!(failure.diagnostic.contains("base URL"));
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(ONEPIECE_CONFIGURATION_ERROR)
+        );
     }
 
     #[test]
@@ -1762,6 +2068,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1789,6 +2096,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1817,6 +2125,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1875,6 +2184,7 @@ mod tests {
             &NoopLogging,
             &FixedClock,
             &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
         );
@@ -1897,6 +2207,228 @@ mod tests {
     }
 
     #[test]
+    fn execute_returns_mcp_failure_as_tool_data_and_continues_generation() {
+        let first_response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let second_response = sse_body(&["[DONE]"]);
+        let (address, server) =
+            http_fixture_sequence("200 OK", vec![first_response, second_response]);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let cancellation = not_cancelled();
+        let approver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+        );
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "MCP transport failed.".to_string(),
+                is_error: true,
+            },
+        );
+
+        let event = execute(
+            &request,
+            cancellation,
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        approver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call approval");
+        assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+        assert_eq!(mcp.calls.lock().expect("calls").len(), 1);
+        let requests = server.join().expect("fixture server");
+        assert_eq!(
+            requests.len(),
+            2,
+            "the failed tool result must reach a follow-up model turn"
+        );
+        assert!(String::from_utf8_lossy(&requests[1]).contains("MCP transport failed."));
+        assert!(sink.events.lock().expect("events").iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed"
+                    && tool_use.output == Some(Value::String("MCP transport failed.".to_string()))
+        )));
+    }
+
+    #[test]
+    fn execute_denied_mcp_call_returns_denial_data_without_reaching_the_mcp_port() {
+        let first_response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let second_response = sse_body(&["[DONE]"]);
+        let (address, server) =
+            http_fixture_sequence("200 OK", vec![first_response, second_response]);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let cancellation = not_cancelled();
+        let resolver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Denied,
+            cancellation.clone(),
+        );
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "must not be called".to_string(),
+                is_error: false,
+            },
+        );
+
+        let event = execute(
+            &request,
+            cancellation,
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        resolver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call denial");
+        assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+        assert!(mcp.calls.lock().expect("calls").is_empty());
+        let requests = server.join().expect("fixture server");
+        assert!(String::from_utf8_lossy(&requests[1]).contains("Denied by user."));
+        let events = sink.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "awaiting_approval"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed"
+                    && tool_use.output == Some(Value::String("Denied by user.".to_string()))
+        )));
+    }
+
+    #[test]
+    fn execute_stops_tool_loop_immediately_when_mcp_call_cancels_generation() {
+        let response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mcp__fixture-tools__search","arguments":"{}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let (address, server) = http_fixture("200 OK", response);
+        let mut request = sample_request("api");
+        request.session.folder = Some("fixture-project".to_string());
+        let config = FakeConfig {
+            provider_config: Some(ApiProviderConfig {
+                model_id: "test-model".to_string(),
+                interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+                base_url: Some(address),
+                auto_approve_tools: true,
+            }),
+        };
+        let sink = CapturingSink::default();
+        let pending_approvals = no_pending_approvals();
+        let cancellation = not_cancelled();
+        let approver = resolve_tool_call_once(
+            &pending_approvals,
+            "call_1",
+            ToolApprovalDecision::Approved,
+            cancellation.clone(),
+        );
+        let mcp = CancellingMcp::default();
+
+        let event = execute(
+            &request,
+            cancellation,
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &config,
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &pending_approvals,
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &mcp,
+        );
+
+        approver
+            .join()
+            .expect("approval resolver")
+            .expect("resolve tool call approval");
+        match event {
+            GenerationProcessEvent::Failed(failure) => {
+                assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
+                assert!(failure.diagnostic.contains("cancelled"));
+            }
+            other => panic!("expected cancellation failure, got {other:?}"),
+        }
+        assert_eq!(*mcp.calls.lock().expect("calls"), 1);
+        assert!(!server.join().expect("fixture server").is_empty());
+        let events = sink.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use) if tool_use.status == "running"
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.status == "failed" || tool_use.status == "completed"
+        )));
+    }
+
+    #[test]
     fn wire_format_for_openai_compatible_builds_chat_completions_endpoint() {
         let config = ApiProviderConfig {
             model_id: "deepseek-chat".to_string(),
@@ -1912,7 +2444,7 @@ mod tests {
     }
 
     #[test]
-    fn wire_format_for_anthropic_uses_fixed_endpoint() {
+    fn wire_format_for_anthropic_uses_official_endpoint_by_default() {
         let config = ApiProviderConfig {
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
@@ -1921,6 +2453,21 @@ mod tests {
         };
         let wire_format = wire_format_for(&config).expect("wire format");
         assert_eq!(wire_format.endpoint, MESSAGES_ENDPOINT);
+    }
+
+    #[test]
+    fn wire_format_for_anthropic_uses_configured_provider_endpoint() {
+        let config = ApiProviderConfig {
+            model_id: "deepseek-chat".to_string(),
+            interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+            base_url: Some("https://api.deepseek.com/anthropic".to_string()),
+            auto_approve_tools: false,
+        };
+        let wire_format = wire_format_for(&config).expect("wire format");
+        assert_eq!(
+            wire_format.endpoint,
+            "https://api.deepseek.com/anthropic/v1/messages"
+        );
     }
 
     #[test]
@@ -2175,6 +2722,35 @@ mod tests {
     }
 
     #[test]
+    fn execute_tool_call_passes_generation_cancellation_to_the_mcp_port() {
+        let mcp = FakeMcp::new(
+            Ok(Vec::new()),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: "cancelled".to_string(),
+                is_error: true,
+            },
+        );
+        let cancellation = Arc::new(AtomicBool::new(true));
+
+        let outcome = execute_tool_call(
+            "mcp__user-scoped-server__ping",
+            &json!({}),
+            None,
+            cancellation.clone(),
+            "test-agent",
+            &FakeMemories::default(),
+            &mcp,
+            false,
+        );
+
+        assert!(outcome.is_error);
+        let captured = mcp.cancellations.lock().expect("cancellations");
+        assert_eq!(captured.len(), 1);
+        assert!(Arc::ptr_eq(&captured[0], &cancellation));
+        assert!(captured[0].load(Ordering::SeqCst));
+    }
+
+    #[test]
     fn execute_tool_call_rejects_shell_in_plan_mode() {
         let outcome = execute_tool_call(
             SHELL_TOOL_NAME,
@@ -2281,6 +2857,38 @@ mod tests {
         assert_eq!(tools.len(), 4);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn resolve_tool_catalog_preserves_all_fixed_tools_with_a_full_mcp_budget() {
+        let request = sample_request("api");
+        let mcp_tools = (0..256)
+            .map(|index| ToolDefinition {
+                name: format!("mcp__server__tool-{index:03}"),
+                description: String::new(),
+                input_schema: json!({ "type": "object" }),
+            })
+            .collect();
+        let mcp = FakeMcp::new(
+            Ok(mcp_tools),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+
+        let tools = resolve_tool_catalog(
+            &request,
+            &mcp,
+            &RecordingLogging::default(),
+            &FixedClock,
+            false,
+        );
+
+        assert_eq!(tools.len(), 259);
+        assert_eq!(tools[0].name, SHELL_TOOL_NAME);
+        assert_eq!(tools[1].name, FILE_TOOL_NAME);
+        assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
     }
 
     #[test]
@@ -2478,6 +3086,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(Vec::new())),
             &FakeMemories::default(),
             &NoopLogging,
@@ -2492,6 +3101,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(vec![BoundSkillPrompt {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
@@ -2510,6 +3120,7 @@ mod tests {
         let request = sample_request("api");
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Err("lookup failed")),
             &FakeMemories::default(),
             &NoopLogging,
@@ -2525,6 +3136,7 @@ mod tests {
         let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(vec![BoundSkillPrompt {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
@@ -2547,6 +3159,7 @@ mod tests {
         let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses pnpm.")]);
         let system = resolve_system_prompt(
             "my-agent",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeSkills(Ok(Vec::new())),
             &memories,
             &NoopLogging,
@@ -2554,6 +3167,66 @@ mod tests {
             &request,
         );
         assert_eq!(system, Some("## Memory\n- Uses pnpm.".to_string()));
+    }
+
+    #[test]
+    fn onepiece_prompt_orders_core_before_skills_and_memories() {
+        let mut request = sample_request("api");
+        request.agent.id = "onepiece".to_string();
+        let memories = FakeMemories::seeded(vec![fake_memory("memory-1", "Uses npm.")]);
+        let system = resolve_system_prompt(
+            "onepiece",
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeSkills(Ok(vec![BoundSkillPrompt {
+                id: "reviewer".to_string(),
+                name: "Reviewer".to_string(),
+                body: "Review the diff.".to_string(),
+            }])),
+            &memories,
+            &NoopLogging,
+            &FixedClock,
+            &request,
+        )
+        .expect("system prompt");
+        let core = system.find("# OnePiece Core Instructions").expect("core");
+        let skill = system.find("## Reviewer").expect("Skill");
+        let memory = system.find("## Memory").expect("memory");
+        assert!(core < skill && skill < memory);
+    }
+
+    #[test]
+    fn skill_prompt_budget_skips_oversized_and_non_fitting_items_whole() {
+        let request = sample_request("api");
+        let logging = RecordingLogging::default();
+        let prompts = vec![
+            BoundSkillPrompt {
+                id: "oversized".to_string(),
+                name: "Oversized".to_string(),
+                body: "x".repeat(8_001),
+            },
+            BoundSkillPrompt {
+                id: "first".to_string(),
+                name: "First".to_string(),
+                body: "a".repeat(7_990),
+            },
+            BoundSkillPrompt {
+                id: "second".to_string(),
+                name: "Second".to_string(),
+                body: "b".repeat(7_989),
+            },
+            BoundSkillPrompt {
+                id: "no-room".to_string(),
+                name: "NoRoom".to_string(),
+                body: "c".to_string(),
+            },
+        ];
+        let section = format_system_prompt(&prompts, &logging, &FixedClock, &request)
+            .expect("bounded Skill section");
+        assert!(!section.contains("Oversized"));
+        assert!(section.contains("## First"));
+        assert!(section.contains("## Second"));
+        assert!(!section.contains("NoRoom"));
+        assert_eq!(logging.logs.lock().expect("logs").len(), 2);
     }
 
     #[test]

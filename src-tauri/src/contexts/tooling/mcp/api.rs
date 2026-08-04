@@ -1,13 +1,16 @@
 use crate::contexts::tooling::mcp::application::McpApplicationService;
 pub(crate) use crate::contexts::tooling::mcp::application::{
-    ExportBundle, ImportBundle, ImportEntry, ImportResult, McpApplicationError as McpError,
-    McpServerToolEntry, PreparedConnectionTest, ServerPatch, StartedOperation,
+    ExportBundle, ImportBundle, ImportEntry, ImportFailureStage, ImportResult, ImportTransportType,
+    McpApplicationError as McpError, McpLimits, McpServerToolEntry, PreparedConnectionTest,
+    ServerPatch, StartedOperation,
 };
 pub(crate) use crate::contexts::tooling::mcp::domain::{
-    ConnectionStatus, Scope, ServerConfiguration, ServerConfigurationDraft, ServerStatus,
-    ToolCallOutcome, ToolDescriptor, TransportType,
+    ConnectionStatus, McpFailureCode, Scope, ServerConfiguration, ServerConfigurationDraft,
+    ServerStatus, ToolCallOutcome, ToolDescriptor, TransportType,
 };
 use serde_json::Value;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct McpApi {
@@ -76,15 +79,22 @@ impl McpApi {
         self.service.visible_tool_catalog(project_path)
     }
 
-    pub(crate) async fn call_tool(
+    pub(crate) async fn call_tool_with_cancellation(
         &self,
         project_path: &str,
         server_name: &str,
         tool_name: &str,
         arguments: Value,
+        cancellation: Arc<AtomicBool>,
     ) -> Result<ToolCallOutcome, McpError> {
         self.service
-            .call_tool(project_path, server_name, tool_name, arguments)
+            .call_tool_with_cancellation(
+                project_path,
+                server_name,
+                tool_name,
+                arguments,
+                cancellation,
+            )
             .await
     }
 }

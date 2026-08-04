@@ -23,9 +23,30 @@ const agent: AgentRegistryEntry = {
   supportedInteractionModes: ["cli"],
   availabilityState: "available",
   capabilityTags: [],
+  agentOrigin: "builtin",
 };
 
 describe("chat Mermaid and file references", () => {
+  it("renders assistant Markdown with normal whitespace and bounded overflow", () => {
+    const html = renderToString(
+      <MessageItem
+        message={{
+          id: "message-streamed",
+          sessionId: "session-1",
+          role: "assistant",
+          content: "Deep\nSeek streamed reply",
+          status: "completed",
+          createdAt: "2026-08-03T00:00:00.000Z",
+          updatedAt: "2026-08-03T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(html).toContain("whitespace-normal");
+    expect(html).toContain("wrap-break-word");
+    expect(html).not.toContain("whitespace-pre-wrap");
+  });
+
   it("routes Mermaid fenced code blocks through the diagram renderer", () => {
     const html = renderToString(
       <MessageItem

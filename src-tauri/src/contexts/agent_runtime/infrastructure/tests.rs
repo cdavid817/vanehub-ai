@@ -2,7 +2,7 @@ use super::*;
 use crate::contexts::agent_runtime::application::{
     AgentAvailabilityGateway, AgentRegistryRepository, AgentRuntimeApplicationError,
     AgentWorkflowRepository, ApiAgentGateway, ApiProviderConfig, RegisterApiAgentInput,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    StoredOnePieceProviderProfile, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, InteractionMode,
@@ -52,7 +52,13 @@ fn seeded_registry_rows_map_to_stable_domain_catalog_values() {
             .iter()
             .map(|agent| agent.id().as_str())
             .collect::<Vec<_>>(),
-        vec!["claude-code", "codex-cli", "gemini-cli", "opencode"]
+        vec![
+            "claude-code",
+            "codex-cli",
+            "gemini-cli",
+            "onepiece",
+            "opencode"
+        ]
     );
     let codex = agents
         .iter()
@@ -68,6 +74,83 @@ fn seeded_registry_rows_map_to_stable_domain_catalog_values() {
         &[InteractionMode::Cli, InteractionMode::NativeDesktop]
     );
     assert_eq!(codex.capability_tags(), &["agent", "cli", "coding"]);
+}
+
+#[test]
+fn onepiece_provider_profiles_switch_runtime_projection_and_delete_without_fallback() {
+    let (_directory, _database, repository) = repository(AvailabilityAssessment::new(
+        AgentAvailability::Available,
+        None,
+    ));
+    let anthropic = StoredOnePieceProviderProfile {
+        id: "anthropic-primary".to_string(),
+        name: "Anthropic primary".to_string(),
+        source_preset_id: Some("anthropic".to_string()),
+        source_provider_id: Some("anthropic".to_string()),
+        source_endpoint_type: Some("anthropic-messages".to_string()),
+        source_preset_version: Some(1),
+        provider: "Anthropic".to_string(),
+        model_id: "claude-test".to_string(),
+        interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
+        base_url: None,
+        active: true,
+    };
+    let proxy = StoredOnePieceProviderProfile {
+        id: "openai-proxy".to_string(),
+        name: "OpenAI proxy".to_string(),
+        source_preset_id: Some("openrouter".to_string()),
+        source_provider_id: Some("openrouter".to_string()),
+        source_endpoint_type: Some("openai-chat-completions".to_string()),
+        source_preset_version: Some(1),
+        provider: "OpenAI".to_string(),
+        model_id: "gpt-test".to_string(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        base_url: Some("https://gateway.example.test/v1".to_string()),
+        active: false,
+    };
+
+    ApiAgentGateway::save_onepiece_provider_profile(&repository, &anthropic)
+        .expect("save first profile");
+    ApiAgentGateway::save_onepiece_provider_profile(&repository, &proxy)
+        .expect("save second profile");
+    let profiles =
+        ApiAgentGateway::list_onepiece_provider_profiles(&repository).expect("list profiles");
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles.iter().filter(|profile| profile.active).count(), 1);
+    assert!(profiles
+        .iter()
+        .any(|profile| profile.id == anthropic.id && profile.active));
+
+    ApiAgentGateway::activate_onepiece_provider_profile(&repository, &proxy.id)
+        .expect("activate proxy");
+    let projected =
+        ApiAgentGateway::onepiece_provider_config(&repository).expect("project active profile");
+    assert_eq!(projected.provider, "OpenAI");
+    assert_eq!(projected.model_id.as_deref(), Some("gpt-test"));
+
+    ApiAgentGateway::activate_onepiece_provider_profile(&repository, &anthropic.id)
+        .expect("reactivate first-inserted profile without violating the active index");
+    ApiAgentGateway::activate_onepiece_provider_profile(&repository, &proxy.id)
+        .expect("reactivate proxy");
+
+    assert!(
+        ApiAgentGateway::delete_onepiece_provider_profile(&repository, &proxy.id)
+            .expect("delete active profile")
+    );
+    let remaining = ApiAgentGateway::list_onepiece_provider_profiles(&repository)
+        .expect("list remaining profiles");
+    assert_eq!(
+        remaining,
+        vec![StoredOnePieceProviderProfile {
+            active: false,
+            ..anthropic
+        }]
+    );
+    let cleared = ApiAgentGateway::onepiece_provider_config(&repository)
+        .expect("read cleared runtime projection");
+    assert_eq!(cleared.provider, "VaneHub");
+    assert_eq!(cleared.model_id, None);
+    assert_eq!(cleared.interface_format, None);
 }
 
 #[test]
@@ -110,6 +193,10 @@ fn api_agent_registration_round_trips_and_reports_available() {
         registered.supported_interaction_modes(),
         &[InteractionMode::Api]
     );
+    assert_eq!(
+        registered.origin(),
+        crate::contexts::agent_runtime::domain::AgentOrigin::User
+    );
 
     let found = repository
         .find("my-claude-agent")
@@ -128,7 +215,7 @@ fn api_agent_registration_round_trips_and_reports_available() {
         })
     );
 
-    // The 4 seeded CLI agents are untouched by registering a 5th, API-launch-kind agent.
+    // The seeded built-in agents are untouched by registering another API-launch-kind agent.
     let all_agents = repository.list().expect("list");
     let ids: Vec<&str> = all_agents
         .iter()
@@ -137,7 +224,13 @@ fn api_agent_registration_round_trips_and_reports_available() {
         .collect();
     assert_eq!(
         ids,
-        vec!["claude-code", "codex-cli", "gemini-cli", "opencode"]
+        vec![
+            "claude-code",
+            "codex-cli",
+            "gemini-cli",
+            "onepiece",
+            "opencode"
+        ]
     );
 }
 

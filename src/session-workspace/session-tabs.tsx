@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { LazyFeature } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { AgentTerminalTab } from "./agent-terminal-tab";
+import { ChatTab } from "./chat-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
 import { toolUseCount } from "./terminal-utils";
 
@@ -19,15 +20,21 @@ const loadReportTab = () => import("./report-tab").then((module) => ({ default: 
 
 export function SessionTabs({
   activeSession,
+  apiComposer,
+  isStreaming = false,
   messages,
   messagesPartial,
+  onLoadEarlier = () => undefined,
   onOpenSettings,
   requestedTab,
   sessionActivationKey,
 }: {
   activeSession: Session | null;
+  apiComposer?: ReactNode;
+  isStreaming?: boolean;
   messages: ChatMessage[];
   messagesPartial: boolean;
+  onLoadEarlier?: () => void;
   onOpenSettings: () => void;
   requestedTab?: SessionTabId | null;
   sessionActivationKey: number;
@@ -55,6 +62,17 @@ export function SessionTabs({
 
   function renderPanel(id: SessionTabId) {
     if (id === "chat") {
+      if (activeSession?.interactionMode === "api") {
+        return (
+          <ChatTab
+            activeSession={activeSession}
+            composer={apiComposer}
+            isStreaming={isStreaming}
+            messages={messages}
+            onLoadEarlier={onLoadEarlier}
+          />
+        );
+      }
       return <AgentTerminalTab active={activeTab === "chat"} session={activeSession} sessionActivationKey={sessionActivationKey} />;
     }
     if (id === "changes") return <LazyFeature componentProps={{ sessionId }} loader={loadChangesTab} />;

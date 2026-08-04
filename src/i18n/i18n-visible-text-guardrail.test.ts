@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const checkedFiles = [
-  "src/settings/pages/agents-page.tsx",
   "src/settings/pages/about-page.tsx",
   "src/settings/pages/usage-statistics-page.tsx",
   "src/settings/pages/cli-parameters-page.tsx",

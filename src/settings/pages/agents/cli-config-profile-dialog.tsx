@@ -14,6 +14,8 @@ import type {
 } from "../../../types/cli-agent-config";
 import { CliConfigPayloadFields } from "./cli-config-payload-fields";
 import { CliConfigProviderCatalog } from "./cli-config-provider-catalog";
+import { ProviderConfigurationSection } from "../../../components/provider-directory/provider-endpoint-controls";
+import { ProviderCredentialValidation } from "../../../components/provider-directory/provider-credential-validation";
 
 export interface CliConfigProfileDraft {
   agentId: CliConfigAgentId;
@@ -42,6 +44,7 @@ export function CliConfigProfileDialog({
   const [credential, setCredential] = useState("");
   const [removeCredential, setRemoveCredential] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationRevision, setValidationRevision] = useState(0);
 
   const saveMutation = useMutation({
     mutationFn: () => service.saveCliConfigProfile({
@@ -63,6 +66,7 @@ export function CliConfigProfileDialog({
     setName(preset.displayName);
     setPayload(structuredClone(preset.payload));
     setError(null);
+    setValidationRevision((value) => value + 1);
   }
 
   function selectCustom() {
@@ -70,27 +74,47 @@ export function CliConfigProfileDialog({
     setName("");
     setPayload(createCustomCliConfigPayload(draft.agentId));
     setError(null);
+    setValidationRevision((value) => value + 1);
   }
+
+  const usesCredential = payload.kind === "claude-code"
+    ? payload.authMode !== "none"
+    : payload.kind === "codex-cli"
+      ? payload.authStrategy !== "preserve-official"
+      : true;
+  const validationDisabled = removeCredential
+    || (usesCredential && !credential.trim() && !draft.profile?.credentialConfigured);
 
   return (
     <ApplicationDialog closeDisabled={saveMutation.isPending} description={t("agents.globalConfig.draftHint")} maxWidth="max-w-4xl" onClose={onClose} title={draft.profile ? t("agents.globalConfig.editProfile") : t("agents.globalConfig.createProfile")}>
         <div className="grid gap-4">
-          {!draft.profile ? <CliConfigProviderCatalog onCreateCustom={selectCustom} onSelectPreset={selectPreset} presets={presets} selectedPresetId={selectedPreset?.id ?? null} /> : null}
-          <label className="flex flex-col gap-1 text-sm">
+          {!draft.profile ? <CliConfigProviderCatalog onCreateCustom={selectCustom} onOpenUrl={(url) => { void service.openExternalUrl(url).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); }} onSelectPreset={selectPreset} presets={presets} selectedPresetId={selectedPreset?.id ?? null} /> : null}
+          <ProviderConfigurationSection description={t("agentConfigurations.providers.detailsDescription")} title={t("agentConfigurations.providers.detailsTitle")}><label className="flex flex-col gap-1 text-sm">
             {t("agents.globalConfig.profileName")}
             <input data-dialog-autofocus className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setName(event.target.value)} value={name} />
           </label>
-          <CliConfigPayloadFields payload={payload} onChange={setPayload} />
+          <CliConfigPayloadFields payload={payload} onChange={(value) => { setPayload(value); setValidationRevision((revision) => revision + 1); }} />
           <label className="flex flex-col gap-1 text-sm">
             {t("agents.globalConfig.credential")}
-            <input autoComplete="new-password" className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => setCredential(event.target.value)} placeholder={draft.profile?.credentialConfigured ? t("agents.globalConfig.credentialKeep") : t("agents.globalConfig.credentialPlaceholder")} type="password" value={credential} />
+            <input autoComplete="new-password" className="ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring" onChange={(event) => { setCredential(event.target.value); setValidationRevision((value) => value + 1); }} placeholder={draft.profile?.credentialConfigured ? t("agents.globalConfig.credentialKeep") : t("agents.globalConfig.credentialPlaceholder")} type="password" value={credential} />
           </label>
+          <ProviderCredentialValidation
+            disabled={validationDisabled}
+            onValidate={() => service.validateCliConfigCredential({
+              agentId: draft.agentId,
+              profileId: draft.profile?.id ?? null,
+              payload,
+              sourcePresetId: selectedPreset?.id ?? draft.profile?.sourcePresetId ?? null,
+              credential: credential.trim() || null,
+            })}
+            resetKey={validationRevision}
+          />
           {draft.profile?.credentialConfigured ? (
             <label className="flex items-center gap-2 text-sm">
-              <input checked={removeCredential} onChange={(event) => setRemoveCredential(event.target.checked)} type="checkbox" />
+              <input checked={removeCredential} onChange={(event) => { setRemoveCredential(event.target.checked); setValidationRevision((value) => value + 1); }} type="checkbox" />
               {t("agents.globalConfig.removeCredential")}
             </label>
-          ) : null}
+          ) : null}</ProviderConfigurationSection>
         </div>
 
         {error ? <p className="mt-3 text-sm ucd-status-warning" role="alert">{error}</p> : null}

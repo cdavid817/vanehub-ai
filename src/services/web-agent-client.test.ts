@@ -933,6 +933,10 @@ describe("webAgentClient", () => {
       }),
     ).rejects.toThrow("changed since it was loaded");
 
+    const bound = await webAgentClient.bindSkillToCliAgent(created.id, scope, "codex-cli");
+    expect(bound.boundAgentIds).toEqual(["codex-cli"]);
+    const unbound = await webAgentClient.unbindSkillFromCliAgent(created.id, scope, "codex-cli");
+    expect(unbound.boundAgentIds).toEqual([]);
     await webAgentClient.bindSkillToCliAgent(created.id, scope, "codex-cli");
     const apiAgent =
       (await webAgentClient.listAgents()).find((agent) => agent.launch.kind === "api");
@@ -1044,6 +1048,127 @@ describe("webAgentClient", () => {
       baseUrl: null,
       autoApproveTools: false,
     });
+  });
+
+  it("configures, creates a local session with, and resets OnePiece without exposing its key", async () => {
+    await webAgentClient.resetOnePieceProviderConfig();
+    expect(await webAgentClient.getOnePieceProviderConfig()).toMatchObject({
+      modelId: null,
+      credentialPresent: false,
+    });
+
+    const configured = await webAgentClient.saveOnePieceProviderConfig({
+      provider: "Anthropic",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+      apiKey: "secret-must-not-be-returned",
+    });
+    expect(configured).toEqual({
+      provider: "Anthropic",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+      autoApproveTools: false,
+      credentialPresent: true,
+    });
+    expect(JSON.stringify(configured)).not.toContain("secret-must-not-be-returned");
+    expect((await webAgentClient.listAgents()).find((agent) => agent.id === "onepiece"))
+      .toMatchObject({ availabilityState: "available", agentOrigin: "builtin" });
+
+    await expect(createMockSession({
+      agentId: "onepiece",
+      interactionMode: "api",
+      title: "OnePiece local",
+      projectPath: "D:/example/project",
+    })).resolves.toMatchObject({ agentId: "onepiece", interactionMode: "api" });
+    await expect(webAgentClient.createSession({
+      agentId: "onepiece",
+      interactionMode: "api",
+      remoteWorkspace: { host: "example.test", path: "/work" },
+    })).rejects.toThrow("local projects");
+    await expect(webAgentClient.deleteApiAgent("onepiece")).rejects.toThrow("Built-in");
+
+    const reset = await webAgentClient.resetOnePieceProviderConfig();
+    expect(reset).toMatchObject({ modelId: null, credentialPresent: false });
+    expect((await webAgentClient.listAgents()).find((agent) => agent.id === "onepiece"))
+      .toMatchObject({ availabilityState: "unavailable" });
+  });
+
+  it("manages multiple OnePiece provider Profiles without implicit fallback", async () => {
+    await webAgentClient.resetOnePieceProviderConfig();
+    const presets = await webAgentClient.listOnePieceProviderPresets();
+    expect(presets.map((preset) => preset.id)).toEqual(expect.arrayContaining([
+      "anthropic",
+      "openai",
+      "openrouter",
+      "deepseek",
+      "zhipu-glm",
+      "kimi",
+      "siliconflow",
+      "bailian",
+      "volcengine-ark",
+    ]));
+    await expect(webAgentClient.saveOnePieceProviderProfile({
+      id: null,
+      name: "Custom endpoint",
+      providerId: "custom-provider",
+      endpointType: "openai-chat-completions",
+      modelId: "custom-model",
+      apiKey: "sk-must-not-be-stored",
+    })).rejects.toThrow("OnePiece provider preset was not found");
+
+    const first = await webAgentClient.saveOnePieceProviderProfile({
+      id: null,
+      name: "Anthropic primary",
+      providerId: "anthropic",
+      endpointType: "anthropic-messages",
+      modelId: "claude-test",
+      apiKey: "first-write-only-secret",
+    });
+    expect(first.profiles).toHaveLength(1);
+    expect(first.profiles[0]).toMatchObject({ active: true, credentialPresent: true });
+    expect(JSON.stringify(first)).not.toContain("first-write-only-secret");
+    const discovered = await webAgentClient.discoverOnePieceProviderModels({
+      providerId: "anthropic",
+      endpointType: "anthropic-messages",
+      profileId: first.profiles[0].id,
+      apiKey: null,
+    });
+    expect(discovered.models.map((model) => model.id)).toContain("claude-sonnet-4-6");
+    expect(JSON.stringify(discovered)).not.toContain("first-write-only-secret");
+
+    const second = await webAgentClient.saveOnePieceProviderProfile({
+      id: null,
+      name: "DeepSeek Anthropic",
+      providerId: "deepseek",
+      endpointType: "anthropic-messages",
+      modelId: "deepseek-chat",
+      apiKey: "second-write-only-secret",
+    });
+    expect(second.profiles).toHaveLength(2);
+    expect(second.profiles.find((profile) => profile.name === "DeepSeek Anthropic"))
+      .toMatchObject({
+        active: false,
+        credentialPresent: true,
+        sourceProviderId: "deepseek",
+        sourceEndpointType: "anthropic-messages",
+        interfaceFormat: "anthropic",
+        baseUrl: "https://api.deepseek.com/anthropic",
+      });
+
+    const secondId = second.profiles.find((profile) => profile.name === "DeepSeek Anthropic")?.id;
+    expect(secondId).toBeTruthy();
+    const activated = await webAgentClient.activateOnePieceProviderProfile(secondId as string);
+    expect(activated.activeProfileId).toBe(secondId);
+    expect(activated.profiles.filter((profile) => profile.active)).toHaveLength(1);
+
+    const deleted = await webAgentClient.deleteOnePieceProviderProfile(secondId as string);
+    expect(deleted.activeProfileId).toBeNull();
+    expect(deleted.profiles).toHaveLength(1);
+    expect(deleted.profiles[0].active).toBe(false);
+    expect((await webAgentClient.listAgents()).find((agent) => agent.id === "onepiece"))
+      .toMatchObject({ availabilityState: "unavailable" });
   });
 
   it("rejects updating a mock API agent to drop a required base URL", async () => {
@@ -1270,6 +1395,9 @@ describe("webAgentClient", () => {
         event.toolUse.status === "completed",
     );
     expect(completedEvent).toBeDefined();
+    if (completedEvent?.type === "tool_use") {
+      expect(completedEvent.toolUse.output).toBe("mock MCP result");
+    }
     unsubscribe();
   });
 

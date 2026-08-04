@@ -5,7 +5,7 @@ describe("frontend feature module boundaries", () => {
   it("keeps every settings page behind a first-visit dynamic import", () => {
     const source = read("settings/settings-pages.ts");
     const pageModules = source.match(/import\("\.\/pages\/[^"]+"\)/g) ?? [];
-    expect(pageModules).toHaveLength(15);
+    expect(pageModules).toHaveLength(14);
     expect(source).not.toMatch(/from "\.\/pages\//);
   });
 
@@ -23,7 +23,7 @@ describe("frontend feature module boundaries", () => {
   it("retains visited settings and tab panels in mounted collections", () => {
     const settingsShell = read("settings/settings-shell.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");
-    expect(settingsShell).toContain("new Set([defaultSettingsPageId])");
+    expect(settingsShell).toContain("new Set([initialPage])");
     expect(settingsShell).toContain("if (!visitedPages.has(page.id)) return null");
     expect(settingsShell).toContain("new Set(current).add(pageId)");
     expect(settingsShell).toContain("hidden={page.id !== activePageId}");

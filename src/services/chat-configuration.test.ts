@@ -48,4 +48,25 @@ describe("session chat configuration boundary", () => {
       reasoningDepth: "high",
     });
   });
+
+  it("keeps OnePiece on its native provider identity", () => {
+    const onePieceSession = { ...session, agentId: "onepiece", interactionMode: "api" as const };
+    const input: ChatConfig = {
+      agentId: "onepiece",
+      interactionMode: "api",
+      permissionMode: "default",
+      providerId: "onepiece",
+      modelId: "deepseek-chat",
+      streaming: true,
+      thinking: true,
+      longContext: true,
+    };
+
+    expect(normalizeChatConfigForSession(onePieceSession, input)).toMatchObject({
+      agentId: "onepiece",
+      interactionMode: "api",
+      providerId: "onepiece",
+      modelId: "deepseek-chat",
+    });
+  });
 });

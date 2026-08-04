@@ -10,9 +10,11 @@ export type WorkspaceMode = "local" | "remote";
 export function WorkspaceModeSelector({
   mode,
   onModeChange,
+  remoteDisabled = false,
 }: {
   mode: WorkspaceMode;
   onModeChange: (mode: WorkspaceMode) => void;
+  remoteDisabled?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -26,7 +28,9 @@ export function WorkspaceModeSelector({
             className={cn(
               "ucd-list-row flex h-9 items-center justify-center gap-2 rounded-md px-3 text-xs text-foreground",
               mode === candidate && "ucd-choice-selected font-semibold",
+              candidate === "remote" && remoteDisabled && "cursor-not-allowed opacity-50",
             )}
+            disabled={candidate === "remote" && remoteDisabled}
             key={candidate}
             onClick={() => onModeChange(candidate)}
             type="button"

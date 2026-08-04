@@ -204,12 +204,6 @@ pub(crate) trait SessionCreationContextPort: Send + Sync {
         connection_id: &str,
     ) -> Result<Option<SessionSshProfile>, SessionsApplicationError>;
 
-    fn ensure_agent_supports(
-        &self,
-        agent_id: &str,
-        interaction_mode: &str,
-    ) -> Result<(), SessionsApplicationError>;
-
     fn ensure_worktree_compatible(
         &self,
         remote_workspace_selected: bool,
@@ -238,6 +232,14 @@ pub(crate) trait SessionCreationContextPort: Send + Sync {
         project_path: &str,
         name: &str,
     ) -> Result<CreatedSessionWorktree, SessionsApplicationError>;
+}
+
+pub(crate) trait SessionAgentEligibilityPort: Send + Sync {
+    fn ensure_agent_supports(
+        &self,
+        agent_id: &str,
+        interaction_mode: &str,
+    ) -> Result<(), SessionsApplicationError>;
 }
 
 pub(crate) trait SessionRuntimePort: Send + Sync {

@@ -8,6 +8,8 @@ pub(crate) enum AgentRuntimeDomainError {
     ControlCharacters(&'static str),
     #[error("unsupported interaction mode: {0}")]
     UnsupportedInteractionMode(String),
+    #[error("unsupported agent origin: {0}")]
+    UnsupportedAgentOrigin(String),
     #[error("Agent is unavailable: {0}")]
     AgentUnavailable(String),
     #[error("Agent '{agent_id}' does not support interaction mode '{mode}'.")]

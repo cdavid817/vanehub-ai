@@ -15,14 +15,22 @@ import type {
   CliPackageOperationInput,
   CliToolStatus,
   CreateSessionInput,
+  DiscoverOnePieceProviderModelsInput,
   InteractionMode,
   KnownRemoteWorkspace,
   RenameSessionCategoryInput,
   KnownProject,
   LaunchResult,
+  OnePieceProviderConfig,
+  OnePieceProviderProfiles,
+  OnePieceProviderModelDiscoveryResult,
+  OnePieceProviderPreset,
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  SaveOnePieceProviderConfigInput,
+  SaveOnePieceProviderProfileInput,
+  ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
@@ -109,12 +117,25 @@ import type {
   ImportDiscoveredCliConfigInput,
   ImportDiscoveredCliConfigResult,
   SaveCliConfigProfileInput,
+  ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
+import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 
 export interface AgentService {
+  openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
   getApiAgentProviderConfig(agentId: string): Promise<ApiAgentProviderConfig | null>;
+  getOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
+  saveOnePieceProviderConfig(input: SaveOnePieceProviderConfigInput): Promise<OnePieceProviderConfig>;
+  resetOnePieceProviderConfig(): Promise<OnePieceProviderConfig>;
+  listOnePieceProviderProfiles(): Promise<OnePieceProviderProfiles>;
+  listOnePieceProviderPresets(): Promise<OnePieceProviderPreset[]>;
+  discoverOnePieceProviderModels(input: DiscoverOnePieceProviderModelsInput): Promise<OnePieceProviderModelDiscoveryResult>;
+  validateOnePieceProviderCredential(input: ValidateOnePieceProviderCredentialInput): Promise<ProviderCredentialValidationResult>;
+  saveOnePieceProviderProfile(input: SaveOnePieceProviderProfileInput): Promise<OnePieceProviderProfiles>;
+  activateOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
+  deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
   setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
@@ -131,6 +152,7 @@ export interface AgentService {
   listCliConfigProfiles(agentId: string): Promise<CliConfigProfile[]>;
   getCliConfigStatus(agentId: string): Promise<CliConfigStatus>;
   saveCliConfigProfile(input: SaveCliConfigProfileInput): Promise<CliConfigProfile>;
+  validateCliConfigCredential(input: ValidateCliConfigCredentialInput): Promise<ProviderCredentialValidationResult>;
   duplicateCliConfigProfile(agentId: string, profileId: string): Promise<CliConfigProfile>;
   deleteCliConfigProfile(input: DeleteCliConfigProfileInput): Promise<void>;
   importCliConfigProfile(input: ImportCliConfigProfileInput): Promise<CliConfigProfile>;

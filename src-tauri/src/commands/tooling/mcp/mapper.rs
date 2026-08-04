@@ -1,13 +1,14 @@
 use super::dto::{
-    McpConnectionStatus, McpImportExport, McpImportResult, McpImportServerEntry, McpScope,
-    McpServerConfig, McpServerStatus, McpToolInfo, McpTransportType, PartialMcpServerConfig,
+    McpConnectionStatus, McpErrorCode, McpImportExport, McpImportFailure, McpImportFailureStage,
+    McpImportResult, McpImportServerEntry, McpImportTransportType, McpScope, McpServerConfig,
+    McpServerStatus, McpToolInfo, McpTransportType, PartialMcpServerConfig,
 };
 use crate::contexts::operations::api::{OperationKind, OperationTask};
 use crate::contexts::operations::domain::OperationStatus;
 use crate::contexts::tooling::mcp::api::{
-    ConnectionStatus, ImportBundle, ImportEntry, ImportResult, Scope, ServerConfiguration,
-    ServerConfigurationDraft, ServerPatch, ServerStatus, StartedOperation, ToolDescriptor,
-    TransportType,
+    ConnectionStatus, ImportBundle, ImportEntry, ImportFailureStage, ImportResult,
+    ImportTransportType, McpFailureCode, Scope, ServerConfiguration, ServerConfigurationDraft,
+    ServerPatch, ServerStatus, StartedOperation, ToolDescriptor, TransportType,
 };
 use std::collections::BTreeMap;
 
@@ -65,6 +66,7 @@ pub(super) fn status_to_dto(status: ServerStatus) -> McpServerStatus {
         tools: status.tools.iter().map(tool_to_dto).collect(),
         last_connected: status.last_connected,
         error: status.error,
+        error_code: status.error_code.map(error_code_to_dto),
         duration_ms: status.duration_ms,
     }
 }
@@ -78,6 +80,7 @@ pub(super) fn import_bundle(data: McpImportExport) -> ImportBundle {
                 (
                     name,
                     ImportEntry {
+                        transport_type: entry.transport_type.map(import_transport_to_domain),
                         command: entry.command,
                         args: entry.args,
                         env: entry.env,
@@ -94,6 +97,19 @@ pub(super) fn import_result_to_dto(result: ImportResult) -> McpImportResult {
     McpImportResult {
         imported: result.imported,
         skipped: result.skipped,
+        failures: result
+            .failures
+            .into_iter()
+            .map(|failure| McpImportFailure {
+                name: failure.name,
+                stage: match failure.stage {
+                    ImportFailureStage::Validation => McpImportFailureStage::Validation,
+                    ImportFailureStage::Storage => McpImportFailureStage::Storage,
+                },
+                error_code: failure.error_code.map(error_code_to_dto),
+                message: failure.message,
+            })
+            .collect(),
     }
 }
 
@@ -106,6 +122,7 @@ pub(super) fn export_bundle_to_dto(bundle: ImportBundle) -> McpImportExport {
                 (
                     name,
                     McpImportServerEntry {
+                        transport_type: entry.transport_type.map(import_transport_to_dto),
                         command: entry.command,
                         args: entry.args,
                         env: entry.env,
@@ -174,6 +191,36 @@ fn transport_to_domain(transport: McpTransportType) -> TransportType {
     }
 }
 
+fn import_transport_to_domain(value: McpImportTransportType) -> ImportTransportType {
+    match value {
+        McpImportTransportType::Sse => ImportTransportType::Sse,
+        McpImportTransportType::Http => ImportTransportType::Http,
+        McpImportTransportType::StreamableHttp => ImportTransportType::StreamableHttp,
+    }
+}
+
+fn import_transport_to_dto(value: ImportTransportType) -> McpImportTransportType {
+    match value {
+        ImportTransportType::Sse => McpImportTransportType::Sse,
+        ImportTransportType::Http => McpImportTransportType::Http,
+        ImportTransportType::StreamableHttp => McpImportTransportType::StreamableHttp,
+    }
+}
+
+fn error_code_to_dto(code: McpFailureCode) -> McpErrorCode {
+    match code {
+        McpFailureCode::Validation => McpErrorCode::Validation,
+        McpFailureCode::Spawn => McpErrorCode::Spawn,
+        McpFailureCode::Timeout => McpErrorCode::Timeout,
+        McpFailureCode::Cancelled => McpErrorCode::Cancelled,
+        McpFailureCode::Protocol => McpErrorCode::Protocol,
+        McpFailureCode::UpstreamHttp => McpErrorCode::UpstreamHttp,
+        McpFailureCode::LimitExceeded => McpErrorCode::LimitExceeded,
+        McpFailureCode::Transport => McpErrorCode::Transport,
+        McpFailureCode::Cleanup => McpErrorCode::Cleanup,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +254,20 @@ mod tests {
     }
 
     #[test]
+    fn tauri_request_dto_rejects_unknown_transport_values() {
+        let result = serde_json::from_value::<McpServerConfig>(json!({
+            "name": "fixture-tools",
+            "transportType": "future_transport",
+            "command": "node",
+            "active": true,
+            "scope": "user",
+            "projectPath": null
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn tauri_status_response_keeps_values_camel_case_and_nullable_fields() {
         let status = status_to_dto(ServerStatus {
             name: ServerName::parse("fixture-tools").expect("name"),
@@ -218,6 +279,7 @@ mod tests {
             }],
             last_connected: Some("1700000000".to_string()),
             error: None,
+            error_code: Some(McpFailureCode::Timeout),
             duration_ms: Some(17),
         });
 
@@ -229,6 +291,7 @@ mod tests {
         assert_eq!(value["durationMs"], 17);
         assert!(value.get("connection_status").is_none());
         assert!(value["error"].is_null());
+        assert_eq!(value["errorCode"], "timeout");
     }
 
     #[test]
@@ -273,5 +336,38 @@ mod tests {
             json!(["server.js"])
         );
         assert!(value.get("mcp_servers").is_none());
+    }
+
+    #[test]
+    fn import_export_mapping_preserves_compatible_url_type_markers() {
+        for marker in ["sse", "http", "streamable_http"] {
+            let dto: McpImportExport = serde_json::from_value(json!({
+                "mcpServers": {
+                    "fixture-tools": {
+                        "type": marker,
+                        "url": "https://fixture.example/mcp"
+                    }
+                }
+            }))
+            .expect("typed URL import DTO");
+
+            let value = serde_json::to_value(export_bundle_to_dto(import_bundle(dto)))
+                .expect("typed URL export DTO");
+            assert_eq!(value["mcpServers"]["fixture-tools"]["type"], marker);
+        }
+    }
+
+    #[test]
+    fn import_dto_rejects_an_unknown_compatible_transport_type() {
+        let result = serde_json::from_value::<McpImportExport>(json!({
+            "mcpServers": {
+                "fixture-tools": {
+                    "type": "future_transport",
+                    "url": "https://fixture.example/mcp"
+                }
+            }
+        }));
+
+        assert!(result.is_err());
     }
 }

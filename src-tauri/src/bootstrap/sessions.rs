@@ -1,3 +1,4 @@
+use crate::contexts::agent_runtime::application::AgentRegistryRepository;
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::operations::api::OperationsApi;
 use crate::contexts::operations::application::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
@@ -5,9 +6,10 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::contexts::sessions::api::{ArchivalPolicy, SessionsApi};
 use crate::contexts::sessions::application::{SessionApplicationPorts, SessionsApplicationService};
 use crate::contexts::sessions::infrastructure::{
-    AgentSessionRuntimeAdapter, SessionCreationContextAdapter, SessionFileAdapter,
-    SessionOperationAdapter, SqliteSessionChatProfileAdapter, SqliteSessionsRepository,
-    SystemSessionClock, UnifiedSessionLoggingAdapter, UuidSessionIdentities,
+    AgentSessionRuntimeAdapter, SessionAgentEligibilityAdapter, SessionCreationContextAdapter,
+    SessionFileAdapter, SessionOperationAdapter, SqliteSessionChatProfileAdapter,
+    SqliteSessionsRepository, SystemSessionClock, UnifiedSessionLoggingAdapter,
+    UuidSessionIdentities,
 };
 use crate::contexts::tooling::cli::application::NativeConfigPort;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -26,6 +28,7 @@ pub(crate) fn assemble_sessions_api(
     workspaces: WorkspaceApi,
     cli_parameters: CliParametersApi,
     native_config: Arc<dyn NativeConfigPort>,
+    agent_registry: Arc<dyn AgentRegistryRepository>,
     fallback_log_directory: PathBuf,
 ) -> (SessionsApi, AgentSessionRuntimeAdapter) {
     let repository = Arc::new(SqliteSessionsRepository::new(database.clone()));
@@ -45,6 +48,7 @@ pub(crate) fn assemble_sessions_api(
         operations: Arc::new(SessionOperationAdapter::new(operations)),
         logging: Arc::new(UnifiedSessionLoggingAdapter::new(logging)),
         chat_profiles: Arc::new(SqliteSessionChatProfileAdapter::new(
+            database.clone(),
             cli_parameters,
             native_config,
         )),
@@ -52,6 +56,7 @@ pub(crate) fn assemble_sessions_api(
             database.clone(),
             workspaces.clone(),
         )),
+        eligibility: Arc::new(SessionAgentEligibilityAdapter::new(agent_registry)),
         runtime: Arc::new(runtime_adapter.clone()),
     });
     (SessionsApi::new(service), runtime_adapter)

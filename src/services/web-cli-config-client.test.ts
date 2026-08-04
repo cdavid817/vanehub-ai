@@ -92,6 +92,29 @@ describe("Web CLI global configuration", () => {
     })).rejects.toThrow("Credential");
   });
 
+  it("validates transient and stored CLI credentials without retaining the transient value", async () => {
+    const preset = (await webAgentClient.listCliConfigPresets("codex-cli"))
+      .find((candidate) => candidate.displayName === "OpenRouter");
+    if (!preset) throw new Error("preset fixture missing");
+    await expect(webAgentClient.validateCliConfigCredential({
+      agentId: "codex-cli",
+      payload: preset.payload,
+      sourcePresetId: preset.id,
+      credential: "web-invalid",
+    })).resolves.toMatchObject({ status: "invalid-credential", httpStatus: 401 });
+
+    const profile = await webAgentClient.saveCliConfigProfile({
+      agentId: "codex-cli",
+      name: `Validation ${Date.now()}`,
+      payload: preset.payload,
+      sourcePresetId: preset.id,
+      credential: "stored-secret",
+    });
+    await expect(webAgentClient.validateCliConfigCredential({ agentId: "codex-cli", profileId: profile.id }))
+      .resolves.toMatchObject({ status: "valid", httpStatus: 200 });
+    expect(JSON.stringify(profile)).not.toContain("stored-secret");
+  });
+
   it("automatically backfills the leaving exclusive profile without a drift choice", async () => {
     const preset = (await webAgentClient.listCliConfigPresets("claude-code"))[0];
     if (!preset || preset.payload.kind !== "claude-code") throw new Error("preset fixture missing");

@@ -97,6 +97,15 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-01 | add-loop-api-agent-support | loop-engineering-runtime | `openspec/changes/archive/2026-08-01-add-loop-api-agent-support/` |
 | 2026-08-01 | fix-terminal-usage-integrity | agent-execution-observability, agent-terminal-runtime, usage-statistics | `openspec/changes/archive/2026-08-01-fix-terminal-usage-integrity/` |
 | 2026-08-02 | add-cli-agent-global-config-switching | agent-switching, cli-agent-config-management | `openspec/changes/archive/2026-08-02-add-cli-agent-global-config-switching/` |
+| 2026-08-02 | add-common-application-locales | application-localization, app-settings, desktop-background-lifecycle, settings-basic-configuration-ui | `openspec/changes/archive/2026-08-02-add-common-application-locales/` |
+| 2026-08-02 | harden-skill-management-reliability | agent-lifecycle-management, agent-skill-injection, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-02-harden-skill-management-reliability/` |
 | 2026-08-02 | optimize-runtime-performance-foundation | agent-terminal-runtime, runtime-performance-governance, session-management, settings-center-ui | `openspec/changes/archive/2026-08-02-optimize-runtime-performance-foundation/` |
+| 2026-08-02 | recover-webview-white-screen | desktop-webview-reliability | `openspec/changes/archive/2026-08-02-recover-webview-white-screen/` |
+| 2026-08-02 | refine-basic-settings-information-architecture | settings-basic-configuration-ui, settings-floating-assistant-ui | `openspec/changes/archive/2026-08-02-refine-basic-settings-information-architecture/` |
+| 2026-08-03 | harden-mcp-runtime-reliability | agent-mcp-tools, mcp-client-management | `openspec/changes/archive/2026-08-03-harden-mcp-runtime-reliability/` |
+| 2026-08-03 | harden-skill-mount-root-links | settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-03-harden-skill-mount-root-links/` |
+| 2026-08-03 | optimize-skill-management-ui | main-layout-ui, settings-skill-management-ui | `openspec/changes/archive/2026-08-03-optimize-skill-management-ui/` |
+| 2026-08-03 | refine-skill-agent-selection-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-03-refine-skill-agent-selection-ui/` |
+| 2026-08-04 | add-onepiece-native-agent | agent-lifecycle-management, agent-skill-injection, api-agent-runtime, onepiece-native-agent, session-management | `openspec/changes/archive/2026-08-04-add-onepiece-native-agent/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -26,12 +26,13 @@ The Basic Configuration page SHALL provide a localized floating-assistant settin
 - **WHEN** the floating-assistant setting renders in `futuristic` or `minimal` style and either supported language
 - **THEN** it SHALL use shared settings primitives, semantic tokens, accessible focus/disabled states, and synchronized zh-CN/en translation keys
 
-### Requirement: Bottom-positioned floating assistant setting
-The Basic Configuration page SHALL place the floating-assistant setting after other Basic Configuration sections while preserving its localized service-backed behavior.
+### Requirement: Startup and window floating assistant setting
+The Basic Configuration page SHALL place the floating-assistant setting inside the startup and window behavior group while preserving its localized service-backed behavior.
 
-#### Scenario: Render floating assistant at bottom
-- **WHEN** Basic Configuration renders common, startup, data, network, log, runtime, and storage sections
-- **THEN** the floating-assistant setting SHALL appear after those sections instead of between application settings and network proxy
+#### Scenario: Group floating assistant with window behavior
+- **WHEN** Basic Configuration renders
+- **THEN** the floating-assistant control SHALL appear with launch-on-startup under the localized startup and window behavior group
+- **AND** SHALL remain available without opening advanced configuration
 
 #### Scenario: Preserve floating assistant service boundary
 - **WHEN** a user enables or disables the floating assistant from Basic Configuration
@@ -39,4 +40,4 @@ The Basic Configuration page SHALL place the floating-assistant setting after ot
 
 #### Scenario: Refine floating assistant setting presentation
 - **WHEN** the floating-assistant setting renders
-- **THEN** it SHALL use a compact shared-style presentation with status, supported-runtime copy, and stable switch dimensions in both registered visual styles
+- **THEN** it SHALL use a compact shared-style presentation with supported-runtime copy and stable switch dimensions in both registered visual styles

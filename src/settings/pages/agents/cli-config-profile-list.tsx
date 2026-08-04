@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import type { CliConfigPreset, CliConfigProfile } from "../../../types/cli-agent-config";
+import type { ProviderCredentialValidationResult } from "../../../types/provider-credential-validation";
+import { ProviderCredentialValidation } from "../../../components/provider-directory/provider-credential-validation";
 
 const avatarTones = [
   "bg-blue-500/15 text-blue-700 dark:text-blue-300",
@@ -22,6 +24,13 @@ function profileMetadata(profile: CliConfigProfile, presets: CliConfigPreset[]) 
   return { endpoint, model, provider, tone: avatarTones[toneIndex] };
 }
 
+function profileUsesCredential(profile: CliConfigProfile) {
+  const payload = profile.payload;
+  if (payload.kind === "claude-code") return payload.authMode !== "none";
+  if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
+  return true;
+}
+
 export function CliConfigProfileList({
   profiles,
   presets,
@@ -31,6 +40,7 @@ export function CliConfigProfileList({
   onDelete,
   onDuplicate,
   onEdit,
+  onValidate,
 }: {
   profiles: CliConfigProfile[];
   presets: CliConfigPreset[];
@@ -40,6 +50,7 @@ export function CliConfigProfileList({
   onDelete: (profile: CliConfigProfile) => void;
   onDuplicate: (profile: CliConfigProfile) => void;
   onEdit: (profile: CliConfigProfile) => void;
+  onValidate: (profile: CliConfigProfile) => Promise<ProviderCredentialValidationResult>;
 }) {
   const { t } = useTranslation();
   const queries = searchTerms.map((term) => term.trim().toLowerCase()).filter(Boolean);
@@ -79,6 +90,7 @@ export function CliConfigProfileList({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <ProviderCredentialValidation disabled={busy || (profileUsesCredential(profile) && !profile.credentialConfigured)} onValidate={() => onValidate(profile)} resetKey={profile.updatedAt} size="sm" />
                   <Button disabled={busy || applied} onClick={() => onApply(profile)}><Check className="h-4 w-4" />{applied ? t("agents.globalConfig.applied") : t("agents.globalConfig.apply")}</Button>
                   <Button aria-label={`${t("agents.globalConfig.editProfile")}: ${profile.name}`} disabled={busy} onClick={() => onEdit(profile)} variant="outline"><Pencil className="h-4 w-4" /></Button>
                   <Button aria-label={`${t("agents.globalConfig.duplicate")}: ${profile.name}`} disabled={busy} onClick={() => onDuplicate(profile)} variant="outline"><Copy className="h-4 w-4" /></Button>

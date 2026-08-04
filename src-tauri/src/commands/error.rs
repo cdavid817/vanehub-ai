@@ -462,6 +462,10 @@ impl From<McpError> for CommandError {
                 category: CommandErrorCategory::Validation,
                 message: format!("validation error: {message}"),
             },
+            McpError::LimitExceeded => Self {
+                category: CommandErrorCategory::Validation,
+                message: "validation error: limit_exceeded".to_string(),
+            },
             McpError::Database(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),
@@ -598,6 +602,12 @@ impl From<SkillError> for CommandError {
             SkillError::ConcurrentModification(skill_id) => Self {
                 category: CommandErrorCategory::Conflict,
                 message: format!("validation error: Skill changed since it was loaded: {skill_id}"),
+            },
+            error @ (SkillError::MountRootExternalLink(_)
+            | SkillError::MountRootBrokenLink(_)
+            | SkillError::MountRootNotDirectory(_)) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!("validation error: {error}"),
             },
             SkillError::Repository(message) => Self {
                 category: CommandErrorCategory::Infrastructure,

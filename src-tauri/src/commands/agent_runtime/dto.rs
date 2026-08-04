@@ -27,6 +27,13 @@ pub(crate) enum AvailabilityState {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub(crate) enum AgentOrigin {
+    Builtin,
+    User,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum SessionLifecycleState {
     Idle,
     Starting,
@@ -93,6 +100,144 @@ pub(crate) struct AgentRegistryEntry {
     pub(crate) availability_state: AvailabilityState,
     pub(crate) unavailable_reason: Option<String>,
     pub(crate) capability_tags: Vec<String>,
+    pub(crate) agent_origin: AgentOrigin,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderConfig {
+    pub(crate) provider: String,
+    pub(crate) model_id: Option<String>,
+    pub(crate) interface_format: Option<String>,
+    pub(crate) base_url: Option<String>,
+    pub(crate) auto_approve_tools: bool,
+    pub(crate) credential_present: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveOnePieceProviderConfigInput {
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderProfile {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) source_provider_id: Option<String>,
+    pub(crate) source_endpoint_type: Option<String>,
+    pub(crate) source_preset_version: Option<u32>,
+    pub(crate) provider: String,
+    pub(crate) model_id: String,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) active: bool,
+    pub(crate) credential_present: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderPreset {
+    pub(crate) id: String,
+    pub(crate) catalog_version: u32,
+    pub(crate) display_name: String,
+    pub(crate) category: String,
+    pub(crate) icon_key: String,
+    pub(crate) provider: String,
+    pub(crate) default_model_id: String,
+    pub(crate) fallback_models: Vec<String>,
+    pub(crate) interface_format: String,
+    pub(crate) base_url: Option<String>,
+    pub(crate) api_key_url: String,
+    pub(crate) docs_url: String,
+    pub(crate) model_discovery: OnePieceModelDiscoveryMetadata,
+    pub(crate) default_endpoint_type: String,
+    pub(crate) endpoints: Vec<OnePieceProviderEndpoint>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderEndpoint {
+    #[serde(rename = "type")]
+    pub(crate) endpoint_type: String,
+    pub(crate) base_url: String,
+    pub(crate) interface_format: String,
+    pub(crate) auth_strategy: String,
+    pub(crate) source: String,
+    pub(crate) model_discovery: OnePieceEndpointDiscoveryMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceEndpointDiscoveryMetadata {
+    pub(crate) strategy: String,
+    pub(crate) url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceModelDiscoveryMetadata {
+    pub(crate) strategy: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiscoverOnePieceProviderModelsInput {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ValidateOnePieceProviderCredentialInput {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) model_id: String,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderModelOption {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) source: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderModelDiscoveryResult {
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) models: Vec<OnePieceProviderModelOption>,
+    pub(crate) source: String,
+    pub(crate) warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OnePieceProviderProfiles {
+    pub(crate) profiles: Vec<OnePieceProviderProfile>,
+    pub(crate) active_profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveOnePieceProviderProfileInput {
+    pub(crate) id: Option<String>,
+    pub(crate) name: String,
+    pub(crate) provider_id: String,
+    pub(crate) endpoint_type: String,
+    pub(crate) model_id: String,
+    pub(crate) api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

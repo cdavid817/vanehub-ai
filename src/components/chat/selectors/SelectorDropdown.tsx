@@ -12,6 +12,7 @@ export interface SelectorOption<T extends string> {
 
 export function SelectorButton({
   compact,
+  disabled,
   icon,
   label,
   onClick,
@@ -19,6 +20,7 @@ export function SelectorButton({
   title,
 }: {
   compact?: boolean;
+  disabled?: boolean;
   icon: ReactNode;
   label: string;
   onClick: () => void;
@@ -27,7 +29,8 @@ export function SelectorButton({
 }) {
   return (
     <button
-      className="inline-flex h-8 max-w-48 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs hover:bg-muted"
+      className="inline-flex h-8 max-w-48 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs hover:bg-muted disabled:cursor-default disabled:opacity-70"
+      disabled={disabled}
       onClick={(event) => {
         event.stopPropagation();
         onClick();

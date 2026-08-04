@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ErrorBoundary } from "react-error-boundary";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { MainLayout } from "./main-layout/main-layout";
 import { SettingsShell } from "./settings/settings-shell";
 import { SettingsProvider } from "./settings/settings-provider";
@@ -38,7 +38,7 @@ function WorkspaceRoute() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  return <MainLayout onOpenSettings={() => navigate("/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
+  return <MainLayout onConfigureOnePiece={() => navigate("/settings?section=agent-configurations&agentConfig=onepiece")} onOpenSettings={(pageId) => navigate(pageId ? `/settings?section=${pageId}` : "/settings")} openCreateSession={new URLSearchParams(location.search).get("createSession") === "1"} />;
 }
 
 function AppRoutes() {
@@ -73,8 +73,16 @@ function AppRoutes() {
 
 function SettingsRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const onePieceRequested = new URLSearchParams(location.search).get("agentConfig") === "onepiece";
 
-  return <SettingsShell onReturn={() => navigate("/workspace")} />;
+  return (
+    <SettingsShell
+      initialNavigationTarget={onePieceRequested ? { agentConfigAgentId: "onepiece" } : null}
+      initialPageId={onePieceRequested ? "agent-configurations" : undefined}
+      onReturn={() => navigate("/workspace")}
+    />
+  );
 }
 
 export function App() {

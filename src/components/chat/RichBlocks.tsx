@@ -10,7 +10,6 @@ import {
   Music2,
   PanelTop,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type {
@@ -24,6 +23,8 @@ import type {
   RichInteractiveBlock,
   RichMediaGalleryBlock,
 } from "../../types/chat";
+import { RichMarkdown } from "./RichMarkdown";
+import { SafeImage } from "./SafeImage";
 
 function BlockShell({
   children,
@@ -59,9 +60,7 @@ function CardBlock({ block }: { block: RichCardBlock }) {
   return (
     <BlockShell icon={<Info className="h-3.5 w-3.5" aria-hidden="true" />} title={block.title} tone={tone}>
       {block.bodyMarkdown ? (
-        <div className="prose prose-sm max-w-none whitespace-normal text-foreground prose-p:my-1 prose-ul:my-1 prose-li:my-0">
-          <ReactMarkdown>{block.bodyMarkdown}</ReactMarkdown>
-        </div>
+        <RichMarkdown className="text-foreground">{block.bodyMarkdown}</RichMarkdown>
       ) : null}
       {block.fields?.length ? (
         <dl className="mt-2 grid gap-1">
@@ -118,7 +117,7 @@ function MediaGalleryBlock({ block }: { block: RichMediaGalleryBlock }) {
       <div className="grid gap-2 sm:grid-cols-2">
         {block.items.map((item) => (
           <figure className="min-w-0 overflow-hidden rounded border border-border bg-background" key={item.url}>
-            <img className="max-h-64 w-full object-contain" src={item.url} alt={item.alt ?? item.caption ?? t("chat.richBlock.imageAlt")} />
+            <SafeImage className="max-h-64 w-full" src={item.url} alt={item.alt ?? item.caption ?? t("chat.richBlock.imageAlt")} />
             {item.caption ? <figcaption className="border-t border-border px-2 py-1 text-[11px] text-muted-foreground">{item.caption}</figcaption> : null}
           </figure>
         ))}

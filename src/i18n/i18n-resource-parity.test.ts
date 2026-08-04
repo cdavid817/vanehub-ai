@@ -69,14 +69,14 @@ describe("i18n resources", () => {
   });
 
   it.each([
-    ["zh-CN", "Agent 管理"],
-    ["en", "Agent Management"],
-    ["zh-TW", "Agent 管理"],
-    ["ja", "Agent 管理"],
-    ["ko", "Agent 관리"],
+    ["zh-CN", "Agent 配置"],
+    ["en", "Agent Configurations"],
+    ["zh-TW", "Agent 配置"],
+    ["ja", "Agent Configurations"],
+    ["ko", "Agent Configurations"],
   ] as const)("activates representative %s translations without fallback copy", async (language, title) => {
     await activateAppLanguage(language);
-    expect(i18n.t("agents.title")).toBe(title);
+    expect(i18n.t("agentConfigurations.title")).toBe(title);
     expect(i18n.resolvedLanguage).toBe(language);
   });
 

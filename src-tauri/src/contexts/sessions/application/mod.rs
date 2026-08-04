@@ -20,10 +20,11 @@ pub(crate) use models::{
     SessionUsageUnit, SessionWorkspace, UsageStatisticsRange,
 };
 pub(crate) use ports::{
-    SessionCategoryRepository, SessionChatProfilePort, SessionClockPort,
-    SessionConfigurationRepository, SessionCreationContextPort, SessionFileContentPort,
-    SessionIdentityPort, SessionLoggingPort, SessionMessageRepository, SessionOperationPort,
-    SessionRepository, SessionRuntimePort, SessionTransactionPort, SessionUsageRepository,
+    SessionAgentEligibilityPort, SessionCategoryRepository, SessionChatProfilePort,
+    SessionClockPort, SessionConfigurationRepository, SessionCreationContextPort,
+    SessionFileContentPort, SessionIdentityPort, SessionLoggingPort, SessionMessageRepository,
+    SessionOperationPort, SessionRepository, SessionRuntimePort, SessionTransactionPort,
+    SessionUsageRepository,
 };
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
 

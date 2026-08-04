@@ -15,6 +15,7 @@ use crate::contexts::execution_observability::api::{
     ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
 };
 use crate::platform::filesystem::normalize_windows_extended_length_path;
+use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
 use std::collections::HashMap;
 use std::fs;
@@ -38,10 +39,10 @@ pub(crate) struct RuntimeAgentProcessAdapter {
     event_sequence: Arc<AtomicU64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct PreparedMcpRelay {
     pub(crate) invocation_args: Vec<String>,
-    pub(crate) cleanup_paths: Vec<PathBuf>,
+    pub(crate) guard: Option<PreparedMcpRelayGuard>,
 }
 
 pub(crate) trait ManagedMcpRelayPort: Send + Sync {
@@ -62,7 +63,7 @@ struct ManagedProcess {
     operation_id: String,
     monitoring: bool,
     final_output_path: Option<PathBuf>,
-    cleanup_paths: Vec<PathBuf>,
+    relay_guard: Option<PreparedMcpRelayGuard>,
     execution_context: ExecutionContext,
 }
 
@@ -77,7 +78,7 @@ struct ProcessMonitor {
     session_id: String,
     operation_id: String,
     final_output_path: Option<PathBuf>,
-    cleanup_paths: Vec<PathBuf>,
+    relay_guard: Option<PreparedMcpRelayGuard>,
     execution_context: ExecutionContext,
     telemetry: Arc<dyn ExecutionTelemetryPort>,
     event_sequence: Arc<AtomicU64>,
@@ -123,7 +124,7 @@ impl RuntimeAgentProcessAdapter {
             &request.cli_profile.managed_args,
         )
         .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-        let mut cleanup_paths = Vec::new();
+        let mut relay_guard = None;
         if request.execution_context.mcp_relay_enabled {
             match self.mcp_relay.prepare(
                 &request.agent.id,
@@ -136,7 +137,7 @@ impl RuntimeAgentProcessAdapter {
                         &mut spec.args,
                         prepared.invocation_args,
                     );
-                    cleanup_paths = prepared.cleanup_paths;
+                    relay_guard = prepared.guard;
                 }
                 Err(error) => {
                     self.record_log(
@@ -227,7 +228,6 @@ impl RuntimeAgentProcessAdapter {
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
-                cleanup_paths_all(&cleanup_paths);
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
@@ -253,7 +253,6 @@ impl RuntimeAgentProcessAdapter {
                     .and_then(|_| stdin.write_all(b"\n"))
                 {
                     terminate_child(&mut child);
-                    cleanup_paths_all(&cleanup_paths);
                     let _ = self.telemetry.finish_span(
                         &process_context.run_id,
                         &process_context.span_id,
@@ -269,7 +268,6 @@ impl RuntimeAgentProcessAdapter {
             Some(stdout) => stdout,
             None => {
                 terminate_child(&mut child);
-                cleanup_paths_all(&cleanup_paths);
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
@@ -292,7 +290,6 @@ impl RuntimeAgentProcessAdapter {
             Ok(processes) => processes,
             Err(error) => {
                 terminate_child(&mut child);
-                cleanup_paths_all(&cleanup_paths);
                 let _ = self.telemetry.finish_span(
                     &process_context.run_id,
                     &process_context.span_id,
@@ -312,7 +309,7 @@ impl RuntimeAgentProcessAdapter {
             operation_id: request.operation_id,
             monitoring: false,
             final_output_path,
-            cleanup_paths,
+            relay_guard,
             execution_context: process_context,
         };
         processes.insert(process_id.clone(), managed);
@@ -437,7 +434,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             session_id,
             operation_id,
             final_output_path,
-            cleanup_paths,
+            relay_guard,
             execution_context,
         ) = {
             let mut processes = self
@@ -467,7 +464,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 managed.session_id.clone(),
                 managed.operation_id.clone(),
                 managed.final_output_path.clone(),
-                managed.cleanup_paths.clone(),
+                managed.relay_guard.clone(),
                 managed.execution_context.clone(),
             )
         };
@@ -489,7 +486,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 session_id,
                 operation_id,
                 final_output_path,
-                cleanup_paths,
+                relay_guard,
                 execution_context,
                 telemetry,
                 event_sequence,
@@ -578,7 +575,6 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         if !managed.monitoring {
             let _ = child.wait();
             cleanup_final_output(managed.final_output_path.as_deref());
-            cleanup_paths_all(&managed.cleanup_paths);
         }
         Ok(true)
     }
@@ -597,7 +593,7 @@ impl ProcessMonitor {
             session_id,
             operation_id,
             final_output_path,
-            cleanup_paths,
+            relay_guard,
             execution_context,
             telemetry,
             event_sequence,
@@ -616,6 +612,11 @@ impl ProcessMonitor {
             let event = match line {
                 Ok(line) => match parser.parse_line(&line) {
                     ProviderOutputEvent::Token(delta) => {
+                        let delta = if emitted_content {
+                            format!("\n{delta}")
+                        } else {
+                            delta
+                        };
                         emitted_content = true;
                         Some(GenerationProcessEvent::Token(delta))
                     }
@@ -757,7 +758,9 @@ impl ProcessMonitor {
             });
         }
         cleanup_final_output(final_output_path.as_deref());
-        cleanup_paths_all(&cleanup_paths);
+        if let Some(guard) = relay_guard {
+            let _ = guard.cleanup();
+        }
     }
 }
 
@@ -828,12 +831,6 @@ fn safe_attributes(
 
 fn cleanup_final_output(path: Option<&Path>) {
     if let Some(path) = path {
-        let _ = fs::remove_file(path);
-    }
-}
-
-fn cleanup_paths_all(paths: &[PathBuf]) {
-    for path in paths {
         let _ = fs::remove_file(path);
     }
 }

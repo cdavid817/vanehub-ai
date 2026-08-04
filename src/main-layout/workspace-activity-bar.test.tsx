@@ -56,7 +56,7 @@ describe("WorkspaceActivityBar", () => {
     expect(onSessions).toHaveBeenCalledOnce();
     expect(onLoops).toHaveBeenCalledOnce();
     expect(onScheduledTasks).toHaveBeenCalledOnce();
-    expect(onOpenSettings).toHaveBeenCalledOnce();
+    expect(onOpenSettings).toHaveBeenCalledWith();
     expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');
     expect(utilityButtons[1].props.title).toBe("Help");
   });

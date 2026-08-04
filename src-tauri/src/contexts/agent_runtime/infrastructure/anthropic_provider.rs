@@ -234,10 +234,28 @@ pub(crate) fn failure_from_http_status(status: u16, body: &str) -> GenerationPro
         .and_then(|value| value.pointer("/error/type"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if matches!(status, 400 | 401 | 403 | 404) {
+    let failure = if matches!(status, 400 | 401 | 403 | 404) {
         GenerationProcessFailure::non_retryable(message)
     } else {
         classify_failure(error_type, &message)
+    };
+    match status {
+        401 | 403 => failure.with_safe_error(
+            "Provider authentication failed. Check the API key in the active OnePiece configuration.",
+        ),
+        400 => failure.with_safe_error(
+            "The provider rejected the request. Check the model and endpoint in the active OnePiece configuration.",
+        ),
+        404 => failure.with_safe_error(
+            "The configured provider endpoint or model was not found. Check the active OnePiece configuration.",
+        ),
+        429 => failure.with_safe_error(
+            "The provider rate limit was reached. Try again later or use another OnePiece configuration.",
+        ),
+        500..=599 => failure.with_safe_error(
+            "The provider service is unavailable. Try again later.",
+        ),
+        _ => failure,
     }
 }
 
@@ -481,6 +499,12 @@ mod tests {
         let failure = failure_from_http_status(401, body);
         assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
         assert_eq!(failure.diagnostic, "invalid x-api-key");
+        assert_eq!(
+            failure.safe_error.as_deref(),
+            Some(
+                "Provider authentication failed. Check the API key in the active OnePiece configuration."
+            )
+        );
     }
 
     #[test]

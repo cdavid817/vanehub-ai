@@ -11,6 +11,7 @@ const identities: Record<string, AgentVisualIdentity> = {
   "codex-cli": { label: "Codex CLI", Icon: Code2, tone: "ucd-agent-codex" },
   "gemini-cli": { label: "Gemini CLI", Icon: BrainCircuit, tone: "ucd-agent-gemini" },
   opencode: { label: "OpenCode", Icon: TerminalSquare, tone: "ucd-agent-opencode" },
+  onepiece: { label: "OnePiece", Icon: Bot, tone: "border-violet-400/60 bg-violet-500/10 text-violet-600" },
 };
 
 export function getAgentVisualIdentity(agentId: string): AgentVisualIdentity {

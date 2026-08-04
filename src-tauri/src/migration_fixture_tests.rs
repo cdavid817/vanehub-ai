@@ -23,7 +23,11 @@ fn empty_fixture_migrates_to_latest_schema() {
 
     migrate(&conn).expect("migrate empty fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=37).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert!(
+        table_has_column(&conn, "onepiece_provider_profiles", "active")
+            .expect("OnePiece provider profile table")
+    );
     assert!(table_has_column(&conn, "sessions", "remote_workspace_uri")
         .expect("remote workspace column"));
     assert!(table_has_column(&conn, "messages", "rich_blocks").expect("rich block column"));
@@ -79,7 +83,7 @@ fn legacy_v1_fixture_upgrades_without_losing_records() {
 
     migrate(&conn).expect("migrate legacy fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=37).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("managed SDK column")
     );
@@ -119,7 +123,7 @@ fn current_v20_fixture_is_idempotent_and_readable() {
 
     migrate(&conn).expect("repeat current migration");
 
-    assert_eq!(applied_versions(&conn), (1..=37).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "sdk_operation_logs", "operation_id")
             .expect("SDK operation log column")
@@ -141,6 +145,119 @@ fn current_v20_fixture_is_idempotent_and_readable() {
         )
         .expect("fixture setting"),
         "en"
+    );
+}
+
+#[test]
+fn onepiece_legacy_runtime_configuration_migrates_to_an_active_profile() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("initial migration");
+    crate::contexts::agent_runtime::infrastructure::seed_registry(&conn).expect("seed agents");
+    conn.execute(
+        "UPDATE agents SET provider = 'Legacy Provider', model_id = 'legacy-model', interface_format = 'openai-compatible', base_url = 'https://legacy.example.test/v1' WHERE id = 'onepiece'",
+        [],
+    )
+    .expect("configure legacy OnePiece row");
+    conn.execute_batch(
+        "DROP TABLE onepiece_provider_profiles;
+         DELETE FROM schema_migrations WHERE version IN (39, 40, 41);",
+    )
+    .expect("simulate pre-profile schema");
+
+    migrate(&conn).expect("migrate legacy OnePiece configuration");
+
+    let migrated = conn
+        .query_row(
+            "SELECT id, name, source_preset_id, source_provider_id, source_endpoint_type, source_preset_version, provider, model_id, interface_format, base_url, active FROM onepiece_provider_profiles WHERE agent_id = 'onepiece'",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<u32>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, bool>(10)?,
+                ))
+            },
+        )
+        .expect("migrated OnePiece profile");
+    assert_eq!(migrated.0, "legacy-default");
+    assert_eq!(migrated.1, "Legacy Provider");
+    assert_eq!(migrated.2, None);
+    assert_eq!(migrated.3, None);
+    assert_eq!(migrated.4, None);
+    assert_eq!(migrated.5, None);
+    assert_eq!(migrated.6, "Legacy Provider");
+    assert_eq!(migrated.7, "legacy-model");
+    assert_eq!(migrated.8, "openai-compatible");
+    assert_eq!(
+        migrated.9.as_deref(),
+        Some("https://legacy.example.test/v1")
+    );
+    assert!(migrated.10);
+}
+
+#[test]
+fn onepiece_endpoint_migration_separates_provider_and_protocol_identity() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    conn.execute_batch(
+        "CREATE TABLE agents (
+            id TEXT PRIMARY KEY,
+            launch_kind TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model_id TEXT,
+            interface_format TEXT,
+            base_url TEXT
+         );
+         INSERT INTO agents (id, launch_kind, provider) VALUES ('onepiece', 'api', 'VaneHub');",
+    )
+    .expect("minimal agent schema");
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_profiles_schema(&conn)
+        .expect("profile schema");
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_catalog_schema(&conn)
+        .expect("catalog schema");
+    conn.execute_batch(
+        "INSERT INTO onepiece_provider_profiles
+            (id, name, source_preset_id, source_preset_version, provider, model_id, interface_format, base_url, active)
+         VALUES
+            ('anthropic-endpoint', 'DeepSeek Anthropic', 'deepseek::anthropic-messages', 3, 'DeepSeek', 'deepseek-chat', 'anthropic', 'https://api.deepseek.com/anthropic', 0),
+            ('default-endpoint', 'OpenRouter', 'openrouter', 3, 'OpenRouter', 'openai/gpt', 'openai-compatible', 'https://openrouter.ai/api/v1', 0);",
+    )
+    .expect("legacy catalog profiles");
+
+    crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema(&conn)
+        .expect("endpoint schema");
+
+    let explicit = conn
+        .query_row(
+            "SELECT source_provider_id, source_endpoint_type FROM onepiece_provider_profiles WHERE id = 'anthropic-endpoint'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .expect("explicit endpoint identity");
+    assert_eq!(
+        explicit,
+        ("deepseek".to_string(), "anthropic-messages".to_string())
+    );
+    let defaulted = conn
+        .query_row(
+            "SELECT source_provider_id, source_endpoint_type FROM onepiece_provider_profiles WHERE id = 'default-endpoint'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .expect("default endpoint identity");
+    assert_eq!(
+        defaulted,
+        (
+            "openrouter".to_string(),
+            "openai-chat-completions".to_string()
+        )
     );
 }
 

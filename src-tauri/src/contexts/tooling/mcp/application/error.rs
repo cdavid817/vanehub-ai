@@ -9,6 +9,8 @@ pub(crate) enum McpApplicationError {
     ServerNotFound(String),
     #[error("{0}")]
     Validation(String),
+    #[error("The MCP configuration exceeded a safety limit.")]
+    LimitExceeded,
     #[error("database error: {0}")]
     Database(String),
     #[error("storage error: {0}")]

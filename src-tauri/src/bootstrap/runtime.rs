@@ -18,6 +18,8 @@ pub(crate) fn run() {
     let result = tauri::Builder::default()
         // 注册弹窗对话框插件（文件选择、提示框、确认框等）
         .plugin(tauri_plugin_dialog::init())
+        // External provider/help links are opened by the operating system browser.
+        .plugin(tauri_plugin_opener::init())
         // 注册开机自启插件：Mac平台使用LaunchAgent实现开机启动，无额外配置
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -75,6 +77,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     std::env::set_var("VANEHUB_APP_DATA_DIR", &data_dir);
     let fallback_log_directory = logging::fallback_log_dir();
     let database = NativeDatabase::new(data_dir).map_err(boxed_error)?;
+    crate::contexts::desktop::infrastructure::install_main_webview_recovery(
+        app.handle(),
+        fallback_log_directory.clone(),
+    )
+    .map_err(boxed_message)?;
 
     let (desktop_settings_api, desktop_locale_bridge) =
         super::assemble_desktop_settings_api(database.clone(), app.handle().clone());
@@ -127,6 +134,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         operations_api.clone(),
         fallback_log_directory.clone(),
     );
+    let shared_agent_registry = super::assemble_shared_agent_registry(
+        database.clone(),
+        sdk_api.clone(),
+        fallback_log_directory.clone(),
+    );
     let extension_api = super::assemble_extension_api(
         database.clone(),
         operations_api.clone(),
@@ -153,6 +165,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         workspace_api.clone(),
         cli_parameters_api.clone(),
         native_config_reader,
+        shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
     );
     let super::AgentRuntimeAssembly {
@@ -162,7 +175,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         database: database.clone(),
         app: app.handle().clone(),
         operations: operations_api.clone(),
-        sdk: sdk_api.clone(),
         cli: cli_api.clone(),
         cli_parameters: cli_parameters_api.clone(),
         prompts: prompt_hook_api.clone(),
@@ -170,7 +182,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
-        fallback_log_directory: fallback_log_directory.clone(),
+        shared_registry: shared_agent_registry,
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     agent_runtime_api

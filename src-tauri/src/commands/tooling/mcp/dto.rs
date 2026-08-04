@@ -26,6 +26,20 @@ pub(crate) enum McpConnectionStatus {
     Disabled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum McpErrorCode {
+    Validation,
+    Spawn,
+    Timeout,
+    Cancelled,
+    Protocol,
+    UpstreamHttp,
+    LimitExceeded,
+    Transport,
+    Cleanup,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpServerConfig {
@@ -73,6 +87,7 @@ pub(crate) struct McpServerStatus {
     pub(crate) tools: Vec<McpToolInfo>,
     pub(crate) last_connected: Option<String>,
     pub(crate) error: Option<String>,
+    pub(crate) error_code: Option<McpErrorCode>,
     pub(crate) duration_ms: Option<u64>,
 }
 
@@ -81,6 +96,23 @@ pub(crate) struct McpServerStatus {
 pub(crate) struct McpImportResult {
     pub(crate) imported: Vec<String>,
     pub(crate) skipped: Vec<String>,
+    pub(crate) failures: Vec<McpImportFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpImportFailure {
+    pub(crate) name: String,
+    pub(crate) stage: McpImportFailureStage,
+    pub(crate) error_code: Option<McpErrorCode>,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum McpImportFailureStage {
+    Validation,
+    Storage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -92,9 +124,19 @@ pub(crate) struct McpImportExport {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpImportServerEntry {
+    #[serde(rename = "type")]
+    pub(crate) transport_type: Option<McpImportTransportType>,
     pub(crate) command: Option<String>,
     pub(crate) args: Option<Vec<String>>,
     pub(crate) env: Option<BTreeMap<String, String>>,
     pub(crate) url: Option<String>,
     pub(crate) headers: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum McpImportTransportType {
+    Sse,
+    Http,
+    StreamableHttp,
 }

@@ -1,5 +1,7 @@
 import { CheckCircle2, CircleAlert, Wrench } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { McpServerStatus, McpTestResult } from "../../../types/mcp";
+import { formatMcpFailure } from "./mcp-presentation";
 
 export function McpTestResultPanel({
   result,
@@ -8,23 +10,30 @@ export function McpTestResultPanel({
   result?: McpTestResult | null;
   status?: McpServerStatus | null;
 }) {
+  const { t } = useTranslation();
   const tools = result?.tools ?? status?.tools ?? [];
   const success = result?.success ?? status?.connectionStatus === "connected";
-  const error = result?.error ?? status?.error;
+  const errorCode = result?.errorCode ?? status?.errorCode ?? null;
+  const safeDetail = errorCode ? result?.error ?? status?.error : null;
+  const failed = result?.success === false || status?.connectionStatus === "error";
   const duration = result?.durationMs ?? status?.durationMs;
 
   if (!result && !status) return null;
 
   return (
-    <div className={`rounded-md border p-3 text-xs ${success ? "ucd-status-success" : error ? "ucd-status-danger" : "border-border bg-muted"}`}>
+    <div className={`rounded-md border p-3 text-xs ${success ? "ucd-status-success" : failed ? "ucd-status-danger" : "border-border bg-muted"}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 font-medium">
           {success ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <CircleAlert className="h-4 w-4" aria-hidden="true" />}
-          {success ? "Recent test passed" : error ? "Recent test failed" : "Not tested"}
+          {success ? t("mcp.test.recentPassed") : failed ? t("mcp.test.recentFailed") : t("mcp.test.notTested")}
         </div>
         {duration ? <span>{duration}ms</span> : null}
       </div>
-      {error ? <div className="mb-2 wrap-break-word">{error}</div> : null}
+      {failed ? (
+        <div className="mb-2 wrap-break-word">
+          {formatMcpFailure(t, errorCode, safeDetail)}
+        </div>
+      ) : null}
       {tools.length ? (
         <div className="grid gap-1">
           {tools.slice(0, 5).map((tool) => (
@@ -36,7 +45,7 @@ export function McpTestResultPanel({
               </div>
             </div>
           ))}
-          {tools.length > 5 ? <div className="opacity-80">{tools.length - 5} more tools</div> : null}
+          {tools.length > 5 ? <div className="opacity-80">{t("mcp.test.moreTools", { count: tools.length - 5 })}</div> : null}
         </div>
       ) : null}
     </div>

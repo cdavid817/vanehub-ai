@@ -206,8 +206,11 @@ impl McpServerRepository for SqliteMcpServerRepository {
             .execute(
                 r#"
                 UPDATE mcp_servers
-                SET last_connection_status = ?1, last_connected = ?2, last_error = ?3,
-                    last_tools = ?4, last_test_duration_ms = ?5, updated_at = ?6
+                SET last_connection_status = ?1,
+                    last_connected = CASE WHEN ?1 = 'connected' THEN ?2 ELSE last_connected END,
+                    last_error = ?3,
+                    last_tools = CASE WHEN ?1 = 'connected' THEN ?4 ELSE last_tools END,
+                    last_test_duration_ms = ?5, updated_at = ?6
                 WHERE name = ?7
                 "#,
                 params![
@@ -259,7 +262,7 @@ impl McpServerRow {
     fn into_domain(self) -> Result<ServerConfiguration, McpApplicationError> {
         ServerConfiguration::create(ServerConfigurationDraft {
             name: self.name,
-            transport_type: TransportType::from_persisted(&self.transport_type),
+            transport_type: TransportType::from_persisted(&self.transport_type)?,
             command: self.command,
             args: from_json(self.args.as_deref())?,
             env: from_json(self.env.as_deref())?,
@@ -309,6 +312,7 @@ impl McpStatusRow {
                 .collect(),
             last_connected: self.last_connected,
             error: self.error,
+            error_code: None,
             duration_ms: self.duration_ms.map(|value| value as u64),
         })
     }
@@ -384,6 +388,8 @@ fn database_error(error: rusqlite::Error) -> McpApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::tooling::mcp::domain::McpDomainError;
+    use crate::contexts::tooling::mcp::domain::McpFailureCode;
     use crate::test_support::TempDirectory;
 
     fn repository(name: &str) -> (TempDirectory, SqliteMcpServerRepository) {
@@ -478,7 +484,48 @@ mod tests {
     }
 
     #[test]
-    fn row_mapping_applies_documented_legacy_fallbacks_through_domain_construction() {
+    fn failed_connection_preserves_the_prior_valid_tool_cache() {
+        let (_directory, repository) = repository("mcp-sqlite-preserve-tools");
+        repository
+            .insert(&server("cached-tools", Scope::User, None), "100")
+            .expect("insert");
+        repository
+            .record_connection_outcome(
+                "cached-tools",
+                &ConnectionOutcome::connected(
+                    vec![ToolDescriptor {
+                        name: "search".to_string(),
+                        description: None,
+                        input_schema: Some(serde_json::json!({ "type": "object" })),
+                    }],
+                    17,
+                ),
+                "101",
+            )
+            .expect("record valid catalog");
+
+        repository
+            .record_connection_outcome(
+                "cached-tools",
+                &ConnectionOutcome::failed_with_code(
+                    McpFailureCode::LimitExceeded.safe_message(),
+                    McpFailureCode::LimitExceeded,
+                    23,
+                ),
+                "102",
+            )
+            .expect("record failure");
+
+        let status = repository.status("cached-tools").expect("status");
+        assert_eq!(status.connection_status, ConnectionStatus::Error);
+        assert_eq!(status.tools.len(), 1);
+        assert_eq!(status.tools[0].name, "search");
+        assert_eq!(status.last_connected.as_deref(), Some("101"));
+        assert_eq!(status.duration_ms, Some(23));
+    }
+
+    #[test]
+    fn row_mapping_rejects_an_unknown_persisted_transport() {
         let (_directory, repository) = repository("mcp-sqlite-legacy-row");
         let connection = repository.database.connection().expect("connection");
         connection
@@ -492,12 +539,13 @@ mod tests {
             )
             .expect("legacy row");
 
-        let loaded = repository
+        let error = repository
             .find("legacy-tools")
-            .expect("find")
-            .expect("server");
-        assert_eq!(loaded.transport_type(), TransportType::Stdio);
-        assert_eq!(loaded.scope(), Scope::User);
-        assert_eq!(loaded.command(), Some("legacy-mcp"));
+            .expect_err("unknown transport");
+        assert!(matches!(
+            error,
+            McpApplicationError::Domain(McpDomainError::InvalidTransport(value))
+                if value == "unknown"
+        ));
     }
 }

@@ -162,6 +162,16 @@ pub(crate) struct SaveCliConfigProfileInput {
     pub(crate) remove_credential: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ValidateCliConfigCredentialInput {
+    pub(crate) agent_id: String,
+    pub(crate) profile_id: Option<String>,
+    pub(crate) payload: Option<CliConfigPayload>,
+    pub(crate) source_preset_id: Option<String>,
+    pub(crate) credential: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportCliConfigProfileInput {

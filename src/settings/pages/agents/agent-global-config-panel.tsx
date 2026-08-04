@@ -102,7 +102,7 @@ export function AgentGlobalConfigPanel({ agentId, searchTerm = "", service = def
       />
       {overviewQuery.data ? <CliConfigStatusSummary status={overviewQuery.data.status} /> : null}
       {overviewQuery.data ? (
-        <CliConfigProfileList busy={busy} onApply={(profile) => setPendingAction({ kind: "apply", profile })} onDelete={(profile) => setPendingAction({ kind: "delete", profile })} onDuplicate={(profile) => void duplicateMutation.mutateAsync(profile).catch(() => undefined)} onEdit={(profile) => setDraft(draftFromProfile(profile))} presets={overviewQuery.data.presets} profiles={overviewQuery.data.profiles} searchTerms={[searchTerm, profileSearch]} />
+        <CliConfigProfileList busy={busy} onApply={(profile) => setPendingAction({ kind: "apply", profile })} onDelete={(profile) => setPendingAction({ kind: "delete", profile })} onDuplicate={(profile) => void duplicateMutation.mutateAsync(profile).catch(() => undefined)} onEdit={(profile) => setDraft(draftFromProfile(profile))} onValidate={(profile) => service.validateCliConfigCredential({ agentId, profileId: profile.id })} presets={overviewQuery.data.presets} profiles={overviewQuery.data.profiles} searchTerms={[searchTerm, profileSearch]} />
       ) : null}
       {operationError ? <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{operationError instanceof Error ? operationError.message : String(operationError)}</p> : null}
       {notice ? <p className="rounded-md border p-3 text-sm ucd-status-success" role="status">{notice}</p> : null}

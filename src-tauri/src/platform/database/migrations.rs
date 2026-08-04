@@ -214,6 +214,30 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "skill-management-reliability",
         crate::contexts::tooling::skills::infrastructure::apply_reliability_schema,
     )?;
+    apply_migration(
+        conn,
+        38,
+        "agent-management-origin",
+        crate::contexts::agent_runtime::infrastructure::apply_agent_origin_schema,
+    )?;
+    apply_migration(
+        conn,
+        39,
+        "onepiece-provider-profiles",
+        crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_profiles_schema,
+    )?;
+    apply_migration(
+        conn,
+        40,
+        "onepiece-provider-catalog",
+        crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_catalog_schema,
+    )?;
+    apply_migration(
+        conn,
+        41,
+        "onepiece-provider-endpoints",
+        crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema,
+    )?;
 
     Ok(())
 }
@@ -834,7 +858,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (36, 36));
+        assert_eq!(migration_state, (40, 41));
 
         migrate(&connection).expect("upgrade migration");
 

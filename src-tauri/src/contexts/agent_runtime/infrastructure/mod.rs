@@ -8,6 +8,8 @@ mod coordination_executor;
 mod coordination_repository;
 mod coordination_scheduler;
 mod coordination_schema;
+mod core_instructions;
+mod credential_aware_registry;
 mod events;
 mod generation_coordinator;
 mod loop_execution_coordinator;
@@ -23,6 +25,7 @@ mod loop_verification_process;
 mod mcp_tool_gateway;
 mod memory_repository;
 mod memory_schema;
+mod onepiece_model_discovery;
 mod openai_compatible_provider;
 mod process_adapter;
 mod prompt_gateway;
@@ -48,6 +51,8 @@ pub(crate) use coordination_executor::NativeCoordinationNodeExecutor;
 pub(crate) use coordination_repository::SqliteCoordinationRepository;
 pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
 pub(crate) use coordination_schema::apply_coordination_schema;
+pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
+pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
@@ -60,6 +65,7 @@ pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::apply_memory_schema;
+pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
 };
@@ -69,8 +75,9 @@ pub(crate) use runtime_support::{
     UuidCoordinationIds,
 };
 pub(crate) use schema::{
-    apply_agent_tool_trust_schema, apply_api_agent_schema, apply_openai_compatible_schema,
-    seed_registry,
+    apply_agent_origin_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
+    apply_onepiece_provider_catalog_schema, apply_onepiece_provider_endpoint_schema,
+    apply_onepiece_provider_profiles_schema, apply_openai_compatible_schema, seed_registry,
 };
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;

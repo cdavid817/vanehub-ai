@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @plugin 'tailwindcss-animate';
+@import 'katex/dist/katex.min.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -448,4 +449,47 @@ body.floating-assistant-surface {
 *:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
+}
+
+/* Highlight.js emits semantic token classes; theme them with the same design
+   tokens as the rest of the chat instead of importing a fixed light palette. */
+.rich-markdown .hljs-comment,
+.rich-markdown .hljs-quote {
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.rich-markdown .hljs-keyword,
+.rich-markdown .hljs-selector-tag,
+.rich-markdown .hljs-built_in,
+.rich-markdown .hljs-name,
+.rich-markdown .hljs-tag {
+  color: hsl(var(--primary));
+}
+
+.rich-markdown .hljs-string,
+.rich-markdown .hljs-title,
+.rich-markdown .hljs-section,
+.rich-markdown .hljs-attribute,
+.rich-markdown .hljs-literal,
+.rich-markdown .hljs-template-tag,
+.rich-markdown .hljs-template-variable,
+.rich-markdown .hljs-type {
+  color: hsl(var(--success));
+}
+
+.rich-markdown .hljs-number,
+.rich-markdown .hljs-symbol,
+.rich-markdown .hljs-bullet,
+.rich-markdown .hljs-variable,
+.rich-markdown .hljs-regexp,
+.rich-markdown .hljs-link {
+  color: hsl(var(--warning));
+}
+
+.rich-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
 }
