@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, Github, Info, RefreshCw, Rocket, ScrollText, Sparkles } from "lucide-react";
+import { CheckCircle2, ExternalLink, GitFork, Info, RefreshCw, Rocket, ScrollText, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../components/ui/badge";
@@ -121,7 +121,7 @@ export function AboutPage() {
             <div className="flex flex-wrap gap-2 border-t border-border/70 pt-5">
               <Button asChild variant="outline">
                 <a href={aboutRepositoryUrl} rel="noreferrer" target="_blank">
-                  <Github className="h-4 w-4" aria-hidden="true" />
+                  <GitFork className="h-4 w-4" aria-hidden="true" />
                   {t("about.github")}
                 </a>
               </Button>
