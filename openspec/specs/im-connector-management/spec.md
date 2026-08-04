@@ -3,11 +3,11 @@
 ## Purpose
 
 This capability defines the five built-in IM connector management behaviors.
-
 ## Requirements
 
 Wall time: 0.9 seconds
 Output:
+
 ### Requirement: Five built-in IM connectors
 The system SHALL provide independently configurable built-in connectors with stable ids `feishu`, `telegram`, `dingtalk`, `wecom`, and `weixin`.
 
@@ -50,11 +50,20 @@ The system SHALL require a valid default Agent id and project path for new IM se
 - **THEN** the system SHALL reject the update without changing the previous defaults
 
 ### Requirement: Secure connector configuration
-The desktop runtime SHALL store connector secrets in the operating-system credential store and SHALL store only non-secret configuration and credential-reference metadata in SQLite.
+The desktop runtime SHALL store connector secrets in the operating-system credential store, SHALL store non-secret connector configuration and credential-reference metadata in SQLite, and SHALL apply credential edits as validated field-level patches.
 
 #### Scenario: Save connector credentials
-- **WHEN** a user saves valid connector credentials
+- **WHEN** a user saves valid connector configuration and secret fields
 - **THEN** secret fields SHALL be written to the operating-system credential store and SHALL NOT be persisted as plaintext in SQLite or frontend storage
+- **AND** non-secret fields SHALL be persisted separately from the secret payload
+
+#### Scenario: Patch a configured connector
+- **WHEN** a configured connector update supplies only a subset of editable fields
+- **THEN** the native runtime SHALL preserve omitted stored fields, merge the supplied patch, and validate the complete candidate before changing persistence or runtime state
+
+#### Scenario: Reject an incomplete credential candidate
+- **WHEN** the merged connector candidate lacks a required field or is otherwise invalid
+- **THEN** the system SHALL reject the update without replacing the stored credential, persisted configuration, or running connector
 
 #### Scenario: Return configured secret field
 - **WHEN** the frontend reloads a connector that has a stored secret
@@ -129,7 +138,7 @@ The system SHALL prevent a repeated platform event from starting more than one A
 - **THEN** the system SHALL acknowledge or consume it without creating another user message, assistant message, session, or Agent process
 
 ### Requirement: Dedicated session binding
-The system SHALL bind each `(connector id, external direct-chat id)` pair to one dedicated VaneHub session.
+The system SHALL bind each `(connector id, external direct-chat id)` pair to one dedicated VaneHub session, and an existing binding SHALL execute from its persisted session configuration independently of current global routing defaults.
 
 #### Scenario: First message creates binding
 - **WHEN** a valid direct message has no existing binding
@@ -137,7 +146,7 @@ The system SHALL bind each `(connector id, external direct-chat id)` pair to one
 
 #### Scenario: Later message reuses binding
 - **WHEN** a valid direct message has an existing live binding
-- **THEN** the router SHALL reuse that session and its provider runtime-session continuity
+- **THEN** the router SHALL reuse that session, its persisted Agent and project configuration, and its provider runtime-session continuity
 
 #### Scenario: Bound session was deleted
 - **WHEN** an inbound message resolves to a binding whose session no longer exists
@@ -145,22 +154,31 @@ The system SHALL bind each `(connector id, external direct-chat id)` pair to one
 
 #### Scenario: Routing defaults change
 - **WHEN** the user changes the default Agent or project
-- **THEN** existing bindings SHALL retain their existing sessions and new bindings SHALL use the new defaults
+- **THEN** existing bindings SHALL retain and execute through their existing sessions without comparing them to the new defaults
+- **AND** new bindings SHALL use the new defaults
 
 ### Requirement: Per-chat serialized execution
-The system SHALL run at most one Agent generation at a time for each external chat while allowing different external chats to execute concurrently.
+The system SHALL run at most one Agent generation at a time for each external chat, SHALL preserve per-chat arrival order, and SHALL bound active and pending IM work across all chats.
 
 #### Scenario: Queue message behind active generation
-- **WHEN** a second message arrives for a chat with an active generation and queue capacity remains
-- **THEN** the router SHALL enqueue it in arrival order and start it only after the active generation reaches a terminal state
+- **WHEN** a second message arrives for a chat with an active generation and per-chat and global capacity remain
+- **THEN** the router SHALL enqueue it in arrival order and start it only after the active generation reaches a terminal state and global execution capacity is available
 
 #### Scenario: Queue reaches capacity
 - **WHEN** another message arrives after the per-chat queue reaches its configured bound
 - **THEN** the connector SHALL return a localized busy response and SHALL NOT silently start or drop an untracked Agent generation
 
+#### Scenario: Global IM capacity reaches its bound
+- **WHEN** a new inbound message cannot reserve bounded global pending capacity
+- **THEN** the connector SHALL return a localized busy response and SHALL NOT create a lane, completion waiter, or Agent generation for that message
+
 #### Scenario: Different chats receive messages
-- **WHEN** messages arrive for different bindings
-- **THEN** the runtime MAY process them concurrently subject to native runtime capacity
+- **WHEN** messages arrive for different bindings and global execution capacity remains
+- **THEN** the runtime SHALL process them concurrently up to the configured native IM limit
+
+#### Scenario: Chat lane becomes idle
+- **WHEN** a chat lane has no active generation, queued message, worker, or reservation
+- **THEN** the runtime SHALL remove that exact idle lane without removing a concurrently reused lane
 
 ### Requirement: Shared Agent execution path
 IM-originated messages SHALL use the same native chat execution, message persistence, Agent parsing, token accounting, cancellation state, and unified runtime logging behavior as desktop-originated chat messages.
@@ -209,4 +227,53 @@ The runtime SHALL persist only the minimum non-secret checkpoints required to re
 #### Scenario: Maintain bounded dedup state
 - **WHEN** deduplication records exceed their retention window
 - **THEN** the native runtime SHALL remove expired records through bounded maintenance without deleting active bindings or message history
+
+### Requirement: Transactional connector lifecycle mutation
+Connector configuration and lifecycle mutations SHALL be serialized per connector and SHALL either establish the validated requested state or restore the prior usable state.
+
+#### Scenario: Save an enabled connector successfully
+- **WHEN** a validated connector update is persisted and its replacement runtime starts successfully
+- **THEN** only that connector SHALL use the new configuration and report the new lifecycle generation
+
+#### Scenario: Connector update fails
+- **WHEN** credential persistence, SQLite persistence, runtime replacement, or startup fails during a connector update
+- **THEN** the native runtime SHALL restore the previous credential and configuration where possible, restart the previously enabled runtime, and record redacted primary and rollback outcomes
+
+#### Scenario: Test an enabled connector
+- **WHEN** a user tests an enabled connector configuration
+- **THEN** the runtime SHALL use an isolated bounded test adapter without stopping, replacing, or registering over the enabled inbound runtime
+
+#### Scenario: Concurrent operations target one connector
+- **WHEN** two lifecycle mutations target the same connector concurrently
+- **THEN** they SHALL execute in a deterministic serialized order while operations for other connectors remain responsive
+
+### Requirement: Safe malformed-event handling
+Each connector SHALL distinguish intentionally unsupported inbound events from payloads that fail protocol normalization and SHALL handle both with bounded, redacted behavior.
+
+#### Scenario: Protocol payload cannot be normalized
+- **WHEN** a platform frame cannot be normalized because required structure is missing or invalid
+- **THEN** the connector SHALL emit a redacted safe-code diagnostic and apply its bounded acknowledgement or checkpoint policy without logging the raw frame, external identifiers, or message content
+
+#### Scenario: Platform schema drift repeats
+- **WHEN** equivalent malformed events repeat
+- **THEN** the connector SHALL avoid both silent loss and an unbounded retry or diagnostic loop
+
+### Requirement: Efficient connector maintenance
+Recurring connector maintenance SHALL be incremental, bounded, and decoupled from the per-message hot path.
+
+#### Scenario: Deduplication retention runs
+- **WHEN** deduplication retention becomes due
+- **THEN** the runtime SHALL remove expired records through startup or scheduled bounded maintenance rather than executing retention cleanup for every accepted message
+
+#### Scenario: Reuse a valid access token
+- **WHEN** Feishu or DingTalk sends multiple requests while its cached access token remains valid
+- **THEN** the connector SHALL reuse the token and SHALL single-flight refresh it before expiry or after an authentication rejection
+
+#### Scenario: Persist a WeChat reply context
+- **WHEN** personal WeChat receives a reply context for a chat
+- **THEN** the native runtime SHALL update that chat's secure context without reading and rewriting an unbounded all-chat credential payload
+
+#### Scenario: Successful poll returns immediately
+- **WHEN** a polling connector repeatedly receives successful empty responses faster than normal long-poll behavior
+- **THEN** it SHALL apply bounded connector-appropriate pacing and remain responsive to shutdown
 

@@ -25,6 +25,7 @@ mod loop_verification_process;
 mod mcp_tool_gateway;
 mod memory_repository;
 mod memory_schema;
+mod message_terminal_completions;
 mod onepiece_model_discovery;
 mod openai_compatible_provider;
 mod process_adapter;
@@ -65,6 +66,7 @@ pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::apply_memory_schema;
+pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,

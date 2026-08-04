@@ -1,8 +1,8 @@
 use super::runtime_manager::{ConnectorDiagnostic, DiagnosticLevel};
-use super::session_completion::wait_for_completion;
 use super::sqlite_repository::SqliteCommunicationsRepository;
 use crate::contexts::agent_runtime::api::{
-    AgentAvailability, AgentChatConfiguration, AgentRuntimeApi, InteractionMode, SendMessageRequest,
+    AgentAvailability, AgentChatConfiguration, AgentMessageTerminalOutcome, AgentRuntimeApi,
+    InteractionMode, SendMessageRequest,
 };
 use crate::contexts::communications::application::{
     AgentExecutionRequest, AgentExecutionResult, CommunicationsAgentExecutionPort,
@@ -87,12 +87,6 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
                     "The session chat configuration could not be loaded.",
                 )
             })?;
-        if configuration.agent_id != request.routing.agent_id {
-            return Err(CommunicationsApplicationError::user_visible(
-                "session-config-invalid",
-                "The session chat configuration could not be loaded.",
-            ));
-        }
         let configuration = AgentChatConfiguration {
             agent_id: configuration.agent_id,
             interaction_mode: InteractionMode::parse(&configuration.interaction_mode).map_err(
@@ -111,9 +105,9 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
             thinking: configuration.values.thinking,
             long_context: configuration.values.long_context,
         };
-        let message = self
+        let started = self
             .agents
-            .send_message(SendMessageRequest {
+            .send_message_with_completion(SendMessageRequest {
                 source: crate::contexts::agent_runtime::application::AgentMessageSource::InstantMessage {
                     connector_id: "managed-im".to_string(),
                 },
@@ -128,7 +122,43 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
                     "The Agent could not start this request.",
                 )
             })?;
-        wait_for_completion(&self.sessions, &request.session_id, &message.id)
+        let terminal = started
+            .terminal
+            .recv_timeout(std::time::Duration::from_secs(30 * 60))
+            .map_err(|error| match error {
+                std::sync::mpsc::RecvTimeoutError::Timeout => {
+                    CommunicationsApplicationError::user_visible(
+                        "agent-generation-timeout",
+                        "The Agent did not finish before the IM response timeout.",
+                    )
+                }
+                std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                    CommunicationsApplicationError::failure("completion-receiver-dropped")
+                }
+            })?;
+        if terminal.message_id != started.message.id {
+            return Err(CommunicationsApplicationError::failure(
+                "completion-message-mismatch",
+            ));
+        }
+        match terminal.outcome {
+            AgentMessageTerminalOutcome::Completed => Ok(AgentExecutionResult {
+                reply: terminal.content.unwrap_or_default(),
+                message_id: terminal.message_id,
+            }),
+            AgentMessageTerminalOutcome::Failed => {
+                Err(CommunicationsApplicationError::user_visible(
+                    "agent-generation-failed",
+                    "The Agent could not complete this request.",
+                ))
+            }
+            AgentMessageTerminalOutcome::Cancelled => {
+                Err(CommunicationsApplicationError::user_visible(
+                    "agent-generation-cancelled",
+                    "The Agent request was cancelled.",
+                ))
+            }
+        }
     }
 }
 
@@ -162,7 +192,11 @@ impl CommunicationsSessionBindingAdapter {
 }
 
 impl CommunicationsSessionBindingPort for CommunicationsSessionBindingAdapter {
-    fn resolve_or_create(
+    fn find(&self, key: &ChatBindingKey) -> Result<Option<String>, CommunicationsApplicationError> {
+        self.repository.find_binding(key)
+    }
+
+    fn create_if_missing(
         &self,
         key: &ChatBindingKey,
         routing: &RoutingSettings,

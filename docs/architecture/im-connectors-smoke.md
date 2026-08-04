@@ -23,6 +23,19 @@ The live check is intentionally operator-driven: the platform-side test account 
 5. Enable one connector, close the window, and confirm a direct text message is still received while the window is hidden.
 6. Choose Quit and confirm the process exits within eight seconds and no connector keeps running.
 
+## Reliability and status checks
+
+1. Keep IM Settings open while enabling, disabling, and restarting a connector. Confirm lifecycle changes appear without manual refresh and never move backward when an older generation event arrives.
+2. While a connector is receiving a message, change the global default Agent or project. Confirm an existing external-chat binding continues with its persisted session Agent, project, provider, and chat configuration.
+3. Send a short burst across multiple direct chats. Confirm overload is localized to a safe busy reply, the app stays responsive, and later messages work after capacity is released. Runtime limits are 64 total pending messages and 8 active Agent generations.
+4. Force one connector replacement to fail with invalid test credentials. Confirm its previous enabled runtime remains usable and another connector can still be enabled or disabled.
+5. For Feishu and DingTalk, send multiple replies within one token lifetime and confirm normal delivery without repeated token acquisition; then exercise an authentication failure and confirm a later attempt refreshes credentials.
+6. If a test endpoint can return an immediate empty success, confirm the connector does not hot-loop and Quit still interrupts the pacing delay promptly.
+7. Feed a synthetic malformed event only in a dedicated test environment. Confirm the platform acknowledgement/offset/cursor advances according to the connector, and unified logs contain only connector, operation, and `malformed-event`—never the frame or identities.
+8. Clear a personal WeChat connector after it has replied in multiple chats. Confirm the runtime stops and both the connector credential and all tracked per-chat reply contexts are removed; retrying clear remains safe after an injected secure-store failure.
+
+Agent completion is event-driven after terminal message persistence; packaged-app verification should not show fixed-interval message-table polling. Deduplication and per-chat WeChat reply-context retention run at startup and every six hours, with dedup cleanup limited to 512 rows per run. Personal WeChat reply contexts migrate incrementally from the legacy secure blob and expire after 30 days of inactivity.
+
 ## Connector round trips
 
 Live checks are opt-in and require credentials supplied through the settings page:

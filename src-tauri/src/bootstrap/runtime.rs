@@ -197,12 +197,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
 
     let scheduled_task_database = database.clone();
     let execution_retention_database = database.clone();
+    let communications_maintenance_database = database.clone();
     app.manage(database.clone());
     app.manage(super::ScheduledTaskLogDirectory::new(
         fallback_log_directory.clone(),
     ));
 
     let communications = super::assemble_communications(super::CommunicationsDependencies {
+        app: app.handle().clone(),
         database,
         operations: operations_api.clone(),
         agents: agent_runtime_api.clone(),
@@ -268,6 +270,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         fallback_log_directory.clone(),
     );
     super::start_initial_cli_refresh(cli_api).map_err(boxed_error)?;
+    start_communications_maintenance_job(
+        communications_api.clone(),
+        communications_maintenance_database,
+    );
     tauri::async_runtime::spawn(async move {
         if let Err(error) = communications_api.start_saved_connectors().await {
             write_bootstrap_log(
@@ -279,6 +285,26 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         }
     });
     Ok(())
+}
+
+fn start_communications_maintenance_job(
+    communications_api: crate::contexts::communications::api::CommunicationsApi,
+    database: crate::platform::database::NativeDatabase,
+) {
+    tauri::async_runtime::spawn(async move {
+        let repository =
+            crate::contexts::communications::infrastructure::SqliteCommunicationsRepository::new(
+                database,
+            );
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+        loop {
+            interval.tick().await;
+            let _ = communications_api.maintain_deduplication();
+            let _ = crate::contexts::communications::infrastructure::maintain_wechat_reply_contexts(
+                &repository,
+            );
+        }
+    });
 }
 
 /// 启动Agent终端空闲清理后台任务

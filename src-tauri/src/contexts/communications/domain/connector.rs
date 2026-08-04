@@ -13,6 +13,95 @@ pub(crate) enum ConnectorKind {
     WeChat,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectorFieldStorage {
+    Public,
+    Secret,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConnectorFieldDefinition {
+    pub(crate) key: &'static str,
+    pub(crate) storage: ConnectorFieldStorage,
+    pub(crate) required: bool,
+}
+
+const FEISHU_FIELDS: [ConnectorFieldDefinition; 2] = [
+    ConnectorFieldDefinition {
+        key: "appId",
+        storage: ConnectorFieldStorage::Public,
+        required: true,
+    },
+    ConnectorFieldDefinition {
+        key: "appSecret",
+        storage: ConnectorFieldStorage::Secret,
+        required: true,
+    },
+];
+const TELEGRAM_FIELDS: [ConnectorFieldDefinition; 1] = [ConnectorFieldDefinition {
+    key: "botToken",
+    storage: ConnectorFieldStorage::Secret,
+    required: true,
+}];
+const DINGTALK_FIELDS: [ConnectorFieldDefinition; 3] = [
+    ConnectorFieldDefinition {
+        key: "appKey",
+        storage: ConnectorFieldStorage::Public,
+        required: true,
+    },
+    ConnectorFieldDefinition {
+        key: "appSecret",
+        storage: ConnectorFieldStorage::Secret,
+        required: true,
+    },
+    ConnectorFieldDefinition {
+        key: "robotCode",
+        storage: ConnectorFieldStorage::Public,
+        required: false,
+    },
+];
+const WECOM_FIELDS: [ConnectorFieldDefinition; 2] = [
+    ConnectorFieldDefinition {
+        key: "botId",
+        storage: ConnectorFieldStorage::Public,
+        required: true,
+    },
+    ConnectorFieldDefinition {
+        key: "secret",
+        storage: ConnectorFieldStorage::Secret,
+        required: true,
+    },
+];
+const WECHAT_FIELDS: [ConnectorFieldDefinition; 3] = [
+    ConnectorFieldDefinition {
+        key: "botToken",
+        storage: ConnectorFieldStorage::Secret,
+        required: true,
+    },
+    ConnectorFieldDefinition {
+        key: "baseUrl",
+        storage: ConnectorFieldStorage::Public,
+        required: false,
+    },
+    ConnectorFieldDefinition {
+        key: "botId",
+        storage: ConnectorFieldStorage::Public,
+        required: false,
+    },
+];
+
+pub(crate) fn connector_field_definitions(
+    kind: ConnectorKind,
+) -> &'static [ConnectorFieldDefinition] {
+    match kind {
+        ConnectorKind::Feishu => &FEISHU_FIELDS,
+        ConnectorKind::Telegram => &TELEGRAM_FIELDS,
+        ConnectorKind::DingTalk => &DINGTALK_FIELDS,
+        ConnectorKind::WeCom => &WECOM_FIELDS,
+        ConnectorKind::WeChat => &WECHAT_FIELDS,
+    }
+}
+
 impl ConnectorKind {
     pub(crate) const ALL: [Self; 5] = [
         Self::Feishu,
@@ -170,5 +259,61 @@ mod tests {
                 "appSecret".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn connector_fields_classify_public_and_secret_values_for_all_builtins() {
+        let expected = [
+            (
+                ConnectorKind::Feishu,
+                vec![
+                    ("appId", ConnectorFieldStorage::Public),
+                    ("appSecret", ConnectorFieldStorage::Secret),
+                ],
+            ),
+            (
+                ConnectorKind::Telegram,
+                vec![("botToken", ConnectorFieldStorage::Secret)],
+            ),
+            (
+                ConnectorKind::DingTalk,
+                vec![
+                    ("appKey", ConnectorFieldStorage::Public),
+                    ("appSecret", ConnectorFieldStorage::Secret),
+                    ("robotCode", ConnectorFieldStorage::Public),
+                ],
+            ),
+            (
+                ConnectorKind::WeCom,
+                vec![
+                    ("botId", ConnectorFieldStorage::Public),
+                    ("secret", ConnectorFieldStorage::Secret),
+                ],
+            ),
+            (
+                ConnectorKind::WeChat,
+                vec![
+                    ("botToken", ConnectorFieldStorage::Secret),
+                    ("baseUrl", ConnectorFieldStorage::Public),
+                    ("botId", ConnectorFieldStorage::Public),
+                ],
+            ),
+        ];
+
+        for (kind, fields) in expected {
+            let actual = connector_field_definitions(kind)
+                .iter()
+                .map(|field| (field.key, field.storage))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual,
+                fields,
+                "unexpected field metadata for {}",
+                kind.as_str()
+            );
+            assert!(connector_field_definitions(kind)
+                .iter()
+                .any(|field| { field.required && field.storage == ConnectorFieldStorage::Secret }));
+        }
     }
 }

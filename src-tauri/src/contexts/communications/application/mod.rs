@@ -1,4 +1,5 @@
 mod error;
+mod lifecycle_coordinator;
 mod models;
 mod ports;
 mod service;

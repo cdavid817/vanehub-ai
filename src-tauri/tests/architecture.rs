@@ -853,3 +853,17 @@ fn production_logging_contract_is_not_debug_assertion_gated() {
         );
     }
 }
+
+#[test]
+fn communications_completion_wait_stays_event_driven_without_sqlite_polling() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let adapter_path =
+        source_root.join("contexts/communications/infrastructure/application_adapters.rs");
+    let adapter = fs::read_to_string(adapter_path).expect("read communications Agent adapter");
+    assert!(adapter.contains("send_message_with_completion"));
+    assert!(adapter.contains("recv_timeout"));
+    assert!(!adapter.contains("list_messages"));
+    assert!(!source_root
+        .join("contexts/communications/infrastructure/session_completion.rs")
+        .exists());
+}

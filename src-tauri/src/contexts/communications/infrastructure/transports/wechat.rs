@@ -1,5 +1,8 @@
 use super::http::{require_success, HttpMethod, HttpRequest, HttpTransport};
-use super::runtime::{submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};
+use super::runtime::{
+    pace_immediate_empty_poll, submit_inbound, ConnectorAdapter, ConnectorRuntimeError,
+    InboundDelivery, MalformedEventReporter, SafeDiagnosticSink,
+};
 use crate::contexts::communications::domain::{ConnectorKind, NormalizedInbound, OutboundText};
 use async_trait::async_trait;
 use base64::Engine;
@@ -51,6 +54,7 @@ pub struct WeChatAdapter {
     base_url: String,
     transport: Arc<dyn HttpTransport>,
     session: Arc<dyn WeChatSessionStore>,
+    malformed_events: MalformedEventReporter,
 }
 
 impl WeChatAdapter {
@@ -83,7 +87,13 @@ impl WeChatAdapter {
             base_url: base_url.to_string(),
             transport,
             session,
+            malformed_events: MalformedEventReporter::new(ConnectorKind::WeChat),
         })
+    }
+
+    pub(crate) fn with_diagnostic_sink(mut self, sink: SafeDiagnosticSink) -> Self {
+        self.malformed_events = self.malformed_events.with_sink(sink);
+        self
     }
 
     fn headers(&self) -> BTreeMap<String, String> {
@@ -157,9 +167,11 @@ impl WeChatAdapter {
             .enumerate()
         {
             let Some(sender_id) = message.get("from_user_id").and_then(Value::as_str) else {
+                self.malformed_events.report();
                 continue;
             };
             let Some(context) = message.get("context_token").and_then(Value::as_str) else {
+                self.malformed_events.report();
                 continue;
             };
             let Some(item) = message
@@ -167,12 +179,14 @@ impl WeChatAdapter {
                 .and_then(Value::as_array)
                 .and_then(|items| items.first())
             else {
+                self.malformed_events.report();
                 continue;
             };
             if item.get("type").and_then(Value::as_i64).unwrap_or(1) != 1 {
                 continue;
             }
             let Some(text) = item.pointer("/text_item/text").and_then(Value::as_str) else {
+                self.malformed_events.report();
                 continue;
             };
             self.session.save_context(sender_id, context)?;
@@ -290,11 +304,13 @@ impl ConnectorAdapter for WeChatAdapter {
     ) -> Result<(), ConnectorRuntimeError> {
         let mut ready = Some(ready);
         loop {
+            let poll_started = std::time::Instant::now();
             let poll = self.poll_once();
             tokio::select! {
                 _ = shutdown.changed() => return Ok(()),
                 result = poll => match result {
                     Ok((messages, next_cursor)) => {
+                        let empty = messages.is_empty();
                         if let Some(ready) = ready.take() {
                             let _ = ready.send(());
                         }
@@ -303,6 +319,9 @@ impl ConnectorAdapter for WeChatAdapter {
                         }
                         if let Some(next_cursor) = next_cursor {
                             self.session.save_cursor(&next_cursor)?;
+                        }
+                        if pace_immediate_empty_poll(poll_started, empty, &mut shutdown).await {
+                            return Ok(());
                         }
                     }
                     Err(error) => return Err(error),

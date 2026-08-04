@@ -55,7 +55,8 @@ pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationSe
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
     AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference, AgentLog,
-    AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentOperation, AgentSession,
+    AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
+    AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
     AgentSessionDetails, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
@@ -75,24 +76,25 @@ pub(crate) use models::{
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
     ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
     ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
-    SendMessageRequest, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
-    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
-    ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock,
-    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    SendMessageRequest, StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest,
+    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
+    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier,
+    ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
-    AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository, AgentSessionGateway,
-    AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
-    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort,
-    EffectivePromptGateway, LoopExecutionControlPort, LoopExecutionLeasePort,
-    LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
-    LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
-    LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, ToolApprovalPort,
+    AgentMessageTerminalCompletionPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentRegistryRepository, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
+    AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
+    ApiCredentialPort, ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
+    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
+    LoopRoleSessionPort, LoopVerificationProcessPort, LoopVerifierContextPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
+    ToolApprovalPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};

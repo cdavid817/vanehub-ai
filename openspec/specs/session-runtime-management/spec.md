@@ -126,11 +126,19 @@ Desktop and IM message submission SHALL use one internal native execution servic
 - **THEN** it SHALL not require a frontend window, React event listener, or native-to-native Tauri command invocation
 
 ### Requirement: IM completion notification
-The native chat runtime SHALL expose an internal terminal completion signal for IM-originated assistant messages.
+The native chat runtime SHALL expose an event-driven internal terminal completion signal for IM-originated assistant messages and SHALL NOT require fixed-interval database polling to detect completion.
 
 #### Scenario: Assistant completes
 - **WHEN** an IM-originated assistant message reaches completed, failed, or cancelled state
-- **THEN** the waiting IM job SHALL receive exactly one terminal result associated with the session and assistant message
+- **THEN** the waiting IM job SHALL receive exactly one terminal result associated with the session and assistant message after terminal state persistence
+
+#### Scenario: Assistant terminates before a waiter observes the signal
+- **WHEN** terminal state is already persisted before the waiting path begins receiving
+- **THEN** the native runtime SHALL return the persisted terminal result without waiting indefinitely or emitting a duplicate result
+
+#### Scenario: Completion waiter is dropped
+- **WHEN** an IM job times out, is cancelled, or drops its terminal receiver
+- **THEN** the runtime SHALL release completion registration state without retaining an unbounded sender or polling worker
 
 ### Requirement: Deleted IM session recovery
 Deleting an IM-owned session SHALL not leave a permanently unusable external-chat binding.
@@ -250,6 +258,7 @@ Provider output adapters SHALL normalize tool lifecycle events by stable call id
 - **WHEN** a provider reports tool activity without a stable call id or name
 - **THEN** the runtime SHALL preserve a bounded inferred observation when useful
 - **AND** it SHALL NOT merge unrelated tool calls based only on display text
+
 ### Requirement: Non-activating Loop role sessions
 The native session runtime SHALL support creating Loop-owned Worker and Verifier sessions without changing the desktop workflow's active session.
 

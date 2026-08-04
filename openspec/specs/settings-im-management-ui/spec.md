@@ -15,11 +15,15 @@ The settings center SHALL include a localized IM entry and service-backed page b
 - **THEN** it SHALL load connector descriptors, current status, credential-presence metadata, and routing settings through the frontend IM service
 
 ### Requirement: IM routing controls
-The IM settings page SHALL provide controls for the default Agent and default project used by new external-chat bindings.
+The IM settings page SHALL provide controls for the default Agent and default project used by new external-chat bindings and SHALL synchronize the form with normalized service results.
 
 #### Scenario: Select routing defaults
 - **WHEN** a user edits IM routing settings
 - **THEN** the page SHALL use registered Agent ids and service-backed project selection and SHALL show field-level validation before saving
+
+#### Scenario: Save normalized routing defaults
+- **WHEN** the routing service accepts and normalizes an Agent id or project path
+- **THEN** the page SHALL replace both editable and persisted routing state with the normalized result and SHALL consider the routing ready
 
 #### Scenario: Routing defaults are incomplete
 - **WHEN** no valid default Agent or project is configured
@@ -37,7 +41,7 @@ The IM settings page SHALL render one expandable management row for each of the 
 - **THEN** it SHALL show required non-secret and secret fields, connection actions, official documentation action, and concise status feedback without nesting cards inside cards
 
 ### Requirement: Safe credential form behavior
-The IM settings page SHALL treat secret fields as write-only values.
+The IM settings page SHALL treat secret fields as write-only values and SHALL submit credential edits as field-level patches that preserve omitted stored values.
 
 #### Scenario: Render stored credential
 - **WHEN** a connector secret already exists
@@ -48,8 +52,16 @@ The IM settings page SHALL treat secret fields as write-only values.
 - **THEN** the page SHALL preserve the existing secret and SHALL NOT submit the placeholder as a replacement value
 
 #### Scenario: Replace credential
-- **WHEN** a user enters a new complete secret and saves
-- **THEN** the page SHALL send it through the IM service and clear the plaintext field from React state after the operation completes
+- **WHEN** a user enters one new secret or non-secret connector field and saves
+- **THEN** the page SHALL send only the edited field through the IM service and SHALL preserve omitted configured fields
+
+#### Scenario: Credential save succeeds
+- **WHEN** the native or Web/mock service accepts a credential patch
+- **THEN** the page SHALL clear submitted plaintext secret fields from React state and render the normalized non-secret result
+
+#### Scenario: Credential save fails
+- **WHEN** the service rejects a credential patch
+- **THEN** the page SHALL clear submitted plaintext secret fields, retain safe non-secret edits where useful, and display a localized safe error
 
 ### Requirement: Connector actions and authorization UX
 The IM settings page SHALL expose enable, disable, test, retry, clear, and platform-specific authorization actions according to connector state.
@@ -87,3 +99,15 @@ All IM settings page text, connector setup copy owned by VaneHub, actions, statu
 #### Scenario: Verify locale parity
 - **WHEN** automated frontend tests inspect the translation resources
 - **THEN** every IM settings translation key SHALL exist with equivalent meaning in both zh-CN and en
+
+### Requirement: Live connector lifecycle feedback
+The IM settings page SHALL keep connector lifecycle summaries current through the runtime-neutral IM service subscription.
+
+#### Scenario: Connector finishes asynchronous startup
+- **WHEN** a connector changes from `connecting` to `connected`, `reconnecting`, `authorization-expired`, or `error`
+- **THEN** the affected row SHALL apply the newest generation-aware status without requiring manual refresh
+
+#### Scenario: Stale lifecycle update arrives
+- **WHEN** the page receives an update from an older connector generation
+- **THEN** it SHALL ignore the stale update and preserve the newest known lifecycle and timestamp
+

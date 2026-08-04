@@ -107,5 +107,9 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-03 | optimize-skill-management-ui | main-layout-ui, settings-skill-management-ui | `openspec/changes/archive/2026-08-03-optimize-skill-management-ui/` |
 | 2026-08-03 | refine-skill-agent-selection-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-03-refine-skill-agent-selection-ui/` |
 | 2026-08-04 | add-onepiece-native-agent | agent-lifecycle-management, agent-skill-injection, api-agent-runtime, onepiece-native-agent, session-management | `openspec/changes/archive/2026-08-04-add-onepiece-native-agent/` |
+| 2026-08-04 | enhance-chat-rich-media | chat-experience | `openspec/changes/archive/2026-08-04-enhance-chat-rich-media/` |
+| 2026-08-04 | harden-im-runtime-reliability | frontend-runtime-architecture, im-connector-management, native-runtime-architecture, session-runtime-management, settings-im-management-ui | `openspec/changes/archive/2026-08-04-harden-im-runtime-reliability/` |
+| 2026-08-04 | maximize-main-window-on-startup | desktop-background-lifecycle | `openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/` |
+| 2026-08-04 | remove-agent-management-page | agent-switching, cli-agent-config-management, settings-center-ui | `openspec/changes/archive/2026-08-04-remove-agent-management-page/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

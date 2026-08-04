@@ -15,14 +15,16 @@ The system SHALL render a UCD-aligned settings center as the primary frontend su
 - **THEN** the system SHALL update the active page content and active navigation state without requiring a runtime-specific backend call
 
 ### Requirement: UCD settings pages
-The system SHALL provide primary settings navigation for basic configuration, CLI management, CLI parameter management, MCP servers, agents, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and product information, while retaining SDK dependency management outside the primary navigation.
+The system SHALL provide primary settings navigation for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and product information, while retaining SDK dependency management outside the primary navigation and removing Agent Management without a replacement management destination.
 
 #### Scenario: Display UCD page set
 - **WHEN** the settings center navigation is rendered
-- **THEN** the system SHALL include primary entries for basic configuration, CLI management, CLI parameter management, MCP servers, agents, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and about
+- **THEN** the system SHALL include primary entries for basic configuration, CLI management, CLI parameter management, MCP servers, Agent configuration, skills, Prompt Hooks, IM connectors, extension capabilities, plugin integrations, usage statistics, and about
+- **AND** the system SHALL NOT include a standalone Agent Management entry
+- **AND** Agent Configuration SHALL NOT display registered-Agent inventory, registration, lifecycle, or runtime controls
 - **AND** the CLI parameter management entry SHALL appear immediately after CLI management
 - **AND** the SDK Dependencies page SHALL NOT appear as a primary settings navigation item
-- **AND** Extension Capabilities SHALL appear below the higher-frequency agent, skill, and IM management entries
+- **AND** Extension Capabilities SHALL appear below the higher-frequency Agent configuration, skill, and IM management entries
 - **AND** the plugin integrations entry SHALL appear after Extension Capabilities
 - **AND** the about entry SHALL be the final settings navigation item
 
@@ -326,3 +328,4 @@ The settings center SHALL load every service-backed settings page module on firs
 - **WHEN** a lazy settings page module cannot be loaded
 - **THEN** only that page content region SHALL show a localized retryable error
 - **AND** the user SHALL be able to navigate to another settings page
+

@@ -3,6 +3,34 @@ import { z } from "zod";
 export const imConnectorKindSchema = z.enum(["feishu", "telegram", "dingtalk", "wecom", "weixin"]);
 export type ImConnectorKind = z.infer<typeof imConnectorKindSchema>;
 
+export interface ImConnectorFieldDefinition {
+  key: string;
+  secret: boolean;
+  required: boolean;
+}
+
+export const imConnectorFields: Record<ImConnectorKind, readonly ImConnectorFieldDefinition[]> = {
+  feishu: [
+    { key: "appId", secret: false, required: true },
+    { key: "appSecret", secret: true, required: true },
+  ],
+  telegram: [{ key: "botToken", secret: true, required: true }],
+  dingtalk: [
+    { key: "appKey", secret: false, required: true },
+    { key: "appSecret", secret: true, required: true },
+    { key: "robotCode", secret: false, required: false },
+  ],
+  wecom: [
+    { key: "botId", secret: false, required: true },
+    { key: "secret", secret: true, required: true },
+  ],
+  weixin: [
+    { key: "botToken", secret: true, required: true },
+    { key: "baseUrl", secret: false, required: false },
+    { key: "botId", secret: false, required: false },
+  ],
+};
+
 export const imConnectorLifecycleSchema = z.enum([
   "unconfigured",
   "disabled",

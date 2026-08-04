@@ -17,6 +17,7 @@ export interface ImService {
   testConnector(kind: ImConnectorKind): Promise<void>;
   clearConnector(kind: ImConnectorKind): Promise<void>;
   resetBindings(kind?: ImConnectorKind): Promise<void>;
+  subscribeLifecycle(handler: (health: import("../contracts/im").ImConnectorHealth) => void): Promise<() => void>;
   beginWeChatAuthorization(): Promise<WeChatAuthorization>;
   pollWeChatAuthorization(): Promise<WeChatAuthorization>;
   cancelWeChatAuthorization(): Promise<void>;

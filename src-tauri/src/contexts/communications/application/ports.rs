@@ -22,6 +22,11 @@ pub(crate) trait CommunicationsRepository: Send + Sync {
         updated_at: &str,
     ) -> Result<(), CommunicationsApplicationError>;
 
+    fn delete_configuration(
+        &self,
+        kind: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError>;
+
     fn load_routing(&self) -> Result<Option<RoutingSettings>, CommunicationsApplicationError>;
 
     fn save_routing(
@@ -36,7 +41,11 @@ pub(crate) trait CommunicationsRepository: Send + Sync {
         received_at: &str,
     ) -> Result<bool, CommunicationsApplicationError>;
 
-    fn cleanup_dedup_before(&self, cutoff: &str) -> Result<usize, CommunicationsApplicationError>;
+    fn cleanup_dedup_before(
+        &self,
+        cutoff: &str,
+        limit: usize,
+    ) -> Result<usize, CommunicationsApplicationError>;
 
     fn load_checkpoint(
         &self,
@@ -69,12 +78,17 @@ pub(crate) trait CommunicationsCredentialPort: Send + Sync {
 pub(crate) trait CommunicationsTransportPort: Send + Sync {
     async fn health(&self) -> Vec<ConnectorHealth>;
 
-    async fn start(
+    async fn replace_and_start(
         &self,
         definition: ConnectorRuntimeDefinition,
     ) -> Result<(), CommunicationsApplicationError>;
 
     async fn stop(&self, kind: ConnectorKind) -> Result<(), CommunicationsApplicationError>;
+
+    async fn clear_connector_data(
+        &self,
+        kind: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError>;
 
     async fn test(
         &self,
@@ -97,7 +111,9 @@ pub(crate) trait CommunicationsAgentExecutionPort: Send + Sync {
 }
 
 pub(crate) trait CommunicationsSessionBindingPort: Send + Sync {
-    fn resolve_or_create(
+    fn find(&self, key: &ChatBindingKey) -> Result<Option<String>, CommunicationsApplicationError>;
+
+    fn create_if_missing(
         &self,
         key: &ChatBindingKey,
         routing: &RoutingSettings,

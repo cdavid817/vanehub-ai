@@ -13,15 +13,17 @@ use super::infrastructure::{NativeCoordinationScheduler, NativeLoopScheduler};
 
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
-    AgentRuntimeApplicationError, AgentSessionDetails, AgentTerminalInputRequest,
-    AgentTerminalSession, AgentTerminalSize, AgentView, ApiProviderConfig, ContinueLoopRequest,
-    DiscoverOnePieceProviderModelsInput, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderPreset,
-    OnePieceProviderProfiles, OpenAgentTerminalRequest, ProviderCredentialValidationResult,
-    ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    AgentMessageTerminalOutcome, AgentRuntimeApplicationError, AgentSessionDetails,
+    AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize, AgentView,
+    ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
+    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, OnePieceProviderConfig,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderPreset, OnePieceProviderProfiles,
+    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
     SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
-    StartLoopResultView, StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision,
-    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowView,
+    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -415,6 +417,13 @@ impl AgentRuntimeApi {
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
         self.service.send_message(request)
+    }
+
+    pub(crate) fn send_message_with_completion(
+        &self,
+        request: SendMessageRequest,
+    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
+        self.service.send_message_with_completion(request)
     }
 
     pub(crate) fn stop_generation(

@@ -1,3 +1,4 @@
+use super::lifecycle_coordinator::ConnectorLifecycleCoordinator;
 use super::{
     AgentExecutionRequest, CommunicationsAgentExecutionPort, CommunicationsApplicationError,
     CommunicationsClockPort, CommunicationsCredentialPort, CommunicationsLog,
@@ -7,14 +8,18 @@ use super::{
     InboundRouteOutcome, SaveConnectorRequest,
 };
 use crate::contexts::communications::domain::{
-    builtin_descriptors, ChatBindingKey, ConnectorConfig, ConnectorHealth, ConnectorKind,
-    ConnectorLifecycle, InboundDisposition, InboundEventIdentity, NormalizedInbound,
-    RoutingSettings,
+    builtin_descriptors, connector_field_definitions, ChatBindingKey, ConnectorConfig,
+    ConnectorFieldStorage, ConnectorHealth, ConnectorKind, ConnectorLifecycle, InboundDisposition,
+    InboundEventIdentity, NormalizedInbound, RoutingSettings,
 };
-use std::collections::HashMap;
-use std::sync::Arc;
+use serde_json::Value;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
+use zeroize::Zeroizing;
 
 const DEDUP_RETENTION_DAYS: u32 = 7;
+pub(super) const DEDUP_MAINTENANCE_BATCH: usize = 512;
+const DEDUP_MAINTENANCE_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 #[derive(Clone)]
 pub(crate) struct CommunicationsApplicationPorts {
@@ -31,11 +36,17 @@ pub(crate) struct CommunicationsApplicationPorts {
 #[derive(Clone)]
 pub(crate) struct CommunicationsApplicationService {
     ports: CommunicationsApplicationPorts,
+    lifecycle: ConnectorLifecycleCoordinator,
+    last_dedup_maintenance: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl CommunicationsApplicationService {
     pub(crate) fn new(ports: CommunicationsApplicationPorts) -> Self {
-        Self { ports }
+        Self {
+            ports,
+            lifecycle: ConnectorLifecycleCoordinator::default(),
+            last_dedup_maintenance: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub(crate) async fn list_connectors(
@@ -117,13 +128,24 @@ impl CommunicationsApplicationService {
         &self,
         request: SaveConnectorRequest,
     ) -> Result<ConnectorConfig, CommunicationsApplicationError> {
+        let _lifecycle = self.lifecycle.lock(request.kind).await;
+        let previous_configuration = self.ports.repository.find_configuration(request.kind)?;
         let previous_credential = self.ports.credentials.load(request.kind)?;
-        let credential_changed = request.replacement_secret.is_some();
+        let candidate = prepare_connector_candidate(
+            request.kind,
+            request.public_config,
+            previous_credential.as_ref(),
+            request.credential_patch.as_ref(),
+        )?;
+        let credential_changed = candidate.secret.as_ref().map(|secret| secret.as_str())
+            != previous_credential
+                .as_ref()
+                .map(|credential| credential.secret.as_str());
         let mut configuration = ConnectorConfig {
             kind: request.kind,
             enabled: request.enabled,
             display_name: request.display_name,
-            public_config: request.public_config,
+            public_config: candidate.public_config,
             credential_ref: previous_credential
                 .as_ref()
                 .map(|credential| credential.reference.clone()),
@@ -131,15 +153,18 @@ impl CommunicationsApplicationService {
         configuration.validate()?;
         if configuration.enabled {
             self.require_routing()?;
-            if previous_credential.is_none() && request.replacement_secret.is_none() {
+            if candidate.secret.is_none() {
                 return Err(credentials_required());
             }
         }
 
-        self.ports.transports.stop(request.kind).await?;
-        let replacement = match request.replacement_secret {
-            Some(secret) => Some(self.ports.credentials.store(request.kind, &secret)?),
-            None => None,
+        let replacement = match candidate.secret {
+            Some(secret) if credential_changed => Some(
+                self.ports
+                    .credentials
+                    .store(request.kind, secret.as_str())?,
+            ),
+            _ => None,
         };
         if let Some(credential) = &replacement {
             configuration.credential_ref = Some(credential.reference.clone());
@@ -155,14 +180,27 @@ impl CommunicationsApplicationService {
             }
             return Err(error);
         }
-        if configuration.enabled {
+        let runtime_result = if configuration.enabled {
             let credential = replacement
-                .or(previous_credential)
+                .or_else(|| previous_credential.clone())
                 .ok_or_else(credentials_required)?;
             self.ports
                 .transports
-                .start(runtime_definition(configuration.clone(), credential))
-                .await?;
+                .replace_and_start(runtime_definition(configuration.clone(), credential))
+                .await
+        } else {
+            self.ports.transports.stop(request.kind).await
+        };
+        if let Err(primary) = runtime_result {
+            let rollback = self
+                .restore_connector_snapshot(
+                    request.kind,
+                    previous_configuration.as_ref(),
+                    previous_credential.as_ref(),
+                )
+                .await;
+            self.record_lifecycle_rollback(request.kind, &primary, rollback.as_ref().err());
+            return Err(primary);
         }
         self.record(
             CommunicationsLogLevel::Info,
@@ -180,10 +218,10 @@ impl CommunicationsApplicationService {
         kind: ConnectorKind,
         enabled: bool,
     ) -> Result<(), CommunicationsApplicationError> {
-        let mut configuration = self
-            .ports
-            .repository
-            .find_configuration(kind)?
+        let _lifecycle = self.lifecycle.lock(kind).await;
+        let previous_configuration = self.ports.repository.find_configuration(kind)?;
+        let mut configuration = previous_configuration
+            .clone()
             .unwrap_or_else(|| default_configuration(kind));
         let credential = self.ports.credentials.load(kind)?;
         if enabled {
@@ -191,8 +229,6 @@ impl CommunicationsApplicationService {
             if credential.is_none() {
                 return Err(credentials_required());
             }
-        } else {
-            self.ports.transports.stop(kind).await?;
         }
         configuration.enabled = enabled;
         configuration.credential_ref = credential
@@ -202,14 +238,27 @@ impl CommunicationsApplicationService {
         self.ports
             .repository
             .save_configuration(&configuration, &updated_at)?;
-        if enabled {
+        let runtime_result = if enabled {
             self.ports
                 .transports
-                .start(runtime_definition(
+                .replace_and_start(runtime_definition(
                     configuration,
-                    credential.ok_or_else(credentials_required)?,
+                    credential.clone().ok_or_else(credentials_required)?,
                 ))
-                .await?;
+                .await
+        } else {
+            self.ports.transports.stop(kind).await
+        };
+        if let Err(primary) = runtime_result {
+            let rollback = self
+                .restore_connector_snapshot(
+                    kind,
+                    previous_configuration.as_ref(),
+                    credential.as_ref(),
+                )
+                .await;
+            self.record_lifecycle_rollback(kind, &primary, rollback.as_ref().err());
+            return Err(primary);
         }
         Ok(())
     }
@@ -218,11 +267,32 @@ impl CommunicationsApplicationService {
         &self,
         kind: ConnectorKind,
     ) -> Result<(), CommunicationsApplicationError> {
-        self.ports.transports.stop(kind).await?;
+        let _lifecycle = self.lifecycle.lock(kind).await;
         let previous_configuration = self.ports.repository.find_configuration(kind)?;
         let previous_credential = self.ports.credentials.load(kind)?;
-        self.ports.credentials.delete(kind)?;
-        if let Some(mut configuration) = previous_configuration {
+        if let Err(primary) = self.ports.transports.stop(kind).await {
+            let rollback = self
+                .restore_connector_snapshot(
+                    kind,
+                    previous_configuration.as_ref(),
+                    previous_credential.as_ref(),
+                )
+                .await;
+            self.record_lifecycle_rollback(kind, &primary, rollback.as_ref().err());
+            return Err(primary);
+        }
+        if let Err(primary) = self.ports.credentials.delete(kind) {
+            let rollback = self
+                .restore_connector_snapshot(
+                    kind,
+                    previous_configuration.as_ref(),
+                    previous_credential.as_ref(),
+                )
+                .await;
+            self.record_lifecycle_rollback(kind, &primary, rollback.as_ref().err());
+            return Err(primary);
+        }
+        if let Some(mut configuration) = previous_configuration.clone() {
             configuration.enabled = false;
             configuration.credential_ref = None;
             let updated_at = self.ports.clock.now_rfc3339();
@@ -231,10 +301,18 @@ impl CommunicationsApplicationService {
                 .repository
                 .save_configuration(&configuration, &updated_at)
             {
-                self.restore_credential(kind, previous_credential.as_ref())?;
+                let rollback = self
+                    .restore_connector_snapshot(
+                        kind,
+                        previous_configuration.as_ref(),
+                        previous_credential.as_ref(),
+                    )
+                    .await;
+                self.record_lifecycle_rollback(kind, &error, rollback.as_ref().err());
                 return Err(error);
             }
         }
+        self.ports.transports.clear_connector_data(kind).await?;
         Ok(())
     }
 
@@ -242,6 +320,7 @@ impl CommunicationsApplicationService {
         &self,
         kind: ConnectorKind,
     ) -> Result<(), CommunicationsApplicationError> {
+        let _lifecycle = self.lifecycle.lock(kind).await;
         let operation = self.ports.operations.start(kind, "test")?;
         let result = match self.load_runtime_definition(kind) {
             Ok(definition) => self.ports.transports.test(definition).await,
@@ -255,13 +334,11 @@ impl CommunicationsApplicationService {
         &self,
         kind: ConnectorKind,
     ) -> Result<(), CommunicationsApplicationError> {
+        let _lifecycle = self.lifecycle.lock(kind).await;
         self.require_routing()?;
         let operation = self.ports.operations.start(kind, "restart")?;
         let result = match self.load_runtime_definition(kind) {
-            Ok(definition) => match self.ports.transports.stop(kind).await {
-                Ok(()) => self.ports.transports.start(definition).await,
-                Err(error) => Err(error),
-            },
+            Ok(definition) => self.ports.transports.replace_and_start(definition).await,
             Err(error) => Err(error),
         };
         self.finish_operation(kind, "restart", &operation.id, &result);
@@ -272,46 +349,52 @@ impl CommunicationsApplicationService {
         &self,
     ) -> Result<Vec<ConnectorStartupResult>, CommunicationsApplicationError> {
         let configurations = self.ports.repository.list_configurations()?;
-        if configurations
-            .iter()
-            .any(|configuration| configuration.enabled)
-        {
-            self.require_routing()?;
-        }
-        let mut results = Vec::new();
-        for configuration in configurations
+        let starts = configurations
             .into_iter()
             .filter(|configuration| configuration.enabled)
-        {
-            let kind = configuration.kind;
-            let result = match self.ports.credentials.load(kind)? {
-                Some(credential) => {
-                    self.ports
-                        .transports
-                        .start(runtime_definition(configuration, credential))
-                        .await
+            .map(|configuration| async move {
+                let kind = configuration.kind;
+                let _lifecycle = self.lifecycle.lock(kind).await;
+                let result = match self.require_routing() {
+                    Ok(_) => match self.ports.credentials.load(kind) {
+                        Ok(Some(credential)) => {
+                            self.ports
+                                .transports
+                                .replace_and_start(runtime_definition(configuration, credential))
+                                .await
+                        }
+                        Ok(None) => Err(credentials_required()),
+                        Err(error) => Err(error),
+                    },
+                    Err(error) => Err(error),
+                };
+                if let Err(error) = &result {
+                    self.record(
+                        CommunicationsLogLevel::Error,
+                        "communications.connector.start",
+                        "Connector startup failed.",
+                        Some(kind),
+                        Some(error.safe_code()),
+                        None,
+                    );
                 }
-                None => Err(credentials_required()),
-            };
-            if let Err(error) = &result {
-                self.record(
-                    CommunicationsLogLevel::Error,
-                    "communications.connector.start",
-                    "Connector startup failed.",
-                    Some(kind),
-                    Some(error.safe_code()),
-                    None,
-                );
-            }
-            results.push(ConnectorStartupResult {
-                kind,
-                safe_error_code: result.err().map(|error| error.safe_code().to_string()),
+                ConnectorStartupResult {
+                    kind,
+                    safe_error_code: result.err().map(|error| error.safe_code().to_string()),
+                }
             });
-        }
+        let mut results = futures_util::future::join_all(starts).await;
+        results.sort_by_key(|result| result.kind.as_str());
         Ok(results)
     }
 
     pub(crate) async fn shutdown(&self) -> Result<(), CommunicationsApplicationError> {
+        let _lifecycles = futures_util::future::join_all(
+            builtin_descriptors()
+                .into_iter()
+                .map(|descriptor| self.lifecycle.lock(descriptor.kind)),
+        )
+        .await;
         self.ports.transports.shutdown().await
     }
 
@@ -322,12 +405,24 @@ impl CommunicationsApplicationService {
     ) -> Result<bool, CommunicationsApplicationError> {
         let event = InboundEventIdentity::new(connector, event_id)?;
         let received_at = self.ports.clock.now_rfc3339();
-        let claimed = self.ports.repository.claim_event(&event, &received_at)?;
-        if claimed {
-            let cutoff = self.ports.clock.days_ago_rfc3339(DEDUP_RETENTION_DAYS);
-            let _ = self.ports.repository.cleanup_dedup_before(&cutoff);
+        self.ports.repository.claim_event(&event, &received_at)
+    }
+
+    pub(crate) fn maintain_deduplication(&self) -> Result<usize, CommunicationsApplicationError> {
+        let now = std::time::Instant::now();
+        let mut last = self.last_dedup_maintenance.lock().map_err(|_| {
+            CommunicationsApplicationError::failure("dedup-maintenance-lock-failed")
+        })?;
+        if last.is_some_and(|last| now.duration_since(last) < DEDUP_MAINTENANCE_MIN_INTERVAL) {
+            return Ok(0);
         }
-        Ok(claimed)
+        let cutoff = self.ports.clock.days_ago_rfc3339(DEDUP_RETENTION_DAYS);
+        let removed = self
+            .ports
+            .repository
+            .cleanup_dedup_before(&cutoff, DEDUP_MAINTENANCE_BATCH)?;
+        *last = Some(now);
+        Ok(removed)
     }
 
     pub(crate) fn route_inbound(
@@ -337,13 +432,17 @@ impl CommunicationsApplicationService {
         if inbound.disposition() != InboundDisposition::Deliver {
             return Ok(InboundRouteOutcome::Ignored);
         }
-        let routing = self.require_routing()?;
         let key = ChatBindingKey::new(inbound.connector, inbound.chat_id)?;
-        let session_id = self.ports.sessions.resolve_or_create(&key, &routing)?;
+        let session_id = match self.ports.sessions.find(&key)? {
+            Some(session_id) => session_id,
+            None => {
+                let routing = self.require_routing()?;
+                self.ports.sessions.create_if_missing(&key, &routing)?
+            }
+        };
         let result = self.ports.agents.execute(AgentExecutionRequest {
             session_id: session_id.clone(),
             text: inbound.text,
-            routing,
         })?;
         Ok(InboundRouteOutcome::Reply {
             text: result.reply,
@@ -400,6 +499,87 @@ impl CommunicationsApplicationService {
                 .map(|_| ()),
             None => self.ports.credentials.delete(kind),
         }
+    }
+
+    fn restore_configuration(
+        &self,
+        kind: ConnectorKind,
+        previous: Option<&ConnectorConfig>,
+    ) -> Result<(), CommunicationsApplicationError> {
+        match previous {
+            Some(previous) => self
+                .ports
+                .repository
+                .save_configuration(previous, &self.ports.clock.now_rfc3339()),
+            None => self.ports.repository.delete_configuration(kind),
+        }
+    }
+
+    async fn restore_connector_snapshot(
+        &self,
+        kind: ConnectorKind,
+        previous_configuration: Option<&ConnectorConfig>,
+        previous_credential: Option<&ConnectorCredential>,
+    ) -> Result<(), CommunicationsApplicationError> {
+        let mut first_error = None;
+        if let Err(error) = self.restore_credential(kind, previous_credential) {
+            first_error = Some(error);
+        }
+        if let Err(error) = self.restore_configuration(kind, previous_configuration) {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+        let runtime_result = match (previous_configuration, previous_credential) {
+            (Some(configuration), Some(credential)) if configuration.enabled => {
+                self.ports
+                    .transports
+                    .replace_and_start(runtime_definition(
+                        configuration.clone(),
+                        credential.clone(),
+                    ))
+                    .await
+            }
+            _ => self.ports.transports.stop(kind).await,
+        };
+        if let Err(error) = runtime_result {
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn record_lifecycle_rollback(
+        &self,
+        kind: ConnectorKind,
+        primary: &CommunicationsApplicationError,
+        rollback: Option<&CommunicationsApplicationError>,
+    ) {
+        self.record(
+            CommunicationsLogLevel::Error,
+            "communications.connector.lifecycle-primary",
+            "Connector lifecycle mutation failed.",
+            Some(kind),
+            Some(primary.safe_code()),
+            None,
+        );
+        self.record(
+            if rollback.is_some() {
+                CommunicationsLogLevel::Error
+            } else {
+                CommunicationsLogLevel::Info
+            },
+            "communications.connector.lifecycle-rollback",
+            if rollback.is_some() {
+                "Connector lifecycle rollback failed."
+            } else {
+                "Connector lifecycle rollback completed."
+            },
+            Some(kind),
+            rollback.map(CommunicationsApplicationError::safe_code),
+            None,
+        );
     }
 
     fn finish_operation(
@@ -478,4 +658,129 @@ fn runtime_definition(
 
 fn credentials_required() -> CommunicationsApplicationError {
     CommunicationsApplicationError::failure("connector-credentials-required")
+}
+
+struct ConnectorCandidate {
+    public_config: Value,
+    secret: Option<Zeroizing<String>>,
+}
+
+fn prepare_connector_candidate(
+    kind: ConnectorKind,
+    public_config: Value,
+    previous: Option<&ConnectorCredential>,
+    patch: Option<&BTreeMap<String, String>>,
+) -> Result<ConnectorCandidate, CommunicationsApplicationError> {
+    let definitions = connector_field_definitions(kind);
+    let mut public_config = match public_config {
+        Value::Object(values) => values,
+        _ => {
+            return Err(CommunicationsApplicationError::failure(
+                "public-config-invalid",
+            ))
+        }
+    };
+    let mut fields = decode_stored_fields(kind, previous)?;
+
+    for definition in definitions {
+        if definition.storage != ConnectorFieldStorage::Public {
+            public_config.remove(definition.key);
+            continue;
+        }
+        if let Some(value) = public_config.get(definition.key) {
+            let value = value.as_str().ok_or_else(|| {
+                CommunicationsApplicationError::failure(format!(
+                    "credential-field-invalid-{}",
+                    definition.key
+                ))
+            })?;
+            if !value.trim().is_empty() {
+                fields.insert(definition.key.to_string(), value.trim().to_string());
+            }
+        }
+    }
+
+    if let Some(patch) = patch {
+        for (key, value) in patch {
+            if !definitions.iter().any(|definition| definition.key == key) {
+                return Err(CommunicationsApplicationError::failure(format!(
+                    "credential-field-unknown-{key}"
+                )));
+            }
+            let value = value.trim();
+            if !value.is_empty() {
+                fields.insert(key.clone(), value.to_string());
+            }
+        }
+    }
+
+    if previous.is_some() || patch.is_some() || !fields.is_empty() {
+        for definition in definitions.iter().filter(|definition| definition.required) {
+            if !fields
+                .get(definition.key)
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                return Err(CommunicationsApplicationError::failure(format!(
+                    "credential-field-missing-{}",
+                    definition.key
+                )));
+            }
+        }
+    }
+
+    let mut secret_fields = BTreeMap::new();
+    for definition in definitions {
+        match definition.storage {
+            ConnectorFieldStorage::Public => {
+                if let Some(value) = fields.get(definition.key) {
+                    public_config.insert(definition.key.to_string(), Value::String(value.clone()));
+                }
+            }
+            ConnectorFieldStorage::Secret => {
+                public_config.remove(definition.key);
+                if let Some(value) = fields.get(definition.key) {
+                    secret_fields.insert(definition.key.to_string(), value.clone());
+                }
+            }
+        }
+    }
+
+    let secret = if secret_fields.is_empty() {
+        None
+    } else {
+        Some(Zeroizing::new(
+            serde_json::to_string(&secret_fields).map_err(|_| {
+                CommunicationsApplicationError::failure("credential-payload-invalid")
+            })?,
+        ))
+    };
+    Ok(ConnectorCandidate {
+        public_config: Value::Object(public_config),
+        secret,
+    })
+}
+
+fn decode_stored_fields(
+    kind: ConnectorKind,
+    previous: Option<&ConnectorCredential>,
+) -> Result<BTreeMap<String, String>, CommunicationsApplicationError> {
+    let Some(previous) = previous else {
+        return Ok(BTreeMap::new());
+    };
+    if let Ok(fields) = serde_json::from_str::<BTreeMap<String, String>>(previous.secret.as_str()) {
+        return Ok(fields);
+    }
+    let required_secrets = connector_field_definitions(kind)
+        .iter()
+        .filter(|field| field.required && field.storage == ConnectorFieldStorage::Secret)
+        .collect::<Vec<_>>();
+    if required_secrets.len() == 1 && !previous.secret.trim().is_empty() {
+        return Ok(BTreeMap::from([(
+            required_secrets[0].key.to_string(),
+            previous.secret.to_string(),
+        )]));
+    }
+    Err(CommunicationsApplicationError::failure(
+        "credential-payload-invalid",
+    ))
 }

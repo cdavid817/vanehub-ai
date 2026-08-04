@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   imConnectorConfigSchema,
+  imConnectorHealthSchema,
   imRoutingSchema,
   parseImConnectorViews,
   parseImRouting,
@@ -46,6 +48,13 @@ export const tauriImClient: ImService = {
 
   resetBindings(kind?: ImConnectorKind) {
     return invoke<void>("reset_im_bindings", { kind: kind ?? null });
+  },
+
+  async subscribeLifecycle(handler) {
+    return listen<unknown>("im-connector:lifecycle", (event) => {
+      const health = imConnectorHealthSchema.safeParse(event.payload);
+      if (health.success) handler(health.data);
+    });
   },
 
   async beginWeChatAuthorization() {

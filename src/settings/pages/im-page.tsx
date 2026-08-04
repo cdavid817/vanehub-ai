@@ -2,14 +2,14 @@ import { MessagesSquare, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
-import type { ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
+import type { ImConnectorHealth, ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { agentService } from "../../services/runtime-agent-client";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
 import type { AgentRegistryEntry, KnownProject } from "../../types/agent";
 import { ImConnectorRow } from "./im/im-connector-row";
-import { validateRouting } from "./im/im-form";
+import { routingMatchesSaved, validateRouting } from "./im/im-form";
 import { ImRoutingSection } from "./im/im-routing-section";
 import { ImWeChatAuthorization } from "./im/im-wechat-authorization";
 import { PageHeader } from "./page-parts";
@@ -71,10 +71,23 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
   }, [isWebRuntime, t]);
 
   useEffect(() => { void load(); }, [load]);
-  const routingReady = useMemo(
-    () => Boolean(savedRouting && savedRouting.agentId === agentId && savedRouting.projectPath === projectPath),
-    [agentId, projectPath, savedRouting],
-  );
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    void imService.subscribeLifecycle((health) => {
+      if (!disposed) setConnectors((current) => applyLifecycleUpdate(current, health));
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unsubscribe = cleanup;
+    }).catch(() => {
+      // Manual refresh remains the recovery path when native event subscription is unavailable.
+    });
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, []);
+  const routingReady = useMemo(() => routingMatchesSaved(agentId, projectPath, savedRouting), [agentId, projectPath, savedRouting]);
 
   async function saveRouting() {
     const validation = validateRouting(agentId, projectPath);
@@ -83,7 +96,11 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
     setRoutingPending(true);
     setError(null);
     try {
-      setSavedRouting(await imService.saveRouting({ agentId, projectPath }));
+      const normalized = await imService.saveRouting({ agentId, projectPath });
+      const normalizedProjectPath = normalizeDisplayPath(normalized.projectPath);
+      setAgentId(normalized.agentId);
+      setProjectPath(normalizedProjectPath);
+      setSavedRouting({ ...normalized, projectPath: normalizedProjectPath });
       setNotice(t("im.notice.routingSaved"));
     } catch (reason) {
       setError(imErrorMessage(reason, t));
@@ -100,12 +117,12 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
     if (path) setProjectPath(normalizeDisplayPath(path));
   }
 
-  async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>) {
+  async function connectorAction(kind: ImConnectorKind, action: string, credentials?: Record<string, string>): Promise<boolean> {
     setPending((current) => ({ ...current, [kind]: action }));
     setError(null);
     try {
       const view = connectors.find((item) => item.descriptor.kind === kind);
-      if (!view) return;
+      if (!view) return false;
       if (action === "save") await imService.saveConnector({ kind, enabled: view.config.enabled, displayName: view.config.displayName, publicConfig: view.config.publicConfig, credentials });
       if (action === "enable" || action === "disable") await imService.setConnectorEnabled(kind, action === "enable");
       if (action === "test") await imService.testConnector(kind);
@@ -113,8 +130,10 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
       if (action === "clear") await imService.clearConnector(kind);
       setNotice(t(`im.notice.${action}`));
       setConnectors(await imService.listConnectors());
+      return true;
     } catch (reason) {
       setError(imErrorMessage(reason, t));
+      return false;
     } finally {
       setPending((current) => ({ ...current, [kind]: undefined }));
     }
@@ -175,4 +194,15 @@ export function imErrorMessage(reason: unknown, t: ReturnType<typeof useTranslat
   if (message.includes("communications-repository-failed")) return t("im.errors.repositoryFailed");
   if (message.includes("communications-repository-unavailable")) return t("im.errors.repositoryUnavailable");
   return message;
+}
+
+export function applyLifecycleUpdate(
+  connectors: ImConnectorView[],
+  health: ImConnectorHealth,
+): ImConnectorView[] {
+  return connectors.map((connector) => (
+    connector.descriptor.kind === health.kind && health.generation >= connector.health.generation
+      ? { ...connector, health }
+      : connector
+  ));
 }
