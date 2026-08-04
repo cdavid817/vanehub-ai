@@ -35,6 +35,12 @@ updates:
       - area/native
     commit-message:
       prefix: deps(cargo)
+    # Tauri/Wry expose WebView2 COM types from 0.38.x. A standalone 0.39.x
+    # upgrade introduces incompatible windows-core types at the API boundary.
+    ignore:
+      - dependency-name: webview2-com
+        versions:
+          - ">=0.39.0, <0.40.0"
     groups:
       cargo-minor-patch:
         patterns:
