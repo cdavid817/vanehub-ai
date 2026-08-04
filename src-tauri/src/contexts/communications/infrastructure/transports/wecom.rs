@@ -1,5 +1,8 @@
 use super::protocol::normalize_fixture;
-use super::runtime::{submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};
+use super::runtime::{
+    submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery,
+    MalformedEventReporter, SafeDiagnosticSink,
+};
 use crate::contexts::communications::domain::{ConnectorKind, OutboundText};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -36,6 +39,7 @@ pub struct WeComAdapter {
     bot_id: String,
     secret: Zeroizing<String>,
     connection: Arc<dyn WeComLongConnection>,
+    malformed_events: MalformedEventReporter,
 }
 
 impl WeComAdapter {
@@ -53,7 +57,13 @@ impl WeComAdapter {
             bot_id: bot_id.to_string(),
             secret: Zeroizing::new(secret.to_string()),
             connection,
+            malformed_events: MalformedEventReporter::new(ConnectorKind::WeCom),
         })
+    }
+
+    pub(crate) fn with_diagnostic_sink(mut self, sink: SafeDiagnosticSink) -> Self {
+        self.malformed_events = self.malformed_events.with_sink(sink);
+        self
     }
 }
 
@@ -95,8 +105,9 @@ impl ConnectorAdapter for WeComAdapter {
                     let Some(frame) = frame else {
                         return Err(ConnectorRuntimeError::new("wecom-frame-stream-closed"));
                     };
-                    if let Ok(message) = normalize_fixture(ConnectorKind::WeCom, &frame.payload) {
-                        submit_inbound(&inbound, message).await?;
+                    match normalize_fixture(ConnectorKind::WeCom, &frame.payload) {
+                        Ok(message) => submit_inbound(&inbound, message).await?,
+                        Err(_) => self.malformed_events.report(),
                     }
                     self.connection.acknowledge(&frame.acknowledgement_id).await?;
                 }

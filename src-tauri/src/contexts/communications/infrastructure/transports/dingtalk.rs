@@ -1,6 +1,10 @@
 use super::http::{require_success, HttpMethod, HttpRequest, HttpTransport};
 use super::protocol::normalize_fixture;
-use super::runtime::{submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};
+use super::runtime::{
+    submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery,
+    MalformedEventReporter, SafeDiagnosticSink,
+};
+use super::token_cache::AccessTokenCache;
 use crate::contexts::communications::domain::{ConnectorKind, OutboundText};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -38,6 +42,8 @@ pub struct DingTalkAdapter {
     api_base: String,
     transport: Arc<dyn HttpTransport>,
     stream: Arc<dyn DingTalkStream>,
+    token_cache: AccessTokenCache,
+    malformed_events: MalformedEventReporter,
 }
 
 impl DingTalkAdapter {
@@ -64,10 +70,25 @@ impl DingTalkAdapter {
             api_base: DINGTALK_API_BASE.to_string(),
             transport,
             stream,
+            token_cache: AccessTokenCache::default(),
+            malformed_events: MalformedEventReporter::new(ConnectorKind::DingTalk),
         })
     }
 
+    pub(crate) fn with_diagnostic_sink(mut self, sink: SafeDiagnosticSink) -> Self {
+        self.malformed_events = self.malformed_events.with_sink(sink);
+        self
+    }
+
     async fn access_token(&self) -> Result<String, ConnectorRuntimeError> {
+        self.token_cache
+            .get_or_refresh(|| self.fetch_access_token())
+            .await
+    }
+
+    async fn fetch_access_token(
+        &self,
+    ) -> Result<(String, std::time::Duration), ConnectorRuntimeError> {
         let response = self
             .transport
             .execute(HttpRequest {
@@ -81,12 +102,18 @@ impl DingTalkAdapter {
             })
             .await?;
         require_success(&response)?;
-        response
+        let token = response
             .body
             .get("accessToken")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or_else(|| ConnectorRuntimeError::new("dingtalk-token-missing"))
+            .ok_or_else(|| ConnectorRuntimeError::new("dingtalk-token-missing"))?;
+        let expires_in = response
+            .body
+            .get("expireIn")
+            .and_then(Value::as_u64)
+            .unwrap_or(7_200);
+        Ok((token, std::time::Duration::from_secs(expires_in)))
     }
 }
 
@@ -129,8 +156,9 @@ impl ConnectorAdapter for DingTalkAdapter {
                     let Some(frame) = frame else {
                         return Err(ConnectorRuntimeError::new("dingtalk-frame-stream-closed"));
                     };
-                    if let Ok(message) = normalize_fixture(ConnectorKind::DingTalk, &frame.payload) {
-                        submit_inbound(&inbound, message).await?;
+                    match normalize_fixture(ConnectorKind::DingTalk, &frame.payload) {
+                        Ok(message) => submit_inbound(&inbound, message).await?,
+                        Err(_) => self.malformed_events.report(),
                     }
                     self.stream.acknowledge(&frame.acknowledgement_id).await?;
                 }
@@ -158,7 +186,13 @@ impl ConnectorAdapter for DingTalkAdapter {
                 })),
             })
             .await?;
-        require_success(&response)
+        match require_success(&response) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.token_cache.invalidate().await;
+                Err(error)
+            }
+        }
     }
 }
 
@@ -235,11 +269,7 @@ mod tests {
             vec![
                 HttpResponse {
                     status: 200,
-                    body: json!({"accessToken": "access"}),
-                },
-                HttpResponse {
-                    status: 200,
-                    body: json!({"accessToken": "access"}),
+                    body: json!({"accessToken": "access", "expireIn": 7200}),
                 },
                 HttpResponse {
                     status: 200,

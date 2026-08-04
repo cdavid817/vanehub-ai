@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "../../i18n";
-import { imErrorMessage } from "./im-page";
+import { applyLifecycleUpdate, imErrorMessage } from "./im-page";
+import type { ImConnectorView } from "../../contracts/im";
 
 const translate = ((key: string) => {
   const messages: Record<string, string> = {
@@ -18,5 +19,23 @@ describe("imErrorMessage", () => {
 
   it("preserves unknown errors for diagnostics", () => {
     expect(imErrorMessage(new Error("custom-im-error"), translate)).toBe("custom-im-error");
+  });
+});
+
+describe("applyLifecycleUpdate", () => {
+  const connector = {
+    descriptor: { kind: "telegram", supportsQrAuthorization: false, experimental: false, maxOutboundChars: 4096 },
+    config: { kind: "telegram", enabled: true, publicConfig: {} },
+    health: { kind: "telegram", lifecycle: "connecting", generation: 4, updatedAt: "2026-01-01" },
+    hasCredentials: true,
+  } satisfies ImConnectorView;
+
+  it("applies current-generation transitions and ignores stale events", () => {
+    expect(applyLifecycleUpdate([connector], {
+      kind: "telegram", lifecycle: "connected", generation: 4, updatedAt: "2026-01-02",
+    })[0].health.lifecycle).toBe("connected");
+    expect(applyLifecycleUpdate([connector], {
+      kind: "telegram", lifecycle: "error", generation: 3, updatedAt: "2026-01-03",
+    })[0]).toBe(connector);
   });
 });

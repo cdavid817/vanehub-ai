@@ -752,6 +752,58 @@ pub(crate) enum AgentMessageSource {
     Scheduled { task_id: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentMessageTerminalOutcome {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentMessageTerminal {
+    pub(crate) session_id: String,
+    pub(crate) message_id: String,
+    pub(crate) outcome: AgentMessageTerminalOutcome,
+    pub(crate) content: Option<String>,
+}
+
+pub(crate) struct AgentMessageTerminalReceiver {
+    receiver: std::sync::mpsc::Receiver<AgentMessageTerminal>,
+    cleanup: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl AgentMessageTerminalReceiver {
+    pub(crate) fn new(
+        receiver: std::sync::mpsc::Receiver<AgentMessageTerminal>,
+        cleanup: Box<dyn FnOnce() + Send>,
+    ) -> Self {
+        Self {
+            receiver,
+            cleanup: Some(cleanup),
+        }
+    }
+
+    pub(crate) fn recv_timeout(
+        self,
+        timeout: std::time::Duration,
+    ) -> Result<AgentMessageTerminal, std::sync::mpsc::RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
+    }
+}
+
+impl Drop for AgentMessageTerminalReceiver {
+    fn drop(&mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            cleanup();
+        }
+    }
+}
+
+pub(crate) struct StartedAgentMessage {
+    pub(crate) message: AgentMessage,
+    pub(crate) terminal: AgentMessageTerminalReceiver,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct StopGenerationResult {
     pub(crate) cancelled_message_ids: Vec<String>,

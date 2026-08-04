@@ -1,10 +1,12 @@
-import type {
-  ImConnectorConfig,
-  ImConnectorKind,
-  ImConnectorView,
-  ImRouting,
-  SaveImConnectorInput,
-  WeChatAuthorization,
+import {
+  imConnectorFields,
+  type ImConnectorFieldDefinition,
+  type ImConnectorConfig,
+  type ImConnectorKind,
+  type ImConnectorView,
+  type ImRouting,
+  type SaveImConnectorInput,
+  type WeChatAuthorization,
 } from "../contracts/im";
 import type { ImService } from "./im-service";
 
@@ -49,6 +51,7 @@ let connectorState: Record<ImConnectorKind, ImConnectorView> = Object.fromEntrie
 
 let authorizationPoll = 0;
 let authorizationActive = false;
+const lifecycleSubscribers = new Set<(health: ImConnectorView["health"]) => void>();
 
 function cloneView(view: ImConnectorView): ImConnectorView {
   return {
@@ -61,6 +64,8 @@ function cloneView(view: ImConnectorView): ImConnectorView {
 
 function update(kind: ImConnectorKind, mutate: (view: ImConnectorView) => ImConnectorView): void {
   connectorState = { ...connectorState, [kind]: mutate(connectorState[kind]) };
+  const health = { ...connectorState[kind].health };
+  lifecycleSubscribers.forEach((subscriber) => subscriber(health));
 }
 
 function mockMutationLatency(): Promise<void> {
@@ -77,28 +82,42 @@ export const webImClient: ImService = {
   },
 
   async saveRouting(nextRouting) {
-    routing = { ...nextRouting };
+    routing = { agentId: nextRouting.agentId.trim(), projectPath: nextRouting.projectPath.trim() };
     return { ...routing };
   },
 
   async saveConnector(input: SaveImConnectorInput) {
     await mockMutationLatency();
     if (input.enabled && !routing) throw new Error("im-routing-required");
-    const hasCredentials = Object.values(input.credentials ?? {}).some((value) => value.trim().length > 0);
+    const patch = compactFieldPatch(input.kind, input.credentials);
+    const secretFields = fieldMap(input.kind, true);
+    const publicFields = fieldMap(input.kind, false);
+    const hasSecretPatch = Object.entries(patch).some(([key]) => secretFields.has(key));
+    const publicConfig = { ...input.publicConfig };
+    for (const [key, value] of Object.entries(patch)) {
+      if (publicFields.has(key)) publicConfig[key] = value;
+    }
+    const hasCredentials = hasSecretPatch || connectorState[input.kind].hasCredentials;
+    const complete = imConnectorFields[input.kind]
+      .filter((field) => field.required)
+      .every((field) => field.secret
+        ? hasCredentials
+        : typeof publicConfig[field.key] === "string" && String(publicConfig[field.key]).trim().length > 0);
+    if (!complete) throw new Error("connector-credentials-incomplete");
     const config: ImConnectorConfig = {
       kind: input.kind,
       enabled: input.enabled,
       displayName: input.displayName ?? null,
-      publicConfig: { ...input.publicConfig },
-      credentialRef: hasCredentials || connectorState[input.kind].hasCredentials ? `mock://${input.kind}/credential` : null,
+      publicConfig,
+      credentialRef: hasCredentials ? `mock://${input.kind}/credential` : null,
     };
     update(input.kind, (view) => ({
       ...view,
       config,
-      hasCredentials: hasCredentials || view.hasCredentials,
+      hasCredentials,
       health: {
         ...view.health,
-        lifecycle: input.enabled ? "connected" : (hasCredentials || view.hasCredentials ? "disabled" : "unconfigured"),
+        lifecycle: input.enabled ? "connected" : (hasCredentials ? "disabled" : "unconfigured"),
         generation: view.health.generation + (input.enabled ? 1 : 0),
         safeErrorCode: null,
         updatedAt: new Date().toISOString(),
@@ -148,6 +167,11 @@ export const webImClient: ImService = {
 
   async resetBindings() {},
 
+  async subscribeLifecycle(handler) {
+    lifecycleSubscribers.add(handler);
+    return () => lifecycleSubscribers.delete(handler);
+  },
+
   async beginWeChatAuthorization() {
     authorizationActive = true;
     authorizationPoll = 0;
@@ -183,6 +207,21 @@ function mockAuthorization(status: WeChatAuthorization["status"], includeImage: 
     expiresAt: includeImage ? new Date(Date.now() + 300_000).toISOString() : null,
     safeErrorCode: null,
   };
+}
+
+function fieldMap(kind: ImConnectorKind, secret: boolean): Map<string, ImConnectorFieldDefinition> {
+  return new Map(imConnectorFields[kind].filter((field) => field.secret === secret).map((field) => [field.key, field]));
+}
+
+function compactFieldPatch(kind: ImConnectorKind, patch?: Record<string, string>): Record<string, string> {
+  const knownKeys = new Set(imConnectorFields[kind].map((field) => field.key));
+  const unknownKey = Object.keys(patch ?? {}).find((key) => !knownKeys.has(key));
+  if (unknownKey) throw new Error(`connector-credential-field-unknown:${unknownKey}`);
+  return Object.fromEntries(
+    Object.entries(patch ?? {})
+      .map(([key, value]) => [key, value.trim()] as const)
+      .filter(([key, value]) => knownKeys.has(key) && value.length > 0),
+  );
 }
 
 export function getWebImDebugSnapshot(): string {

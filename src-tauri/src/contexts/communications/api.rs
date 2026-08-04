@@ -45,8 +45,8 @@ impl WeChatAuthorizationApi {
         self.service.poll().await
     }
 
-    pub(crate) fn cancel(&self) -> Result<(), CommunicationsApplicationError> {
-        self.service.cancel()
+    pub(crate) async fn cancel(&self) -> Result<(), CommunicationsApplicationError> {
+        self.service.cancel().await
     }
 }
 
@@ -126,6 +126,10 @@ impl CommunicationsApi {
         event_id: &str,
     ) -> Result<bool, CommunicationsApplicationError> {
         self.service.claim_inbound(connector, event_id)
+    }
+
+    pub(crate) fn maintain_deduplication(&self) -> Result<usize, CommunicationsApplicationError> {
+        self.service.maintain_deduplication()
     }
 
     pub(crate) fn route_inbound(

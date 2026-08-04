@@ -13,7 +13,7 @@ use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use qrcode::render::svg;
 use qrcode::QrCode;
-use serde_json::json;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 use zeroize::Zeroizing;
@@ -53,6 +53,7 @@ pub(crate) struct WeChatAuthorizationService {
     transport: Arc<dyn WeChatAuthorizationTransport>,
     persistence: Arc<dyn WeChatCredentialPersistence>,
     pending: Mutex<Option<PendingAuthorization>>,
+    mutation: tokio::sync::Mutex<()>,
 }
 
 #[async_trait]
@@ -82,19 +83,18 @@ impl WeChatCredentialPersistence for ApiWeChatCredentialPersistence {
             .ok_or_else(|| {
                 CommunicationsApplicationError::failure("wechat-configuration-missing")
             })?;
-        let secret = serde_json::to_string(&json!({
-            "botToken": credentials.bot_token,
-            "baseUrl": credentials.base_url,
-            "botId": credentials.bot_id,
-        }))
-        .map_err(|_| CommunicationsApplicationError::failure("credential-payload-invalid"))?;
+        let credential_patch = BTreeMap::from([
+            ("botToken".to_string(), credentials.bot_token),
+            ("baseUrl".to_string(), credentials.base_url),
+            ("botId".to_string(), credentials.bot_id),
+        ]);
         self.communications
             .save_connector(SaveConnectorRequest {
                 kind: ConnectorKind::WeChat,
                 enabled: summary.configuration.enabled,
                 display_name: summary.configuration.display_name,
                 public_config: summary.configuration.public_config,
-                replacement_secret: Some(secret),
+                credential_patch: Some(credential_patch),
             })
             .await?;
         Ok(())
@@ -107,6 +107,7 @@ impl WeChatAuthorizationService {
             transport: Arc::new(LiveWeChatAuthorizationTransport),
             persistence: Arc::new(ApiWeChatCredentialPersistence { communications }),
             pending: Mutex::new(None),
+            mutation: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -119,12 +120,14 @@ impl WeChatAuthorizationService {
             transport,
             persistence,
             pending: Mutex::new(None),
+            mutation: tokio::sync::Mutex::new(()),
         }
     }
 
     pub(crate) async fn begin(
         &self,
     ) -> Result<WeChatAuthorizationResult, CommunicationsApplicationError> {
+        let _mutation = self.mutation.lock().await;
         let qr = self
             .transport
             .create_qr_code()
@@ -160,6 +163,7 @@ impl WeChatAuthorizationService {
     pub(crate) async fn poll(
         &self,
     ) -> Result<WeChatAuthorizationResult, CommunicationsApplicationError> {
+        let _mutation = self.mutation.lock().await;
         let observed_at = Utc::now();
         let locally_expired = {
             let mut pending = self.pending.lock().map_err(lock_error)?;
@@ -170,7 +174,7 @@ impl WeChatAuthorizationService {
                 .expire_if_due(observed_at.timestamp_millis())
         };
         if locally_expired {
-            self.cancel()?;
+            self.cancel_pending()?;
             return Ok(WeChatAuthorizationResult {
                 status: AuthorizationStatus::Expired.as_str().to_string(),
                 image_data_url: None,
@@ -224,12 +228,17 @@ impl WeChatAuthorizationService {
             result.image_data_url = None;
         }
         if next_status.is_terminal() {
-            self.cancel()?;
+            self.cancel_pending()?;
         }
         Ok(result)
     }
 
-    pub(crate) fn cancel(&self) -> Result<(), CommunicationsApplicationError> {
+    pub(crate) async fn cancel(&self) -> Result<(), CommunicationsApplicationError> {
+        let _mutation = self.mutation.lock().await;
+        self.cancel_pending()
+    }
+
+    fn cancel_pending(&self) -> Result<(), CommunicationsApplicationError> {
         let mut pending = self.pending.lock().map_err(lock_error)?;
         if let Some(pending) = pending.as_mut() {
             let _ = pending.attempt.cancel();
@@ -260,6 +269,11 @@ mod tests {
 
     struct FakeTransport;
 
+    struct BlockingTransport {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Semaphore,
+    }
+
     #[async_trait]
     impl WeChatAuthorizationTransport for FakeTransport {
         async fn create_qr_code(&self) -> Result<WeChatQrCode, ConnectorRuntimeError> {
@@ -279,6 +293,27 @@ mod tests {
                 base_url: "https://example.test".to_string(),
                 bot_id: "bot-1".to_string(),
             }))
+        }
+    }
+
+    #[async_trait]
+    impl WeChatAuthorizationTransport for BlockingTransport {
+        async fn create_qr_code(&self) -> Result<WeChatQrCode, ConnectorRuntimeError> {
+            FakeTransport.create_qr_code().await
+        }
+
+        async fn poll_qr_status(
+            &self,
+            payload: &str,
+        ) -> Result<WeChatQrStatus, ConnectorRuntimeError> {
+            self.entered.notify_one();
+            let permit = self
+                .release
+                .acquire()
+                .await
+                .map_err(|_| ConnectorRuntimeError::new("test-release-closed"))?;
+            permit.forget();
+            FakeTransport.poll_qr_status(payload).await
         }
     }
 
@@ -325,5 +360,52 @@ mod tests {
 
         let error = service.poll().await.expect_err("terminal state cleared");
         assert_eq!(error.safe_code(), "wechat-authorization-not-started");
+    }
+
+    #[tokio::test]
+    async fn confirmed_poll_serializes_cancel_and_clears_terminal_authorization_once() {
+        let persistence = Arc::new(FakePersistence::default());
+        let transport = Arc::new(BlockingTransport {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Semaphore::new(0),
+        });
+        let service = Arc::new(WeChatAuthorizationService::with_parts(
+            transport.clone(),
+            persistence.clone(),
+        ));
+        service.begin().await.expect("begin");
+
+        let entered = transport.entered.notified();
+        let poll_service = service.clone();
+        let poll = tokio::spawn(async move { poll_service.poll().await });
+        entered.await;
+        let reauthorize_service = service.clone();
+        let reauthorize = tokio::spawn(async move { reauthorize_service.begin().await });
+        tokio::task::yield_now().await;
+        let cancel_service = service.clone();
+        let cancel = tokio::spawn(async move { cancel_service.cancel().await });
+        tokio::task::yield_now().await;
+        assert!(!reauthorize.is_finished());
+        assert!(!cancel.is_finished());
+
+        transport.release.add_permits(1);
+        assert_eq!(
+            poll.await.expect("poll task").expect("poll").status,
+            "confirmed"
+        );
+        assert_eq!(
+            reauthorize
+                .await
+                .expect("reauthorization task")
+                .expect("reauthorize")
+                .status,
+            "waiting"
+        );
+        cancel.await.expect("cancel task").expect("cancel");
+        assert_eq!(persistence.saved.lock().expect("saved").len(), 1);
+        assert_eq!(
+            service.poll().await.expect_err("cleared").safe_code(),
+            "wechat-authorization-not-started"
+        );
     }
 }

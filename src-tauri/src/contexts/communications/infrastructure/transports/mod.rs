@@ -6,10 +6,12 @@ pub mod http;
 mod protocol;
 mod runtime;
 pub mod telegram;
+mod token_cache;
 pub mod wechat;
 pub mod wecom;
 pub mod wecom_raw;
 
 #[cfg(test)]
 pub(crate) use runtime::submit_inbound;
+pub(crate) use runtime::SafeDiagnosticSink;
 pub use runtime::{ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};

@@ -12,6 +12,57 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[derive(Default)]
+struct FakeMessageTerminalCompletions {
+    pending: Arc<Mutex<BTreeMap<String, std::sync::mpsc::SyncSender<AgentMessageTerminal>>>>,
+}
+
+impl AgentMessageTerminalCompletionPort for FakeMessageTerminalCompletions {
+    fn register(
+        &self,
+        session_id: &str,
+    ) -> Result<AgentMessageTerminalReceiver, AgentRuntimeApplicationError> {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        self.pending
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Generation(error.to_string()))?
+            .insert(session_id.to_string(), sender);
+        let pending = Arc::downgrade(&self.pending);
+        let session_id = session_id.to_string();
+        Ok(AgentMessageTerminalReceiver::new(
+            receiver,
+            Box::new(move || {
+                if let Some(pending) = pending.upgrade() {
+                    if let Ok(mut pending) = pending.lock() {
+                        pending.remove(&session_id);
+                    }
+                }
+            }),
+        ))
+    }
+
+    fn deliver(
+        &self,
+        terminal: AgentMessageTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError> {
+        let sender = self
+            .pending
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Generation(error.to_string()))?
+            .remove(&terminal.session_id);
+        Ok(sender.is_some_and(|sender| sender.try_send(terminal).is_ok()))
+    }
+
+    fn remove(&self, session_id: &str) -> Result<bool, AgentRuntimeApplicationError> {
+        Ok(self
+            .pending
+            .lock()
+            .map_err(|error| AgentRuntimeApplicationError::Generation(error.to_string()))?
+            .remove(session_id)
+            .is_some())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum OperationEvent {
     Started(String),
@@ -1252,6 +1303,7 @@ fn service_with_telemetry(
         execution_settings: world.clone(),
         telemetry: Arc::new(telemetry.clone()),
         loop_completions: world.clone(),
+        message_completions: Arc::new(FakeMessageTerminalCompletions::default()),
         api_agents: world.clone(),
         api_credentials: world.clone(),
         onepiece_model_discovery: world.clone(),
@@ -2208,6 +2260,124 @@ fn completion_without_reported_usage_falls_back_to_character_count_estimate() {
     assert_eq!(usage.source, "character-count");
     assert_eq!(usage.cache_read_count, 0);
     assert_eq!(usage.cache_creation_count, 0);
+}
+
+#[test]
+fn im_completion_receiver_observes_persisted_completed_failed_and_cancelled_messages() {
+    let completed_world = test_world();
+    let completed_service = service(completed_world.clone());
+    let completed = completed_service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "managed-im".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "complete this".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("start completed generation");
+    let completed_sink = completed_world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("completed sink");
+    completed_sink
+        .handle(GenerationProcessEvent::Token("done".to_string()))
+        .expect("token");
+    completed_sink
+        .handle(GenerationProcessEvent::Completed(None))
+        .expect("complete");
+    let completed_terminal = completed
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("completed terminal");
+    assert_eq!(
+        completed_terminal.outcome,
+        AgentMessageTerminalOutcome::Completed
+    );
+    assert_eq!(completed_terminal.content.as_deref(), Some("done"));
+    assert_eq!(
+        completed_world
+            .messages
+            .lock()
+            .expect("messages")
+            .get(&completed_terminal.message_id)
+            .expect("persisted completed")
+            .status,
+        "completed"
+    );
+
+    let failed_world = test_world();
+    let failed_service = service(failed_world.clone());
+    let failed = failed_service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "managed-im".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "fail this".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("start failed generation");
+    failed_world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("failed sink")
+        .handle(GenerationProcessEvent::Failed(
+            GenerationProcessFailure::retryable("provider failed"),
+        ))
+        .expect("fail");
+    let failed_terminal = failed
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("failed terminal");
+    assert_eq!(failed_terminal.outcome, AgentMessageTerminalOutcome::Failed);
+    assert_eq!(
+        failed_world
+            .messages
+            .lock()
+            .expect("messages")
+            .get(&failed_terminal.message_id)
+            .expect("persisted failed")
+            .status,
+        "failed"
+    );
+
+    let cancelled_world = test_world();
+    let cancelled_service = service(cancelled_world.clone());
+    let cancelled = cancelled_service
+        .send_message_with_completion(SendMessageRequest {
+            source: AgentMessageSource::InstantMessage {
+                connector_id: "managed-im".to_string(),
+            },
+            session_id: "session-1".to_string(),
+            content: "cancel this".to_string(),
+            configuration: chat_configuration(),
+            file_references: Vec::new(),
+        })
+        .expect("start cancelled generation");
+    *cancelled_world
+        .streaming_message_ids
+        .lock()
+        .expect("streaming ids") = vec![cancelled.message.id.clone()];
+    cancelled_service
+        .stop_generation("session-1")
+        .expect("cancel generation");
+    let cancelled_terminal = cancelled
+        .terminal
+        .recv_timeout(std::time::Duration::ZERO)
+        .expect("cancelled terminal");
+    assert_eq!(
+        cancelled_terminal.outcome,
+        AgentMessageTerminalOutcome::Cancelled
+    );
 }
 
 #[test]

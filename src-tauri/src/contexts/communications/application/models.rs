@@ -1,6 +1,7 @@
 use crate::contexts::communications::domain::{
-    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind, RoutingSettings,
+    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind,
 };
+use std::collections::BTreeMap;
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
@@ -9,7 +10,7 @@ pub(crate) struct SaveConnectorRequest {
     pub(crate) enabled: bool,
     pub(crate) display_name: Option<String>,
     pub(crate) public_config: serde_json::Value,
-    pub(crate) replacement_secret: Option<String>,
+    pub(crate) credential_patch: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +59,6 @@ pub(crate) struct CommunicationsLog {
 pub(crate) struct AgentExecutionRequest {
     pub(crate) session_id: String,
     pub(crate) text: String,
-    pub(crate) routing: RoutingSettings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

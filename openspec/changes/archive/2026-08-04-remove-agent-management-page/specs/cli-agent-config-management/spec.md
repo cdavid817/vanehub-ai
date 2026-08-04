@@ -3,6 +3,11 @@
 ### Requirement: Dedicated Agent configuration management page
 The settings experience SHALL provide one dedicated, lazy-loaded Agent Configuration page for OnePiece and CLI provider configuration that remains visually and behaviorally separate from runtime Agent selection and registered-Agent management.
 
+#### Scenario: Navigate from Agent management
+- **WHEN** the user chooses to manage global configuration from the Agents page or a supported Agent card
+- **THEN** settings SHALL open the dedicated Agent Configuration page
+- **AND** MAY preselect the originating stable Agent id without changing the selected Session, runtime Agent, or workflow
+
 #### Scenario: Open the dedicated Agent Configuration page
 - **WHEN** the user selects Agent Configuration in settings or follows a supported Agent configuration link
 - **THEN** settings SHALL open the Agent Configuration page
@@ -56,6 +61,10 @@ The settings experience SHALL provide one dedicated, lazy-loaded Agent Configura
 - **WHEN** the user confirms a global profile application
 - **THEN** the page SHALL show observable progress and the final restart or rollback guidance
 - **AND** SHALL refresh profile status without changing the selected Session or runtime workflow
+
+#### Scenario: Apply profile in Web mode
+- **WHEN** a user applies a profile in the Web/mock runtime
+- **THEN** the page SHALL show a deterministic simulated result without fabricating local files, credentials, or native runtime state
 
 #### Scenario: Use the configuration page on a narrow viewport
 - **WHEN** the page is rendered at a narrow supported viewport

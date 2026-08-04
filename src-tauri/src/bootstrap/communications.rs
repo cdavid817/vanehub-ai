@@ -8,7 +8,7 @@ use crate::contexts::communications::infrastructure::{
     BusyMessageProvider, CommunicationsAgentExecutionAdapter, CommunicationsCredentialAdapter,
     CommunicationsInboundBridge, CommunicationsLoggingAdapter, CommunicationsOperationAdapter,
     CommunicationsSessionBindingAdapter, CommunicationsTransportAdapter, ConnectorRuntimeManager,
-    SqliteCommunicationsRepository, SystemCommunicationsClock,
+    SqliteCommunicationsRepository, SystemCommunicationsClock, TauriConnectorLifecycleEvents,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::desktop::domain::NativeCopy;
@@ -37,6 +37,7 @@ pub(crate) struct CommunicationsDependencies {
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) desktop_settings: DesktopSettingsApi,
     pub(crate) fallback_log_directory: PathBuf,
+    pub(crate) app: tauri::AppHandle,
 }
 
 /// 通信模块核心组装入口方法
@@ -75,7 +76,10 @@ pub(crate) fn assemble_communications(
         busy_message,
     ));
     // 步骤5：初始化连接器运行管理器，绑定入站桥，管控连接器运行生命周期
-    let runtime = ConnectorRuntimeManager::new(inbound.clone());
+    let runtime = ConnectorRuntimeManager::new_with_events(
+        inbound.clone(),
+        Arc::new(TauriConnectorLifecycleEvents::new(dependencies.app)),
+    );
     // 步骤6：初始化sqlite通信仓储，注入底层数据库实例，持久化通信会话、消息数据
     let repository = SqliteCommunicationsRepository::new(dependencies.database);
     // 步骤7：注入系统时钟实现，提供统一时间获取能力

@@ -1,26 +1,10 @@
-import type { ImConnectorKind } from "../../../contracts/im";
+import { imConnectorFields, type ImConnectorKind, type ImRouting } from "../../../contracts/im";
 
-export interface ImCredentialField {
-  key: string;
-  secret: boolean;
-  required?: boolean;
-}
-
-export const credentialFields: Record<Exclude<ImConnectorKind, "weixin">, ImCredentialField[]> = {
-  feishu: [
-    { key: "appId", secret: false, required: true },
-    { key: "appSecret", secret: true, required: true },
-  ],
-  telegram: [{ key: "botToken", secret: true, required: true }],
-  dingtalk: [
-    { key: "appKey", secret: false, required: true },
-    { key: "appSecret", secret: true, required: true },
-    { key: "robotCode", secret: false },
-  ],
-  wecom: [
-    { key: "botId", secret: false, required: true },
-    { key: "secret", secret: true, required: true },
-  ],
+export const credentialFields = {
+  feishu: imConnectorFields.feishu,
+  telegram: imConnectorFields.telegram,
+  dingtalk: imConnectorFields.dingtalk,
+  wecom: imConnectorFields.wecom,
 };
 
 export const connectorDocumentation: Record<ImConnectorKind, string> = {
@@ -45,6 +29,29 @@ export function compactCredentials(values: Record<string, string>): Record<strin
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-export function hasCompleteCredentials(kind: Exclude<ImConnectorKind, "weixin">, values: Record<string, string>): boolean {
-  return credentialFields[kind].filter((field) => field.required).every(({ key }) => values[key]?.trim());
+export function hasCompleteCredentials(
+  kind: Exclude<ImConnectorKind, "weixin">,
+  values: Record<string, string>,
+  publicConfig: Record<string, unknown> = {},
+  hasStoredSecrets = false,
+): boolean {
+  return credentialFields[kind].filter((field) => field.required).every((field) => {
+    if (field.secret && hasStoredSecrets) return true;
+    const value = values[field.key] ?? (field.secret ? undefined : publicConfig[field.key]);
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+export function credentialDraftAfterSave(
+  kind: Exclude<ImConnectorKind, "weixin">,
+  values: Record<string, string>,
+  succeeded: boolean,
+): Record<string, string> {
+  if (succeeded) return {};
+  const safeKeys = new Set(credentialFields[kind].filter((field) => !field.secret).map((field) => field.key));
+  return Object.fromEntries(Object.entries(values).filter(([key]) => safeKeys.has(key)));
+}
+
+export function routingMatchesSaved(agentId: string, projectPath: string, savedRouting: ImRouting | null): boolean {
+  return Boolean(savedRouting && savedRouting.agentId === agentId && savedRouting.projectPath === projectPath);
 }

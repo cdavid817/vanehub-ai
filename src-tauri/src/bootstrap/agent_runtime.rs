@@ -12,7 +12,8 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::infrastructure::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
-    CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter, InMemoryGenerationCoordinator,
+    CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
+    InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
@@ -207,6 +208,7 @@ pub(crate) fn assemble_agent_runtime_api(
         execution_settings: timeline.clone(),
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
+        message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
         onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),

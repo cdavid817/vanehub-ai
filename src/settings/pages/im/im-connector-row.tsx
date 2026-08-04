@@ -6,14 +6,14 @@ import { Button } from "../../../components/ui/button";
 import { formatAppDateTime } from "../../../i18n/format";
 import type { ImConnectorView } from "../../../contracts/im";
 import { cn } from "../../../lib/utils";
-import { compactCredentials, connectorDocumentation, credentialFields, hasCompleteCredentials } from "./im-form";
+import { compactCredentials, connectorDocumentation, credentialDraftAfterSave, credentialFields, hasCompleteCredentials } from "./im-form";
 
 interface ImConnectorRowProps {
   view: ImConnectorView;
   routingReady: boolean;
   searchTerm: string;
   pendingAction: string | null;
-  onAction: (action: "save" | "enable" | "disable" | "test" | "restart" | "clear", credentials?: Record<string, string>) => Promise<void>;
+  onAction: (action: "save" | "enable" | "disable" | "test" | "restart" | "clear", credentials?: Record<string, string>) => Promise<boolean>;
   authorization?: React.ReactNode;
 }
 
@@ -37,10 +37,17 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
   if (!visible) return null;
 
   const busy = pendingAction !== null;
-  const canSave = view.descriptor.kind === "weixin" || view.hasCredentials || hasCompleteCredentials(view.descriptor.kind, credentials);
+  const canSave = view.descriptor.kind === "weixin" || hasCompleteCredentials(
+    view.descriptor.kind,
+    credentials,
+    view.config.publicConfig,
+    view.hasCredentials,
+  );
   async function save() {
-    await onAction("save", compactCredentials(credentials));
-    setCredentials({});
+    const kind = view.descriptor.kind;
+    if (kind === "weixin") return;
+    const succeeded = await onAction("save", compactCredentials(credentials));
+    setCredentials((current) => credentialDraftAfterSave(kind, current, succeeded));
   }
 
   return (
@@ -93,7 +100,7 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
                     onChange={(event) => setCredentials((current) => ({ ...current, [field.key]: event.target.value }))}
                     placeholder={view.hasCredentials ? t("im.credentials.configured") : t("im.credentials.enter")}
                     type={field.secret ? "password" : "text"}
-                    value={credentials[field.key] ?? ""}
+                    value={credentials[field.key] ?? (!field.secret && typeof view.config.publicConfig[field.key] === "string" ? String(view.config.publicConfig[field.key]) : "")}
                   />
                 </label>
               ))}

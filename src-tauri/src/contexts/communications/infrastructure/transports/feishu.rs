@@ -1,6 +1,10 @@
 use super::http::{require_success, HttpMethod, HttpRequest, HttpTransport};
 use super::protocol::normalize_fixture;
-use super::runtime::{submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};
+use super::runtime::{
+    submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery,
+    MalformedEventReporter, SafeDiagnosticSink,
+};
+use super::token_cache::AccessTokenCache;
 use crate::contexts::communications::domain::{ConnectorKind, OutboundText};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -37,6 +41,8 @@ pub struct FeishuAdapter {
     api_base: String,
     transport: Arc<dyn HttpTransport>,
     long_connection: Arc<dyn FeishuLongConnection>,
+    token_cache: AccessTokenCache,
+    malformed_events: MalformedEventReporter,
 }
 
 impl FeishuAdapter {
@@ -57,7 +63,14 @@ impl FeishuAdapter {
             api_base: FEISHU_API_BASE.to_string(),
             transport,
             long_connection,
+            token_cache: AccessTokenCache::default(),
+            malformed_events: MalformedEventReporter::new(ConnectorKind::Feishu),
         })
+    }
+
+    pub(crate) fn with_diagnostic_sink(mut self, sink: SafeDiagnosticSink) -> Self {
+        self.malformed_events = self.malformed_events.with_sink(sink);
+        self
     }
 
     #[cfg(test)]
@@ -67,6 +80,14 @@ impl FeishuAdapter {
     }
 
     async fn tenant_token(&self) -> Result<String, ConnectorRuntimeError> {
+        self.token_cache
+            .get_or_refresh(|| self.fetch_tenant_token())
+            .await
+    }
+
+    async fn fetch_tenant_token(
+        &self,
+    ) -> Result<(String, std::time::Duration), ConnectorRuntimeError> {
         let response = self
             .transport
             .execute(HttpRequest {
@@ -88,12 +109,18 @@ impl FeishuAdapter {
         if code != 0 {
             return Err(ConnectorRuntimeError::new(format!("feishu-api-{code}")));
         }
-        response
+        let token = response
             .body
             .get("tenant_access_token")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or_else(|| ConnectorRuntimeError::new("feishu-token-missing"))
+            .ok_or_else(|| ConnectorRuntimeError::new("feishu-token-missing"))?;
+        let expires_in = response
+            .body
+            .get("expire")
+            .and_then(Value::as_u64)
+            .unwrap_or(3_600);
+        Ok((token, std::time::Duration::from_secs(expires_in)))
     }
 
     async fn send_final(&self, outbound: OutboundText) -> Result<(), ConnectorRuntimeError> {
@@ -115,7 +142,10 @@ impl FeishuAdapter {
                 })),
             })
             .await?;
-        require_success(&response)?;
+        if let Err(error) = require_success(&response) {
+            self.token_cache.invalidate().await;
+            return Err(error);
+        }
         let code = response
             .body
             .get("code")
@@ -124,6 +154,7 @@ impl FeishuAdapter {
         if code == 0 {
             Ok(())
         } else {
+            self.token_cache.invalidate().await;
             Err(ConnectorRuntimeError::new(format!("feishu-api-{code}")))
         }
     }
@@ -168,8 +199,9 @@ impl ConnectorAdapter for FeishuAdapter {
                     let Some(frame) = frame else {
                         return Err(ConnectorRuntimeError::new("feishu-frame-stream-closed"));
                     };
-                    if let Ok(message) = normalize_fixture(ConnectorKind::Feishu, &frame.payload) {
-                        submit_inbound(&inbound, message).await?;
+                    match normalize_fixture(ConnectorKind::Feishu, &frame.payload) {
+                        Ok(message) => submit_inbound(&inbound, message).await?,
+                        Err(_) => self.malformed_events.report(),
                     }
                     self.long_connection.acknowledge(&frame.acknowledgement_id).await?;
                 }
@@ -266,8 +298,7 @@ mod tests {
     #[tokio::test]
     async fn validates_token_normalizes_frame_acknowledges_and_sends_final() {
         let http = http(vec![
-            json!({"code": 0, "tenant_access_token": "fixture-access"}),
-            json!({"code": 0, "tenant_access_token": "fixture-access"}),
+            json!({"code": 0, "tenant_access_token": "fixture-access", "expire": 3600}),
             json!({"code": 0, "data": {}}),
         ]);
         let connection = Arc::new(FakeLongConnection::default());
@@ -309,5 +340,38 @@ mod tests {
             .unwrap();
         shutdown_sender.send(true).unwrap();
         running.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_sends_share_one_cached_token_refresh() {
+        let mut responses =
+            vec![json!({"code": 0, "tenant_access_token": "fixture-access", "expire": 3600})];
+        responses.extend((0..8).map(|_| json!({"code": 0, "data": {}})));
+        let http = http(responses);
+        let adapter = Arc::new(
+            FeishuAdapter::new(
+                "cli_fixture",
+                "app-private",
+                http.clone(),
+                Arc::new(FakeLongConnection::default()),
+            )
+            .unwrap()
+            .with_api_base("https://feishu.invalid"),
+        );
+        let sends = (0..8).map(|index| {
+            let adapter = Arc::clone(&adapter);
+            async move {
+                adapter
+                    .send_text(OutboundText {
+                        chat_id: format!("chat-{index}"),
+                        text: "final".to_string(),
+                        reply_context: None,
+                    })
+                    .await
+            }
+        });
+        let results = futures_util::future::join_all(sends).await;
+        assert!(results.into_iter().all(|result| result.is_ok()));
+        assert!(http.0.lock().unwrap().is_empty());
     }
 }

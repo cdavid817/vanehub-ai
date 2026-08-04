@@ -1,6 +1,9 @@
 use super::http::{require_success, HttpMethod, HttpRequest, HttpTransport};
 use super::protocol::normalize_fixture;
-use super::runtime::{submit_inbound, ConnectorAdapter, ConnectorRuntimeError, InboundDelivery};
+use super::runtime::{
+    pace_immediate_empty_poll, submit_inbound, ConnectorAdapter, ConnectorRuntimeError,
+    InboundDelivery, MalformedEventReporter, SafeDiagnosticSink,
+};
 use crate::contexts::communications::domain::{ConnectorKind, NormalizedInbound, OutboundText};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -21,6 +24,7 @@ pub struct TelegramAdapter {
     api_base: String,
     transport: Arc<dyn HttpTransport>,
     checkpoint: Arc<dyn TelegramCheckpoint>,
+    malformed_events: MalformedEventReporter,
 }
 
 impl TelegramAdapter {
@@ -35,7 +39,13 @@ impl TelegramAdapter {
             api_base: TELEGRAM_API_BASE.to_string(),
             transport,
             checkpoint,
+            malformed_events: MalformedEventReporter::new(ConnectorKind::Telegram),
         })
+    }
+
+    pub(crate) fn with_diagnostic_sink(mut self, sink: SafeDiagnosticSink) -> Self {
+        self.malformed_events = self.malformed_events.with_sink(sink);
+        self
     }
 
     #[cfg(test)]
@@ -104,10 +114,12 @@ impl TelegramAdapter {
             }
             let payload = serde_json::to_string(update)
                 .map_err(|_| ConnectorRuntimeError::new("telegram-update-invalid"))?;
-            if let Ok(message) = normalize_fixture(ConnectorKind::Telegram, &payload) {
-                if message.direct && !message.text.trim().is_empty() {
-                    inbound.push(message);
+            match normalize_fixture(ConnectorKind::Telegram, &payload) {
+                Ok(message) if message.direct && !message.text.trim().is_empty() => {
+                    inbound.push(message)
                 }
+                Ok(_) => {}
+                Err(_) => self.malformed_events.report(),
             }
         }
         Ok((inbound, next_offset))
@@ -149,6 +161,7 @@ impl ConnectorAdapter for TelegramAdapter {
                 return Ok(());
             }
             let offset = self.checkpoint.load_offset()?;
+            let poll_started = std::time::Instant::now();
             let poll = self.poll_once(offset);
             tokio::select! {
                 changed = shutdown.changed() => {
@@ -159,6 +172,7 @@ impl ConnectorAdapter for TelegramAdapter {
                 result = poll => {
                     match result {
                         Ok((messages, next_offset)) => {
+                            let empty = messages.is_empty();
                             if let Some(ready) = ready.take() {
                                 let _ = ready.send(());
                             }
@@ -167,6 +181,9 @@ impl ConnectorAdapter for TelegramAdapter {
                             }
                             if next_offset != offset {
                                 self.checkpoint.save_offset(next_offset)?;
+                            }
+                            if pace_immediate_empty_poll(poll_started, empty, &mut shutdown).await {
+                                return Ok(());
                             }
                         }
                         Err(error) if error.safe_code == "telegram-api-409" => {
@@ -211,6 +228,7 @@ mod tests {
     use super::super::http::HttpResponse;
     use super::*;
     use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -327,6 +345,35 @@ mod tests {
         assert!(http.requests.lock().unwrap()[1]
             .url
             .ends_with("/sendMessage"));
+    }
+
+    #[tokio::test]
+    async fn malformed_updates_emit_one_safe_diagnostic_and_advance_the_offset() {
+        let malformed_batch = json!({
+            "ok": true,
+            "result": [{"update_id": 71, "unexpected": true}]
+        });
+        let http = mock(vec![malformed_batch.clone(), malformed_batch]);
+        let diagnostics = Arc::new(AtomicUsize::new(0));
+        let captured = Arc::clone(&diagnostics);
+        let adapter = TelegramAdapter::new(
+            "123456:fixture_token",
+            http,
+            Arc::new(MemoryCheckpoint::default()),
+        )
+        .unwrap()
+        .with_diagnostic_sink(Arc::new(move |kind, safe_code| {
+            assert_eq!(kind, ConnectorKind::Telegram);
+            assert_eq!(safe_code, "malformed-event");
+            captured.fetch_add(1, Ordering::AcqRel);
+        }));
+
+        for _ in 0..2 {
+            let (messages, next_offset) = adapter.poll_once(0).await.expect("malformed batch");
+            assert!(messages.is_empty());
+            assert_eq!(next_offset, 72);
+        }
+        assert_eq!(diagnostics.load(Ordering::Acquire), 1);
     }
 
     #[test]

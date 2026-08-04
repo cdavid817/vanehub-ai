@@ -1,6 +1,7 @@
 use super::{
     AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort, AgentEvent, AgentEventPort,
     AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage,
+    AgentMessageTerminal, AgentMessageTerminalCompletionPort, AgentMessageTerminalOutcome,
     AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
@@ -16,11 +17,11 @@ use super::{
     ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StopGenerationResult,
-    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
-    ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest, WorkflowView,
-    INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    SaveOnePieceProviderProfileInput, SendMessageRequest, StartedAgentMessage,
+    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
+    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest,
+    WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -102,6 +103,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
+    pub(crate) message_completions: Arc<dyn AgentMessageTerminalCompletionPort>,
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
     pub(crate) onepiece_model_discovery: Arc<dyn OnePieceModelDiscoveryPort>,
@@ -1255,6 +1257,31 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+        self.send_message_internal(request, false)
+            .map(|(message, _)| message)
+    }
+
+    pub(crate) fn send_message_with_completion(
+        &self,
+        request: SendMessageRequest,
+    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
+        let (message, terminal) = self.send_message_internal(request, true)?;
+        let terminal = terminal.ok_or_else(|| {
+            AgentRuntimeApplicationError::Generation(
+                "message completion registration was not created".to_string(),
+            )
+        })?;
+        Ok(StartedAgentMessage { message, terminal })
+    }
+
+    fn send_message_internal(
+        &self,
+        request: SendMessageRequest,
+        register_completion: bool,
+    ) -> Result<
+        (AgentMessage, Option<super::AgentMessageTerminalReceiver>),
+        AgentRuntimeApplicationError,
+    > {
         let content = request.content.trim().to_string();
         if content.is_empty() {
             return Err(AgentRuntimeApplicationError::Validation(
@@ -1281,6 +1308,9 @@ impl AgentRuntimeApplicationService {
             ));
         }
         let lease = self.ports.generations.reserve(&session.id)?;
+        let terminal = register_completion
+            .then(|| self.ports.message_completions.register(&session.id))
+            .transpose()?;
         let result = self.start_message_generation(
             &session,
             &agent,
@@ -1294,8 +1324,11 @@ impl AgentRuntimeApplicationService {
         );
         if result.is_err() {
             let _ = self.ports.generations.release(&lease);
+            if terminal.is_some() {
+                let _ = self.ports.message_completions.remove(&session.id);
+            }
         }
-        result
+        result.map(|message| (message, terminal))
     }
 
     fn start_message_generation(
@@ -1849,6 +1882,15 @@ impl AgentRuntimeApplicationService {
             self.ports
                 .sessions
                 .fail_message(&assistant.id, &session.id, &failure.safe_error)?;
+        let _ = self
+            .ports
+            .message_completions
+            .deliver(AgentMessageTerminal {
+                session_id: session.id.clone(),
+                message_id: assistant.id.clone(),
+                outcome: AgentMessageTerminalOutcome::Failed,
+                content: None,
+            });
         self.ports
             .sessions
             .update_lifecycle(&session.id, AgentLifecycle::Failed)?;
@@ -1911,6 +1953,17 @@ impl AgentRuntimeApplicationService {
             message_ids.insert(message_id);
         }
         message_ids.extend(streaming_ids);
+        for message_id in &message_ids {
+            let _ = self
+                .ports
+                .message_completions
+                .deliver(AgentMessageTerminal {
+                    session_id: session_id.to_string(),
+                    message_id: message_id.clone(),
+                    outcome: AgentMessageTerminalOutcome::Cancelled,
+                    content: None,
+                });
+        }
         let has_process = cancellation
             .as_ref()
             .and_then(|outcome| outcome.process_id.as_deref())
@@ -2496,6 +2549,15 @@ impl GenerationEventHandler {
             token_usage: Some(token_usage.clone()),
             usage: Some(usage),
         })?;
+        let _ = self
+            .ports
+            .message_completions
+            .deliver(AgentMessageTerminal {
+                session_id: self.session_id.clone(),
+                message_id: self.message_id.clone(),
+                outcome: AgentMessageTerminalOutcome::Completed,
+                content: Some(response.clone()),
+            });
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Idle)?;
@@ -2550,6 +2612,15 @@ impl GenerationEventHandler {
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
+        let _ = self
+            .ports
+            .message_completions
+            .deliver(AgentMessageTerminal {
+                session_id: self.session_id.clone(),
+                message_id: self.message_id.clone(),
+                outcome: AgentMessageTerminalOutcome::Failed,
+                content: None,
+            });
         self.ports
             .sessions
             .update_lifecycle(&self.session_id, AgentLifecycle::Failed)?;

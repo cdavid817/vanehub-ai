@@ -563,6 +563,20 @@ pub(crate) trait LoopRoleGenerationCompletionPort: Send + Sync {
     ) -> Result<Option<LoopRoleGenerationTerminal>, AgentRuntimeApplicationError>;
 }
 
+pub(crate) trait AgentMessageTerminalCompletionPort: Send + Sync {
+    fn register(
+        &self,
+        session_id: &str,
+    ) -> Result<super::AgentMessageTerminalReceiver, AgentRuntimeApplicationError>;
+
+    fn deliver(
+        &self,
+        terminal: super::AgentMessageTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError>;
+
+    fn remove(&self, session_id: &str) -> Result<bool, AgentRuntimeApplicationError>;
+}
+
 pub(crate) trait LoopVerificationProcessPort: Send + Sync {
     fn execute(
         &self,

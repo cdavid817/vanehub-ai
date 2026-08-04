@@ -51,6 +51,13 @@ pub(crate) fn apply_schema(connection: &Connection) -> Result<(), DatabaseError>
             updated_at TEXT NOT NULL,
             PRIMARY KEY (connector, checkpoint_key)
         );
+        CREATE TABLE IF NOT EXISTS im_wechat_reply_contexts (
+            chat_hash TEXT PRIMARY KEY,
+            credential_account TEXT NOT NULL,
+            last_used_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_im_wechat_context_last_used
+            ON im_wechat_reply_contexts(last_used_at);
         "#,
     )?;
     ensure_connector_config_columns(connection)?;
@@ -214,6 +221,14 @@ mod tests {
 
         assert_eq!(migrated, ("weixin".to_string(), 1, None));
         assert_eq!(credential_ref, "weixin/default");
+        let context_table: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'im_wechat_reply_contexts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("context table");
+        assert_eq!(context_table, 1);
         assert!(
             table_has_column(&connection, "im_connector_configs", "updated_at").expect("column")
         );

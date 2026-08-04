@@ -1506,6 +1506,64 @@
                                               "onepiece-native-agent",
                                               "session-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-04",
+                         "changeName":  "enhance-chat-rich-media",
+                         "path":  "openspec/changes/archive/2026-08-04-enhance-chat-rich-media/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-04",
+                         "changeName":  "harden-im-runtime-reliability",
+                         "path":  "openspec/changes/archive/2026-08-04-harden-im-runtime-reliability/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "im-connector-management",
+                                              "native-runtime-architecture",
+                                              "session-runtime-management",
+                                              "settings-im-management-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-04",
+                         "changeName":  "maximize-main-window-on-startup",
+                         "path":  "openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "desktop-background-lifecycle"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-04",
+                         "changeName":  "remove-agent-management-page",
+                         "path":  "openspec/changes/archive/2026-08-04-remove-agent-management-page/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-switching",
+                                              "cli-agent-config-management",
+                                              "settings-center-ui"
+                                          ]
                      }
                  ]
 }

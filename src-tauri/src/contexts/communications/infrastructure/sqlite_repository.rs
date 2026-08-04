@@ -87,6 +87,104 @@ impl SqliteCommunicationsRepository {
         }
         .map_err(sqlite_error)
     }
+
+    pub(crate) fn touch_wechat_reply_context(
+        &self,
+        chat_hash: &str,
+        credential_account: &str,
+        last_used_at: &str,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                r#"INSERT INTO im_wechat_reply_contexts
+                   (chat_hash, credential_account, last_used_at)
+                   VALUES (?1, ?2, ?3)
+                   ON CONFLICT(chat_hash) DO UPDATE SET
+                     credential_account = excluded.credential_account,
+                     last_used_at = excluded.last_used_at"#,
+                params![chat_hash, credential_account, last_used_at],
+            )
+            .map(|_| ())
+            .map_err(sqlite_error)
+    }
+
+    pub(crate) fn expired_wechat_reply_contexts(
+        &self,
+        cutoff: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String, String)>, CommunicationsApplicationError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT chat_hash, credential_account, last_used_at FROM im_wechat_reply_contexts \
+                 WHERE last_used_at < ?1 ORDER BY last_used_at LIMIT ?2",
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map(params![cutoff, limit as i64], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(sqlite_error)?;
+        let mut contexts = Vec::new();
+        for row in rows {
+            contexts.push(row.map_err(sqlite_error)?);
+        }
+        Ok(contexts)
+    }
+
+    pub(crate) fn wechat_reply_contexts(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, CommunicationsApplicationError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT chat_hash, credential_account FROM im_wechat_reply_contexts \
+                 ORDER BY chat_hash LIMIT ?1",
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(sqlite_error)?;
+        let mut contexts = Vec::new();
+        for row in rows {
+            contexts.push(row.map_err(sqlite_error)?);
+        }
+        Ok(contexts)
+    }
+
+    pub(crate) fn delete_wechat_reply_context(
+        &self,
+        chat_hash: &str,
+        credential_account: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "DELETE FROM im_wechat_reply_contexts \
+                 WHERE chat_hash = ?1 AND credential_account = ?2",
+                params![chat_hash, credential_account],
+            )
+            .map(|changed| changed == 1)
+            .map_err(sqlite_error)
+    }
+
+    pub(crate) fn delete_expired_wechat_reply_context(
+        &self,
+        chat_hash: &str,
+        credential_account: &str,
+        cutoff: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "DELETE FROM im_wechat_reply_contexts \
+                 WHERE chat_hash = ?1 AND credential_account = ?2 AND last_used_at < ?3",
+                params![chat_hash, credential_account, cutoff],
+            )
+            .map(|changed| changed == 1)
+            .map_err(sqlite_error)
+    }
 }
 
 impl CommunicationsRepository for SqliteCommunicationsRepository {
@@ -177,6 +275,27 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
         transaction.commit().map_err(sqlite_error)
     }
 
+    fn delete_configuration(
+        &self,
+        kind: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM im_credential_refs WHERE connector = ?1",
+                [kind.as_str()],
+            )
+            .map_err(sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM im_connector_configs WHERE connector = ?1",
+                [kind.as_str()],
+            )
+            .map_err(sqlite_error)?;
+        transaction.commit().map_err(sqlite_error)
+    }
+
     fn load_routing(&self) -> Result<Option<RoutingSettings>, CommunicationsApplicationError> {
         self.connection()?
             .query_row(
@@ -232,11 +351,18 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
         Ok(changed == 1)
     }
 
-    fn cleanup_dedup_before(&self, cutoff: &str) -> Result<usize, CommunicationsApplicationError> {
+    fn cleanup_dedup_before(
+        &self,
+        cutoff: &str,
+        limit: usize,
+    ) -> Result<usize, CommunicationsApplicationError> {
         self.connection()?
             .execute(
-                "DELETE FROM im_inbound_dedup WHERE received_at < ?1",
-                [cutoff],
+                "DELETE FROM im_inbound_dedup WHERE rowid IN (\
+                   SELECT rowid FROM im_inbound_dedup \
+                   WHERE received_at < ?1 ORDER BY received_at, rowid LIMIT ?2\
+                 )",
+                params![cutoff, i64::try_from(limit).unwrap_or(i64::MAX)],
             )
             .map_err(sqlite_error)
     }
@@ -404,7 +530,7 @@ mod tests {
             .expect("duplicate claim"));
         assert_eq!(
             repository
-                .cleanup_dedup_before("2026-07-11T00:00:00Z")
+                .cleanup_dedup_before("2026-07-11T00:00:00Z", 1)
                 .expect("cleanup"),
             1
         );
@@ -436,6 +562,44 @@ mod tests {
             })
             .expect("event hash");
         assert!(!event_hash.contains("private-event-42"));
+    }
+
+    #[test]
+    fn dedup_cleanup_never_exceeds_the_requested_batch() {
+        let fixture = fixture("communications-dedup-batch");
+        let repository = &fixture.repository;
+        for index in 0..3 {
+            let event = InboundEventIdentity::new(
+                ConnectorKind::Telegram,
+                format!("private-event-{index}"),
+            )
+            .expect("event");
+            assert!(repository
+                .claim_event(&event, "2026-07-10T00:00:00Z")
+                .expect("claim"));
+        }
+
+        assert_eq!(
+            repository
+                .cleanup_dedup_before("2026-07-11T00:00:00Z", 2)
+                .expect("first batch"),
+            2
+        );
+        let remaining: i64 = fixture
+            .database
+            .connection()
+            .expect("connection")
+            .query_row("SELECT COUNT(*) FROM im_inbound_dedup", [], |row| {
+                row.get(0)
+            })
+            .expect("remaining rows");
+        assert_eq!(remaining, 1);
+        assert_eq!(
+            repository
+                .cleanup_dedup_before("2026-07-11T00:00:00Z", 2)
+                .expect("second batch"),
+            1
+        );
     }
 
     #[test]
@@ -582,5 +746,48 @@ mod tests {
             .find_binding(&feishu_key)
             .expect("binding after delete")
             .is_none());
+    }
+
+    #[test]
+    fn wechat_context_retention_is_bounded_restart_safe_and_does_not_delete_refreshed_rows() {
+        let fixture = fixture("communications-wechat-context-retention");
+        for index in 0..3 {
+            fixture
+                .repository
+                .touch_wechat_reply_context(
+                    &format!("chat-{index}"),
+                    &format!("account-{index}"),
+                    "2026-01-01T00:00:00Z",
+                )
+                .expect("touch context");
+        }
+
+        let restarted = SqliteCommunicationsRepository::new(fixture.database.clone());
+        let expired = restarted
+            .expired_wechat_reply_contexts("2026-02-01T00:00:00Z", 2)
+            .expect("expired contexts");
+        assert_eq!(expired.len(), 2);
+
+        let (chat_hash, account, _) = &expired[0];
+        restarted
+            .touch_wechat_reply_context(chat_hash, account, "2026-03-01T00:00:00Z")
+            .expect("refresh context");
+        assert!(!restarted
+            .delete_expired_wechat_reply_context(chat_hash, account, "2026-02-01T00:00:00Z",)
+            .expect("stale retention delete"));
+
+        let (stale_hash, stale_account, _) = &expired[1];
+        assert!(restarted
+            .delete_expired_wechat_reply_context(stale_hash, stale_account, "2026-02-01T00:00:00Z",)
+            .expect("retention delete"));
+        let remaining: i64 = fixture
+            .database
+            .connection()
+            .expect("connection")
+            .query_row("SELECT COUNT(*) FROM im_wechat_reply_contexts", [], |row| {
+                row.get(0)
+            })
+            .expect("context count");
+        assert_eq!(remaining, 2);
     }
 }

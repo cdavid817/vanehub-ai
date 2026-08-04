@@ -203,17 +203,24 @@ The desktop runtime SHALL serialize profile application per Agent, prebuild and 
 - **AND** the system SHALL report whether the prior live configuration was fully restored
 
 ### Requirement: Dedicated Agent configuration management page
-The settings experience SHALL provide a dedicated, lazy-loaded Agent configuration page for Claude Code, OpenCode, and Codex CLI that is visually and behaviorally separate from runtime Agent selection.
+The settings experience SHALL provide one dedicated, lazy-loaded Agent Configuration page for OnePiece and CLI provider configuration that remains visually and behaviorally separate from runtime Agent selection and registered-Agent management.
 
 #### Scenario: Navigate from Agent management
 - **WHEN** the user chooses to manage global configuration from the Agents page or a supported Agent card
-- **THEN** settings SHALL open the dedicated Agent configuration page
+- **THEN** settings SHALL open the dedicated Agent Configuration page
 - **AND** MAY preselect the originating stable Agent id without changing the selected Session, runtime Agent, or workflow
 
+#### Scenario: Open the dedicated Agent Configuration page
+- **WHEN** the user selects Agent Configuration in settings or follows a supported Agent configuration link
+- **THEN** settings SHALL open the Agent Configuration page
+- **AND** MAY preselect the originating configuration Agent id without changing the selected Session, runtime Agent, or workflow
+- **AND** SHALL NOT expose a separate Agent Management page or registered-Agent management controls
+
 #### Scenario: Switch configuration Agent
-- **WHEN** the user selects the Claude Code, OpenCode, or Codex tab
-- **THEN** the page SHALL show a compact status strip, focused add/optional-import/refresh/search toolbar, and that Agent's saved profile list through the frontend service boundary
-- **AND** SHALL NOT invoke runtime Agent selection
+- **WHEN** the user selects the OnePiece, Claude Code, OpenCode, or Codex tab
+- **THEN** the page SHALL show that Agent's provider configuration controls through the frontend service boundary
+- **AND** a CLI Agent tab SHALL retain its compact status strip, focused add/optional-import/refresh/search toolbar, and saved profile list
+- **AND** switching configuration tabs SHALL NOT invoke runtime Agent selection
 
 #### Scenario: Review startup synchronization outcome
 - **WHEN** startup synchronization imports, updates, skips, or cannot parse local configuration
@@ -257,9 +264,13 @@ The settings experience SHALL provide a dedicated, lazy-loaded Agent configurati
 - **THEN** the page SHALL show observable progress and the final restart or rollback guidance
 - **AND** SHALL refresh profile status without changing the selected Session or runtime workflow
 
+#### Scenario: Apply profile in Web mode
+- **WHEN** a user applies a profile in the Web/mock runtime
+- **THEN** the page SHALL show a deterministic simulated result without fabricating local files, credentials, or native runtime state
+
 #### Scenario: Use the configuration page on a narrow viewport
 - **WHEN** the page is rendered at a narrow supported viewport
-- **THEN** the Agent switcher, status strip, toolbar, profile metadata, and card actions SHALL remain usable without horizontal page overflow
+- **THEN** the Agent switcher, configuration controls, status strip, toolbar, profile metadata, and card actions SHALL remain usable without horizontal page overflow
 - **AND** create/edit dialogs SHALL keep their preset selector, form fields, and sticky primary actions keyboard-operable within the viewport
 
 ### Requirement: Web runtime profile parity
@@ -269,3 +280,4 @@ The Web/mock runtime SHALL implement the same profile lifecycle, validation, swi
 - **WHEN** a user applies a supported profile in Web/mock mode
 - **THEN** the adapter SHALL update simulated applied state and return a result marked as simulated
 - **AND** SHALL NOT claim that a local filesystem path was changed
+
