@@ -1276,7 +1276,12 @@ fn execute_tool_call(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let content = input.get("content").and_then(Value::as_str);
-            execute_file(operation, path, content, folder)
+            // `offset`/`limit` are not yet exposed in the tool catalog's JSON schema or parsed
+            // from `input` here -- that wiring is a separate change. Passing `None` preserves
+            // today's behavior (read the file from the top, up to `file_tool`'s own hard cap)
+            // while keeping this call site matched to `execute_file`'s new bounded-read
+            // signature.
+            execute_file(operation, path, content, None, None, folder)
         }
         other => ToolExecutionOutcome {
             output: format!("Unknown tool \"{other}\"."),
@@ -2616,7 +2621,10 @@ mod tests {
             false,
         );
         assert!(!file_outcome.is_error);
-        assert_eq!(file_outcome.output, "hello");
+        // `file_tool::read_file` now prefixes output with line numbers (task 6) -- see
+        // `file_tool::tests::reads_an_existing_file_within_the_workspace` for the equivalent
+        // assertion at the tool-module level. Kept exact rather than relaxed to `contains`.
+        assert_eq!(file_outcome.output, "1\thello");
     }
 
     #[test]
@@ -2810,7 +2818,8 @@ mod tests {
         );
 
         assert!(!outcome.is_error);
-        assert_eq!(outcome.output, "hello");
+        // See the identical note in `execute_tool_call_routes_shell_and_file_by_name` above.
+        assert_eq!(outcome.output, "1\thello");
     }
 
     #[test]
