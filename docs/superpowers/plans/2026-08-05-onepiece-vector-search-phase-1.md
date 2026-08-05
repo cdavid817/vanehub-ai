@@ -983,11 +983,25 @@ mod tests {
     #[test]
     fn the_same_source_cannot_be_indexed_twice() {
         let connection = migrated_connection();
-        let insert = "INSERT INTO retrieval_documents
+        connection
+            .execute(
+                "INSERT INTO retrieval_documents
+                 (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash, created_at, updated_at)
+                 VALUES ('agent_memory:m1','agent_memory','m1','a','', 'x', 'h', 't', 't')",
+                [],
+            )
+            .expect("first insert");
+
+        // 第二行**换一个 id**，否则 PRIMARY KEY 冲突会与 UNIQUE 冲突混在一起：
+        // 那样即使 UNIQUE (source_kind, source_id) 被删掉，这条测试照样通过。
+        let duplicate_source = connection.execute(
+            "INSERT INTO retrieval_documents
              (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash, created_at, updated_at)
-             VALUES ('agent_memory:m1','agent_memory','m1','a','', 'x', 'h', 't', 't')";
-        connection.execute(insert, []).expect("first insert");
-        assert!(connection.execute(insert, []).is_err());
+             VALUES ('agent_memory:m1-dup','agent_memory','m1','a','', 'x', 'h', 't', 't')",
+            [],
+        );
+
+        assert!(duplicate_source.is_err());
     }
 
     #[test]
@@ -1122,43 +1136,16 @@ pub(crate) use schema::apply_retrieval_schema;
 Run: `cargo test --manifest-path src-tauri/Cargo.toml retrieval::infrastructure::schema`
 Expected: PASS，6 个测试。
 
-- [ ] **Step 5: 补迁移回归测试**
+- [ ] **Step 5: 确认迁移回归覆盖，不新增测试**
 
-在 `src-tauri/src/migration_fixture_tests.rs` 追加（照该文件既有用例的风格）：
+**不要**为迁移 42 新写一条"重开数据库看数据还在"的测试。`apply_migration`（`migrations.rs:557-581`）是版本门控的：第一次 `NativeDatabase::new` 就已经在空库上跑完迁移 42 并把版本记进 `schema_migrations`，第二次打开直接短路。那样的测试**从未让迁移 42 的 DDL 在有数据的库上执行过**，只证明了"全迁移完的库能重开"，而这已被 `platform/database/mod.rs` 的 `reopening_is_idempotent_and_preserves_existing_records` 覆盖。
 
-```rust
-#[test]
-fn upgrading_an_existing_database_to_the_retrieval_index_preserves_data() {
-    let directory = TempDirectory::new("retrieval migration upgrade");
-    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("first open");
-    {
-        let connection = database.connection().expect("migrated");
-        connection
-            .execute(
-                "INSERT INTO agents (id, display_name, provider, launch_kind)
-                 VALUES ('a', 'A', 'Test', 'api')",
-                [],
-            )
-            .expect("seed agent");
-    }
-    drop(database);
+真正的覆盖来自 `src-tauri/src/migration_fixture_tests.rs` 已有的 `legacy_v1_fixture_upgrades_without_losing_records`：它把冻结的旧版 fixture 灌进裸连接、直接调 `migrate()`、再断言指定的旧行存活。本任务只需把它的版本范围断言从 `(1..=41)` 改成 `(1..=42)`。
 
-    let reopened = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
-    let connection = reopened.connection().expect("migrated again");
-    let agents: i64 = connection
-        .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
-        .expect("agent count");
-    let documents: i64 = connection
-        .query_row("SELECT COUNT(*) FROM retrieval_documents", [], |row| row.get(0))
-        .expect("document count");
-
-    assert_eq!(agents, 1, "existing rows must survive migration 42");
-    assert_eq!(documents, 0);
-}
-```
+同理，`src-tauri/src/platform/database/mod.rs` 有两处硬编码 `migration_count == 41` 的断言，也必须一并改成 `42`——这是新增迁移的必然连带修改，属于本任务范围，不是范围蔓延。
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml migration_fixture_tests`
-Expected: PASS。
+Expected: PASS，其中 `legacy_v1_fixture_upgrades_without_losing_records` 覆盖迁移 42 在真实旧数据上的执行。
 
 - [ ] **Step 6: 提交**
 
