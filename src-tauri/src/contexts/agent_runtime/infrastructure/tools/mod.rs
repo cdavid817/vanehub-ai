@@ -2,10 +2,12 @@
 //! already-hardened `platform` primitive rather than reimplementing process/path safety.
 
 mod file_tool;
+mod glob_tool;
 mod shell_tool;
 mod walk;
 
 pub(crate) use file_tool::execute_file;
+pub(crate) use glob_tool::execute_glob;
 pub(crate) use shell_tool::execute_shell;
 
 /// Shared cap on how many matches a search-style tool (glob, grep) returns. Bounds the reply
