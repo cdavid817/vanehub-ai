@@ -133,14 +133,15 @@ if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL
 
 ## 7. 依赖与供应链
 
-新增两个直接依赖（当前 `Cargo.toml` 中 `regex` / `ignore` / `globset` / `walkdir` 均无）：
+新增三个直接依赖（当前 `Cargo.toml` 中 `regex` / `ignore` / `globset` / `walkdir` 均无）：
 
 | Crate | 用途 | 间接引入 |
 |---|---|---|
 | `regex` | 正则引擎 | `regex-syntax`、`aho-corasick`、`memchr` |
-| `ignore` | `.gitignore` 感知遍历 | `globset`、`walkdir`、`crossbeam-deque` 等 |
+| `ignore` | `.gitignore` 感知遍历 | `walkdir`、`crossbeam-deque` 等 |
+| `globset` | `grep` 的 `glob` 参数与 `glob` 工具本身直接调用 `GlobBuilder` 编译文件名匹配模式，是代码里直接 `use` 的依赖，而不只是 `ignore` 的间接引入 | — |
 
-两者均属 ripgrep 生态（BurntSushi），是此类需求的事实标准。但会明显加宽间接依赖树。`software-supply-chain-security` spec 有 `Vulnerable dependency prevention` 与 `Automated dependency maintenance` 两条需求，**proposal 中须单列一节**说明引入理由与审查结论，不可夹带。
+三者均属 ripgrep 生态（BurntSushi），是此类需求的事实标准。但会明显加宽间接依赖树。`software-supply-chain-security` spec 有 `Vulnerable dependency prevention` 与 `Automated dependency maintenance` 两条需求，**proposal 中须单列一节**说明引入理由与审查结论，不可夹带。
 
 ## 8. 测试策略
 

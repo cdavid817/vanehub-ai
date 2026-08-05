@@ -1,3 +1,45 @@
+## ADDED Requirements
+
+### Requirement: Bounded tool input and output
+The content-search and filename-search tools SHALL cap their returned results at 200 matches. The file tool's read operation SHALL support `offset`/`limit` paging, SHALL prefix each returned line with its line number, and SHALL cap a single call's output at 2000 lines, 2000 characters per line, and 64KB of total bytes, applying whichever of those three limits is reached first. Every one of these caps SHALL be a hard limit: the content-search and filename-search tools' `head_limit` parameter and the file tool's `limit` parameter MAY only lower their tool's cap and SHALL NOT raise it above the system default. Before reading a file's content into memory, the content-search tool, the file tool's read operation, and the file-edit tool SHALL check that file's size through filesystem metadata; a file larger than 10MB SHALL be skipped silently by the content-search tool and SHALL be rejected with an explicit error by the file tool's read operation and by the file-edit tool, in both cases without reading its content. The file tool's read operation SHALL detect binary content and refuse to return it with an explicit reason rather than a decoding failure. Whenever a result-count cap, a read cap, or an oversized-file skip causes returned content to be incomplete, the tool's output SHALL explicitly state that truncation occurred rather than returning a partial result silently.
+
+#### Scenario: Search results are capped at 200 matches
+- **WHEN** a content-search or filename-search tool call would otherwise match more than 200 results
+- **THEN** the system SHALL return only the first 200
+- **AND** the output SHALL explicitly state that results were truncated
+
+#### Scenario: head_limit can only lower the search cap
+- **WHEN** a content-search or filename-search tool call supplies a `head_limit` greater than 200
+- **THEN** the system SHALL still cap the returned results at 200
+
+#### Scenario: File read paginates with offset and limit
+- **WHEN** the native agent calls the file tool's read operation with an `offset` and a `limit`
+- **THEN** the system SHALL return lines starting at `offset`, up to `limit` lines, each prefixed with its line number
+
+#### Scenario: File read hits its default output caps
+- **WHEN** a file read would otherwise return more than 2000 lines, a line longer than 2000 characters, or more than 64KB of total bytes
+- **THEN** the system SHALL truncate at whichever of those limits is reached first
+- **AND** the output SHALL explicitly state that truncation occurred
+
+#### Scenario: File read's limit parameter can only lower the cap
+- **WHEN** the native agent calls the file tool's read operation with a `limit` greater than the system's default line cap
+- **THEN** the system SHALL still cap the returned lines at the system's default
+
+#### Scenario: Oversized file is skipped during content search
+- **WHEN** the content-search tool encounters a file larger than 10MB while traversing the workspace
+- **THEN** the system SHALL detect this from filesystem metadata without reading the file's content
+- **AND** it SHALL skip that file silently and continue the search
+
+#### Scenario: Oversized file is rejected on read or edit
+- **WHEN** the native agent calls the file tool's read operation or the file-edit tool on a file larger than 10MB
+- **THEN** the system SHALL detect this from filesystem metadata before reading the file's content
+- **AND** it SHALL reject the call with an explicit error instead of reading it
+
+#### Scenario: Binary file content is refused on read
+- **WHEN** the native agent calls the file tool's read operation on a file containing binary content
+- **THEN** the system SHALL refuse to return that content
+- **AND** it SHALL report an explicit reason rather than a decoding error
+
 ## MODIFIED Requirements
 
 ### Requirement: Native agent tool catalog
@@ -41,7 +83,7 @@ The system SHALL classify each tool call's risk by which tool/operation is being
 - **THEN** the system SHALL request user approval before executing it, regardless of the specific command
 
 ### Requirement: Sandboxed tool execution
-The shell tool SHALL execute through a bounded, timed-out, cancellable process execution mechanism rather than an unbounded subprocess call. The file tool SHALL resolve all paths relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder. The content-search and filename-search tools SHALL traverse only within the session's workspace folder, SHALL respect the workspace's `.gitignore`/`.ignore` rules, SHALL skip symbolic links and binary file content rather than following or reading through them, SHALL be cancellable mid-traversal, and SHALL cap their returned results at an explicitly declared limit rather than returning an unbounded result set.
+The shell tool SHALL execute through a bounded, timed-out, cancellable process execution mechanism rather than an unbounded subprocess call. The file tool SHALL resolve all paths relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder. The file-edit tool SHALL resolve its target path relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder, exactly as the file tool does. The content-search and filename-search tools SHALL traverse only within the session's workspace folder, SHALL respect the workspace's `.gitignore`/`.ignore` rules, SHALL skip symbolic links and binary file content rather than following or reading through them, SHALL be cancellable mid-traversal, and SHALL cap their returned results at an explicitly declared limit rather than returning an unbounded result set.
 
 #### Scenario: Shell command exceeds its timeout
 - **WHEN** a shell tool call runs longer than the system's fixed timeout
@@ -49,6 +91,10 @@ The shell tool SHALL execute through a bounded, timed-out, cancellable process e
 
 #### Scenario: File path escapes the workspace folder
 - **WHEN** the native agent calls the file tool with a path that would resolve outside the session's workspace folder (via traversal or otherwise)
+- **THEN** the system SHALL reject the call without accessing the filesystem outside that folder
+
+#### Scenario: File-edit path escapes the workspace folder
+- **WHEN** the native agent calls the file-edit tool with a path that would resolve outside the session's workspace folder (via traversal or otherwise)
 - **THEN** the system SHALL reject the call without accessing the filesystem outside that folder
 
 #### Scenario: File tool unavailable without a workspace folder

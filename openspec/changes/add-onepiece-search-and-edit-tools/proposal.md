@@ -28,8 +28,21 @@ OnePiece 的原生工具目录只有 `shell`、`file`（整文件 read/write）�
 - `agent-chat-configuration`：plan mode 只读工具集需覆盖 `grep` / `glob`
 - `onepiece-native-agent`：Safe OnePiece tool defaults
 
+## Dependencies
+
+本变更新增三个直接依赖，当前 `Cargo.toml` 的 `regex` / `ignore` / `globset` / `walkdir` 均未出现：
+
+| Crate | 为何需要 | 主要间接引入 |
+|---|---|---|
+| `regex` | `grep` 工具的内容匹配核心 —— 编译并执行 `pattern` 参数指定的正则表达式，逐行匹配文件内容 | `regex-syntax`、`aho-corasick`、`memchr` |
+| `ignore` | `grep`/`glob` 共享的受限遍历（`walk.rs`）用它做 `.gitignore`/`.ignore` 感知的目录遍历；没有它，一次搜索会被 `node_modules`、`src-tauri/target` 等目录淹没，工具等同不可用 | `walkdir`、`crossbeam-deque` 等 |
+| `globset` | `grep` 的 `glob` 参数与 `glob` 工具本身都直接构造 `GlobBuilder` 编译文件名匹配模式（如 `**/*.rs`），是代码里直接 `use` 的依赖；同时也是 `ignore` 内部使用的库，两处引用会被 Cargo 统一到同一份 | — |
+
+三者均属 ripgrep 生态（BurntSushi 维护的同一组库；ripgrep 本身就是它们的组合），是"忽略规则感知的内容/文件名搜索"这类需求的事实标准 —— 选择复用这套已被广泛使用和审计的实现，而不是自行重写遍历、忽略规则解析或 glob 匹配逻辑。
+
+三者的引入会加宽间接依赖树，触发 `software-supply-chain-security` 的 `Vulnerable dependency prevention` 与 `Automated dependency maintenance` 两条既有需求。这两条需求依赖的是仓库既有的自动化门禁，而非本提案的一次性人工审查：`Automated dependency maintenance` 让 Dependabot 持续扫描 `src-tauri` 的 Cargo 项目并按周开出分组更新 PR；`Vulnerable dependency prevention` 让默认分支的依赖审查在任何引入版本命中已公开漏洞时直接阻断合并。三者引入后即自动落入这两条既有门禁的持续覆盖范围，不需要为本次改动新增例外流程或单独的一次性人工安全评审。
+
 ## Impact
 
-- 新增直接依赖 `regex`、`ignore`、`globset`（ripgrep 生态），会加宽间接依赖树；`software-supply-chain-security` 的 `Vulnerable dependency prevention` 与 `Automated dependency maintenance` 需求要求单列审查说明。
 - 既有契约测试 `catalog_declares_exactly_shell_file_and_remember_tools` 断言 `catalog.len() == 3`，属预期内的契约更新。
 - Web/mock：已核实前后端契约测试均不枚举原生工具名，mock 序列不同步不会导致测试失败；本次仅补一个 `grep` 示例以保持演示保真度。
