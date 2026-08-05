@@ -273,7 +273,7 @@ git commit -m "spec: propose retrieval vector search phase 1"
 - Modify: `src-tauri/src/contexts/mod.rs`
 
 **Interfaces:**
-- Produces: `SourceKind`、`IndexState`、`FailureCategory`、`RetrievalDocument`、`document_id(SourceKind, &str) -> String`、`content_hash(&str) -> String`、`RetrievalError`。Task 4 起全部依赖这些名字与签名。
+- Produces: `SourceKind`、`IndexState`、`FailureCategory`、`RetrievalDocument`、`document_id(SourceKind, &str) -> String`、`content_hash(&str) -> String`、`RetrievalError`。Task 5 起全部依赖这些名字与签名（Task 3、4 不碰它们）。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -314,6 +314,11 @@ mod tests {
 
     #[test]
     fn index_state_round_trips_through_its_persisted_form() {
+        // 先钉死字面量再验往返：只验往返的话，`as_str` 与 `parse` 被对称改成别的字符串
+        // 仍然会通过，而那等于悄悄改掉了已落盘数据的格式。
+        assert_eq!(IndexState::Pending.as_str(), "pending");
+        assert_eq!(IndexState::Indexed.as_str(), "indexed");
+        assert_eq!(IndexState::Failed.as_str(), "failed");
         for state in [IndexState::Pending, IndexState::Indexed, IndexState::Failed] {
             assert_eq!(IndexState::parse(state.as_str()), Some(state));
         }
