@@ -238,6 +238,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "onepiece-provider-endpoints",
         crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema,
     )?;
+    apply_migration(
+        conn,
+        42,
+        "retrieval-vector-index",
+        crate::contexts::retrieval::infrastructure::apply_retrieval_schema,
+    )?;
 
     Ok(())
 }
@@ -858,7 +864,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (40, 41));
+        assert_eq!(migration_state, (41, 42));
 
         migrate(&connection).expect("upgrade migration");
 

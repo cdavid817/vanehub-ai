@@ -1,4 +1,5 @@
-use crate::platform::database::{migrate, table_has_column};
+use crate::platform::database::{migrate, table_has_column, NativeDatabase};
+use crate::test_support::TempDirectory;
 use rusqlite::Connection;
 
 const EMPTY_FIXTURE: &str = include_str!("../tests/fixtures/database/empty.sql");
@@ -23,7 +24,7 @@ fn empty_fixture_migrates_to_latest_schema() {
 
     migrate(&conn).expect("migrate empty fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "onepiece_provider_profiles", "active")
             .expect("OnePiece provider profile table")
@@ -83,7 +84,7 @@ fn legacy_v1_fixture_upgrades_without_losing_records() {
 
     migrate(&conn).expect("migrate legacy fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("managed SDK column")
     );
@@ -123,7 +124,7 @@ fn current_v20_fixture_is_idempotent_and_readable() {
 
     migrate(&conn).expect("repeat current migration");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "sdk_operation_logs", "operation_id")
             .expect("SDK operation log column")
@@ -317,4 +318,37 @@ fn pre_ssh_connection_schema_gains_remote_ports_without_losing_records() {
         .expect("preserved session"),
         "host"
     );
+}
+
+#[test]
+fn upgrading_an_existing_database_to_the_retrieval_index_preserves_data() {
+    let directory = TempDirectory::new("retrieval migration upgrade");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("first open");
+    {
+        let connection = database.connection().expect("migrated");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind)
+                 VALUES ('a', 'A', 'Test', 'api')",
+                [],
+            )
+            .expect("seed agent");
+    }
+    drop(database);
+
+    let reopened = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
+    let connection = reopened.connection().expect("migrated again");
+    // `NativeDatabase::new` reseeds its 5 built-in agents (idempotently) on every open, so this
+    // counts only the seeded fixture row rather than the whole table.
+    let agents: i64 = connection
+        .query_row("SELECT COUNT(*) FROM agents WHERE id = 'a'", [], |row| {
+            row.get(0)
+        })
+        .expect("agent count");
+    let documents: i64 = connection
+        .query_row("SELECT COUNT(*) FROM retrieval_documents", [], |row| row.get(0))
+        .expect("document count");
+
+    assert_eq!(agents, 1, "existing rows must survive migration 42");
+    assert_eq!(documents, 0);
 }
