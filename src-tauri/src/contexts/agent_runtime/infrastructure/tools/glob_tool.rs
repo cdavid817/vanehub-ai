@@ -44,11 +44,16 @@ pub(crate) fn execute_glob(
         // still carries the narrowed directory's own name, which `literal_separator` matching
         // would keep any unanchored pattern from ever crossing.
         if matcher.is_match(file.scoped) {
-            matches.push(file.display.to_string());
+            // Checked before pushing, not after: this is the only ordering that can tell "we
+            // stopped because the cap was reached" apart from "we stopped because matches simply
+            // ran out" when the count lands exactly on the cap. Checking post-push cannot
+            // distinguish those, so it would raise the truncation notice even when nothing was
+            // actually cut.
             if matches.len() >= MAX_SEARCH_RESULTS {
                 truncated = true;
                 return Visit::Stop;
             }
+            matches.push(file.display.to_string());
         }
         Visit::Continue
     });
@@ -207,6 +212,27 @@ mod tests {
         // The substring check above would still pass for an off-by-one or a doubled cap; only
         // counting the returned lines catches a wrong threshold.
         assert_eq!(files.lines().count(), MAX_SEARCH_RESULTS);
+    }
+
+    #[test]
+    fn a_result_count_exactly_at_the_cap_is_not_reported_as_truncated() {
+        // A notice that fires when nothing was actually cut teaches the model to ignore it: with
+        // exactly `MAX_SEARCH_RESULTS` matches and no more behind them, `truncated` must stay
+        // false.
+        let directory = TempDirectory::new("glob-exact-cap");
+        for index in 0..MAX_SEARCH_RESULTS {
+            std::fs::write(directory.path().join(format!("f{index}.txt")), "x")
+                .expect("write fixture");
+        }
+        let outcome = execute_glob(
+            "**/*.txt",
+            None,
+            &directory.path().to_string_lossy(),
+            not_cancelled(),
+        );
+        assert!(!outcome.is_error);
+        assert!(!outcome.output.contains("truncated"));
+        assert_eq!(outcome.output.lines().count(), MAX_SEARCH_RESULTS);
     }
 
     #[test]

@@ -14,6 +14,9 @@ pub(crate) use shell_tool::execute_shell;
 
 /// Shared cap on how many matches a search-style tool (glob, grep) returns. Bounds the reply
 /// turn the model has to read, independent of how many files the workspace actually contains.
+/// For grep's `content` mode this caps output *lines*, not distinct matches: a match's context
+/// lines share the same budget, so e.g. `head_limit: 5` with `context: 2` can return lines
+/// belonging to a single match.
 pub(crate) const MAX_SEARCH_RESULTS: usize = 200;
 
 /// Shared cap on a single tool result's byte size, applied by every tool that can produce
