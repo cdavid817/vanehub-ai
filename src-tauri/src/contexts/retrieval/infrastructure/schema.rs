@@ -167,7 +167,10 @@ mod tests {
             )
             .expect("insert");
         connection
-            .execute("DELETE FROM retrieval_documents WHERE id = 'agent_memory:m1'", [])
+            .execute(
+                "DELETE FROM retrieval_documents WHERE id = 'agent_memory:m1'",
+                [],
+            )
             .expect("delete");
 
         let hits: i64 = connection

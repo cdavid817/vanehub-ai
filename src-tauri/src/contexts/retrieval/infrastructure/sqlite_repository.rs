@@ -69,7 +69,9 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
     ) -> Result<Vec<(String, String)>, RetrievalError> {
         let connection = self.database.connection().map_err(database_error)?;
         let mut statement = connection
-            .prepare("SELECT source_id, content_hash FROM retrieval_documents WHERE source_kind = ?1")
+            .prepare(
+                "SELECT source_id, content_hash FROM retrieval_documents WHERE source_kind = ?1",
+            )
             .map_err(storage_error)?;
         let rows = statement
             .query_map(params![source_kind.as_str()], |row| {
@@ -115,7 +117,10 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             )
             .map_err(storage_error)?;
         let rows = statement
-            .query_map(params![source_kind.as_str(), limit as i64], DocumentRow::read)
+            .query_map(
+                params![source_kind.as_str(), limit as i64],
+                DocumentRow::read,
+            )
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
@@ -231,7 +236,13 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .map_err(storage_error)?;
         let rows = statement
             .query_map(
-                params![query, source_kind.as_str(), scope.agent_id, scope.folder, limit as i64],
+                params![
+                    query,
+                    source_kind.as_str(),
+                    scope.agent_id,
+                    scope.folder,
+                    limit as i64
+                ],
                 |row| row.get::<_, String>(0),
             )
             .map_err(storage_error)?
@@ -422,14 +433,23 @@ mod tests {
     }
 
     fn scope(agent: &str, folder: &str) -> RetrievalScope {
-        RetrievalScope { agent_id: agent.to_string(), folder: folder.to_string() }
+        RetrievalScope {
+            agent_id: agent.to_string(),
+            folder: folder.to_string(),
+        }
     }
 
     #[test]
     fn upsert_is_idempotent_and_refreshes_content_and_hash() {
         let fixture = Fixture::new("retrieval upsert idempotent");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm")).expect("first");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "uses cargo")).expect("second");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses npm"))
+            .expect("first");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses cargo"))
+            .expect("second");
 
         let indexed = fixture
             .repository
@@ -444,7 +464,10 @@ mod tests {
     fn upserting_unchanged_content_preserves_index_state_and_failure_bookkeeping() {
         let fixture = Fixture::new("retrieval upsert preserves state");
         let unchanged = document("m1", "a", "", "uses npm");
-        fixture.repository.upsert_pending(&unchanged).expect("first upsert");
+        fixture
+            .repository
+            .upsert_pending(&unchanged)
+            .expect("first upsert");
         fixture
             .repository
             .store_embedding(
@@ -456,10 +479,16 @@ mod tests {
 
         // 内容没变的重复 reconcile 不能把已索引行打回 pending——否则每一轮轮询都会重烧
         // 一次 embedding 配额。
-        fixture.repository.upsert_pending(&unchanged).expect("second upsert");
+        fixture
+            .repository
+            .upsert_pending(&unchanged)
+            .expect("second upsert");
 
         let status = fixture.repository.index_status("a").expect("status");
-        assert_eq!(status.indexed, 1, "an unchanged upsert must not reset index_state");
+        assert_eq!(
+            status.indexed, 1,
+            "an unchanged upsert must not reset index_state"
+        );
         assert_eq!(status.pending, 0);
         assert_eq!(
             fixture
@@ -475,15 +504,26 @@ mod tests {
     #[test]
     fn storing_an_embedding_marks_the_row_indexed_and_clears_failure_state() {
         let fixture = Fixture::new("retrieval store embedding");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm")).expect("upsert");
         fixture
             .repository
-            .record_failure(&document_id(SourceKind::AgentMemory, "m1"), FailureCategory::Network, false)
+            .upsert_pending(&document("m1", "a", "", "uses npm"))
+            .expect("upsert");
+        fixture
+            .repository
+            .record_failure(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                FailureCategory::Network,
+                false,
+            )
             .expect("failure");
 
         fixture
             .repository
-            .store_embedding(&document_id(SourceKind::AgentMemory, "m1"), "model-a", &[1.0, 0.0])
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-a",
+                &[1.0, 0.0],
+            )
             .expect("store");
 
         let candidates = fixture
@@ -510,10 +550,17 @@ mod tests {
     #[test]
     fn vector_candidates_exclude_rows_embedded_with_a_different_model() {
         let fixture = Fixture::new("retrieval model mismatch");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "x")).expect("upsert");
         fixture
             .repository
-            .store_embedding(&document_id(SourceKind::AgentMemory, "m1"), "old-model", &[1.0, 0.0])
+            .upsert_pending(&document("m1", "a", "", "x"))
+            .expect("upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "old-model",
+                &[1.0, 0.0],
+            )
             .expect("store");
 
         let candidates = fixture
@@ -537,7 +584,11 @@ mod tests {
                 .expect("upsert");
             fixture
                 .repository
-                .store_embedding(&document_id(SourceKind::AgentMemory, source_id), "m", &[1.0, 0.0])
+                .store_embedding(
+                    &document_id(SourceKind::AgentMemory, source_id),
+                    "m",
+                    &[1.0, 0.0],
+                )
                 .expect("store");
         }
 
@@ -547,17 +598,31 @@ mod tests {
             .expect("vectors");
         let keywords = fixture
             .repository
-            .keyword_candidates(&scope("a", "D:/one"), SourceKind::AgentMemory, "\"shared\"", 10)
+            .keyword_candidates(
+                &scope("a", "D:/one"),
+                SourceKind::AgentMemory,
+                "\"shared\"",
+                10,
+            )
             .expect("keywords");
 
-        assert_eq!(vectors.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), vec!["m1"]);
+        assert_eq!(
+            vectors
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["m1"]
+        );
         assert_eq!(keywords, vec!["m1".to_string()]);
     }
 
     #[test]
     fn keyword_candidates_find_pending_rows_because_fts_does_not_wait_for_the_worker() {
         let fixture = Fixture::new("retrieval keyword pending");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm not pnpm")).expect("upsert");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses npm not pnpm"))
+            .expect("upsert");
 
         let hits = fixture
             .repository
@@ -591,16 +656,30 @@ mod tests {
     #[test]
     fn giving_up_marks_failed_while_a_retryable_failure_stays_pending() {
         let fixture = Fixture::new("retrieval failure states");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "x")).expect("m1");
-        fixture.repository.upsert_pending(&document("m2", "a", "", "x")).expect("m2");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "x"))
+            .expect("m1");
+        fixture
+            .repository
+            .upsert_pending(&document("m2", "a", "", "x"))
+            .expect("m2");
 
         fixture
             .repository
-            .record_failure(&document_id(SourceKind::AgentMemory, "m1"), FailureCategory::Auth, true)
+            .record_failure(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                FailureCategory::Auth,
+                true,
+            )
             .expect("give up");
         fixture
             .repository
-            .record_failure(&document_id(SourceKind::AgentMemory, "m2"), FailureCategory::Network, false)
+            .record_failure(
+                &document_id(SourceKind::AgentMemory, "m2"),
+                FailureCategory::Network,
+                false,
+            )
             .expect("retry later");
 
         let status = fixture.repository.index_status("a").expect("status");
@@ -615,12 +694,23 @@ mod tests {
     #[test]
     fn requeue_all_resets_failures_and_attempt_counts() {
         let fixture = Fixture::new("retrieval requeue");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "x")).expect("upsert");
         fixture
             .repository
-            .record_failure(&document_id(SourceKind::AgentMemory, "m1"), FailureCategory::Auth, true)
+            .upsert_pending(&document("m1", "a", "", "x"))
+            .expect("upsert");
+        fixture
+            .repository
+            .record_failure(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                FailureCategory::Auth,
+                true,
+            )
             .expect("failure");
-        assert_eq!(fixture.attempt_count("m1"), 1, "the failure must have counted an attempt");
+        assert_eq!(
+            fixture.attempt_count("m1"),
+            1,
+            "the failure must have counted an attempt"
+        );
 
         fixture.repository.requeue_all("a").expect("requeue");
 
@@ -628,15 +718,28 @@ mod tests {
         assert_eq!(status.failed, 0);
         assert_eq!(status.pending, 1);
         assert_eq!(status.last_failure_category, None);
-        assert_eq!(fixture.attempt_count("m1"), 0, "requeue_all must reset the attempt count");
+        assert_eq!(
+            fixture.attempt_count("m1"),
+            0,
+            "requeue_all must reset the attempt count"
+        );
     }
 
     #[test]
     fn index_status_spans_every_folder_of_the_agent() {
         let fixture = Fixture::new("retrieval status folders");
-        fixture.repository.upsert_pending(&document("m1", "a", "D:/one", "x")).expect("m1");
-        fixture.repository.upsert_pending(&document("m2", "a", "D:/two", "x")).expect("m2");
-        fixture.repository.upsert_pending(&document("m3", "b", "D:/one", "x")).expect("m3");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "D:/one", "x"))
+            .expect("m1");
+        fixture
+            .repository
+            .upsert_pending(&document("m2", "a", "D:/two", "x"))
+            .expect("m2");
+        fixture
+            .repository
+            .upsert_pending(&document("m3", "b", "D:/one", "x"))
+            .expect("m3");
 
         let status = fixture.repository.index_status("a").expect("status");
         assert_eq!(status.pending, 2);
@@ -645,7 +748,10 @@ mod tests {
     #[test]
     fn delete_by_source_removes_the_row_and_its_fts_entry() {
         let fixture = Fixture::new("retrieval delete");
-        fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm")).expect("upsert");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses npm"))
+            .expect("upsert");
 
         fixture
             .repository

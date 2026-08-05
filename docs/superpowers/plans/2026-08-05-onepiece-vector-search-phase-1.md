@@ -27,6 +27,7 @@
 - 上下文边界：`agent_runtime` 只通过 `retrieval::api` 交互，**不 import** `retrieval` 的 repository 或 infrastructure；反向同理（设计文档 §4.3）。
 - 日志遵循 `openspec/specs/unified-log-management/spec.md`。**绝不落盘**：记忆内容、query 原文、API key、provider 响应体。query 只记长度与哈希（设计文档 §8.2）。
 - 注释只写"为什么这样做"，不写代码翻译式注释。
+- **每个 Rust 任务提交前必须跑 `cargo fmt --manifest-path src-tauri/Cargo.toml --all --check`。** CI 在 `.github/workflows/ci.yml:212` gate 这一条，但 `AGENTS.md` 的「校验命令」清单**漏了它**——照那份清单做会攒下格式漂移，直到推上去才炸。
 - 可调常量集中定义在一处，不散落调用点（设计文档 §5.2）。本期四个：批大小 `32`、轮询 `5` 分钟、重试 `5` 次、截断 `8000` 字符。
 - 每个任务结束时必须能独立跑通其自身测试；全量验收命令见 Task 17。
 
@@ -3354,10 +3355,14 @@ Expected: PASS，1 passed。
 npm run lint
 npm run test
 npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 openspec validate --specs --strict
 ```
+
+前三条与后三条来自 AGENTS.md；中间两条是 AGENTS.md 漏掉但 CI 实际 gate 的（`.github/workflows/ci.yml:212` 与 clippy 步骤），必须一并跑。
 
 每条都必须看到实际输出确认通过——**不要凭"应该没问题"下结论**。任何一条失败就停下来修，不要继续。
 

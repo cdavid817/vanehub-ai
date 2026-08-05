@@ -106,8 +106,14 @@ mod tests {
     fn fts_operators_lose_their_syntactic_meaning() {
         for raw in ["a OR b", "a NEAR b", "prefix*", "col:value", "-excluded"] {
             let escaped = escape_fts_query(raw);
-            assert!(escaped.starts_with('"') && escaped.ends_with('"'), "{escaped}");
-            assert!(escaped.contains(raw), "{escaped} should carry {raw} verbatim");
+            assert!(
+                escaped.starts_with('"') && escaped.ends_with('"'),
+                "{escaped}"
+            );
+            assert!(
+                escaped.contains(raw),
+                "{escaped} should carry {raw} verbatim"
+            );
         }
     }
 

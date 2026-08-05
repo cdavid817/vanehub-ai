@@ -148,13 +148,18 @@ mod tests {
         assert_eq!(first, content_hash("Uses npm, not pnpm."));
         assert_ne!(first, content_hash("Uses pnpm."));
         assert_eq!(first.len(), 64);
-        assert!(first.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+        assert!(first
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
     }
 
     #[test]
     fn source_kind_round_trips_through_its_persisted_form() {
         assert_eq!(SourceKind::AgentMemory.as_str(), "agent_memory");
-        assert_eq!(SourceKind::parse("agent_memory"), Some(SourceKind::AgentMemory));
+        assert_eq!(
+            SourceKind::parse("agent_memory"),
+            Some(SourceKind::AgentMemory)
+        );
         assert_eq!(SourceKind::parse("nonsense"), None);
     }
 
