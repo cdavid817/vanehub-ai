@@ -3,6 +3,7 @@
 
 mod file_tool;
 mod shell_tool;
+mod walk;
 
 pub(crate) use file_tool::execute_file;
 pub(crate) use shell_tool::execute_shell;
