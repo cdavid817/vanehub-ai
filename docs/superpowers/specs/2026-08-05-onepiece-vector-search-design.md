@@ -63,7 +63,8 @@ src-tauri/src/contexts/retrieval/
 │  ├─ fusion.rs        # RRF 融合，纯函数不碰 I/O
 │  └─ error.rs         # RetrievalError
 ├─ application/
-│  ├─ ports.rs         # EmbeddingPort / RetrievalDocumentRepository / EmbeddingConfigPort
+│  ├─ ports.rs         # EmbeddingPort（算向量）/ EmbeddingEndpointPort（要端点与凭据）
+│  │                   # RetrievalDocumentRepository / RetrievalConfigurationRepository
 │  ├─ indexing_service.rs
 │  └─ search_service.rs
 ├─ infrastructure/
@@ -127,6 +128,8 @@ CREATE TABLE IF NOT EXISTS retrieval_configuration (
 
 `index_state` 取值：`pending` | `indexed` | `failed`。
 `source_kind` 第 1 期只有 `agent_memory`；第 2/3 期扩展为 `session_message`、`workspace_file`。
+`id` 取 `format!("{source_kind}:{source_id}")`——与 `UNIQUE (source_kind, source_id)` 同源的确定性主键，reconcile 因此可以直接 upsert，不必先查后插。
+`content_hash` 为 `sha2::Sha256`（`Cargo.toml:44` 已有该依赖）对 `content` UTF-8 字节的十六进制摘要，小写无分隔符。
 `embedding` 为 f32 little-endian 字节序列。
 `scope_folder` 沿用空串哨兵表示"无工作区文件夹"，与 `agent_memories` 一致（`memory_schema.rs:4-6`）。
 
@@ -213,12 +216,15 @@ ScoredHit { source_id, content, created_at, score, matched_via: vector|keyword|b
 
 向量路的 SQL 刻意不取 `content`，只拉 `embedding` BLOB，内容统一由回查提供。千条 × 1536 维 f32 约 6MB，反序列化加点积为毫秒级，相对一次 embedding 网络往返可忽略。
 
+关键词路的 query 必须**整体转义成一个 FTS5 字符串字面量**：内部的 `"` 双写，再用 `"` 把整串包起来。仓库里唯一的 FTS 消费方 `contexts/workspaces/infrastructure/output_search.rs:36-47` 是把原始串直接塞进 `MATCH ?1` 的，只挡了空串与超长，没有可复用的转义函数。这里不能照抄：`recall` 的 query 由模型自由生成，含 `"` `*` `:` `-` `OR` `NEAR` 时 FTS5 会按查询语法解析，轻则语义跑偏，重则整条语句报错。转义后整串按短语匹配，在 trigram tokenizer 下正是想要的行为。转义函数放在 `domain/query.rs`，纯函数单测覆盖上述特殊字符。
+
 ### 6.1 降级矩阵
 
 | 情况 | 行为 |
 | --- | --- |
 | 未配置 embedding | `recall` 工具不注册；现有 recency 注入照常工作 |
 | 已配置但 query embedding 失败 | 只走关键词路，结果标 `degraded: keyword_only`，不报错 |
+| 关键词路自身失败（FTS 语法或 IO 错误） | 只走向量路，结果标 `degraded: vector_only`，不报错 |
 | 大量 pending 未索引完 | 关键词路照常——FTS 由 trigger 实时维护，不依赖 worker |
 | 换了 embedding 模型 | 向量路只覆盖已收敛的行，其余走关键词，后台逐步补齐 |
 | 两路都空 | 返回空列表，不是错误 |
@@ -250,7 +256,7 @@ input_schema:
 }
 ```
 
-`degraded` 仅在降级时出现。工具返回体是 §6 中 `ScoredHit` 的投影：`source_id` 与 `score` 是内部字段，不进入工具结果——它们对模型没有决策价值，只增加 token 消耗并为幻觉提供素材。
+`degraded` 仅在降级时出现，取值 `keyword_only` | `vector_only`（见 §6.1）。工具返回体是 §6 中 `ScoredHit` 的投影：`source_id` 与 `score` 是内部字段，不进入工具结果——它们对模型没有决策价值，只增加 token 消耗并为幻觉提供素材。
 
 风险层级 `ToolRiskTier::AutoApprove`，理由与 `remember` 同源（`tool_catalog.rs:120-123`）：只读本应用自身存储，不触碰用户文件系统，不执行任何外部动作。唯一新增出网面是 query 文本发往 embedding provider，而这在"索引时记忆内容已发出"的前提下不构成新增暴露面。
 
@@ -284,6 +290,8 @@ listEmbeddingModels(profileId: string, transientCredential?: string): Promise<Mo
 getRetrievalIndexStatus(agentId: string): Promise<RetrievalIndexStatus>
 rebuildRetrievalIndex(agentId: string): Promise<void>
 ```
+
+配置是全局单例（§4.2 的 `retrieval_configuration`），而状态与重建按 agent 划分：后两个方法聚合该 `agentId` 名下**所有 `scope_folder`** 的行，不再按工作区文件夹切一层。
 
 ### 7.5 Web/mock 对等边界
 
@@ -319,9 +327,9 @@ rebuildRetrievalIndex(agentId: string): Promise<void>
 
 ## 9. 测试策略
 
-1. **纯函数单测**：RRF 融合（已知两个排名 → 期望顺序）、余弦（正交/相同/反向）、f32 BLOB 序列化往返、content_hash 稳定性、失败分类映射（401→auth，429→rate_limit，超时→network）
+1. **纯函数单测**：RRF 融合（已知两个排名 → 期望顺序）、余弦（正交/相同/反向）、f32 BLOB 序列化往返、content_hash 稳定性、FTS query 转义（含 `"` `*` `-` `OR` 的 query 不被当查询语法解析）、失败分类映射（401→auth，429→rate_limit，超时→network）
 2. **仓储集成测**：沿用 `memory_repository.rs:170-200` 的 `TempDirectory` + `NativeDatabase` fixture——reconcile 三类待办各自正确（新增 / hash 失效 / 孤儿清理）、scope 隔离不串、模型不匹配的行不进向量召回、FTS trigger 随增删改生效
-3. **应用服务测**（fake `EmbeddingPort` + fake `EmbeddingEndpointPort`）：embedding 失败 → 降级且带 `degraded` 标记；全 pending → 关键词仍有结果；未配置 → 工具不注册；attempt 超限 → failed 且停止重试；auth 失败 → 立即 failed；`remove` 调用失败后 reconcile 仍能清掉孤儿
+3. **应用服务测**（fake `EmbeddingPort` + fake `EmbeddingEndpointPort`）：embedding 失败 → `degraded: keyword_only`；关键词路失败 → `degraded: vector_only`；全 pending → 关键词仍有结果；未配置 → 工具不注册；attempt 超限 → failed 且停止重试；auth 失败 → 立即 failed；`remove` 调用失败后 reconcile 仍能清掉孤儿
 4. **迁移测**：沿用 `migration_fixture_tests.rs` 模式——老库升级到 42 不丢数据、重复执行幂等
 5. **前端 vitest**：配置区块状态渲染、service 调用、web-agent-client 契约对等
 6. **E2E（1 条）**：配置 embedding → 触发索引 → 状态由 pending 变 indexed，走 mock adapter，不打真实 API
