@@ -112,5 +112,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-04 | maximize-main-window-on-startup | desktop-background-lifecycle | `openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/` |
 | 2026-08-04 | remove-agent-management-page | agent-switching, cli-agent-config-management, settings-center-ui | `openspec/changes/archive/2026-08-04-remove-agent-management-page/` |
 | 2026-08-05 | add-permissions-core | agent-tool-execution, agent-tool-trust, permissions-approval, permissions-core | `openspec/changes/archive/2026-08-05-add-permissions-core/` |
+| 2026-08-05 | add-permissions-settings-ui | permissions-approval, permissions-core | `openspec/changes/archive/2026-08-05-add-permissions-settings-ui/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
