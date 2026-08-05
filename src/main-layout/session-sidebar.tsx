@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
-import { Archive, CheckSquare, ChevronDown, ChevronRight, FolderOpen, List, ListTree, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from "react";
+import { Archive, CheckSquare, ChevronDown, ChevronRight, EllipsisVertical, FolderOpen, List, ListTree, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { Button } from "../components/ui/button";
@@ -98,6 +98,9 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(readExpandedGroups);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuButtonRef = useRef<HTMLButtonElement>(null);
   const sourceSessions = sourceMode === "archived" ? archivedSessions : sessions;
   const filteredSessions = useMemo(() => filterSessionsByAgent(sourceSessions, agentFilter), [agentFilter, sourceSessions]);
   const filteredSearchResults = useMemo(() => filterSearchResultsByAgent(searchResults, agentFilter, sourceMode), [agentFilter, searchResults, sourceMode]);
@@ -127,6 +130,17 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
     }
     setSelectedIds((current) => pruneSelectionToVisible(current, renderedSessions));
   }, [batchMode, renderedSessions]);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    function closeOnOutsidePointer(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && moreMenuRef.current?.contains(target)) return;
+      setMoreMenuOpen(false);
+    }
+    window.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [moreMenuOpen]);
 
   const toggleSelected = (session: Session, checked: boolean) => setSelectedIds((current) => {
     const next = new Set(current);
@@ -163,9 +177,62 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
 
   return (
     <aside className="ucd-panel flex h-full min-h-0 w-full flex-col rounded-lg p-3 max-[640px]:max-h-64" onContextMenu={(event) => event.preventDefault()}>
-      <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t("layout.sessions")}</h2><Button className="h-7 px-2 text-xs" disabled={!agentsAvailable || batchMode} onClick={onNew}><Plus aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.new")}</Button></div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t("layout.sessions")}</h2>
+        <div className="flex items-center gap-1">
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              aria-expanded={moreMenuOpen}
+              aria-haspopup="menu"
+              aria-label={t("layout.sessionMoreActions")}
+              className={cn(
+                "grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                sourceMode === "archived" && "text-primary",
+              )}
+              onClick={() => setMoreMenuOpen((value) => !value)}
+              ref={moreMenuButtonRef}
+              title={t("layout.sessionMoreActions")}
+              type="button"
+            >
+              <EllipsisVertical aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+            {moreMenuOpen ? (
+              <div
+                className="absolute right-0 top-8 z-30 min-w-44 rounded-md border border-border bg-background p-1 shadow-xl"
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  setMoreMenuOpen(false);
+                  moreMenuButtonRef.current?.focus();
+                }}
+                role="menu"
+              >
+                <button
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  disabled={batchMode}
+                  onClick={() => { setBatchMode(true); setMoreMenuOpen(false); }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <CheckSquare aria-hidden="true" className="h-3.5 w-3.5" />
+                  {batchMode ? t("layout.batchManaging") : t("layout.batchManage")}
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted"
+                  onClick={() => { setSourceMode((mode) => mode === "archived" ? "active" : "archived"); setMoreMenuOpen(false); }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <Archive aria-hidden="true" className="h-3.5 w-3.5" />
+                  {sourceMode === "archived" ? t("layout.archived") : `${t("layout.archive")} ${archivedSessions.length}`}
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <Button className="h-7 px-2 text-xs" disabled={!agentsAvailable || batchMode} onClick={onNew}><Plus aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.new")}</Button>
+        </div>
+      </div>
       <label className="relative mb-2 block"><Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="ucd-input h-8 w-full rounded-md pl-8 pr-2 text-xs" onChange={(event) => onSearchChange(event.target.value)} placeholder={t("layout.sessionSearchPlaceholder")} value={searchQuery} /></label>
-      <div className="mb-2 grid grid-cols-2 gap-1"><Button className="h-7 px-2 text-xs" onClick={() => setBatchMode(true)} size="sm" variant={batchMode ? "default" : "outline"}><CheckSquare aria-hidden="true" className="h-3.5 w-3.5" />{batchMode ? t("layout.batchManaging") : t("layout.batchManage")}</Button><Button className="h-7 px-2 text-xs" onClick={() => setSourceMode((mode) => mode === "archived" ? "active" : "archived")} size="sm" variant={sourceMode === "archived" ? "default" : "outline"}><Archive aria-hidden="true" className="h-3.5 w-3.5" />{sourceMode === "archived" ? t("layout.archived") : `${t("layout.archive")} ${archivedSessions.length}`}</Button></div>
       <div className="ucd-segmented mb-2 grid grid-cols-3 gap-1 rounded-md p-1">
         <button className={cn("h-7 rounded text-xs", presentation === "list" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setPresentation("list")} type="button"><List className="mr-1 inline h-3.5 w-3.5" />{t("layout.sessionViewList")}</button>
         <button className={cn("h-7 rounded text-xs", presentation === "category" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setPresentation("category")} type="button"><ListTree className="mr-1 inline h-3.5 w-3.5" />{t("layout.sessionViewCategory")}</button>

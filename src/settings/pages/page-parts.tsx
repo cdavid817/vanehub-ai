@@ -49,8 +49,27 @@ export function SectionPanel({
   children: ReactNode;
   className?: string;
   icon?: LucideIcon;
-  variant?: "card" | "settings";
+  variant?: "card" | "settings" | "plain";
 }) {
+  if (variant === "plain") {
+    return (
+      <section className={cn("border-b border-border/70 pb-5 pt-5 first:pt-0 last:border-b-0 last:pb-0", className)}>
+        <div className="mb-4 flex items-start gap-3">
+          {Icon ? (
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--nav-active-soft))] text-primary">
+              <Icon className="h-4 w-4" aria-hidden="true" />
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h3 className="wrap-break-word text-sm font-semibold leading-5">{title}</h3>
+            {description ? <p className="mt-0.5 max-w-3xl text-xs leading-5 text-muted-foreground">{description}</p> : null}
+          </div>
+        </div>
+        {children}
+      </section>
+    );
+  }
+
   if (variant === "settings") {
     return (
       <section className={cn("overflow-hidden rounded-xl border border-border bg-background", className)}>
@@ -126,7 +145,7 @@ export function SettingsDisclosure({
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
       </summary>
-      <div className="grid gap-5 border-t border-border bg-muted/10 p-4 sm:p-5">{children}</div>
+      <div className="grid border-t border-border bg-muted/10 p-4 sm:p-5">{children}</div>
     </details>
   );
 }
@@ -150,8 +169,7 @@ export function StatCard({ label, value, hint, icon: Icon }: { label: string; va
   );
 }
 
-export function StatusPill({ status }: { status: string }) {
-  const tone = status.includes("Disabled") || status.includes("Error") ? "danger" : status.includes("Update") ? "warning" : "success";
+export function StatusPill({ status, tone }: { status: string; tone: "success" | "warning" | "danger" | "muted" }) {
   return (
     <span
       className={cn(
@@ -159,6 +177,7 @@ export function StatusPill({ status }: { status: string }) {
         tone === "danger" && "ucd-status-danger",
         tone === "warning" && "ucd-status-warning",
         tone === "success" && "ucd-status-success",
+        tone === "muted" && "border-border bg-muted text-muted-foreground",
       )}
     >
       {status}

@@ -29,6 +29,14 @@ type SdkOverview = {
 
 const sdkOverviewQueryKey = ["sdk", "overview"] as const;
 
+const sdkStatusTone: Record<SdkStatus["status"], "success" | "warning" | "danger" | "muted"> = {
+  installed: "success",
+  "not-installed": "muted",
+  installing: "warning",
+  uninstalling: "warning",
+  error: "danger",
+};
+
 export function SdkPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -247,8 +255,8 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">{sdk.displayName}</h3>
-              <StatusPill status={t(`sdk.status.${sdk.status === "not-installed" ? "notInstalled" : sdk.status}`)} />
-              {sdk.hasUpdate ? <StatusPill status={t("sdk.status.updateAvailable")} /> : null}
+              <StatusPill status={t(`sdk.status.${sdk.status === "not-installed" ? "notInstalled" : sdk.status}`)} tone={sdkStatusTone[sdk.status]} />
+              {sdk.hasUpdate ? <StatusPill status={t("sdk.status.updateAvailable")} tone="warning" /> : null}
             </div>
             <p className="text-sm text-muted-foreground">{sdk.description}</p>
             <TagList tags={sdk.relatedProviders} />

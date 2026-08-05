@@ -54,8 +54,13 @@ test.describe("Skills management", () => {
     await page.goto("/settings");
     await page.getByRole("button", { name: "Skills", exact: true }).click();
     await page.getByPlaceholder("Search Skills...").fill("readme");
-    await expect(page.getByPlaceholder("Search by id, name, category, trigger, or source")).toHaveCount(0);
     await expect(page.getByText(/items$/).first()).toBeVisible();
+    await page.getByPlaceholder("Search Skills...").fill("");
+
+    const localSearch = page.getByPlaceholder("Search by id, name, category, trigger, or source");
+    await localSearch.fill("readme");
+    await expect(page.getByText("1 items")).toBeVisible();
+    await localSearch.fill("");
 
     const codexAgent = page.getByRole("button", { name: /Codex CLI/ });
     await codexAgent.locator("span.truncate").evaluate((label) => {

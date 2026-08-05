@@ -3463,12 +3463,6 @@ export const webAgentClient: AgentService = {
         sessionId,
         runtimeSessionId,
       });
-      emitTerminalEvent({
-        type: "output",
-        terminalId: terminal.terminalId,
-        sessionId,
-        content: `Web mock Agent Terminal for ${session.agentId}\r\nLocal CLI execution is unavailable in Web mode.\r\n`,
-      });
     }, 30);
     return terminal;
   },

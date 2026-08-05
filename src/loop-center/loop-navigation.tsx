@@ -22,7 +22,7 @@ interface LoopNavigationProps {
 export const LoopNavigation = forwardRef<HTMLElement, LoopNavigationProps>(function LoopNavigation(props, ref) {
   const { i18n, t } = useTranslation();
   return (
-    <aside aria-label={t("loops.navigation.open")} className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden bg-[hsl(var(--panel-glass))]", props.className)} id={props.id} ref={ref} tabIndex={-1}>
+    <aside aria-label={t("loops.navigation.open")} className={cn("ucd-panel flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg", props.className)} id={props.id} ref={ref} tabIndex={-1}>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3">
         <ListRestart aria-hidden="true" className="h-4 w-4 text-primary" />
         <h1 className="truncate text-sm font-semibold">{t("loops.title")}</h1>

@@ -32,7 +32,7 @@ export function PromptHookFilterToolbar({
   const { t } = useTranslation();
 
   return (
-    <div className="ucd-panel grid gap-3 rounded-lg p-3 lg:grid-cols-[minmax(8rem,0.9fr)_minmax(8rem,0.8fr)_minmax(8rem,0.8fr)_minmax(10rem,1fr)_minmax(14rem,2fr)]">
+    <div className="ucd-panel grid gap-3 rounded-lg p-3 xl:grid-cols-[minmax(8rem,0.9fr)_minmax(8rem,0.8fr)_minmax(8rem,0.8fr)_minmax(10rem,1fr)_minmax(14rem,2fr)]">
       <Select value={category} onChange={onCategoryChange}>
         {categories.map((item) => (
           <option key={item} value={item}>

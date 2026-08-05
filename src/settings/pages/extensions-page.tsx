@@ -2,6 +2,7 @@ import { Activity, Box, CheckCircle2, Cpu, Download, Play, RefreshCw, Square, Tr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../../components/ui/application-dialog";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import type { ExtensionService } from "../../services/extension-service";
@@ -17,6 +18,18 @@ import type { OperationTask } from "../../types/operation";
 import { PageHeader, SectionPanel, StatCard, StatusPill, TagList } from "./page-parts";
 
 const overviewKey = ["extensions", "overview"] as const;
+
+const statusTone: Record<ExtensionFrameworkStatus["status"], "success" | "warning" | "danger" | "muted"> = {
+  "not-installed": "muted",
+  installing: "warning",
+  installed: "muted",
+  starting: "warning",
+  running: "success",
+  stopping: "warning",
+  uninstalling: "warning",
+  error: "danger",
+  unsupported: "muted",
+};
 
 function statusKey(status: ExtensionFrameworkStatus["status"]) {
   return `extensions.status.${status}`;
@@ -130,7 +143,7 @@ export function ExtensionsPage({
             <h3 className="mt-1 text-base font-semibold">{t(definition.nameKey)}</h3>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(definition.descriptionKey)}</p>
           </div>
-          <StatusPill status={t(statusKey(status.status))} />
+          <StatusPill status={t(statusKey(status.status))} tone={statusTone[status.status]} />
         </div>
         <div className="mt-3 grid gap-3 text-xs text-muted-foreground md:grid-cols-3">
           <div><span className="block">{t("extensions.runtime")}</span><strong className="text-foreground">{definition.requirement.runtime}</strong></div>
@@ -170,7 +183,7 @@ export function ExtensionsPage({
         <StatCard hint={t("extensions.stats.runningHint")} icon={Activity} label={t("extensions.stats.running")} value={String(running)} />
         <StatCard hint={t("extensions.stats.errorsHint")} icon={Cpu} label={t("extensions.stats.errors")} value={String(errors)} />
       </div>
-      <SectionPanel description={t("extensions.list.description")} title={t("extensions.list.title")}>
+      <SectionPanel description={t("extensions.list.description")} title={t("extensions.list.title")} variant="plain">
         {overviewQuery.isLoading ? <div className="text-sm text-muted-foreground">{t("extensions.loading")}</div> : null}
         <div className="grid gap-3">{visibleDefinitions.map(renderCard)}</div>
         {!overviewQuery.isLoading && visibleDefinitions.length === 0 ? <div className="text-sm text-muted-foreground">{t("extensions.empty")}</div> : null}
@@ -182,5 +195,20 @@ export function ExtensionsPage({
 
 function InstallPreview({ preview, nativeAvailable, onClose, onInstall }: { preview: ExtensionInstallPreview; nativeAvailable: boolean; onClose: () => void; onInstall: () => void }) {
   const { t } = useTranslation();
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="ucd-panel max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-lg p-5" role="dialog" aria-modal="true"><h3 className="text-lg font-semibold">{t("extensions.preview.title")}</h3><p className="mt-1 text-sm text-muted-foreground">{t("extensions.preview.description")}</p><dl className="mt-4 grid gap-3 text-sm md:grid-cols-2"><div><dt className="text-muted-foreground">{t("extensions.preview.path")}</dt><dd className="break-all font-medium">{normalizeDisplayPath(preview.installPath)}</dd></div><div><dt className="text-muted-foreground">{t("extensions.preview.download")}</dt><dd className="font-medium">~{preview.estimatedDownloadMb} MB</dd></div><div><dt className="text-muted-foreground">{t("extensions.preview.disk")}</dt><dd className="font-medium">~{preview.estimatedDiskMb} MB</dd></div><div><dt className="text-muted-foreground">{t("extensions.preview.network")}</dt><dd className="font-medium">{t("extensions.preview.installOnly")}</dd></div></dl><div className="mt-4"><TagList tags={preview.packages} /></div>{preview.reason ? <div className="mt-4 rounded border p-3 text-sm ucd-status-warning">{t(preview.reason)}</div> : null}<div className="mt-5 flex justify-end gap-2"><Button onClick={onClose} variant="outline">{t("extensions.action.cancel")}</Button><Button disabled={!nativeAvailable || !preview.supported} onClick={onInstall}>{t("extensions.action.confirmInstall")}</Button></div></div></div>;
+  return (
+    <ApplicationDialog description={t("extensions.preview.description")} maxWidth="max-w-xl" onClose={onClose} title={t("extensions.preview.title")}>
+      <dl className="grid gap-3 text-sm md:grid-cols-2">
+        <div><dt className="text-muted-foreground">{t("extensions.preview.path")}</dt><dd className="break-all font-medium">{normalizeDisplayPath(preview.installPath)}</dd></div>
+        <div><dt className="text-muted-foreground">{t("extensions.preview.download")}</dt><dd className="font-medium">~{preview.estimatedDownloadMb} MB</dd></div>
+        <div><dt className="text-muted-foreground">{t("extensions.preview.disk")}</dt><dd className="font-medium">~{preview.estimatedDiskMb} MB</dd></div>
+        <div><dt className="text-muted-foreground">{t("extensions.preview.network")}</dt><dd className="font-medium">{t("extensions.preview.installOnly")}</dd></div>
+      </dl>
+      <div className="mt-4"><TagList tags={preview.packages} /></div>
+      {preview.reason ? <div className="mt-4 rounded border p-3 text-sm ucd-status-warning">{t(preview.reason)}</div> : null}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onClose} variant="outline">{t("extensions.action.cancel")}</Button>
+        <Button disabled={!nativeAvailable || !preview.supported} onClick={onInstall}>{t("extensions.action.confirmInstall")}</Button>
+      </div>
+    </ApplicationDialog>
+  );
 }

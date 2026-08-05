@@ -57,8 +57,8 @@ export function LogManagementSection() {
   }
 
   return (
-    <SectionPanel icon={ScrollText} title={t("basic.logs")} description={t("basic.logsDesc")} variant="settings">
-      <div className="grid gap-4 p-5 sm:p-6">
+    <SectionPanel icon={ScrollText} title={t("basic.logs")} description={t("basic.logsDesc")} variant="plain">
+      <div className="grid gap-4">
         {error ? <div className="rounded border p-3 text-xs ucd-status-danger">{error}</div> : null}
         <label className="grid gap-1.5 text-sm">
           <span className="font-medium text-muted-foreground">{t("basic.logDirectory")}</span>

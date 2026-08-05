@@ -1,4 +1,4 @@
-import { Activity, Database, RadioTower, Save, ShieldCheck } from "lucide-react";
+import { Activity, Boxes, Database, RadioTower, Save, ShieldCheck } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -152,7 +152,7 @@ export function ObservabilitySettingsPage({
         </div>
       </SectionPanel>
 
-      <SectionPanel description={t("observability.mcp.description")} title={t("observability.mcp.title")}>
+      <SectionPanel description={t("observability.mcp.description")} icon={Boxes} title={t("observability.mcp.title")} variant="plain">
         <ToggleRow checked={draft.mcpRelayEnabled} disabled={!relayAvailable} label={t("observability.mcp.relay")} onChange={(value) => update("mcpRelayEnabled", value)} />
         <p className="mt-2 text-xs text-muted-foreground">{t(relayAvailable ? "observability.mcp.available" : "observability.mcp.unavailable")}</p>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">

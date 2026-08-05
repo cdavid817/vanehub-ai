@@ -1623,7 +1623,7 @@ describe("webAgentClient", () => {
       retained: true,
     });
     expect((await webAgentClient.getActiveSession())?.runtimeSessionId).toBe(`web-runtime-${session.id}`);
-    expect(events).toEqual(["runtime_session_id", "output"]);
+    expect(events).toEqual(["runtime_session_id"]);
     expect(await webAgentClient.listMessages({ sessionId: session.id })).toEqual([]);
 
     await webAgentClient.sendAgentTerminalInput(terminal.terminalId, "hello\r\n");

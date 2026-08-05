@@ -1,6 +1,7 @@
-import { Clipboard, Download, Upload, X } from "lucide-react";
+import { Clipboard, Download, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
 import { previewMcpImportNames } from "../../../services/mcp-import";
 import type { McpImportExport, McpImportResult, McpScope, McpServerConfig } from "../../../types/mcp";
@@ -72,8 +73,7 @@ export function McpImportExportModal({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-      <section className="ucd-panel max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg p-4">
+    <ApplicationDialog maxWidth="max-w-3xl" onClose={onCancel} title={t("mcp.importExport")}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <div className="flex gap-2">
             <Button variant={mode === "import" ? "default" : "outline"} onClick={() => switchMode("import")}>
@@ -85,9 +85,7 @@ export function McpImportExportModal({
               {t("mcp.modal.export")}
             </Button>
           </div>
-          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title={t("mcp.form.close")}>
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <Button variant="outline" onClick={onCancel}>{t("mcp.form.close")}</Button>
         </div>
 
         {mode === "import" ? (
@@ -100,6 +98,7 @@ export function McpImportExportModal({
               </select>
             </label>
             <textarea
+              data-dialog-autofocus
               className="ucd-input min-h-72 rounded p-3 font-mono text-xs outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               value={input}
               onChange={(event) => {
@@ -176,7 +175,6 @@ export function McpImportExportModal({
           </div>
         ) : null}
         {error ? <div className="mt-3 rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
-      </section>
-    </div>
+    </ApplicationDialog>
   );
 }
