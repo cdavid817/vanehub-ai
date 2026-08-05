@@ -13,7 +13,7 @@ OnePiece 是 VaneHub 内置的原生 Agent（`launch_kind = api`），自 `add-o
 四个具体问题：
 
 1. **搜索代码必须弹审批。** 没有 grep/glob，找代码只能走 `shell`，而 `shell` 在 `risk_tier_for` 中固定为 `RequiresApproval` —— 每一次搜索都打断用户。
-2. **`file` 没有任何执行边界。** `shell_tool` 有 60s 超时、64KB 输出上限、取消信号、`audit_command` 审计；`file_tool` 的 read 是裸 `read_to_string`，无大小上限、无超时、无取消。读大文件会直接撑爆上下文。
+2. **`file` 没有任何执行边界。** `shell_tool` 有 60s 超时、64KB 输出上限、取消信号、`audit_command` 审计；`file_tool` 的 read 是裸 `read_to_string`，**无任何大小上限**。读一个大文件会直接撑爆上下文。
 3. **改一行要重写整个文件。** `write` 只有全量覆写，大文件上 token 消耗与正确性双输。
 4. **跨平台缺口。** 即使退而求其次走 `shell`，Windows 下是 `cmd /C`，`grep`/`rg` 通常不存在。
 
@@ -81,7 +81,7 @@ Plan mode 下问题更严重：`plan_mode_tool_catalog()` 只提供 `file(read)`
 
 新工具全部对齐 `shell_tool` 已有约束，同时回补 `file_tool` 缺失的部分：
 
-- **取消**：`grep`/`glob` 遍历大仓库可能耗时较长，复用 `shell` 的 `Arc<AtomicBool>` 取消信号。`file_tool` 目前完全未接入，一并补上。
+- **取消**：`grep` / `glob` 遍历大仓库可能耗时较长，复用 `shell` 的 `Arc<AtomicBool>` 取消信号，在遍历循环每个条目处检查。`file` 的 read **不接取消** —— 单次 `std::fs::read` 没有可插入检查点的循环，加参数只是空摆设；该路径靠下面的三档上限约束，而非靠取消。
 - **输出上限**：沿用 `SHELL_OUTPUT_LIMIT`（64KB）作为统一字节上限。`grep` / `glob` 额外加默认 200 条结果上限（`grep` 可经 `head_limit` 参数在字节约束内上调），取先触发者。**截断必须显式告知** —— 静默截断会让模型误以为已搜完。
 - **二进制保护**：读到 NUL 字节即判定二进制，返回明确原因，而非抛 UTF-8 解码错误。
 - **路径边界**：全部走现成的 `BoundedFilesystem`。遍历时**逐条目校验**，防止 symlink 指向工作区外。
@@ -171,7 +171,11 @@ if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL
 
 ### 9.3 Web/mock 同步
 
-`agent-tool-execution` 有 `Web runtime tool-use parity` 需求，且 `AGENTS.md` 要求 `tauri-agent-client.ts` 与 `web-agent-client.ts` 接口一致。须同步 `web-agent-client.ts` 的 mock 工具序列，否则契约测试失败。
+`agent-tool-execution` 有 `Web runtime tool-use parity` 需求，`AGENTS.md` 也要求 `tauri-agent-client.ts` 与 `web-agent-client.ts` 接口一致。
+
+**但已核实：现有契约测试并不枚举原生工具名** —— `contract-conformance.test.ts` 只校验类型等价，`toolNameBytes: 256` 是长度限制；`src-tauri/src/contract_tests.rs` 中的 `shell_create` 等是 session shell 的 Tauri command 名，与本工具目录无关。因此 mock 工具序列不同步**不会导致测试失败**。
+
+结论：Web mock 更新属于保真度改善而非硬性阻塞。本次仅在 `web-agent-client.ts` 的模拟序列中补一个 `grep` 调用示例，使 Web 模式演示与桌面能力不脱节；若 OpenSpec delta 中新增了针对 Web runtime 的 grep/glob scenario，则升级为必做项。
 
 ## 附录 A：OnePiece 能力补强路线图
 
