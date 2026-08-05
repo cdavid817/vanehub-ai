@@ -1,0 +1,576 @@
+use crate::contexts::retrieval::domain::{
+    cosine_similarity, escape_fts_query, fuse_with_rrf, Degradation, MatchedVia, RetrievalError,
+    RetrievalQuery, ScoredHit, SourceKind,
+};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use super::indexing_service::{IndexSourcePort, IndexSourceRecord};
+use super::ports::{EmbeddingPort, RetrievalConfigurationRepository, RetrievalDocumentRepository};
+
+/// `degraded` 为 `None` 时 `hits` 为空表示"搜了，确实没有"；`degraded` 为 `Some` 时 `hits`
+/// 仍可能非空，表示"某一路搜不了，用另一路的结果兜底"——两者是不同的语义，不能互相替代。
+// 唯一构造点是 search() 内部；search() 本身要到 Task 12 的 bootstrap 装配才会被真正调用，
+// 从一个还没活起来的方法内部构造，不足以让 SearchOutcome 被判定为"已使用"。届时移除本属性。
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SearchOutcome {
+    pub(crate) hits: Vec<ScoredHit>,
+    pub(crate) degraded: Option<Degradation>,
+}
+
+/// 双路（向量 + 关键词）混合检索，第 1 期只服务 `SourceKind::AgentMemory`。
+// 唯一构造点是 Task 12 的 bootstrap 装配；届时移除本属性。
+#[allow(dead_code)]
+pub(crate) struct SearchService {
+    configuration: Arc<dyn RetrievalConfigurationRepository>,
+    repository: Arc<dyn RetrievalDocumentRepository>,
+    source: Arc<dyn IndexSourcePort>,
+    embeddings: Arc<dyn EmbeddingPort>,
+}
+
+// 同上，随 SearchService 一起在 Task 12 移除；本属性同时覆盖 new/search/vector_ranking 三者——
+// search 内部对 vector_ranking 的调用发生在一个自身仍是 dead code 的方法内部，不足以单独让
+// vector_ranking 被判定为"已使用"（同 indexing_service.rs 中 IndexingService 的同类结论）。
+#[allow(dead_code)]
+impl SearchService {
+    pub(crate) fn new(
+        configuration: Arc<dyn RetrievalConfigurationRepository>,
+        repository: Arc<dyn RetrievalDocumentRepository>,
+        source: Arc<dyn IndexSourcePort>,
+        embeddings: Arc<dyn EmbeddingPort>,
+    ) -> Self {
+        Self {
+            configuration,
+            repository,
+            source,
+            embeddings,
+        }
+    }
+
+    /// 双路召回 → RRF 融合 → 回查源表。
+    ///
+    /// 铁律：检索失败**永不**让生成失败（设计文档 §8.1）。除"未配置"外，任何一路的失败都只是
+    /// 降级，因为把一个可选增强能力的故障冒泡成生成失败是不可接受的。
+    pub(crate) fn search(&self, query: &RetrievalQuery) -> Result<SearchOutcome, RetrievalError> {
+        let configuration = self.configuration.load()?;
+        let Some((_profile, model)) = configuration.resolved_model() else {
+            return Err(RetrievalError::NotConfigured);
+        };
+        let over_fetch = query.limit.saturating_mul(4).max(query.limit);
+
+        let vector_ranking = self.vector_ranking(query, model, over_fetch);
+        let keyword_ranking = self
+            .repository
+            .keyword_candidates(
+                &query.scope,
+                SourceKind::AgentMemory,
+                &escape_fts_query(&query.text),
+                over_fetch,
+            )
+            .ok();
+
+        // 两路都失败必须与"两路都可用但都没命中"区分开。复用已有的 Err 路径而不是新增一种
+        // 降级值：Task 13 的 `execute_recall` 已有分支会把 Err 转成**成功的**工具结果
+        // "检索暂时不可用"，所以 §8.1 的铁律仍然成立，且不必新增一套模型要理解的词汇。
+        let degraded = match (&vector_ranking, &keyword_ranking) {
+            (None, None) => return Err(RetrievalError::Unavailable),
+            (None, Some(_)) => Some(Degradation::KeywordOnly),
+            (Some(_), None) => Some(Degradation::VectorOnly),
+            _ => None,
+        };
+        let vector_ids = vector_ranking.unwrap_or_default();
+        let keyword_ids = keyword_ranking.unwrap_or_default();
+
+        let fused = fuse_with_rrf(&[vector_ids.clone(), keyword_ids.clone()]);
+        let in_vector: HashSet<&str> = vector_ids.iter().map(String::as_str).collect();
+        let in_keyword: HashSet<&str> = keyword_ids.iter().map(String::as_str).collect();
+
+        // 回查源表拿权威内容：索引行可能陈旧，源已删则跳过——这保证已删记忆永不外泄，
+        // 也是显式撤销失败时的第一道兜底（§5.3）。
+        let sources: HashMap<String, IndexSourceRecord> = self
+            .source
+            .snapshot()?
+            .into_iter()
+            .map(|record| (record.source_id.clone(), record))
+            .collect();
+
+        let hits = fused
+            .into_iter()
+            .filter_map(|(source_id, score)| {
+                let record = sources.get(&source_id)?;
+                let matched_via = match (
+                    in_vector.contains(source_id.as_str()),
+                    in_keyword.contains(source_id.as_str()),
+                ) {
+                    (true, true) => MatchedVia::Both,
+                    (true, false) => MatchedVia::Vector,
+                    _ => MatchedVia::Keyword,
+                };
+                Some(ScoredHit {
+                    source_id,
+                    content: record.content.clone(),
+                    created_at: record.created_at.clone(),
+                    score,
+                    matched_via,
+                })
+            })
+            .take(query.limit)
+            .collect();
+
+        Ok(SearchOutcome { hits, degraded })
+    }
+
+    /// `None` 表示这一路整体不可用（query embedding 失败或候选查询失败），交由调用方降级；
+    /// 空 `Vec` 表示这一路可用但没有命中，是正常结果。
+    fn vector_ranking(
+        &self,
+        query: &RetrievalQuery,
+        model: &str,
+        limit: usize,
+    ) -> Option<Vec<String>> {
+        let embedded = self
+            .embeddings
+            .embed(model, std::slice::from_ref(&query.text))
+            .ok()?;
+        let query_vector = embedded.into_iter().next()?;
+        let candidates = self
+            .repository
+            .vector_candidates(&query.scope, SourceKind::AgentMemory, model)
+            .ok()?;
+        let mut scored: Vec<(String, f32)> = candidates
+            .into_iter()
+            .filter_map(|(source_id, vector)| {
+                cosine_similarity(&query_vector, &vector).map(|score| (source_id, score))
+            })
+            .collect();
+        scored.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        Some(scored.into_iter().take(limit).map(|(id, _)| id).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::retrieval::application::ports::{
+        EmbeddingFailure, RetrievalConfiguration, RetrievalIndexStatus,
+    };
+    use crate::contexts::retrieval::domain::{FailureCategory, RetrievalDocument, RetrievalScope};
+    use std::sync::Mutex;
+
+    /// embed() 的两种可编排行为：测试只需要"这一路整体可用/不可用"，不需要更细的行为。
+    enum FakeEmbedder {
+        Succeeds(Vec<f32>),
+        Fails,
+    }
+
+    impl EmbeddingPort for FakeEmbedder {
+        fn embed(
+            &self,
+            _model: &str,
+            _inputs: &[String],
+        ) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
+            match self {
+                Self::Succeeds(vector) => Ok(vec![vector.clone()]),
+                Self::Fails => Err(EmbeddingFailure {
+                    category: FailureCategory::Network,
+                    message: "fake embedding failure".to_string(),
+                }),
+            }
+        }
+    }
+
+    struct FakeConfigurationRepository {
+        configuration: RetrievalConfiguration,
+    }
+
+    impl FakeConfigurationRepository {
+        fn configured(profile: &str, model: &str) -> Self {
+            Self {
+                configuration: RetrievalConfiguration {
+                    source_profile_id: Some(profile.to_string()),
+                    embedding_model: Some(model.to_string()),
+                },
+            }
+        }
+
+        fn unconfigured() -> Self {
+            Self {
+                configuration: RetrievalConfiguration::default(),
+            }
+        }
+    }
+
+    impl RetrievalConfigurationRepository for FakeConfigurationRepository {
+        fn load(&self) -> Result<RetrievalConfiguration, RetrievalError> {
+            Ok(self.configuration.clone())
+        }
+
+        fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+    }
+
+    /// `vector_candidates`/`keyword_candidates` 的返回值由测试摆放，且后者记录收到的 FTS
+    /// 查询串；其余八个方法在本文件的测试里都不可达，走 unimplemented!()。
+    struct FakeRepository {
+        vector_candidates_result: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
+        keyword_candidates_result: Result<Vec<String>, RetrievalError>,
+        received_keyword_query: Mutex<Option<String>>,
+    }
+
+    impl FakeRepository {
+        fn new(
+            vector_candidates_result: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
+            keyword_candidates_result: Result<Vec<String>, RetrievalError>,
+        ) -> Self {
+            Self {
+                vector_candidates_result,
+                keyword_candidates_result,
+                received_keyword_query: Mutex::new(None),
+            }
+        }
+    }
+
+    impl RetrievalDocumentRepository for FakeRepository {
+        fn upsert_pending(&self, _document: &RetrievalDocument) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn list_indexed_source_ids(
+            &self,
+            _source_kind: SourceKind,
+        ) -> Result<Vec<(String, String)>, RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn delete_by_source(
+            &self,
+            _source_kind: SourceKind,
+            _source_id: &str,
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn claim_pending_batch(
+            &self,
+            _source_kind: SourceKind,
+            _limit: usize,
+        ) -> Result<Vec<RetrievalDocument>, RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn store_embedding(
+            &self,
+            _id: &str,
+            _model: &str,
+            _embedding: &[f32],
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn record_failure(
+            &self,
+            _id: &str,
+            _category: FailureCategory,
+            _give_up: bool,
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn vector_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            _model: &str,
+        ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+            self.vector_candidates_result.clone()
+        }
+        fn keyword_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            query: &str,
+            _limit: usize,
+        ) -> Result<Vec<String>, RetrievalError> {
+            *self.received_keyword_query.lock().expect("lock") = Some(query.to_string());
+            self.keyword_candidates_result.clone()
+        }
+        fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+    }
+
+    struct FakeSource {
+        records: Vec<IndexSourceRecord>,
+    }
+
+    impl IndexSourcePort for FakeSource {
+        fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            Ok(self.records.clone())
+        }
+    }
+
+    const PROFILE: &str = "profile-a";
+    const MODEL: &str = "model-a";
+
+    /// 查询向量与候选向量共用同一个值，保证需要"命中"的场景里余弦相似度恒为 1.0。
+    fn matching_vector() -> Vec<f32> {
+        vec![1.0, 0.0]
+    }
+
+    fn scope() -> RetrievalScope {
+        RetrievalScope {
+            agent_id: "a".to_string(),
+            folder: String::new(),
+        }
+    }
+
+    fn sample_query(text: &str, limit: usize) -> RetrievalQuery {
+        RetrievalQuery {
+            text: text.to_string(),
+            scope: scope(),
+            limit,
+        }
+    }
+
+    fn record(source_id: &str, content: &str) -> IndexSourceRecord {
+        IndexSourceRecord {
+            source_id: source_id.to_string(),
+            agent_id: "a".to_string(),
+            folder: String::new(),
+            content: content.to_string(),
+            created_at: "2026-08-05T00:00:00Z".to_string(),
+        }
+    }
+
+    fn storage_failure() -> RetrievalError {
+        RetrievalError::Storage("boom".to_string())
+    }
+
+    /// 装配一个完全受控的服务：四个依赖都由调用方摆放。返回仓储句柄以便断言它收到的调用参数。
+    fn service(
+        configuration: FakeConfigurationRepository,
+        embedder: FakeEmbedder,
+        vector_candidates: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
+        keyword_candidates: Result<Vec<String>, RetrievalError>,
+        records: Vec<IndexSourceRecord>,
+    ) -> (SearchService, Arc<FakeRepository>) {
+        let repository = Arc::new(FakeRepository::new(vector_candidates, keyword_candidates));
+        let search_service = SearchService::new(
+            Arc::new(configuration),
+            repository.clone(),
+            Arc::new(FakeSource { records }),
+            Arc::new(embedder),
+        );
+        (search_service, repository)
+    }
+
+    /// 两路都健康（已配置 + embedding 成功）的常见装配，测试只需要摆放候选与源快照。
+    fn healthy_service(
+        vector_candidates: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
+        keyword_candidates: Result<Vec<String>, RetrievalError>,
+        records: Vec<IndexSourceRecord>,
+    ) -> (SearchService, Arc<FakeRepository>) {
+        service(
+            FakeConfigurationRepository::configured(PROFILE, MODEL),
+            FakeEmbedder::Succeeds(matching_vector()),
+            vector_candidates,
+            keyword_candidates,
+            records,
+        )
+    }
+
+    #[test]
+    fn both_paths_healthy_yields_no_degradation_and_marks_overlap_as_both() {
+        let (service, _repository) = healthy_service(
+            Ok(vec![("m1".to_string(), matching_vector())]),
+            Ok(vec!["m1".to_string()]),
+            vec![record("m1", "uses npm not pnpm")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.degraded, None);
+        assert_eq!(outcome.hits.len(), 1);
+        assert_eq!(outcome.hits[0].source_id, "m1");
+        assert_eq!(outcome.hits[0].content, "uses npm not pnpm");
+        assert_eq!(outcome.hits[0].matched_via, MatchedVia::Both);
+    }
+
+    #[test]
+    fn a_hit_found_only_by_the_vector_path_is_marked_vector() {
+        let (service, _repository) = healthy_service(
+            Ok(vec![("m1".to_string(), matching_vector())]),
+            Ok(Vec::new()),
+            vec![record("m1", "uses npm")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        // 关键词路是健康的、只是没命中——不是失败，所以不该出现降级。
+        assert_eq!(outcome.degraded, None);
+        assert_eq!(outcome.hits.len(), 1);
+        assert_eq!(outcome.hits[0].matched_via, MatchedVia::Vector);
+    }
+
+    #[test]
+    fn a_hit_found_only_by_the_keyword_path_is_marked_keyword() {
+        let (service, _repository) = healthy_service(
+            Ok(Vec::new()),
+            Ok(vec!["m1".to_string()]),
+            vec![record("m1", "uses npm")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.degraded, None);
+        assert_eq!(outcome.hits.len(), 1);
+        assert_eq!(outcome.hits[0].matched_via, MatchedVia::Keyword);
+    }
+
+    #[test]
+    fn query_embedding_failure_degrades_to_keyword_only_instead_of_erroring() {
+        // fake embedding 返回 Err → outcome.degraded == Some(Degradation::KeywordOnly)，且 hits 非空
+        let (service, _repository) = service(
+            FakeConfigurationRepository::configured(PROFILE, MODEL),
+            FakeEmbedder::Fails,
+            Ok(Vec::new()),
+            Ok(vec!["m1".to_string()]),
+            vec![record("m1", "uses npm")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.degraded, Some(Degradation::KeywordOnly));
+        assert!(!outcome.hits.is_empty());
+    }
+
+    #[test]
+    fn keyword_path_failure_degrades_to_vector_only_instead_of_erroring() {
+        // fake 仓储的 keyword_candidates 返回 Err → degraded == Some(Degradation::VectorOnly)
+        let (service, _repository) = healthy_service(
+            Ok(vec![("m1".to_string(), matching_vector())]),
+            Err(storage_failure()),
+            vec![record("m1", "uses npm")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.degraded, Some(Degradation::VectorOnly));
+        assert!(!outcome.hits.is_empty());
+    }
+
+    #[test]
+    fn both_paths_available_but_empty_is_success_not_an_error() {
+        // 两路都可用、都没命中 → Ok，hits 为空，degraded 为 None
+        let (service, _repository) = healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.degraded, None);
+        assert!(outcome.hits.is_empty());
+    }
+
+    #[test]
+    fn both_paths_failing_reports_unavailable_rather_than_an_empty_result() {
+        // fake embedding 返回 Err 且 fake 仓储的 keyword_candidates 也返回 Err
+        // → Err(RetrievalError::Unavailable)，**不是** Ok(空列表)。
+        // 这一条与上一条成对存在：区分"搜不了"和"没有"正是它们的全部意义。
+        let (service, _repository) = service(
+            FakeConfigurationRepository::configured(PROFILE, MODEL),
+            FakeEmbedder::Fails,
+            Ok(Vec::new()),
+            Err(storage_failure()),
+            Vec::new(),
+        );
+        let query = sample_query("npm", 5);
+
+        assert_eq!(
+            service.search(&query).unwrap_err(),
+            RetrievalError::Unavailable
+        );
+    }
+
+    #[test]
+    fn results_are_truncated_to_the_requested_limit() {
+        let ids = ["m1", "m2", "m3", "m4", "m5"];
+        let records = ids.iter().map(|&id| record(id, "content")).collect();
+        let keyword_hits = ids.iter().map(|&id| id.to_string()).collect();
+        let (service, _repository) = healthy_service(Ok(Vec::new()), Ok(keyword_hits), records);
+
+        let outcome = service.search(&sample_query("npm", 2)).expect("search");
+
+        assert_eq!(outcome.hits.len(), 2);
+        assert_eq!(
+            outcome
+                .hits
+                .iter()
+                .map(|hit| hit.source_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["m1", "m2"]
+        );
+    }
+
+    #[test]
+    fn a_hit_whose_source_row_is_gone_is_skipped_rather_than_returned_stale() {
+        // 候选里有 m1、m2，但源快照只有 m1 → 结果只含 m1
+        let (service, _repository) = healthy_service(
+            Ok(Vec::new()),
+            Ok(vec!["m1".to_string(), "m2".to_string()]),
+            vec![record("m1", "still here")],
+        );
+
+        let outcome = service.search(&sample_query("npm", 5)).expect("search");
+
+        assert_eq!(outcome.hits.len(), 1);
+        assert_eq!(outcome.hits[0].source_id, "m1");
+    }
+
+    #[test]
+    fn an_unconfigured_service_reports_not_configured() {
+        let query = sample_query("npm", 5);
+
+        let (absent, _repository) = service(
+            FakeConfigurationRepository::unconfigured(),
+            FakeEmbedder::Succeeds(matching_vector()),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Vec::new(),
+        );
+        assert_eq!(
+            absent.search(&query).unwrap_err(),
+            RetrievalError::NotConfigured
+        );
+
+        // resolved_model 要求两半都非空；空串 profile id 不该被当作"已配置"——这个分支此前
+        // 没有测试覆盖到，顺手在这里一并补上。
+        let (empty_profile, _repository) = service(
+            FakeConfigurationRepository::configured("", MODEL),
+            FakeEmbedder::Succeeds(matching_vector()),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Vec::new(),
+        );
+        assert_eq!(
+            empty_profile.search(&query).unwrap_err(),
+            RetrievalError::NotConfigured
+        );
+    }
+
+    #[test]
+    fn the_query_is_escaped_before_reaching_fts() {
+        // query 文本 `a OR b` → fake 仓储收到的 query 参数是 "\"a OR b\""
+        let (service, repository) = healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
+
+        service.search(&sample_query("a OR b", 5)).expect("search");
+
+        assert_eq!(
+            *repository.received_keyword_query.lock().expect("lock"),
+            Some("\"a OR b\"".to_string())
+        );
+    }
+}

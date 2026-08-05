@@ -1,5 +1,6 @@
 pub(crate) mod indexing_service;
 pub(crate) mod ports;
+pub(crate) mod search_service;
 
 // 这四个类型都是索引侧概念（IndexingService 本身、它读取源快照用的 IndexSourcePort/
 // IndexSourceRecord、reconcile() 的返回值 ReconcileOutcome），Task 9 的检索服务只消费
@@ -15,3 +16,8 @@ pub(crate) use ports::{
     RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
     RetrievalIndexStatus,
 };
+// SearchService 本身与它的返回值 SearchOutcome：真正会经 `application::` 路径引用它们的是
+// Task 12 的 bootstrap 装配（构造并持有 SearchService）与 Task 13 的 recall 工具（读取
+// SearchOutcome 的 hits/degraded 拼装工具结果）；届时移除本属性。
+#[allow(unused_imports)]
+pub(crate) use search_service::{SearchOutcome, SearchService};
