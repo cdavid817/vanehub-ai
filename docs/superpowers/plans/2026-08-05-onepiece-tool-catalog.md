@@ -20,6 +20,8 @@
 - 新工具风险分级：`grep` / `glob` → `AutoApprove`；`edit` → `RequiresApproval`。
 - Plan mode：`grep` / `glob` 可用；`edit` 硬拒。
 - 提交前必须通过：`npm run lint`、`npm run test`、`cargo clippy --manifest-path src-tauri/Cargo.toml`（`AGENTS.md`）。
+- **`cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` 必须通过。** `.github/workflows/ci.yml:212` 在每个 PR 上跑它，且它是 Rust 步骤里的第一个 —— 不过它，后面的测试根本不会执行。本计划中的示例代码是按可读性排版的，不保证符合 rustfmt；**每个 Rust 任务提交前先跑一次 `cargo fmt --all`**。
+- CI 的 clippy 是 `--all-targets -- -D warnings`（`ci.yml:218`），警告即错误。Task 2-5 期间会有若干 `dead_code` 警告，因为常量与函数要到后续任务才被消费 —— 这是增量落地的正常产物，到 Task 6 自然消解。**不要**用 `#![allow(dead_code)]` 掩盖（它会活过 Task 6 并永久遮蔽真正的死代码）。代价是：本分支在 Task 6 完成前不可开 PR。
 - 符号链接一律跳过，不跟随（见 Task 2 说明）。符号链接测试仅在 `#[cfg(unix)]` 下运行 —— Windows 创建符号链接需要开发者模式或管理员权限。
 
 ---
@@ -248,10 +250,9 @@ git commit -m "spec: propose OnePiece search and edit tools"
 **Interfaces:**
 - Consumes: `crate::platform::filesystem::BoundedFilesystem`（`new`、`validate_relative`、`resolve_existing`）
 - Produces:
-  - `pub(crate) const MAX_SEARCH_RESULTS: usize = 200;`
-  - `pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;`
+  - `pub(crate) const MAX_SEARCH_RESULTS: usize = 200;` 与 `pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;` —— **放在 `tools/mod.rs` 而非 `walk.rs`**。它们是工具的输出预算，与「怎么遍历文件」无关；更要紧的是 `shell_tool.rs` 已有一个同值的 `SHELL_OUTPUT_LIMIT = 64 * 1024`，同一模块里两个名字指同一个 64KB，改一个另一个会静默走偏。`shell_tool.rs` 改用 `MAX_TOOL_OUTPUT_BYTES`，删掉 `SHELL_OUTPUT_LIMIT`。后续任务从 `super::` 而非 `super::walk::` 导入这两个常量。
   - `pub(crate) enum Visit { Continue, Stop }`
-  - `pub(crate) fn visit_workspace_files(workspace_folder: &str, relative_root: Option<&str>, cancelled: &Arc<AtomicBool>, visit: &mut dyn FnMut(&Path, &str) -> Visit) -> Result<(), String>`
+  - `pub(crate) fn visit_workspace_files(workspace_folder: &str, relative_root: Option<&str>, cancelled: &AtomicBool, visit: &mut dyn FnMut(&Path, &str) -> Visit) -> Result<(), String>`
     —— 回调参数为 (绝对路径, 工作区相对路径，正斜杠分隔)。**取 `&str` 而非 `&BoundedFilesystem`**：工作区根需要一个绝对路径起点，而 `BoundedFilesystem` 的 `root` 字段是私有的，唯一的取法是 `resolve_existing(".")` —— 那要求 `validate_relative` 接受 `Component::CurDir`，是个未经验证的假设，赌错就是每次搜索必失败。直接 canonicalize 传入的 `workspace_folder` 没有这个风险，边界检查仍由内部构造的 boundary 负责。
   - `pub(crate) fn is_binary(bytes: &[u8]) -> bool`
   - `pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;`
@@ -467,9 +468,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub(crate) const MAX_SEARCH_RESULTS: usize = 200;
-pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
-
 /// 单文件读取上限。输出上限保护的是模型的上下文窗口，这一条保护的是进程本身 —— 没有它，
 /// 一个未被 `.gitignore` 排除的大日志会在任何输出截断生效前就先分配等量内存。
 pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
@@ -493,7 +491,7 @@ pub(crate) enum Visit {
 pub(crate) fn visit_workspace_files(
     workspace_folder: &str,
     relative_root: Option<&str>,
-    cancelled: &Arc<AtomicBool>,
+    cancelled: &AtomicBool,
     visit: &mut dyn FnMut(&Path, &str) -> Visit,
 ) -> Result<(), String> {
     let boundary = BoundedFilesystem::new(Path::new(workspace_folder))
@@ -597,7 +595,7 @@ git commit -m "feat(agent-runtime): add workspace-bounded file walk for search t
 - Modify: `src-tauri/src/contexts/agent_runtime/infrastructure/tools/mod.rs`
 
 **Interfaces:**
-- Consumes: `walk::{visit_workspace_files, Visit, MAX_SEARCH_RESULTS}`、`super::ToolExecutionOutcome`
+- Consumes: `walk::{visit_workspace_files, Visit}`、`super::{ToolExecutionOutcome, MAX_SEARCH_RESULTS}`
 - Produces: `pub(crate) fn execute_glob(pattern: &str, path: Option<&str>, workspace_folder: &str, cancelled: Arc<AtomicBool>) -> ToolExecutionOutcome`
 
 - [ ] **Step 1: 写失败的测试**
@@ -726,8 +724,8 @@ Expected: 编译失败 —— `cannot find function execute_glob`
 //! 按文件名模式搜索工作区。遍历、过滤与边界全部委托给 `walk`，本模块只负责模式匹配与
 //! 输出成形。
 
-use super::walk::{visit_workspace_files, Visit, MAX_SEARCH_RESULTS};
-use super::ToolExecutionOutcome;
+use super::walk::{visit_workspace_files, Visit};
+use super::{ToolExecutionOutcome, MAX_SEARCH_RESULTS};
 use globset::GlobBuilder;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -830,7 +828,7 @@ git commit -m "feat(agent-runtime): add glob filename search tool"
 - Modify: `src-tauri/src/contexts/agent_runtime/infrastructure/tools/mod.rs`
 
 **Interfaces:**
-- Consumes: `walk::{visit_workspace_files, is_binary, Visit, MAX_SEARCH_RESULTS, MAX_TOOL_OUTPUT_BYTES}`
+- Consumes: `walk::{visit_workspace_files, is_binary, exceeds_size_limit, Visit}`、`super::{MAX_SEARCH_RESULTS, MAX_TOOL_OUTPUT_BYTES}`
 - Produces: `pub(crate) fn execute_grep(request: GrepRequest<'_>, workspace_folder: &str, cancelled: Arc<AtomicBool>) -> ToolExecutionOutcome`，以及
   ```rust
   pub(crate) struct GrepRequest<'a> {
@@ -1079,11 +1077,8 @@ Expected: 编译失败 —— `cannot find function execute_grep` / `cannot find
 //! 按正则搜索工作区文件内容。遍历与过滤委托给 `walk`；本模块负责正则匹配、三种输出形态与
 //! 上限处理。
 
-use super::walk::{
-    exceeds_size_limit, is_binary, visit_workspace_files, Visit, MAX_SEARCH_RESULTS,
-    MAX_TOOL_OUTPUT_BYTES,
-};
-use super::ToolExecutionOutcome;
+use super::walk::{exceeds_size_limit, is_binary, visit_workspace_files, Visit};
+use super::{ToolExecutionOutcome, MAX_SEARCH_RESULTS, MAX_TOOL_OUTPUT_BYTES};
 use globset::GlobBuilder;
 use regex::RegexBuilder;
 use std::sync::atomic::AtomicBool;
@@ -1561,7 +1556,7 @@ git commit -m "feat(agent-runtime): add scoped file edit tool"
 - Modify: `src-tauri/src/contexts/agent_runtime/infrastructure/tools/file_tool.rs`
 
 **Interfaces:**
-- Consumes: `walk::{is_binary, MAX_TOOL_OUTPUT_BYTES}`
+- Consumes: `walk::{is_binary, exceeds_size_limit, MAX_FILE_BYTES}`、`super::MAX_TOOL_OUTPUT_BYTES`
 - Produces: `execute_file` 签名变为
   `pub(crate) fn execute_file(operation: &str, path: &str, content: Option<&str>, offset: Option<usize>, limit: Option<usize>, workspace_folder: &str) -> ToolExecutionOutcome`
   —— Task 7 的路由需按此新签名调用。
@@ -1693,7 +1688,8 @@ Expected: 编译失败 —— `this function takes 4 arguments but 6 arguments w
 替换 `file_tool.rs` 中 `execute_file` 与 `read_file`（`write_file` 与既有 import 不动，另加两个 import）：
 
 ```rust
-use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES, MAX_TOOL_OUTPUT_BYTES};
+use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES};
+use super::MAX_TOOL_OUTPUT_BYTES;
 
 /// read 的边界，三者取先触发者，均为硬上限。`limit` 参数只能把返回行数调得更少 ——
 /// 上限保护的是上下文窗口，不是可协商的偏好，模型不能通过传一个大 `limit` 把自己撑爆。
