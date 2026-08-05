@@ -198,6 +198,9 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
         onQueryChange={setQuery}
         onSourceChange={setSource}
       />
+      <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
+        {t("promptHooks.showing", { visible: visibleHooks.length, total: hooks.length })}
+      </div>
       {hooksQuery.isLoading ? <div className="ucd-panel rounded-lg p-4 text-sm text-muted-foreground">{t("promptHooks.loading")}</div> : null}
       <PromptHookCardList
         agents={agents}
@@ -211,9 +214,6 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
         onToggleEnabled={(hook, value) => enabledMutation.mutate({ hook, value })}
         resetKey={JSON.stringify([agent, category, enabled, query, searchTerm, source])}
       />
-      <div className="ucd-panel rounded-lg p-3 text-sm text-muted-foreground">
-        {t("promptHooks.showing", { visible: visibleHooks.length, total: hooks.length })}
-      </div>
       <PromptHookTracePanel traces={tracesQuery.data ?? []} />
       <PromptHookDialogs
         error={dialogError}

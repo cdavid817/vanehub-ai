@@ -245,7 +245,7 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
       />
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <SectionPanel description={t("cliParameters.agents.description")} title={t("cliParameters.agents.title")}>
+        <SectionPanel className="sticky top-4 self-start" description={t("cliParameters.agents.description")} title={t("cliParameters.agents.title")}>
           <div className="space-y-2">
             {profiles.map((profile) => (
               <Button

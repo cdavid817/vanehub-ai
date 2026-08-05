@@ -188,13 +188,8 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
         title={t("cli.title")}
       />
       <section className="ucd-panel rounded-lg p-3">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold">{t("cli.localEnvironmentCheck")}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{t("cli.localEnvironmentHint")}</p>
-          </div>
-          <span className="text-xs text-muted-foreground">{t("cli.upgradeAll", { count: bulkEligibleCount })}</span>
-        </div>
+        <h2 className="text-sm font-semibold">{t("cli.localEnvironmentCheck")}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t("cli.localEnvironmentHint")}</p>
       </section>
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard icon={CheckCircle2} label={t("cli.stats.installed")} value={`${installedCount} / ${tools.length}`} hint={t("cli.stats.installedHint")} />

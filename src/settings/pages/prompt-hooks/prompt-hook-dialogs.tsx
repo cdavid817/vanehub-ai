@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
 import type { PromptHook, PromptHookMutationInput, PromptHookPreview } from "../../../types/prompt-hook";
 
@@ -52,6 +53,9 @@ export function PromptHookDialogs({
           ))}
         </div>
         <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 text-xs">{state.preview.renderedContent}</pre>
+        <div className="mt-4 flex justify-end">
+          <Button data-dialog-autofocus onClick={onClose} variant="outline">{t("promptHooks.dialog.close")}</Button>
+        </div>
       </Modal>
     );
   }
@@ -76,7 +80,7 @@ export function PromptHookDialogs({
     <Modal title={editing ? t("promptHooks.dialog.editTitle") : t("promptHooks.dialog.createTitle")} onClose={onClose}>
       <div className="grid gap-3 md:grid-cols-2">
         <Field disabled={Boolean(editing)} label="ID" onChange={(value) => setDraft((current) => ({ ...current, id: value }))} value={draft.id} />
-        <Field label={t("promptHooks.dialog.name")} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} value={draft.name} />
+        <Field autoFocus label={t("promptHooks.dialog.name")} onChange={(value) => setDraft((current) => ({ ...current, name: value }))} value={draft.name} />
         <Select label={t("promptHooks.dialog.category")} onChange={(value) => setDraft((current) => ({ ...current, category: value as PromptHookMutationInput["category"] }))} value={draft.category} values={["bootstrap", "callback", "dynamic", "law", "navigation", "routing", "static"]} />
         <Select label={t("promptHooks.dialog.stage")} onChange={(value) => setDraft((current) => ({ ...current, stage: value as PromptHookMutationInput["stage"] }))} value={draft.stage} values={["session-init", "per-turn"]} />
       </div>
@@ -128,11 +132,11 @@ function localizeErrorKey(error: string) {
   return "promptHooks.error.generic";
 }
 
-function Field({ label, value, disabled, onChange }: { label: string; value: string; disabled?: boolean; onChange: (value: string) => void }) {
+function Field({ label, value, disabled, autoFocus, onChange }: { label: string; value: string; disabled?: boolean; autoFocus?: boolean; onChange: (value: string) => void }) {
   return (
     <label className="mt-3 block text-sm">
       {label}
-      <input className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-muted" disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value} />
+      <input className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm disabled:bg-muted" data-dialog-autofocus={autoFocus || undefined} disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value} />
     </label>
   );
 }
@@ -152,18 +156,7 @@ function Select({ label, value, values, onChange }: { label: string; value: stri
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <section className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-lg bg-background p-5 shadow-xl">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="min-w-0 truncate text-lg font-semibold">{title}</h3>
-          <button className="shrink-0 text-sm text-muted-foreground" onClick={onClose} type="button">{t("promptHooks.dialog.close")}</button>
-        </div>
-        {children}
-      </section>
-    </div>
-  );
+  return <ApplicationDialog maxWidth="max-w-2xl" onClose={onClose} title={title}>{children}</ApplicationDialog>;
 }
 
 function emptyDraft(): PromptHookMutationInput {

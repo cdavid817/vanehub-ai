@@ -47,9 +47,10 @@ export function McpServerCard({
           </div>
         </div>
         <button
+          aria-label={t(server.active ? "mcp.toggle.disableNamed" : "mcp.toggle.enableNamed", { name: server.name })}
           className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border hover:bg-muted"
           onClick={() => onToggle(server)}
-          title={server.active ? t("mcp.toggle.disable") : t("mcp.toggle.enable")}
+          title={t(server.active ? "mcp.toggle.disableNamed" : "mcp.toggle.enableNamed", { name: server.name })}
           type="button"
         >
           <Power className="h-4 w-4" aria-hidden="true" />

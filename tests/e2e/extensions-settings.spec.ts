@@ -16,7 +16,22 @@ test.describe("Extension Capabilities settings page", () => {
     await expect(page.getByRole("heading", { name: "PaddleOCR" })).toBeHidden();
     await search.clear();
     await page.getByRole("button", { name: /安装要求|Requirements/ }).first().click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("shows a non-transparent, semantically-toned status badge for each framework", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /设置|Settings/ }).click();
+    await page.getByRole("button", { name: /扩展能力|Extension Capabilities/ }).click();
+
+    const card = page.getByTestId("extension-card-paddleocr");
+    const badge = card.getByText(/当前环境不支持|not supported/);
+    await expect(badge).toBeVisible();
+    await expect(badge).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   });
 
   test("preserves the page while switching both registered themes", async ({ page }) => {

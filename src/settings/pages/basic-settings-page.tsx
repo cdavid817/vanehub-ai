@@ -69,8 +69,8 @@ function NodeEnvironmentPanel({
   t: ReturnType<typeof useTranslation>["t"];
 }) {
   return (
-    <SectionPanel icon={Cpu} title={t("basic.node")} description={t("basic.nodeDesc")} variant="settings">
-      <div className="grid gap-3 p-5 sm:p-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+    <SectionPanel icon={Cpu} title={t("basic.node")} description={t("basic.nodeDesc")} variant="plain">
+      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
         <InfoBlock icon={Cpu} label={t("basic.nodeVersion")} value={nodeInfo?.version ?? t("basic.nodeUnavailable")} />
         <InfoBlock icon={FolderOpen} label={t("basic.nodePath")} value={nodeInfo?.path ? normalizeDisplayPath(nodeInfo.path) : t("basic.nodeUnavailable")} />
         {!nodeInfo?.available ? (

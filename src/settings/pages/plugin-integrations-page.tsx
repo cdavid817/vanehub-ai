@@ -134,7 +134,7 @@ export function PluginIntegrationsPage({
         <StatCard hint={t("plugins.stats.attentionHint")} icon={ShieldAlert} label={t("plugins.stats.attention")} value={String(attentionCount)} />
       </div>
 
-      <SectionPanel description={t("plugins.list.description")} title={t("plugins.list.title")}>
+      <SectionPanel description={t("plugins.list.description")} title={t("plugins.list.title")} variant="plain">
         {overviewQuery.isLoading ? <div className="text-sm text-muted-foreground">{t("plugins.loading")}</div> : null}
         {searchTerm.trim() ? (
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">

@@ -37,7 +37,7 @@ function Pane({ active, children }: { active: boolean; children: ReactNode }) {
 
 function Field({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
   return (
-    <div className="rounded border border-border bg-background p-2">
+    <div className="border-b border-border/60 pb-2 last:border-0 last:pb-0">
       <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
         {icon}
         <span className="truncate">{label}</span>
@@ -49,7 +49,7 @@ function Field({ icon, label, value }: { icon: ReactNode; label: string; value: 
 
 function UsageMetric({ label, language, value }: { label: string; language: string; value: number }) {
   return (
-    <div className="rounded border border-border bg-background p-2">
+    <div className="min-w-0">
       <dt className="truncate text-xs text-muted-foreground">{label}</dt>
       <dd className="mt-1 text-lg font-semibold tabular-nums text-primary">{formatAppNumber(value, language)}</dd>
     </div>
@@ -57,7 +57,7 @@ function UsageMetric({ label, language, value }: { label: string; language: stri
 }
 
 function EmptyState({ children }: { children: ReactNode }) {
-  return <p className="rounded border border-border bg-background p-3 text-xs text-muted-foreground">{children}</p>;
+  return <p className="p-3 text-center text-xs text-muted-foreground">{children}</p>;
 }
 
 function TokenUsagePane({ loading, summary }: { loading: boolean; summary: SessionUsageSummary | undefined }) {

@@ -5,7 +5,7 @@ async function openAgentConfigurations(page: Page) {
   await page.getByRole("button", { name: /设置|Settings/ }).click();
   await page.getByRole("button", { name: /^(Agent 配置|Agent Configurations)$/ }).click();
   await page.getByRole("tab", { name: /OnePiece/ }).click();
-  await expect(page.getByRole("tabpanel", { name: "OnePiece" }).getByRole("heading", { name: "OnePiece", exact: true })).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "OnePiece" }).getByRole("heading", { name: /^(API 提供商|API providers)$/i })).toBeVisible();
 }
 
 function agentButton(dialog: Locator, name: string) {
@@ -15,10 +15,7 @@ function agentButton(dialog: Locator, name: string) {
 test.describe("OnePiece native Agent", () => {
   test("configures OnePiece and creates a local API chat without an Agent Terminal", async ({ page }) => {
     await openAgentConfigurations(page);
-    const onepiecePanel = page
-      .getByRole("tabpanel", { name: "OnePiece" })
-      .getByRole("heading", { name: "OnePiece", exact: true })
-      .locator("xpath=ancestor::section[1]");
+    const onepiecePanel = page.getByRole("tabpanel", { name: "OnePiece" });
     await onepiecePanel.getByRole("button", { name: "新增配置" }).first().click();
     const addDialog = page.getByRole("dialog", { name: "新增 OnePiece 配置" });
     await addDialog.getByRole("button", { name: /Anthropic/ }).click();
