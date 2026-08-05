@@ -55,11 +55,11 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Line number to start reading from (0-based). Ignored when writing."
+                        "description": "0-based index of the first line to return; 0 is the file's first line. Ignored when writing."
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of lines to return. Ignored when writing."
+                        "description": "Maximum number of lines to return. Capped at 2000; larger values are clamped. Must be at least 1 if provided. Ignored when writing."
                     }
                 },
                 "required": ["operation", "path"]
@@ -98,11 +98,11 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Line number to start reading from (0-based). Ignored when writing."
+                        "description": "0-based index of the first line to return; 0 is the file's first line."
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of lines to return. Ignored when writing."
+                        "description": "Maximum number of lines to return. Capped at 2000; larger values are clamped. Must be at least 1 if provided."
                     }
                 },
                 "required": ["operation", "path"]
@@ -138,93 +138,93 @@ fn remember_tool_definition() -> ToolDefinition {
 /// precedent above.
 fn grep_tool_definition() -> ToolDefinition {
     ToolDefinition {
-            name: GREP_TOOL_NAME.to_string(),
-            description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore and skips binary files. Prefer this over running grep through the shell.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Regular expression to search for."
-                    },
-                    "glob": {
-                        "type": "string",
-                        "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\"."
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Optional subdirectory (relative to the workspace root) to search within."
-                    },
-                    "output_mode": {
-                        "type": "string",
-                        "enum": ["files_with_matches", "content", "count"],
-                        "description": "\"files_with_matches\" (default) lists matching file paths; \"content\" returns matching lines with line numbers; \"count\" returns per-file match counts."
-                    },
-                    "context": {
-                        "type": "integer",
-                        "description": "Lines of context around each match. Only used when output_mode is \"content\"."
-                    },
-                    "case_insensitive": {
-                        "type": "boolean",
-                        "description": "Match case-insensitively. Defaults to false."
-                    },
-                    "head_limit": {
-                        "type": "integer",
-                        "description": "Maximum number of result lines to return."
-                    }
+        name: GREP_TOOL_NAME.to_string(),
+        description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore and skips binary files. Prefer this over running grep through the shell.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regular expression to search for."
                 },
-                "required": ["pattern"]
-            }),
+                "glob": {
+                    "type": "string",
+                    "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\"."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional subdirectory (relative to the workspace root) to search within."
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["files_with_matches", "content", "count"],
+                    "description": "\"files_with_matches\" (default) lists matching file paths; \"content\" returns matching lines with line numbers; \"count\" returns per-file match counts."
+                },
+                "context": {
+                    "type": "integer",
+                    "description": "Lines of context around each match. Only used when output_mode is \"content\". Capped at 20; larger values are clamped."
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "description": "Match case-insensitively. Defaults to false."
+                },
+                "head_limit": {
+                    "type": "integer",
+                    "description": "Maximum number of result lines to return. Capped at 200; larger values are clamped. Must be at least 1 if provided."
+                }
+            },
+            "required": ["pattern"]
+        }),
     }
 }
 
 fn glob_tool_definition() -> ToolDefinition {
     ToolDefinition {
-            name: GLOB_TOOL_NAME.to_string(),
-            description: "Find files by name pattern in the session's workspace folder. Respects .gitignore. Prefer this over listing files through the shell.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Glob pattern matched against workspace-relative paths, e.g. \"**/*.test.ts\"."
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Optional subdirectory (relative to the workspace root) to search within."
-                    }
+        name: GLOB_TOOL_NAME.to_string(),
+        description: "Find files by name pattern in the session's workspace folder. Respects .gitignore. Prefer this over listing files through the shell.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern matched against workspace-relative paths, e.g. \"**/*.test.ts\"."
                 },
-                "required": ["pattern"]
-            }),
+                "path": {
+                    "type": "string",
+                    "description": "Optional subdirectory (relative to the workspace root) to search within."
+                }
+            },
+            "required": ["pattern"]
+        }),
     }
 }
 
 fn edit_tool_definition() -> ToolDefinition {
     ToolDefinition {
-            name: EDIT_TOOL_NAME.to_string(),
-            description: "Replace an exact string in a file relative to the session's workspace folder. old_string must match exactly once unless replace_all is true. Prefer this over rewriting a whole file with the file tool.".to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path relative to the workspace root."
-                    },
-                    "old_string": {
-                        "type": "string",
-                        "description": "Exact text to replace. Include enough surrounding context to match exactly once."
-                    },
-                    "new_string": {
-                        "type": "string",
-                        "description": "Replacement text."
-                    },
-                    "replace_all": {
-                        "type": "boolean",
-                        "description": "Replace every occurrence instead of requiring a unique match. Defaults to false."
-                    }
+        name: EDIT_TOOL_NAME.to_string(),
+        description: "Replace an exact string in a file relative to the session's workspace folder. old_string must match exactly once unless replace_all is true. Prefer this over rewriting a whole file with the file tool.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path relative to the workspace root."
                 },
-                "required": ["path", "old_string", "new_string"]
-            }),
+                "old_string": {
+                    "type": "string",
+                    "description": "Exact text to replace. Include enough surrounding context to match exactly once."
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "Replacement text."
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace every occurrence instead of requiring a unique match. Defaults to false."
+                }
+            },
+            "required": ["path", "old_string", "new_string"]
+        }),
     }
 }
 
@@ -386,32 +386,62 @@ mod tests {
         }
     }
 
-    /// Task 7 already parses `offset`/`limit` out of the `file` call's JSON input in
-    /// `api_process_adapter.rs`, but until this task the schema never declared them in either
-    /// catalog -- live in the parser but unreachable, since the model had no way to learn they
-    /// exist. Both the full catalog's `file` and the plan-mode read-only `file` carry their own
-    /// schema, so both need checking independently.
+    /// Full-surface pin for `file`'s schema in both catalogs -- not just `offset`/`limit`
+    /// presence, per a code-review mutation test that found deleting `content` from the full
+    /// catalog's `file` schema and weakening its `required` from `["operation", "path"]` to
+    /// `["operation"]` left every other test in this module (and the crate: `tool_catalog.rs` is
+    /// the only file that asserts on `input_schema["properties"]` at all) green. `file` has no
+    /// shared constructor like `grep`/`glob` -- its full and plan-mode schemas are two
+    /// hand-maintained `ToolDefinition` literals -- so both need checking independently,
+    /// including the plan-mode copy's narrower `operation` enum and its deliberately absent
+    /// `content` property (plan mode cannot write).
     #[test]
-    fn file_tool_schema_declares_offset_and_limit_in_both_catalogs() {
+    fn file_tool_schema_declares_its_full_argument_surface_in_both_catalogs() {
         let full_file = tool_catalog()
             .into_iter()
             .find(|tool| tool.name == FILE_TOOL_NAME)
             .expect("file tool present in full catalog");
+        assert_eq!(
+            full_file.input_schema["required"],
+            json!(["operation", "path"])
+        );
+        assert_eq!(
+            full_file.input_schema["properties"]["operation"]["enum"],
+            json!(["read", "write"])
+        );
         let full_properties = full_file.input_schema["properties"]
             .as_object()
             .expect("properties object");
-        assert!(full_properties.contains_key("offset"));
-        assert!(full_properties.contains_key("limit"));
+        for key in ["operation", "path", "content", "offset", "limit"] {
+            assert!(full_properties.contains_key(key), "missing property {key}");
+        }
 
         let plan_mode_file = plan_mode_tool_catalog()
             .into_iter()
             .find(|tool| tool.name == FILE_TOOL_NAME)
             .expect("file tool present in plan mode catalog");
+        assert_eq!(
+            plan_mode_file.input_schema["required"],
+            json!(["operation", "path"])
+        );
+        assert_eq!(
+            plan_mode_file.input_schema["properties"]["operation"]["enum"],
+            json!(["read"])
+        );
         let plan_mode_properties = plan_mode_file.input_schema["properties"]
             .as_object()
             .expect("properties object");
-        assert!(plan_mode_properties.contains_key("offset"));
-        assert!(plan_mode_properties.contains_key("limit"));
+        for key in ["operation", "path", "offset", "limit"] {
+            assert!(
+                plan_mode_properties.contains_key(key),
+                "missing property {key}"
+            );
+        }
+        // Plan mode's tool description and `operation` enum already say writing is unavailable --
+        // a stray `content` property here would be the schema quietly contradicting that (see
+        // finding 2: plan mode's `offset`/`limit` used to carry a leftover "Ignored when writing"
+        // clause for the same reason).
+        assert!(!plan_mode_properties.contains_key("content"));
     }
 
     #[test]
