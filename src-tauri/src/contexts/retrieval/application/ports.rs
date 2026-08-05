@@ -63,6 +63,29 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError>;
 }
 
+// 本 trait 唯一的实现要到 Task 10 的 openai-compatible 适配器才会写出来;即使写出来,也要到
+// Task 12 的 bootstrap 装配把它注入 IndexingService、并让 process_pending_batch 从活根被调用
+// 才会被真正调用。Task 8 的 IndexingService 已经把它用作字段类型,但参见上面
+// RetrievalDocumentRepository 的同类结论(已用 cargo check 实测确认)——光靠字段类型引用不足以
+// 让 trait 被判定为"已使用"。届时移除本属性。
+#[allow(dead_code)]
+pub(crate) trait EmbeddingPort: Send + Sync {
+    fn embed(&self, model: &str, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingFailure>;
+}
+
+// EmbeddingFailure 目前只在测试用的 FakeEmbedder 里构造;非测试代码里唯一读它字段的是
+// process_pending_batch 的 Err(failure) 分支,且只读 category(用于 give_up 判定)——message
+// 至今没有任何读者:worker 的失败日志按设计文档 §8.2 只记错误类别与 attempt_count,不落盘
+// message 这种可能带凭据/provider 响应体的原始文本,所以 Task 12 大概率也不会读它。保留这个
+// 字段只是因为它是本任务给定的接口形状。process_pending_batch 本身要到 Task 12 才可达。
+// 第一处非测试构造点是 Task 10 的适配器把 provider 的 HTTP 状态码/错误体映射成这个结构体时。
+// 届时（Task 12 令整条链路可达）移除本属性。
+#[allow(dead_code)]
+pub(crate) struct EmbeddingFailure {
+    pub(crate) category: FailureCategory,
+    pub(crate) message: String,
+}
+
 // Task 6 的仓储已经在 load() 里构造它了（含 unwrap_or_default 的默认值路径），但 load() 本身是
 // SqliteRetrievalConfigurationRepository 的 trait 方法，要到 Task 12 的 bootstrap 装配把仓储从
 // 活根构造出来才可达（已用 cargo check 实测确认：仅移除本属性、保留仓储 struct 与它实现的

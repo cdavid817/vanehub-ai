@@ -1,11 +1,7 @@
 use crate::contexts::retrieval::domain::{
-    content_hash, document_id, IndexState, RetrievalDocument, RetrievalError, SourceKind,
+    content_hash, document_id, FailureCategory, IndexState, RetrievalDocument, RetrievalError,
+    SourceKind,
 };
-// FailureCategory 目前只出现在测试里 FakeRepository::record_failure 的签名（该方法本身
-// unimplemented!()）——reconcile 不构造失败分类。Task 8 给本文件加 process_pending_batch 后
-// 会直接构造 FailureCategory::InvalidRequest 等变体，届时移除本属性。
-#[allow(unused_imports)]
-use crate::contexts::retrieval::domain::FailureCategory;
 // RetrievalScope 同样只出现在测试里 FakeRepository::vector_candidates/keyword_candidates 的
 // 签名（两者都 unimplemented!()），纯粹是为了让 trait 实现完整。真正调用这两个方法的是
 // Task 9 的 search_service.rs，不在本文件——这个 import 不会有"届时移除"的那一天。
@@ -14,11 +10,38 @@ use crate::contexts::retrieval::domain::RetrievalScope;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::ports::RetrievalDocumentRepository;
+use super::ports::{EmbeddingPort, RetrievalDocumentRepository};
+// EmbeddingFailure 只在测试里的 FakeEmbedder::embed 构造它（Err 分支）；非测试代码只经
+// EmbeddingPort::embed 的返回类型隐式用到它，从不在本文件里显式写出它的名字。
+#[allow(unused_imports)]
+use super::ports::EmbeddingFailure;
 // 同理，RetrievalIndexStatus 只出现在测试里 FakeRepository::index_status 的签名
 // （unimplemented!()）。真正调用方是 Task 12 的 RetrievalApi，经仓储直接读，不经过本文件。
 #[allow(unused_imports)]
 use super::ports::RetrievalIndexStatus;
+
+/// 可调常量集中在此，不散落调用点（设计文档 §5.2）。
+// 只在 process_pending_batch 内部出现（claim_pending_batch 的 limit 参数）。process_pending_batch
+// 所在的 impl IndexingService 已带 #[allow(dead_code)]——但那只是单独摘除本属性时的假阴性
+// 遮蔽（同一机制见下方 impl 块注释）：IndexingService 本身要到 Task 12 的 bootstrap 装配从活根
+// 构造出来，本常量才真正可达。届时移除本属性。
+#[allow(dead_code)]
+pub(crate) const EMBEDDING_BATCH_SIZE: usize = 32;
+// 本任务不消费：真正的消费方是 Task 12 后台 worker 的轮询循环（两次 reconcile/批处理之间等待
+// 多久），reconcile 与 process_pending_batch 都不读取轮询间隔。届时移除本属性。
+#[allow(dead_code)]
+pub(crate) const RECONCILE_POLL_INTERVAL_SECONDS: u64 = 300;
+// 同 EMBEDDING_BATCH_SIZE，只在 process_pending_batch 内部出现（give_up 判定的攀升上限）。
+#[allow(dead_code)]
+pub(crate) const MAX_EMBEDDING_ATTEMPTS: u32 = 5;
+// 按设计明确不在本任务消费：这是 Task 12 worker 两次重试之间的退避表，process_pending_batch
+// 只负责单次批处理判定 give_up，不负责调度下一次尝试的时间点。届时移除本属性。
+#[allow(dead_code)]
+pub(crate) const RETRY_BACKOFF_SECONDS: [u64; 5] = [1, 4, 15, 60, 300];
+/// 超长内容 embedding 前截断；FTS 仍索引全文，所以长记忆的尾部仍可被关键词命中。
+// 同 EMBEDDING_BATCH_SIZE，只在 truncate_for_embedding 内部出现。
+#[allow(dead_code)]
+pub(crate) const EMBEDDING_CONTENT_LIMIT: usize = 8000;
 
 /// retrieval 从源上下文取快照的消费侧契约。第 1 期唯一实现是 agent_runtime 的记忆表适配器。
 // 唯一实现要到 Task 12 的 bootstrap 装配把 agent_runtime 的记忆表适配器构造出来、
@@ -46,6 +69,7 @@ pub(crate) struct IndexSourceRecord {
 pub(crate) struct IndexingService {
     repository: Arc<dyn RetrievalDocumentRepository>,
     source: Arc<dyn IndexSourcePort>,
+    embeddings: Arc<dyn EmbeddingPort>,
 }
 
 // 同上，随 IndexingService 一起在 Task 12 移除。
@@ -54,8 +78,13 @@ impl IndexingService {
     pub(crate) fn new(
         repository: Arc<dyn RetrievalDocumentRepository>,
         source: Arc<dyn IndexSourcePort>,
+        embeddings: Arc<dyn EmbeddingPort>,
     ) -> Self {
-        Self { repository, source }
+        Self {
+            repository,
+            source,
+            embeddings,
+        }
     }
 
     /// 索引的真源是这一次差集协调，而**不是**保存路径上的双写。
@@ -105,6 +134,70 @@ impl IndexingService {
         }
         Ok(outcome)
     }
+
+    /// 一次只处理一批（`EMBEDDING_BATCH_SIZE` 条），成功与失败都是终态——调用方（Task 12 的
+    /// worker 循环）负责按 `RECONCILE_POLL_INTERVAL_SECONDS` 的节奏反复调用它，不在这里睡眠等待。
+    pub(crate) fn process_pending_batch(
+        &self,
+        model: &str,
+    ) -> Result<BatchOutcome, RetrievalError> {
+        let batch = self
+            .repository
+            .claim_pending_batch(SourceKind::AgentMemory, EMBEDDING_BATCH_SIZE)?;
+        if batch.is_empty() {
+            return Ok(BatchOutcome::default());
+        }
+        let inputs: Vec<String> = batch
+            .iter()
+            .map(|document| truncate_for_embedding(&document.content))
+            .collect();
+
+        match self.embeddings.embed(model, &inputs) {
+            // 数量对不上说明 provider 的响应与请求不成对，不能靠位置把向量配给文档——
+            // 错配的向量比没有向量更糟：它会安静地污染检索结果。
+            Ok(vectors) if vectors.len() != batch.len() => {
+                for document in &batch {
+                    self.repository.record_failure(
+                        &document.id,
+                        FailureCategory::InvalidRequest,
+                        true,
+                    )?;
+                }
+                Ok(BatchOutcome {
+                    succeeded: 0,
+                    failed: batch.len(),
+                })
+            }
+            Ok(vectors) => {
+                for (document, vector) in batch.iter().zip(vectors.iter()) {
+                    self.repository
+                        .store_embedding(&document.id, model, vector)?;
+                }
+                Ok(BatchOutcome {
+                    succeeded: batch.len(),
+                    failed: 0,
+                })
+            }
+            Err(failure) => {
+                for document in &batch {
+                    let give_up = !failure.category.is_retryable()
+                        || document.attempt_count + 1 >= MAX_EMBEDDING_ATTEMPTS;
+                    self.repository
+                        .record_failure(&document.id, failure.category, give_up)?;
+                }
+                Ok(BatchOutcome {
+                    succeeded: 0,
+                    failed: batch.len(),
+                })
+            }
+        }
+    }
+}
+
+/// 按字符而非字节截断——按字节切会把多字节 UTF-8 字符劈成两半并 panic。
+#[allow(dead_code)]
+fn truncate_for_embedding(content: &str) -> String {
+    content.chars().take(EMBEDDING_CONTENT_LIMIT).collect()
 }
 
 // 唯一构造点是 reconcile 内部；reconcile 要到 Task 12 才被真正调用，届时移除本属性。
@@ -114,6 +207,14 @@ pub(crate) struct ReconcileOutcome {
     pub(crate) added: usize,
     pub(crate) invalidated: usize,
     pub(crate) orphans_removed: usize,
+}
+
+// 唯一构造点是 process_pending_batch 内部；它要到 Task 12 才被真正调用，届时移除本属性。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BatchOutcome {
+    pub(crate) succeeded: usize,
+    pub(crate) failed: usize,
 }
 
 #[cfg(test)]
@@ -131,12 +232,63 @@ mod tests {
         }
     }
 
+    /// embed() 的两种可编排行为：测试只需要"这一批调用要么全成功要么按某个分类全失败"，
+    /// 不需要逐条区分。
+    enum EmbedBehavior {
+        Succeed(Vec<Vec<f32>>),
+        Fail(FailureCategory),
+    }
+
+    /// 记录每次 embed() 收到的 (model, inputs)，供批大小/截断相关断言使用。
+    struct FakeEmbedder {
+        behavior: EmbedBehavior,
+        calls: Mutex<Vec<(String, Vec<String>)>>,
+    }
+
+    impl FakeEmbedder {
+        fn succeeding(vectors: Vec<Vec<f32>>) -> Self {
+            Self {
+                behavior: EmbedBehavior::Succeed(vectors),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn failing(category: FailureCategory) -> Self {
+            Self {
+                behavior: EmbedBehavior::Fail(category),
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl EmbeddingPort for FakeEmbedder {
+        fn embed(&self, model: &str, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
+            self.calls
+                .lock()
+                .expect("lock")
+                .push((model.to_string(), inputs.to_vec()));
+            match &self.behavior {
+                EmbedBehavior::Succeed(vectors) => Ok(vectors.clone()),
+                EmbedBehavior::Fail(category) => Err(EmbeddingFailure {
+                    category: *category,
+                    message: "fake embedding failure".to_string(),
+                }),
+            }
+        }
+    }
+
     #[derive(Default)]
     struct FakeRepository {
         /// 已存在的索引行：(source_id, content_hash)
         rows: Vec<(String, String)>,
         upserted: Mutex<Vec<String>>,
         deleted: Mutex<Vec<String>>,
+        /// claim_pending_batch 要返回的待索引文档，测试按场景摆放。
+        pending: Vec<RetrievalDocument>,
+        /// 记录每次 claim_pending_batch 被调用时收到的 limit 参数。
+        claim_limits: Mutex<Vec<usize>>,
+        stored: Mutex<Vec<(String, String, Vec<f32>)>>,
+        failures: Mutex<Vec<(String, FailureCategory, bool)>>,
     }
 
     impl RetrievalDocumentRepository for FakeRepository {
@@ -167,29 +319,41 @@ mod tests {
             Ok(())
         }
 
-        // reconcile 只用到上面三个方法。其余方法在本套测试中不可达，走 unimplemented!()。
+        // reconcile 用上面三个方法；process_pending_batch 用下面这三个。其余四个
+        // （vector_candidates/keyword_candidates/index_status/requeue_all）在本文件的测试里
+        // 仍不可达，走 unimplemented!()。
         fn claim_pending_batch(
             &self,
             _source_kind: SourceKind,
-            _limit: usize,
+            limit: usize,
         ) -> Result<Vec<RetrievalDocument>, RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            self.claim_limits.lock().expect("lock").push(limit);
+            Ok(self.pending.iter().take(limit).cloned().collect())
         }
         fn store_embedding(
             &self,
-            _id: &str,
-            _model: &str,
-            _embedding: &[f32],
+            id: &str,
+            model: &str,
+            embedding: &[f32],
         ) -> Result<(), RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            self.stored.lock().expect("lock").push((
+                id.to_string(),
+                model.to_string(),
+                embedding.to_vec(),
+            ));
+            Ok(())
         }
         fn record_failure(
             &self,
-            _id: &str,
-            _category: FailureCategory,
-            _give_up: bool,
+            id: &str,
+            category: FailureCategory,
+            give_up: bool,
         ) -> Result<(), RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            self.failures
+                .lock()
+                .expect("lock")
+                .push((id.to_string(), category, give_up));
+            Ok(())
         }
         fn vector_candidates(
             &self,
@@ -197,7 +361,7 @@ mod tests {
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            unimplemented!("not exercised by indexing_service tests")
         }
         fn keyword_candidates(
             &self,
@@ -206,15 +370,17 @@ mod tests {
             _query: &str,
             _limit: usize,
         ) -> Result<Vec<String>, RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            unimplemented!("not exercised by indexing_service tests")
         }
         fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            unimplemented!("not exercised by indexing_service tests")
         }
         fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
-            unimplemented!("not exercised by reconcile tests")
+            unimplemented!("not exercised by indexing_service tests")
         }
     }
+
+    const MODEL: &str = "test-embedding-model";
 
     fn record(source_id: &str, content: &str) -> IndexSourceRecord {
         IndexSourceRecord {
@@ -230,7 +396,25 @@ mod tests {
         (source_id.to_string(), content_hash(content))
     }
 
+    /// process_pending_batch 测试用的最小 RetrievalDocument：id/content/attempt_count 是唯一
+    /// 被服务读取的字段，其余字段填占位值即可。
+    fn pending_document(id: &str, content: &str, attempt_count: u32) -> RetrievalDocument {
+        RetrievalDocument {
+            id: id.to_string(),
+            source_kind: SourceKind::AgentMemory,
+            source_id: id.to_string(),
+            scope_agent_id: "a".to_string(),
+            scope_folder: String::new(),
+            content: content.to_string(),
+            content_hash: content_hash(content),
+            index_state: IndexState::Pending,
+            attempt_count,
+            embedding_model: None,
+        }
+    }
+
     /// 装配一个只依赖两个 fake 的服务，返回服务与仓储句柄以便事后断言调用记录。
+    /// reconcile 从不触碰 embeddings，给一个成功但永不会被调用的 embedder 占位即可。
     fn service(
         records: Vec<IndexSourceRecord>,
         rows: Vec<(String, String)>,
@@ -239,8 +423,34 @@ mod tests {
             rows,
             ..FakeRepository::default()
         });
-        let service = IndexingService::new(repository.clone(), Arc::new(FakeSource { records }));
+        let service = IndexingService::new(
+            repository.clone(),
+            Arc::new(FakeSource { records }),
+            Arc::new(FakeEmbedder::succeeding(Vec::new())),
+        );
         (service, repository)
+    }
+
+    /// 装配一个用于 process_pending_batch 测试的服务；reconcile 侧的 source 用不到，
+    /// 给个空快照的 FakeSource 占位。返回三个句柄，方便测试分别断言仓储调用记录与
+    /// embedder 收到的 (model, inputs)。
+    fn batch_service(
+        pending: Vec<RetrievalDocument>,
+        embedder: FakeEmbedder,
+    ) -> (IndexingService, Arc<FakeRepository>, Arc<FakeEmbedder>) {
+        let repository = Arc::new(FakeRepository {
+            pending,
+            ..FakeRepository::default()
+        });
+        let embedder = Arc::new(embedder);
+        let service = IndexingService::new(
+            repository.clone(),
+            Arc::new(FakeSource {
+                records: Vec::new(),
+            }),
+            embedder.clone(),
+        );
+        (service, repository, embedder)
     }
 
     #[test]
@@ -317,6 +527,220 @@ mod tests {
         assert_eq!(
             *repository.deleted.lock().expect("lock"),
             vec!["m3".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_successful_batch_stores_one_embedding_per_document() {
+        let pending = vec![
+            pending_document("m1", "uses npm", 0),
+            pending_document("m2", "uses cargo", 0),
+            pending_document("m3", "uses rustup", 0),
+        ];
+        let vectors = vec![vec![0.1, 0.2], vec![0.3, 0.4], vec![0.5, 0.6]];
+        let (service, repository, _embedder) =
+            batch_service(pending, FakeEmbedder::succeeding(vectors.clone()));
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 3,
+                failed: 0
+            }
+        );
+        assert_eq!(
+            *repository.stored.lock().expect("lock"),
+            vec![
+                ("m1".to_string(), MODEL.to_string(), vectors[0].clone()),
+                ("m2".to_string(), MODEL.to_string(), vectors[1].clone()),
+                ("m3".to_string(), MODEL.to_string(), vectors[2].clone()),
+            ]
+        );
+        assert!(repository.failures.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn an_auth_failure_gives_up_immediately_without_burning_quota() {
+        // attempt_count 是 0——离 MAX_EMBEDDING_ATTEMPTS 还差得远，纯按次数算不该 give up。
+        // Auth 是确定性失败：重试只会烧配额，所以无论次数都必须立刻放弃。
+        let pending = vec![pending_document("m1", "uses npm", 0)];
+        let (service, repository, _embedder) =
+            batch_service(pending, FakeEmbedder::failing(FailureCategory::Auth));
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 0,
+                failed: 1
+            }
+        );
+        assert_eq!(
+            *repository.failures.lock().expect("lock"),
+            vec![("m1".to_string(), FailureCategory::Auth, true)]
+        );
+        assert!(repository.stored.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn an_invalid_request_failure_gives_up_immediately() {
+        let pending = vec![pending_document("m1", "uses npm", 0)];
+        let (service, repository, _embedder) = batch_service(
+            pending,
+            FakeEmbedder::failing(FailureCategory::InvalidRequest),
+        );
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 0,
+                failed: 1
+            }
+        );
+        assert_eq!(
+            *repository.failures.lock().expect("lock"),
+            vec![("m1".to_string(), FailureCategory::InvalidRequest, true)]
+        );
+    }
+
+    #[test]
+    fn a_network_failure_below_the_attempt_ceiling_stays_retryable() {
+        // attempt_count 1 → 下一次是第 2 次尝试，远低于 MAX_EMBEDDING_ATTEMPTS，
+        // 且 Network 是瞬时性失败，应保持可重试（give_up = false）。
+        let pending = vec![pending_document("m1", "uses npm", 1)];
+        let (service, repository, _embedder) =
+            batch_service(pending, FakeEmbedder::failing(FailureCategory::Network));
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 0,
+                failed: 1
+            }
+        );
+        assert_eq!(
+            *repository.failures.lock().expect("lock"),
+            vec![("m1".to_string(), FailureCategory::Network, false)]
+        );
+    }
+
+    #[test]
+    fn a_network_failure_at_the_attempt_ceiling_gives_up() {
+        // attempt_count = MAX_EMBEDDING_ATTEMPTS - 1 → 这次失败后尝试数达到上限，
+        // 即使 Network 本身可重试，也必须放弃，否则会无限重试下去。
+        let pending = vec![pending_document(
+            "m1",
+            "uses npm",
+            MAX_EMBEDDING_ATTEMPTS - 1,
+        )];
+        let (service, repository, _embedder) =
+            batch_service(pending, FakeEmbedder::failing(FailureCategory::Network));
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 0,
+                failed: 1
+            }
+        );
+        assert_eq!(
+            *repository.failures.lock().expect("lock"),
+            vec![("m1".to_string(), FailureCategory::Network, true)]
+        );
+    }
+
+    #[test]
+    fn content_longer_than_the_limit_is_truncated_before_embedding() {
+        // 用多字节字符（每个 3 字节）构造超长内容：如果实现按字节而非字符切片，
+        // EMBEDDING_CONTENT_LIMIT（8000）不是 3 的倍数，切点会落在字符中间——要么直接
+        // panic，要么切出来的字符数就不会恰好等于 EMBEDDING_CONTENT_LIMIT。
+        let content: String = "记".repeat(EMBEDDING_CONTENT_LIMIT + 1);
+        assert_eq!(content.chars().count(), EMBEDDING_CONTENT_LIMIT + 1);
+        let pending = vec![pending_document("m1", &content, 0)];
+        let (service, _repository, embedder) =
+            batch_service(pending, FakeEmbedder::succeeding(vec![vec![0.1]]));
+
+        service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        let calls = embedder.calls.lock().expect("lock");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].1.len(), 1);
+        assert_eq!(calls[0].1[0].chars().count(), EMBEDDING_CONTENT_LIMIT);
+    }
+
+    #[test]
+    fn a_batch_never_exceeds_its_size_limit() {
+        let pending: Vec<RetrievalDocument> = (0..40)
+            .map(|i| pending_document(&format!("m{i}"), "uses npm", 0))
+            .collect();
+        let vectors = vec![vec![0.1]; EMBEDDING_BATCH_SIZE];
+        let (service, repository, _embedder) =
+            batch_service(pending, FakeEmbedder::succeeding(vectors));
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(outcome.succeeded, EMBEDDING_BATCH_SIZE);
+        assert_eq!(
+            *repository.claim_limits.lock().expect("lock"),
+            vec![EMBEDDING_BATCH_SIZE]
+        );
+    }
+
+    #[test]
+    fn a_provider_returning_the_wrong_number_of_vectors_fails_the_batch_without_storing_anything() {
+        let pending = vec![
+            pending_document("m1", "uses npm", 0),
+            pending_document("m2", "uses cargo", 0),
+            pending_document("m3", "uses rustup", 0),
+        ];
+        // provider 只回了 2 个向量，但批里有 3 条——数量对不上，不能靠位置瞎配对。
+        let (service, repository, _embedder) = batch_service(
+            pending,
+            FakeEmbedder::succeeding(vec![vec![0.1], vec![0.2]]),
+        );
+
+        let outcome = service
+            .process_pending_batch(MODEL)
+            .expect("process_pending_batch");
+
+        assert_eq!(
+            outcome,
+            BatchOutcome {
+                succeeded: 0,
+                failed: 3
+            }
+        );
+        assert!(repository.stored.lock().expect("lock").is_empty());
+        assert_eq!(
+            *repository.failures.lock().expect("lock"),
+            vec![
+                ("m1".to_string(), FailureCategory::InvalidRequest, true),
+                ("m2".to_string(), FailureCategory::InvalidRequest, true),
+                ("m3".to_string(), FailureCategory::InvalidRequest, true),
+            ]
         );
     }
 }
