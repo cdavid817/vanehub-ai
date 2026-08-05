@@ -2439,7 +2439,12 @@ pub(crate) fn search(&self, query: &RetrievalQuery) -> Result<SearchOutcome, Ret
 /// `None` 表示这一路整体不可用（query embedding 失败或候选查询失败），交由调用方降级；
 /// 空 `Vec` 表示这一路可用但没有命中，是正常结果。
 fn vector_ranking(&self, query: &RetrievalQuery, model: &str, limit: usize) -> Option<Vec<String>> {
-    let embedded = self.embeddings.embed(model, &[query.text.clone()]).ok()?;
+    // `std::slice::from_ref` 而非 `&[query.text.clone()]`：后者会触发 clippy 的
+    // `cloned_ref_to_slice_refs`，而本仓库 CI 跑的是 `-D warnings`。
+    let embedded = self
+        .embeddings
+        .embed(model, std::slice::from_ref(&query.text))
+        .ok()?;
     let query_vector = embedded.into_iter().next()?;
     let candidates = self
         .repository
@@ -2467,7 +2472,7 @@ fn vector_ranking(&self, query: &RetrievalQuery, model: &str, limit: usize) -> O
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml retrieval::application::search_service`
-Expected: PASS，10 个测试。
+Expected: PASS，11 个测试（Step 1 列了 11 条——"两路都失败"那条是降级裁决定案后补的）。
 
 - [ ] **Step 5: 提交**
 
