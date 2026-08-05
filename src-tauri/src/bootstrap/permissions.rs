@@ -6,9 +6,11 @@ use crate::contexts::permissions::application::{ApprovalBroker, EvaluationServic
 use crate::contexts::permissions::infrastructure::{
     DesktopDefaultTemplateAdapter, PermissionsSystemClock, PermissionsUuidIdGenerator,
     SqliteAuditRepository, SqliteGrantRepository, SqlitePrincipalRepository,
+    TauriPendingApprovalEventAdapter,
 };
 use crate::platform::database::NativeDatabase;
 use std::sync::Arc;
+use tauri::AppHandle;
 use tokio::time::{sleep, Duration};
 
 /// A pending approval left unresolved this long is denied automatically (design.md D5,
@@ -19,6 +21,7 @@ const TIMEOUT_SWEEP_INTERVAL_SECONDS: u64 = 30;
 pub(crate) fn assemble_permissions_api(
     database: NativeDatabase,
     desktop_settings: DesktopSettingsApi,
+    app: AppHandle,
 ) -> PermissionsApi {
     let principals = Arc::new(SqlitePrincipalRepository::new(database.clone()));
     let grants = Arc::new(SqliteGrantRepository::new(database.clone()));
@@ -26,6 +29,7 @@ pub(crate) fn assemble_permissions_api(
     let clock = Arc::new(PermissionsSystemClock);
     let ids = Arc::new(PermissionsUuidIdGenerator);
     let default_template = Arc::new(DesktopDefaultTemplateAdapter::new(desktop_settings));
+    let events = Arc::new(TauriPendingApprovalEventAdapter::new(app));
 
     let evaluation = EvaluationService::new(
         principals.clone(),
@@ -41,6 +45,7 @@ pub(crate) fn assemble_permissions_api(
         audit,
         clock,
         ids,
+        events,
         APPROVAL_TIMEOUT_SECONDS,
     );
     PermissionsApi::new(evaluation, approvals)

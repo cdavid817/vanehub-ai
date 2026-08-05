@@ -1218,6 +1218,8 @@
   "notifications.sessionScope": "Session",
   "notifications.sessionCreated.title": "Session created",
   "notifications.sessionCreated.message": "{{title}} is ready.",
+  "notifications.pendingApproval.title": "Approval needed",
+  "notifications.pendingApproval.message": "{{agentId}} wants to run {{action}} and needs your approval.",
   "extensions.title": "Extension Capabilities",
   "extensions.description": "Install and manage local OCR, speech recognition, and speech synthesis frameworks",
   "extensions.refresh": "Refresh",

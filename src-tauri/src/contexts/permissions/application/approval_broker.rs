@@ -6,8 +6,8 @@
 
 use super::error::PermissionsApplicationError;
 use super::ports::{
-    AuditDecider, AuditRecord, AuditRepository, GrantRepository, PermissionsClockPort,
-    PermissionsIdPort, PrincipalRepository,
+    AuditDecider, AuditRecord, AuditRepository, GrantRepository, PendingApprovalEventPort,
+    PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
     risk_level_for, Action, ApprovalDecision, ApprovalRequest, Effect, Grant, Principal,
@@ -23,6 +23,7 @@ pub(crate) struct ApprovalBroker {
     audit: Arc<dyn AuditRepository>,
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
+    events: Arc<dyn PendingApprovalEventPort>,
     pending: Arc<Mutex<HashMap<String, ApprovalRequest>>>,
     timeout_seconds: i64,
 }
@@ -34,12 +35,14 @@ pub(crate) struct ResolvedApproval {
 }
 
 impl ApprovalBroker {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         principals: Arc<dyn PrincipalRepository>,
         grants: Arc<dyn GrantRepository>,
         audit: Arc<dyn AuditRepository>,
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
+        events: Arc<dyn PendingApprovalEventPort>,
         timeout_seconds: i64,
     ) -> Self {
         Self {
@@ -48,6 +51,7 @@ impl ApprovalBroker {
             audit,
             clock,
             ids,
+            events,
             pending: Arc::new(Mutex::new(HashMap::new())),
             timeout_seconds,
         }
@@ -86,6 +90,10 @@ impl ApprovalBroker {
             .lock()
             .expect("pending approvals mutex poisoned")
             .insert(request.id.clone(), request.clone());
+        // Best-effort (see `PendingApprovalEventPort`'s own doc comment): a publish failure must
+        // not fail approval creation itself, since the frontend's pull-on-mount already covers
+        // a missed event.
+        let _ = self.events.publish(&request);
         Ok(request)
     }
 
@@ -278,6 +286,15 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeEvents(StdMutex<Vec<String>>);
+    impl PendingApprovalEventPort for FakeEvents {
+        fn publish(&self, request: &ApprovalRequest) -> Result<(), PermissionsApplicationError> {
+            self.0.lock().unwrap().push(request.id.clone());
+            Ok(())
+        }
+    }
+
     struct StepClock(StdMutex<i64>);
     impl PermissionsClockPort for StepClock {
         fn now(&self) -> String {
@@ -297,23 +314,27 @@ mod tests {
         }
     }
 
-    fn broker(timeout_seconds: i64) -> (ApprovalBroker, Arc<FakeGrants>, Arc<FakeAudit>) {
+    fn broker(
+        timeout_seconds: i64,
+    ) -> (ApprovalBroker, Arc<FakeGrants>, Arc<FakeAudit>, Arc<FakeEvents>) {
         let grants = Arc::new(FakeGrants::default());
         let audit = Arc::new(FakeAudit::default());
+        let events = Arc::new(FakeEvents::default());
         let broker = ApprovalBroker::new(
             Arc::new(FakePrincipals::default()),
             grants.clone(),
             audit.clone(),
             Arc::new(StepClock(StdMutex::new(0))),
             Arc::new(FakeIds(StdMutex::new(0))),
+            events.clone(),
             timeout_seconds,
         );
-        (broker, grants, audit)
+        (broker, grants, audit, events)
     }
 
     #[test]
     fn create_pending_appears_in_list_pending() {
-        let (broker, _grants, _audit) = broker(60);
+        let (broker, _grants, _audit, _events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -330,8 +351,25 @@ mod tests {
     }
 
     #[test]
+    fn create_pending_publishes_an_event() {
+        let (broker, _grants, _audit, events) = broker(60);
+        let request = broker
+            .create_pending(
+                "agent-1",
+                Action::shell_exec(),
+                Resource::workspace(),
+                "session-1",
+                "generation-1",
+                "call-1",
+                "project-1",
+            )
+            .unwrap();
+        assert_eq!(*events.0.lock().unwrap(), vec![request.id]);
+    }
+
+    #[test]
     fn finalize_removes_from_pending_and_creates_a_grant_when_remembered_and_delivered() {
-        let (broker, grants, audit) = broker(60);
+        let (broker, grants, audit, _events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -355,7 +393,7 @@ mod tests {
 
     #[test]
     fn finalize_with_once_scope_does_not_create_a_grant() {
-        let (broker, grants, _audit) = broker(60);
+        let (broker, grants, _audit, _events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -375,7 +413,7 @@ mod tests {
 
     #[test]
     fn finalize_when_not_delivered_records_stale_generation_and_skips_the_grant() {
-        let (broker, grants, audit) = broker(60);
+        let (broker, grants, audit, _events) = broker(60);
         let request = broker
             .create_pending(
                 "agent-1",
@@ -398,7 +436,7 @@ mod tests {
 
     #[test]
     fn finalize_on_an_unknown_request_id_returns_none() {
-        let (broker, _grants, _audit) = broker(60);
+        let (broker, _grants, _audit, _events) = broker(60);
         let resolved = broker
             .finalize("does-not-exist", ApprovalDecision::Deny, Scope::Once, true)
             .unwrap();
@@ -407,7 +445,7 @@ mod tests {
 
     #[test]
     fn sweep_timed_out_removes_only_expired_requests() {
-        let (broker, _grants, _audit) = broker(5);
+        let (broker, _grants, _audit, _events) = broker(5);
         // StepClock advances by 1 each call: create_pending's internal `clock.now()` call
         // consumes tick 0.
         let old_request = broker
@@ -445,7 +483,7 @@ mod tests {
 
     #[test]
     fn sweep_timed_out_audits_each_expired_request_as_a_timeout_denial() {
-        let (broker, _grants, audit) = broker(0);
+        let (broker, _grants, audit, _events) = broker(0);
         broker
             .create_pending(
                 "agent-1",

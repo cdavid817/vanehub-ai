@@ -1218,6 +1218,8 @@
   "notifications.sessionScope": "세션",
   "notifications.sessionCreated.title": "세션이 생성되었습니다.",
   "notifications.sessionCreated.message": "{{title}}가 준비되었습니다.",
+  "notifications.pendingApproval.title": "승인이 필요합니다",
+  "notifications.pendingApproval.message": "{{agentId}}가 {{action}} 실행을 요청했습니다. 승인이 필요합니다.",
   "extensions.title": "확장 기능",
   "extensions.description": "로컬 OCR, 음성 인식, 음성 합성 프레임워크 설치 및 관리",
   "extensions.refresh": "새로고침",

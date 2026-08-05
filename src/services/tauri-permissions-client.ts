@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ApprovalScope, PendingApprovalEntry, PolicyTemplateName, PrincipalEntry } from "../types/permissions";
 import type { PermissionsService } from "./permissions";
 
@@ -17,5 +18,9 @@ export const tauriPermissionsClient: PermissionsService = {
 
   getAgentPolicyPrincipal(agentId: string) {
     return invoke<PrincipalEntry>("get_agent_policy_principal", { input: { agentId } });
+  },
+
+  async subscribePendingApprovalEvents(handler: (event: PendingApprovalEntry) => void) {
+    return listen<PendingApprovalEntry>("permission:request", (event) => handler(event.payload));
   },
 };

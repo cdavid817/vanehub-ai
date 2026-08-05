@@ -1,7 +1,7 @@
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
-import { isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
+import { createWebPendingApproval, isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -3236,7 +3236,7 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        webPendingApprovals.set(callId, {
+        createWebPendingApproval(callId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: "shell",
@@ -3311,7 +3311,7 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        webPendingApprovals.set(mcpCallId, {
+        createWebPendingApproval(mcpCallId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: mcpSimulation.awaitingApproval.name,

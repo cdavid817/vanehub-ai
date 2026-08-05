@@ -1218,6 +1218,8 @@
   "notifications.sessionScope": "会话",
   "notifications.sessionCreated.title": "会话创建成功",
   "notifications.sessionCreated.message": "{{title}} 已准备就绪。",
+  "notifications.pendingApproval.title": "需要你的批准",
+  "notifications.pendingApproval.message": "{{agentId}} 请求执行 {{action}},需要你的批准。",
   "extensions.title": "扩展能力",
   "extensions.description": "安装和管理本地 OCR、语音识别与语音合成框架",
   "extensions.refresh": "刷新",

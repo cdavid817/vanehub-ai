@@ -1,8 +1,9 @@
-import type { ApprovalScope, PolicyTemplateName, PrincipalEntry } from "../types/permissions";
+import type { ApprovalScope, PendingApprovalEntry, PolicyTemplateName, PrincipalEntry } from "../types/permissions";
 import type { PermissionsService } from "./permissions";
 import { resolveWebMockToolApproval } from "./web-agent-client";
 import {
   getWebDefaultPolicyTemplate,
+  subscribeWebPendingApprovals,
   webPendingApprovals,
   webPrincipalTemplates,
 } from "./web-permissions-mock-state";
@@ -51,5 +52,9 @@ export const webPermissionsClient: PermissionsService = {
       template,
       requiresConfirmationToAssign: requiresConfirmationToAssign(template),
     };
+  },
+
+  async subscribePendingApprovalEvents(handler: (event: PendingApprovalEntry) => void) {
+    return subscribeWebPendingApprovals(handler);
   },
 };

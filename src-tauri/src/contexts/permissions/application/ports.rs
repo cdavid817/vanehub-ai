@@ -4,7 +4,7 @@
 
 use super::error::PermissionsApplicationError;
 use crate::contexts::permissions::domain::{
-    Action, Effect, Grant, Principal, PolicyTemplateName, Resource, RiskLevel,
+    Action, ApprovalRequest, Effect, Grant, Principal, PolicyTemplateName, Resource, RiskLevel,
 };
 
 pub(crate) trait PermissionsClockPort: Send + Sync {
@@ -85,4 +85,13 @@ pub(crate) struct AuditRecord {
 
 pub(crate) trait AuditRepository: Send + Sync {
     fn append(&self, record: AuditRecord) -> Result<(), PermissionsApplicationError>;
+}
+
+/// Pushes notice of a newly created pending approval (`permissions-approval`'s "New pending
+/// approvals are pushed and reconciled by pull") — a best-effort UX signal, never the correctness
+/// boundary. The frontend's own mount-time pull against `list_pending` is what actually guarantees
+/// a missed event can't leave a generation silently waiting forever, so a failure here is not
+/// propagated as an error by callers; there's nothing meaningful to retry.
+pub(crate) trait PendingApprovalEventPort: Send + Sync {
+    fn publish(&self, request: &ApprovalRequest) -> Result<(), PermissionsApplicationError>;
 }

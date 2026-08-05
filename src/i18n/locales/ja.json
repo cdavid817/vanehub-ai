@@ -1218,6 +1218,8 @@
   "notifications.sessionScope": "セッション",
   "notifications.sessionCreated.title": "セッションが作成されました",
   "notifications.sessionCreated.message": "{{title}} の準備ができました。",
+  "notifications.pendingApproval.title": "承認が必要です",
+  "notifications.pendingApproval.message": "{{agentId}} が {{action}} の実行を要求しています。承認が必要です。",
   "extensions.title": "拡張機能",
   "extensions.description": "ローカル OCR、音声認識、音声合成フレームワークのインストールと管理",
   "extensions.refresh": "リフレッシュ",

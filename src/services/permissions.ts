@@ -5,4 +5,6 @@ export interface PermissionsService {
   resolvePendingApproval(requestId: string, approved: boolean, scope: ApprovalScope): Promise<boolean>;
   applyPolicyTemplate(agentId: string, template: PolicyTemplateName): Promise<PrincipalEntry>;
   getAgentPolicyPrincipal(agentId: string): Promise<PrincipalEntry>;
+  /** Global, not scoped to any one session — fires for a new pending approval anywhere. */
+  subscribePendingApprovalEvents(handler: (event: PendingApprovalEntry) => void): Promise<() => void>;
 }
