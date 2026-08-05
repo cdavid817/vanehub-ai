@@ -52,11 +52,22 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                     "content": {
                         "type": "string",
                         "description": "Content to write. Required when operation is \"write\", ignored otherwise."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Line number to start reading from (0-based). Ignored when writing."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return. Ignored when writing."
                     }
                 },
                 "required": ["operation", "path"]
             }),
         },
+        grep_tool_definition(),
+        glob_tool_definition(),
+        edit_tool_definition(),
         remember_tool_definition(),
     ]
 }
@@ -84,11 +95,21 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
                     "path": {
                         "type": "string",
                         "description": "Path relative to the workspace root."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Line number to start reading from (0-based). Ignored when writing."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return. Ignored when writing."
                     }
                 },
                 "required": ["operation", "path"]
             }),
         },
+        grep_tool_definition(),
+        glob_tool_definition(),
         remember_tool_definition(),
     ]
 }
@@ -107,6 +128,103 @@ fn remember_tool_definition() -> ToolDefinition {
             },
             "required": ["content"]
         }),
+    }
+}
+
+/// `grep` and `glob` are each offered from both `tool_catalog()` and `plan_mode_tool_catalog()`
+/// (`edit` only from the former, but factored the same way for consistency) -- extracted so the
+/// two catalogs share one schema each instead of maintaining duplicate copies that could drift
+/// apart the first time either one is edited, following the `remember_tool_definition()`
+/// precedent above.
+fn grep_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+            name: GREP_TOOL_NAME.to_string(),
+            description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore and skips binary files. Prefer this over running grep through the shell.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Regular expression to search for."
+                    },
+                    "glob": {
+                        "type": "string",
+                        "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\"."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional subdirectory (relative to the workspace root) to search within."
+                    },
+                    "output_mode": {
+                        "type": "string",
+                        "enum": ["files_with_matches", "content", "count"],
+                        "description": "\"files_with_matches\" (default) lists matching file paths; \"content\" returns matching lines with line numbers; \"count\" returns per-file match counts."
+                    },
+                    "context": {
+                        "type": "integer",
+                        "description": "Lines of context around each match. Only used when output_mode is \"content\"."
+                    },
+                    "case_insensitive": {
+                        "type": "boolean",
+                        "description": "Match case-insensitively. Defaults to false."
+                    },
+                    "head_limit": {
+                        "type": "integer",
+                        "description": "Maximum number of result lines to return."
+                    }
+                },
+                "required": ["pattern"]
+            }),
+    }
+}
+
+fn glob_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+            name: GLOB_TOOL_NAME.to_string(),
+            description: "Find files by name pattern in the session's workspace folder. Respects .gitignore. Prefer this over listing files through the shell.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern matched against workspace-relative paths, e.g. \"**/*.test.ts\"."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Optional subdirectory (relative to the workspace root) to search within."
+                    }
+                },
+                "required": ["pattern"]
+            }),
+    }
+}
+
+fn edit_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+            name: EDIT_TOOL_NAME.to_string(),
+            description: "Replace an exact string in a file relative to the session's workspace folder. old_string must match exactly once unless replace_all is true. Prefer this over rewriting a whole file with the file tool.".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to the workspace root."
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to replace. Include enough surrounding context to match exactly once."
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Replacement text."
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace every occurrence instead of requiring a unique match. Defaults to false."
+                    }
+                },
+                "required": ["path", "old_string", "new_string"]
+            }),
     }
 }
 
@@ -159,24 +277,141 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_declares_exactly_shell_file_and_remember_tools() {
+    fn catalog_declares_the_six_native_tools_in_a_stable_order() {
         let catalog = tool_catalog();
-        assert_eq!(catalog.len(), 3);
-        assert_eq!(catalog[0].name, SHELL_TOOL_NAME);
-        assert_eq!(catalog[1].name, FILE_TOOL_NAME);
-        assert_eq!(catalog[2].name, REMEMBER_TOOL_NAME);
+        let names: Vec<&str> = catalog.iter().map(|tool| tool.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+            ]
+        );
     }
 
     #[test]
-    fn plan_mode_catalog_offers_only_read_only_file_and_remember() {
+    fn plan_mode_catalog_offers_only_read_only_tools() {
         let catalog = plan_mode_tool_catalog();
-        assert_eq!(catalog.len(), 2);
-        assert_eq!(catalog[0].name, FILE_TOOL_NAME);
+        let names: Vec<&str> = catalog.iter().map(|tool| tool.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+            ]
+        );
         assert_eq!(
             catalog[0].input_schema["properties"]["operation"]["enum"],
             json!(["read"])
         );
-        assert_eq!(catalog[1].name, REMEMBER_TOOL_NAME);
+    }
+
+    #[test]
+    fn plan_mode_catalog_never_offers_shell_or_edit() {
+        let names: Vec<String> = plan_mode_tool_catalog()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert!(!names.contains(&SHELL_TOOL_NAME.to_string()));
+        assert!(!names.contains(&EDIT_TOOL_NAME.to_string()));
+    }
+
+    /// Pins the exact argument surface the model is told about for `grep`, cross-checked against
+    /// `execute_tool_call`'s parsing in `api_process_adapter.rs`. A schema missing one of these
+    /// properties would leave that argument live in the parser but unreachable from the model --
+    /// exactly the failure mode `offset`/`limit` had on `file` before this task.
+    #[test]
+    fn grep_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == GREP_TOOL_NAME)
+            .expect("grep tool present in catalog");
+        assert_eq!(tool.input_schema["required"], json!(["pattern"]));
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in [
+            "pattern",
+            "glob",
+            "path",
+            "output_mode",
+            "context",
+            "case_insensitive",
+            "head_limit",
+        ] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+        assert_eq!(
+            tool.input_schema["properties"]["output_mode"]["enum"],
+            json!(["files_with_matches", "content", "count"])
+        );
+    }
+
+    #[test]
+    fn glob_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == GLOB_TOOL_NAME)
+            .expect("glob tool present in catalog");
+        assert_eq!(tool.input_schema["required"], json!(["pattern"]));
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["pattern", "path"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+    }
+
+    #[test]
+    fn edit_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == EDIT_TOOL_NAME)
+            .expect("edit tool present in catalog");
+        assert_eq!(
+            tool.input_schema["required"],
+            json!(["path", "old_string", "new_string"])
+        );
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["path", "old_string", "new_string", "replace_all"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+    }
+
+    /// Task 7 already parses `offset`/`limit` out of the `file` call's JSON input in
+    /// `api_process_adapter.rs`, but until this task the schema never declared them in either
+    /// catalog -- live in the parser but unreachable, since the model had no way to learn they
+    /// exist. Both the full catalog's `file` and the plan-mode read-only `file` carry their own
+    /// schema, so both need checking independently.
+    #[test]
+    fn file_tool_schema_declares_offset_and_limit_in_both_catalogs() {
+        let full_file = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == FILE_TOOL_NAME)
+            .expect("file tool present in full catalog");
+        let full_properties = full_file.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        assert!(full_properties.contains_key("offset"));
+        assert!(full_properties.contains_key("limit"));
+
+        let plan_mode_file = plan_mode_tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == FILE_TOOL_NAME)
+            .expect("file tool present in plan mode catalog");
+        let plan_mode_properties = plan_mode_file.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        assert!(plan_mode_properties.contains_key("offset"));
+        assert!(plan_mode_properties.contains_key("limit"));
     }
 
     #[test]

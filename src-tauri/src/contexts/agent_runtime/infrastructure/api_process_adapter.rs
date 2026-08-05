@@ -3241,7 +3241,7 @@ mod tests {
 
         let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false);
 
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 7);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -3272,10 +3272,13 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 259);
+        assert_eq!(tools.len(), 262);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
-        assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
+        assert_eq!(tools[2].name, GREP_TOOL_NAME);
+        assert_eq!(tools[3].name, GLOB_TOOL_NAME);
+        assert_eq!(tools[4].name, EDIT_TOOL_NAME);
+        assert_eq!(tools[5].name, REMEMBER_TOOL_NAME);
     }
 
     #[test]
@@ -3294,12 +3297,15 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            3,
+            6,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
-        assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
+        assert_eq!(tools[2].name, GREP_TOOL_NAME);
+        assert_eq!(tools[3].name, GLOB_TOOL_NAME);
+        assert_eq!(tools[4].name, EDIT_TOOL_NAME);
+        assert_eq!(tools[5].name, REMEMBER_TOOL_NAME);
         let logs = logging.logs.lock().expect("logs");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].level, AgentLogLevel::Warn);
