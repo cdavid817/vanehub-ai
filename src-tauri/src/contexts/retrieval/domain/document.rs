@@ -2,15 +2,11 @@ use sha2::{Digest, Sha256};
 
 /// 索引来源类别。第 1 期只有 `AgentMemory`；第 2/3 期扩展 `session_message`、`workspace_file`。
 /// 字符串形式是持久化格式，改动即破坏既有索引行。
-// Task 5 的文档仓储会构造并匹配 SourceKind；届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceKind {
     AgentMemory,
 }
 
-// 同上，随 SourceKind 一起在 Task 5 移除。
-#[allow(dead_code)]
 impl SourceKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -26,8 +22,6 @@ impl SourceKind {
     }
 }
 
-// Task 5 的文档仓储会读写 index_state；届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IndexState {
     Pending,
@@ -35,9 +29,12 @@ pub(crate) enum IndexState {
     Failed,
 }
 
-// 同上，随 IndexState 一起在 Task 5 移除。
-#[allow(dead_code)]
 impl IndexState {
+    // 检索仓储写 index_state 时一律绑定 SQL 字符串字面量（见 sqlite_repository.rs 的
+    // upsert_pending/store_embedding/record_failure/requeue_all），从不把 Rust 端的 IndexState
+    // 序列化回字符串——所以生产代码里没有 as_str 的调用方，它只用于 Task 2 自身的往返测试
+    // （断言 parse(as_str(x)) == x）。没有计划中的任务会改变这一点，故不写"届时移除"。
+    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -57,7 +54,9 @@ impl IndexState {
 }
 
 /// 决定重试策略：`Auth`/`InvalidRequest` 是确定性失败，重试只会烧配额（设计文档 §5.2）。
-// Task 5 的仓储 trait 签名会用上这个类型（记录失败类别）；届时移除本属性。
+// record_failure 只把 category 当不透明参数转手绑定给 SQL，本身从不构造 FailureCategory 的
+// 具体变体；四个变体第一次被真正构造，要等 Task 10 的 openai-compatible 适配器把 HTTP 状态码
+// 映射成分类、且 Task 12 的后台 worker 把整条链路接到活的入口之后。届时移除本属性。
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FailureCategory {
@@ -67,8 +66,6 @@ pub(crate) enum FailureCategory {
     Network,
 }
 
-// 同上；is_retryable 要到 Task 8 的重试逻辑才被调用，届时一并移除。
-#[allow(dead_code)]
 impl FailureCategory {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -79,13 +76,14 @@ impl FailureCategory {
         }
     }
 
+    // is_retryable 要到 Task 8 的重试逻辑（按 attempt_count 与该分类决定是否 give_up）才被
+    // 调用；届时移除本属性。
+    #[allow(dead_code)]
     pub(crate) fn is_retryable(self) -> bool {
         matches!(self, Self::RateLimit | Self::Network)
     }
 }
 
-// Task 5 的仓储 trait 签名会用上这个类型；届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RetrievalDocument {
     pub(crate) id: String,
@@ -103,19 +101,20 @@ pub(crate) struct RetrievalDocument {
 
 /// 确定性主键，与 `UNIQUE (source_kind, source_id)` 同源——reconcile 因此可以直接 upsert，
 /// 不必先查后插。
-// Task 5 的仓储会调用它生成主键；届时移除本属性。
+// Task 5 的仓储把 id/content_hash 当作调用方已经算好的字段直接绑定，本身不重新计算；
+// 真正调用这两个函数构造 RetrievalDocument 的是 Task 7 的差集协调服务，届时移除本属性。
 #[allow(dead_code)]
 pub(crate) fn document_id(source_kind: SourceKind, source_id: &str) -> String {
     format!("{}:{}", source_kind.as_str(), source_id)
 }
 
-// Task 5 的仓储会在写入前调用它计算内容哈希；届时移除本属性。
+// 同上，随 document_id 一起在 Task 7 移除。
 #[allow(dead_code)]
 pub(crate) fn content_hash(content: &str) -> String {
     bytes_to_hex(&Sha256::digest(content.as_bytes()))
 }
 
-// 仅被 content_hash 调用；content_hash 在 Task 5 变为可达后本函数一并可达，届时移除本属性。
+// 仅被 content_hash 调用；content_hash 在 Task 7 变为可达后本函数一并可达，届时移除本属性。
 #[allow(dead_code)]
 fn bytes_to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
