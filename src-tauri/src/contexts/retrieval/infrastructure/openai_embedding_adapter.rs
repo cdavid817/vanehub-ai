@@ -39,13 +39,21 @@ impl HttpEmbeddingAdapter {
 
 impl EmbeddingPort for HttpEmbeddingAdapter {
     fn embed(&self, model: &str, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
-        let resolved =
-            self.endpoint
-                .resolve(&self.profile_id)
-                .map_err(|error| EmbeddingFailure {
-                    category: FailureCategory::Network,
-                    message: format!("failed to resolve embedding endpoint: {error}"),
-                })?;
+        let resolved = self.endpoint.resolve(&self.profile_id).map_err(|error| {
+            EmbeddingFailure {
+                // resolve() 是本地的 profile/凭据查找，不发起任何网络 I/O：被删的 profile 或被吊销
+                // 的凭据每次都会以同样的方式失败。分类成 Network（可重试）会让它烧光 5 次重试预算、
+                // 耗时约 25 分钟的轮询周期才放弃——与 document.rs:56 陈述的重试哲学相悖（"Auth/
+                // InvalidRequest 是确定性失败，重试只会烧配额"）。分类成 InvalidRequest 能让这一行
+                // 立刻标记 failed、在设置页露出失败计数，用户靠修正配置、点击重建来恢复。
+                category: FailureCategory::InvalidRequest,
+                // RetrievalError::Display 目前只可能带内部存储/配置文本（见 domain/error.rs 及其
+                // 全部构造点：rusqlite/r2d2 错误信息、"invalid persisted ..." 字面量），从不带凭据
+                // 或 provider 响应体，插值是安全的；Task 12 给 resolve() 接上真实实现后需要重新
+                // 核实这一结论。
+                message: format!("failed to resolve embedding endpoint: {error}"),
+            }
+        })?;
         ensure_https_endpoint(&resolved.base_url)?;
 
         let client = blocking_no_redirect_http_client(REQUEST_TIMEOUT).map_err(|error| {
@@ -143,11 +151,18 @@ fn category_for_status(status: u16) -> FailureCategory {
 /// provider 不保证 `data` 按请求顺序返回，必须按每项自带的 `index` 重排——
 /// 否则向量会被错配到别的文档上，安静地污染检索结果。
 fn parse_embedding_response(body: &str) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
-    let envelope: EmbeddingEnvelope =
-        serde_json::from_str(body).map_err(|error| EmbeddingFailure {
+    let envelope: EmbeddingEnvelope = serde_json::from_str(body).map_err(|error| {
+        EmbeddingFailure {
             category: FailureCategory::InvalidRequest,
-            message: format!("malformed embedding response: {error}"),
-        })?;
+            // 只带行列位置，**不带 `{error}`**：serde_json 的 Display 会把出错处的原值回显出来
+            // （例如 `invalid type: string "oops"`），那等于把 provider 响应体的片段塞进诊断信息。
+            message: format!(
+                "malformed embedding response at line {} column {}",
+                error.line(),
+                error.column()
+            ),
+        }
+    })?;
     let mut entries = envelope.data;
     entries.sort_by_key(|entry| entry.index);
     Ok(entries.into_iter().map(|entry| entry.embedding).collect())
@@ -168,6 +183,7 @@ struct EmbeddingEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::retrieval::domain::RetrievalError;
 
     #[test]
     fn http_status_maps_to_its_failure_category() {
@@ -200,5 +216,43 @@ mod tests {
     #[test]
     fn a_malformed_response_is_an_invalid_request_failure_not_a_panic() {
         assert!(parse_embedding_response("not json").is_err());
+    }
+
+    #[test]
+    fn a_malformed_response_message_does_not_echo_the_provider_body() {
+        // 类型不匹配的 serde_json 错误 Display 会回显出错处的原值（例如
+        // `invalid type: string "SENSITIVE-SENTINEL"`）——这里断言这段哨兵文本没有渗进
+        // EmbeddingFailure::message，只留下行列位置，同时确认消息本身没有被清空。
+        let body = r#"{"data":[{"index":0,"embedding":"SENSITIVE-SENTINEL"}]}"#;
+        let failure = parse_embedding_response(body).expect_err("type mismatch must fail");
+        assert!(!failure.message.contains("SENSITIVE-SENTINEL"));
+        assert!(!failure.message.is_empty());
+    }
+
+    struct AlwaysFailingEndpoint;
+
+    impl EmbeddingEndpointPort for AlwaysFailingEndpoint {
+        fn resolve(
+            &self,
+            _profile_id: &str,
+        ) -> Result<
+            crate::contexts::retrieval::application::ports::ResolvedEmbeddingEndpoint,
+            RetrievalError,
+        > {
+            Err(RetrievalError::NotConfigured)
+        }
+    }
+
+    #[test]
+    fn a_resolve_failure_is_an_invalid_request_not_a_retryable_network_error() {
+        // resolve() 在构造 HTTP client、发出任何请求之前就返回失败——这里不起 HTTP 服务器也能
+        // 证明"本地 profile/凭据查找失败"被分类成确定性失败（InvalidRequest），而不是会烧光
+        // 5 次重试预算的 Network。
+        let adapter =
+            HttpEmbeddingAdapter::new(Arc::new(AlwaysFailingEndpoint), "profile-1".to_string());
+        let failure = adapter
+            .embed("model", &["hello".to_string()])
+            .expect_err("resolve failure must surface as Err");
+        assert_eq!(failure.category, FailureCategory::InvalidRequest);
     }
 }
