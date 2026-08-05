@@ -1845,7 +1845,7 @@ pub(crate) struct IndexSourceRecord {
     pub(crate) created_at: String,
 }
 
-pub(crate) struct IndexingService { /* repository + source + logging */ }
+pub(crate) struct IndexingService { /* repository + source */ }
 
 impl IndexingService {
     pub(crate) fn reconcile(&self) -> Result<ReconcileOutcome, RetrievalError>;
@@ -2255,7 +2255,9 @@ fn truncate_for_embedding(content: &str) -> String {
 }
 ```
 
-日志（设计文档 §8.2）：批次完成记 `info`，字段为批大小、耗时、成功/失败条数、模型 id；失败记 `warn`，字段为错误类别与 `attempt_count`。**不记内容、不记响应体**。
+**日志归属（设计文档 §8.2）**：`reconcile` 与 `process_pending_batch` 都**不自己打日志**——两者都返回结构化结果（`ReconcileOutcome` / `BatchOutcome`），由 Task 12 的 worker 循环在调用点统一记录。这样应用服务保持纯粹、可用 fake 无副作用地测试，日志格式也只有一处定义。
+
+worker 调用点要记的内容：批次完成记 `info`，字段为批大小、耗时、成功/失败条数、模型 id；失败记 `warn`，字段为错误类别与 `attempt_count`。**不记内容、不记响应体**。
 
 - [ ] **Step 4: 运行测试确认通过**
 
