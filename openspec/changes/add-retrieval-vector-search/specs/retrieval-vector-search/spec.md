@@ -1,0 +1,64 @@
+## ADDED Requirements
+
+### Requirement: Retrieval scope is runtime-injected
+The system SHALL derive retrieval scope from the session runtime and SHALL NOT accept agent id or workspace folder as model-supplied tool input.
+
+#### Scenario: Model cannot widen its own scope
+- **WHEN** the model invokes the recall tool
+- **THEN** the system SHALL scope the search to the session's own agent id and workspace folder
+- **AND** the tool input schema SHALL NOT expose any scope parameter
+
+### Requirement: Retrieval failure never fails generation
+The system SHALL return a successful tool result describing unavailability when retrieval fails, and SHALL NOT surface retrieval failure as a generation error.
+
+#### Scenario: Embedding provider unreachable during search
+- **WHEN** query embedding fails while retrieval is configured
+- **THEN** the system SHALL return keyword-only results marked `degraded: keyword_only`
+
+#### Scenario: Keyword path fails
+- **WHEN** the FTS5 query fails
+- **THEN** the system SHALL return vector-only results marked `degraded: vector_only`
+
+#### Scenario: Both paths yield nothing
+- **WHEN** neither path returns a hit
+- **THEN** the system SHALL return an empty result list and SHALL NOT report an error
+
+### Requirement: Saving a memory never depends on indexing
+The system SHALL persist an agent memory without requiring its retrieval index entry to be written in the same operation.
+
+#### Scenario: Indexing backend unavailable at save time
+- **WHEN** a memory is saved while the embedding provider is unreachable
+- **THEN** the save SHALL succeed
+- **AND** the memory SHALL become searchable by keyword immediately and by vector once background indexing converges
+
+### Requirement: Vector recall only compares same-model embeddings
+The system SHALL restrict vector recall to rows whose stored embedding model equals the currently configured embedding model.
+
+#### Scenario: Embedding model changed
+- **WHEN** the configured embedding model differs from a row's stored embedding model
+- **THEN** that row SHALL be excluded from vector recall
+- **AND** that row SHALL remain reachable through the keyword path
+- **AND** the system SHALL re-queue that row for background re-indexing
+
+### Requirement: Retrieval tool is registered only when configured
+The system SHALL offer the recall tool to the model only when an embedding source is configured.
+
+#### Scenario: No embedding configured
+- **WHEN** no embedding source is configured
+- **THEN** the recall tool SHALL NOT appear in the tool catalog
+- **AND** existing recency-based memory injection SHALL continue unchanged
+
+### Requirement: Retrieval logging excludes sensitive content
+The system SHALL NOT persist memory content, raw query text, credentials, or provider response bodies to logs.
+
+#### Scenario: Query logged for diagnostics
+- **WHEN** a retrieval executes
+- **THEN** the system SHALL log only the query's length and hash alongside scope hash, candidate count, per-path hit counts, and duration
+
+### Requirement: Web runtime contract parity
+The Web/mock runtime SHALL expose the same retrieval contract shape and observable behavior as the desktop runtime, and SHALL NOT issue network requests.
+
+#### Scenario: Web runtime search
+- **WHEN** retrieval is invoked in the Web/mock runtime
+- **THEN** it SHALL return the same result structure, the same degraded semantics, and treat empty results as success
+- **AND** it MAY rank by a simple term-overlap score rather than reproducing vector similarity
