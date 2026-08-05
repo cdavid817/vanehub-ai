@@ -78,7 +78,7 @@ pub(crate) use models::{
     ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
     SendMessageRequest, StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest,
     StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier,
+    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase,
     ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
@@ -86,6 +86,7 @@ pub(crate) use models::{
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
+    AgentPermissionPort,
     AgentMessageTerminalCompletionPort, AgentProcessEventSink, AgentProcessGateway,
     AgentRegistryRepository, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
     AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
@@ -99,8 +100,8 @@ pub(crate) use ports::{
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    plan_mode_tool_catalog, requires_approval, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
-    REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME,
+    SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]

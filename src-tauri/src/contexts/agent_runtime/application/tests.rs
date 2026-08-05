@@ -118,8 +118,6 @@ struct FakeWorld {
     updated_agents: Mutex<Vec<(String, UpdateApiAgentInput)>>,
     delete_api_agent_failure: AtomicBool,
     deleted_agent_ids: Mutex<Vec<String>>,
-    set_auto_approve_tools_calls: Mutex<Vec<(String, bool)>>,
-    set_auto_approve_tools_failure: AtomicBool,
     stored_credentials: Mutex<Vec<(String, String)>>,
     current_onepiece_credential: Mutex<Option<String>>,
     profile_credentials: Mutex<BTreeMap<String, String>>,
@@ -182,8 +180,6 @@ impl FakeWorld {
             current_onepiece_credential: Mutex::new(None),
             profile_credentials: Mutex::new(BTreeMap::new()),
             removed_credentials: Mutex::new(Vec::new()),
-            set_auto_approve_tools_calls: Mutex::new(Vec::new()),
-            set_auto_approve_tools_failure: AtomicBool::new(false),
         }
     }
 }
@@ -522,23 +518,6 @@ impl ApiAgentGateway for FakeWorld {
             .lock()
             .expect("deleted agent ids")
             .push(agent_id.to_string());
-        Ok(())
-    }
-
-    fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        if self.set_auto_approve_tools_failure.load(Ordering::SeqCst) {
-            return Err(AgentRuntimeApplicationError::AgentNotFound(
-                agent_id.to_string(),
-            ));
-        }
-        self.set_auto_approve_tools_calls
-            .lock()
-            .expect("set_auto_approve_tools calls")
-            .push((agent_id.to_string(), enabled));
         Ok(())
     }
 
@@ -1963,41 +1942,6 @@ fn delete_api_agent_does_not_touch_the_credential_when_the_gateway_rejects_the_d
         .lock()
         .expect("removed credentials")
         .is_empty());
-}
-
-#[test]
-fn set_auto_approve_tools_enables_and_returns_the_updated_agent_view() {
-    let world = Arc::new(FakeWorld::new(vec![api_agent(
-        "my-api-agent",
-        "My API Agent",
-        vec!["api"],
-    )]));
-
-    let updated = service(world.clone())
-        .set_auto_approve_tools("my-api-agent", true)
-        .expect("set auto approve tools");
-
-    assert_eq!(updated.display_name, "My API Agent");
-    let calls = world
-        .set_auto_approve_tools_calls
-        .lock()
-        .expect("set_auto_approve_tools calls");
-    assert_eq!(calls.as_slice(), [("my-api-agent".to_string(), true)]);
-}
-
-#[test]
-fn set_auto_approve_tools_surfaces_agent_not_found() {
-    let world = test_world();
-    world
-        .set_auto_approve_tools_failure
-        .store(true, Ordering::SeqCst);
-
-    let result = service(world.clone()).set_auto_approve_tools("my-api-agent", true);
-
-    assert!(matches!(
-        result,
-        Err(AgentRuntimeApplicationError::AgentNotFound(id)) if id == "my-api-agent"
-    ));
 }
 
 #[test]

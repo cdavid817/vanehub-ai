@@ -1,6 +1,7 @@
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
+import { isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -329,10 +330,6 @@ let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
-const pendingMockToolApprovals = new Map<
-  string,
-  { sessionId: string; messageId: string; toolName: string; input?: unknown; output?: unknown }
->();
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
 const terminalTranscriptsBySession = new Map<string, string>();
@@ -1457,6 +1454,32 @@ function publishChatEvent(event: ChatStreamEvent) {
   emitChatEvent(event);
 }
 
+/**
+ * Resolves a simulated tool call awaiting approval and publishes the resulting `tool_use` event
+ * — the same behavior `resolveToolApproval` used to provide directly on this client, extracted
+ * to a plain export so `web-permissions-client.ts` can call it (`permissions-approval`'s
+ * `resolvePendingApproval` is the new frontend entry point; this is its Web/mock backing).
+ */
+export function resolveWebMockToolApproval(sessionId: string, callId: string, approved: boolean): boolean {
+  findSession(sessionId);
+  const pending = webPendingApprovals.get(callId);
+  if (!pending || pending.sessionId !== sessionId) return false;
+  webPendingApprovals.delete(callId);
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: pending.messageId,
+    toolUse: {
+      id: callId,
+      name: pending.toolName,
+      input: pending.input ?? { command: "echo mock" },
+      output: approved ? pending.output ?? "mock\n" : "Denied by user.",
+      status: approved ? "completed" : "failed",
+    },
+  });
+  return true;
+}
+
 function emitTerminalEvent(event: AgentTerminalEvent, recordOutput = true) {
   if (recordOutput && event.type === "output") {
     terminalTranscriptsBySession.set(event.sessionId, appendTerminalTranscript(
@@ -2120,16 +2143,6 @@ export const webAgentClient: AgentService = {
       boundAgentIds: skill.boundAgentIds.filter((boundAgentId) => boundAgentId !== agentId),
     }));
     webSkillMountPaths = webSkillMountPaths.filter((path) => path.agentId !== agentId);
-  },
-
-  async setAgentToolTrust(agentId: string, enabled: boolean) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    const current = webApiAgentProviderConfigs.get(agentId);
-    if (!agent || !current) {
-      throw new Error(i18n.t("agents.updateApiAgent.errors.notFound"));
-    }
-    webApiAgentProviderConfigs.set(agentId, { ...current, autoApproveTools: enabled });
-    return agent;
   },
 
   async listAgentMemories(agentId: string) {
@@ -3205,7 +3218,7 @@ export const webAgentClient: AgentService = {
     if (agent?.launch.kind === "api") {
       // Trusted agents (`add-agent-tool-trust`) skip the simulated approval step for shell,
       // mirroring the real backend's `requires_approval` short-circuit exactly.
-      const isTrusted = webApiAgentProviderConfigs.get(session.agentId)?.autoApproveTools ?? false;
+      const isTrusted = isAgentAutoApproved(session.agentId);
       const callId = `web-tool-approval-${assistantMessage.id}`;
       const approvalTimeoutId = setTimeout(() => {
         if (isTrusted) {
@@ -3223,10 +3236,15 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        pendingMockToolApprovals.set(callId, {
+        webPendingApprovals.set(callId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: "shell",
+          agentId: session.agentId,
+          action: "shell.exec",
+          resource: "workspace",
+          riskLevel: "L2",
+          createdAt: new Date().toISOString(),
         });
         publishChatEvent({
           type: "tool_use",
@@ -3266,9 +3284,9 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(rememberTimeoutId);
       // MCP-sourced tool call (`add-agent-mcp-tools`): simulates the model calling a tool
       // exposed by a configured MCP server. Always approval-gated, mirroring the same
-      // `pendingMockToolApprovals`/`resolveToolApproval` flow `shell` already uses above — the
-      // real backend classifies every MCP-sourced tool call `RequiresApproval` unconditionally,
-      // with no auto-approve path, unlike `remember`.
+      // `webPendingApprovals`/`resolvePendingApproval` flow `shell` already uses above — the
+      // real backend floors every MCP-sourced tool call at `Ask` unconditionally
+      // (`add-permissions-core` design.md D3), with no auto-approve path, unlike `remember`.
       const mcpCallId = `web-tool-approval-mcp-${assistantMessage.id}`;
       const mcpSimulation = createWebMcpToolSimulationPlan({
         callId: mcpCallId,
@@ -3293,12 +3311,17 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        pendingMockToolApprovals.set(mcpCallId, {
+        webPendingApprovals.set(mcpCallId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: mcpSimulation.awaitingApproval.name,
           input: mcpSimulation.completed.input,
           output: mcpSimulation.completed.output,
+          agentId: session.agentId,
+          action: "mcp.tool",
+          resource: mcpSimulation.awaitingApproval.name,
+          riskLevel: "L2",
+          createdAt: new Date().toISOString(),
         });
         publishChatEvent({
           type: "tool_use",
@@ -3401,26 +3424,6 @@ export const webAgentClient: AgentService = {
     findSession(sessionId);
     if (!cancelActiveStream(sessionId)) return;
     updateSession(sessionId, { lifecycleState: "stopped" });
-  },
-
-  async resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
-    findSession(sessionId);
-    const pending = pendingMockToolApprovals.get(callId);
-    if (!pending || pending.sessionId !== sessionId) return false;
-    pendingMockToolApprovals.delete(callId);
-    publishChatEvent({
-      type: "tool_use",
-      sessionId,
-      messageId: pending.messageId,
-      toolUse: {
-        id: callId,
-        name: pending.toolName,
-        input: pending.input ?? { command: "echo mock" },
-        output: approved ? pending.output ?? "mock\n" : "Denied by user.",
-        status: approved ? "completed" : "failed",
-      },
-    });
-    return true;
   },
 
   async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {

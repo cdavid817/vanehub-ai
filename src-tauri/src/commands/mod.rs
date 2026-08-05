@@ -4,6 +4,7 @@ pub(crate) mod desktop;
 pub(crate) mod error;
 pub(crate) mod execution_observability;
 pub(crate) mod operations;
+pub(crate) mod permissions;
 mod registry;
 pub(crate) mod sessions;
 pub(crate) mod ssh_connections;

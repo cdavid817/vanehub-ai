@@ -6,6 +6,8 @@ import {
   webAgentClient,
 } from "./web-agent-client";
 import { webOperationClient } from "./web-operation-client";
+import { webPermissionsClient } from "./web-permissions-client";
+import { webPrincipalTemplates } from "./web-permissions-mock-state";
 import { webSshConnectionClient } from "./web-ssh-connection-client";
 import type { CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
@@ -1218,24 +1220,6 @@ describe("webAgentClient", () => {
     expect((await webAgentClient.listAgents()).some((entry) => entry.id === referenced.id)).toBe(true);
   });
 
-  it("sets and clears a mock API agent's tool-trust flag", async () => {
-    const agent = await webAgentClient.registerApiAgent({
-      displayName: "Trust Test Agent",
-      provider: "Anthropic",
-      apiKey: "sk-test",
-      modelId: "claude-opus-4-8",
-      interfaceFormat: "anthropic",
-      baseUrl: null,
-    });
-    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(false);
-
-    await webAgentClient.setAgentToolTrust(agent.id, true);
-    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(true);
-
-    await webAgentClient.setAgentToolTrust(agent.id, false);
-    expect((await webAgentClient.getApiAgentProviderConfig(agent.id))?.autoApproveTools).toBe(false);
-  });
-
   it("simulates a trusted agent's shell call completing without an approval step", async () => {
     vi.useFakeTimers();
     const agent = await webAgentClient.registerApiAgent({
@@ -1246,7 +1230,7 @@ describe("webAgentClient", () => {
       interfaceFormat: "anthropic",
       baseUrl: null,
     });
-    await webAgentClient.setAgentToolTrust(agent.id, true);
+    webPrincipalTemplates.set(agent.id, "trusted");
     const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Trusted shell" });
     const config = await webAgentClient.getSessionChatConfig(session.id);
     const events: ChatStreamEvent[] = [];
@@ -1384,7 +1368,7 @@ describe("webAgentClient", () => {
     expect(awaitingEvent).toBeDefined();
     const callId = awaitingEvent && awaitingEvent.type === "tool_use" ? awaitingEvent.toolUse.id : "";
 
-    const resolved = await webAgentClient.resolveToolApproval(session.id, callId, true);
+    const resolved = await webPermissionsClient.resolvePendingApproval(callId, true, "once");
     expect(resolved).toBe(true);
 
     const completedEvent = events.find(

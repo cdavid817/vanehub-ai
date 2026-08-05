@@ -138,7 +138,6 @@ export interface AgentService {
   deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
-  setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
   listAgentMemories(agentId: string): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
@@ -220,7 +219,6 @@ export interface AgentService {
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   stopGeneration(sessionId: string): Promise<void>;
-  resolveToolApproval(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
   resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;

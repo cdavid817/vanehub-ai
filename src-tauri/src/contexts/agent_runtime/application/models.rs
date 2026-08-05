@@ -380,14 +380,6 @@ pub(crate) struct AgentToolCallOutcome {
     pub(crate) is_error: bool,
 }
 
-/// Whether a tool call may execute immediately or must wait for an explicit user decision.
-/// Fixed per tool/operation (design.md Decision 4) — never derived from the call's arguments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ToolRiskTier {
-    AutoApprove,
-    RequiresApproval,
-}
-
 /// The user's resolution of a tool call that was awaiting approval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolApprovalDecision {

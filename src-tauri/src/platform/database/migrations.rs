@@ -238,6 +238,14 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "onepiece-provider-endpoints",
         crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema,
     )?;
+    apply_migration(conn, 42, "permissions-core", |connection| {
+        crate::contexts::permissions::infrastructure::schema::apply_permissions_core_schema(
+            connection,
+        )?;
+        crate::contexts::permissions::infrastructure::schema::backfill_principals_from_legacy_trust_flag(
+            connection,
+        )
+    })?;
 
     Ok(())
 }
@@ -858,7 +866,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (40, 41));
+        assert_eq!(migration_state, (41, 42));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -17,7 +17,8 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
-    PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
+    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
+    RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
     RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
     SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
@@ -35,6 +36,7 @@ use crate::contexts::operations::api::{
     OperationsApi,
 };
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -61,6 +63,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
+    pub(crate) permissions: PermissionsApi,
     pub(crate) shared_registry: SharedAgentRegistry,
 }
 
@@ -154,6 +157,7 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.database.clone(),
     ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
+    let agent_permissions = Arc::new(PermissionsPortAdapter::new(dependencies.permissions));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -164,6 +168,7 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(NativeAgentCoreInstructionsAdapter),
         agent_memories.clone(),
         agent_mcp_tools,
+        agent_permissions,
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =

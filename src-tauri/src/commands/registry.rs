@@ -22,8 +22,6 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::delete_onepiece_provider_profile::delete_onepiece_provider_profile,
         crate::commands::agent_runtime::update_api_agent::update_api_agent,
         crate::commands::agent_runtime::delete_api_agent::delete_api_agent,
-        crate::commands::agent_runtime::set_agent_tool_trust::set_agent_tool_trust,
-        crate::commands::agent_runtime::resolve_tool_approval::resolve_tool_approval,
         crate::commands::agent_runtime::get_workflow_state::get_workflow_state,
         crate::commands::agent_runtime::select_agent::select_agent,
         crate::commands::agent_runtime::check_browser_readiness::check_browser_readiness,
@@ -157,6 +155,10 @@ pub(crate) fn invoke_handler(
         // Operations
         crate::commands::operations::list_operations::list_operations,
         crate::commands::operations::get_operation_status::get_operation_status,
+        // Permissions
+        crate::commands::permissions::resolve_pending_approval::resolve_pending_approval,
+        crate::commands::permissions::apply_policy_template::apply_policy_template,
+        crate::commands::permissions::list_pending_approvals::list_pending_approvals,
         // Tooling: CLI and CLI Parameters
         crate::commands::tooling::cli::list_cli_tools::list_cli_tools,
         crate::commands::tooling::cli::refresh_cli_detections::refresh_cli_detections,

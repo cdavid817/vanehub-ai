@@ -28,6 +28,7 @@ mod memory_schema;
 mod message_terminal_completions;
 mod onepiece_model_discovery;
 mod openai_compatible_provider;
+mod permission_adapter;
 mod process_adapter;
 mod prompt_gateway;
 pub(crate) mod providers;
@@ -68,6 +69,7 @@ pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::apply_memory_schema;
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
+pub(crate) use permission_adapter::PermissionsPortAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
 };

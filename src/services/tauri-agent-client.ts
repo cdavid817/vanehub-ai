@@ -185,9 +185,6 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_api_agent", { agentId });
   },
 
-  setAgentToolTrust(agentId: string, enabled: boolean) {
-    return invoke<AgentRegistryEntry>("set_agent_tool_trust", { agentId, enabled });
-  },
 
   listAgentMemories(agentId: string) {
     return invoke<AgentMemory[]>("list_agent_memories", { agentId });
@@ -552,9 +549,6 @@ export const tauriAgentClient: AgentService = {
     await invoke<void>("stop_generation", { sessionId });
   },
 
-  resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
-    return invoke<boolean>("resolve_tool_approval", { input: { sessionId, callId, approved } });
-  },
 
   openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
     return invoke<AgentTerminalSession>("open_agent_terminal", { sessionId, size });

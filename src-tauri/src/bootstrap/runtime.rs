@@ -168,6 +168,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
     );
+    let permissions_api = super::assemble_permissions_api(database.clone());
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,
@@ -182,8 +183,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
+        permissions: permissions_api.clone(),
         shared_registry: shared_agent_registry,
     });
+    super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     agent_runtime_api
         .reconcile_coordination_startup()
@@ -231,6 +234,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
+    app.manage(permissions_api.clone());
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(communications_api.clone());

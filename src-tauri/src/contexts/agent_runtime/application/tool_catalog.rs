@@ -1,8 +1,15 @@
-//! The native tool-use loop's fixed, provider-agnostic tool catalog and risk classification.
+//! The native tool-use loop's fixed, provider-agnostic tool catalog.
 //! Pure data and pure functions — no I/O, unit-testable without a live provider or process.
+//!
+//! Risk/approval classification used to live here too (`risk_tier_for`/`requires_approval`,
+//! `ToolRiskTier`) but is fully retired as of `add-permissions-core`: the approval-gate call site
+//! now calls `permissions::api::evaluate` instead (via `AgentPermissionPort`,
+//! `api_process_adapter.rs`'s `permission_action_and_resource` does the equivalent name/operation
+//! classification `risk_tier_for` used to). Nothing in production code called either function
+//! anymore once that cutover landed, so they were deleted rather than left as dead code.
 
-use super::{ToolDefinition, ToolRiskTier};
-use serde_json::{json, Value};
+use super::ToolDefinition;
+use serde_json::json;
 
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
@@ -107,38 +114,6 @@ fn remember_tool_definition() -> ToolDefinition {
     }
 }
 
-/// Classifies a tool call's risk tier by tool name and, for the file tool, its `operation`
-/// field — a structural distinction (which operation was requested), not a content-safety
-/// judgment about a specific command or path. Unknown tool names and file calls with a missing
-/// or unrecognized `operation` fail closed to `RequiresApproval`.
-pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
-    match tool_name {
-        FILE_TOOL_NAME => match input.get("operation").and_then(Value::as_str) {
-            Some("read") => ToolRiskTier::AutoApprove,
-            _ => ToolRiskTier::RequiresApproval,
-        },
-        // Only ever writes to this app's own internal storage — never the user's filesystem,
-        // shell, or anything else external — so a wrong or low-value memory is no worse than a
-        // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
-        REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
-        _ => ToolRiskTier::RequiresApproval,
-    }
-}
-
-/// Whether a tool call must pause for human approval, composing `risk_tier_for`'s static
-/// classification with a per-agent trust grant (`add-agent-tool-trust`). `risk_tier_for` itself
-/// stays agent-trust-unaware — this function is the only place the two are combined, kept
-/// separate so `risk_tier_for`'s existing pure "classify by name+input" contract and test suite
-/// need no changes. `auto_approve_tools` can only ever skip approval for `shell` and `file`
-/// calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
-/// `RequiresApproval` for any name it doesn't explicitly recognize, with no carve-out here.
-pub(crate) fn requires_approval(tool_name: &str, input: &Value, auto_approve_tools: bool) -> bool {
-    if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL_NAME) {
-        return false;
-    }
-    risk_tier_for(tool_name, input) == ToolRiskTier::RequiresApproval
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,138 +137,5 @@ mod tests {
             json!(["read"])
         );
         assert_eq!(catalog[1].name, REMEMBER_TOOL_NAME);
-    }
-
-    #[test]
-    fn shell_always_requires_approval() {
-        assert_eq!(
-            risk_tier_for(SHELL_TOOL_NAME, &json!({"command": "ls"})),
-            ToolRiskTier::RequiresApproval
-        );
-        assert_eq!(
-            risk_tier_for(SHELL_TOOL_NAME, &json!({"command": "rm -rf /"})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn file_read_auto_approves() {
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "read", "path": "a.txt"})
-            ),
-            ToolRiskTier::AutoApprove
-        );
-    }
-
-    #[test]
-    fn file_write_requires_approval() {
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "write", "path": "a.txt", "content": "x"})
-            ),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn file_call_with_missing_or_unknown_operation_fails_closed() {
-        assert_eq!(
-            risk_tier_for(FILE_TOOL_NAME, &json!({"path": "a.txt"})),
-            ToolRiskTier::RequiresApproval
-        );
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "delete", "path": "a.txt"})
-            ),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn unknown_tool_name_fails_closed() {
-        assert_eq!(
-            risk_tier_for("unknown", &json!({})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    /// Locks in design.md Decision 7 (`add-agent-mcp-tools`): MCP tool names always fall through
-    /// to the existing catch-all above since they never literally equal `FILE_TOOL_NAME` or
-    /// `REMEMBER_TOOL_NAME` (guaranteed by the mandatory `mcp__` prefix) — no production code
-    /// change is needed for MCP calls to require approval unconditionally, but that behavior
-    /// deserves its own test rather than being an accident of the existing match arms.
-    #[test]
-    fn mcp_sourced_tool_names_always_require_approval() {
-        assert_eq!(
-            risk_tier_for("mcp__filesystem-tools__search", &json!({"query": "x"})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn remember_always_auto_approves() {
-        assert_eq!(
-            risk_tier_for(REMEMBER_TOOL_NAME, &json!({"content": "Uses pnpm."})),
-            ToolRiskTier::AutoApprove
-        );
-    }
-
-    #[test]
-    fn trusted_agent_skips_approval_for_shell() {
-        assert!(!requires_approval(
-            SHELL_TOOL_NAME,
-            &json!({"command": "rm -rf /"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn trusted_agent_skips_approval_for_file_write() {
-        assert!(!requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn untrusted_agent_still_requires_approval_for_shell_and_file_write() {
-        assert!(requires_approval(
-            SHELL_TOOL_NAME,
-            &json!({"command": "ls"}),
-            false
-        ));
-        assert!(requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
-            false
-        ));
-    }
-
-    #[test]
-    fn trusted_agent_still_requires_approval_for_mcp_calls() {
-        assert!(requires_approval(
-            "mcp__filesystem-tools__search",
-            &json!({"query": "x"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn trust_flag_never_affects_already_auto_approved_tools() {
-        assert!(!requires_approval(
-            REMEMBER_TOOL_NAME,
-            &json!({"content": "Uses pnpm."}),
-            false
-        ));
-        assert!(!requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "read", "path": "a.txt"}),
-            false
-        ));
     }
 }
