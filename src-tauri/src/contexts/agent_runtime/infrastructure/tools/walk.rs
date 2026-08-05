@@ -24,16 +24,31 @@ pub(crate) enum Visit {
     Stop,
 }
 
+/// One file encountered during a workspace walk, offered to the visitor in three forms because
+/// three different consumers need three different bases: the filesystem needs an absolute path,
+/// the model needs a workspace-relative one, and pattern matching needs one relative to the
+/// search scope. Conflating the last two (matching a pattern against `display` while the walk
+/// is narrowed to a subdirectory) silently breaks every unanchored pattern — see `scoped`.
+pub(crate) struct WalkedFile<'a> {
+    /// Filesystem calls only (`fs::read`, `fs::metadata`, ...) — unchanged semantics. On Windows,
+    /// `canonicalize()` returns the `\\?\` extended-length form (see
+    /// `normalize_windows_extended_length_path`), so `absolute` carries that prefix too; putting
+    /// it in tool output would break both this tool's own absolute-path rejection and `cmd.exe`,
+    /// which has no concept of a UNC working directory.
+    pub(crate) absolute: &'a Path,
+    /// Workspace-relative, forward-slash. Still the only form that may reach tool output or the
+    /// model, because the `file` and `edit` tools accept workspace-relative paths only.
+    pub(crate) display: &'a str,
+    /// Relative to the search scope: the `relative_root` subdirectory when one was given,
+    /// otherwise identical to `display`. Forward-slash normalized the same way. Patterns must
+    /// match against this, not `display` — with `literal_separator` matching, an unanchored
+    /// pattern can never cross the directory boundary that `display` still carries once
+    /// `relative_root` narrows the walk.
+    pub(crate) scoped: &'a str,
+}
+
 /// Walks the regular files under `workspace_folder` (optionally narrowed to a `relative_root`
-/// subdirectory), calling `visit` with each file's absolute path and its workspace-relative
-/// display form.
-///
-/// `absolute` is for filesystem calls only (`fs::read`, `fs::metadata`, ...). On Windows,
-/// `canonicalize()` returns the `\\?\` extended-length form (see
-/// `normalize_windows_extended_length_path`), so `absolute` carries that prefix too; putting it
-/// in tool output would break both this tool's own absolute-path rejection and `cmd.exe`, which
-/// has no concept of a UNC working directory. `display` — workspace-relative, forward-slash — is
-/// the only form that should ever reach tool output or the model.
+/// subdirectory), calling `visit` with each file in the three forms described on `WalkedFile`.
 ///
 /// Symlinks are always skipped rather than followed-then-validated: following would require a
 /// canonicalize syscall per entry, which is expensive on large repositories; skipping outright
@@ -53,7 +68,7 @@ pub(crate) fn visit_workspace_files(
     workspace_folder: &str,
     relative_root: Option<&str>,
     cancelled: &AtomicBool,
-    visit: &mut dyn FnMut(&Path, &str) -> Visit,
+    visit: &mut dyn FnMut(&WalkedFile<'_>) -> Visit,
 ) -> Result<(), String> {
     let boundary = BoundedFilesystem::new(Path::new(workspace_folder))
         .map_err(|error| format!("Workspace folder is unavailable: {error}"))?;
@@ -104,7 +119,19 @@ pub(crate) fn visit_workspace_files(
             continue;
         };
         let display = relative.to_string_lossy().replace('\\', "/");
-        if let Visit::Stop = visit(absolute, &display) {
+        // `root` equals `workspace_root` when `relative_root` is `None`, so this naturally
+        // produces the same string as `display` in that case instead of needing a separate
+        // "no narrowing" branch.
+        let Ok(scoped_relative) = absolute.strip_prefix(&root) else {
+            continue;
+        };
+        let scoped = scoped_relative.to_string_lossy().replace('\\', "/");
+        let file = WalkedFile {
+            absolute,
+            display: &display,
+            scoped: &scoped,
+        };
+        if let Visit::Stop = visit(&file) {
             return Ok(());
         }
     }
@@ -141,15 +168,10 @@ mod tests {
     fn collect(directory: &TempDirectory, root: Option<&str>) -> Vec<String> {
         let folder = directory.path().to_string_lossy().to_string();
         let mut seen = Vec::new();
-        visit_workspace_files(
-            &folder,
-            root,
-            &not_cancelled(),
-            &mut |_absolute, relative| {
-                seen.push(relative.to_string());
-                Visit::Continue
-            },
-        )
+        visit_workspace_files(&folder, root, &not_cancelled(), &mut |file| {
+            seen.push(file.display.to_string());
+            Visit::Continue
+        })
         .expect("walk succeeds");
         seen.sort();
         seen
@@ -202,13 +224,60 @@ mod tests {
     }
 
     #[test]
+    fn scoped_equals_display_when_there_is_no_relative_root() {
+        let directory = TempDirectory::new("walk-scoped-unnarrowed");
+        std::fs::create_dir(directory.path().join("sub")).expect("mkdir sub");
+        std::fs::write(directory.path().join("sub/inner.txt"), "i").expect("write inner");
+        let mut seen = Vec::new();
+        visit_workspace_files(
+            &directory.path().to_string_lossy(),
+            None,
+            &not_cancelled(),
+            &mut |file| {
+                seen.push((file.display.to_string(), file.scoped.to_string()));
+                Visit::Continue
+            },
+        )
+        .expect("walk succeeds");
+        assert_eq!(
+            seen,
+            vec![("sub/inner.txt".to_string(), "sub/inner.txt".to_string())]
+        );
+    }
+
+    #[test]
+    fn scoped_is_relative_to_the_narrowed_root_while_display_stays_workspace_relative() {
+        // This is the regression the glob/grep matching bug hinged on: once `relative_root`
+        // narrows the walk, `display` still carries the narrowed directory's own name, but
+        // `scoped` — what patterns are matched against — must not.
+        let directory = TempDirectory::new("walk-scoped-narrowed");
+        std::fs::create_dir(directory.path().join("docs")).expect("mkdir docs");
+        std::fs::write(directory.path().join("docs/guide.md"), "g").expect("write guide");
+        let mut seen = Vec::new();
+        visit_workspace_files(
+            &directory.path().to_string_lossy(),
+            Some("docs"),
+            &not_cancelled(),
+            &mut |file| {
+                seen.push((file.display.to_string(), file.scoped.to_string()));
+                Visit::Continue
+            },
+        )
+        .expect("walk succeeds");
+        assert_eq!(
+            seen,
+            vec![("docs/guide.md".to_string(), "guide.md".to_string())]
+        );
+    }
+
+    #[test]
     fn a_relative_root_that_escapes_the_workspace_is_rejected() {
         let directory = TempDirectory::new("walk-escape-root");
         let outcome = visit_workspace_files(
             &directory.path().to_string_lossy(),
             Some("../"),
             &not_cancelled(),
-            &mut |_absolute, _relative| Visit::Continue,
+            &mut |_file| Visit::Continue,
         );
         let error = outcome.expect_err("a relative root outside the workspace must be rejected");
         // Pins the cause to `BoundaryError::Escape`'s message rather than accepting any error,
@@ -228,7 +297,7 @@ mod tests {
             &directory.path().to_string_lossy(),
             None,
             &cancelled,
-            &mut |_absolute, _relative| Visit::Continue,
+            &mut |_file| Visit::Continue,
         );
         assert!(outcome.is_err());
     }
@@ -239,7 +308,7 @@ mod tests {
             "Z:/definitely/does/not/exist",
             None,
             &not_cancelled(),
-            &mut |_absolute, _relative| Visit::Continue,
+            &mut |_file| Visit::Continue,
         );
         assert!(outcome.is_err());
     }
@@ -256,7 +325,7 @@ mod tests {
             &directory.path().to_string_lossy(),
             None,
             &not_cancelled(),
-            &mut |_absolute, _relative| {
+            &mut |_file| {
                 count += 1;
                 Visit::Stop
             },

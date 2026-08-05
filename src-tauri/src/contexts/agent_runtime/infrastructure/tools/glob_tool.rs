@@ -39,21 +39,19 @@ pub(crate) fn execute_glob(
 
     let mut matches: Vec<String> = Vec::new();
     let mut truncated = false;
-    let outcome = visit_workspace_files(
-        workspace_folder,
-        path,
-        &cancelled,
-        &mut |_absolute, relative| {
-            if matcher.is_match(relative) {
-                matches.push(relative.to_string());
-                if matches.len() >= MAX_SEARCH_RESULTS {
-                    truncated = true;
-                    return Visit::Stop;
-                }
+    let outcome = visit_workspace_files(workspace_folder, path, &cancelled, &mut |file| {
+        // Matched against `scoped`, not `display`: once `path` narrows the search, `display`
+        // still carries the narrowed directory's own name, which `literal_separator` matching
+        // would keep any unanchored pattern from ever crossing.
+        if matcher.is_match(file.scoped) {
+            matches.push(file.display.to_string());
+            if matches.len() >= MAX_SEARCH_RESULTS {
+                truncated = true;
+                return Visit::Stop;
             }
-            Visit::Continue
-        },
-    );
+        }
+        Visit::Continue
+    });
     if let Err(error) = outcome {
         return ToolExecutionOutcome {
             output: error,
@@ -167,6 +165,27 @@ mod tests {
     }
 
     #[test]
+    fn a_path_scope_matches_unanchored_patterns_against_the_narrowed_root() {
+        // Regression test: matching used to run against the workspace-relative path even when
+        // `path` narrowed the walk, so `literal_separator` matching meant an unanchored pattern
+        // (no leading `**/`) could never cross the `docs/` component and the file was reported
+        // as not found even though it exists. See `WalkedFile::scoped` in `walk.rs`.
+        let directory = workspace("glob-scope-unanchored");
+        std::fs::create_dir(directory.path().join("docs")).expect("mkdir docs");
+        std::fs::write(directory.path().join("docs/guide.md"), "g").expect("write guide");
+        let outcome = execute_glob(
+            "*.md",
+            Some("docs"),
+            &directory.path().to_string_lossy(),
+            not_cancelled(),
+        );
+        assert!(!outcome.is_error);
+        // Must be the workspace-relative path, not `guide.md` — the model hands this straight to
+        // the `file`/`edit` tools, which reject anything but a workspace-relative path.
+        assert_eq!(outcome.output, "docs/guide.md");
+    }
+
+    #[test]
     fn exceeding_the_result_limit_reports_truncation() {
         let directory = TempDirectory::new("glob-truncate");
         for index in 0..(MAX_SEARCH_RESULTS + 10) {
@@ -180,7 +199,14 @@ mod tests {
             not_cancelled(),
         );
         assert!(!outcome.is_error);
-        assert!(outcome.output.contains("truncated"));
+        let (files, note) = outcome
+            .output
+            .split_once("\n\n")
+            .expect("truncated output includes a blank-line-separated note");
+        assert!(note.contains("truncated"));
+        // The substring check above would still pass for an off-by-one or a doubled cap; only
+        // counting the returned lines catches a wrong threshold.
+        assert_eq!(files.lines().count(), MAX_SEARCH_RESULTS);
     }
 
     #[test]
