@@ -1213,6 +1213,45 @@ fn plan_mode_denial(what: &str) -> ToolExecutionOutcome {
     }
 }
 
+/// Parses a tool-call argument that should be an absent-or-non-negative integer (`offset`,
+/// `limit`, `context`, `head_limit`), accepting a JSON number that arrived as either an integer
+/// or an integral float -- some OpenAI-compatible providers serialize every number as a float on
+/// the wire, so `100` and `100.0` must parse identically instead of the float silently falling
+/// through `Value::as_u64` (which only recognizes the integer encoding) and being reinterpreted
+/// as "absent". Returns `Ok(None)` when the field is absent or JSON `null`, which callers must
+/// keep distinct from `Ok(Some(0))` for an explicit zero -- `grep`'s `head_limit == Some(0)` and
+/// `file`'s `limit == Some(0)` guards reject the latter as degenerate input rather than reading it
+/// as "unbounded" (`None`'s meaning). A value that is present but not a non-negative integer
+/// (negative, fractional, or non-numeric) is rejected with the same clear-error shape the tool
+/// modules themselves already use for degenerate input, instead of silently collapsing into
+/// `None` and widening the effective bound.
+fn parse_optional_non_negative_integer_arg(
+    input: &Value,
+    field: &str,
+) -> Result<Option<usize>, ToolExecutionOutcome> {
+    match input.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => match non_negative_integer(value) {
+            Some(number) => Ok(Some(number)),
+            None => Err(ToolExecutionOutcome {
+                output: format!("{field} must be a non-negative integer (received {value})."),
+                is_error: true,
+            }),
+        },
+    }
+}
+
+/// Reads a JSON number as a non-negative integer regardless of whether it was encoded as an
+/// integer (`5`) or an integral float (`5.0`) -- `Value::as_u64` alone only recognizes the
+/// former. Negative, fractional, non-finite, and non-numeric values all yield `None`.
+fn non_negative_integer(value: &Value) -> Option<usize> {
+    if let Some(integer) = value.as_u64() {
+        return Some(integer as usize);
+    }
+    let float = value.as_f64()?;
+    (float.is_finite() && float >= 0.0 && float.fract() == 0.0).then_some(float as u64 as usize)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execute_tool_call(
     name: &str,
@@ -1283,41 +1322,48 @@ fn execute_tool_call(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let content = input.get("content").and_then(Value::as_str);
-            let offset = input
-                .get("offset")
-                .and_then(Value::as_u64)
-                .map(|v| v as usize);
-            let limit = input
-                .get("limit")
-                .and_then(Value::as_u64)
-                .map(|v| v as usize);
+            let offset = match parse_optional_non_negative_integer_arg(input, "offset") {
+                Ok(offset) => offset,
+                Err(outcome) => return outcome,
+            };
+            let limit = match parse_optional_non_negative_integer_arg(input, "limit") {
+                Ok(limit) => limit,
+                Err(outcome) => return outcome,
+            };
             execute_file(operation, path, content, offset, limit, folder)
         }
-        GREP_TOOL_NAME => execute_grep(
-            GrepRequest {
-                pattern: input
-                    .get("pattern")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-                glob: input.get("glob").and_then(Value::as_str),
-                path: input.get("path").and_then(Value::as_str),
-                output_mode: input
-                    .get("output_mode")
-                    .and_then(Value::as_str)
-                    .unwrap_or(OUTPUT_MODE_FILES),
-                context: input.get("context").and_then(Value::as_u64).unwrap_or(0) as usize,
-                case_insensitive: input
-                    .get("case_insensitive")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-                head_limit: input
-                    .get("head_limit")
-                    .and_then(Value::as_u64)
-                    .map(|v| v as usize),
-            },
-            folder,
-            cancelled,
-        ),
+        GREP_TOOL_NAME => {
+            let context = match parse_optional_non_negative_integer_arg(input, "context") {
+                Ok(context) => context.unwrap_or(0),
+                Err(outcome) => return outcome,
+            };
+            let head_limit = match parse_optional_non_negative_integer_arg(input, "head_limit") {
+                Ok(head_limit) => head_limit,
+                Err(outcome) => return outcome,
+            };
+            execute_grep(
+                GrepRequest {
+                    pattern: input
+                        .get("pattern")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default(),
+                    glob: input.get("glob").and_then(Value::as_str),
+                    path: input.get("path").and_then(Value::as_str),
+                    output_mode: input
+                        .get("output_mode")
+                        .and_then(Value::as_str)
+                        .unwrap_or(OUTPUT_MODE_FILES),
+                    context,
+                    case_insensitive: input
+                        .get("case_insensitive")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    head_limit,
+                },
+                folder,
+                cancelled,
+            )
+        }
         GLOB_TOOL_NAME => execute_glob(
             input
                 .get("pattern")
@@ -2950,6 +2996,14 @@ mod tests {
             false,
         );
         assert!(!edit.is_error);
+        // `!is_error` alone only pins routing, not that the edit actually applied -- a
+        // same-typed argument transposition could in principle route correctly and still no-op.
+        // Reading the file back closes that gap, mirroring the read-back convention already used
+        // by `execute_tool_call_rejects_edit_in_plan_mode` below.
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("a.rs")).expect("read back"),
+            "let needle = 2;\n"
+        );
     }
 
     #[test]
@@ -2991,6 +3045,181 @@ mod tests {
         );
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("a.rs"));
+    }
+
+    // `parse_optional_non_negative_integer_arg` backs `offset`/`limit` (file) and
+    // `context`/`head_limit` (grep). Unit-tested directly here for the shapes a JSON provider can
+    // legally send, then exercised once more through `execute_tool_call` below to confirm it is
+    // actually wired into the dispatcher, not just correct in isolation.
+
+    #[test]
+    fn numeric_tool_argument_accepts_an_integer() {
+        assert_eq!(
+            parse_optional_non_negative_integer_arg(&json!({"limit": 5}), "limit"),
+            Ok(Some(5))
+        );
+    }
+
+    #[test]
+    fn numeric_tool_argument_accepts_an_integral_float_identically_to_the_equivalent_integer() {
+        // Some OpenAI-compatible providers serialize every JSON number as a float, so `5` can
+        // arrive over the wire as `5.0`. Before this fix, `Value::as_u64` returned `None` for the
+        // float encoding and the value was silently treated as absent.
+        assert_eq!(
+            parse_optional_non_negative_integer_arg(&json!({"limit": 5.0}), "limit"),
+            Ok(Some(5))
+        );
+    }
+
+    #[test]
+    fn numeric_tool_argument_treats_an_absent_or_null_field_as_none() {
+        assert_eq!(
+            parse_optional_non_negative_integer_arg(&json!({}), "limit"),
+            Ok(None)
+        );
+        assert_eq!(
+            parse_optional_non_negative_integer_arg(&json!({"limit": null}), "limit"),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn numeric_tool_argument_preserves_an_explicit_zero_as_some_not_none() {
+        // `grep`'s `head_limit == Some(0)` and `file`'s `limit == Some(0)` guards depend on this
+        // distinction to reject an explicit zero as degenerate input rather than reading it as
+        // "unbounded" (`None`'s meaning).
+        assert_eq!(
+            parse_optional_non_negative_integer_arg(&json!({"limit": 0}), "limit"),
+            Ok(Some(0))
+        );
+    }
+
+    #[test]
+    fn numeric_tool_argument_rejects_a_fractional_float() {
+        let outcome =
+            parse_optional_non_negative_integer_arg(&json!({"limit": 5.5}), "limit").unwrap_err();
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("limit"));
+    }
+
+    #[test]
+    fn numeric_tool_argument_rejects_a_negative_number() {
+        assert!(parse_optional_non_negative_integer_arg(&json!({"limit": -1}), "limit").is_err());
+        assert!(parse_optional_non_negative_integer_arg(&json!({"limit": -1.0}), "limit").is_err());
+    }
+
+    #[test]
+    fn numeric_tool_argument_rejects_a_non_numeric_string() {
+        let outcome =
+            parse_optional_non_negative_integer_arg(&json!({"limit": "5"}), "limit").unwrap_err();
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("limit"));
+    }
+
+    #[test]
+    fn numeric_tool_argument_error_message_names_the_field_that_was_rejected() {
+        let outcome =
+            parse_optional_non_negative_integer_arg(&json!({"head_limit": "x"}), "head_limit")
+                .unwrap_err();
+        assert!(outcome.output.starts_with("head_limit"));
+    }
+
+    #[test]
+    fn execute_tool_call_honors_a_file_limit_argument_that_arrived_as_an_integral_float() {
+        // The exact regression this guards against: an OpenAI-compatible provider serializes
+        // every number as a float, so `{"limit": 3}` can arrive as `{"limit": 3.0}`. Before this
+        // fix, `Value::as_u64` returned `None` for the float encoding, `limit` silently became
+        // `None` ("unbounded"), and the read would have returned the whole file instead of
+        // honoring the cap.
+        let directory = crate::test_support::TempDirectory::new("adapter-float-limit");
+        std::fs::write(
+            directory.path().join("a.txt"),
+            "one\ntwo\nthree\nfour\nfive\n",
+        )
+        .expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "a.txt", "limit": 3.0}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+
+        assert!(!outcome.is_error);
+        assert!(!outcome.output.contains("four"));
+        assert!(outcome.output.contains("continue with offset: 3"));
+    }
+
+    #[test]
+    fn execute_tool_call_still_rejects_an_explicit_zero_file_limit_argument() {
+        // Guards the absent-vs-zero distinction the float-acceptance fix above must not blur:
+        // `limit: 0` is present-and-invalid (file_tool's own guard), and must not be
+        // reinterpreted as absent ("unbounded") by the wider numeric-shape acceptance.
+        let directory = crate::test_support::TempDirectory::new("adapter-zero-limit");
+        std::fs::write(directory.path().join("a.txt"), "one\ntwo\n").expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            FILE_TOOL_NAME,
+            &json!({"operation": "read", "path": "a.txt", "limit": 0}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("at least 1"));
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_a_string_grep_head_limit_argument_instead_of_silently_widening_it()
+    {
+        let directory = crate::test_support::TempDirectory::new("adapter-string-head-limit");
+        std::fs::write(directory.path().join("a.rs"), "needle\n").expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            GREP_TOOL_NAME,
+            &json!({"pattern": "needle", "head_limit": "5"}),
+            Some(&folder),
+            not_cancelled(),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("head_limit"));
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_a_negative_grep_context_argument() {
+        let directory = crate::test_support::TempDirectory::new("adapter-negative-context");
+        std::fs::write(directory.path().join("a.rs"), "needle\n").expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let outcome = execute_tool_call(
+            GREP_TOOL_NAME,
+            &json!({"pattern": "needle", "context": -1}),
+            Some(&folder),
+            not_cancelled(),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("context"));
     }
 
     #[test]

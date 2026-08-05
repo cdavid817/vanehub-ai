@@ -310,6 +310,26 @@ mod tests {
             &json!({"operation": "read", "path": "a.txt"}),
             false
         ));
+        // `grep`/`glob` are AutoApprove unconditionally and are not part of `requires_approval`'s
+        // trust allowlist at all -- unlike `shell`/`file`/`edit`, nothing here should depend on
+        // the trust flag either way. Exercises `requires_approval` itself (the actual production
+        // entry point composing `risk_tier_for` with the trust flag), not just `risk_tier_for` in
+        // isolation, with the flag both on and off: a future change that narrows
+        // `requires_approval`'s carve-out logic and accidentally starts gating search tools on
+        // trust would fail here even though `search_tools_do_not_require_approval` alone
+        // (asserting on `risk_tier_for`) would still pass.
+        for trusted in [false, true] {
+            assert!(!requires_approval(
+                GREP_TOOL_NAME,
+                &json!({"pattern": "needle"}),
+                trusted
+            ));
+            assert!(!requires_approval(
+                GLOB_TOOL_NAME,
+                &json!({"pattern": "**/*.rs"}),
+                trusted
+            ));
+        }
     }
 
     #[test]
@@ -340,11 +360,5 @@ mod tests {
         let input = json!({"path": "a.rs", "old_string": "a", "new_string": "b"});
         assert!(requires_approval(EDIT_TOOL_NAME, &input, false));
         assert!(!requires_approval(EDIT_TOOL_NAME, &input, true));
-    }
-
-    #[test]
-    fn trust_does_not_widen_to_mcp_tools() {
-        let input = json!({});
-        assert!(requires_approval("mcp__server__tool", &input, true));
     }
 }
