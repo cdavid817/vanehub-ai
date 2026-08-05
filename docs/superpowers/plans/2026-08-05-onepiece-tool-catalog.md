@@ -252,7 +252,9 @@ git commit -m "spec: propose OnePiece search and edit tools"
 - Produces:
   - `pub(crate) const MAX_SEARCH_RESULTS: usize = 200;` 与 `pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;` —— **放在 `tools/mod.rs` 而非 `walk.rs`**。它们是工具的输出预算，与「怎么遍历文件」无关；更要紧的是 `shell_tool.rs` 已有一个同值的 `SHELL_OUTPUT_LIMIT = 64 * 1024`，同一模块里两个名字指同一个 64KB，改一个另一个会静默走偏。`shell_tool.rs` 改用 `MAX_TOOL_OUTPUT_BYTES`，删掉 `SHELL_OUTPUT_LIMIT`。后续任务从 `super::` 而非 `super::walk::` 导入这两个常量。
   - `pub(crate) enum Visit { Continue, Stop }`
-  - `pub(crate) fn visit_workspace_files(workspace_folder: &str, relative_root: Option<&str>, cancelled: &AtomicBool, visit: &mut dyn FnMut(&Path, &str) -> Visit) -> Result<(), String>`
+  - `pub(crate) struct WalkedFile<'a> { absolute: &'a Path, display: &'a str, scoped: &'a str }` —— 用结构体而非三个相邻的 `&str` 参数，因为同类型参数相邻时极易传串位。`display` 是工作区相对路径（**唯一可以输出给模型的形式**）；`scoped` 是相对于搜索作用域（`relative_root`，无则同 `display`）的路径，**模式匹配用它**。
+  - `pub(crate) fn visit_workspace_files(workspace_folder: &str, relative_root: Option<&str>, cancelled: &AtomicBool, visit: &mut dyn FnMut(&WalkedFile<'_>) -> Visit) -> Result<(), String>`
+  - **为什么需要 `scoped`**：`literal_separator(true)` 下 `*` 不跨 `/`。若模式拿工作区相对路径去匹配，则 `path: "docs"` + `pattern: "*.md"` 对实存的 `docs/guide.md` 返回零匹配 —— 搜索工具最坏的失败模式，静默假阴性，模型会据此断定文件不存在。拿 `scoped` 匹配后，`path` 的语义等同于“cd 进去再搜”。
     —— 回调参数为 (绝对路径, 工作区相对路径，正斜杠分隔)。**取 `&str` 而非 `&BoundedFilesystem`**：工作区根需要一个绝对路径起点，而 `BoundedFilesystem` 的 `root` 字段是私有的，唯一的取法是 `resolve_existing(".")` —— 那要求 `validate_relative` 接受 `Component::CurDir`，是个未经验证的假设，赌错就是每次搜索必失败。直接 canonicalize 传入的 `workspace_folder` 没有这个风险，边界检查仍由内部构造的 boundary 负责。
   - `pub(crate) fn is_binary(bytes: &[u8]) -> bool`
   - `pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;`
@@ -760,9 +762,11 @@ pub(crate) fn execute_glob(
 
     let mut matches: Vec<String> = Vec::new();
     let mut truncated = false;
-    let outcome = visit_workspace_files(workspace_folder, path, &cancelled, &mut |_absolute, relative| {
-        if matcher.is_match(relative) {
-            matches.push(relative.to_string());
+    let outcome = visit_workspace_files(workspace_folder, path, &cancelled, &mut |file| {
+        // 匹配 `scoped`、输出 `display`：`path: "docs"` + `pattern: "*.md"` 必须能命中
+        // `docs/guide.md`，而回给模型的路径又必须是能直接传给 file / edit 工具的那个。
+        if matcher.is_match(file.scoped) {
+            matches.push(file.display.to_string());
             if matches.len() >= MAX_SEARCH_RESULTS {
                 truncated = true;
                 return Visit::Stop;
@@ -1147,18 +1151,20 @@ pub(crate) fn execute_grep(
     let mut bytes = 0usize;
     let mut truncated = false;
 
-    let walk = visit_workspace_files(workspace_folder, request.path, &cancelled, &mut |absolute, relative| {
+    let walk = visit_workspace_files(workspace_folder, request.path, &cancelled, &mut |file| {
+        // 过滤用 `scoped`，输出用 `display` —— 模式相对搜索作用域，但模型拿到的路径必须能
+        // 直接嗂给 file / edit 工具，那些工具只认工作区相对路径。
         if let Some(filter) = &file_filter {
-            if !filter.is_match(relative) {
+            if !filter.is_match(file.scoped) {
                 return Visit::Continue;
             }
         }
         // 大小检查必须在 read 之前 —— 否则超大文件在被判定「跳过」之前就已经进了内存。
         // 搜索静默跳过而非报错：用户要的是「搜整个仓库」，不该因某一个大文件而整体失败。
-        if exceeds_size_limit(absolute) {
+        if exceeds_size_limit(file.absolute) {
             return Visit::Continue;
         }
-        let Ok(raw) = std::fs::read(absolute) else {
+        let Ok(raw) = std::fs::read(file.absolute) else {
             // 读不了的单个文件不该让整次搜索失败。
             return Visit::Continue;
         };
@@ -1168,7 +1174,7 @@ pub(crate) fn execute_grep(
         let Ok(text) = String::from_utf8(raw) else {
             return Visit::Continue;
         };
-        let rendered = render_file(&matcher, relative, &text, request.output_mode, request.context);
+        let rendered = render_file(&matcher, file.display, &text, request.output_mode, request.context);
         for line in rendered {
             bytes += line.len() + 1;
             lines.push(line);
