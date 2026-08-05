@@ -262,11 +262,13 @@ input_schema:
 
 plan mode 同样提供 `recall`：只读，且规划阶段最需要历史上下文。
 
-### 7.2 工具集解析收口
+### 7.2 工具集解析注入点
 
-`tool_catalog()` 目前在三处被直接调用：`anthropic_provider.rs:323`、`openai_compatible_provider.rs:309`、`api_process_adapter.rs:739`。引入**条件性**工具后，三处判断必须一致，否则同一 agent 在不同 provider 路径下看到的工具集会不同。
+工具集解析**已经是收口的**：`resolve_tool_catalog()`（`api_process_adapter.rs:729-761`）是唯一的生产解析点，只在 `api_process_adapter.rs:475` 被调用一次，plan mode 与 MCP 扩展都在它内部分支。`anthropic_provider.rs:323` 与 `openai_compatible_provider.rs:309` 虽然直接调 `tool_catalog()`，但两处都在 `#[cfg(test)] mod tests` 内，只是为断言请求体形状造一份样例工具列表，不是生产路径。**因此本期没有"三处收口"的既有隐患要修**（早期设计稿的这一判断是误读，已更正）。
 
-本期把"解析本次生成的可用工具集"收敛为单一函数，三处统一调用。这是顺带修复的既有隐患。
+条件性 `recall` 的注入点因此唯一：`resolve_tool_catalog()`。它的两个分支都要注入——plan mode 分支（§7.1 要求 plan mode 同样提供 `recall`）与常规分支。`tool_catalog()` 与 `plan_mode_tool_catalog()` 保持纯函数、保持无条件，不感知检索配置；可用性判断只存在于 `resolve_tool_catalog()`。
+
+引入条件性工具会打破几处断言"目录固定长度"的既有测试，必须一并更新：`tool_catalog.rs:147`（`catalog.len() == 3`）、`tool_catalog.rs:157`（`plan_mode` 目录 `len() == 2`）、`api_process_adapter.rs:2888`（`tools.len() == 259`）、`api_process_adapter.rs:2941`（`tools == plan_mode_tool_catalog()`）。前两处因 `tool_catalog()` 本身不变而只需补"未配置时不含 recall"的新用例；后两处需按是否配置检索分别断言。
 
 ### 7.3 配置区块
 
