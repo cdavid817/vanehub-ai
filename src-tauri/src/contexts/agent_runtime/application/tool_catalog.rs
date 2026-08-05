@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
+pub(crate) const GREP_TOOL_NAME: &str = "grep";
+pub(crate) const GLOB_TOOL_NAME: &str = "glob";
+pub(crate) const EDIT_TOOL_NAME: &str = "edit";
 /// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
 /// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
 /// always prefixed before entering the catalog.
@@ -121,6 +124,14 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
         // shell, or anything else external — so a wrong or low-value memory is no worse than a
         // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
         REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Both are read-only and bounded by the workspace boundary and .gitignore. Making them
+        // auto-approve is the entire point of this capability — prompting on every search would
+        // push the model back toward guessing via shell instead, which is more dangerous, not less.
+        GREP_TOOL_NAME | GLOB_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Falls into the default `_` arm below anyway, but listed explicitly so this contract is
+        // locked by its own test (`edit_always_requires_approval`) rather than being an accident
+        // of the default branch that a future change to that branch could silently widen.
+        EDIT_TOOL_NAME => ToolRiskTier::RequiresApproval,
         _ => ToolRiskTier::RequiresApproval,
     }
 }
@@ -129,11 +140,15 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
 /// classification with a per-agent trust grant (`add-agent-tool-trust`). `risk_tier_for` itself
 /// stays agent-trust-unaware — this function is the only place the two are combined, kept
 /// separate so `risk_tier_for`'s existing pure "classify by name+input" contract and test suite
-/// need no changes. `auto_approve_tools` can only ever skip approval for `shell` and `file`
-/// calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
+/// need no changes. `auto_approve_tools` can only ever skip approval for `shell`, `file`, and
+/// `edit` calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
 /// `RequiresApproval` for any name it doesn't explicitly recognize, with no carve-out here.
 pub(crate) fn requires_approval(tool_name: &str, input: &Value, auto_approve_tools: bool) -> bool {
-    if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL_NAME) {
+    if auto_approve_tools
+        && (tool_name == SHELL_TOOL_NAME
+            || tool_name == FILE_TOOL_NAME
+            || tool_name == EDIT_TOOL_NAME)
+    {
         return false;
     }
     risk_tier_for(tool_name, input) == ToolRiskTier::RequiresApproval
@@ -295,5 +310,41 @@ mod tests {
             &json!({"operation": "read", "path": "a.txt"}),
             false
         ));
+    }
+
+    #[test]
+    fn search_tools_do_not_require_approval() {
+        assert_eq!(
+            risk_tier_for(GREP_TOOL_NAME, &json!({"pattern": "needle"})),
+            ToolRiskTier::AutoApprove
+        );
+        assert_eq!(
+            risk_tier_for(GLOB_TOOL_NAME, &json!({"pattern": "**/*.rs"})),
+            ToolRiskTier::AutoApprove
+        );
+    }
+
+    #[test]
+    fn edit_always_requires_approval() {
+        assert_eq!(
+            risk_tier_for(
+                EDIT_TOOL_NAME,
+                &json!({"path": "a.rs", "old_string": "a", "new_string": "b"})
+            ),
+            ToolRiskTier::RequiresApproval
+        );
+    }
+
+    #[test]
+    fn a_trusted_agent_skips_approval_for_edit() {
+        let input = json!({"path": "a.rs", "old_string": "a", "new_string": "b"});
+        assert!(requires_approval(EDIT_TOOL_NAME, &input, false));
+        assert!(!requires_approval(EDIT_TOOL_NAME, &input, true));
+    }
+
+    #[test]
+    fn trust_does_not_widen_to_mcp_tools() {
+        let input = json!({});
+        assert!(requires_approval("mcp__server__tool", &input, true));
     }
 }

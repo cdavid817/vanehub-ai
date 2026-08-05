@@ -1,5 +1,8 @@
 use super::tool_call_accumulator::ToolCallAccumulator;
-use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
+use super::tools::{
+    execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
+    ToolExecutionOutcome, OUTPUT_MODE_FILES,
+};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     plan_mode_tool_catalog, requires_approval, tool_catalog, AgentChatConfiguration,
@@ -9,8 +12,9 @@ use crate::contexts::agent_runtime::application::{
     ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
     GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
     ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME,
+    FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -1249,6 +1253,9 @@ fn execute_tool_call(
     if plan_mode && name == SHELL_TOOL_NAME {
         return plan_mode_denial("Shell commands");
     }
+    if plan_mode && name == EDIT_TOOL_NAME {
+        return plan_mode_denial("Editing files");
+    }
     let Some(folder) = workspace_folder else {
         return ToolExecutionOutcome {
             output: "This session has no workspace folder configured.".to_string(),
@@ -1276,13 +1283,69 @@ fn execute_tool_call(
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let content = input.get("content").and_then(Value::as_str);
-            // `offset`/`limit` are not yet exposed in the tool catalog's JSON schema or parsed
-            // from `input` here -- that wiring is a separate change. Passing `None` preserves
-            // today's behavior (read the file from the top, up to `file_tool`'s own hard cap)
-            // while keeping this call site matched to `execute_file`'s new bounded-read
-            // signature.
-            execute_file(operation, path, content, None, None, folder)
+            let offset = input
+                .get("offset")
+                .and_then(Value::as_u64)
+                .map(|v| v as usize);
+            let limit = input
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|v| v as usize);
+            execute_file(operation, path, content, offset, limit, folder)
         }
+        GREP_TOOL_NAME => execute_grep(
+            GrepRequest {
+                pattern: input
+                    .get("pattern")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                glob: input.get("glob").and_then(Value::as_str),
+                path: input.get("path").and_then(Value::as_str),
+                output_mode: input
+                    .get("output_mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or(OUTPUT_MODE_FILES),
+                context: input.get("context").and_then(Value::as_u64).unwrap_or(0) as usize,
+                case_insensitive: input
+                    .get("case_insensitive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                head_limit: input
+                    .get("head_limit")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize),
+            },
+            folder,
+            cancelled,
+        ),
+        GLOB_TOOL_NAME => execute_glob(
+            input
+                .get("pattern")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            input.get("path").and_then(Value::as_str),
+            folder,
+            cancelled,
+        ),
+        EDIT_TOOL_NAME => execute_edit(
+            input
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            input
+                .get("old_string")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            input
+                .get("new_string")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+            input
+                .get("replace_all")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            folder,
+        ),
         other => ToolExecutionOutcome {
             output: format!("Unknown tool \"{other}\"."),
             is_error: true,
@@ -2842,6 +2905,92 @@ mod tests {
         assert!(outcome.is_error);
         assert!(outcome.output.contains("plan mode"));
         assert!(!directory.path().join("a.txt").exists());
+    }
+
+    #[test]
+    fn execute_tool_call_routes_the_search_and_edit_tools_by_name() {
+        let directory = crate::test_support::TempDirectory::new("adapter-route-search");
+        std::fs::write(directory.path().join("a.rs"), "let needle = 1;\n").expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let grep = execute_tool_call(
+            GREP_TOOL_NAME,
+            &json!({"pattern": "needle"}),
+            Some(&folder),
+            Arc::new(AtomicBool::new(false)),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+        assert!(!grep.is_error);
+        assert!(grep.output.contains("a.rs"));
+
+        let glob = execute_tool_call(
+            GLOB_TOOL_NAME,
+            &json!({"pattern": "**/*.rs"}),
+            Some(&folder),
+            Arc::new(AtomicBool::new(false)),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+        assert!(!glob.is_error);
+        assert!(glob.output.contains("a.rs"));
+
+        let edit = execute_tool_call(
+            EDIT_TOOL_NAME,
+            &json!({"path": "a.rs", "old_string": "needle = 1", "new_string": "needle = 2"}),
+            Some(&folder),
+            Arc::new(AtomicBool::new(false)),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            false,
+        );
+        assert!(!edit.is_error);
+    }
+
+    #[test]
+    fn execute_tool_call_rejects_edit_in_plan_mode() {
+        let directory = crate::test_support::TempDirectory::new("adapter-plan-edit");
+        std::fs::write(directory.path().join("a.rs"), "let a = 1;\n").expect("write fixture");
+        let outcome = execute_tool_call(
+            EDIT_TOOL_NAME,
+            &json!({"path": "a.rs", "old_string": "a = 1", "new_string": "a = 2"}),
+            Some(&directory.path().to_string_lossy()),
+            Arc::new(AtomicBool::new(false)),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            true,
+        );
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("plan mode"));
+        // The hard denial must happen before the filesystem is touched.
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("a.rs")).expect("read back"),
+            "let a = 1;\n"
+        );
+    }
+
+    #[test]
+    fn execute_tool_call_still_allows_search_tools_in_plan_mode() {
+        let directory = crate::test_support::TempDirectory::new("adapter-plan-search");
+        std::fs::write(directory.path().join("a.rs"), "let needle = 1;\n").expect("write fixture");
+        let outcome = execute_tool_call(
+            GREP_TOOL_NAME,
+            &json!({"pattern": "needle"}),
+            Some(&directory.path().to_string_lossy()),
+            Arc::new(AtomicBool::new(false)),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            true,
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("a.rs"));
     }
 
     #[test]

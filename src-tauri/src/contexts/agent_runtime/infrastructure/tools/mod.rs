@@ -11,7 +11,7 @@ mod walk;
 pub(crate) use edit_tool::execute_edit;
 pub(crate) use file_tool::execute_file;
 pub(crate) use glob_tool::execute_glob;
-pub(crate) use grep_tool::{execute_grep, GrepRequest};
+pub(crate) use grep_tool::{execute_grep, GrepRequest, OUTPUT_MODE_FILES};
 pub(crate) use shell_tool::execute_shell;
 
 /// Shared cap on how many matches a search-style tool (glob, grep) returns. Bounds the reply
