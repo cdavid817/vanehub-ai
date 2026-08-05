@@ -227,7 +227,8 @@ ScoredHit { source_id, content, created_at, score, matched_via: vector|keyword|b
 | 关键词路自身失败（FTS 语法或 IO 错误） | 只走向量路，结果标 `degraded: vector_only`，不报错 |
 | 大量 pending 未索引完 | 关键词路照常——FTS 由 trigger 实时维护，不依赖 worker |
 | 换了 embedding 模型 | 向量路只覆盖已收敛的行，其余走关键词，后台逐步补齐 |
-| 两路都空 | 返回空列表，不是错误 |
+| 两路都可用但都没命中 | 返回空列表，不是错误 |
+| 两路都失败 | 报告"检索不可用"而非空结果——把"搜不了"说成"没有"，会让模型据此断定用户从没提过某事。复用已有错误路径：`search` 返回 `Err`，`recall` 的既有分支把它转成成功的工具结果"检索暂时不可用" |
 
 FTS 独立于 embedding 可用，因此"未配置 embedding 就不注册工具"表面上浪费了关键词能力。这是刻意的：注册一个语义召回能力为零的 `recall` 会误导模型。**未配置 = 不注册；已配置但临时故障 = 降级关键词**。
 

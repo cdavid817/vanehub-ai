@@ -451,6 +451,9 @@ pub(crate) enum RetrievalError {
     Storage(String),
     Embedding(String),
     NotConfigured,
+    /// 两路召回都失败。与"两路都可用但没命中"必须是不同的结果：把"搜不了"报告成
+    /// "没有"，会让模型据此断定用户从没提过某事。
+    Unavailable,
 }
 
 impl std::fmt::Display for RetrievalError {
@@ -459,6 +462,7 @@ impl std::fmt::Display for RetrievalError {
             Self::Storage(message) => write!(formatter, "retrieval storage error: {message}"),
             Self::Embedding(message) => write!(formatter, "embedding error: {message}"),
             Self::NotConfigured => write!(formatter, "retrieval is not configured"),
+            Self::Unavailable => write!(formatter, "retrieval is temporarily unavailable"),
         }
     }
 }
@@ -2254,8 +2258,16 @@ fn keyword_path_failure_degrades_to_vector_only_instead_of_erroring() {
 }
 
 #[test]
-fn both_paths_empty_is_success_not_an_error() {
-    // hits 为空，degraded 为 None，返回 Ok
+fn both_paths_available_but_empty_is_success_not_an_error() {
+    // 两路都可用、都没命中 → Ok，hits 为空，degraded 为 None
+}
+
+#[test]
+fn both_paths_failing_reports_unavailable_rather_than_an_empty_result() {
+    // fake embedding 返回 Err 且 fake 仓储的 keyword_candidates 也返回 Err
+    // → Err(RetrievalError::Unavailable)，**不是** Ok(空列表)。
+    // 这一条与上一条成对存在：区分"搜不了"和"没有"正是它们的全部意义。
+    assert_eq!(service.search(&query).unwrap_err(), RetrievalError::Unavailable);
 }
 
 #[test]
@@ -2307,7 +2319,11 @@ pub(crate) fn search(&self, query: &RetrievalQuery) -> Result<SearchOutcome, Ret
         )
         .ok();
 
+    // 两路都失败必须与"两路都可用但都没命中"区分开。复用已有的 Err 路径而不是新增一种
+    // 降级值：Task 13 的 `execute_recall` 已有分支会把 Err 转成**成功的**工具结果
+    // "检索暂时不可用"，所以 §8.1 的铁律仍然成立，且不必新增一套模型要理解的词汇。
     let degraded = match (&vector_ranking, &keyword_ranking) {
+        (None, None) => return Err(RetrievalError::Unavailable),
         (None, Some(_)) => Some(Degradation::KeywordOnly),
         (Some(_), None) => Some(Degradation::VectorOnly),
         _ => None,

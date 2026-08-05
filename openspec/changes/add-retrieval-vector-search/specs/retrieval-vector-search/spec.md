@@ -20,8 +20,13 @@ The system SHALL return a successful tool result describing unavailability when 
 - **THEN** the system SHALL return vector-only results marked `degraded: vector_only`
 
 #### Scenario: Both paths yield nothing
-- **WHEN** neither path returns a hit
+- **WHEN** both paths execute successfully and neither returns a hit
 - **THEN** the system SHALL return an empty result list and SHALL NOT report an error
+
+#### Scenario: Both paths fail
+- **WHEN** both the vector path and the keyword path fail
+- **THEN** the system SHALL report retrieval as unavailable rather than as an empty result set
+- **AND** the recall tool SHALL still return a successful tool result so that generation continues
 
 ### Requirement: Saving a memory never depends on indexing
 The system SHALL persist an agent memory without requiring its retrieval index entry to be written in the same operation.
