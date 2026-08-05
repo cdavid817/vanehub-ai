@@ -13,8 +13,10 @@ pub(crate) struct RetrievalIndexStatus {
     pub(crate) last_failure_category: Option<String>,
 }
 
-// 本 trait 唯一的实现（SqliteRetrievalDocumentRepository）要到 Task 7 的差集协调服务把它
-// 当依赖注入进来才会被真正调用；届时移除本属性。
+// 本 trait 唯一的实现（SqliteRetrievalDocumentRepository）要到 Task 12 的 bootstrap 装配把它
+// 构造出来并注入 IndexingService 才会被真正调用；届时移除本属性。Task 7 的 IndexingService
+// 已经把它用作字段类型，但只要 IndexingService 自身还没被真实构造过，光靠字段类型引用
+// 不足以让这个 trait 被判定为"已使用"（已用 cargo check 实测确认）。
 #[allow(dead_code)]
 pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn upsert_pending(&self, document: &RetrievalDocument) -> Result<(), RetrievalError>;
