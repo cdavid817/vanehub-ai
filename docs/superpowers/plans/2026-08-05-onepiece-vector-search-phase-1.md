@@ -1199,6 +1199,7 @@ mod tests {
 
     struct Fixture {
         _directory: TempDirectory,
+        database: NativeDatabase,
         repository: SqliteRetrievalDocumentRepository,
     }
 
@@ -1208,9 +1209,24 @@ mod tests {
             let database =
                 NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
             Self {
-                repository: SqliteRetrievalDocumentRepository::new(database),
+                repository: SqliteRetrievalDocumentRepository::new(database.clone()),
+                database,
                 _directory: directory,
             }
+        }
+
+        /// `attempt_count` 不进 `RetrievalIndexStatus`——它是 worker 的内部记账，不该出现在
+        /// UI 契约里。但重试与重建的正确性正取决于它，所以测试直接读列。
+        fn attempt_count(&self, source_id: &str) -> i64 {
+            self.database
+                .connection()
+                .expect("connection")
+                .query_row(
+                    "SELECT attempt_count FROM retrieval_documents WHERE source_id = ?1",
+                    params![source_id],
+                    |row| row.get(0),
+                )
+                .expect("attempt count")
         }
     }
 
@@ -1249,6 +1265,38 @@ mod tests {
     }
 
     #[test]
+    fn upserting_unchanged_content_preserves_index_state_and_failure_bookkeeping() {
+        let fixture = Fixture::new("retrieval upsert preserves state");
+        let unchanged = document("m1", "a", "", "uses npm");
+        fixture.repository.upsert_pending(&unchanged).expect("first upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-a",
+                &[1.0, 0.0],
+            )
+            .expect("store");
+
+        // 内容没变的重复 reconcile 不能把已索引行打回 pending——否则每一轮轮询都会重烧
+        // 一次 embedding 配额。上面那条 idempotent 测试改的是内容，只覆盖了重置分支。
+        fixture.repository.upsert_pending(&unchanged).expect("second upsert");
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.indexed, 1, "an unchanged upsert must not reset index_state");
+        assert_eq!(status.pending, 0);
+        assert_eq!(
+            fixture
+                .repository
+                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-a")
+                .expect("candidates")
+                .len(),
+            1,
+            "the stored embedding must survive an unchanged upsert"
+        );
+    }
+
+    #[test]
     fn storing_an_embedding_marks_the_row_indexed_and_clears_failure_state() {
         let fixture = Fixture::new("retrieval store embedding");
         fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm")).expect("upsert");
@@ -1269,6 +1317,20 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, "m1");
         assert_eq!(candidates[0].1, vec![1.0, 0.0]);
+
+        // 光看 vector_candidates 命中证明不了"清空失败状态"——它的 WHERE 根本不看
+        // failure_category 与 attempt_count，那两个子句被删掉这条测试照样过。
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.indexed, 1);
+        assert_eq!(
+            status.last_failure_category, None,
+            "store_embedding must clear the failure category"
+        );
+        assert_eq!(
+            fixture.attempt_count("m1"),
+            0,
+            "store_embedding must reset the attempt count"
+        );
     }
 
     #[test]
@@ -1371,7 +1433,9 @@ mod tests {
         assert_eq!(status.failed, 1);
         assert_eq!(status.pending, 1);
         assert_eq!(status.indexed, 0);
-        assert_eq!(status.last_failure_category.as_deref(), Some("auth"));
+        // `last_failure_category` 取的是**最近更新**的那一条，也就是后写入的 m2（network），
+        // 不是先写入的 m1（auth）。
+        assert_eq!(status.last_failure_category.as_deref(), Some("network"));
     }
 
     #[test]
@@ -1382,6 +1446,8 @@ mod tests {
             .repository
             .record_failure(&document_id(SourceKind::AgentMemory, "m1"), FailureCategory::Auth, true)
             .expect("failure");
+        // 先断言它确实被计过数，否则下面那条"归零"断言证明不了任何事。
+        assert_eq!(fixture.attempt_count("m1"), 1, "the failure must have counted an attempt");
 
         fixture.repository.requeue_all("a").expect("requeue");
 
@@ -1389,6 +1455,7 @@ mod tests {
         assert_eq!(status.failed, 0);
         assert_eq!(status.pending, 1);
         assert_eq!(status.last_failure_category, None);
+        assert_eq!(fixture.attempt_count("m1"), 0, "requeue_all must reset the attempt count");
     }
 
     #[test]
