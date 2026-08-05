@@ -1,16 +1,16 @@
 ## ADDED Requirements
 
 ### Requirement: Bounded tool input and output
-The content-search and filename-search tools SHALL cap their returned results at 200 matches. The file tool's read operation SHALL support `offset`/`limit` paging, SHALL prefix each returned line with its line number, and SHALL cap a single call's output at 2000 lines, 2000 characters per line, and 64KB of total bytes, applying whichever of those three limits is reached first. Every one of these caps SHALL be a hard limit: the content-search and filename-search tools' `head_limit` parameter and the file tool's `limit` parameter MAY only lower their tool's cap and SHALL NOT raise it above the system default. Before reading a file's content into memory, the content-search tool, the file tool's read operation, and the file-edit tool SHALL check that file's size through filesystem metadata; a file larger than 10MB SHALL be skipped silently by the content-search tool and SHALL be rejected with an explicit error by the file tool's read operation and by the file-edit tool, in both cases without reading its content. The file tool's read operation SHALL detect binary content and refuse to return it with an explicit reason rather than a decoding failure. Whenever a result-count cap, a read cap, or an oversized-file skip causes returned content to be incomplete, the tool's output SHALL explicitly state that truncation occurred rather than returning a partial result silently.
+The content-search and filename-search tools SHALL cap their returned results at 200 result lines. The file tool's read operation SHALL support `offset`/`limit` paging, SHALL prefix each returned line with its line number, and SHALL cap a single call's output at 2000 lines, 2000 characters per line, and 64KB of total bytes, applying whichever of those three limits is reached first. Every one of these caps SHALL be a hard limit: the content-search tool's `head_limit` parameter and the file tool's `limit` parameter MAY only lower their tool's cap and SHALL NOT raise it above the system default; the filename-search tool's 200-result-line cap is fixed and has no tuning parameter. Before reading a file's content into memory, the content-search tool, the file tool's read operation, and the file-edit tool SHALL check that file's size through filesystem metadata; a file larger than 10MB SHALL be skipped silently by the content-search tool and SHALL be rejected with an explicit error by the file tool's read operation and by the file-edit tool, in both cases without reading its content. The file tool's read operation SHALL detect binary content and refuse to return it with an explicit reason rather than a decoding failure. Whenever a result-count cap or a read cap causes returned content to be incomplete, the tool's output SHALL explicitly state that truncation occurred rather than returning a partial result silently.
 
-#### Scenario: Search results are capped at 200 matches
-- **WHEN** a content-search or filename-search tool call would otherwise match more than 200 results
-- **THEN** the system SHALL return only the first 200
+#### Scenario: Search results are capped at 200 result lines
+- **WHEN** a content-search or filename-search tool call would otherwise produce more than 200 result lines
+- **THEN** the system SHALL return only the first 200 result lines
 - **AND** the output SHALL explicitly state that results were truncated
 
-#### Scenario: head_limit can only lower the search cap
-- **WHEN** a content-search or filename-search tool call supplies a `head_limit` greater than 200
-- **THEN** the system SHALL still cap the returned results at 200
+#### Scenario: head_limit can only lower the content-search cap
+- **WHEN** a content-search tool call supplies a `head_limit` greater than 200
+- **THEN** the system SHALL still cap the returned result lines at 200
 
 #### Scenario: File read paginates with offset and limit
 - **WHEN** the native agent calls the file tool's read operation with an `offset` and a `limit`

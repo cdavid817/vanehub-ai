@@ -27,6 +27,7 @@ OnePiece 的原生工具目录只有 `shell`、`file`（整文件 read/write）�
 - `agent-tool-trust`：受信任 Agent 跳过审批的工具集需覆盖 `edit`
 - `agent-chat-configuration`：plan mode 只读工具集需覆盖 `grep` / `glob`
 - `onepiece-native-agent`：Safe OnePiece tool defaults
+- `agent-context-compaction`：修正摘要调用「不声明工具」场景随工具目录扩张而复发的既有枚举漂移
 
 ## Dependencies
 
