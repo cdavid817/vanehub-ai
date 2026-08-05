@@ -1564,6 +1564,22 @@
                                               "cli-agent-config-management",
                                               "settings-center-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-05",
+                         "changeName":  "add-permissions-core",
+                         "path":  "openspec/changes/archive/2026-08-05-add-permissions-core/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "agent-tool-trust",
+                                              "permissions-approval",
+                                              "permissions-core"
+                                          ]
                      }
                  ]
 }

@@ -32,19 +32,28 @@ The system SHALL, when a provider response requests one or more tool calls, exec
 - **THEN** the system SHALL end the generation with a non-retryable failure rather than continuing to call the provider
 
 ### Requirement: Risk-tiered tool approval
-The system SHALL classify each tool call's risk by which tool/operation is being invoked, not by inspecting its specific arguments. File-read operations SHALL execute without requiring user approval. File-write operations and shell execution SHALL always require an explicit user approval before executing, regardless of their specific arguments.
+The system SHALL classify each tool call's risk by which tool/operation is being invoked, not by inspecting its specific arguments, and SHALL resolve whether it executes immediately, is denied, or requires approval through the unified permission evaluation defined by `permissions-core`. File-read operations SHALL execute without requiring user approval. File-write operations and shell execution SHALL, by default, require an explicit user approval before executing, unless the acting principal's assigned policy resolves the action to `Allow` or `Deny`.
 
 #### Scenario: File read executes without approval
 - **WHEN** the native agent calls the file tool with a read operation
 - **THEN** the system SHALL execute it immediately without requesting user approval
 
 #### Scenario: File write requires approval
-- **WHEN** the native agent calls the file tool with a write operation
+- **WHEN** the native agent calls the file tool with a write operation and no policy resolves the action to `Allow` or `Deny`
 - **THEN** the system SHALL request user approval before executing it, regardless of the file path or content involved
 
 #### Scenario: Shell execution requires approval
-- **WHEN** the native agent calls the shell tool
+- **WHEN** the native agent calls the shell tool and no policy resolves the action to `Allow` or `Deny`
 - **THEN** the system SHALL request user approval before executing it, regardless of the specific command
+
+#### Scenario: A policy-allowed file write or shell call executes without approval
+- **WHEN** the acting principal's assigned policy resolves a file-write or shell-execution action to `Allow`
+- **THEN** the system SHALL execute it immediately without requesting user approval
+
+#### Scenario: A policy-denied file write or shell call is rejected without prompting
+- **WHEN** the acting principal's assigned policy resolves a file-write or shell-execution action to `Deny`
+- **THEN** the system SHALL NOT execute it
+- **AND** SHALL NOT request user approval
 
 ### Requirement: Approval request and resolution
 When a tool call requires approval, the system SHALL pause that tool call, present the tool name and its input to the user, and wait for an explicit approve or deny decision before proceeding. The system SHALL NOT execute a tool call awaiting approval before a decision is received.

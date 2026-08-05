@@ -7,11 +7,11 @@ The system SHALL classify each tool call's risk by which tool/operation is being
 - **WHEN** the native agent calls the file tool with a read operation
 - **THEN** the system SHALL execute it immediately without requesting user approval
 
-#### Scenario: File write requires approval by default
+#### Scenario: File write requires approval
 - **WHEN** the native agent calls the file tool with a write operation and no policy resolves the action to `Allow` or `Deny`
 - **THEN** the system SHALL request user approval before executing it, regardless of the file path or content involved
 
-#### Scenario: Shell execution requires approval by default
+#### Scenario: Shell execution requires approval
 - **WHEN** the native agent calls the shell tool and no policy resolves the action to `Allow` or `Deny`
 - **THEN** the system SHALL request user approval before executing it, regardless of the specific command
 
