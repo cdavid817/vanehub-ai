@@ -14,6 +14,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// another in-flight edit even when two calls target the same file.
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// Cap on how much of `target`'s own file name `write_atomically` embeds in its temp file name.
+/// NTFS (and most POSIX filesystems) limit a single path component to 255 characters; the temp
+/// name adds a fixed suffix on top of the stem, and uniqueness already comes from the pid and
+/// sequence number above, never from the stem, so a long target name only needs truncating here,
+/// not preserving in full.
+const MAX_TEMP_STEM_CHARS: usize = 60;
+
 pub(crate) fn execute_edit(
     path: &str,
     old_string: &str,
@@ -105,7 +112,7 @@ pub(crate) fn execute_edit(
             output: format!("Replaced {occurrences} occurrence(s) in \"{path}\"."),
             is_error: false,
         },
-        Err(failure) => error(&format!("Failed to write \"{path}\": {failure}")),
+        Err(failure) => error(&describe_write_failure(path, &failure)),
     }
 }
 
@@ -146,7 +153,17 @@ fn projected_replacement_len(
 /// and get "not found" against a file it had already damaged. The temp file lives in `target`'s
 /// own directory so the rename stays on one filesystem, which is what makes it atomic on both
 /// Windows (`std::fs::rename` calls `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`) and POSIX
-/// (`rename(2)`): the replace either fully happens or `target` is left exactly as it was.
+/// (`rename(2)`): a write interrupted by killing this process either fully happens or leaves
+/// `target` exactly as it was. That covers process-level interruption, the threat this exists
+/// for -- it is not crash consistency. There is no `sync_all` on the temp file and no directory
+/// fsync, so a power loss shortly after the rename can still surface a zero-length file on some
+/// filesystems; closing that gap would cost a fsync on every single edit, which is not a price
+/// worth paying for a desktop tool editing git-tracked source, so this intentionally stops at the
+/// process-kill bar. Replacing over an existing file also breaks hardlinks -- a hardlinked twin
+/// of `target` keeps its old content after the edit, unlike `fs::write`, which mutates the shared
+/// inode in place. That is arguably the better default here (it stops an edit inside a
+/// hardlinked, pnpm-style `node_modules` store from mutating every other linked copy) but it is a
+/// silent semantic change from `fs::write` worth knowing about.
 fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
     let parent = target.parent().ok_or_else(|| {
         std::io::Error::new(
@@ -158,16 +175,27 @@ fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("file");
+    // Measured: an untruncated 237-character target name survived the suffix below, 238 failed
+    // with `ERROR_INVALID_NAME`. `char_indices` keeps the cut on a UTF-8 character boundary
+    // rather than an arbitrary byte offset, which a plain byte-index slice could land inside a
+    // multi-byte character and panic on.
+    let stem = match file_name.char_indices().nth(MAX_TEMP_STEM_CHARS) {
+        Some((byte_index, _)) => &file_name[..byte_index],
+        None => file_name,
+    };
     let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temp_path = parent.join(format!(
-        ".{file_name}.edit-tmp-{}-{sequence}",
+        ".{stem}.edit-tmp-{}-{sequence}",
         std::process::id()
     ));
 
-    let result = std::fs::write(&temp_path, contents).and_then(|()| {
+    let result = create_temp_file(&temp_path, contents).and_then(|()| {
         // Best-effort: carry the original file's permissions onto the replacement so the atomic
         // rename doesn't silently reset them to the process's umask default (e.g. an executable
-        // bit on Unix). Not fatal if this fails -- the written content is still correct either way.
+        // bit on Unix). Not fatal if this fails -- the written content is still correct either
+        // way. On Windows, `std::fs::Permissions` carries only the readonly attribute: explicit
+        // per-file ACLs and alternate data streams are never preserved, and the replacement
+        // simply inherits its parent directory's ACL instead.
         if let Ok(original) = std::fs::metadata(target) {
             let _ = std::fs::set_permissions(&temp_path, original.permissions());
         }
@@ -178,6 +206,53 @@ fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&temp_path);
     }
     result
+}
+
+/// Writes `contents` to a brand-new file at `temp_path`. Unix creates it at mode `0o600` from the
+/// start rather than going through `fs::write`, which creates at the process umask's default
+/// (typically `0o644`) and only narrows permissions -- via `write_atomically`'s later
+/// `set_permissions` call -- after the content is already on disk. Editing a `0o600` source file
+/// would otherwise expose its new content at `0o644` for that window, and permanently if the
+/// process dies before the narrowing runs. Low practical impact on this Windows-primary app, but
+/// cheap to close.
+#[cfg(unix)]
+fn create_temp_file(temp_path: &Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(temp_path)?
+        .write_all(contents.as_bytes())
+}
+
+#[cfg(not(unix))]
+fn create_temp_file(temp_path: &Path, contents: &str) -> std::io::Result<()> {
+    std::fs::write(temp_path, contents)
+}
+
+/// Formats a `write_atomically` failure for the model. A locked destination -- another process
+/// holding `target` open without Windows' `FILE_SHARE_DELETE` -- fails the rename inside
+/// `write_atomically` and surfaces as either `PermissionDenied` (`ERROR_ACCESS_DENIED`, os error
+/// 5) or, depending on how the other process opened the file, `ERROR_SHARING_VIOLATION` (os error
+/// 32, which `std` does not map to any specific `ErrorKind`); both were measured for the same
+/// underlying condition. `write_atomically` already cleans up on this failure path and leaves
+/// `target` untouched, so the model needs to be told that -- not shown a raw, host-locale OS
+/// string ("拒绝访问。" on this machine) it has no way to act on. The raw-code check only means
+/// "locked" on Windows; elsewhere os error 32 is `EPIPE`, an unrelated condition that should keep
+/// its own message. Every other error kind is left exactly as it was.
+fn describe_write_failure(path: &str, failure: &std::io::Error) -> String {
+    let file_may_be_locked = failure.kind() == std::io::ErrorKind::PermissionDenied
+        || (cfg!(windows) && failure.raw_os_error() == Some(32));
+    if file_may_be_locked {
+        format!(
+            "Failed to write \"{path}\": another program may have the file open. The file was not modified."
+        )
+    } else {
+        format!("Failed to write \"{path}\": {failure}")
+    }
 }
 
 #[cfg(test)]
@@ -499,7 +574,11 @@ mod tests {
             &directory.path().to_string_lossy(),
         );
         assert!(outcome.is_error);
-        assert!(outcome.output.contains("MB edit limit"));
+        // "MB edit limit" alone is shared with the *input*-size guard's message
+        // (`a_file_over_the_edit_size_limit_is_rejected_without_writing` above); assert the
+        // phrase that is unique to this, the *result*-size guard, so the two can't be confused.
+        assert!(outcome.output.contains("The result of this edit"));
+        assert!(outcome.output.contains("would be larger than"));
         assert_eq!(
             std::fs::read_to_string(directory.path().join("code.rs")).expect("read back"),
             "x ".repeat(100)
@@ -538,5 +617,133 @@ mod tests {
             "Z:/definitely/does/not/exist",
         );
         assert!(outcome.is_error);
+    }
+
+    // `write_atomically`'s failure branch (rename fails, temp file gets cleaned up, `target` is
+    // left untouched) had no coverage at all before this test -- the success-only sibling above,
+    // `a_successful_edit_leaves_no_stray_temporary_files`, never exercises it. Without this,
+    // someone could "fix" a locked-file error by calling `remove_file(target)` before the rename,
+    // or simply delete the `if result.is_err()` cleanup below, and every existing test would
+    // still pass while the user's file gets deleted or the workspace accumulates hidden temp
+    // files.
+    #[cfg(windows)]
+    #[test]
+    fn a_rename_failure_leaves_the_target_intact_and_removes_the_temp_file() {
+        // Reproduces a locked destination deterministically: holding `code.rs` open with
+        // FILE_SHARE_READ | FILE_SHARE_WRITE but *not* FILE_SHARE_DELETE makes the rename inside
+        // `write_atomically` fail (measured: `PermissionDenied`, os error 5) without touching the
+        // file's content.
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+
+        let directory = workspace("edit-locked-destination", "let a = 1;\n");
+        let path = directory.path().join("code.rs");
+        let _locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&path)
+            .expect("hold the destination open without FILE_SHARE_DELETE");
+
+        let outcome = execute_edit(
+            "code.rs",
+            "let a = 1;",
+            "let a = 42;",
+            false,
+            &directory.path().to_string_lossy(),
+        );
+
+        assert!(outcome.is_error);
+        assert!(
+            outcome.output.contains("was not modified"),
+            "expected the stable locked-file message, got: {}",
+            outcome.output
+        );
+        assert_eq!(std::fs::read(&path).expect("read back"), b"let a = 1;\n");
+        let entries: Vec<_> = std::fs::read_dir(directory.path())
+            .expect("read workspace directory")
+            .map(|entry| entry.expect("directory entry").file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("code.rs")]);
+    }
+
+    #[test]
+    fn a_permission_denied_write_failure_reports_a_stable_locked_file_message() {
+        let failure = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let message = describe_write_failure("code.rs", &failure);
+        assert!(message.contains("another program may have the file open"));
+        assert!(message.contains("was not modified"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_sharing_violation_write_failure_reports_the_same_stable_message() {
+        // ERROR_SHARING_VIOLATION (32) is the other raw code Windows can surface for the same
+        // locked-destination condition, depending on how the other process opened the file;
+        // `std` does not map it to `ErrorKind::PermissionDenied`, so it needs its own check.
+        let failure = std::io::Error::from_raw_os_error(32);
+        let message = describe_write_failure("code.rs", &failure);
+        assert!(message.contains("another program may have the file open"));
+        assert!(message.contains("was not modified"));
+    }
+
+    #[test]
+    fn other_write_failures_keep_their_original_message() {
+        let failure = std::io::Error::new(std::io::ErrorKind::NotFound, "disk missing");
+        let message = describe_write_failure("code.rs", &failure);
+        assert!(message.contains("disk missing"));
+        assert!(!message.contains("another program may have the file open"));
+    }
+
+    #[test]
+    fn a_target_with_a_long_file_name_can_still_be_edited() {
+        // `write_atomically`'s temp name embeds `target`'s own file name plus a pid/sequence
+        // suffix; left untruncated, a target name close to a filesystem's component-length cap
+        // (NTFS: 255 characters; measured boundary: 237 works, 238 fails with
+        // `ERROR_INVALID_NAME`) pushes the *temp* name over that cap even though `target`'s own
+        // name fits comfortably, and `edit` would fail on a file plain `fs::write` could always
+        // handle.
+        let directory = TempDirectory::new("edit-long-file-name");
+        let long_name = format!("{}.rs", "a".repeat(247));
+        assert_eq!(long_name.chars().count(), 250);
+        std::fs::write(directory.path().join(&long_name), "let a = 1;\n").expect("write fixture");
+
+        let outcome = execute_edit(
+            &long_name,
+            "let a = 1;",
+            "let a = 42;",
+            false,
+            &directory.path().to_string_lossy(),
+        );
+
+        assert!(
+            !outcome.is_error,
+            "expected success, got: {}",
+            outcome.output
+        );
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join(&long_name)).expect("read back"),
+            "let a = 42;\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_temp_file_is_created_at_a_private_mode_not_widened_after_the_fact() {
+        // `fs::write` creates at the process umask's default (typically 0o644) and only narrows
+        // permissions after the content is already on disk, which -- for a source file that
+        // started at 0o600 -- would briefly (and, if the process dies first, permanently) expose
+        // its content at 0o644. By the time `write_atomically`'s caller could observe anything,
+        // the temp file has already been renamed away or removed, so the only deterministic way
+        // to pin creation-time ordering is to call `create_temp_file` directly and check the mode
+        // immediately after it returns, before any later narrowing step could run.
+        use std::os::unix::fs::PermissionsExt;
+        let directory = TempDirectory::new("edit-temp-private-mode");
+        let temp_path = directory.path().join(".probe.edit-tmp-test");
+        create_temp_file(&temp_path, "content").expect("create temp file");
+        let mode = std::fs::metadata(&temp_path)
+            .expect("read back metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 }
