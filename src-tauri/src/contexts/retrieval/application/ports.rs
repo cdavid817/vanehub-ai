@@ -60,3 +60,30 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn index_status(&self, agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError>;
     fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError>;
 }
+
+// Task 9 的检索服务读它来判断向量路是否可用，Task 12 的 api 经仓储读写它；届时移除本属性。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RetrievalConfiguration {
+    pub(crate) source_profile_id: Option<String>,
+    pub(crate) embedding_model: Option<String>,
+}
+
+// 同上，resolved_model 是 Task 9 判断"是否已配置"的唯一入口；届时移除本属性。
+#[allow(dead_code)]
+impl RetrievalConfiguration {
+    /// 两者齐备才算"已配置"——缺任一个都无法发起一次 embedding 调用。
+    pub(crate) fn resolved_model(&self) -> Option<(&str, &str)> {
+        let profile = self.source_profile_id.as_deref()?;
+        let model = self.embedding_model.as_deref()?;
+        (!profile.is_empty() && !model.is_empty()).then_some((profile, model))
+    }
+}
+
+// 本 trait 唯一的实现（SqliteRetrievalConfigurationRepository）要到 Task 9 的检索服务和 Task 12
+// 的 api 把它当依赖注入进来才会被真正调用；届时移除本属性。
+#[allow(dead_code)]
+pub(crate) trait RetrievalConfigurationRepository: Send + Sync {
+    fn load(&self) -> Result<RetrievalConfiguration, RetrievalError>;
+    fn save(&self, profile_id: &str, embedding_model: &str) -> Result<(), RetrievalError>;
+}
