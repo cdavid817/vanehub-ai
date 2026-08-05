@@ -1,12 +1,14 @@
 //! Sandboxed execution for the native tool-use loop's six tools. Each wraps an existing,
 //! already-hardened `platform` primitive rather than reimplementing process/path safety.
 
+mod edit_tool;
 mod file_tool;
 mod glob_tool;
 mod grep_tool;
 mod shell_tool;
 mod walk;
 
+pub(crate) use edit_tool::execute_edit;
 pub(crate) use file_tool::execute_file;
 pub(crate) use glob_tool::execute_glob;
 pub(crate) use grep_tool::{execute_grep, GrepRequest};
