@@ -375,6 +375,7 @@ mod tests {
 
     struct Fixture {
         _directory: TempDirectory,
+        database: NativeDatabase,
         repository: SqliteRetrievalDocumentRepository,
     }
 
@@ -384,9 +385,24 @@ mod tests {
             let database =
                 NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
             Self {
-                repository: SqliteRetrievalDocumentRepository::new(database),
+                repository: SqliteRetrievalDocumentRepository::new(database.clone()),
+                database,
                 _directory: directory,
             }
+        }
+
+        /// `attempt_count` 不进 `RetrievalIndexStatus`——它是 worker 的内部记账，不该出现在 UI 契约里。
+        /// 但重试与重建的正确性正取决于它，所以测试直接读列。
+        fn attempt_count(&self, source_id: &str) -> i64 {
+            self.database
+                .connection()
+                .expect("connection")
+                .query_row(
+                    "SELECT attempt_count FROM retrieval_documents WHERE source_id = ?1",
+                    params![source_id],
+                    |row| row.get(0),
+                )
+                .expect("attempt count")
         }
     }
 
@@ -425,6 +441,38 @@ mod tests {
     }
 
     #[test]
+    fn upserting_unchanged_content_preserves_index_state_and_failure_bookkeeping() {
+        let fixture = Fixture::new("retrieval upsert preserves state");
+        let unchanged = document("m1", "a", "", "uses npm");
+        fixture.repository.upsert_pending(&unchanged).expect("first upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-a",
+                &[1.0, 0.0],
+            )
+            .expect("store");
+
+        // 内容没变的重复 reconcile 不能把已索引行打回 pending——否则每一轮轮询都会重烧
+        // 一次 embedding 配额。
+        fixture.repository.upsert_pending(&unchanged).expect("second upsert");
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.indexed, 1, "an unchanged upsert must not reset index_state");
+        assert_eq!(status.pending, 0);
+        assert_eq!(
+            fixture
+                .repository
+                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-a")
+                .expect("candidates")
+                .len(),
+            1,
+            "the stored embedding must survive an unchanged upsert"
+        );
+    }
+
+    #[test]
     fn storing_an_embedding_marks_the_row_indexed_and_clears_failure_state() {
         let fixture = Fixture::new("retrieval store embedding");
         fixture.repository.upsert_pending(&document("m1", "a", "", "uses npm")).expect("upsert");
@@ -445,6 +493,18 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, "m1");
         assert_eq!(candidates[0].1, vec![1.0, 0.0]);
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.indexed, 1);
+        assert_eq!(
+            status.last_failure_category, None,
+            "store_embedding must clear the failure category"
+        );
+        assert_eq!(
+            fixture.attempt_count("m1"),
+            0,
+            "store_embedding must reset the attempt count"
+        );
     }
 
     #[test]
@@ -560,6 +620,7 @@ mod tests {
             .repository
             .record_failure(&document_id(SourceKind::AgentMemory, "m1"), FailureCategory::Auth, true)
             .expect("failure");
+        assert_eq!(fixture.attempt_count("m1"), 1, "the failure must have counted an attempt");
 
         fixture.repository.requeue_all("a").expect("requeue");
 
@@ -567,6 +628,7 @@ mod tests {
         assert_eq!(status.failed, 0);
         assert_eq!(status.pending, 1);
         assert_eq!(status.last_failure_category, None);
+        assert_eq!(fixture.attempt_count("m1"), 0, "requeue_all must reset the attempt count");
     }
 
     #[test]
