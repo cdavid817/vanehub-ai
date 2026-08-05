@@ -10,3 +10,6 @@ coverage/
 .docs-build/
 .docs-target/
 .docs-screenshots/
+
+# subagent-driven-development scratch (progress ledger, task briefs, review packages)
+.superpowers/

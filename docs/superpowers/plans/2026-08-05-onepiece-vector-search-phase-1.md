@@ -496,7 +496,7 @@ Run: `cargo test --manifest-path src-tauri/Cargo.toml retrieval::domain::documen
 Expected: PASS，4 个测试。
 
 Run: `cargo clippy --manifest-path src-tauri/Cargo.toml`
-Expected: 无 warning。未被使用的 pub(crate) 项若触发 `dead_code`，本任务先给 `RetrievalDocument` 与 `FailureCategory` 加 `#[allow(dead_code)]`，并在 Task 7 用上后**删除该属性**。
+Expected: 无 warning。未被使用的 pub(crate) 项若触发 `dead_code`，本任务先给 `RetrievalDocument` 与 `FailureCategory` 加 `#[allow(dead_code)]`；**Task 5 的仓储 trait 签名会用上这两个类型，届时必须删除该属性**（留着它会长期掩盖真实的死代码）。
 
 - [ ] **Step 5: 提交**
 
@@ -1167,6 +1167,7 @@ git commit -m "feat(retrieval): add migration 42 with FTS5 shadow index"
 - Create: `src-tauri/src/contexts/retrieval/application/mod.rs`
 - Create: `src-tauri/src/contexts/retrieval/application/ports.rs`
 - Modify: `src-tauri/src/contexts/retrieval/infrastructure/mod.rs`、`src-tauri/src/contexts/retrieval/mod.rs`
+- Modify: `src-tauri/src/contexts/retrieval/domain/document.rs`（本任务的 trait 签名用上了 `RetrievalDocument` 与 `FailureCategory`，删掉 Task 2 临时加的 `#[allow(dead_code)]`）
 
 **Interfaces:**
 - Consumes: Task 2 的 `SourceKind/IndexState/FailureCategory/RetrievalDocument/document_id`；Task 3 的 `encode_embedding/decode_embedding/escape_fts_query`
@@ -1758,7 +1759,6 @@ git commit -m "feat(retrieval): add singleton retrieval configuration repository
 **Files:**
 - Create: `src-tauri/src/contexts/retrieval/application/indexing_service.rs`
 - Modify: `src-tauri/src/contexts/retrieval/application/ports.rs`、`application/mod.rs`
-- Modify: `src-tauri/src/contexts/retrieval/domain/document.rs`（删掉 Task 2 加的 `#[allow(dead_code)]`）
 
 **Interfaces:**
 - Consumes: Task 5 的 `RetrievalDocumentRepository`
