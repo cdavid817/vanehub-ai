@@ -15,7 +15,8 @@
 - Rust 错误处理：跨 Tauri command 边界的错误转 `Result<T, String>` 或自定义 error enum；`unwrap()` / `expect()` 仅限测试代码（`AGENTS.md`）。
 - 注释只写「为什么这样做」，不写代码翻译式注释（`AGENTS.md`）。
 - 统一输出字节上限沿用既有 `SHELL_OUTPUT_LIMIT = 64 * 1024`。
-- `grep` / `glob` 默认结果条数上限 200；`file` read 默认 2000 行、单行 2000 字符。三档取先触发者，**截断必须在输出中显式告知**。
+- `grep` / `glob` 结果条数上限 200；`file` read 2000 行、单行 2000 字符。三档取先触发者，**截断必须在输出中显式告知**。以上均为**硬上限** —— `limit` / `head_limit` 参数只能调低，不能调高。
+- 单文件大小上限 10MB，在 `std::fs::read` **之前**用 `metadata().len()` 检查。`grep` 静默跳过超限文件；`file read` 与 `edit` 报明确错误。
 - 新工具风险分级：`grep` / `glob` → `AutoApprove`；`edit` → `RequiresApproval`。
 - Plan mode：`grep` / `glob` 可用；`edit` 硬拒。
 - 提交前必须通过：`npm run lint`、`npm run test`、`cargo clippy --manifest-path src-tauri/Cargo.toml`（`AGENTS.md`）。
@@ -253,6 +254,8 @@ git commit -m "spec: propose OnePiece search and edit tools"
   - `pub(crate) fn visit_workspace_files(workspace_folder: &str, relative_root: Option<&str>, cancelled: &Arc<AtomicBool>, visit: &mut dyn FnMut(&Path, &str) -> Visit) -> Result<(), String>`
     —— 回调参数为 (绝对路径, 工作区相对路径，正斜杠分隔)。**取 `&str` 而非 `&BoundedFilesystem`**：工作区根需要一个绝对路径起点，而 `BoundedFilesystem` 的 `root` 字段是私有的，唯一的取法是 `resolve_existing(".")` —— 那要求 `validate_relative` 接受 `Component::CurDir`，是个未经验证的假设，赌错就是每次搜索必失败。直接 canonicalize 传入的 `workspace_folder` 没有这个风险，边界检查仍由内部构造的 boundary 负责。
   - `pub(crate) fn is_binary(bytes: &[u8]) -> bool`
+  - `pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;`
+  - `pub(crate) fn exceeds_size_limit(path: &Path) -> bool`
 
 - [ ] **Step 1: 加依赖**
 
@@ -419,6 +422,29 @@ mod tests {
         assert!(!is_binary(b"plain text"));
         assert!(!is_binary(b""));
     }
+
+    #[test]
+    fn a_small_file_is_within_the_size_limit() {
+        let directory = TempDirectory::new("walk-size-small");
+        let path = directory.path().join("small.txt");
+        std::fs::write(&path, "tiny").expect("write fixture");
+        assert!(!exceeds_size_limit(&path));
+    }
+
+    #[test]
+    fn a_file_over_the_size_limit_is_rejected() {
+        let directory = TempDirectory::new("walk-size-large");
+        let path = directory.path().join("large.bin");
+        std::fs::write(&path, vec![b'x'; (MAX_FILE_BYTES + 1) as usize]).expect("write fixture");
+        assert!(exceeds_size_limit(&path));
+    }
+
+    #[test]
+    fn an_unreadable_path_is_treated_as_over_the_limit() {
+        // 拿不到 metadata 时保守判定为超限：调用方会跳过或报错，而不是继续去 read 一个
+        // 大小未知的文件。
+        assert!(exceeds_size_limit(Path::new("Z:/definitely/does/not/exist")));
+    }
 }
 ```
 
@@ -443,6 +469,10 @@ use std::sync::Arc;
 
 pub(crate) const MAX_SEARCH_RESULTS: usize = 200;
 pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// 单文件读取上限。输出上限保护的是模型的上下文窗口，这一条保护的是进程本身 —— 没有它，
+/// 一个未被 `.gitignore` 排除的大日志会在任何输出截断生效前就先分配等量内存。
+pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// 判定二进制的嗅探窗口。整文件扫描对大文件不划算，而文本文件的 NUL 字节几乎总在开头出现。
 const BINARY_SNIFF_BYTES: usize = 8 * 1024;
@@ -525,6 +555,15 @@ pub(crate) fn is_binary(bytes: &[u8]) -> bool {
         .take(BINARY_SNIFF_BYTES)
         .any(|byte| *byte == 0)
 }
+
+/// 在 `std::fs::read` 之前判断文件是否超过 `MAX_FILE_BYTES`。拿不到 metadata 时返回 `true`
+/// —— 失败方向选择「不读」而非「读一个大小未知的文件」。
+pub(crate) fn exceeds_size_limit(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(metadata) => metadata.len() > MAX_FILE_BYTES,
+        Err(_) => true,
+    }
+}
 ```
 
 - [ ] **Step 6: 注册模块**
@@ -538,7 +577,7 @@ mod walk;
 - [ ] **Step 7: 运行测试确认通过**
 
 Run: `cargo test --manifest-path src-tauri/Cargo.toml --lib tools::walk`
-Expected: unix 上 10 passed，Windows 上 9 passed（符号链接测试被 `#[cfg(unix)]` 排除）
+Expected: unix 上 13 passed，Windows 上 12 passed（符号链接测试被 `#[cfg(unix)]` 排除）
 
 - [ ] **Step 8: Commit**
 
@@ -1041,7 +1080,8 @@ Expected: 编译失败 —— `cannot find function execute_grep` / `cannot find
 //! 上限处理。
 
 use super::walk::{
-    is_binary, visit_workspace_files, Visit, MAX_SEARCH_RESULTS, MAX_TOOL_OUTPUT_BYTES,
+    exceeds_size_limit, is_binary, visit_workspace_files, Visit, MAX_SEARCH_RESULTS,
+    MAX_TOOL_OUTPUT_BYTES,
 };
 use super::ToolExecutionOutcome;
 use globset::GlobBuilder;
@@ -1117,6 +1157,11 @@ pub(crate) fn execute_grep(
             if !filter.is_match(relative) {
                 return Visit::Continue;
             }
+        }
+        // 大小检查必须在 read 之前 —— 否则超大文件在被判定「跳过」之前就已经进了内存。
+        // 搜索静默跳过而非报错：用户要的是「搜整个仓库」，不该因某一个大文件而整体失败。
+        if exceeds_size_limit(absolute) {
+            return Visit::Continue;
         }
         let Ok(raw) = std::fs::read(absolute) else {
             // 读不了的单个文件不该让整次搜索失败。
@@ -1409,7 +1454,7 @@ Expected: 编译失败 —— `cannot find function execute_edit`
 //! 工作区内的定点串替换。默认要求 `old_string` 唯一匹配 —— 「改错位置」属于静默损坏，
 //! 事后极难发现；报错时回报实际匹配次数，模型据此知道该补多少上下文。
 
-use super::walk::is_binary;
+use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES};
 use super::ToolExecutionOutcome;
 use crate::platform::filesystem::BoundedFilesystem;
 use std::path::Path;
@@ -1435,6 +1480,13 @@ pub(crate) fn execute_edit(
         Ok(resolved) => resolved,
         Err(failure) => return error(&format!("Path \"{path}\" is not accessible: {failure}")),
     };
+    // 用户点名了这个文件，所以超限时报错而非静默跳过 —— 静默跳过等于骗人。
+    if exceeds_size_limit(&resolved) {
+        return error(&format!(
+            "\"{path}\" is larger than the {} MB edit limit.",
+            MAX_FILE_BYTES / (1024 * 1024)
+        ));
+    }
     let raw = match std::fs::read(&resolved) {
         Ok(raw) => raw,
         Err(failure) => return error(&format!("Failed to read \"{path}\": {failure}")),
@@ -1641,7 +1693,7 @@ Expected: 编译失败 —— `this function takes 4 arguments but 6 arguments w
 替换 `file_tool.rs` 中 `execute_file` 与 `read_file`（`write_file` 与既有 import 不动，另加两个 import）：
 
 ```rust
-use super::walk::{is_binary, MAX_TOOL_OUTPUT_BYTES};
+use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES, MAX_TOOL_OUTPUT_BYTES};
 
 /// read 的默认边界。三者取先触发者。`limit` 参数可在总字节约束内上调行数，但单行字符数与
 /// 总字节是硬上限 —— 它们保护的是上下文窗口，不是可协商的偏好。
@@ -1690,6 +1742,17 @@ fn read_file(
             }
         }
     };
+    // 用户点名了这个文件，所以超限时报错而非静默返回空 —— 大小检查必须在 read 之前，
+    // 否则「保护内存」这个目的本身就落空了。
+    if exceeds_size_limit(&resolved) {
+        return ToolExecutionOutcome {
+            output: format!(
+                "\"{path}\" is larger than the {} MB read limit.",
+                MAX_FILE_BYTES / (1024 * 1024)
+            ),
+            is_error: true,
+        };
+    }
     let raw = match std::fs::read(&resolved) {
         Ok(raw) => raw,
         Err(error) => {
