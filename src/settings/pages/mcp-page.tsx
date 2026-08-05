@@ -188,7 +188,10 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
     if (!group.length) return null;
     return (
       <div className="space-y-3">
-        <div className="text-center text-[11px] text-muted-foreground">-- {title} --</div>
+        <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2">
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          <span className="text-xs text-muted-foreground">{group.length}</span>
+        </div>
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {group.map((server) => (
             <McpServerCard

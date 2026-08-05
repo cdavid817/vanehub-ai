@@ -37,6 +37,22 @@ test.describe("unified notifications", () => {
     await expect(page.getByRole("button", { name: "通知", exact: true })).toBeVisible();
   });
 
+  test("dismisses a toast on schedule even when the user navigates during its lifetime", async ({ page }) => {
+    await page.goto("/");
+    await createSession(page, "toast 计时导航测试");
+
+    const toast = page.getByRole("status").filter({ hasText: "会话创建成功" });
+    await expect(toast).toBeVisible();
+
+    const tabs = await page.getByRole("tab").all();
+    for (const tab of tabs.slice(0, 3)) {
+      await tab.click();
+      await page.waitForTimeout(300);
+    }
+    await expect(toast).toBeVisible();
+    await expect(toast).toBeHidden({ timeout: 7_000 });
+  });
+
   test("clears in-memory notification history after a reload", async ({ page }) => {
     await page.goto("/");
     await createSession(page, "重载通知测试");

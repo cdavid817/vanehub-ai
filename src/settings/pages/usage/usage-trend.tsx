@@ -25,7 +25,7 @@ export function UsageTrend({ daily, language }: UsageTrendProps) {
   const tokenValues = daily.map((point) => point.reported.totalTokens);
   const characterValues = daily.map((point) => point.estimated.totalCharacters);
   return (
-    <SectionPanel description={t("usage.trend.description")} title={t("usage.trend.title")}>
+    <SectionPanel description={t("usage.trend.description")} title={t("usage.trend.title")} variant="plain">
       {daily.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">{t("usage.trend.empty")}</p>
       ) : (

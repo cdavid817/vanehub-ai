@@ -1,4 +1,4 @@
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
 import type { SkillInventoryFilters, SkillSort, SkillSourceFilter, SkillStatusFilter } from "../../../lib/skill-management";
@@ -19,6 +19,16 @@ export function SkillFilterToolbar({
   const change = (patch: Partial<SkillInventoryFilters>) => onChange({ ...filters, ...patch });
   return (
     <div className="ucd-panel grid gap-2 rounded-lg p-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,auto)]">
+      <div className="relative sm:col-span-2 xl:col-span-4">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          aria-label={t("skills.filters.search")}
+          className="min-h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm"
+          onChange={(event) => change({ query: event.target.value })}
+          placeholder={t("skills.filters.searchPlaceholder")}
+          value={filters.query}
+        />
+      </div>
       <span className="text-sm tabular-nums text-muted-foreground sm:col-span-2 xl:col-span-4">{t("skills.resultCount", { count: resultCount })}</span>
       <select aria-label={t("skills.filters.category")} className={selectClass} onChange={(event) => change({ category: event.target.value })} value={filters.category}>
         {categories.map((item) => <option key={item} value={item}>{item === "all" ? t("skills.filters.allCategories") : item}</option>)}

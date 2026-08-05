@@ -1,9 +1,35 @@
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NotificationCenter } from "../notifications/notification-center";
 
 export function TopBar() {
   const { t } = useTranslation();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  if (searchOpen) {
+    return (
+      <header className="ucd-panel relative z-40 mx-2 mt-2 flex min-h-12 items-center gap-2 rounded-lg px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            autoFocus
+            className="ucd-input h-8 w-full rounded-md px-9 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            placeholder={t("layout.searchPlaceholder")}
+          />
+        </div>
+        <button
+          aria-label={t("layout.closeSearch")}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setSearchOpen(false)}
+          title={t("layout.closeSearch")}
+          type="button"
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </header>
+    );
+  }
 
   return (
     <header className="ucd-panel relative z-40 mx-2 mt-2 flex min-h-12 items-center justify-between gap-3 rounded-lg px-4 py-2">
@@ -30,6 +56,15 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-2">
+        <button
+          aria-label={t("layout.openSearch")}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
+          onClick={() => setSearchOpen(true)}
+          title={t("layout.openSearch")}
+          type="button"
+        >
+          <Search aria-hidden="true" className="h-4 w-4" />
+        </button>
         <NotificationCenter />
       </div>
     </header>

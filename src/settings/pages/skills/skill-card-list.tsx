@@ -122,7 +122,7 @@ function AgentSkillRows({
 
 function LifecycleSkillRows(props: SkillCardListProps) {
   const { t } = useTranslation();
-  return <div className="overflow-hidden rounded-lg border border-border bg-background">{props.skills.map((skill) => {
+  return <div className="ucd-panel overflow-hidden rounded-lg">{props.skills.map((skill) => {
     const busy = props.busySkillId === skill.id;
     return (
       <article className="grid gap-3 border-b border-border p-3 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center" key={skillIdentity(skill)}>

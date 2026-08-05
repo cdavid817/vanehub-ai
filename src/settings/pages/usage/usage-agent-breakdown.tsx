@@ -10,7 +10,7 @@ interface UsageAgentBreakdownProps {
 export function UsageAgentBreakdown({ agents }: UsageAgentBreakdownProps) {
   const { t } = useTranslation();
   return (
-    <SectionPanel description={t("usage.agents.description")} title={t("usage.agents.title")}>
+    <SectionPanel description={t("usage.agents.description")} title={t("usage.agents.title")} variant="plain">
       {agents.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">{t("usage.agents.empty")}</p>
       ) : (

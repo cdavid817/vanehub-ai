@@ -70,6 +70,11 @@ The workspace shell SHALL let the Session activity entry collapse and expand the
 - **THEN** the activity bar SHALL remain visible and the Session entry SHALL remain operable
 - **AND** the existing responsive information-panel hiding and bounded single-column session-sidebar behavior SHALL remain usable
 
+#### Scenario: Keep top bar search reachable at responsive widths
+- **WHEN** the workspace width is at or below 900px
+- **THEN** the top bar SHALL keep the Agent/session/task search reachable, either rendered directly or through an equivalent accessible icon-triggered control
+- **AND** search SHALL NOT be removed from the top bar without a replacement control
+
 ### Requirement: Three-panel workspace proportions
 The workspace shell SHALL render a fixed-width activity bar beside a sidebar, main content, and information panel grid whose visible panels use aligned heights.
 
@@ -155,6 +160,11 @@ The sidebar SHALL support service-backed session navigation without utility or t
 #### Scenario: Scroll long session lists internally
 - **WHEN** the session list content exceeds the sidebar height
 - **THEN** the session list SHALL scroll inside the sidebar without scrolling the whole workspace shell
+
+#### Scenario: Compact secondary session controls
+- **WHEN** the session sidebar renders batch-management and archived-view entry points alongside session view-mode switching
+- **THEN** these secondary controls SHALL be exposed through compact or overflow controls rather than each occupying its own dedicated full-width row
+- **AND** the session list SHALL remain the dominant vertical element of the sidebar
 
 ### Requirement: Main content Agent workspace
 The main content panel SHALL render a Workspace-first area for active single-Agent CLI sessions while keeping the panel responsive within the workspace shell.

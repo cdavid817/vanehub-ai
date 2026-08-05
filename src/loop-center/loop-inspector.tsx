@@ -24,7 +24,7 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
   const latestDecision = latestIteration?.decisionReason ?? null;
   const inspectionSessionId = latestIteration?.workerSessionId ?? latestIteration?.verifierSessionId ?? null;
   return (
-    <aside aria-label={t("loops.inspector.title")} className={cn("min-h-0 min-w-0 overflow-y-auto bg-[hsl(var(--panel-glass))] p-3", className)} id={id} ref={ref} tabIndex={-1}>
+    <aside aria-label={t("loops.inspector.title")} className={cn("ucd-panel min-h-0 min-w-0 overflow-y-auto rounded-lg p-3", className)} id={id} ref={ref} tabIndex={-1}>
       <header className="mb-3 flex min-h-8 items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground">{t("loops.inspector.title")}</h2>
         {onClose ? (

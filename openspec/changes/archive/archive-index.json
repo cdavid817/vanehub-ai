@@ -1594,6 +1594,22 @@
                                               "permissions-approval",
                                               "permissions-core"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-05",
+                         "changeName":  "polish-workspace-visual-consistency",
+                         "path":  "openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "main-layout-ui",
+                                              "notification-system",
+                                              "visual-design-system"
+                                          ]
                      }
                  ]
 }

@@ -1,6 +1,7 @@
-import { Save, X } from "lucide-react";
+import { Save } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
 import type { McpScope, McpServerConfig, McpTransportType } from "../../../types/mcp";
 import { formatMcpFailure, mcpErrorFromUnknown, mcpTransportTranslationKey } from "./mcp-presentation";
@@ -80,19 +81,11 @@ export function McpServerForm({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-      <section className="ucd-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg p-4">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">{title}</h3>
-          <button className="rounded-md p-2 hover:bg-muted" onClick={onCancel} type="button" title={t("mcp.form.close")}>
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
-
+    <ApplicationDialog closeDisabled={saving} onClose={onCancel} title={title}>
         <div className="grid gap-3 text-sm md:grid-cols-2">
           <label className="grid gap-1">
             <span className="text-xs text-muted-foreground">{t("mcp.form.name")}</span>
-            <input className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
+            <input data-dialog-autofocus className="ucd-input h-9 rounded px-3 outline-hidden focus-visible:ring-2 focus-visible:ring-ring" value={name} onChange={(event) => setName(event.target.value)} />
             {fieldErrors.name ? <span className="text-xs text-[hsl(var(--danger))]">{fieldErrors.name}</span> : null}
           </label>
           <label className="grid gap-1">
@@ -163,7 +156,6 @@ export function McpServerForm({
             {saving ? t("mcp.form.saving") : t("mcp.form.save")}
           </Button>
         </div>
-      </section>
-    </div>
+    </ApplicationDialog>
   );
 }

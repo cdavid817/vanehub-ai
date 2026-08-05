@@ -66,7 +66,7 @@ describe("SkillsPage", () => {
     expect(html).toContain("Skill 清单摘要");
     expect(html).toContain("CLI 已绑定");
     expect(html).toContain("API 已绑定");
-    expect(html).not.toContain("搜索 Skill");
+    expect(html).toContain("按 ID、名称、分类、触发词或来源搜索");
     expect(html).not.toContain("选择本地项目目录");
   });
 

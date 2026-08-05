@@ -54,12 +54,10 @@ describe("AgentConfigurationsPage", () => {
 
     await waitFor(() => expect(listOnePieceProviderProfiles).toHaveBeenCalledOnce());
     expect(screen.getByRole("tab", { name: /OnePiece/ }).getAttribute("aria-selected")).toBe("true");
-    const onePiecePanel = (await within(screen.getByRole("tabpanel", { name: "OnePiece" }))
-      .findByRole("heading", { name: "OnePiece" }))
-      .closest("section");
-    expect(onePiecePanel).not.toBeNull();
-    expect(within(onePiecePanel as HTMLElement).getByText(/OnePiece 是 VaneHub 内置的原生 Agent/)).toBeTruthy();
-    await user.click(within(onePiecePanel as HTMLElement).getAllByRole("button", { name: "新增配置" })[0]);
+    const onePiecePanel = screen.getByRole("tabpanel", { name: "OnePiece" });
+    expect(await within(onePiecePanel).findByRole("heading", { name: "API 提供商" })).toBeTruthy();
+    expect(within(onePiecePanel).getByText(/尚未添加 API 提供商/)).toBeTruthy();
+    await user.click(within(onePiecePanel).getAllByRole("button", { name: "新增配置" })[0]);
     const dialog = screen.getByRole("dialog", { name: "新增 OnePiece 配置" });
     expect(within(dialog).getByRole("heading", { name: "选择 API 厂商" })).toBeTruthy();
     expect(within(dialog).getByLabelText("配置名称")).toBeTruthy();

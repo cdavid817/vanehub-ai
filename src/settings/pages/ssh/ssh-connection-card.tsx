@@ -1,7 +1,14 @@
 import { Pencil, Trash2, Wifi } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
-import type { SshConnection } from "../../../types/ssh-connection";
+import type { SshConnection, SshConnectionTestStatus } from "../../../types/ssh-connection";
+
+const statusTone: Record<SshConnectionTestStatus, "success" | "danger" | "muted"> = {
+  "not-tested": "muted",
+  succeeded: "success",
+  failed: "danger",
+};
 
 export function SshConnectionCard({
   connection,
@@ -26,9 +33,9 @@ export function SshConnectionCard({
             {connection.user}@{connection.host}:{connection.port}
           </p>
         </div>
-        <span className="rounded-sm border px-2 py-0.5 text-xs ucd-status-info">
+        <Badge tone={statusTone[connection.testStatus]}>
           {t(`sshConnections.status.${connection.testStatus}`)}
-        </span>
+        </Badge>
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
         <div className="truncate">{connection.defaultPath}</div>

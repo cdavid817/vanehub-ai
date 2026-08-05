@@ -8,9 +8,10 @@ test.describe("workspace activity bar", () => {
     const grid = page.locator(".ucd-workspace-grid");
     const sessionSidebar = page.locator("#workspace-session-sidebar");
     const mainPanel = grid.locator(":scope > section").first();
-    const archived = page.getByRole("button", { name: /归档/ });
-    await archived.click();
-    await expect(archived).toHaveClass(/text-primary/);
+    const sessionMoreActions = page.getByRole("button", { name: "更多操作" });
+    await sessionMoreActions.click();
+    await page.getByRole("menuitem", { name: /归档/ }).click();
+    await expect(sessionMoreActions).toHaveClass(/text-primary/);
 
     const initialBox = await mainPanel.boundingBox();
     expect(initialBox).not.toBeNull();
@@ -21,8 +22,8 @@ test.describe("workspace activity bar", () => {
 
     await page.getByRole("button", { name: "展开会话栏" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "false");
-    await expect(archived).toBeVisible();
-    await expect(archived).toHaveClass(/text-primary/);
+    await expect(sessionMoreActions).toBeVisible();
+    await expect(sessionMoreActions).toHaveClass(/text-primary/);
 
     await page.getByRole("button", { name: "收起" }).click();
     await expect(grid).toHaveAttribute("data-info-collapsed", "true");
@@ -168,6 +169,16 @@ test.describe("workspace activity bar", () => {
       await page.getByRole("button", { name: "展开会话栏" }).click();
       await expect(sessionSidebar).toHaveAttribute("aria-hidden", "false");
       await expect(activityBar).toBeVisible();
+
+      const openSearch = page.getByRole("button", { name: "打开搜索" });
+      await expect(openSearch).toBeVisible();
+      await openSearch.click();
+      const searchInput = page.getByPlaceholder("搜索 Agent、对话、任务...");
+      await expect(searchInput).toBeVisible();
+      await expect(searchInput).toBeFocused();
+      await page.getByRole("button", { name: "关闭搜索" }).click();
+      await expect(searchInput).toBeHidden();
+      await expect(openSearch).toBeVisible();
     });
   }
 });
