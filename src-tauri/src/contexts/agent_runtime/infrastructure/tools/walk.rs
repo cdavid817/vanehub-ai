@@ -1,45 +1,68 @@
-//! `grep` 与 `glob` 共用的工作区受限遍历。边界（路径越界、符号链接、取消、上限）只在这里
-//! 实现一次，两个工具都不重复处理。
+//! Workspace-bounded traversal shared by `grep` and `glob`. Boundary concerns (path escape,
+//! symlinks, cancellation, size limits) are implemented once here so neither tool has to repeat
+//! them.
 
 use crate::platform::filesystem::BoundedFilesystem;
 use ignore::WalkBuilder;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
-pub(crate) const MAX_SEARCH_RESULTS: usize = 200;
-pub(crate) const MAX_TOOL_OUTPUT_BYTES: usize = 64 * 1024;
-
-/// 单文件读取上限。输出上限保护的是模型的上下文窗口，这一条保护的是进程本身 —— 没有它，
-/// 一个未被 `.gitignore` 排除的大日志会在任何输出截断生效前就先分配等量内存。
+/// Per-file read cap. The output limit protects the model's context window; this one protects
+/// the process itself — without it, a large log that isn't excluded by `.gitignore` would be
+/// fully read into memory before any output truncation could take effect.
 pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
-/// 判定二进制的嗅探窗口。整文件扫描对大文件不划算，而文本文件的 NUL 字节几乎总在开头出现。
+/// Sniff window for binary detection. Scanning the whole file isn't worth it for large files,
+/// and a NUL byte in a text file — if one is there at all — almost always shows up near the
+/// start.
 const BINARY_SNIFF_BYTES: usize = 8 * 1024;
 
-/// 访问者对每个文件的处置：继续遍历，或提前终止（用于结果条数/字节到顶）。
+/// What the visitor decides after each file: keep walking, or stop early (once a result-count
+/// or byte budget the caller tracks has been reached).
 pub(crate) enum Visit {
     Continue,
     Stop,
 }
 
-/// 遍历 `boundary` 根下（可选 `relative_root` 子目录）的常规文件，对每个文件调用 `visit`。
+/// Walks the regular files under `workspace_folder` (optionally narrowed to a `relative_root`
+/// subdirectory), calling `visit` with each file's absolute path and its workspace-relative
+/// display form.
 ///
-/// 符号链接一律跳过而非跟随后校验：跟随需要对每个条目做 canonicalize 系统调用，大仓库上代价
-/// 显著；直接跳过可消除整类越界读取（例如仓库内指向 `~/.ssh/` 的链接）。
+/// `absolute` is for filesystem calls only (`fs::read`, `fs::metadata`, ...). On Windows,
+/// `canonicalize()` returns the `\\?\` extended-length form (see
+/// `normalize_windows_extended_length_path`), so `absolute` carries that prefix too; putting it
+/// in tool output would break both this tool's own absolute-path rejection and `cmd.exe`, which
+/// has no concept of a UNC working directory. `display` — workspace-relative, forward-slash — is
+/// the only form that should ever reach tool output or the model.
 ///
-/// `require_git(false)` 是刻意的 —— 工作区未必是 git 仓库，但其中的 `.gitignore` 依然表达了
-/// 「这些内容不值得看」，默认的 `require_git(true)` 会让非仓库工作区退化成搜索全部内容。
+/// Symlinks are always skipped rather than followed-then-validated: following would require a
+/// canonicalize syscall per entry, which is expensive on large repositories; skipping outright
+/// eliminates the whole class of out-of-bounds reads (e.g. a link inside the repo pointing at
+/// `~/.ssh/`).
+///
+/// `require_git(false)` is deliberate — the workspace need not be a git repository, but a
+/// `.gitignore` inside it still expresses "this content isn't worth looking at." The default
+/// `require_git(true)` would make a non-repository workspace fall back to searching everything.
+///
+/// `parents(true)` and `git_global(true)` mean results depend on ignore state *outside* the
+/// workspace: a workspace nested under a directory that an ancestor repository's `.gitignore`
+/// excludes will walk to zero files and return `Ok(())`, so the caller reports "no matches"
+/// rather than an error. This matches ripgrep's own behavior and should stay as-is, but it is
+/// worth knowing about up front rather than losing an hour to it later.
 pub(crate) fn visit_workspace_files(
     workspace_folder: &str,
     relative_root: Option<&str>,
-    cancelled: &Arc<AtomicBool>,
+    cancelled: &AtomicBool,
     visit: &mut dyn FnMut(&Path, &str) -> Visit,
 ) -> Result<(), String> {
     let boundary = BoundedFilesystem::new(Path::new(workspace_folder))
         .map_err(|error| format!("Workspace folder is unavailable: {error}"))?;
-    // 直接 canonicalize 而不走 `boundary.resolve_existing(".")` —— 后者依赖
-    // `validate_relative` 接受 `Component::CurDir`，那是个未经验证的假设。
+    // Canonicalizes directly rather than via `boundary.resolve_existing(".")`. `validate_relative`
+    // does accept `Component::CurDir` (see the explicit arm in `platform/filesystem/mod.rs`), so
+    // "." would resolve fine — but `relative_root == None` is the common case, and routing through
+    // `resolve_existing` would send the workspace root back through the boundary's
+    // validate/join/canonicalize/ensure-inside pipeline a second time just to arrive at the same
+    // canonical path `BoundedFilesystem::new` already produced.
     let workspace_root = Path::new(workspace_folder)
         .canonicalize()
         .map_err(|error| format!("Workspace folder is unavailable: {error}"))?;
@@ -62,11 +85,12 @@ pub(crate) fn visit_workspace_files(
         .build();
 
     for entry in walker {
-        if cancelled.load(Ordering::Relaxed) {
+        if cancelled.load(Ordering::SeqCst) {
             return Err("Search was cancelled.".to_string());
         }
         let Ok(entry) = entry else {
-            // 单个条目不可读（权限、竞态删除）不应让整次搜索失败。
+            // A single unreadable entry (permission error, a racing delete) shouldn't fail the
+            // whole search.
             continue;
         };
         let Some(file_type) = entry.file_type() else {
@@ -87,17 +111,16 @@ pub(crate) fn visit_workspace_files(
     Ok(())
 }
 
-/// 二进制判定：嗅探窗口内出现 NUL 字节即认定为二进制。比向模型抛一个 UTF-8 解码错误
-/// 更可解释 —— 模型据此知道该换一个文件，而不是重试同一个。
+/// Binary detection: a NUL byte anywhere in the sniff window marks the file as binary. This is
+/// more legible to the model than surfacing a UTF-8 decode error — it tells the model to pick a
+/// different file rather than retry the same one.
 pub(crate) fn is_binary(bytes: &[u8]) -> bool {
-    bytes
-        .iter()
-        .take(BINARY_SNIFF_BYTES)
-        .any(|byte| *byte == 0)
+    bytes.iter().take(BINARY_SNIFF_BYTES).any(|byte| *byte == 0)
 }
 
-/// 在 `std::fs::read` 之前判断文件是否超过 `MAX_FILE_BYTES`。拿不到 metadata 时返回 `true`
-/// —— 失败方向选择「不读」而非「读一个大小未知的文件」。
+/// Checks whether a file exceeds `MAX_FILE_BYTES` before `std::fs::read` touches it. Returns
+/// `true` when metadata can't be read at all — the failure mode is chosen to be "don't read"
+/// rather than "read a file of unknown size".
 pub(crate) fn exceeds_size_limit(path: &Path) -> bool {
     match std::fs::metadata(path) {
         Ok(metadata) => metadata.len() > MAX_FILE_BYTES,
@@ -109,6 +132,7 @@ pub(crate) fn exceeds_size_limit(path: &Path) -> bool {
 mod tests {
     use super::*;
     use crate::test_support::TempDirectory;
+    use std::sync::Arc;
 
     fn not_cancelled() -> Arc<AtomicBool> {
         Arc::new(AtomicBool::new(false))
@@ -117,10 +141,15 @@ mod tests {
     fn collect(directory: &TempDirectory, root: Option<&str>) -> Vec<String> {
         let folder = directory.path().to_string_lossy().to_string();
         let mut seen = Vec::new();
-        visit_workspace_files(&folder, root, &not_cancelled(), &mut |_absolute, relative| {
-            seen.push(relative.to_string());
-            Visit::Continue
-        })
+        visit_workspace_files(
+            &folder,
+            root,
+            &not_cancelled(),
+            &mut |_absolute, relative| {
+                seen.push(relative.to_string());
+                Visit::Continue
+            },
+        )
         .expect("walk succeeds");
         seen.sort();
         seen
@@ -138,8 +167,11 @@ mod tests {
     #[test]
     fn skips_gitignored_paths_even_outside_a_git_repository() {
         let directory = TempDirectory::new("walk-gitignore");
-        std::fs::write(directory.path().join(".gitignore"), "ignored.txt\nnode_modules/\n")
-            .expect("write gitignore");
+        std::fs::write(
+            directory.path().join(".gitignore"),
+            "ignored.txt\nnode_modules/\n",
+        )
+        .expect("write gitignore");
         std::fs::write(directory.path().join("kept.txt"), "keep").expect("write kept");
         std::fs::write(directory.path().join("ignored.txt"), "drop").expect("write ignored");
         std::fs::create_dir(directory.path().join("node_modules")).expect("mkdir node_modules");
@@ -178,7 +210,13 @@ mod tests {
             &not_cancelled(),
             &mut |_absolute, _relative| Visit::Continue,
         );
-        assert!(outcome.is_err());
+        let error = outcome.expect_err("a relative root outside the workspace must be rejected");
+        // Pins the cause to `BoundaryError::Escape`'s message rather than accepting any error,
+        // so this test can't pass because of an unrelated failure (e.g. a missing workspace).
+        assert!(
+            error.contains("path escape is not allowed"),
+            "expected a path-escape error, got: {error}"
+        );
     }
 
     #[test]
@@ -227,8 +265,6 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    // 符号链接在 Windows 上需要开发者模式或管理员权限才能创建，故仅在 unix 下验证。
-    // 跳过符号链接的逻辑本身与平台无关。
     #[cfg(unix)]
     #[test]
     fn a_symlink_pointing_outside_the_workspace_is_not_visited() {
@@ -242,6 +278,52 @@ mod tests {
         )
         .expect("create symlink");
         assert_eq!(collect(&directory, None), vec!["normal.txt"]);
+    }
+
+    // Creating a symlink on Windows needs Developer Mode or an elevated process. Rather than
+    // skip the platform entirely, create it and no-op when the privilege isn't there, so the
+    // check still runs in the common case (this is the primary development platform) without
+    // failing CI/dev environments that lack the privilege. Mirrors
+    // `canonical_boundary_rejects_symlinks_outside_the_root_when_supported` in
+    // `platform/filesystem/mod.rs`.
+    #[cfg(windows)]
+    #[test]
+    fn a_symlink_pointing_outside_the_workspace_is_not_visited_when_supported() {
+        let outside = TempDirectory::new("walk-symlink-outside");
+        std::fs::write(outside.path().join("secret.txt"), "secret").expect("write secret");
+        let directory = TempDirectory::new("walk-symlink");
+        std::fs::write(directory.path().join("normal.txt"), "n").expect("write normal");
+        let target = outside.path().join("secret.txt");
+        if std::os::windows::fs::symlink_file(target, directory.path().join("leak.txt")).is_ok() {
+            assert_eq!(collect(&directory, None), vec!["normal.txt"]);
+        }
+    }
+
+    // A directory symlink hands a whole foreign subtree to the walker instead of a single file —
+    // a larger blast radius than the file case above — and was untested on every platform.
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_symlink_pointing_outside_the_workspace_is_not_visited() {
+        let outside = TempDirectory::new("walk-symlink-dir-outside");
+        std::fs::write(outside.path().join("secret.txt"), "secret").expect("write secret");
+        let directory = TempDirectory::new("walk-symlink-dir");
+        std::fs::write(directory.path().join("normal.txt"), "n").expect("write normal");
+        std::os::unix::fs::symlink(outside.path(), directory.path().join("leak"))
+            .expect("create symlink");
+        assert_eq!(collect(&directory, None), vec!["normal.txt"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_symlink_pointing_outside_the_workspace_is_not_visited_when_supported() {
+        let outside = TempDirectory::new("walk-symlink-dir-outside");
+        std::fs::write(outside.path().join("secret.txt"), "secret").expect("write secret");
+        let directory = TempDirectory::new("walk-symlink-dir");
+        std::fs::write(directory.path().join("normal.txt"), "n").expect("write normal");
+        if std::os::windows::fs::symlink_dir(outside.path(), directory.path().join("leak")).is_ok()
+        {
+            assert_eq!(collect(&directory, None), vec!["normal.txt"]);
+        }
     }
 
     #[test]
@@ -263,14 +345,32 @@ mod tests {
     fn a_file_over_the_size_limit_is_rejected() {
         let directory = TempDirectory::new("walk-size-large");
         let path = directory.path().join("large.bin");
-        std::fs::write(&path, vec![b'x'; (MAX_FILE_BYTES + 1) as usize]).expect("write fixture");
+        let file = std::fs::File::create(&path).expect("create fixture");
+        // A sparse file: setting the logical length is instant and writes nothing to disk,
+        // unlike allocating and writing a real multi-megabyte buffer on every test run.
+        file.set_len(MAX_FILE_BYTES + 1)
+            .expect("extend fixture past the limit");
         assert!(exceeds_size_limit(&path));
     }
 
     #[test]
+    fn a_file_exactly_at_the_size_limit_is_not_rejected() {
+        // Pins `exceeds_size_limit`'s use of `>` rather than `>=`: a file at exactly the limit
+        // must still be treated as readable.
+        let directory = TempDirectory::new("walk-size-boundary");
+        let path = directory.path().join("boundary.bin");
+        let file = std::fs::File::create(&path).expect("create fixture");
+        file.set_len(MAX_FILE_BYTES)
+            .expect("extend fixture to exactly the limit");
+        assert!(!exceeds_size_limit(&path));
+    }
+
+    #[test]
     fn an_unreadable_path_is_treated_as_over_the_limit() {
-        // 拿不到 metadata 时保守判定为超限：调用方会跳过或报错，而不是继续去 read 一个
-        // 大小未知的文件。
-        assert!(exceeds_size_limit(Path::new("Z:/definitely/does/not/exist")));
+        // Conservative on missing metadata: the caller skips or reports an error instead of
+        // going on to read a file of unknown size.
+        assert!(exceeds_size_limit(Path::new(
+            "Z:/definitely/does/not/exist"
+        )));
     }
 }
