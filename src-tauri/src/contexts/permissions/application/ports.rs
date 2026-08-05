@@ -15,6 +15,15 @@ pub(crate) trait PermissionsIdPort: Send + Sync {
     fn next_id(&self, prefix: &str) -> String;
 }
 
+/// The user-configurable template a newly created principal is assigned
+/// (`permissions-core`'s "Newly created principals default to a configurable template").
+/// Infallible by construction: an implementation must resolve any read failure or absent setting
+/// to `PolicyTemplateName::Standard` itself rather than surface an error here, so
+/// `EvaluationService` never has to decide what "the default is unavailable" means.
+pub(crate) trait DefaultTemplatePort: Send + Sync {
+    fn default_template(&self) -> PolicyTemplateName;
+}
+
 pub(crate) trait PrincipalRepository: Send + Sync {
     fn find_by_agent_id(
         &self,

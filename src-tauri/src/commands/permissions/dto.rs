@@ -18,6 +18,12 @@ pub(crate) struct ApplyPolicyTemplateInput {
     pub(crate) template: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GetAgentPolicyPrincipalInput {
+    pub(crate) agent_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingApprovalEntry {

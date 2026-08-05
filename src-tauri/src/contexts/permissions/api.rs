@@ -56,6 +56,16 @@ impl PermissionsApi {
         self.evaluation.assign_template(agent_id, template)
     }
 
+    /// Reports an agent's current policy template — synthesizing the effective default when no
+    /// principal row exists yet — without ever creating one as a side effect of reading
+    /// (`add-permissions-settings-ui`'s agent-policy list).
+    pub(crate) fn find_principal(
+        &self,
+        agent_id: &str,
+    ) -> Result<Principal, PermissionsApplicationError> {
+        self.evaluation.find_principal(agent_id)
+    }
+
     /// Registers a new pending approval — called by a PEP integration after `evaluate` resolves
     /// `Ask`.
     #[allow(clippy::too_many_arguments)]

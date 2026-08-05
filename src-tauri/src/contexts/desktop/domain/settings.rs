@@ -184,6 +184,7 @@ pub(crate) enum DesktopSettingKey {
     AutomaticArchivalEnabled,
     AutomaticArchivalInactiveDays,
     LaunchOnStartup,
+    DefaultPolicyTemplate,
 }
 
 impl DesktopSettingKey {
@@ -199,6 +200,7 @@ impl DesktopSettingKey {
             "automaticArchivalEnabled" => Ok(Self::AutomaticArchivalEnabled),
             "automaticArchivalInactiveDays" => Ok(Self::AutomaticArchivalInactiveDays),
             "launchOnStartup" => Ok(Self::LaunchOnStartup),
+            "defaultPolicyTemplate" => Ok(Self::DefaultPolicyTemplate),
             _ => Err(DesktopSettingsDomainError::invalid(value)),
         }
     }
@@ -215,6 +217,7 @@ impl DesktopSettingKey {
             Self::AutomaticArchivalEnabled => "automaticArchivalEnabled",
             Self::AutomaticArchivalInactiveDays => "automaticArchivalInactiveDays",
             Self::LaunchOnStartup => "launchOnStartup",
+            Self::DefaultPolicyTemplate => "defaultPolicyTemplate",
         }
     }
 }
@@ -231,6 +234,12 @@ pub(crate) enum DesktopSettingMutation {
     AutomaticArchivalEnabled(bool),
     AutomaticArchivalInactiveDays(i64),
     LaunchOnStartup(bool),
+    /// Which policy template a newly created `permissions` agent principal is assigned
+    /// (`permissions-core`'s "Newly created principals default to a configurable template").
+    /// Stored and validated here only as a non-empty opaque string — `desktop` does not know
+    /// what a policy template is; `permissions::infrastructure`'s `DesktopDefaultTemplateAdapter`
+    /// is solely responsible for interpreting it, falling back to `standard` if it can't.
+    DefaultPolicyTemplate(String),
 }
 
 impl DesktopSettingMutation {
@@ -275,7 +284,12 @@ impl DesktopSettingMutation {
             DesktopSettingKey::LaunchOnStartup => parse_bool(value)
                 .map(Self::LaunchOnStartup)
                 .ok_or_else(invalid),
-            DesktopSettingKey::LogDirectory => Err(invalid()),
+            DesktopSettingKey::DefaultPolicyTemplate if !value.trim().is_empty() => {
+                Ok(Self::DefaultPolicyTemplate(value.to_string()))
+            }
+            DesktopSettingKey::LogDirectory | DesktopSettingKey::DefaultPolicyTemplate => {
+                Err(invalid())
+            }
         }
     }
 
@@ -293,6 +307,7 @@ impl DesktopSettingMutation {
                 DesktopSettingKey::AutomaticArchivalInactiveDays
             }
             Self::LaunchOnStartup(_) => DesktopSettingKey::LaunchOnStartup,
+            Self::DefaultPolicyTemplate(_) => DesktopSettingKey::DefaultPolicyTemplate,
         }
     }
 
@@ -304,7 +319,8 @@ impl DesktopSettingMutation {
             Self::DefaultFolderPath(value)
             | Self::LogDirectory(value)
             | Self::NetworkProxyUrl(value)
-            | Self::NetworkProxyBypass(value) => value.clone(),
+            | Self::NetworkProxyBypass(value)
+            | Self::DefaultPolicyTemplate(value) => value.clone(),
             Self::AutomaticArchivalEnabled(value) | Self::LaunchOnStartup(value) => {
                 value.to_string()
             }
@@ -323,6 +339,7 @@ pub(crate) struct DesktopSettings {
     network_proxy: NetworkProxyPreferences,
     automatic_archival: AutomaticArchivalSettings,
     startup: StartupPreference,
+    default_policy_template: String,
 }
 
 impl DesktopSettings {
@@ -339,6 +356,7 @@ impl DesktopSettings {
                 inactive_days: 10,
             },
             startup: StartupPreference::new(false),
+            default_policy_template: "standard".to_string(),
         }
     }
 
@@ -363,6 +381,9 @@ impl DesktopSettings {
             }
             DesktopSettingMutation::LaunchOnStartup(value) => {
                 self.startup = StartupPreference::new(value);
+            }
+            DesktopSettingMutation::DefaultPolicyTemplate(value) => {
+                self.default_policy_template = value;
             }
         }
     }
@@ -397,6 +418,10 @@ impl DesktopSettings {
 
     pub(crate) fn startup(&self) -> StartupPreference {
         self.startup
+    }
+
+    pub(crate) fn default_policy_template(&self) -> &str {
+        &self.default_policy_template
     }
 }
 
@@ -458,6 +483,7 @@ mod tests {
             AutomaticArchivalSettings::new(true, 10).expect("archival defaults")
         );
         assert!(!settings.startup().enabled());
+        assert_eq!(settings.default_policy_template(), "standard");
     }
 
     #[test]
@@ -489,6 +515,7 @@ mod tests {
             ("automaticArchivalEnabled", "false"),
             ("automaticArchivalInactiveDays", "3650"),
             ("launchOnStartup", "true"),
+            ("defaultPolicyTemplate", "trusted"),
         ];
 
         for (key, value) in cases {
@@ -503,6 +530,7 @@ mod tests {
             "Invalid setting value for key 'fontSize'."
         );
         assert!(DesktopSettingMutation::parse("unknownSetting", "value").is_err());
+        assert!(DesktopSettingMutation::parse("defaultPolicyTemplate", "").is_err());
     }
 
     #[test]

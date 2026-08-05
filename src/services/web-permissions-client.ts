@@ -1,7 +1,15 @@
 import type { ApprovalScope, PolicyTemplateName, PrincipalEntry } from "../types/permissions";
 import type { PermissionsService } from "./permissions";
 import { resolveWebMockToolApproval } from "./web-agent-client";
-import { webPendingApprovals, webPrincipalTemplates } from "./web-permissions-mock-state";
+import {
+  getWebDefaultPolicyTemplate,
+  webPendingApprovals,
+  webPrincipalTemplates,
+} from "./web-permissions-mock-state";
+
+function requiresConfirmationToAssign(template: PolicyTemplateName): boolean {
+  return template === "trusted" || template === "yolo";
+}
 
 export const webPermissionsClient: PermissionsService = {
   async listPendingApprovals() {
@@ -32,7 +40,16 @@ export const webPermissionsClient: PermissionsService = {
     return {
       agentId,
       template,
-      requiresConfirmationToAssign: template === "trusted" || template === "yolo",
+      requiresConfirmationToAssign: requiresConfirmationToAssign(template),
+    };
+  },
+
+  async getAgentPolicyPrincipal(agentId: string): Promise<PrincipalEntry> {
+    const template = webPrincipalTemplates.get(agentId) ?? getWebDefaultPolicyTemplate();
+    return {
+      agentId,
+      template,
+      requiresConfirmationToAssign: requiresConfirmationToAssign(template),
     };
   },
 };

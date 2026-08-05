@@ -3,8 +3,8 @@
 
 use super::error::PermissionsApplicationError;
 use super::ports::{
-    AuditDecider, AuditRecord, AuditRepository, GrantQuery, GrantRepository, PermissionsClockPort,
-    PermissionsIdPort, PrincipalRepository,
+    AuditDecider, AuditRecord, AuditRepository, DefaultTemplatePort, GrantQuery, GrantRepository,
+    PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
     policies_for_template, resolve_for, risk_level_for, Action, Effect, Principal,
@@ -19,15 +19,18 @@ pub(crate) struct EvaluationService {
     audit: Arc<dyn AuditRepository>,
     clock: Arc<dyn PermissionsClockPort>,
     ids: Arc<dyn PermissionsIdPort>,
+    default_template: Arc<dyn DefaultTemplatePort>,
 }
 
 impl EvaluationService {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         principals: Arc<dyn PrincipalRepository>,
         grants: Arc<dyn GrantRepository>,
         audit: Arc<dyn AuditRepository>,
         clock: Arc<dyn PermissionsClockPort>,
         ids: Arc<dyn PermissionsIdPort>,
+        default_template: Arc<dyn DefaultTemplatePort>,
     ) -> Self {
         Self {
             principals,
@@ -35,6 +38,7 @@ impl EvaluationService {
             audit,
             clock,
             ids,
+            default_template,
         }
     }
 
@@ -109,10 +113,12 @@ impl EvaluationService {
         Ok(effect)
     }
 
-    /// Lazily creates a `Standard`-templated principal for an agent seen for the first time —
-    /// matching the legacy `agent-tool-trust` spec's "new agents default to requiring approval"
-    /// guarantee for agents registered after this migration, the same way existing agents were
-    /// backfilled to `standard` unless they were already trusted.
+    /// Lazily creates a principal — templated per the configurable default (design.md D2 of
+    /// `add-permissions-settings-ui`; `permissions-core`'s "Newly created principals default to
+    /// a configurable template") — for an agent seen for the first time. Matches the legacy
+    /// `agent-tool-trust` spec's "new agents default to requiring approval" guarantee as long as
+    /// the default remains `Standard`, the same way existing agents were backfilled to `standard`
+    /// unless they were already trusted.
     fn get_or_create_principal(
         &self,
         agent_id: &str,
@@ -124,12 +130,34 @@ impl EvaluationService {
         let principal = Principal::new(
             id,
             agent_id.to_string(),
-            PolicyTemplateName::Standard,
+            self.default_template.default_template(),
             None,
             None,
         )?;
         self.principals.create(&principal)?;
         Ok(principal)
+    }
+
+    /// Reports an agent's current policy template without ever writing a principal row as a side
+    /// effect (`add-permissions-settings-ui` design.md D1; `permissions-approval`'s "Reading a
+    /// principal's policy template never creates it"). When no row exists yet, synthesizes an
+    /// ephemeral, never-persisted `Principal` at the current default — its `id` is never read by
+    /// any caller (the DTO mapping only uses `agent_id`/`template`), so a synthetic, non-colliding
+    /// value is fine.
+    pub(crate) fn find_principal(
+        &self,
+        agent_id: &str,
+    ) -> Result<Principal, PermissionsApplicationError> {
+        if let Some(principal) = self.principals.find_by_agent_id(agent_id)? {
+            return Ok(principal);
+        }
+        Ok(Principal::new(
+            format!("synthetic:{agent_id}"),
+            agent_id.to_string(),
+            self.default_template.default_template(),
+            None,
+            None,
+        )?)
     }
 
     /// Assigns a policy template to an agent's principal (`permissions-approval`'s template
@@ -279,18 +307,42 @@ mod tests {
         }
     }
 
+    struct FakeDefaultTemplate(Mutex<PolicyTemplateName>);
+    impl DefaultTemplatePort for FakeDefaultTemplate {
+        fn default_template(&self) -> PolicyTemplateName {
+            *self.0.lock().unwrap()
+        }
+    }
+
     fn service() -> (EvaluationService, Arc<FakeGrants>, Arc<FakeAudit>) {
+        let (service, grants, audit, _principals, _default_template) =
+            service_with_default(PolicyTemplateName::Standard);
+        (service, grants, audit)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn service_with_default(
+        default_template: PolicyTemplateName,
+    ) -> (
+        EvaluationService,
+        Arc<FakeGrants>,
+        Arc<FakeAudit>,
+        Arc<FakePrincipals>,
+        Arc<FakeDefaultTemplate>,
+    ) {
         let principals = Arc::new(FakePrincipals::default());
         let grants = Arc::new(FakeGrants::default());
         let audit = Arc::new(FakeAudit::default());
+        let default_template = Arc::new(FakeDefaultTemplate(Mutex::new(default_template)));
         let service = EvaluationService::new(
-            principals,
+            principals.clone(),
             grants.clone(),
             audit.clone(),
             Arc::new(FixedClock),
             Arc::new(FakeIds(Mutex::new(0))),
+            default_template.clone(),
         );
-        (service, grants, audit)
+        (service, grants, audit, principals, default_template)
     }
 
     #[test]
@@ -407,5 +459,106 @@ mod tests {
         let records = audit.records.lock().unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0], ("file.read".to_string(), Effect::Allow, AuditDecider::Policy));
+    }
+
+    #[test]
+    fn new_agent_inherits_the_configured_default_template() {
+        let (service, _grants, _audit, _principals, _default_template) =
+            service_with_default(PolicyTemplateName::Trusted);
+        assert_eq!(
+            service.evaluate(
+                "agent-1",
+                Action::shell_exec(),
+                crate::contexts::permissions::domain::Resource::workspace(),
+                "session-1",
+                "generation-1",
+                "project-1",
+            ),
+            Effect::Allow,
+            "a Trusted-defaulted new agent should auto-allow shell.exec, not ask"
+        );
+    }
+
+    #[test]
+    fn changing_the_default_after_a_principal_exists_does_not_retroactively_change_it() {
+        let (service, _grants, _audit, _principals, default_template) =
+            service_with_default(PolicyTemplateName::Standard);
+        // First evaluation lazily creates the principal at the Standard default.
+        assert_eq!(
+            service.evaluate(
+                "agent-1",
+                Action::shell_exec(),
+                crate::contexts::permissions::domain::Resource::workspace(),
+                "session-1",
+                "generation-1",
+                "project-1",
+            ),
+            Effect::Ask
+        );
+
+        *default_template.0.lock().unwrap() = PolicyTemplateName::Trusted;
+
+        assert_eq!(
+            service.evaluate(
+                "agent-1",
+                Action::shell_exec(),
+                crate::contexts::permissions::domain::Resource::workspace(),
+                "session-1",
+                "generation-1",
+                "project-1",
+            ),
+            Effect::Ask,
+            "an already-created principal must keep its own assigned template, not follow later default changes"
+        );
+    }
+
+    #[test]
+    fn find_principal_round_trips_an_existing_row_without_rewriting_it() {
+        let (service, _grants, _audit, principals, _default_template) =
+            service_with_default(PolicyTemplateName::Standard);
+        service
+            .assign_template("agent-1", PolicyTemplateName::Readonly)
+            .expect("assign should succeed");
+
+        let found = service
+            .find_principal("agent-1")
+            .expect("find should succeed");
+
+        assert_eq!(found.template(), PolicyTemplateName::Readonly);
+        assert_eq!(principals.by_agent.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn find_principal_synthesizes_the_default_without_creating_a_row() {
+        let (service, _grants, _audit, principals, _default_template) =
+            service_with_default(PolicyTemplateName::Trusted);
+
+        let found = service
+            .find_principal("never-seen-agent")
+            .expect("find should succeed");
+
+        assert_eq!(found.agent_id(), "never-seen-agent");
+        assert_eq!(found.template(), PolicyTemplateName::Trusted);
+        assert!(
+            principals.by_agent.lock().unwrap().is_empty(),
+            "reading a never-seen agent's principal must not create a row"
+        );
+    }
+
+    #[test]
+    fn find_principal_reflects_a_changed_default_with_no_caching() {
+        let (service, _grants, _audit, _principals, default_template) =
+            service_with_default(PolicyTemplateName::Standard);
+        assert_eq!(
+            service.find_principal("agent-1").unwrap().template(),
+            PolicyTemplateName::Standard
+        );
+
+        *default_template.0.lock().unwrap() = PolicyTemplateName::Readonly;
+
+        assert_eq!(
+            service.find_principal("agent-1").unwrap().template(),
+            PolicyTemplateName::Readonly
+        );
     }
 }

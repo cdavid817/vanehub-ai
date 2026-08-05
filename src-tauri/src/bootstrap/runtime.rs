@@ -168,7 +168,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
     );
-    let permissions_api = super::assemble_permissions_api(database.clone());
+    let permissions_api =
+        super::assemble_permissions_api(database.clone(), desktop_settings_api.clone());
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,

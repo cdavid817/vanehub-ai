@@ -1,4 +1,5 @@
-export type PolicyTemplateName = "readonly" | "standard" | "trusted" | "yolo";
+export const policyTemplateNames = ["readonly", "standard", "trusted", "yolo"] as const;
+export type PolicyTemplateName = (typeof policyTemplateNames)[number];
 
 export type ApprovalScope = "once" | "session" | "project" | "global";
 

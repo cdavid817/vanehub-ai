@@ -1,10 +1,11 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::ToolApprovalDecision;
+use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::permissions::application::{ApprovalBroker, EvaluationService};
 use crate::contexts::permissions::infrastructure::{
-    PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
-    SqliteGrantRepository, SqlitePrincipalRepository,
+    DesktopDefaultTemplateAdapter, PermissionsSystemClock, PermissionsUuidIdGenerator,
+    SqliteAuditRepository, SqliteGrantRepository, SqlitePrincipalRepository,
 };
 use crate::platform::database::NativeDatabase;
 use std::sync::Arc;
@@ -15,12 +16,16 @@ use tokio::time::{sleep, Duration};
 const APPROVAL_TIMEOUT_SECONDS: i64 = 300;
 const TIMEOUT_SWEEP_INTERVAL_SECONDS: u64 = 30;
 
-pub(crate) fn assemble_permissions_api(database: NativeDatabase) -> PermissionsApi {
+pub(crate) fn assemble_permissions_api(
+    database: NativeDatabase,
+    desktop_settings: DesktopSettingsApi,
+) -> PermissionsApi {
     let principals = Arc::new(SqlitePrincipalRepository::new(database.clone()));
     let grants = Arc::new(SqliteGrantRepository::new(database.clone()));
     let audit = Arc::new(SqliteAuditRepository::new(database));
     let clock = Arc::new(PermissionsSystemClock);
     let ids = Arc::new(PermissionsUuidIdGenerator);
+    let default_template = Arc::new(DesktopDefaultTemplateAdapter::new(desktop_settings));
 
     let evaluation = EvaluationService::new(
         principals.clone(),
@@ -28,6 +33,7 @@ pub(crate) fn assemble_permissions_api(database: NativeDatabase) -> PermissionsA
         audit.clone(),
         clock.clone(),
         ids.clone(),
+        default_template,
     );
     let approvals = ApprovalBroker::new(
         principals,

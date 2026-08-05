@@ -1,5 +1,6 @@
 import type { UcdThemeId } from "../theme/theme-registry";
 import { appLanguages, type AppLanguage } from "../i18n/supported-locales";
+import type { PolicyTemplateName } from "./permissions";
 
 export { appLanguages };
 export type { AppLanguage };
@@ -46,7 +47,8 @@ export type AppSettingKey =
   | "logDirectory"
   | "networkProxyUrl"
   | "networkProxyBypass"
-  | "launchOnStartup";
+  | "launchOnStartup"
+  | "defaultPolicyTemplate";
 
 export interface AppSettings {
   applicationLanguage: AppLanguage;
@@ -57,6 +59,7 @@ export interface AppSettings {
   networkProxyUrl: string;
   networkProxyBypass: string;
   launchOnStartup: boolean;
+  defaultPolicyTemplate: PolicyTemplateName;
   loggingPolicy: LoggingPolicy;
 }
 

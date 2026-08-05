@@ -10,6 +10,7 @@ import {
   Plug,
   Settings,
   Settings2,
+  ShieldCheck,
   SlidersHorizontal,
   Terminal,
   Workflow,
@@ -26,6 +27,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agent-configurations"
+  | "agent-policies"
   | "skills"
   | "prompt-hooks"
   | "im"
@@ -67,6 +69,8 @@ const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./page
   .then((module) => ({ default: module.McpPage }));
 const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
   .then((module) => ({ default: module.AgentConfigurationsPage }));
+const loadAgentPoliciesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-policies-page")
+  .then((module) => ({ default: module.AgentPoliciesPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
   .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
@@ -124,6 +128,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Settings2,
     searchPlaceholderKey: "settings.search.agentConfigurations",
     loader: loadAgentConfigurationsPage,
+  },
+  {
+    id: "agent-policies",
+    labelKey: "settings.pages.agentPolicies",
+    crumbKey: "settings.pages.agentPolicies",
+    icon: ShieldCheck,
+    searchPlaceholderKey: "settings.search.agentPolicies",
+    loader: loadAgentPoliciesPage,
   },
   {
     id: "skills",

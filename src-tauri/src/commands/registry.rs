@@ -159,6 +159,7 @@ pub(crate) fn invoke_handler(
         crate::commands::permissions::resolve_pending_approval::resolve_pending_approval,
         crate::commands::permissions::apply_policy_template::apply_policy_template,
         crate::commands::permissions::list_pending_approvals::list_pending_approvals,
+        crate::commands::permissions::get_agent_policy_principal::get_agent_policy_principal,
         // Tooling: CLI and CLI Parameters
         crate::commands::tooling::cli::list_cli_tools::list_cli_tools,
         crate::commands::tooling::cli::refresh_cli_detections::refresh_cli_detections,

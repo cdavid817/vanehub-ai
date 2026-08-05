@@ -14,11 +14,21 @@ use super::{
     PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,
     SqliteGrantRepository, SqlitePrincipalRepository,
 };
-use crate::contexts::permissions::application::EvaluationService;
-use crate::contexts::permissions::domain::{Action, Effect, Resource};
+use crate::contexts::permissions::application::{DefaultTemplatePort, EvaluationService};
+use crate::contexts::permissions::domain::{Action, Effect, PolicyTemplateName, Resource};
 use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
 use std::sync::Arc;
+
+/// This migration-equivalence suite only cares about the legacy `auto_approve_tools` backfill,
+/// not the newer configurable-default feature — always `Standard`, matching the pre-existing
+/// hardcoded behavior these tests were originally written against.
+struct FixedStandardDefault;
+impl DefaultTemplatePort for FixedStandardDefault {
+    fn default_template(&self) -> PolicyTemplateName {
+        PolicyTemplateName::Standard
+    }
+}
 
 fn migrated_service(temp_label: &str, trusted: bool) -> EvaluationService {
     let directory = TempDirectory::new(temp_label);
@@ -50,6 +60,7 @@ fn migrated_service(temp_label: &str, trusted: bool) -> EvaluationService {
         Arc::new(SqliteAuditRepository::new(database)),
         Arc::new(PermissionsSystemClock),
         Arc::new(PermissionsUuidIdGenerator),
+        Arc::new(FixedStandardDefault),
     )
 }
 
