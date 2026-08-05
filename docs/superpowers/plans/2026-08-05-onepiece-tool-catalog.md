@@ -1695,8 +1695,9 @@ Expected: 编译失败 —— `this function takes 4 arguments but 6 arguments w
 ```rust
 use super::walk::{exceeds_size_limit, is_binary, MAX_FILE_BYTES, MAX_TOOL_OUTPUT_BYTES};
 
-/// read 的默认边界。三者取先触发者。`limit` 参数可在总字节约束内上调行数，但单行字符数与
-/// 总字节是硬上限 —— 它们保护的是上下文窗口，不是可协商的偏好。
+/// read 的边界，三者取先触发者，均为硬上限。`limit` 参数只能把返回行数调得更少 ——
+/// 上限保护的是上下文窗口，不是可协商的偏好，模型不能通过传一个大 `limit` 把自己撑爆。
+/// 需要更多内容时用 `offset` 翻页。
 pub(crate) const MAX_READ_LINES: usize = 2000;
 pub(crate) const MAX_READ_LINE_CHARS: usize = 2000;
 
