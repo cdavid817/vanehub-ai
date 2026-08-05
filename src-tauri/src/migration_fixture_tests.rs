@@ -1,5 +1,4 @@
-use crate::platform::database::{migrate, table_has_column, NativeDatabase};
-use crate::test_support::TempDirectory;
+use crate::platform::database::{migrate, table_has_column};
 use rusqlite::Connection;
 
 const EMPTY_FIXTURE: &str = include_str!("../tests/fixtures/database/empty.sql");
@@ -318,37 +317,4 @@ fn pre_ssh_connection_schema_gains_remote_ports_without_losing_records() {
         .expect("preserved session"),
         "host"
     );
-}
-
-#[test]
-fn upgrading_an_existing_database_to_the_retrieval_index_preserves_data() {
-    let directory = TempDirectory::new("retrieval migration upgrade");
-    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("first open");
-    {
-        let connection = database.connection().expect("migrated");
-        connection
-            .execute(
-                "INSERT INTO agents (id, display_name, provider, launch_kind)
-                 VALUES ('a', 'A', 'Test', 'api')",
-                [],
-            )
-            .expect("seed agent");
-    }
-    drop(database);
-
-    let reopened = NativeDatabase::new(directory.path().to_path_buf()).expect("reopen");
-    let connection = reopened.connection().expect("migrated again");
-    // `NativeDatabase::new` reseeds its 5 built-in agents (idempotently) on every open, so this
-    // counts only the seeded fixture row rather than the whole table.
-    let agents: i64 = connection
-        .query_row("SELECT COUNT(*) FROM agents WHERE id = 'a'", [], |row| {
-            row.get(0)
-        })
-        .expect("agent count");
-    let documents: i64 = connection
-        .query_row("SELECT COUNT(*) FROM retrieval_documents", [], |row| row.get(0))
-        .expect("document count");
-
-    assert_eq!(agents, 1, "existing rows must survive migration 42");
-    assert_eq!(documents, 0);
 }

@@ -183,11 +183,25 @@ mod tests {
     #[test]
     fn the_same_source_cannot_be_indexed_twice() {
         let connection = migrated_connection();
-        let insert = "INSERT INTO retrieval_documents
+        connection
+            .execute(
+                "INSERT INTO retrieval_documents
+                 (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash, created_at, updated_at)
+                 VALUES ('agent_memory:m1','agent_memory','m1','a','', 'x', 'h', 't', 't')",
+                [],
+            )
+            .expect("first insert");
+
+        // 第二行**换一个 id**，否则 PRIMARY KEY 冲突会与 UNIQUE 冲突混在一起：
+        // 那样即使 UNIQUE (source_kind, source_id) 被删掉，这条测试照样通过。
+        let duplicate_source = connection.execute(
+            "INSERT INTO retrieval_documents
              (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash, created_at, updated_at)
-             VALUES ('agent_memory:m1','agent_memory','m1','a','', 'x', 'h', 't', 't')";
-        connection.execute(insert, []).expect("first insert");
-        assert!(connection.execute(insert, []).is_err());
+             VALUES ('agent_memory:m1-dup','agent_memory','m1','a','', 'x', 'h', 't', 't')",
+            [],
+        );
+
+        assert!(duplicate_source.is_err());
     }
 
     #[test]
