@@ -55,8 +55,8 @@ impl IndexState {
 
 /// 决定重试策略：`Auth`/`InvalidRequest` 是确定性失败，重试只会烧配额（设计文档 §5.2）。
 // record_failure 只把 category 当不透明参数转手绑定给 SQL，本身从不构造 FailureCategory 的
-// 具体变体；四个变体第一次被真正构造，要等 Task 10 的 openai-compatible 适配器把 HTTP 状态码
-// 映射成分类、且 Task 12 的后台 worker 把整条链路接到活的入口之后。届时移除本属性。
+// 具体变体；四个变体现在由本任务（Task 10）openai_embedding_adapter.rs 的 category_for_status
+// 真正构造，但要等 Task 12 的后台 worker 把整条链路接到活的入口，本属性才能摘掉。届时移除本属性。
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FailureCategory {

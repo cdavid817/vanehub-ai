@@ -12,9 +12,14 @@ pub(crate) mod search_service;
 pub(crate) use indexing_service::{
     IndexSourcePort, IndexSourceRecord, IndexingService, ReconcileOutcome,
 };
+// EmbeddingEndpointPort/EmbeddingFailure/EmbeddingPort 经这条 `application::` 路径被 Task 10 的
+// infrastructure/openai_embedding_adapter.rs 引用，与 RetrievalDocumentRepository 等既有条目走
+// 同一惯例（sqlite_repository.rs 的导入方式）。ResolvedEmbeddingEndpoint 不在此列——本任务只经
+// 类型推断读它的字段，从不在代码里写它的名字；它仍在 ports.rs 里定义并带自己的
+// #[allow(dead_code)]，需要具名引用时（大概率是 Task 12）再补这条重新导出。
 pub(crate) use ports::{
-    RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
-    RetrievalIndexStatus,
+    EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort, RetrievalConfiguration,
+    RetrievalConfigurationRepository, RetrievalDocumentRepository, RetrievalIndexStatus,
 };
 // SearchService 本身与它的返回值 SearchOutcome：真正会经 `application::` 路径引用它们的是
 // Task 12 的 bootstrap 装配（构造并持有 SearchService）与 Task 13 的 recall 工具（读取
