@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the application-wide notification publishing contract, lifecycle, scope, presentation, localization, and first-version persistence boundary.
-
 ## Requirements
-
 ### Requirement: Unified notification publishing contract
 The application SHALL expose a typed, application-wide notification API through React context that allows descendant components to publish success, error, warning, and informational notifications without depending on presentation markup or runtime-specific APIs.
 
@@ -30,6 +28,11 @@ The framework SHALL retain a bounded set of recent in-memory notifications, SHAL
 #### Scenario: User manages history
 - **WHEN** the user marks entries read, removes an entry, marks all entries read, or clears the center
 - **THEN** notification state and unread count update consistently
+
+#### Scenario: Toast timer survives navigation
+- **WHEN** the user navigates between workspace tabs, sessions, or routes while a toast's dismiss timer is running
+- **THEN** the timer SHALL keep running against its original configured duration
+- **AND** the toast SHALL still leave the viewport once that duration elapses instead of persisting indefinitely
 
 ### Requirement: Global and session notification scopes
 The framework SHALL support global notifications and session-scoped notifications identified by stable session id.
@@ -74,3 +77,4 @@ The first version SHALL keep notification records in frontend memory and SHALL N
 #### Scenario: Future persistence integration
 - **WHEN** durable notification storage is introduced later
 - **THEN** desktop storage is accessed through the frontend service boundary and Rust-managed SQLite while the Web adapter exposes interface-aligned behavior
+

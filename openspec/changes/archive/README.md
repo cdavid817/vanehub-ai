@@ -111,5 +111,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-04 | harden-im-runtime-reliability | frontend-runtime-architecture, im-connector-management, native-runtime-architecture, session-runtime-management, settings-im-management-ui | `openspec/changes/archive/2026-08-04-harden-im-runtime-reliability/` |
 | 2026-08-04 | maximize-main-window-on-startup | desktop-background-lifecycle | `openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/` |
 | 2026-08-04 | remove-agent-management-page | agent-switching, cli-agent-config-management, settings-center-ui | `openspec/changes/archive/2026-08-04-remove-agent-management-page/` |
+| 2026-08-05 | polish-workspace-visual-consistency | agent-terminal-runtime, main-layout-ui, notification-system, visual-design-system | `openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

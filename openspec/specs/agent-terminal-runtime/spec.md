@@ -188,6 +188,11 @@ The Web/mock runtime SHALL expose the same Agent Terminal service shape without 
 - **WHEN** the Web mock simulates terminal start or resume
 - **THEN** it SHALL preserve session agent id, lifecycle state, and mock runtime session id behavior through the frontend service contract
 
+#### Scenario: Web mock unavailable-CLI notice uses one locale
+- **WHEN** the Agent Terminal displays the "local CLI execution unavailable in Web mode" notice
+- **THEN** it SHALL render as a single line in the active application locale
+- **AND** it SHALL NOT print both a Simplified Chinese and an English line for the same notice
+
 ### Requirement: Creation-time resume id capture
 The Agent Terminal runtime SHALL persist the exact provider resume id owned by a newly created CLI-backed VaneHub session as soon as the id can be assigned or correlated, without depending solely on structured PTY output.
 
