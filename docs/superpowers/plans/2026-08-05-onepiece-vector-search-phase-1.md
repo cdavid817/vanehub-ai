@@ -2570,7 +2570,13 @@ fn category_for_status(status: u16) -> FailureCategory {
 fn parse_embedding_response(body: &str) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
     let envelope: EmbeddingEnvelope = serde_json::from_str(body).map_err(|error| EmbeddingFailure {
         category: FailureCategory::InvalidRequest,
-        message: format!("malformed embedding response: {error}"),
+        // 只带行列位置，**不带 `{error}`**：serde_json 的 Display 会把出错处的原值回显出来
+        // （例如 `invalid type: string "oops"`），那等于把 provider 响应体的片段塞进诊断信息。
+        message: format!(
+            "malformed embedding response at line {} column {}",
+            error.line(),
+            error.column()
+        ),
     })?;
     let mut entries = envelope.data;
     entries.sort_by_key(|entry| entry.index);
@@ -2590,7 +2596,11 @@ struct EmbeddingEntry {
 }
 ```
 
-超时、reqwest 错误 → `FailureCategory::Network`。**凭据只在进程内传给适配器，不写日志、不进错误消息。**
+超时、reqwest 错误 → `FailureCategory::Network`。
+
+`EmbeddingEndpointPort::resolve` 失败 → `FailureCategory::InvalidRequest`（**不是** `Network`）。resolve 是本地 profile/凭据查找，不发网络请求；profile 被删或凭据被撕都是确定性错误，重试 5 次跨 25 分钟只是把问题拖晚暴露。归为不可重试后立即标 `failed`，配置页的失败计数马上可见，用户改完配置点"重建索引"即可恢复——这与 `document.rs:56` 写明的重试哲学一致。
+
+**凭据只在进程内传给适配器，不写日志、不进错误消息。**
 
 - [ ] **Step 4: 运行测试确认通过**
 
