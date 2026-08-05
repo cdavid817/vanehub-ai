@@ -86,7 +86,10 @@ mod tests {
     fn fixture(label: &str) -> (TempDirectory, SqliteRetrievalConfigurationRepository) {
         let directory = TempDirectory::new(label);
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
-        (directory, SqliteRetrievalConfigurationRepository::new(database))
+        (
+            directory,
+            SqliteRetrievalConfigurationRepository::new(database),
+        )
     }
 
     #[test]
@@ -101,10 +104,15 @@ mod tests {
     fn saving_twice_updates_the_single_row_instead_of_failing() {
         let (_directory, repository) = fixture("retrieval config overwrite");
         repository.save("profile-a", "model-a").expect("first save");
-        repository.save("profile-b", "model-b").expect("second save");
+        repository
+            .save("profile-b", "model-b")
+            .expect("second save");
 
         let configuration = repository.load().expect("load");
-        assert_eq!(configuration.resolved_model(), Some(("profile-b", "model-b")));
+        assert_eq!(
+            configuration.resolved_model(),
+            Some(("profile-b", "model-b"))
+        );
     }
 
     #[test]
