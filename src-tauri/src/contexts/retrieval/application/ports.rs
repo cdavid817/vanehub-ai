@@ -63,7 +63,12 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError>;
 }
 
-// Task 9 的检索服务读它来判断向量路是否可用，Task 12 的 api 经仓储读写它；届时移除本属性。
+// Task 6 的仓储已经在 load() 里构造它了（含 unwrap_or_default 的默认值路径），但 load() 本身是
+// SqliteRetrievalConfigurationRepository 的 trait 方法，要到 Task 12 的 bootstrap 装配把仓储从
+// 活根构造出来才可达（已用 cargo check 实测确认：仅移除本属性、保留仓储 struct 与它实现的
+// trait 自身的 allow 时不会触发告警，必须连同它们一起摘掉 allow 才会看到本 struct 被判定为
+// 未构造）。Task 9 的检索服务会读它来判断向量路是否可用，但那同样要等 Task 12 把仓储接到活
+// 入口之后。真正的移除点是 Task 12。届时移除本属性。
 #[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct RetrievalConfiguration {
@@ -71,7 +76,8 @@ pub(crate) struct RetrievalConfiguration {
     pub(crate) embedding_model: Option<String>,
 }
 
-// 同上，resolved_model 是 Task 9 判断"是否已配置"的唯一入口；届时移除本属性。
+// resolved_model 目前没有任何调用方（仅测试里直接构造 RetrievalConfiguration 后调用）；
+// 唯一预期的调用方是 Task 9 的检索服务，用它判断"是否已配置"。届时移除本属性。
 #[allow(dead_code)]
 impl RetrievalConfiguration {
     /// 两者齐备才算"已配置"——缺任一个都无法发起一次 embedding 调用。
@@ -82,8 +88,10 @@ impl RetrievalConfiguration {
     }
 }
 
-// 本 trait 唯一的实现（SqliteRetrievalConfigurationRepository）要到 Task 9 的检索服务和 Task 12
-// 的 api 把它当依赖注入进来才会被真正调用；届时移除本属性。
+// 本 trait 唯一的实现（SqliteRetrievalConfigurationRepository）要到 Task 12 的 bootstrap 装配
+// 把它构造出来并注入检索/索引服务才会被真正调用；届时移除本属性。Task 9 的检索服务会把它
+// 当依赖注入，但那只是把它记成字段类型/trait 对象——参见 RetrievalDocumentRepository 上的
+// 同类结论，光靠依赖注入不足以让 trait 被判定为"已使用"。
 #[allow(dead_code)]
 pub(crate) trait RetrievalConfigurationRepository: Send + Sync {
     fn load(&self) -> Result<RetrievalConfiguration, RetrievalError>;

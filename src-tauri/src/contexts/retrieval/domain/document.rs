@@ -102,19 +102,24 @@ pub(crate) struct RetrievalDocument {
 /// 确定性主键，与 `UNIQUE (source_kind, source_id)` 同源——reconcile 因此可以直接 upsert，
 /// 不必先查后插。
 // Task 5 的仓储把 id/content_hash 当作调用方已经算好的字段直接绑定，本身不重新计算；
-// 真正调用这两个函数构造 RetrievalDocument 的是 Task 7 的差集协调服务，届时移除本属性。
+// 真正调用这两个函数构造 RetrievalDocument 的是 Task 7 的差集协调服务的 reconcile()——但
+// reconcile() 本身要到 Task 12 的 bootstrap 装配构造出 IndexingService 才会被真正调用，
+// 从一个还没活起来的方法内部发起调用，不足以让被调用者被判定为"已使用"（已用 cargo check
+// 实测确认：仅移除本属性、保留 reconcile()/IndexingService 自身的 allow 时不会触发告警，
+// 必须连同 Task 7 那条调用链一起摘掉 allow 才会看到 document_id 被判定为未使用）。真正的
+// 移除点是 Task 12。届时移除本属性。
 #[allow(dead_code)]
 pub(crate) fn document_id(source_kind: SourceKind, source_id: &str) -> String {
     format!("{}:{}", source_kind.as_str(), source_id)
 }
 
-// 同上，随 document_id 一起在 Task 7 移除。
+// 同上，随 document_id 一起在 Task 12 移除。
 #[allow(dead_code)]
 pub(crate) fn content_hash(content: &str) -> String {
     bytes_to_hex(&Sha256::digest(content.as_bytes()))
 }
 
-// 仅被 content_hash 调用；content_hash 在 Task 7 变为可达后本函数一并可达，届时移除本属性。
+// 仅被 content_hash 调用；content_hash 在 Task 12 变为可达后本函数一并可达，届时移除本属性。
 #[allow(dead_code)]
 fn bytes_to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
