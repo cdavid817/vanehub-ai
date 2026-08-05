@@ -61,6 +61,19 @@ fn read_file(
     offset: usize,
     limit: Option<usize>,
 ) -> ToolExecutionOutcome {
+    // `limit: Some(0)` is rejected outright rather than silently rendering zero lines: the
+    // caller could not otherwise tell "you asked for 0 lines and got them" apart from "your
+    // input was discarded," and the trailing truncation notice would cite a fabricated resume
+    // point ("line 0") on top of it. Mirrors `grep_tool`'s identical `head_limit == Some(0)`
+    // guard; checked here, before touching the filesystem, because it's a pure request-shape
+    // error independent of what the file actually contains.
+    if limit == Some(0) {
+        return ToolExecutionOutcome {
+            output: "limit must be at least 1 (0 was requested, which would return zero lines)."
+                .to_string(),
+            is_error: true,
+        };
+    }
     let resolved = match boundary.resolve_existing(path) {
         Ok(resolved) => resolved,
         Err(error) => {
@@ -110,10 +123,18 @@ fn read_file(
     };
 
     let all: Vec<&str> = text.lines().collect();
-    // The `!all.is_empty()` exclusion matters: offset 0 always satisfies `offset >= all.len()`
-    // for a zero-line file, and without it a legitimately empty file would be reported as an
-    // invalid offset instead of read as empty.
-    if offset >= all.len() && !all.is_empty() {
+    // Validity depends on whether the file is empty: a zero-line file only accepts offset 0
+    // (read the whole, empty, file); a non-empty file requires offset to name an actual line.
+    // A single `offset >= all.len()` can't express both -- it would also swallow *every*
+    // nonzero offset into an empty file as if it were valid, when there is no line for offset 42
+    // to start from any more than there would be in a non-empty file, and the caller deserves
+    // the same "beyond the end" answer either way.
+    let offset_is_beyond_the_end = if all.is_empty() {
+        offset > 0
+    } else {
+        offset >= all.len()
+    };
+    if offset_is_beyond_the_end {
         return ToolExecutionOutcome {
             output: format!(
                 "Offset {offset} is beyond the end of \"{path}\" ({} lines).",
@@ -176,16 +197,38 @@ fn read_file(
     // remains. Landing exactly on the last line (no more content beyond what was rendered) must
     // not report truncation: a notice that fires when nothing was actually dropped teaches the
     // model to ignore it.
-    if offset + rendered.len() < all.len() {
+    let more_remains = offset + rendered.len() < all.len();
+    if more_remains {
         truncated = true;
     }
     let mut output = rendered.join("\n");
     if truncated {
-        output.push_str(&format!(
-            "\n\n[Output truncated at line {}. The file has {} lines; continue with offset.]",
-            offset + rendered.len(),
-            all.len()
-        ));
+        // `offset + rendered.len()` does double duty: as a 1-indexed line number it names the
+        // last line rendered above; as a 0-indexed offset it is exactly the value that resumes
+        // right after that line. The two indexing bases happen to land on the same integer here,
+        // but only spelling out the word "offset" next to it tells the model which meaning it
+        // may reuse -- without that, "continue with offset" on its own is a coin flip between
+        // this number and this number plus one, and losing it silently skips or repeats a line.
+        let resume_offset = offset + rendered.len();
+        if more_remains {
+            output.push_str(&format!(
+                "\n\n[Output truncated after line {resume_offset}. The file has {} lines; \
+                 continue with offset: {resume_offset}.]",
+                all.len()
+            ));
+        } else {
+            // `more_remains` is false here only because the single entry that crossed the byte
+            // budget (below) was also the file's last line: every line was rendered, just this
+            // last one cut short, so there is nothing left to page to -- advising
+            // `offset: resume_offset` would immediately report "beyond the end" right back. The
+            // clipped entry already carries `LINE_TRUNCATED_MARKER`, so this only needs to
+            // explain why the total is short of the file's real content, not offer paging advice
+            // the caller can't act on.
+            output.push_str(
+                "\n\n[Output truncated: the file's last line was cut short by the output size \
+                 limit; see the marked line above.]",
+            );
+        }
     }
     ToolExecutionOutcome {
         output,
@@ -689,5 +732,185 @@ mod tests {
         );
         assert!(outcome.is_error);
         assert!(outcome.output.contains("not valid UTF-8"));
+    }
+
+    #[test]
+    fn a_line_of_exactly_the_per_line_char_cap_is_not_marked_truncated() {
+        // Mirrors `a_file_with_exactly_the_default_line_cap_is_not_reported_as_truncated`, but
+        // for the per-line character cap instead of the line-count cap: a line of exactly
+        // MAX_READ_LINE_CHARS characters must render in full, unmarked. `> MAX_READ_LINE_CHARS`
+        // is the only correct comparison -- flipping it to `>=` would mark this line truncated
+        // (and, since `.take(MAX_READ_LINE_CHARS)` on an already-exactly-that-length iterator
+        // changes nothing, cut zero actual characters while still slapping the marker on).
+        // `an_overlong_line_is_truncated_and_marked` (fixture: MAX_READ_LINE_CHARS + 100 chars)
+        // cannot catch that mutation, because its fixture is over the cap either way.
+        let directory = TempDirectory::new("file-tool-line-cap-chars-exact");
+        let body = format!("{}\n", "x".repeat(MAX_READ_LINE_CHARS));
+        std::fs::write(directory.path().join("a.txt"), body).expect("write fixture");
+        let outcome = execute_file(
+            "read",
+            "a.txt",
+            None,
+            None,
+            None,
+            &directory.path().to_string_lossy(),
+        );
+        assert!(!outcome.is_error);
+        assert!(!outcome.output.contains(LINE_TRUNCATED_MARKER));
+        assert_eq!(
+            outcome.output,
+            format!("1\t{}", "x".repeat(MAX_READ_LINE_CHARS))
+        );
+    }
+
+    #[test]
+    fn a_limit_of_zero_is_rejected_rather_than_reported_as_empty_output() {
+        // Before this guard, `limit: Some(0)` silently rendered zero lines with
+        // `is_error: false` and a trailing notice citing a nonexistent "line 0" -- the caller
+        // could not tell "the file is genuinely empty here" apart from "your input was
+        // discarded." Mirrors `grep_tool`'s
+        // `a_head_limit_of_zero_is_rejected_rather_than_reported_as_no_matches`.
+        let directory = TempDirectory::new("file-tool-limit-zero");
+        std::fs::write(directory.path().join("a.txt"), "first\nsecond\n").expect("write fixture");
+        let outcome = execute_file(
+            "read",
+            "a.txt",
+            None,
+            None,
+            Some(0),
+            &directory.path().to_string_lossy(),
+        );
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("limit"));
+        assert!(!outcome.output.contains("line 0"));
+    }
+
+    #[test]
+    fn the_truncation_notice_states_the_literal_resume_offset() {
+        // Line numbers in the notice are 1-indexed; `offset` is 0-indexed. A notice that says
+        // "truncated at line 4 ... continue with offset" without spelling out the number forces
+        // the model to guess whether to reuse 4 or advance to 5 -- a coin flip that, lost,
+        // silently skips or repeats a line. The notice must state the exact value to pass back.
+        let directory = TempDirectory::new("file-tool-resume-offset");
+        let body: String = (1..=10).map(|index| format!("line{index}\n")).collect();
+        std::fs::write(directory.path().join("a.txt"), body).expect("write fixture");
+        let outcome = execute_file(
+            "read",
+            "a.txt",
+            None,
+            None,
+            Some(4),
+            &directory.path().to_string_lossy(),
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("continue with offset: 4"));
+    }
+
+    #[test]
+    fn clipping_the_files_last_line_on_the_byte_budget_does_not_advise_an_unreachable_offset() {
+        // A variant of `the_output_byte_budget_is_enforced_before_pushing_and_stays_bounded`
+        // where the entry that crosses the byte budget is also the file's very last line: every
+        // line still gets rendered (just the last one cut short), so
+        // `offset + rendered.len() == all.len()` and there is nothing left to page to. The old
+        // wording ("truncated at line N ... continue with offset") told the model to resume at
+        // offset N regardless, which immediately reports "beyond the end" right back --
+        // self-defeating advice for a line that already carries its own truncation marker.
+        fn formatted_len(line_number: usize) -> usize {
+            format!("{line_number}\t{}", "a".repeat(MAX_READ_LINE_CHARS)).len()
+        }
+        let mut cumulative = 0usize;
+        let mut filler_lines = 0usize;
+        while cumulative + formatted_len(filler_lines + 1) + 1 < MAX_TOOL_OUTPUT_BYTES {
+            cumulative += formatted_len(filler_lines + 1) + 1;
+            filler_lines += 1;
+        }
+        // Exactly one line beyond what fits whole -- unlike the byte-budget test above, that one
+        // extra line must also be the file's last line, not just any later one.
+        let total_lines = filler_lines + 1;
+
+        let directory = TempDirectory::new("file-tool-byte-budget-last-line");
+        let mut line = "a".repeat(MAX_READ_LINE_CHARS);
+        line.push('\n');
+        let body = line.repeat(total_lines);
+        std::fs::write(directory.path().join("a.txt"), &body).expect("write fixture");
+
+        let outcome = execute_file(
+            "read",
+            "a.txt",
+            None,
+            None,
+            None,
+            &directory.path().to_string_lossy(),
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("truncated"));
+        assert!(
+            !outcome.output.contains("continue with offset"),
+            "no content remains beyond the file's last (clipped) line, so paging advice is \
+             unreachable: {}",
+            outcome.output
+        );
+        let rendered_lines = outcome
+            .output
+            .lines()
+            .filter(|line| line.contains('\t'))
+            .count();
+        assert_eq!(
+            rendered_lines, total_lines,
+            "every line should still be represented, just the last one cut short"
+        );
+    }
+
+    #[test]
+    fn a_multi_byte_line_is_truncated_by_character_count_not_byte_index() {
+        // CJK characters are 3 bytes each in UTF-8, so a byte-oriented rewrite of the cap
+        // (`line.len() > MAX_READ_LINE_CHARS`, or slicing with `&line[..MAX_READ_LINE_CHARS]`)
+        // would either under-truncate -- byte length is 3x character count here -- or slice
+        // mid-character and panic. Mirrors `the_overlong_line_keeps_exactly_the_cap_and_no_more`
+        // above (ASCII-only) with a multi-byte fixture, exercising both the char-counting cap in
+        // `read_file` and the `is_char_boundary` walk in `truncate_entry` it would fall through
+        // to if the byte budget ever clipped a multi-byte entry.
+        let directory = TempDirectory::new("file-tool-multibyte-long-line");
+        let body = format!("{}\n", "测".repeat(MAX_READ_LINE_CHARS + 10));
+        std::fs::write(directory.path().join("a.txt"), body).expect("write fixture");
+        let outcome = execute_file(
+            "read",
+            "a.txt",
+            None,
+            None,
+            None,
+            &directory.path().to_string_lossy(),
+        );
+        assert!(!outcome.is_error);
+        let expected = format!(
+            "1\t{}{LINE_TRUNCATED_MARKER}",
+            "测".repeat(MAX_READ_LINE_CHARS)
+        );
+        assert_eq!(outcome.output, expected);
+        // Pins the reviewer's own probe: 2000 kept CJK characters is 6000 bytes, not 2000 -- a
+        // char-count assertion alone can't tell a correct char-aware cut apart from an
+        // accidental byte-index cut that happened not to panic for this particular length.
+        assert_eq!(outcome.output.len(), 6022);
+    }
+
+    #[test]
+    fn a_nonzero_offset_on_an_empty_file_is_reported_as_beyond_the_end() {
+        // The empty-file exclusion exists so offset 0 on a genuinely empty file reads as empty,
+        // not as an error -- but it must not swallow every other offset too. `offset: 42` on a
+        // zero-line file has no line 42 to start from and deserves the same "beyond the end"
+        // answer a non-empty file would give, not a silent empty string indistinguishable from
+        // "offset 0 succeeded and the file happens to be empty."
+        let directory = TempDirectory::new("file-tool-empty-nonzero-offset");
+        std::fs::write(directory.path().join("empty.txt"), "").expect("write fixture");
+        let outcome = execute_file(
+            "read",
+            "empty.txt",
+            None,
+            Some(42),
+            None,
+            &directory.path().to_string_lossy(),
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("beyond the end"));
     }
 }

@@ -724,6 +724,31 @@ mod tests {
     }
 
     #[test]
+    fn a_multi_byte_line_longer_than_the_output_budget_is_truncated_at_a_char_boundary() {
+        // Mirrors `a_line_longer_than_the_output_budget_is_truncated_to_fit` above, but with CJK
+        // characters (3 bytes each in UTF-8) instead of ASCII: `truncate_line`'s
+        // `is_char_boundary` walk must land the cut on a character boundary, not just a byte
+        // count, or this panics instead of truncating. A pure byte-length probe like the ASCII
+        // fixture can't tell a char-safe cut apart from one that merely got lucky and didn't
+        // land mid-character.
+        let directory = TempDirectory::new("grep-huge-multibyte-line");
+        let huge_line = "测".repeat(MAX_TOOL_OUTPUT_BYTES);
+        directory.write("huge.txt", &huge_line);
+        let outcome = execute_grep(
+            request("测", "content"),
+            &directory.path().to_string_lossy(),
+            not_cancelled(),
+        );
+        assert!(!outcome.is_error);
+        assert!(
+            outcome.output.len() < MAX_TOOL_OUTPUT_BYTES + 512,
+            "output length {} was not bounded near the {MAX_TOOL_OUTPUT_BYTES} byte budget",
+            outcome.output.len()
+        );
+        assert!(outcome.output.contains(LINE_TRUNCATED_MARKER.trim()));
+    }
+
+    #[test]
     fn a_path_scope_matches_unanchored_glob_filters_and_reports_workspace_relative_output() {
         // Mirrors `glob_tool`'s `a_path_scope_matches_unanchored_patterns_against_the_narrowed_root`.
         // Every other test in this module passes `path: None`, and with no `relative_root` the
