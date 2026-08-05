@@ -85,6 +85,20 @@ pub(crate) fn execute_grep(
         None => None,
     };
 
+    // `head_limit: Some(0)` is rejected rather than silently floored to 1 or treated as
+    // "unlimited": the cap check below runs before the push (see the loop comment), so a limit
+    // of 0 trips it on the very first candidate line, leaves `lines` empty, and the empty-`lines`
+    // branch reports "No matches" — a real match gets reported as if the pattern matched nothing.
+    // An explicit error tells the caller its input was refused, matching how empty-pattern,
+    // invalid-regex, and invalid-glob are already handled above, instead of quietly
+    // reinterpreting 0 as some other number the caller never asked for. Not enforced via the
+    // JSON schema, for the same reason `MAX_CONTEXT_LINES` isn't: schema constraints aren't an
+    // enforcement boundary.
+    if request.head_limit == Some(0) {
+        return error(
+            "head_limit must be at least 1 (0 was requested, which would ask for zero results).",
+        );
+    }
     // `head_limit` may only lower the shared cap, never raise it: letting a model-supplied
     // value exceed `MAX_SEARCH_RESULTS` would let it enlarge its own context budget.
     let limit = request
@@ -436,32 +450,41 @@ mod tests {
 
     #[test]
     fn context_larger_than_the_file_returns_the_whole_file_once() {
+        // The match sits on line 2, not line 1: with a first-line match `hit` is 0, and
+        // `hit.saturating_sub(context)` is trivially 0 for any `context` — the fixture would
+        // pass whether or not the window math were doing anything meaningful. A non-first-line
+        // hit exercises the same clamp non-trivially, matching the fixture in
+        // `an_absurdly_large_context_does_not_panic_and_is_clamped` below.
         let directory = TempDirectory::new("grep-context-oversized");
-        directory.write("a.txt", "needle\nsecond\nthird\n");
+        directory.write("a.txt", "first\nneedle\nthird\n");
         let mut input = request("needle", "content");
         input.context = 1000;
         let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
         assert!(!outcome.is_error);
         assert_eq!(
             outcome.output,
-            "a.txt:1:needle\na.txt:2:second\na.txt:3:third"
+            "a.txt:1:first\na.txt:2:needle\na.txt:3:third"
         );
     }
 
     #[test]
     fn an_absurdly_large_context_does_not_panic_and_is_clamped() {
         // `hit + context` in `render_file` would overflow `usize` here if `context` reached
-        // `execute_grep` unclamped. The point of this test is that the call below returns at all;
-        // the assertion just confirms the (clamped) output is still sane rather than garbage.
+        // `execute_grep` unclamped — but only for `hit > 0`: `0 + usize::MAX` does not overflow,
+        // so a first-line match (`hit == 0`) would let this test pass even with the clamp
+        // deleted entirely, pinning nothing. The match must be on the second line so `hit == 1`
+        // and `1 + usize::MAX` actually overflows without the clamp. The point of this test is
+        // that the call below returns at all; the assertion just confirms the (clamped) output
+        // is still sane rather than garbage.
         let directory = TempDirectory::new("grep-context-absurd");
-        directory.write("a.txt", "needle\nsecond\nthird\n");
+        directory.write("a.txt", "first\nneedle\nthird\n");
         let mut input = request("needle", "content");
         input.context = usize::MAX;
         let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
         assert!(!outcome.is_error);
         assert_eq!(
             outcome.output,
-            "a.txt:1:needle\na.txt:2:second\na.txt:3:third"
+            "a.txt:1:first\na.txt:2:needle\na.txt:3:third"
         );
     }
 
@@ -617,6 +640,21 @@ mod tests {
                 .count(),
             5
         );
+    }
+
+    #[test]
+    fn a_head_limit_of_zero_is_rejected_rather_than_reported_as_no_matches() {
+        // Before the guard, `limit == 0` tripped the pre-push cap check on the very first
+        // candidate line, leaving `lines` empty — the empty-`lines` branch then reported
+        // "No matches" even though "needle" genuinely matches in this fixture. Pins that the
+        // caller now gets told its input was refused instead of a factually wrong answer.
+        let directory = workspace("grep-head-limit-zero");
+        let mut input = request("needle", "files_with_matches");
+        input.head_limit = Some(0);
+        let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("head_limit"));
+        assert!(!outcome.output.contains("No matches"));
     }
 
     #[test]
