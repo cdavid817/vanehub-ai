@@ -36,8 +36,7 @@
       "Read(./.env.*)",
       "Read(**/.env)",
       "Read(**/.env.*)",
-      "Edit(openspec/changes/archive/**)",
-      "Write(openspec/changes/archive/**)"
+      "Edit(openspec/changes/archive/**)"
     ]
   },
   "hooks": {
