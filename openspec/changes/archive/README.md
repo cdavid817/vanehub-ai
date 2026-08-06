@@ -115,5 +115,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-05 | add-permissions-settings-ui | permissions-approval, permissions-core | `openspec/changes/archive/2026-08-05-add-permissions-settings-ui/` |
 | 2026-08-05 | polish-workspace-visual-consistency | agent-terminal-runtime, main-layout-ui, notification-system, visual-design-system | `openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/` |
 | 2026-08-06 | add-claude-code-permission-callback | claude-code-permission-hook, cli-agent-config-management, permissions-approval, permissions-core | `openspec/changes/archive/2026-08-06-add-claude-code-permission-callback/` |
+| 2026-08-06 | add-cli-agent-permission-launch-flags | agent-terminal-runtime, cli-agent-permission-launch-flags, cli-parameter-management, permissions-approval | `openspec/changes/archive/2026-08-06-add-cli-agent-permission-launch-flags/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
