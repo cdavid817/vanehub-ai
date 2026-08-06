@@ -266,9 +266,7 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
         <div className="space-y-4">
           {errorMessage ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{errorMessage}</div> : null}
           {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
-          {activeProfile && activeProfile.agentId !== "claude-code" ? (
-            <p className="text-xs leading-5 text-muted-foreground">{t("cliParameters.policyPrecedenceNotice")}</p>
-          ) : null}
+          {activeProfile && activeProfile.agentId !== "claude-code" ? <p className="text-xs leading-5 text-muted-foreground">{t("cliParameters.policyPrecedenceNotice")}</p> : null}
           {visibleDefinitions.map((definition) => (
             <section className="ucd-panel ucd-interactive rounded-lg p-4" key={definition.id}>
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] md:items-start">
