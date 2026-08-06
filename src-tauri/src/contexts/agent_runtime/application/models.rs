@@ -110,6 +110,8 @@ pub(crate) struct AgentSessionDetails {
 pub(crate) struct AgentSession {
     pub(crate) id: String,
     pub(crate) agent_id: String,
+    /// Ordered participants. Always at least one; `agent_id` mirrors the first.
+    pub(crate) seats: Vec<AgentSessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) lifecycle: AgentLifecycle,
     pub(crate) folder: Option<String>,
@@ -117,6 +119,14 @@ pub(crate) struct AgentSession {
     pub(crate) archived: bool,
     pub(crate) read_only: bool,
     pub(crate) loop_ownership: Option<LoopRoleGenerationOwnership>,
+}
+
+/// One participant in a session: an Agent playing an expert role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentSessionSeat {
+    pub(crate) agent_id: String,
+    /// `None` for a plain single-Agent session, which has no role assigned.
+    pub(crate) role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

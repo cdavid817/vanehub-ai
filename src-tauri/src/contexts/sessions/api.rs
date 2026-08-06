@@ -11,7 +11,7 @@ pub(crate) use super::application::{
     SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{
-    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner,
+    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner, SessionSeat,
 };
 use serde_json::Value;
 

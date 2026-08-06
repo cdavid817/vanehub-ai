@@ -1714,6 +1714,7 @@ mod tests {
             session: AgentSession {
                 id: "session-1".to_string(),
                 agent_id: "my-claude-agent".to_string(),
+                seats: Vec::new(),
                 interaction_mode: InteractionMode::Api,
                 lifecycle: AgentLifecycle::Running,
                 folder: None,

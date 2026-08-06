@@ -74,6 +74,7 @@ struct SessionOperationPayload<'a> {
     id: &'a str,
     title: &'a str,
     agent_id: &'a str,
+    seats: Vec<SessionSeatPayload<'a>>,
     interaction_mode: &'a str,
     lifecycle_state: &'a str,
     folder: &'a Option<String>,
@@ -89,6 +90,13 @@ struct SessionOperationPayload<'a> {
     archived: bool,
     created_at: &'a str,
     updated_at: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSeatPayload<'a> {
+    agent_id: &'a str,
+    role_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -114,6 +122,14 @@ impl<'a> From<&'a SessionRecord> for SessionOperationPayload<'a> {
             id: session.id(),
             title: session.aggregate.title().as_str(),
             agent_id: &session.agent_id,
+            seats: session
+                .seats
+                .iter()
+                .map(|seat| SessionSeatPayload {
+                    agent_id: &seat.agent_id,
+                    role_id: seat.role_id.as_deref(),
+                })
+                .collect(),
             interaction_mode: &session.interaction_mode,
             lifecycle_state: session.aggregate.lifecycle().as_str(),
             folder: &session.workspace.folder,
@@ -187,6 +203,7 @@ mod tests {
                 false,
             ),
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "cli".to_string(),
             workspace: SessionWorkspace {
                 folder: Some("ssh://dev@example.com/work/app".to_string()),

@@ -2823,6 +2823,8 @@ export const webAgentClient: AgentService = {
       id: `web-session-${nextSessionId}`,
       title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
       agentId: input.agentId,
+      // Mirrors the native normalization: no seats means one seat built from the Agent.
+      seats: input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }],
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
       folder: effectiveFolder,

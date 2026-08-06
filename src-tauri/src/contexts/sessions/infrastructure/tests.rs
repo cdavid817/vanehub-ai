@@ -12,7 +12,7 @@ use crate::contexts::sessions::domain::{
     normalize_chat_preferences, CategoryId, CategoryName, ChatConfigurationRequest, FileReference,
     FileReferenceSet, LoopSessionRole, MessageId, MessageRole, MessageStatus, SessionActivation,
     SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
-    SessionTitle,
+    SessionSeat, SessionTitle,
 };
 use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
@@ -54,6 +54,10 @@ fn session_record(
             false,
         ),
         agent_id: "codex-cli".to_string(),
+        seats: vec![SessionSeat {
+            agent_id: "codex-cli".to_string(),
+            role_id: None,
+        }],
         interaction_mode: "interactive".to_string(),
         workspace: SessionWorkspace {
             folder: Some("D:\\code\\fixture".to_string()),
@@ -1178,5 +1182,74 @@ fn persisted_configuration_shape_is_separate_from_domain_preferences() {
     assert_eq!(
         serde_json::to_value(reference).expect("serialize reference")["sizeBytes"],
         12
+    );
+}
+
+#[test]
+fn seats_survive_a_create_and_are_updated_on_save() {
+    let fixture = fixture("sessions-seats");
+    let mut session = session_record(
+        "session-seats",
+        SessionLifecycle::Idle,
+        "多 Agent 会话",
+        "2026-08-07T00:00:00+00:00",
+    );
+    session.seats = vec![
+        SessionSeat {
+            agent_id: "claude-code".to_string(),
+            role_id: Some("role-architect".to_string()),
+        },
+        SessionSeat {
+            agent_id: "codex-cli".to_string(),
+            role_id: Some("role-reviewer".to_string()),
+        },
+    ];
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create seated session");
+
+    let mut loaded = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find seated session")
+        .expect("seated session");
+    assert_eq!(loaded.seats, session.seats);
+
+    // A seat added mid-session must be routable from the next turn, so `save` has to carry seats.
+    loaded.seats.push(SessionSeat {
+        agent_id: "gemini-cli".to_string(),
+        role_id: None,
+    });
+    let saved = SessionRepository::save(&fixture.repository, &loaded).expect("save seats");
+    assert_eq!(saved.seats, loaded.seats);
+}
+
+/// Sessions created before seats existed store `[]`, and each must still open as its own Agent.
+#[test]
+fn a_session_without_seats_reads_as_one_seat() {
+    let fixture = fixture("sessions-no-seats");
+    let session = session_record(
+        "session-single",
+        SessionLifecycle::Idle,
+        "单 Agent 会话",
+        "2026-08-07T00:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create single session");
+
+    let loaded = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find single session")
+        .expect("single session");
+    assert_eq!(
+        loaded.seats,
+        vec![SessionSeat {
+            agent_id: "codex-cli".to_string(),
+            role_id: None,
+        }]
     );
 }

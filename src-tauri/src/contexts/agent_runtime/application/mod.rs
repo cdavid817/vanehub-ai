@@ -56,7 +56,7 @@ pub(crate) use models::{
     AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference, AgentLog,
     AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
     AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
-    AgentSessionDetails, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
+    AgentSessionDetails, AgentSessionSeat, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalInputRequest,
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
     BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,

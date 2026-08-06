@@ -56,6 +56,7 @@ pub(crate) struct Session {
     pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) agent_id: String,
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) lifecycle_state: SessionLifecycleState,
     pub(crate) folder: Option<String>,
@@ -75,10 +76,22 @@ pub(crate) struct Session {
     pub(crate) updated_at: String,
 }
 
+/// One participant in a session: an Agent playing an expert role.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionSeat {
+    pub(crate) agent_id: String,
+    pub(crate) role_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateSessionInput {
     pub(crate) agent_id: String,
+    /// Omitted for a single-Agent session, which the native layer records as one seat built from
+    /// `agent_id`.
+    #[serde(default)]
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) title: Option<String>,
     pub(crate) folder: Option<String>,

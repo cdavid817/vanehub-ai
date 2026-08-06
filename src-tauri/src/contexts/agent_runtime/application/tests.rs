@@ -131,6 +131,7 @@ impl FakeWorld {
         let session = AgentSession {
             id: "session-1".to_string(),
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Cli,
             lifecycle: AgentLifecycle::Idle,
             folder: Some("C:/workspace".to_string()),
@@ -2768,6 +2769,7 @@ fn loop_role_generation_for_an_api_agent_session_resolves_api_interaction_mode()
         AgentSession {
             id: "session-api-1".to_string(),
             agent_id: "trusted-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: Some("C:/workspace".to_string()),
@@ -3003,6 +3005,7 @@ fn send_message_skips_prompt_hook_assembly_for_non_cli_agents() {
         AgentSession {
             id: "api-session".to_string(),
             agent_id: "my-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: None,

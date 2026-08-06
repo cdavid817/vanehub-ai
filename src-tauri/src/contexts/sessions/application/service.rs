@@ -17,7 +17,8 @@ use super::{
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
     FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
-    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat,
+    SessionTitle,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -99,6 +100,7 @@ impl SessionsApplicationService {
         let role = request.role;
         self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
+            seats: Vec::new(),
             interaction_mode: request.interaction_mode,
             title: Some(format!("Loop {}", role.as_str())),
             workspace: SessionWorkspace {
@@ -175,6 +177,7 @@ impl SessionsApplicationService {
         let workspace = self.prepare_new_session_workspace(&request.workspace)?;
         self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
+            seats: request.seats,
             interaction_mode: request.interaction_mode,
             title: request.title,
             workspace,
@@ -311,9 +314,18 @@ impl SessionsApplicationService {
             request.owner,
         );
         let now = self.ports.clock.now();
+        let seats = if request.seats.is_empty() {
+            vec![SessionSeat {
+                agent_id: request.agent_id.clone(),
+                role_id: None,
+            }]
+        } else {
+            request.seats
+        };
         let record = SessionRecord {
             aggregate,
             agent_id: request.agent_id,
+            seats,
             interaction_mode: request.interaction_mode,
             workspace: request.workspace,
             runtime_session_id: None,

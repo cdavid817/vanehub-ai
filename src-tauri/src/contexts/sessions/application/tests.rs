@@ -959,6 +959,7 @@ fn session_record(
             false,
         ),
         agent_id: agent_id.to_string(),
+        seats: Vec::new(),
         interaction_mode: "interactive".to_string(),
         workspace: SessionWorkspace {
             folder: Some("D:\\code\\fixture".to_string()),
@@ -1093,6 +1094,7 @@ fn creation_management_and_category_use_cases_keep_atomic_boundaries() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
             title: Some("  New Session  ".to_string()),
             workspace: NewSessionWorkspace {
@@ -1191,6 +1193,7 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "cli".to_string(),
             title: Some("Worktree Session".to_string()),
             workspace: NewSessionWorkspace {
@@ -1238,6 +1241,7 @@ fn ready_onepiece_creates_a_local_worktree_session_in_api_mode() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "onepiece".to_string(),
+            seats: Vec::new(),
             interaction_mode: "api".to_string(),
             title: Some("OnePiece Worktree".to_string()),
             workspace: NewSessionWorkspace {
@@ -1279,6 +1283,7 @@ fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "cli".to_string(),
             title: Some("Remote".to_string()),
             workspace: NewSessionWorkspace {
@@ -1324,6 +1329,7 @@ fn onepiece_rejects_remote_creation_before_persistence() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "onepiece".to_string(),
+            seats: Vec::new(),
             interaction_mode: "api".to_string(),
             title: Some("Remote OnePiece".to_string()),
             workspace: NewSessionWorkspace {
@@ -1411,6 +1417,7 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
             title: None,
             workspace: NewSessionWorkspace::default(),

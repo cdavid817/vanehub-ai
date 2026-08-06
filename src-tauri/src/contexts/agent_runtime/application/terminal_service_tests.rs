@@ -693,6 +693,7 @@ fn session(archived: bool) -> super::AgentSession {
     super::AgentSession {
         id: "session-1".to_string(),
         agent_id: "codex-cli".to_string(),
+        seats: Vec::new(),
         interaction_mode: InteractionMode::Cli,
         lifecycle: AgentLifecycle::Idle,
         folder: Some("D:/work/demo".to_string()),

@@ -93,6 +93,14 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         Ok(Some(AgentSession {
             id: session.id,
             agent_id: session.agent_id,
+            seats: session
+                .seats
+                .into_iter()
+                .map(|seat| crate::contexts::agent_runtime::application::AgentSessionSeat {
+                    agent_id: seat.agent_id,
+                    role_id: seat.role_id,
+                })
+                .collect(),
             interaction_mode,
             lifecycle: AgentLifecycle::from_storage_lossy(&session.lifecycle),
             folder: session.folder,
