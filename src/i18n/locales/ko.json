@@ -2095,5 +2095,16 @@
   "createSession.seatRemove": "좌석 삭제",
   "createSession.seatCrossFamilyUnavailable": "다른 모델 패밀리의 Agent가 없어 같은 패밀리 후보를 표시합니다.",
   "chat.crossFamily": "교차 패밀리",
-  "chat.mentionLineStartHint": "줄 맨 앞의 @만 메시지를 상대에게 전달합니다."
+  "chat.mentionLineStartHint": "줄 맨 앞의 @만 메시지를 상대에게 전달합니다.",
+  "chat.turn.agentSpeaking": "{{name}} 작업 중",
+  "chat.turn.chainDepth": "인계 {{depth}}/{{maxDepth}}",
+  "chat.turn.waitingHuman": "{{name}} 님이 차례를 넘겼습니다",
+  "chat.turn.waitedFor": "{{minutes}}분 대기 중",
+  "chat.turn.roundComplete": "{{name}} 님이 이번 라운드를 마쳤습니다",
+  "session.seats": "좌석",
+  "session.seatSpeaking": "작업 중",
+  "session.seatIdle": "대기",
+  "session.seatAdd": "좌석 추가",
+  "session.seatRemove": "좌석 제거",
+  "session.seatSwitcher": "좌석 전환"
 }

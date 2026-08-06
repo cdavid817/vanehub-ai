@@ -2095,5 +2095,16 @@
   "createSession.seatRemove": "Remove seat",
   "createSession.seatCrossFamilyUnavailable": "No Agent from a different model family is available; same-family options are shown instead.",
   "chat.crossFamily": "cross-family",
-  "chat.mentionLineStartHint": "Only a mention at the start of a line routes the message."
+  "chat.mentionLineStartHint": "Only a mention at the start of a line routes the message.",
+  "chat.turn.agentSpeaking": "{{name}} is working",
+  "chat.turn.chainDepth": "handoff {{depth}}/{{maxDepth}}",
+  "chat.turn.waitingHuman": "{{name}} handed the turn to you",
+  "chat.turn.waitedFor": "waiting {{minutes}} min",
+  "chat.turn.roundComplete": "Round finished by {{name}}",
+  "session.seats": "Seats",
+  "session.seatSpeaking": "working",
+  "session.seatIdle": "idle",
+  "session.seatAdd": "Add seat",
+  "session.seatRemove": "Remove seat",
+  "session.seatSwitcher": "Seat"
 }

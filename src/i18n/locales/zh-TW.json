@@ -2095,5 +2095,16 @@
   "createSession.seatRemove": "刪除席位",
   "createSession.seatCrossFamilyUnavailable": "沒有不同模型家族的 Agent 可用，已改為顯示同家族選項。",
   "chat.crossFamily": "跨家族",
-  "chat.mentionLineStartHint": "只有放在行首的 @ 才會把訊息投遞給對方。"
+  "chat.mentionLineStartHint": "只有放在行首的 @ 才會把訊息投遞給對方。",
+  "chat.turn.agentSpeaking": "{{name}} 正在處理",
+  "chat.turn.chainDepth": "交接 {{depth}}/{{maxDepth}}",
+  "chat.turn.waitingHuman": "{{name}} 把球交給了你",
+  "chat.turn.waitedFor": "已等待 {{minutes}} 分鐘",
+  "chat.turn.roundComplete": "本輪由 {{name}} 完成",
+  "session.seats": "席位",
+  "session.seatSpeaking": "處理中",
+  "session.seatIdle": "閒置",
+  "session.seatAdd": "新增席位",
+  "session.seatRemove": "移除席位",
+  "session.seatSwitcher": "席位切換"
 }

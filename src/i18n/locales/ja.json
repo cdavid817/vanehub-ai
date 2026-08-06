@@ -2095,5 +2095,16 @@
   "createSession.seatRemove": "席を削除",
   "createSession.seatCrossFamilyUnavailable": "異なるモデルファミリーのAgentがないため、同一ファミリーの候補を表示しています。",
   "chat.crossFamily": "異ファミリー",
-  "chat.mentionLineStartHint": "行頭に置いた@のみがメッセージを相手に振り分けます。"
+  "chat.mentionLineStartHint": "行頭に置いた@のみがメッセージを相手に振り分けます。",
+  "chat.turn.agentSpeaking": "{{name}} が作業中",
+  "chat.turn.chainDepth": "引き継ぎ {{depth}}/{{maxDepth}}",
+  "chat.turn.waitingHuman": "{{name}} があなたに引き継ぎました",
+  "chat.turn.waitedFor": "{{minutes}} 分待機中",
+  "chat.turn.roundComplete": "{{name}} がこのラウンドを完了しました",
+  "session.seats": "席",
+  "session.seatSpeaking": "作業中",
+  "session.seatIdle": "待機",
+  "session.seatAdd": "席を追加",
+  "session.seatRemove": "席を削除",
+  "session.seatSwitcher": "席の切り替え"
 }
