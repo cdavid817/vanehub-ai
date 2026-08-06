@@ -56,3 +56,17 @@ export function useSessionSpeakers(session: Session | null): Map<number, Message
     [agentsQuery.data, rolesQuery.data, seats],
   );
 }
+
+/**
+ * The expert roles a seat-scoped view needs to name its seats.
+ *
+ * Gated so a single-Agent session never fetches roles it has no use for.
+ */
+export function useSessionRoles(enabled: boolean): ExpertRole[] {
+  const rolesQuery = useQuery({
+    queryKey: ["expert-roles"],
+    queryFn: () => agentService.listExpertRoles(),
+    enabled,
+  });
+  return rolesQuery.data ?? [];
+}

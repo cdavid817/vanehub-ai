@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import type { AgentWithModelFamily } from "../services/agent-model-family";
 import { recommendReviewerAgents } from "../services/reviewer-recommendation";
+import { isSessionAgentSelectable } from "./create-session-dialog-utils";
 import type { ExpertRole, SessionSeat } from "../types/agent-seats";
 
 /**
@@ -22,7 +23,9 @@ export function SessionSeatAssignment({
   seats: SessionSeat[];
 }) {
   const { t } = useTranslation();
-  const available = agents.filter((agent) => agent.availabilityState === "available");
+  // The same rule the rest of this dialog uses. A stricter one here empties the seat editor while
+  // the single-Agent selector stays full, leaving Create disabled with nothing saying why.
+  const available = agents.filter(isSessionAgentSelectable);
 
   function update(index: number, patch: Partial<SessionSeat>) {
     onSeatsChange(seats.map((seat, position) => (position === index ? { ...seat, ...patch } : seat)));

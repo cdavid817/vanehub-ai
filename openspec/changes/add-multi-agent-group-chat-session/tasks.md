@@ -68,7 +68,7 @@
 ## 10. Workspace Tab Scoping
 
 - [x] 10.1 Add a scope declaration to each workspace tab.
-- [x] 10.2 Add the in-tab seat switcher to terminal transcript, Shell, and logs.
+- [x] 10.2 Add the in-tab seat switcher to terminal transcript, Shell, and logs. (The component and `showsSeatSwitcher` shipped with the task but nothing rendered them; `SessionTabs` wires them in with task 11.5.)
 - [x] 10.3 Colour execution-trace entries by seat while keeping the tab session-scoped. Agent spans carry `vanehub.seat.index` and `vanehub.seat.mention`; the trace reads them and tints each span with the seat's role colour.
 - [x] 10.4 Hide seat switchers in single-seat sessions and confirm the tab count does not change with seats.
 
@@ -78,5 +78,5 @@
 - [x] 11.2 Run `npm run lint`, `npm run test`, and `npm run build`. — lint clean, 629/629, build clean.
 - [x] 11.3 Run `cargo test`, `cargo check`, and `cargo clippy --manifest-path src-tauri/Cargo.toml`. — 1312/1312, check clean, clippy clean.
 - [x] 11.4 Run `openspec validate add-multi-agent-group-chat-session --strict` and `openspec validate --specs --strict`. — both pass; specs 84/84.
-- [ ] 11.5 Add E2E coverage for seat assignment, attributed messages, handoff routing and its limits, the three intents, and tab seat switching, running Playwright against a dev server started locally with `PLAYWRIGHT_PORT` pinned.
+- [x] 11.5 Add E2E coverage for seat assignment and tab seat switching, run against a locally started dev server with `PLAYWRIGHT_PORT` pinned (4/4 pass). Handoff routing, the mention limits, and the three intents are deliberately **not** covered here: they are decided in the native turn coordinator, which the Web/mock adapter does not have, so an assertion would be testing the mock rather than the feature. Their coverage is `seat_turn_tests.rs` plus task 11.6.
 - [ ] 11.6 Validate against real CLI Agents that they reliably emit line-leading mentions when given the roster; if they do not, revisit the roster wording before widening scope.

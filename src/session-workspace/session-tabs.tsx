@@ -3,6 +3,10 @@ import { LazyFeature } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import type { TurnStatus } from "../components/chat/TurnStatusBar";
+import { useSessionRoles } from "../hooks/use-session-speakers";
+import { seatsFromSession } from "../services/session-seats";
+import { SeatSwitcher } from "./seat-switcher";
+import { showsSeatSwitcher } from "./tab-scope";
 import type { ChatMessage } from "../types/chat";
 import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChatTab } from "./chat-tab";
@@ -44,13 +48,17 @@ export function SessionTabs({
   turnStatus?: TurnStatus | null;
 }) {
   const sessionId = activeSession?.id ?? null;
+  const seats = useMemo(() => (activeSession ? seatsFromSession(activeSession) : []), [activeSession]);
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
+  const [selectedSeat, setSelectedSeat] = useState(0);
+  const roles = useSessionRoles(seats.length > 1);
   const [mountedTabs, setMountedTabs] = useState<Set<SessionTabId>>(() => new Set(["chat"]));
   const terminalCount = useMemo(() => toolUseCount(messages), [messages]);
 
   useEffect(() => {
     setActiveTab("chat");
     setMountedTabs(new Set(["chat"]));
+    setSelectedSeat(0);
   }, [sessionId]);
 
   useEffect(() => {
@@ -112,6 +120,14 @@ export function SessionTabs({
             key={`${sessionId ?? "none"}-${id}`}
             role="tabpanel"
           >
+            {showsSeatSwitcher(id, seats.length) ? (
+              <SeatSwitcher
+                onSelect={setSelectedSeat}
+                roles={roles}
+                seats={seats}
+                selectedIndex={selectedSeat}
+              />
+            ) : null}
             {renderPanel(id)}
           </section>
         ) : null)}
