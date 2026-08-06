@@ -1,6 +1,7 @@
 mod catalog;
 mod error;
 mod expert_role;
+mod seat_roster;
 mod seat_turn;
 mod generation;
 mod loop_decision;
