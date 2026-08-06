@@ -69,6 +69,17 @@ openspec/
 - 查询归档时优先读取 `openspec/changes/archive/archive-index.json`,按 `changeName` 或 `capabilities` 过滤;仅在定位到具体变更后才读取其 Markdown 工件。
 - 每 6 个月审查一次在线归档。迁往冷归档前必须验证目标 Git 仓库、不可变分支或 tag,在 `openspec/archive-cold-migrations.md` 记录可验证引用后,才能移除在线副本。
 
+## 机器强制层(hooks 与提交拦截)
+
+本仓库的规范不只写在文档里,以下机制会在你操作时自动执行。收到拦截反馈时,正确做法永远是修代码,而不是想办法关掉闸门。
+
+- **编辑即校验**:`.claude/settings.json` 注册了 PostToolUse hook(`scripts/hooks/post-edit-quality.mjs`):每次编辑/写入 `.ts`/`.tsx` 后自动运行 `eslint --fix` 并把剩余错误回报给你;编辑 `.rs` 后自动运行 `rustfmt`,格式化失败通常意味着你写出了语法错误。
+- **提交即拦截**:`git commit` 触发 husky——lint-staged 对暂存的 TS/JS 跑 `eslint --fix`、对 `.rs` 跑 `rustfmt`;commitlint 要求提交信息符合 Conventional Commits,允许的 type:build/chore/ci/deps/docs/feat/fix/perf/refactor/revert/style/test。
+- **300 行是 ESLint 硬规则**:`max-lines`(按物理行计)对全部 ts/tsx 生产代码生效;测试文件豁免;存量超限文件在 `eslint.config.js` 中列有技术债豁免清单——禁止向清单新增文件,新代码一律 ≤300 行。
+- **禁止绕过**:不得使用 `git commit --no-verify`、`git push --force`;不得为了让校验通过而修改或删除 `.husky/`、`.claude/settings.json`、eslint 豁免清单、lint-staged/commitlint 配置。即使本地绕过,CI 也会以同样标准全量复查。
+- `openspec/changes/archive/` 是不可变历史归档,工具层已禁止直接编辑;归档只能走 `openspec archive` 流程。
+- 个人化的权限放宽或本地实验配置写在 `.claude/settings.local.json`(已 gitignore),不要改动仓库级 `.claude/settings.json`。
+
 ## 校验命令(改完必须全部跑通)
 
 **逐字照抄参数。** `npm run lint` 而非 `lint:ci`、`cargo clippy` 不带 `--all-targets -- -D warnings`、漏掉 `cargo fmt`——这几种写法本地都会通过,而 `.github/workflows/ci.yml` 会拦下来。
