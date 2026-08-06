@@ -57,6 +57,10 @@ The system SHALL resolve a `PreToolUse` request to `Deny` if the hook wrapper ca
 - **WHEN** the loopback server returns a response the wrapper cannot parse
 - **THEN** the wrapper SHALL treat the request as denied
 
+#### Scenario: Malformed response does not use the offline allowlist
+- **WHEN** the loopback server responds but the wrapper cannot parse the response body
+- **THEN** the wrapper SHALL resolve the request to `Deny` regardless of whether the requested tool is on the read-only offline-fallback allowlist
+
 ### Requirement: Wrapper timeout is bounded between VaneHub's approval timeout and Claude Code's hook ceiling
 The system SHALL bound the hook wrapper's own client-side wait to a duration longer than the pending-approval timeout the native decision pipeline already enforces, and shorter than Claude Code's own hook timeout ceiling.
 

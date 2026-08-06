@@ -95,3 +95,13 @@ pub(crate) trait AuditRepository: Send + Sync {
 pub(crate) trait PendingApprovalEventPort: Send + Sync {
     fn publish(&self, request: &ApprovalRequest) -> Result<(), PermissionsApplicationError>;
 }
+
+/// Bridges to `cli_config`'s independent hook-projection operation
+/// (`add-claude-code-permission-callback` design.md D7): installs or removes VaneHub's own
+/// `PreToolUse` entries in Claude Code's global `settings.json`. The implementation constructs
+/// the actual hook-entry JSON itself (matcher list, wrapper binary path) — `cli_config` stays
+/// agnostic to what these entries contain, per that design's own cross-context split.
+pub(crate) trait ClaudeCodeHookPort: Send + Sync {
+    fn install(&self) -> Result<(), PermissionsApplicationError>;
+    fn remove(&self) -> Result<(), PermissionsApplicationError>;
+}

@@ -10,6 +10,12 @@ mod risk_level;
 mod scope;
 mod template;
 
+/// The stable principal id every Claude Code CLI hook evaluation is attributed to (design.md D2:
+/// one global identity for the machine, not scoped per project or session) —
+/// `claude-code-permission-hook`'s loopback bridge and `permissions-approval`'s Agent Policies
+/// listing both key off this same constant.
+pub(crate) const CLAUDE_CODE_AGENT_ID: &str = "claude-code";
+
 pub(crate) use action::Action;
 pub(crate) use approval_request::{ApprovalDecision, ApprovalRequest};
 pub(crate) use effect::Effect;

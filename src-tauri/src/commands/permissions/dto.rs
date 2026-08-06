@@ -49,4 +49,10 @@ pub(crate) struct PrincipalEntry {
     /// step — surfaced so the settings UI can show why (`permissions-approval`'s "Increasing a
     /// principal's trust requires explicit confirmation").
     pub(crate) requires_confirmation_to_assign: bool,
+    /// Whether this principal has ever been explicitly assigned a template, versus `template`
+    /// being a synthesized effective default. The Agent Policies UI uses this for the
+    /// `claude-code` principal specifically, to decide whether to show the first-use
+    /// hook-installation confirmation (`add-claude-code-permission-callback`'s "Enabling Claude
+    /// Code hook management requires a distinct first-use confirmation").
+    pub(crate) has_explicit_assignment: bool,
 }

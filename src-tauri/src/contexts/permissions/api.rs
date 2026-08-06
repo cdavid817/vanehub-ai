@@ -3,25 +3,36 @@
 //! Other contexts (`agent_runtime`) and Tauri command adapters use this facade instead of
 //! reaching into `permissions`' application services or repositories directly.
 
-use super::application::{ApprovalBroker, EvaluationService};
+use super::application::{ApprovalBroker, ClaudeCodeHookPort, EvaluationService};
+use super::infrastructure::HookWaitRegistry;
+use std::sync::Arc;
 
 pub(crate) use super::application::{PermissionsApplicationError, ResolvedApproval};
 pub(crate) use super::domain::{
     Action, ApprovalDecision, ApprovalRequest, Effect, Principal, PolicyTemplateName, Resource,
-    RiskLevel, Scope,
+    RiskLevel, Scope, CLAUDE_CODE_AGENT_ID,
 };
 
 #[derive(Clone)]
 pub(crate) struct PermissionsApi {
     evaluation: EvaluationService,
     approvals: ApprovalBroker,
+    hook_waits: Arc<HookWaitRegistry>,
+    claude_code_hook: Arc<dyn ClaudeCodeHookPort>,
 }
 
 impl PermissionsApi {
-    pub(crate) fn new(evaluation: EvaluationService, approvals: ApprovalBroker) -> Self {
+    pub(crate) fn new(
+        evaluation: EvaluationService,
+        approvals: ApprovalBroker,
+        hook_waits: Arc<HookWaitRegistry>,
+        claude_code_hook: Arc<dyn ClaudeCodeHookPort>,
+    ) -> Self {
         Self {
             evaluation,
             approvals,
+            hook_waits,
+            claude_code_hook,
         }
     }
 
@@ -48,21 +59,37 @@ impl PermissionsApi {
 
     /// Assigns a policy template to an agent's principal (`permissions-approval`'s template
     /// picker). Confirmation-on-increase is a caller/UI concern, not enforced here.
+    ///
+    /// For the `claude-code` principal specifically, also (re)installs the permission hook —
+    /// unconditionally, on every assignment, not just the first: every template (even
+    /// `readonly`) depends on the hook actually being registered for its `evaluate()` outcome to
+    /// have any effect on Claude Code at all, and `set_permission_hook_entries` is idempotent
+    /// (`add-claude-code-permission-callback` design.md D6/D7). A failure here fails the whole
+    /// call rather than leaving the caller believing a template took effect when the mechanism
+    /// that would enforce it isn't actually active. The first-use confirmation dialog itself is
+    /// a frontend/command-layer concern (`permissions-approval`'s "Enabling Claude Code hook
+    /// management requires a distinct first-use confirmation") — this method has no notion of
+    /// "first" vs "subsequent," only "claude-code or not."
     pub(crate) fn assign_template(
         &self,
         agent_id: &str,
         template: PolicyTemplateName,
     ) -> Result<Principal, PermissionsApplicationError> {
-        self.evaluation.assign_template(agent_id, template)
+        let principal = self.evaluation.assign_template(agent_id, template)?;
+        if agent_id == CLAUDE_CODE_AGENT_ID {
+            self.claude_code_hook.install()?;
+        }
+        Ok(principal)
     }
 
     /// Reports an agent's current policy template — synthesizing the effective default when no
     /// principal row exists yet — without ever creating one as a side effect of reading
-    /// (`add-permissions-settings-ui`'s agent-policy list).
+    /// (`add-permissions-settings-ui`'s agent-policy list). The `bool` is whether that template
+    /// comes from a real, previously-assigned row; see `EvaluationService::find_principal`.
     pub(crate) fn find_principal(
         &self,
         agent_id: &str,
-    ) -> Result<Principal, PermissionsApplicationError> {
+    ) -> Result<(Principal, bool), PermissionsApplicationError> {
         self.evaluation.find_principal(agent_id)
     }
 
@@ -116,5 +143,15 @@ impl PermissionsApi {
     /// generation through the same PEP-specific channel it was raised through.
     pub(crate) fn sweep_timed_out_approvals(&self) -> Vec<ApprovalRequest> {
         self.approvals.sweep_timed_out()
+    }
+
+    /// Delivers a resolution to the Claude Code hook bridge's own waiting HTTP request, if
+    /// `request_id` was raised through that channel (`claude-code-permission-hook`). Returns
+    /// `false` harmlessly for a request raised through any other channel, or one already
+    /// resolved — callers are expected to try every registered delivery channel unconditionally
+    /// and combine the results, not branch on which one applies (`resolve_pending_approval`'s
+    /// zero-branching command-adapter rule).
+    pub(crate) fn resolve_hook_wait(&self, request_id: &str, effect: Effect) -> bool {
+        self.hook_waits.resolve(request_id, effect)
     }
 }

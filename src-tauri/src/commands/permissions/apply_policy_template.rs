@@ -20,5 +20,5 @@ pub(crate) fn apply_policy_template(
     let principal = permissions
         .assign_template(&input.agent_id, template)
         .map_err(map_command_error)?;
-    Ok(principal_to_dto(principal))
+    Ok(principal_to_dto((principal, true)))
 }

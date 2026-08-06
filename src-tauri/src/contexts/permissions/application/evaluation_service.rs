@@ -144,20 +144,28 @@ impl EvaluationService {
     /// ephemeral, never-persisted `Principal` at the current default — its `id` is never read by
     /// any caller (the DTO mapping only uses `agent_id`/`template`), so a synthetic, non-colliding
     /// value is fine.
+    ///
+    /// The `bool` reports whether this is a real, previously-assigned row (`true`) or a
+    /// synthesized default (`false`) — the Agent Policies UI needs this specifically for the
+    /// `claude-code` principal, to know whether to show the first-use hook-installation
+    /// confirmation (`add-claude-code-permission-callback`'s "Enabling Claude Code hook
+    /// management requires a distinct first-use confirmation"). Every other caller is free to
+    /// ignore it.
     pub(crate) fn find_principal(
         &self,
         agent_id: &str,
-    ) -> Result<Principal, PermissionsApplicationError> {
+    ) -> Result<(Principal, bool), PermissionsApplicationError> {
         if let Some(principal) = self.principals.find_by_agent_id(agent_id)? {
-            return Ok(principal);
+            return Ok((principal, true));
         }
-        Ok(Principal::new(
+        let principal = Principal::new(
             format!("synthetic:{agent_id}"),
             agent_id.to_string(),
             self.default_template.default_template(),
             None,
             None,
-        )?)
+        )?;
+        Ok((principal, false))
     }
 
     /// Assigns a policy template to an agent's principal (`permissions-approval`'s template
@@ -520,11 +528,12 @@ mod tests {
             .assign_template("agent-1", PolicyTemplateName::Readonly)
             .expect("assign should succeed");
 
-        let found = service
+        let (found, has_explicit_assignment) = service
             .find_principal("agent-1")
             .expect("find should succeed");
 
         assert_eq!(found.template(), PolicyTemplateName::Readonly);
+        assert!(has_explicit_assignment);
         assert_eq!(principals.by_agent.lock().unwrap().len(), 1);
     }
 
@@ -533,15 +542,37 @@ mod tests {
         let (service, _grants, _audit, principals, _default_template) =
             service_with_default(PolicyTemplateName::Trusted);
 
-        let found = service
+        let (found, has_explicit_assignment) = service
             .find_principal("never-seen-agent")
             .expect("find should succeed");
 
         assert_eq!(found.agent_id(), "never-seen-agent");
         assert_eq!(found.template(), PolicyTemplateName::Trusted);
+        assert!(!has_explicit_assignment);
         assert!(
             principals.by_agent.lock().unwrap().is_empty(),
             "reading a never-seen agent's principal must not create a row"
+        );
+    }
+
+    #[test]
+    fn claude_code_principal_defaults_to_the_configured_template_like_any_other_agent() {
+        // add-claude-code-permission-callback design.md D2: claude-code is one global principal,
+        // identified by agent id alone like every other principal — no special-cased identity
+        // model needed for the CLI hook bridge.
+        let (service, _grants, _audit, principals, _default_template) =
+            service_with_default(PolicyTemplateName::Trusted);
+
+        let (found, has_explicit_assignment) = service
+            .find_principal("claude-code")
+            .expect("find should succeed");
+
+        assert_eq!(found.agent_id(), "claude-code");
+        assert_eq!(found.template(), PolicyTemplateName::Trusted);
+        assert!(!has_explicit_assignment);
+        assert!(
+            principals.by_agent.lock().unwrap().is_empty(),
+            "reading the claude-code principal before any explicit assignment must not create a row"
         );
     }
 
@@ -550,14 +581,14 @@ mod tests {
         let (service, _grants, _audit, _principals, default_template) =
             service_with_default(PolicyTemplateName::Standard);
         assert_eq!(
-            service.find_principal("agent-1").unwrap().template(),
+            service.find_principal("agent-1").unwrap().0.template(),
             PolicyTemplateName::Standard
         );
 
         *default_template.0.lock().unwrap() = PolicyTemplateName::Readonly;
 
         assert_eq!(
-            service.find_principal("agent-1").unwrap().template(),
+            service.find_principal("agent-1").unwrap().0.template(),
             PolicyTemplateName::Readonly
         );
     }

@@ -42,15 +42,18 @@ export const webPermissionsClient: PermissionsService = {
       agentId,
       template,
       requiresConfirmationToAssign: requiresConfirmationToAssign(template),
+      hasExplicitAssignment: true,
     };
   },
 
   async getAgentPolicyPrincipal(agentId: string): Promise<PrincipalEntry> {
+    const hasExplicitAssignment = webPrincipalTemplates.has(agentId);
     const template = webPrincipalTemplates.get(agentId) ?? getWebDefaultPolicyTemplate();
     return {
       agentId,
       template,
       requiresConfirmationToAssign: requiresConfirmationToAssign(template),
+      hasExplicitAssignment,
     };
   },
 
