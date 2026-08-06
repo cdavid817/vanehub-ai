@@ -2094,5 +2094,6 @@
   "createSession.seatAdd": "添加席位",
   "createSession.seatRemove": "删除席位",
   "createSession.seatCrossFamilyUnavailable": "没有不同模型家族的 Agent 可用，已改为展示同家族选项。",
-  "chat.crossFamily": "跨家族"
+  "chat.crossFamily": "跨家族",
+  "chat.mentionLineStartHint": "只有放在行首的 @ 才会把消息投递给对方。"
 }

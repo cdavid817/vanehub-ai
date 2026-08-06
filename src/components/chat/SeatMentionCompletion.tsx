@@ -1,0 +1,46 @@
+import { useTranslation } from "react-i18next";
+import type { ModelFamily } from "../../services/model-family";
+
+export interface SeatMentionOption {
+  mention: string;
+  roleName: string | null;
+  agentName: string;
+  modelFamily: ModelFamily;
+  avatar: string;
+}
+
+/**
+ * Offered only in a multi-seat session. It also states the line-leading rule, because a user who
+ * types `@` mid-sentence and sees nothing happen has no way to discover why.
+ */
+export function SeatMentionCompletion({
+  onSelect,
+  options,
+}: {
+  onSelect: (mention: string) => void;
+  options: SeatMentionOption[];
+}) {
+  const { t } = useTranslation();
+  if (options.length === 0) return null;
+
+  return (
+    <div className="ucd-panel grid gap-0.5 rounded-lg border border-border p-1 text-sm">
+      {options.map((option) => (
+        <button
+          className="ucd-interactive flex items-center gap-2 rounded px-2 py-1.5 text-left"
+          key={option.mention}
+          onClick={() => onSelect(option.mention)}
+          type="button"
+        >
+          <span aria-hidden="true">{option.avatar}</span>
+          <span className="min-w-0 flex-1 truncate">
+            <span className="font-medium">{option.roleName ?? option.agentName}</span>
+            {option.roleName ? <span className="text-muted-foreground"> · {option.agentName}</span> : null}
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{option.modelFamily}</span>
+        </button>
+      ))}
+      <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("chat.mentionLineStartHint")}</p>
+    </div>
+  );
+}

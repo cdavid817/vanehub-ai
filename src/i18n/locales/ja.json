@@ -2094,5 +2094,6 @@
   "createSession.seatAdd": "席を追加",
   "createSession.seatRemove": "席を削除",
   "createSession.seatCrossFamilyUnavailable": "異なるモデルファミリーのAgentがないため、同一ファミリーの候補を表示しています。",
-  "chat.crossFamily": "異ファミリー"
+  "chat.crossFamily": "異ファミリー",
+  "chat.mentionLineStartHint": "行頭に置いた@のみがメッセージを相手に振り分けます。"
 }

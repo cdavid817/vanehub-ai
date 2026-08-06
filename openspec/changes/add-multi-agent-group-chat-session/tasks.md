@@ -44,11 +44,11 @@
 
 ## 7. Handoff Routing
 
-- [ ] 7.1 Add mention parsing that strips fenced code blocks, matches only line-leading mentions, and filters self-mentions.
-- [ ] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies.
-- [ ] 7.3 Enforce maximum chain depth and maximum mentions per message, and surface why a chain ended.
-- [ ] 7.4 Route a user message with no line-leading mention to the seat that most recently held the turn, falling back to the first seat.
-- [ ] 7.5 Add `@` seat completion to the composer, showing role, Agent, and family, and making the line-leading rule discoverable.
+- [x] 7.1 Add mention parsing that strips fenced code blocks, matches only line-leading mentions, and filters self-mentions.
+- [ ] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. Target selection and bounds are done and tested (`turn-routing.ts`); the remaining work is driving the serial loop from the native generation flow.
+- [x] 7.3 Enforce maximum chain depth and maximum mentions per message, and surface why a chain ended.
+- [x] 7.4 Route a user message with no line-leading mention to the seat that most recently held the turn, falling back to the first seat.
+- [x] 7.5 Add `@` seat completion to the composer, showing role, Agent, and family, and making the line-leading rule discoverable.
 
 ## 8. Human Turn Handling
 

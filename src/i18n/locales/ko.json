@@ -2094,5 +2094,6 @@
   "createSession.seatAdd": "좌석 추가",
   "createSession.seatRemove": "좌석 삭제",
   "createSession.seatCrossFamilyUnavailable": "다른 모델 패밀리의 Agent가 없어 같은 패밀리 후보를 표시합니다.",
-  "chat.crossFamily": "교차 패밀리"
+  "chat.crossFamily": "교차 패밀리",
+  "chat.mentionLineStartHint": "줄 맨 앞의 @만 메시지를 상대에게 전달합니다."
 }
