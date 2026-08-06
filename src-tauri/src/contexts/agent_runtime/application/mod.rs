@@ -1,4 +1,3 @@
-mod coordination;
 mod error;
 mod loop_control;
 mod loop_models;
@@ -21,12 +20,6 @@ mod terminal_service;
 mod tool_catalog;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
-pub(crate) use coordination::{
-    CoordinationApplicationPorts, CoordinationApplicationService, CoordinationExecutionOutput,
-    CoordinationExecutionRequest, CoordinationExecutionResult, CoordinationIdPort,
-    CoordinationNodeExecutor, CoordinationOperationPort, CoordinationRepository,
-    StartCoordinationRequest, StartCoordinationResultView,
-};
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 pub(crate) use loop_models::{
@@ -62,7 +55,7 @@ pub(crate) use models::{
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
     BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
     DiscoverOnePieceProviderModelsInput, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessFailureKind,
+    GenerationProcessEvent, GenerationProcessFailure,
     GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
     LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
     LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
@@ -83,6 +76,9 @@ pub(crate) use models::{
     WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
+
+#[cfg(test)]
+pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,

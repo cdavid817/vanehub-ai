@@ -2,7 +2,7 @@ use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, CoordinationApplicationPorts, CoordinationApplicationService,
+    AgentTerminalApplicationService,
     LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
     LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
     LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
@@ -15,14 +15,13 @@ use crate::contexts::agent_runtime::infrastructure::{
     CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
-    NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
+    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
     RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
+    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
     SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidCoordinationIds,
+    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
     WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -225,25 +224,6 @@ pub(crate) fn assemble_agent_runtime_api(
         events: events.clone(),
         terminal_events: events,
     });
-    let coordination_repository = Arc::new(SqliteCoordinationRepository::new(
-        dependencies.database.clone(),
-    ));
-    let coordination = CoordinationApplicationService::new(CoordinationApplicationPorts {
-        repository: coordination_repository,
-        registry: registry.clone(),
-        executor: Arc::new(NativeCoordinationNodeExecutor::new(
-            registry.clone(),
-            cli_profiles.clone(),
-            processes,
-            execution_ids,
-            telemetry,
-        )),
-        ids: Arc::new(UuidCoordinationIds),
-        operations: operations.clone(),
-        logging: logging.clone(),
-        clock: clock.clone(),
-    });
-    let coordination_scheduler = NativeCoordinationScheduler::new(coordination.clone());
     let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database));
     let loop_projects = Arc::new(WorkspaceLoopProjectAdapter::new(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
@@ -313,7 +293,6 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_controls,
             loop_recovery,
             loop_scheduler,
-            (coordination, coordination_scheduler),
         ),
         telemetry_lifecycle,
     }

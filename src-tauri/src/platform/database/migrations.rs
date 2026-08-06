@@ -152,7 +152,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         conn,
         27,
         "multi-agent-coordination",
-        crate::contexts::agent_runtime::infrastructure::apply_coordination_schema,
+        apply_retired_coordination_schema,
     )?;
     apply_migration(
         conn,
@@ -238,7 +238,31 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "onepiece-provider-endpoints",
         crate::contexts::agent_runtime::infrastructure::apply_onepiece_provider_endpoint_schema,
     )?;
+    apply_migration(
+        conn,
+        43,
+        "remove-multi-agent-coordination",
+        apply_remove_coordination_migration,
+    )?;
 
+    Ok(())
+}
+
+/// Version 27 created the multi-Agent coordination table. The capability is retired, so the slot
+/// is kept as a no-op rather than deleted: the migration sequence is asserted to be dense by the
+/// fixture tests, and leaving a permanent hole would make every future migration carry the gap.
+fn apply_retired_coordination_schema(_conn: &Connection) -> Result<(), DatabaseError> {
+    Ok(())
+}
+
+/// Drops what version 27 left behind on installs that actually ran it. On a fresh database the
+/// table was never created and this is a no-op.
+///
+/// Numbered 43, not 42: the concurrently-developed `permissions-core` branch already claimed 42
+/// and has run it on shared local databases (every worktree shares one `ai.vanehub.app` database),
+/// so reusing 42 would leave this migration permanently skipped there and the table undropped.
+fn apply_remove_coordination_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch("DROP TABLE IF EXISTS coordination_runs;")?;
     Ok(())
 }
 
@@ -858,7 +882,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (40, 41));
+        assert_eq!(migration_state, (41, 43));
 
         migrate(&connection).expect("upgrade migration");
 
@@ -1081,5 +1105,41 @@ mod tests {
             "streamable_http"
         );
         assert_eq!(journal_rows, 1);
+    }
+
+    fn coordination_table_exists(connection: &Connection) -> bool {
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coordination_runs'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("table lookup")
+            > 0
+    }
+
+    #[test]
+    fn remove_coordination_migration_drops_a_pre_existing_table_and_is_idempotent() {
+        let connection = Connection::open_in_memory().expect("database");
+        // Recreate what migration 27 used to leave behind on an existing install.
+        connection
+            .execute_batch(
+                "CREATE TABLE coordination_runs (id TEXT PRIMARY KEY, run_snapshot TEXT NOT NULL);",
+            )
+            .expect("seed legacy table");
+        assert!(coordination_table_exists(&connection));
+
+        apply_remove_coordination_migration(&connection).expect("first apply");
+        assert!(!coordination_table_exists(&connection));
+
+        apply_remove_coordination_migration(&connection).expect("second apply");
+        assert!(!coordination_table_exists(&connection));
+    }
+
+    #[test]
+    fn migrate_leaves_no_coordination_table_on_a_fresh_database() {
+        let connection = Connection::open_in_memory().expect("database");
+        migrate(&connection).expect("migrate");
+        assert!(!coordination_table_exists(&connection));
     }
 }

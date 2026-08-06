@@ -4,10 +4,6 @@ mod api_process_adapter;
 mod availability;
 mod cli_profile;
 mod composite_process_gateway;
-mod coordination_executor;
-mod coordination_repository;
-mod coordination_scheduler;
-mod coordination_schema;
 mod core_instructions;
 mod credential_aware_registry;
 mod events;
@@ -48,10 +44,6 @@ pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
-pub(crate) use coordination_executor::NativeCoordinationNodeExecutor;
-pub(crate) use coordination_repository::SqliteCoordinationRepository;
-pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
-pub(crate) use coordination_schema::apply_coordination_schema;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
@@ -74,7 +66,7 @@ pub(crate) use process_adapter::{
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
-    UuidCoordinationIds,
+
 };
 pub(crate) use schema::{
     apply_agent_origin_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,

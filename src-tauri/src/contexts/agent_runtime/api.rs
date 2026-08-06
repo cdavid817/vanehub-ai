@@ -6,10 +6,10 @@
 
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService,
-    CoordinationApplicationService, LoopApplicationService, LoopControlApplicationService,
-    LoopRecoveryApplicationService, StartCoordinationRequest, StartCoordinationResultView,
+    LoopApplicationService, LoopControlApplicationService,
+    LoopRecoveryApplicationService,
 };
-use super::infrastructure::{NativeCoordinationScheduler, NativeLoopScheduler};
+use super::infrastructure::NativeLoopScheduler;
 
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
@@ -28,10 +28,7 @@ pub(crate) use super::application::{
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, CoordinationAttempt, CoordinationAttemptStatus,
-    CoordinationCandidateRole, CoordinationFailureKind, CoordinationNodeInput, CoordinationNodeRun,
-    CoordinationNodeStatus, CoordinationOutput, CoordinationRun, CoordinationRunStatus,
-    InteractionMode, LoopLimits, LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, InteractionMode, LoopLimits, LoopVerificationCommand,
 };
 
 #[derive(Clone)]
@@ -46,8 +43,6 @@ pub(crate) struct AgentRuntimeApi {
     loop_controls: LoopControlApplicationService,
     loop_recovery: LoopRecoveryApplicationService,
     loop_scheduler: NativeLoopScheduler,
-    coordination: CoordinationApplicationService,
-    coordination_scheduler: NativeCoordinationScheduler,
 }
 
 impl AgentRuntimeApi {
@@ -58,9 +53,7 @@ impl AgentRuntimeApi {
         loop_controls: LoopControlApplicationService,
         loop_recovery: LoopRecoveryApplicationService,
         loop_scheduler: NativeLoopScheduler,
-        coordination_runtime: (CoordinationApplicationService, NativeCoordinationScheduler),
     ) -> Self {
-        let (coordination, coordination_scheduler) = coordination_runtime;
         Self {
             service,
             terminal_service,
@@ -68,48 +61,7 @@ impl AgentRuntimeApi {
             loop_controls,
             loop_recovery,
             loop_scheduler,
-            coordination,
-            coordination_scheduler,
         }
-    }
-
-    pub(crate) fn start_coordination(
-        &self,
-        request: StartCoordinationRequest,
-    ) -> Result<StartCoordinationResultView, AgentRuntimeApplicationError> {
-        let result = self.coordination.start(request)?;
-        self.coordination_scheduler.schedule(&result.run_id)?;
-        Ok(result)
-    }
-
-    pub(crate) fn list_coordination_runs(
-        &self,
-    ) -> Result<Vec<CoordinationRun>, AgentRuntimeApplicationError> {
-        self.coordination.list()
-    }
-
-    pub(crate) fn get_coordination_run(
-        &self,
-        run_id: &str,
-    ) -> Result<CoordinationRun, AgentRuntimeApplicationError> {
-        self.coordination.get(run_id)
-    }
-
-    pub(crate) fn cancel_coordination_run(
-        &self,
-        run_id: &str,
-    ) -> Result<CoordinationRun, AgentRuntimeApplicationError> {
-        self.coordination.cancel(run_id)
-    }
-
-    pub(crate) fn reconcile_coordination_startup(
-        &self,
-    ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
-        let recovered = self.coordination.recover_startup()?;
-        for run_id in &recovered {
-            self.coordination_scheduler.schedule(run_id)?;
-        }
-        Ok(recovered)
     }
 
     pub(crate) fn list_loop_definitions(

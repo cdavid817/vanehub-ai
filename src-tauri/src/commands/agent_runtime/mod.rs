@@ -1,6 +1,5 @@
 pub(crate) mod activate_onepiece_provider_profile;
 pub(crate) mod check_browser_readiness;
-pub(crate) mod coordination;
 pub(crate) mod delete_agent_memory;
 pub(crate) mod delete_api_agent;
 pub(crate) mod delete_onepiece_provider_profile;

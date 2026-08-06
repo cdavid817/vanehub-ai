@@ -1,5 +1,4 @@
 mod catalog;
-mod coordination;
 mod error;
 mod generation;
 mod loop_decision;
@@ -11,12 +10,6 @@ pub(crate) use catalog::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentId, AgentOrigin,
     AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
     ManagedSdkStatus,
-};
-pub(crate) use coordination::{
-    CoordinationAttempt, CoordinationAttemptStatus, CoordinationCandidateRole,
-    CoordinationFailureKind, CoordinationNodeInput, CoordinationNodeRun, CoordinationNodeStatus,
-    CoordinationOutput, CoordinationPlan, CoordinationPlanInput, CoordinationRun,
-    CoordinationRunStatus, COORDINATION_CONTEXT_LIMIT_BYTES, COORDINATION_OUTPUT_LIMIT_BYTES,
 };
 pub(crate) use error::AgentRuntimeDomainError;
 pub(crate) use generation::GenerationAttempt;
