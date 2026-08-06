@@ -92,15 +92,11 @@ impl RetrievalApi {
             .is_ok_and(|configuration| configuration.resolved_model().is_some())
     }
 
-    // Task 15 的 Tauri command 调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn configuration(&self) -> Result<RetrievalConfiguration, RetrievalError> {
         self.configuration.load()
     }
 
     /// 保存后立刻唤醒 worker：否则首次配置完成到第一批 embedding 之间要白等一个兜底周期。
-    // Task 15 的 Tauri command 调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn save_configuration(
         &self,
         profile_id: &str,
@@ -111,8 +107,6 @@ impl RetrievalApi {
         Ok(())
     }
 
-    // Task 15 的 Tauri command 调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn index_status(
         &self,
         agent_id: &str,
@@ -122,8 +116,6 @@ impl RetrievalApi {
 
     /// 重建只把行打回 `pending` 并叫醒 worker，不在命令线程里同步跑 embedding——重建一个
     /// agent 的全部记忆可能是几十次网络往返，阻塞在 command 上会让设置页整个卡住。
-    // Task 15 的 Tauri command 调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn rebuild(&self, agent_id: &str) -> Result<(), RetrievalError> {
         self.documents.requeue_all(agent_id)?;
         self.worker.notify();

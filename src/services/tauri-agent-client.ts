@@ -31,6 +31,9 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  EmbeddingModelOption,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
@@ -195,6 +198,29 @@ export const tauriAgentClient: AgentService = {
 
   deleteAgentMemory(memoryId: string) {
     return invoke<void>("delete_agent_memory", { memoryId });
+  },
+
+  getRetrievalConfiguration() {
+    return invoke<RetrievalConfiguration>("get_retrieval_configuration");
+  },
+
+  saveRetrievalConfiguration(profileId: string, modelId: string) {
+    return invoke<void>("save_retrieval_configuration", { profileId, modelId });
+  },
+
+  listEmbeddingModels(profileId: string, transientCredential?: string) {
+    return invoke<EmbeddingModelOption[]>("list_embedding_models", {
+      profileId,
+      transientCredential: transientCredential ?? null,
+    });
+  },
+
+  getRetrievalIndexStatus(agentId: string) {
+    return invoke<RetrievalIndexStatus>("get_retrieval_index_status", { agentId });
+  },
+
+  rebuildRetrievalIndex(agentId: string) {
+    return invoke<void>("rebuild_retrieval_index", { agentId });
   },
 
   listCliTools() {

@@ -28,6 +28,9 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  EmbeddingModelOption,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
@@ -141,6 +144,13 @@ export interface AgentService {
   setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
   listAgentMemories(agentId: string): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
+  // Configuration is a global singleton; index status and rebuild are scoped per agent and
+  // aggregate across all of that agent's `scope_folder` rows (design doc §7.4).
+  getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
+  saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
+  listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
+  getRetrievalIndexStatus(agentId: string): Promise<RetrievalIndexStatus>;
+  rebuildRetrievalIndex(agentId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;

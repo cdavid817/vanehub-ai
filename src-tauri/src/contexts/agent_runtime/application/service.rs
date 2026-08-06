@@ -962,12 +962,10 @@ impl AgentRuntimeApplicationService {
         })
     }
 
-    // Task 15 的 Tauri command 调用 agent_runtime::api::list_embedding_models 后可达；届时移除
-    // 本属性。凭据只用于组装发往 HttpOnePieceModelDiscoveryAdapter 的请求，从不进入返回值或
+    // 凭据只用于组装发往 HttpOnePieceModelDiscoveryAdapter 的请求，从不进入返回值或
     // 错误消息——发现失败时直接把底层 Err 冒泡（该错误本身也不含凭据，见
     // onepiece_model_discovery.rs 的 discovery_error），不像 discover_onepiece_provider_models
     // 那样回退到目录：目录里没有任何 embedding 模型数据可回退。
-    #[allow(dead_code)]
     pub(crate) fn list_embedding_models(
         &self,
         profile_id: &str,

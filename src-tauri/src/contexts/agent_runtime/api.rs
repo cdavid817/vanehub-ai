@@ -341,11 +341,9 @@ impl AgentRuntimeApi {
         self.service.resolve_embedding_endpoint(profile_id)
     }
 
-    // Task 15 的 Tauri command 调用本方法后可达；届时移除本属性。与
-    // discover_onepiece_provider_models / validate_onepiece_provider_credential 一样用
+    // 与 discover_onepiece_provider_models / validate_onepiece_provider_credential 一样用
     // spawn_blocking 包裹：底层复用同一个阻塞式 HTTP 客户端
     // （HttpOnePieceModelDiscoveryAdapter），直接在异步上下文里调用会占住 tokio 工作线程。
-    #[allow(dead_code)]
     pub(crate) async fn list_embedding_models(
         &self,
         profile_id: &str,

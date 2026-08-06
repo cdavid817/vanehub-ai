@@ -1632,4 +1632,40 @@ describe("webAgentClient", () => {
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("stopped");
     unsubscribe();
   });
+
+  // `add-retrieval-vector-search` Task 15: this codebase's Web/mock client is a singleton
+  // (`webAgentClient`) backed by module-level mutable state, not a per-test factory — these run
+  // in file order against shared state, so the "default" assertion below must stay the first
+  // test to touch retrieval configuration.
+  it("returns an unconfigured retrieval configuration by default", async () => {
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: null,
+      embeddingModel: null,
+    });
+  });
+
+  it("round-trips a saved retrieval configuration", async () => {
+    await webAgentClient.saveRetrievalConfiguration("profile-a", "text-embedding-3-small");
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: "profile-a",
+      embeddingModel: "text-embedding-3-small",
+    });
+  });
+
+  it("reports index status without issuing any network request", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(webAgentClient.getRetrievalIndexStatus("agent-1")).resolves.toEqual({
+      indexed: expect.any(Number),
+      pending: expect.any(Number),
+      failed: expect.any(Number),
+      lastFailureCategory: null,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rebuilding the index resets failures in the mock runtime", async () => {
+    await webAgentClient.rebuildRetrievalIndex("agent-1");
+    const status = await webAgentClient.getRetrievalIndexStatus("agent-1");
+    expect(status.failed).toBe(0);
+  });
 });

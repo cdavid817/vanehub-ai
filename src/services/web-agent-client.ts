@@ -23,10 +23,13 @@ import type {
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
+  EmbeddingModelOption,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   ProjectInspection,
   RemoteWorkspace,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   RenameSessionCategoryInput,
   ScheduledTask,
   SetScheduledTaskEnabledInput,
@@ -583,6 +586,34 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
   webAgentMemories = [memory, ...webAgentMemories];
   return memory;
 }
+
+/** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
+ * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
+ * install (design doc §7.4). */
+let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+
+/** Mock retrieval index status, keyed by agent id — mirrors the real aggregate across all of that
+ * agent's `scope_folder` rows (design doc §7.4). Seeded lazily with plausible, self-consistent
+ * counts on first access so a settings UI has something realistic to render before ever calling
+ * `rebuildRetrievalIndex`. `lastFailureCategory` is deliberately always `null`: the Web/mock
+ * runtime guarantees the same contract shape and observable behavior as the real one, not
+ * algorithmic equivalence with the Rust-side failure classification (design doc §7.5). */
+const webRetrievalIndexStatusByAgent = new Map<string, RetrievalIndexStatus>();
+
+function webRetrievalIndexStatusFor(agentId: string): RetrievalIndexStatus {
+  const existing = webRetrievalIndexStatusByAgent.get(agentId);
+  if (existing) return existing;
+  const seeded: RetrievalIndexStatus = { indexed: 12, pending: 3, failed: 2, lastFailureCategory: null };
+  webRetrievalIndexStatusByAgent.set(agentId, seeded);
+  return seeded;
+}
+
+/** Static catalog, independent of the requested profile — listing embedding models never hits
+ * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
+const webEmbeddingModelOptions: EmbeddingModelOption[] = [
+  { id: "text-embedding-3-small", displayName: "text-embedding-3-small" },
+  { id: "text-embedding-3-large", displayName: "text-embedding-3-large" },
+];
 
 const promptHookStorageKey = "vanehub.prompt-hooks.v1";
 const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
@@ -2138,6 +2169,38 @@ export const webAgentClient: AgentService = {
 
   async deleteAgentMemory(memoryId: string) {
     webAgentMemories = webAgentMemories.filter((memory) => memory.id !== memoryId);
+  },
+
+  async getRetrievalConfiguration() {
+    return { ...webRetrievalConfiguration };
+  },
+
+  async saveRetrievalConfiguration(profileId: string, modelId: string) {
+    webRetrievalConfiguration = { sourceProfileId: profileId, embeddingModel: modelId };
+  },
+
+  async listEmbeddingModels(profileId: string, transientCredential?: string) {
+    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error("OnePiece provider profile was not found.");
+    if (profile.interfaceFormat !== "openai-compatible") {
+      throw new Error("Only openai-compatible OnePiece profiles support embedding model discovery.");
+    }
+    if (!transientCredential?.trim() && !profile.credentialPresent) {
+      throw new Error("API key is required to list embedding models for this OnePiece provider.");
+    }
+    return webEmbeddingModelOptions.map((option) => ({ ...option }));
+  },
+
+  async getRetrievalIndexStatus(agentId: string) {
+    return { ...webRetrievalIndexStatusFor(agentId) };
+  },
+
+  async rebuildRetrievalIndex(agentId: string) {
+    const status = webRetrievalIndexStatusFor(agentId);
+    status.pending += status.indexed + status.failed;
+    status.indexed = 0;
+    status.failed = 0;
+    status.lastFailureCategory = null;
   },
 
   async listCliTools() {

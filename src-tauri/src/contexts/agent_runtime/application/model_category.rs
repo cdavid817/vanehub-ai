@@ -27,10 +27,6 @@ pub(crate) fn is_chat_model(id: &str) -> bool {
         .any(|excluded| id.contains(excluded))
 }
 
-// Task 15 的 Tauri command 调用 agent_runtime::api::list_embedding_models 后，这条判定才经
-// service.rs 的同名方法变得可达（is_chat_model 已经被既有的 discover_onepiece_provider_models
-// 使用，天然存活，这条则不然）。届时移除本属性。
-#[allow(dead_code)]
 pub(crate) fn is_embedding_model(id: &str) -> bool {
     let id = id.to_ascii_lowercase();
     EMBEDDING_KEYWORDS
