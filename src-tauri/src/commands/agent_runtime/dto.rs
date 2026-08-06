@@ -387,3 +387,42 @@ pub(crate) struct AgentTerminalSession {
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) retained: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExpertRoleReviewPolicy {
+    pub(crate) peer_reviewer: bool,
+    pub(crate) require_different_family: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// Page-facing projection of a reusable expert role.
+pub(crate) struct ExpertRole {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    pub(crate) avatar: String,
+    pub(crate) color: String,
+    pub(crate) responsibility: String,
+    pub(crate) instruction: String,
+    pub(crate) skill_ids: Vec<String>,
+    pub(crate) review_policy: ExpertRoleReviewPolicy,
+    pub(crate) preferred_providers: Vec<String>,
+    pub(crate) origin: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveExpertRoleInput {
+    pub(crate) id: Option<String>,
+    pub(crate) display_name: String,
+    pub(crate) avatar: String,
+    pub(crate) color: String,
+    pub(crate) responsibility: String,
+    pub(crate) instruction: String,
+    pub(crate) skill_ids: Vec<String>,
+    pub(crate) review_policy: ExpertRoleReviewPolicy,
+    pub(crate) preferred_providers: Vec<String>,
+}

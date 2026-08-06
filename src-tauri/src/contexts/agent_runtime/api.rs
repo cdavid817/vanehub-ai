@@ -7,7 +7,7 @@
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService,
     LoopApplicationService, LoopControlApplicationService,
-    LoopRecoveryApplicationService,
+    ExpertRoleApplicationService, LoopRecoveryApplicationService,
 };
 use super::infrastructure::NativeLoopScheduler;
 
@@ -28,7 +28,7 @@ pub(crate) use super::application::{
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, InteractionMode, LoopLimits, LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits, LoopVerificationCommand,
 };
 
 #[derive(Clone)]
@@ -43,6 +43,7 @@ pub(crate) struct AgentRuntimeApi {
     loop_controls: LoopControlApplicationService,
     loop_recovery: LoopRecoveryApplicationService,
     loop_scheduler: NativeLoopScheduler,
+    expert_roles: ExpertRoleApplicationService,
 }
 
 impl AgentRuntimeApi {
@@ -53,6 +54,7 @@ impl AgentRuntimeApi {
         loop_controls: LoopControlApplicationService,
         loop_recovery: LoopRecoveryApplicationService,
         loop_scheduler: NativeLoopScheduler,
+        expert_roles: ExpertRoleApplicationService,
     ) -> Self {
         Self {
             service,
@@ -61,7 +63,29 @@ impl AgentRuntimeApi {
             loop_controls,
             loop_recovery,
             loop_scheduler,
+            expert_roles,
         }
+    }
+
+    pub(crate) fn list_expert_roles(
+        &self,
+    ) -> Result<Vec<ExpertRole>, AgentRuntimeApplicationError> {
+        self.expert_roles.list()
+    }
+
+    pub(crate) fn save_expert_role(
+        &self,
+        role_id: Option<String>,
+        input: ExpertRoleInput,
+    ) -> Result<ExpertRole, AgentRuntimeApplicationError> {
+        self.expert_roles.save(role_id, input)
+    }
+
+    pub(crate) fn delete_expert_role(
+        &self,
+        role_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.expert_roles.delete(role_id)
     }
 
     pub(crate) fn list_loop_definitions(

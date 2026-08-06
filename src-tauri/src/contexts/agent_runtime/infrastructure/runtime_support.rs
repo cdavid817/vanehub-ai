@@ -14,6 +14,25 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SystemAgentRuntimeClock;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct SystemExpertRoleClock;
+
+impl crate::contexts::agent_runtime::application::ExpertRoleClockPort for SystemExpertRoleClock {
+    fn now(&self) -> String {
+        crate::platform::clock::SystemClock.rfc3339()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct UuidExpertRoleIds;
+
+impl crate::contexts::agent_runtime::application::ExpertRoleIdPort for UuidExpertRoleIds {
+    fn next_id(&self) -> String {
+        format!("expert-role-{}", uuid::Uuid::new_v4())
+    }
+}
+
+
 impl AgentClockPort for SystemAgentRuntimeClock {
     fn now(&self) -> String {
         SystemClock.rfc3339()

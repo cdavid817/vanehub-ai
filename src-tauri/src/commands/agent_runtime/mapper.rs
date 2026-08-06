@@ -649,3 +649,50 @@ mod tests {
         assert!(value.get("terminal_id").is_none());
     }
 }
+
+pub(super) fn expert_role_to_dto(
+    role: crate::contexts::agent_runtime::domain::ExpertRole,
+) -> dto::ExpertRole {
+    dto::ExpertRole {
+        id: role.id,
+        display_name: role.display_name,
+        avatar: role.avatar,
+        color: role.color,
+        responsibility: role.responsibility,
+        instruction: role.instruction,
+        skill_ids: role.skill_ids,
+        review_policy: dto::ExpertRoleReviewPolicy {
+            peer_reviewer: role.review_policy.peer_reviewer,
+            require_different_family: role.review_policy.require_different_family,
+        },
+        preferred_providers: role.preferred_providers,
+        origin: role.origin.as_str().to_string(),
+        created_at: role.created_at,
+        updated_at: role.updated_at,
+    }
+}
+
+pub(super) fn save_expert_role_request(
+    input: dto::SaveExpertRoleInput,
+) -> (
+    Option<String>,
+    crate::contexts::agent_runtime::domain::ExpertRoleInput,
+) {
+    use crate::contexts::agent_runtime::domain::{ExpertRoleInput, ExpertRoleReviewPolicy};
+    (
+        input.id,
+        ExpertRoleInput {
+            display_name: input.display_name,
+            avatar: input.avatar,
+            color: input.color,
+            responsibility: input.responsibility,
+            instruction: input.instruction,
+            skill_ids: input.skill_ids,
+            review_policy: ExpertRoleReviewPolicy {
+                peer_reviewer: input.review_policy.peer_reviewer,
+                require_different_family: input.review_policy.require_different_family,
+            },
+            preferred_providers: input.preferred_providers,
+        },
+    )
+}

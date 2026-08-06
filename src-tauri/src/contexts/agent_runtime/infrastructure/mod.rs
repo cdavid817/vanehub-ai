@@ -6,7 +6,9 @@ mod cli_profile;
 mod composite_process_gateway;
 mod core_instructions;
 mod credential_aware_registry;
+mod builtin_expert_roles;
 mod events;
+mod expert_role_repository;
 mod generation_coordinator;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
@@ -66,10 +68,13 @@ pub(crate) use process_adapter::{
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, UuidExpertRoleIds,
 
 };
+pub(crate) use builtin_expert_roles::builtin_expert_roles;
+pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use schema::{
-    apply_agent_origin_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
+    apply_agent_origin_schema, apply_expert_role_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
     apply_onepiece_provider_catalog_schema, apply_onepiece_provider_endpoint_schema,
     apply_onepiece_provider_profiles_schema, apply_openai_compatible_schema, seed_registry,
 };

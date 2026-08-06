@@ -244,6 +244,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "remove-multi-agent-coordination",
         apply_remove_coordination_migration,
     )?;
+    apply_migration(
+        conn,
+        44,
+        "expert-role-management",
+        crate::contexts::agent_runtime::infrastructure::apply_expert_role_schema,
+    )?;
 
     Ok(())
 }
@@ -882,7 +888,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (41, 43));
+        assert_eq!(migration_state, (42, 44));
 
         migrate(&connection).expect("upgrade migration");
 

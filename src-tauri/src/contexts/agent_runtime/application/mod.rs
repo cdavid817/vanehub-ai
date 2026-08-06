@@ -1,4 +1,5 @@
 mod error;
+mod expert_role;
 mod loop_control;
 mod loop_models;
 mod loop_observability;
@@ -20,6 +21,10 @@ mod terminal_service;
 mod tool_catalog;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
+pub(crate) use expert_role::{
+    ExpertRoleApplicationPorts, ExpertRoleApplicationService, ExpertRoleClockPort, ExpertRoleIdPort,
+    ExpertRolePort,
+};
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 pub(crate) use loop_models::{

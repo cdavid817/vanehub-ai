@@ -1,5 +1,6 @@
 mod catalog;
 mod error;
+mod expert_role;
 mod generation;
 mod loop_decision;
 mod loop_engineering;
@@ -11,6 +12,7 @@ pub(crate) use catalog::{
     AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
     ManagedSdkStatus,
 };
+pub(crate) use expert_role::{ExpertRole, ExpertRoleInput, ExpertRoleOrigin, ExpertRoleReviewPolicy};
 pub(crate) use error::AgentRuntimeDomainError;
 pub(crate) use generation::GenerationAttempt;
 pub(crate) use loop_decision::{

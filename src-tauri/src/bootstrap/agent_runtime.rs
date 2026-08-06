@@ -2,7 +2,7 @@ use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService,
+    AgentTerminalApplicationService, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
     LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
     LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
     LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
@@ -11,7 +11,7 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
-    AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
+    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
     CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
@@ -19,9 +19,10 @@ use crate::contexts::agent_runtime::infrastructure::{
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
     RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
+    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteExpertRoleRepository,
     SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UuidExpertRoleIds,
     WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -224,6 +225,12 @@ pub(crate) fn assemble_agent_runtime_api(
         events: events.clone(),
         terminal_events: events,
     });
+    let expert_roles = ExpertRoleApplicationService::new(ExpertRoleApplicationPorts {
+        repository: Arc::new(SqliteExpertRoleRepository::new(dependencies.database.clone())),
+        clock: Arc::new(SystemExpertRoleClock),
+        ids: Arc::new(UuidExpertRoleIds),
+        builtins: builtin_expert_roles(),
+    });
     let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database));
     let loop_projects = Arc::new(WorkspaceLoopProjectAdapter::new(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
@@ -293,6 +300,7 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_controls,
             loop_recovery,
             loop_scheduler,
+            expert_roles,
         ),
         telemetry_lifecycle,
     }

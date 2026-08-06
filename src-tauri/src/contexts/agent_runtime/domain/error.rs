@@ -32,4 +32,6 @@ pub(crate) enum AgentRuntimeDomainError {
     InvalidLoopTransition { from: String, to: String },
     #[error("Loop limit reached: {0}.")]
     LoopLimitReached(&'static str),
+    #[error("invalid expert role: {0}.")]
+    InvalidExpertRole(String),
 }
