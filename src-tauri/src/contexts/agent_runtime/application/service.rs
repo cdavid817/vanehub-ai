@@ -1111,8 +1111,8 @@ impl AgentRuntimeApplicationService {
     }
 
     /// Sets the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`) — grants
-    /// or revokes that agent's exemption from per-call approval for `shell` and file-`write`
-    /// tool calls. MCP calls and plan mode are both unaffected regardless of this setting.
+    /// or revokes that agent's exemption from per-call approval for `shell`, file-`write`, and
+    /// `edit` tool calls. MCP calls and plan mode are both unaffected regardless of this setting.
     pub(crate) fn set_auto_approve_tools(
         &self,
         agent_id: &str,

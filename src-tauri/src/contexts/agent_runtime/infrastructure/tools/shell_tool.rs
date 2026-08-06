@@ -1,11 +1,11 @@
 use super::ToolExecutionOutcome;
+use super::MAX_TOOL_OUTPUT_BYTES;
 use crate::platform::process::{ProcessAdapter, ProcessCancellation, ProcessError, ProcessRequest};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
 const SHELL_TIMEOUT: Duration = Duration::from_secs(60);
-const SHELL_OUTPUT_LIMIT: usize = 64 * 1024;
 
 fn shell_invocation() -> (&'static str, &'static str) {
     if cfg!(target_os = "windows") {
@@ -36,7 +36,7 @@ pub(crate) fn execute_shell(
         .current_dir(workspace_folder)
         .timeout(SHELL_TIMEOUT)
         .cancellation(ProcessCancellation::from_signal(cancelled))
-        .output_limit(SHELL_OUTPUT_LIMIT);
+        .output_limit(MAX_TOOL_OUTPUT_BYTES);
     match ProcessAdapter.execute(&request) {
         Ok(output) => {
             let success = output.success();

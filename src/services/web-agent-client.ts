@@ -3302,6 +3302,24 @@ export const webAgentClient: AgentService = {
         });
       }, 230);
       timeoutIds.push(approvalTimeoutId);
+      // Read-only search (`add-onepiece-search-and-edit-tools`): `grep` is classified
+      // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
+      // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
+      const grepTimeoutId = setTimeout(() => {
+        publishChatEvent({
+          type: "tool_use",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          toolUse: {
+            id: `web-grep-${assistantMessage.id}`,
+            name: "grep",
+            input: { pattern: "export function", output_mode: "files_with_matches" },
+            output: "src/App.tsx\nsrc/main.tsx",
+            status: "completed",
+          },
+        });
+      }, 233);
+      timeoutIds.push(grepTimeoutId);
       // Explicit path (`add-agent-cross-session-memory`): simulates the model calling the
       // `remember` tool, mirroring the deterministic `read_file`/`shell` tool_use events above.
       const rememberTimeoutId = setTimeout(() => {

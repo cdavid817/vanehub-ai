@@ -29,7 +29,7 @@ When compaction triggers, the system SHALL keep a fixed number of the most recen
 
 #### Scenario: Summarization call does not declare tools
 - **WHEN** the system makes the summarization call
-- **THEN** the request SHALL NOT declare the shell or file tools
+- **THEN** the request SHALL NOT declare any tools
 
 ### Requirement: Visible compaction notice
 The system SHALL insert a visible, distinctly-rendered notice into the chat transcript whenever compaction happens, reusing the existing rich-block mechanism.

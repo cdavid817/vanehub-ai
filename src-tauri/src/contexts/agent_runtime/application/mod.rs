@@ -103,7 +103,8 @@ pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationSe
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
     plan_mode_tool_catalog, recall_tool_definition, requires_approval, tool_catalog,
-    FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    EDIT_TOOL_NAME, FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]
