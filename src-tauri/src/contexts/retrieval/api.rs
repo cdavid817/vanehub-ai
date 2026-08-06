@@ -57,8 +57,6 @@ impl RetrievalApi {
         }
     }
 
-    // Task 13 的 recall 工具执行路径调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn search(
         &self,
         agent_id: &str,
@@ -90,8 +88,6 @@ impl RetrievalApi {
 
     /// 每次生成的工具集解析路径上都会调用（Task 13），所以只做一次单行配置读取，且**永不**
     /// 返回错误：把一个可选增强能力的读配置故障冒泡出去，会牵连用户发出的每一条消息。
-    // Task 13 的工具集解析调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn is_configured(&self) -> bool {
         self.configuration
             .load()

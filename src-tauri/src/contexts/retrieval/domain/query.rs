@@ -20,8 +20,6 @@ pub(crate) enum MatchedVia {
 }
 
 impl MatchedVia {
-    // Task 13 的 recall 工具把命中来源渲染成工具结果里的字符串字段后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Vector => "vector",
@@ -38,8 +36,6 @@ pub(crate) enum Degradation {
 }
 
 impl Degradation {
-    // 同 MatchedVia::as_str，Task 13 的 recall 工具渲染 degraded 字段后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::KeywordOnly => "keyword_only",

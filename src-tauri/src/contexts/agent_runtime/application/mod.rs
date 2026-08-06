@@ -89,9 +89,10 @@ pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,
     AgentMessageTerminalCompletionPort, AgentProcessEventSink, AgentProcessGateway,
-    AgentRegistryRepository, AgentSessionGateway, AgentSkillPort, AgentTaskPort,
-    AgentTerminalEventPort, AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway,
-    ApiCredentialPort, ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentSessionGateway, AgentSkillPort, AgentTaskPort, AgentTerminalEventPort,
+    AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort,
+    ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
     LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
     LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
     LoopRoleSessionPort, LoopVerificationProcessPort, LoopVerifierContextPort,
@@ -101,8 +102,8 @@ pub(crate) use ports::{
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    plan_mode_tool_catalog, requires_approval, tool_catalog, FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
-    REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, recall_tool_definition, requires_approval, tool_catalog,
+    FILE_TOOL_NAME, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]

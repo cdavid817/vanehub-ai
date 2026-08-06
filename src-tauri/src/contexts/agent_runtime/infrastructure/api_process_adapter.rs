@@ -2,15 +2,17 @@ use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{execute_file, execute_shell, ToolExecutionOutcome};
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    plan_mode_tool_catalog, requires_approval, tool_catalog, AgentChatConfiguration,
-    AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentProcessEventSink,
-    AgentProcessGateway, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, recall_tool_definition, requires_approval, tool_catalog,
+    AgentChatConfiguration, AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
+    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage,
+    AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
+    GenerationProcessFailure, GenerationProcessRequest, MemorySource, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, FILE_TOOL_NAME,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SHELL_TOOL_NAME,
 };
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
@@ -69,6 +71,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
+    retrieval: Arc<dyn AgentRetrievalPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
 }
@@ -91,6 +94,7 @@ impl RuntimeAgentApiAdapter {
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
         memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
+        retrieval: Arc<dyn AgentRetrievalPort>,
     ) -> Self {
         Self {
             credentials,
@@ -102,6 +106,7 @@ impl RuntimeAgentApiAdapter {
             core_instructions,
             memories,
             mcp,
+            retrieval,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
         }
@@ -180,6 +185,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let core_instructions = self.core_instructions.clone();
         let memories = self.memories.clone();
         let mcp = self.mcp.clone();
+        let retrieval = self.retrieval.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -193,6 +199,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 core_instructions,
                 memories,
                 mcp,
+                retrieval,
                 sink,
                 pending_approvals,
             );
@@ -263,6 +270,7 @@ fn run_generation(
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
+    retrieval: Arc<dyn AgentRetrievalPort>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
@@ -280,6 +288,7 @@ fn run_generation(
         core_instructions.as_ref(),
         memories.as_ref(),
         mcp.as_ref(),
+        retrieval.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -426,6 +435,7 @@ fn execute(
     core_instructions: &dyn AgentCoreInstructionsPort,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -472,7 +482,11 @@ fn execute(
         }
     };
     let plan_mode = is_plan_mode(&request.configuration);
-    let tools = resolve_tool_catalog(request, mcp, logging, clock, plan_mode);
+    // Never blocks, never errors (`AgentRetrievalPort::is_configured`'s own contract) — safe to
+    // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
+    // itself is derived just above.
+    let retrieval_available = retrieval.is_configured();
+    let tools = resolve_tool_catalog(request, mcp, logging, clock, plan_mode, retrieval_available);
     let generation_options = generation_options_from_configuration(&request.configuration);
     let mut turns = (wire_format.history_to_turns)(&recent);
     if let Some(failure) = maybe_compact(
@@ -642,6 +656,7 @@ fn execute(
                 agent_id,
                 memories,
                 mcp,
+                retrieval,
                 plan_mode,
             );
             if cancelled.load(Ordering::SeqCst) {
@@ -718,23 +733,32 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
 }
 
 /// Merges the fixed `shell`/`file`/`remember` catalog with every MCP-sourced tool visible and
-/// active for the session's workspace folder (`add-agent-mcp-tools`). A catalog lookup failure
+/// active for the session's workspace folder (`add-agent-mcp-tools`), plus `recall`
+/// (`add-onepiece-vector-search` Task 13) when `retrieval_available`. A catalog lookup failure
 /// cannot fail the generation — it logs a warning and falls back to the fixed catalog alone,
 /// matching `resolve_system_prompt`'s established best-effort-enhancement philosophy for the
 /// exact same reason: MCP tools are additive on top of an already-usable fixed catalog.
+/// `tool_catalog()`/`plan_mode_tool_catalog()` themselves stay pure and unconditional — all
+/// conditionality (MCP lookup, retrieval availability) lives here.
 ///
 /// In plan mode (`add-agent-chat-configuration`), returns `plan_mode_tool_catalog()` instead and
 /// skips the MCP lookup entirely — MCP tools are always excluded in plan mode, so there is no
-/// reason to pay the lookup cost.
+/// reason to pay the lookup cost. `recall` is still offered in plan mode: it is read-only, and
+/// planning is when history from earlier sessions matters most.
 fn resolve_tool_catalog(
     request: &GenerationProcessRequest,
     mcp: &dyn AgentMcpToolPort,
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     plan_mode: bool,
+    retrieval_available: bool,
 ) -> Vec<ToolDefinition> {
     if plan_mode {
-        return plan_mode_tool_catalog();
+        let mut tools = plan_mode_tool_catalog();
+        if retrieval_available {
+            tools.push(recall_tool_definition());
+        }
+        return tools;
     }
     let mut tools = tool_catalog();
     let project_path = request.session.folder.as_deref().unwrap_or_default();
@@ -756,6 +780,9 @@ fn resolve_tool_catalog(
                 occurred_at: clock.now(),
             });
         }
+    }
+    if retrieval_available {
+        tools.push(recall_tool_definition());
     }
     tools
 }
@@ -1218,6 +1245,7 @@ fn execute_tool_call(
     agent_id: &str,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
 ) -> ToolExecutionOutcome {
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
@@ -1226,6 +1254,14 @@ fn execute_tool_call(
     // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
     if name == REMEMBER_TOOL_NAME {
         return execute_remember(input, agent_id, workspace_folder, memories);
+    }
+    // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
+    // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
+    // plan-mode restriction. `agent_id`/`workspace_folder` come from the session, not `input` —
+    // the model has no schema property to smuggle a different scope through
+    // (`tool_catalog::recall_tool_definition`).
+    if name == RECALL_TOOL_NAME {
+        return execute_recall(input, agent_id, workspace_folder, retrieval);
     }
     // Plan mode (`add-agent-chat-configuration`) excludes MCP-sourced tools and `shell` from the
     // catalog entirely, and narrows `file` to `read` — but the catalog only shapes what the model
@@ -1314,6 +1350,67 @@ fn execute_remember(
     }
 }
 
+/// Retrieval failure **never** returns `Err` here — it returns a normal tool result telling the
+/// model that recall is temporarily unavailable, so generation continues. Bubbling an optional
+/// enhancement's failure up as a generation failure is unacceptable (design.md §8.1): the model
+/// must never confuse "search failed" with "no such memory exists".
+fn execute_recall(
+    input: &Value,
+    agent_id: &str,
+    workspace_folder: Option<&str>,
+    retrieval: &dyn AgentRetrievalPort,
+) -> ToolExecutionOutcome {
+    let query = input
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if query.is_empty() {
+        return ToolExecutionOutcome {
+            output: "No query was provided to recall.".to_string(),
+            is_error: true,
+        };
+    }
+    let limit = input
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(5)
+        .clamp(1, 20) as usize;
+    match retrieval.search(agent_id, workspace_folder, query, limit) {
+        Ok(outcome) => ToolExecutionOutcome {
+            output: serde_json::to_string(&recall_payload(&outcome))
+                .unwrap_or_else(|_| "{\"hits\":[]}".to_string()),
+            is_error: false,
+        },
+        Err(_) => ToolExecutionOutcome {
+            output: "Memory search is temporarily unavailable. Continue without it.".to_string(),
+            is_error: false,
+        },
+    }
+}
+
+/// Projects `outcome` into exactly what the model should see: `content`/`created_at`/
+/// `matched_via` per hit, `degraded` only when present. `source_id`/`score` are internal — no
+/// decision value to the model, and raw material for hallucination if included
+/// (`AgentRetrievalHit` doesn't even carry them, so there is nothing here to accidentally leak).
+fn recall_payload(outcome: &AgentRetrievalOutcome) -> Value {
+    let hits: Vec<Value> = outcome
+        .hits
+        .iter()
+        .map(|hit| {
+            json!({
+                "content": hit.content,
+                "created_at": hit.created_at,
+                "matched_via": hit.matched_via,
+            })
+        })
+        .collect();
+    match &outcome.degraded {
+        Some(degraded) => json!({ "hits": hits, "degraded": degraded }),
+        None => json!({ "hits": hits }),
+    }
+}
+
 fn failed_non_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::non_retryable(message.to_string()))
 }
@@ -1336,8 +1433,8 @@ fn failed_retryable(message: &str) -> GenerationProcessEvent {
 mod tests {
     use super::*;
     use crate::contexts::agent_runtime::application::{
-        AgentLaunchView, AgentSession, AgentView, CliProfileSnapshot, GenerationProcessFailureKind,
-        INTERFACE_FORMAT_ANTHROPIC,
+        AgentLaunchView, AgentRetrievalHit, AgentSession, AgentView, CliProfileSnapshot,
+        GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -1577,6 +1674,75 @@ mod tests {
         }
     }
 
+    /// Always reports unconfigured and fails any search — used everywhere a test only needs to
+    /// satisfy the `AgentRetrievalPort` bound without exercising `recall` itself, mirroring
+    /// `NoopMcp`/`NoopSkills`'s own role for their ports.
+    struct NoopRetrieval;
+
+    impl AgentRetrievalPort for NoopRetrieval {
+        fn is_configured(&self) -> bool {
+            false
+        }
+
+        fn search(
+            &self,
+            _agent_id: &str,
+            _folder: Option<&str>,
+            _query: &str,
+            _limit: usize,
+        ) -> Result<AgentRetrievalOutcome, String> {
+            Err("NoopRetrieval cannot search.".to_string())
+        }
+
+        fn notify_source_changed(&self) {}
+    }
+
+    /// `(agent_id, folder, query, limit)` per `search` call, as recorded by `FakeRetrieval::search`.
+    type RecordedRetrievalCall = (String, Option<String>, String, usize);
+
+    /// Records one `RecordedRetrievalCall` per `search` call and hands back a configurable
+    /// outcome — used where a test needs to observe or control the retrieval path rather than
+    /// just satisfy the trait bound (`NoopRetrieval` covers the latter), mirroring `FakeMcp`.
+    struct FakeRetrieval {
+        configured: bool,
+        outcome: Result<AgentRetrievalOutcome, String>,
+        calls: Mutex<Vec<RecordedRetrievalCall>>,
+    }
+
+    impl FakeRetrieval {
+        fn configured(outcome: Result<AgentRetrievalOutcome, String>) -> Self {
+            Self {
+                configured: true,
+                outcome,
+                calls: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl AgentRetrievalPort for FakeRetrieval {
+        fn is_configured(&self) -> bool {
+            self.configured
+        }
+
+        fn search(
+            &self,
+            agent_id: &str,
+            folder: Option<&str>,
+            query: &str,
+            limit: usize,
+        ) -> Result<AgentRetrievalOutcome, String> {
+            self.calls.lock().expect("calls").push((
+                agent_id.to_string(),
+                folder.map(str::to_string),
+                query.to_string(),
+                limit,
+            ));
+            self.outcome.clone()
+        }
+
+        fn notify_source_changed(&self) {}
+    }
+
     #[derive(Default)]
     struct CancellingMcp {
         calls: Mutex<u32>,
@@ -1783,6 +1949,7 @@ mod tests {
             ),
             Arc::new(FakeMemories::default()),
             Arc::new(NoopMcp),
+            Arc::new(NoopRetrieval),
         )
     }
 
@@ -1922,6 +2089,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1953,6 +2121,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -1980,6 +2149,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
 
         let GenerationProcessEvent::Failed(failure) = event else {
@@ -2010,6 +2180,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
 
         let GenerationProcessEvent::Failed(failure) = event else {
@@ -2040,6 +2211,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
 
         let GenerationProcessEvent::Failed(failure) = event else {
@@ -2071,6 +2243,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -2099,6 +2272,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -2128,6 +2302,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
         match event {
             GenerationProcessEvent::Failed(failure) => {
@@ -2187,6 +2362,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
         );
 
         let events = sink.events.lock().expect("events");
@@ -2258,6 +2434,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
         );
 
         approver
@@ -2333,6 +2510,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
         );
 
         resolver
@@ -2401,6 +2579,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
         );
 
         approver
@@ -2566,6 +2745,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
         assert!(outcome.is_error);
@@ -2581,6 +2761,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
         assert!(outcome.is_error);
@@ -2601,6 +2782,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
         assert!(!shell_outcome.is_error);
@@ -2613,6 +2795,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
         assert!(!file_outcome.is_error);
@@ -2631,6 +2814,7 @@ mod tests {
             "test-agent",
             &memories,
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
 
@@ -2653,6 +2837,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             false,
         );
         assert!(outcome.is_error);
@@ -2676,6 +2861,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
             false,
         );
 
@@ -2710,6 +2896,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
             false,
         );
 
@@ -2740,6 +2927,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
             false,
         );
 
@@ -2760,6 +2948,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             true,
         );
         assert!(outcome.is_error);
@@ -2784,6 +2973,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &mcp,
+            &NoopRetrieval,
             true,
         );
 
@@ -2806,6 +2996,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             true,
         );
 
@@ -2827,6 +3018,7 @@ mod tests {
             "test-agent",
             &FakeMemories::default(),
             &NoopMcp,
+            &NoopRetrieval,
             true,
         );
 
@@ -2852,7 +3044,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false);
 
         assert_eq!(tools.len(), 4);
         assert!(tools.contains(&mcp_tool));
@@ -2883,12 +3075,48 @@ mod tests {
             &RecordingLogging::default(),
             &FixedClock,
             false,
+            false,
         );
 
         assert_eq!(tools.len(), 259);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, REMEMBER_TOOL_NAME);
+    }
+
+    #[test]
+    fn resolve_tool_catalog_appends_recall_after_mcp_tools_when_retrieval_is_configured() {
+        // Companion to the test above: same full MCP budget, but `retrieval_available = true` —
+        // total grows to 260 and `recall` lands last, proving it is appended after the MCP merge
+        // rather than before it (a model reading only the tail of a long catalog should still see
+        // it).
+        let request = sample_request("api");
+        let mcp_tools = (0..256)
+            .map(|index| ToolDefinition {
+                name: format!("mcp__server__tool-{index:03}"),
+                description: String::new(),
+                input_schema: json!({ "type": "object" }),
+            })
+            .collect();
+        let mcp = FakeMcp::new(
+            Ok(mcp_tools),
+            crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                output: String::new(),
+                is_error: false,
+            },
+        );
+
+        let tools = resolve_tool_catalog(
+            &request,
+            &mcp,
+            &RecordingLogging::default(),
+            &FixedClock,
+            false,
+            true,
+        );
+
+        assert_eq!(tools.len(), 260);
+        assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 
     #[test]
@@ -2903,7 +3131,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false);
 
         assert_eq!(
             tools.len(),
@@ -2936,7 +3164,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true, false);
 
         assert_eq!(tools, plan_mode_tool_catalog());
         assert_eq!(
@@ -2945,6 +3173,209 @@ mod tests {
             "plan mode should skip the MCP catalog lookup entirely"
         );
         assert!(logging.logs.lock().expect("logs").is_empty());
+    }
+
+    #[test]
+    fn resolve_tool_catalog_omits_recall_when_retrieval_is_not_configured() {
+        let request = sample_request("api");
+
+        let tools =
+            resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, false, false);
+
+        assert!(tools.iter().all(|tool| tool.name != RECALL_TOOL_NAME));
+    }
+
+    #[test]
+    fn resolve_tool_catalog_offers_recall_when_retrieval_is_configured() {
+        let request = sample_request("api");
+
+        let tools =
+            resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, false, true);
+
+        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
+    }
+
+    #[test]
+    fn plan_mode_offers_recall_when_configured_because_planning_needs_history_most() {
+        let request = sample_request("api");
+
+        let tools = resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, true, true);
+
+        let mut expected = plan_mode_tool_catalog();
+        expected.push(recall_tool_definition());
+        assert_eq!(tools, expected);
+    }
+
+    #[test]
+    fn recall_returns_a_successful_result_when_retrieval_fails_so_generation_continues() {
+        // fake RetrievalApi 返回 Err → outcome.is_error == false，output 告知模型检索暂时不可用
+        let retrieval = FakeRetrieval::configured(Err("storage exploded".to_string()));
+
+        let outcome = execute_tool_call(
+            RECALL_TOOL_NAME,
+            &json!({"query": "npm"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+            false,
+        );
+
+        assert!(
+            !outcome.is_error,
+            "a retrieval failure must not fail the tool call"
+        );
+        assert!(outcome.output.contains("temporarily unavailable"));
+    }
+
+    #[test]
+    fn recall_scope_comes_from_the_session_not_from_model_input() {
+        // 模型传 {"query":"x","agent_id":"other"} → fake 收到的 agent_id 仍是会话自身的
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+
+        let outcome = execute_tool_call(
+            RECALL_TOOL_NAME,
+            &json!({"query": "x", "agent_id": "other-agent", "folder": "/other/project"}),
+            Some("D:\\real\\project"),
+            not_cancelled(),
+            "real-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+            false,
+        );
+
+        assert!(!outcome.is_error);
+        let calls = retrieval.calls.lock().expect("calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0].0, "real-agent",
+            "agent_id must come from the session"
+        );
+        assert_eq!(
+            calls[0].1.as_deref(),
+            Some("D:\\real\\project"),
+            "folder must come from the session"
+        );
+    }
+
+    #[test]
+    fn recall_clamps_its_limit_to_the_documented_bounds() {
+        // limit 缺省 → 5；limit = 0 → 1；limit = 999 → 20
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+
+        for input in [
+            json!({"query": "a"}),
+            json!({"query": "a", "limit": 0}),
+            json!({"query": "a", "limit": 999}),
+        ] {
+            execute_tool_call(
+                RECALL_TOOL_NAME,
+                &input,
+                Some("."),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &retrieval,
+                false,
+            );
+        }
+
+        let calls = retrieval.calls.lock().expect("calls");
+        let limits: Vec<usize> = calls.iter().map(|call| call.3).collect();
+        assert_eq!(limits, vec![5, 1, 20]);
+    }
+
+    #[test]
+    fn recall_projects_away_internal_fields() {
+        // 返回体只含 content / created_at / matched_via，不含 source_id 与 score
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: vec![AgentRetrievalHit {
+                content: "uses npm not pnpm".to_string(),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                matched_via: "vector".to_string(),
+            }],
+            degraded: None,
+        }));
+
+        let outcome = execute_tool_call(
+            RECALL_TOOL_NAME,
+            &json!({"query": "npm"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+            false,
+        );
+
+        assert!(!outcome.is_error);
+        let parsed: Value = serde_json::from_str(&outcome.output).expect("valid JSON output");
+        let hit = &parsed["hits"][0];
+        assert_eq!(hit["content"], "uses npm not pnpm");
+        assert_eq!(hit["created_at"], "2026-01-01T00:00:00Z");
+        assert_eq!(hit["matched_via"], "vector");
+        let hit_object = hit.as_object().expect("hit is an object");
+        assert!(!hit_object.contains_key("source_id"));
+        assert!(!hit_object.contains_key("score"));
+    }
+
+    #[test]
+    fn recall_surfaces_degradation_only_when_degraded() {
+        // 正常 → 无 degraded 键；降级 → degraded == "keyword_only"
+        let healthy = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+        let degraded = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: Some("keyword_only".to_string()),
+        }));
+
+        let healthy_outcome = execute_tool_call(
+            RECALL_TOOL_NAME,
+            &json!({"query": "npm"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &healthy,
+            false,
+        );
+        let degraded_outcome = execute_tool_call(
+            RECALL_TOOL_NAME,
+            &json!({"query": "npm"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &degraded,
+            false,
+        );
+
+        let healthy_json: Value =
+            serde_json::from_str(&healthy_outcome.output).expect("valid JSON output");
+        assert!(!healthy_json
+            .as_object()
+            .expect("object")
+            .contains_key("degraded"));
+
+        let degraded_json: Value =
+            serde_json::from_str(&degraded_outcome.output).expect("valid JSON output");
+        assert_eq!(degraded_json["degraded"], "keyword_only");
     }
 
     #[test]

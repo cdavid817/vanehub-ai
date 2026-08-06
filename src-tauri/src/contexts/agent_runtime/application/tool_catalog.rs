@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
+pub(crate) const RECALL_TOOL_NAME: &str = "recall";
 /// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
 /// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
 /// always prefixed before entering the catalog.
@@ -107,6 +108,31 @@ fn remember_tool_definition() -> ToolDefinition {
     }
 }
 
+/// scope（agent id 与工作区文件夹）**刻意不进 schema**：它由运行时从会话上下文注入，模型无法
+/// 指定——否则模型可构造参数读取其他 agent 或其他项目的记忆。这是安全边界，不是省事。Not part
+/// of the unconditional `tool_catalog()`/`plan_mode_tool_catalog()` — `resolve_tool_catalog`
+/// injects it only when retrieval is actually configured.
+pub(crate) fn recall_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: RECALL_TOOL_NAME.to_string(),
+        description: "Search your saved memories for this project by meaning, not just keywords. Use when the user refers to something from an earlier session, or when you need context that isn't in the current conversation.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to look for, in natural language."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "How many memories to return. Defaults to 5, capped at 20."
+                }
+            },
+            "required": ["query"]
+        }),
+    }
+}
+
 /// Classifies a tool call's risk tier by tool name and, for the file tool, its `operation`
 /// field — a structural distinction (which operation was requested), not a content-safety
 /// judgment about a specific command or path. Unknown tool names and file calls with a missing
@@ -121,6 +147,11 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
         // shell, or anything else external — so a wrong or low-value memory is no worse than a
         // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
         REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Only ever reads this app's own internal storage — never the user's filesystem, shell,
+        // or anything else external. The one new outbound surface is the query text going to the
+        // embedding provider, which is not a new exposure: the memory content it searches over
+        // was already sent to that same provider at index time.
+        RECALL_TOOL_NAME => ToolRiskTier::AutoApprove,
         _ => ToolRiskTier::RequiresApproval,
     }
 }
@@ -295,5 +326,44 @@ mod tests {
             &json!({"operation": "read", "path": "a.txt"}),
             false
         ));
+    }
+
+    #[test]
+    fn the_recall_tool_never_exposes_scope_to_the_model() {
+        // scope 若进 schema，模型就能构造参数读别的 agent 或别的项目的记忆。这是安全边界。
+        let definition = recall_tool_definition();
+        let properties = definition.input_schema["properties"]
+            .as_object()
+            .expect("properties");
+        assert!(properties.contains_key("query"));
+        assert!(properties.contains_key("limit"));
+        assert_eq!(properties.len(), 2);
+        for forbidden in ["agent_id", "agentId", "folder", "scope", "project"] {
+            assert!(
+                !properties.contains_key(forbidden),
+                "{forbidden} must not be model-supplied"
+            );
+        }
+        assert_eq!(definition.input_schema["required"], json!(["query"]));
+    }
+
+    #[test]
+    fn recall_auto_approves_for_the_same_reason_remember_does() {
+        assert_eq!(
+            risk_tier_for(RECALL_TOOL_NAME, &json!({"query": "npm"})),
+            ToolRiskTier::AutoApprove
+        );
+    }
+
+    #[test]
+    fn the_fixed_catalog_stays_unconditional_and_excludes_recall() {
+        // tool_catalog()/plan_mode_tool_catalog() 保持纯函数、不感知配置；
+        // 条件性只存在于 resolve_tool_catalog()。
+        assert!(tool_catalog()
+            .iter()
+            .all(|tool| tool.name != RECALL_TOOL_NAME));
+        assert!(plan_mode_tool_catalog()
+            .iter()
+            .all(|tool| tool.name != RECALL_TOOL_NAME));
     }
 }

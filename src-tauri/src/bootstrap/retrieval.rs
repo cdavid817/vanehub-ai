@@ -1,14 +1,18 @@
 //! 检索上下文的装配根与后台索引 worker。
 //!
-//! `retrieval` 与 `agent_runtime` 的**唯一**交汇点在本文件：前者需要一个 embedding 端点和一份
-//! 记忆快照，后者拥有 Profile、凭据与记忆表。两个上下文因此都不 import 对方，跨界只发生在
-//! 组合根里（设计文档 §4.3）。
+//! `retrieval` 与 `agent_runtime` 的**唯一**交汇点在本文件，且是双向的：`retrieval` 需要一个
+//! embedding 端点和一份记忆快照（`AgentRuntimeEmbeddingEndpoint`/`AgentMemoryIndexSource`），
+//! `agent_runtime` 的 `recall` 工具反过来需要检索能力（`DeferredAgentRetrieval`，Task 13）。两个
+//! 上下文因此都不 import 对方，跨界只发生在组合根里（设计文档 §4.3）。
 //!
 //! 应用服务刻意不打日志、只返回结构化结果，日志格式因此只在本文件定义一处（设计文档 §8.2）。
 //! **绝不落盘**：记忆内容、query 原文、凭据、provider 响应体——下面每条日志的字段都只有计数、
 //! 耗时、模型 id 与错误类别。
 
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::agent_runtime::application::{
+    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+};
 use crate::contexts::agent_runtime::infrastructure::SqliteAgentMemoryRepository;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
@@ -16,7 +20,7 @@ use crate::contexts::retrieval::api::{RetrievalApi, RetrievalWorkerSignal};
 use crate::contexts::retrieval::application::{
     BatchOutcome, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort, IndexSourcePort,
     IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint,
-    RetrievalConfigurationRepository, RetrievalDocumentRepository, SearchService,
+    RetrievalConfigurationRepository, RetrievalDocumentRepository, SearchOutcome, SearchService,
     RECONCILE_POLL_INTERVAL_SECONDS, RETRY_BACKOFF_SECONDS,
 };
 use crate::contexts::retrieval::domain::{FailureCategory, RetrievalError};
@@ -27,7 +31,7 @@ use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -370,13 +374,85 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
     }
 }
 
+/// Bridges `RuntimeAgentApiAdapter` (assembled by `bootstrap::assemble_agent_runtime_api`, whose
+/// output `assemble_retrieval` itself depends on — see this module's own `AgentRuntimeApi`
+/// dependency above) to the real `RetrievalApi`, assembled afterward. `runtime.rs`'s `setup`
+/// therefore cannot hand `RuntimeAgentApiAdapter` a working `RetrievalApi` at construction time —
+/// this cell is constructed empty, passed in as `Arc<dyn AgentRetrievalPort>`, and `bind` is
+/// called exactly once immediately after `assemble_retrieval` returns, well before any generation
+/// can run. Every method degrades exactly like "not configured yet" until then, matching
+/// `AgentRetrievalPort::is_configured`'s existing contract of never blocking or panicking.
+#[derive(Default)]
+pub(crate) struct DeferredAgentRetrieval {
+    bound: OnceLock<RetrievalApi>,
+}
+
+impl DeferredAgentRetrieval {
+    /// Called exactly once, from `runtime.rs`'s `setup`, after both
+    /// `assemble_agent_runtime_api` and `assemble_retrieval` have returned. A second call is a
+    /// bootstrap ordering bug, not a runtime condition to recover from — `OnceLock::set`'s `Err`
+    /// (the rejected value) is deliberately discarded rather than surfaced.
+    pub(crate) fn bind(&self, retrieval: RetrievalApi) {
+        let _ = self.bound.set(retrieval);
+    }
+}
+
+impl AgentRetrievalPort for DeferredAgentRetrieval {
+    fn is_configured(&self) -> bool {
+        self.bound.get().is_some_and(RetrievalApi::is_configured)
+    }
+
+    fn search(
+        &self,
+        agent_id: &str,
+        folder: Option<&str>,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentRetrievalOutcome, String> {
+        let Some(retrieval) = self.bound.get() else {
+            return Err("retrieval is not yet available".to_string());
+        };
+        retrieval
+            .search(agent_id, folder, query, limit)
+            .map(project_search_outcome)
+            .map_err(|error| error.to_string())
+    }
+
+    fn notify_source_changed(&self) {
+        if let Some(retrieval) = self.bound.get() {
+            retrieval.wake_worker();
+        }
+    }
+}
+
+/// Projects `retrieval`'s internal `SearchOutcome` into `agent_runtime`'s own, deliberately
+/// narrower shape for the `recall` tool result — `source_id`/`score` are internal to `retrieval`
+/// and stop here; they never cross the context boundary (Task 13 brief).
+fn project_search_outcome(outcome: SearchOutcome) -> AgentRetrievalOutcome {
+    AgentRetrievalOutcome {
+        hits: outcome
+            .hits
+            .into_iter()
+            .map(|hit| AgentRetrievalHit {
+                content: hit.content,
+                created_at: hit.created_at,
+                matched_via: hit.matched_via.as_str().to_string(),
+            })
+            .collect(),
+        degraded: outcome
+            .degraded
+            .map(|degradation| degradation.as_str().to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::contexts::operations::api::OperationsError;
     use crate::contexts::retrieval::application::{RetrievalConfiguration, RetrievalIndexStatus};
     use crate::contexts::retrieval::domain::{
-        IndexState, RetrievalDocument, RetrievalScope, SourceKind,
+        Degradation, IndexState, MatchedVia, RetrievalDocument, RetrievalScope, ScoredHit,
+        SourceKind,
     };
     use std::sync::mpsc::sync_channel;
     use std::sync::Mutex;
@@ -755,5 +831,40 @@ mod tests {
             elapsed >= Duration::from_secs(1),
             "a disconnected wake channel must still wait out the backoff, took {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn deferred_agent_retrieval_reports_unconfigured_and_fails_search_before_binding() {
+        // `assemble_agent_runtime_api` runs before `assemble_retrieval` (`runtime.rs`'s `setup`),
+        // so `RuntimeAgentApiAdapter` can observe this cell before `bind` is ever called — it must
+        // behave exactly like "not configured", never panic or block.
+        let deferred = DeferredAgentRetrieval::default();
+
+        assert!(!deferred.is_configured());
+        assert!(deferred.search("agent-a", None, "npm", 5).is_err());
+    }
+
+    #[test]
+    fn project_search_outcome_keeps_only_the_fields_the_model_should_see() {
+        // `source_id`/`score` are internal to `retrieval` and must not cross into
+        // `AgentRetrievalHit` — proven here by construction, since that type has no such fields.
+        let outcome = SearchOutcome {
+            hits: vec![ScoredHit {
+                source_id: "internal-id".to_string(),
+                content: "uses npm not pnpm".to_string(),
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                score: 0.87,
+                matched_via: MatchedVia::Both,
+            }],
+            degraded: Some(Degradation::KeywordOnly),
+        };
+
+        let projected = project_search_outcome(outcome);
+
+        assert_eq!(projected.hits.len(), 1);
+        assert_eq!(projected.hits[0].content, "uses npm not pnpm");
+        assert_eq!(projected.hits[0].created_at, "2026-01-01T00:00:00Z");
+        assert_eq!(projected.hits[0].matched_via, "both");
+        assert_eq!(projected.degraded.as_deref(), Some("keyword_only"));
     }
 }

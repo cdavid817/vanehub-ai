@@ -168,6 +168,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
     );
+    // `assemble_retrieval` below needs `agent_runtime_api` (the output of this very call), so a
+    // real `RetrievalApi` cannot exist yet when `RuntimeAgentApiAdapter`'s `recall` tool is wired
+    // up — this cell starts empty and is bound once the real one is ready, a few lines down.
+    let deferred_retrieval = Arc::new(super::DeferredAgentRetrieval::default());
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,
@@ -183,12 +187,14 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
         shared_registry: shared_agent_registry,
+        retrieval: deferred_retrieval.clone(),
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let super::RetrievalAssembly {
         api: retrieval_api,
         worker: retrieval_worker,
     } = super::assemble_retrieval(database.clone(), agent_runtime_api.clone());
+    deferred_retrieval.bind(retrieval_api.clone());
     agent_runtime_api
         .reconcile_coordination_startup()
         .map_err(boxed_message)?;
