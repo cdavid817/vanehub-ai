@@ -2085,5 +2085,13 @@
   "expertRoles.save": "儲存",
   "expertRoles.cancel": "取消",
   "expertRoles.saved": "專家角色已儲存。",
-  "expertRoles.deleted": "專家角色已刪除。"
+  "expertRoles.deleted": "專家角色已刪除。",
+  "createSession.agentMode.multiHint": "多個 Agent 在同一工作階段協作，用 @ 交接",
+  "createSession.seats": "席位",
+  "createSession.seatRole": "角色",
+  "createSession.seatRoleNone": "不指定角色",
+  "createSession.seatAgent": "Agent",
+  "createSession.seatAdd": "新增席位",
+  "createSession.seatRemove": "刪除席位",
+  "createSession.seatCrossFamilyUnavailable": "沒有不同模型家族的 Agent 可用，已改為顯示同家族選項。"
 }

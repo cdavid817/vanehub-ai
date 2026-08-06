@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Session entity contract
-The system SHALL expose sessions as durable records with id, title, an ordered seat list, interaction mode, lifecycle state, folder, optional project/worktree metadata, pinned, archived, created timestamp, and updated timestamp fields. Each seat SHALL carry a stable Agent id and an optional expert role id, and a single-Agent session SHALL be represented as a session holding exactly one seat.
+The system SHALL expose sessions as durable records with id, title, an ordered seat list, a stable agent id, interaction mode, lifecycle state, folder, optional project/worktree metadata, pinned, archived, created timestamp, and updated timestamp fields. Each seat SHALL carry a stable Agent id and an optional expert role id, a single-Agent session SHALL be represented as a session holding exactly one seat, and the record's agent id SHALL always equal the first seat's agent id so existing readers keep working unchanged.
 
 #### Scenario: Create session with required metadata
 - **WHEN** a session is created for a stable agent id and interaction mode
@@ -27,6 +27,11 @@ The system SHALL expose sessions as durable records with id, title, an ordered s
 #### Scenario: Preserve stable agent identity
 - **WHEN** a seat references an agent
 - **THEN** the seat SHALL store the stable agent id rather than matching by display name
+
+#### Scenario: Session agent id mirrors the first seat
+- **WHEN** a session's seats change
+- **THEN** the record's agent id SHALL be updated to the first seat's agent id
+- **AND** a reader that only knows about the agent id SHALL continue to observe the session's primary Agent
 
 #### Scenario: Migrate an existing single-Agent session
 - **WHEN** a session persisted before seats existed is read

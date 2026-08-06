@@ -2085,5 +2085,13 @@
   "expertRoles.save": "Save",
   "expertRoles.cancel": "Cancel",
   "expertRoles.saved": "Expert role saved.",
-  "expertRoles.deleted": "Expert role deleted."
+  "expertRoles.deleted": "Expert role deleted.",
+  "createSession.agentMode.multiHint": "Several Agents in one thread, handing off by @mention",
+  "createSession.seats": "Seats",
+  "createSession.seatRole": "Role",
+  "createSession.seatRoleNone": "No role",
+  "createSession.seatAgent": "Agent",
+  "createSession.seatAdd": "Add seat",
+  "createSession.seatRemove": "Remove seat",
+  "createSession.seatCrossFamilyUnavailable": "No Agent from a different model family is available; same-family options are shown instead."
 }

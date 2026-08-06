@@ -2085,5 +2085,13 @@
   "expertRoles.save": "保存",
   "expertRoles.cancel": "キャンセル",
   "expertRoles.saved": "エキスパートロールを保存しました。",
-  "expertRoles.deleted": "エキスパートロールを削除しました。"
+  "expertRoles.deleted": "エキスパートロールを削除しました。",
+  "createSession.agentMode.multiHint": "複数のAgentが1つのスレッドで協働し、@メンションで引き継ぎます",
+  "createSession.seats": "席",
+  "createSession.seatRole": "ロール",
+  "createSession.seatRoleNone": "ロールなし",
+  "createSession.seatAgent": "Agent",
+  "createSession.seatAdd": "席を追加",
+  "createSession.seatRemove": "席を削除",
+  "createSession.seatCrossFamilyUnavailable": "異なるモデルファミリーのAgentがないため、同一ファミリーの候補を表示しています。"
 }

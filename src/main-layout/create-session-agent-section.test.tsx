@@ -17,13 +17,14 @@ const agent: AgentRegistryEntry = {
 };
 
 describe("Create session agent selection", () => {
-  it("shows single agent and disabled multi agent modes", () => {
+  it("offers both single and multi Agent modes as selectable", () => {
     const html = renderToStaticMarkup(<SessionAgentModeSelector mode="multi" onModeChange={vi.fn()} />);
 
     expect(html).toContain("单 Agent");
     expect(html).toContain("多 Agent");
-    expect(html).toContain("暂未实现");
-    expect(html).toContain("aria-disabled=\"true\"");
+    // Multi mode shipped, so the coming-soon hint and the disabled state must both be gone.
+    expect(html).not.toContain("暂未实现");
+    expect(html).not.toContain("aria-disabled=\"true\"");
   });
 
   it("renders a disabled agent picker for coming-soon multi-agent sessions", () => {

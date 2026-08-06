@@ -34,9 +34,8 @@ export function SessionAgentModeSelector({
           </span>
         </button>
         <button
-          aria-disabled="true"
           aria-pressed={mode === "multi"}
-          className={cnModeButton(mode === "multi", true)}
+          className={cnModeButton(mode === "multi")}
           onClick={() => onModeChange("multi")}
           type="button"
         >
@@ -46,7 +45,7 @@ export function SessionAgentModeSelector({
               {t("createSession.agentMode.multi")}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
-              {t("createSession.agentMode.comingSoon")}
+              {t("createSession.agentMode.multiHint")}
             </span>
           </span>
         </button>
