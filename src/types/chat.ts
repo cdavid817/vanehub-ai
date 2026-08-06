@@ -210,6 +210,11 @@ export interface ChatMessage {
   id: string;
   sessionId: string;
   role: MessageRole;
+  /**
+   * Index of the seat that spoke this message. Absent for user messages, for messages that predate
+   * seats, and for single-seat sessions, which keep their original rendering.
+   */
+  seatIndex?: number;
   content: string;
   status: MessageStatus;
   toolUse?: ToolUseBlock[];

@@ -2093,5 +2093,6 @@
   "createSession.seatAgent": "Agent",
   "createSession.seatAdd": "新增席位",
   "createSession.seatRemove": "刪除席位",
-  "createSession.seatCrossFamilyUnavailable": "沒有不同模型家族的 Agent 可用，已改為顯示同家族選項。"
+  "createSession.seatCrossFamilyUnavailable": "沒有不同模型家族的 Agent 可用，已改為顯示同家族選項。",
+  "chat.crossFamily": "跨家族"
 }

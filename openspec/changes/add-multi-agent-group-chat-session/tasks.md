@@ -30,10 +30,10 @@
 
 ## 5. Speaker Identity in the Thread
 
-- [ ] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters.
-- [ ] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row.
-- [ ] 5.3 Mark a cross-family reviewer seat in its message header.
-- [ ] 5.4 Verify single-seat sessions render exactly as they do today.
+- [x] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters.
+- [x] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row.
+- [x] 5.3 Mark a cross-family reviewer seat in its message header.
+- [x] 5.4 Verify single-seat sessions render exactly as they do today.
 
 ## 6. Role and Roster Injection
 

@@ -2093,5 +2093,6 @@
   "createSession.seatAgent": "Agent",
   "createSession.seatAdd": "Add seat",
   "createSession.seatRemove": "Remove seat",
-  "createSession.seatCrossFamilyUnavailable": "No Agent from a different model family is available; same-family options are shown instead."
+  "createSession.seatCrossFamilyUnavailable": "No Agent from a different model family is available; same-family options are shown instead.",
+  "chat.crossFamily": "cross-family"
 }
