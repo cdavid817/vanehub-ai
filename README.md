@@ -119,15 +119,7 @@ The documentation build requires the mdBook version pinned in `docs/toolchain.js
 
 ## Development
 
-```powershell
-npm run lint
-npm run test
-npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-openspec validate --specs --strict
-```
+Run every command in the「校验命令」(validation commands) section of AGENTS.md verbatim before submitting changes; that list is the single source of truth aligned with CI.
 
 New features and architecture changes require an OpenSpec proposal before implementation. See [AGENTS.md](AGENTS.md) and [openspec/project.md](openspec/project.md) for project rules.
 
