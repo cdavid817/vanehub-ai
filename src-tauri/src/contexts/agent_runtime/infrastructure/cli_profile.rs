@@ -198,10 +198,12 @@ mod tests {
 
     /// Real, SQLite-backed `CliParametersApi` and `PermissionsApi` sharing one temp database —
     /// exercises the actual wiring `load_interactive` depends on, not fakes standing in for it.
+    /// Returns the shared `NativeDatabase` too, so a test can reach in and break it deliberately
+    /// (see `template_lookup_failure_fails_the_launch_instead_of_guessing_a_default`).
     fn test_apis(
         temp_label: &str,
         default_template: PolicyTemplateName,
-    ) -> (CliParametersApi, PermissionsApi) {
+    ) -> (CliParametersApi, PermissionsApi, NativeDatabase) {
         let directory = TempDirectory::new(temp_label);
         let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
 
@@ -209,7 +211,7 @@ mod tests {
 
         let principals = Arc::new(SqlitePrincipalRepository::new(database.clone()));
         let grants = Arc::new(SqliteGrantRepository::new(database.clone()));
-        let audit = Arc::new(SqliteAuditRepository::new(database));
+        let audit = Arc::new(SqliteAuditRepository::new(database.clone()));
         let clock = Arc::new(PermissionsSystemClock);
         let ids = Arc::new(PermissionsUuidIdGenerator);
         let evaluation = EvaluationService::new(
@@ -235,12 +237,12 @@ mod tests {
             Arc::new(HookWaitRegistry::new()),
             Arc::new(NoopClaudeCodeHook),
         );
-        (parameters, permissions)
+        (parameters, permissions, database)
     }
 
     #[test]
     fn readonly_template_overrides_a_conflicting_saved_codex_selection() {
-        let (parameters, permissions) =
+        let (parameters, permissions, _database) =
             test_apis("cli-profile-readonly", PolicyTemplateName::Standard);
         let seed: SaveCliParameterProfileInput = serde_json::from_value(serde_json::json!({
             "agentId": "codex-cli",
@@ -268,7 +270,7 @@ mod tests {
 
     #[test]
     fn unassigned_agent_resolves_the_configured_default_template() {
-        let (parameters, permissions) =
+        let (parameters, permissions, _database) =
             test_apis("cli-profile-default", PolicyTemplateName::Trusted);
 
         let (selections, managed_args, env) =
@@ -282,7 +284,7 @@ mod tests {
 
     #[test]
     fn claude_code_is_never_looked_up() {
-        let (parameters, permissions) =
+        let (parameters, permissions, _database) =
             test_apis("cli-profile-claude-code", PolicyTemplateName::Standard);
 
         let (selections, _managed_args, env) =
@@ -297,7 +299,7 @@ mod tests {
 
     #[test]
     fn opencode_standard_injects_the_permission_env_var() {
-        let (parameters, permissions) =
+        let (parameters, permissions, _database) =
             test_apis("cli-profile-opencode-standard", PolicyTemplateName::Standard);
 
         let (_selections, _managed_args, env) =
@@ -312,7 +314,7 @@ mod tests {
 
     #[test]
     fn opencode_readonly_does_not_inject_the_permission_env_var() {
-        let (parameters, permissions) =
+        let (parameters, permissions, _database) =
             test_apis("cli-profile-opencode-readonly", PolicyTemplateName::Readonly);
 
         let (_selections, _managed_args, env) =
@@ -320,5 +322,26 @@ mod tests {
                 .expect("interactive selections");
 
         assert!(env.is_empty());
+    }
+
+    /// A genuine SQLite-level failure — dropping the table `find_principal` reads from, through
+    /// the same connection pool it will use — not a filesystem trick (fragile/platform-dependent)
+    /// and not a fake standing in for the failure.
+    #[test]
+    fn template_lookup_failure_fails_the_launch_instead_of_guessing_a_default() {
+        let (parameters, permissions, database) =
+            test_apis("cli-profile-lookup-failure", PolicyTemplateName::Standard);
+        database
+            .connection()
+            .expect("connection")
+            .execute("DROP TABLE agent_principals", [])
+            .expect("drop table");
+
+        let result = interactive_selections_and_args(&parameters, &permissions, "codex-cli");
+
+        assert!(
+            matches!(result, Err(AgentRuntimeApplicationError::CliProfile(_))),
+            "expected a CliProfile error, got {result:?}"
+        );
     }
 }

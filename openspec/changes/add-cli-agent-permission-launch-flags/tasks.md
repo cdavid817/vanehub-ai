@@ -19,6 +19,7 @@
 - [x] 3.3 Lookup failure propagates through the existing `cli_profile_error` helper into `AgentRuntimeApplicationError::CliProfile`, identical to the pre-existing executable-resolution failure path — no new error variant, no fallback branch.
 - [x] 3.4 `readonly_template_overrides_a_conflicting_saved_codex_selection` — seeds a conflicting `sandbox=workspace-write` CLI Parameter selection, assigns `readonly`, asserts the resolved args use `read-only` and never mention `workspace-write`.
 - [x] 3.5 `unassigned_agent_resolves_the_configured_default_template` — no `assign_template` call at all; asserts `opencode` still resolves the site's configured default (`Trusted` in the test) via `find_principal`'s existing synthesis.
+- [x] 3.6 **(added after `openspec verify` flagged it as an untested scenario)** `template_lookup_failure_fails_the_launch_instead_of_guessing_a_default` — drops the `agent_principals` table through the same connection pool `find_principal` uses (a genuine SQLite failure, not a filesystem trick or a fake), asserts `interactive_selections_and_args` returns `Err(AgentRuntimeApplicationError::CliProfile(_))`. `test_apis` now also returns the shared `NativeDatabase` so tests can reach in and break it.
 
 ## 4. OpenCode environment-variable injection
 
@@ -31,6 +32,7 @@
 - [x] 5.2 `agent-policies-page.tsx` now maps over `MANAGED_CLI_AGENT_IDS` (via `visibleManagedCliAgents`, sharing the same search-filter/empty-state logic every other row already used); `pendingInstallConfirm` stays gated to `agentId === CLAUDE_CODE_AGENT_ID`, unchanged.
 - [x] 5.3 Added a new `describe` block to `agent-policies-page.interaction.test.tsx` covering `codex-cli`: standard applies immediately with no install-confirmation dialog, and trusted still shows the generic confirmation and applies on confirm. `beforeEach`'s mock switched from a single static `mockResolvedValue` to a per-agent-id `mockImplementation` so the now-multi-agent-id query resolves correctly for every test.
 - [x] 5.4 Confirmed — `web-permissions-client.ts`'s `getAgentPolicyPrincipal`/`applyPolicyTemplate` were already fully generic over `agentId`, no special-casing existed to remove.
+- [x] 5.5 **(added after `openspec verify` flagged it — the interaction tests only ever exercised `codex-cli`, never `gemini-cli`/`opencode`)** `all four managed CLI principals render as their own row with a working Standard button` — directly asserts all four rows (`Claude Code`/`Codex CLI`/`Gemini CLI`/`OpenCode`) render simultaneously with an enabled Standard button, closing the gap left by only ever naming `codex-cli` in the earlier tests.
 
 ## 6. i18n and CLI Parameter Management page help text
 
@@ -40,10 +42,10 @@
 ## 7. Verification
 
 - [x] 7.1 `cargo check --manifest-path src-tauri/Cargo.toml` — clean.
-- [x] 7.2 `cargo test --manifest-path src-tauri/Cargo.toml` — 1337 lib tests + all integration binaries (including the `architecture.rs` cross-context dependency governance suite) pass, 0 failed. Confirms the deviation in Group 2 (no new port trait, direct `PermissionsApi` dependency) doesn't violate this repo's own enforced architectural boundaries.
+- [x] 7.2 `cargo test --manifest-path src-tauri/Cargo.toml` — 1338 lib tests + all integration binaries (including the `architecture.rs` cross-context dependency governance suite) pass, 0 failed. Confirms the deviation in Group 2 (no new port trait, direct `PermissionsApi` dependency) doesn't violate this repo's own enforced architectural boundaries. One transient failure in the unrelated, already-documented-flaky `relay_tests.rs` (`WouldBlock` socket timing, triggered by running `npm run test` concurrently) reproduced and cleared on an isolated re-run — not a regression.
 - [x] 7.3 `cargo clippy --manifest-path src-tauri/Cargo.toml` — clean; only the same 5 pre-existing warnings in unrelated `permissions` dead code, none introduced by this change.
 - [x] 7.4 `npm run lint` — clean.
-- [x] 7.5 `npm run test` — 131 files / 531 tests pass.
+- [x] 7.5 `npm run test` — 131 files / 532 tests pass.
 - [x] 7.6 `npm run build` — succeeds; the project's own lazy-chunk verification step ("Verified 16 lazy frontend chunks") also passes, confirming the Agent Policies page change didn't break code-splitting.
 - [x] 7.7 `openspec validate add-cli-agent-permission-launch-flags --strict` and `openspec validate --specs --strict` (87 passed, 0 failed) both clean.
 - [x] 7.8 **Partially verified, documented honestly:** `codex`/`gemini`/`opencode` binaries turned out to actually be installed on this development machine (`command -v` found all three), so every flag name and enum value this change relies on was checked against each tool's own real `--help` output rather than only against earlier research — confirmed exact matches: codex's `-s/--sandbox <SANDBOX_MODE>` (`read-only`/`workspace-write`/`danger-full-access`) and `-a/--ask-for-approval <APPROVAL_POLICY>` (`untrusted`/`on-request`/`never`); gemini's `--approval-mode` (`default`/`auto_edit`/`yolo`/`plan`); opencode's `--agent <string>` and `--auto` (boolean, "auto-approve permissions that are not explicitly denied (dangerous!)"). What this does **not** cover: an actual live launch through the running VaneHub desktop app with a real assigned template and a real PTY session — that would require starting the full desktop app interactively, which wasn't done as part of this pass. Flagged for the user rather than silently left as "same as no CLIs installed."

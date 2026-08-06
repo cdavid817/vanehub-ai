@@ -135,4 +135,15 @@ describe("AgentPoliciesPage — other managed CLI agents skip the install confir
     await waitFor(() => expect(permissionsServiceMocks.applyPolicyTemplate).toHaveBeenCalledTimes(1));
     expect(permissionsServiceMocks.applyPolicyTemplate).toHaveBeenCalledWith("codex-cli", "trusted");
   });
+
+  it("all four managed CLI principals render as their own row with a working Standard button", async () => {
+    renderPage();
+
+    for (const title of ["Claude Code", "Codex CLI", "Gemini CLI", "OpenCode"]) {
+      await waitFor(() => {
+        const button = within(rowFor(title)).getByRole("button", { name: "标准" }) as HTMLButtonElement;
+        expect(button.disabled).toBe(false);
+      });
+    }
+  });
 });
