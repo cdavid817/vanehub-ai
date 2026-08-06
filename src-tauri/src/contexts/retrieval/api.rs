@@ -114,17 +114,16 @@ impl RetrievalApi {
         Ok(())
     }
 
-    pub(crate) fn index_status(
-        &self,
-        agent_id: &str,
-    ) -> Result<RetrievalIndexStatus, RetrievalError> {
-        self.documents.index_status(agent_id)
+    /// 与配置一样是全局的：检索能力对所有 agent 生效，`is_configured()` 也不分 agent，按
+    /// 单个 agent 汇报状态只会让别的 agent 的索引行无处可见。
+    pub(crate) fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
+        self.documents.index_status()
     }
 
-    /// 重建只把行打回 `pending` 并叫醒 worker，不在命令线程里同步跑 embedding——重建一个
-    /// agent 的全部记忆可能是几十次网络往返，阻塞在 command 上会让设置页整个卡住。
-    pub(crate) fn rebuild(&self, agent_id: &str) -> Result<(), RetrievalError> {
-        self.documents.requeue_all(agent_id)?;
+    /// 重建只把行打回 `pending` 并叫醒 worker，不在命令线程里同步跑 embedding——重建全部
+    /// 记忆可能是几十次网络往返，阻塞在 command 上会让设置页整个卡住。
+    pub(crate) fn rebuild(&self) -> Result<(), RetrievalError> {
+        self.documents.requeue_all()?;
         self.worker.notify();
         Ok(())
     }
@@ -249,10 +248,10 @@ mod tests {
             self.scopes.lock().expect("lock").push(scope.clone());
             Ok(Vec::new())
         }
-        fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+        fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
             unimplemented!("not exercised by api tests")
         }
-        fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+        fn requeue_all(&self) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by api tests")
         }
         fn requeue_stale_model(&self, new_model: &str) -> Result<(), RetrievalError> {

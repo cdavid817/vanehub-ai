@@ -52,8 +52,11 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
         query: &str,
         limit: usize,
     ) -> Result<Vec<String>, RetrievalError>;
-    fn index_status(&self, agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError>;
-    fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError>;
+    /// 全量聚合，不按 agent 分组：检索配置本身是全局单例，`is_configured()` 是全局的，索引源
+    /// 快照也覆盖全部 agent，所以"这套索引现在什么状态"只有一个答案。按 agent 过滤会让
+    /// 非 OnePiece agent 的行既不出现在状态里、也无法被重建。
+    fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError>;
+    fn requeue_all(&self) -> Result<(), RetrievalError>;
     /// 把 embedding 模型与 `new_model` 不一致的已索引行打回 `pending`。
     ///
     /// 换模型后 `vector_candidates` 会按 `embedding_model = ?` 把旧模型的行全部滤掉，而

@@ -10,6 +10,9 @@ import type { OnePieceProviderProfile } from "../../../types/agent";
 
 const inputClass = "ucd-input h-9 rounded px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring";
 const configKey = ["agents", "onepiece-retrieval-configuration"] as const;
+// Status and rebuild are global, like the configuration singleton they sit next to: retrieval
+// applies to every agent, so there is nothing per-agent to key this cache entry by.
+const statusKey = ["agents", "onepiece-retrieval-status"] as const;
 
 // Design doc §8.2: the backend only ever returns a category, never raw provider error text (which
 // may echo credentials or request content). Rendering goes through this fixed lookup — the
@@ -21,8 +24,7 @@ const failureCategoryKeys: Record<string, string> = {
   network: "onepiece.retrieval.failureCategory.network",
 };
 
-export function OnePieceRetrievalSection({ agentId, profiles, service = defaultAgentService }: {
-  agentId: string;
+export function OnePieceRetrievalSection({ profiles, service = defaultAgentService }: {
   profiles: OnePieceProviderProfile[];
   service?: AgentService;
 }) {
@@ -30,14 +32,13 @@ export function OnePieceRetrievalSection({ agentId, profiles, service = defaultA
   const queryClient = useQueryClient();
   // Only openai-compatible profiles can serve as an embedding source (Anthropic has no embeddings API).
   const sourceProfiles = profiles.filter((profile) => profile.interfaceFormat === "openai-compatible");
-  const statusKey = ["agents", "onepiece-retrieval-status", agentId] as const;
   const [profileOverride, setProfileOverride] = useState<string | null | undefined>(undefined);
   const [modelOverride, setModelOverride] = useState<string | null | undefined>(undefined);
   const [confirmingRebuild, setConfirmingRebuild] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const configQuery = useQuery({ queryKey: configKey, queryFn: () => service.getRetrievalConfiguration() });
-  const statusQuery = useQuery({ queryKey: statusKey, queryFn: () => service.getRetrievalIndexStatus(agentId) });
+  const statusQuery = useQuery({ queryKey: statusKey, queryFn: () => service.getRetrievalIndexStatus() });
   const configuration = configQuery.data;
   // Selection follows the saved configuration until the user picks something different locally.
   const selectedProfileId = profileOverride !== undefined ? profileOverride : (configuration?.sourceProfileId ?? null);
@@ -64,7 +65,7 @@ export function OnePieceRetrievalSection({ agentId, profiles, service = defaultA
     },
   });
   const rebuildMutation = useMutation({
-    mutationFn: () => service.rebuildRetrievalIndex(agentId),
+    mutationFn: () => service.rebuildRetrievalIndex(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: statusKey });
       setConfirmingRebuild(false);

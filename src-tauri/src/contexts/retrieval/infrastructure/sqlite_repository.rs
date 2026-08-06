@@ -247,7 +247,7 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
         Ok(rows)
     }
 
-    fn index_status(&self, agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+    fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
         let connection = self.database.connection().map_err(database_error)?;
         connection
             .query_row(
@@ -255,15 +255,15 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                 SELECT
                   SUM(index_state = 'indexed'), SUM(index_state = 'pending'), SUM(index_state = 'failed'),
                   (SELECT failure_category FROM retrieval_documents
-                   WHERE scope_agent_id = ?1 AND failure_category IS NOT NULL
+                   WHERE failure_category IS NOT NULL
                    ORDER BY updated_at DESC LIMIT 1)
-                FROM retrieval_documents WHERE scope_agent_id = ?1
+                FROM retrieval_documents
                 "#,
-                params![agent_id],
+                [],
                 |row| {
-                    // 未建过任何索引行的 agent 落进这条 SELECT 时，SUM() 在零行上聚合返回 NULL
-                    // （SQLite 的空集合聚合语义），不是 0——必须按 Option 读，否则会在全新 agent
-                    // 上把这条本该是"状态全零"的查询错误地变成一个 storage 错误。
+                    // 一行索引都还没建过时，SUM() 在零行上聚合返回 NULL（SQLite 的空集合聚合
+                    // 语义），不是 0——必须按 Option 读，否则会在全新安装上把这条本该是
+                    // "状态全零"的查询错误地变成一个 storage 错误。
                     let indexed: Option<i64> = row.get(0)?;
                     let pending: Option<i64> = row.get(1)?;
                     let failed: Option<i64> = row.get(2)?;
@@ -279,17 +279,16 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .map_err(storage_error)
     }
 
-    fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError> {
+    fn requeue_all(&self) -> Result<(), RetrievalError> {
         let connection = self.database.connection().map_err(database_error)?;
         let now = SystemClock.rfc3339();
         connection
             .execute(
                 r#"
                 UPDATE retrieval_documents
-                SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?2
-                WHERE scope_agent_id = ?1
+                SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?1
                 "#,
-                params![agent_id, now],
+                params![now],
             )
             .map_err(storage_error)?;
         Ok(())
@@ -491,7 +490,7 @@ mod tests {
             .upsert_pending(&unchanged)
             .expect("second upsert");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(
             status.indexed, 1,
             "an unchanged upsert must not reset index_state"
@@ -541,7 +540,7 @@ mod tests {
         assert_eq!(candidates[0].0, "m1");
         assert_eq!(candidates[0].1, vec![1.0, 0.0]);
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.indexed, 1);
         assert_eq!(
             status.last_failure_category, None,
@@ -689,7 +688,7 @@ mod tests {
             )
             .expect("retry later");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.failed, 1);
         assert_eq!(status.pending, 1);
         assert_eq!(status.indexed, 0);
@@ -719,9 +718,9 @@ mod tests {
             "the failure must have counted an attempt"
         );
 
-        fixture.repository.requeue_all("a").expect("requeue");
+        fixture.repository.requeue_all().expect("requeue");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.failed, 0);
         assert_eq!(status.pending, 1);
         assert_eq!(status.last_failure_category, None);
@@ -757,7 +756,7 @@ mod tests {
             .requeue_stale_model("model-b")
             .expect("requeue");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.pending, 1, "the stale row must be queued again");
         assert_eq!(status.indexed, 0);
         assert!(
@@ -821,7 +820,7 @@ mod tests {
             .requeue_stale_model("model-a")
             .expect("requeue");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.indexed, 1);
         assert_eq!(status.pending, 0);
     }
@@ -849,29 +848,46 @@ mod tests {
             .requeue_stale_model("model-b")
             .expect("requeue");
 
-        let status = fixture.repository.index_status("a").expect("status");
+        let status = fixture.repository.index_status().expect("status");
         assert_eq!(status.failed, 1);
         assert_eq!(status.pending, 0);
     }
 
     #[test]
-    fn index_status_spans_every_folder_of_the_agent() {
-        let fixture = Fixture::new("retrieval status folders");
-        fixture
-            .repository
-            .upsert_pending(&document("m1", "a", "D:/one", "x"))
-            .expect("m1");
-        fixture
-            .repository
-            .upsert_pending(&document("m2", "a", "D:/two", "x"))
-            .expect("m2");
-        fixture
-            .repository
-            .upsert_pending(&document("m3", "b", "D:/one", "x"))
-            .expect("m3");
+    fn index_status_and_requeue_all_span_every_agent_and_folder() {
+        // 检索配置是全局单例、`is_configured()` 不分 agent、索引源快照也覆盖全部 agent，
+        // 所以状态与重建同样是全局的。按 agent 过滤会让非 OnePiece agent 的行既不出现在
+        // 唯一的状态面板里，也无法被唯一的重建按钮救回来。
+        let fixture = Fixture::new("retrieval status all agents");
+        for (source_id, agent, folder) in [
+            ("m1", "a", "D:/one"),
+            ("m2", "a", "D:/two"),
+            ("m3", "b", "D:/one"),
+        ] {
+            fixture
+                .repository
+                .upsert_pending(&document(source_id, agent, folder, "x"))
+                .expect("upsert");
+            fixture
+                .repository
+                .store_embedding(
+                    &document_id(SourceKind::AgentMemory, source_id),
+                    "model-a",
+                    &[1.0, 0.0],
+                )
+                .expect("store");
+        }
 
-        let status = fixture.repository.index_status("a").expect("status");
-        assert_eq!(status.pending, 2);
+        assert_eq!(
+            fixture.repository.index_status().expect("status").indexed,
+            3
+        );
+
+        fixture.repository.requeue_all().expect("requeue");
+
+        let status = fixture.repository.index_status().expect("status");
+        assert_eq!(status.pending, 3);
+        assert_eq!(status.indexed, 0);
     }
 
     #[test]

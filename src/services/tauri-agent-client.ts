@@ -215,12 +215,12 @@ export const tauriAgentClient: AgentService = {
     });
   },
 
-  getRetrievalIndexStatus(agentId: string) {
-    return invoke<RetrievalIndexStatus>("get_retrieval_index_status", { agentId });
+  getRetrievalIndexStatus() {
+    return invoke<RetrievalIndexStatus>("get_retrieval_index_status");
   },
 
-  rebuildRetrievalIndex(agentId: string) {
-    return invoke<void>("rebuild_retrieval_index", { agentId });
+  rebuildRetrievalIndex() {
+    return invoke<void>("rebuild_retrieval_index");
   },
 
   listCliTools() {

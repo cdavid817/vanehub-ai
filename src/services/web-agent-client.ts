@@ -592,21 +592,14 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
  * install (design doc §7.4). */
 let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
 
-/** Mock retrieval index status, keyed by agent id — mirrors the real aggregate across all of that
- * agent's `scope_folder` rows (design doc §7.4). Seeded lazily with plausible, self-consistent
- * counts on first access so a settings UI has something realistic to render before ever calling
- * `rebuildRetrievalIndex`. `lastFailureCategory` is deliberately always `null`: the Web/mock
- * runtime guarantees the same contract shape and observable behavior as the real one, not
- * algorithmic equivalence with the Rust-side failure classification (design doc §7.5). */
-const webRetrievalIndexStatusByAgent = new Map<string, RetrievalIndexStatus>();
-
-function webRetrievalIndexStatusFor(agentId: string): RetrievalIndexStatus {
-  const existing = webRetrievalIndexStatusByAgent.get(agentId);
-  if (existing) return existing;
-  const seeded: RetrievalIndexStatus = { indexed: 12, pending: 3, failed: 2, lastFailureCategory: null };
-  webRetrievalIndexStatusByAgent.set(agentId, seeded);
-  return seeded;
-}
+/** Mock retrieval index status — a single global aggregate, mirroring the real one across every
+ * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
+ * so a settings UI has something realistic to render before ever calling `rebuildRetrievalIndex`.
+ * `lastFailureCategory` is deliberately always `null`: the Web/mock runtime guarantees the same
+ * contract shape and observable behavior as the real one, not algorithmic equivalence with the
+ * Rust-side failure classification (design doc §7.5). */
+const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
+let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
 
 /** Static catalog, independent of the requested profile — listing embedding models never hits
  * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
@@ -1665,7 +1658,7 @@ export function resetWebLoopsForTest() {
 
 export function resetWebRetrievalForTest() {
   webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
-  webRetrievalIndexStatusByAgent.clear();
+  webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
 }
 
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
@@ -2196,12 +2189,12 @@ export const webAgentClient: AgentService = {
     return webEmbeddingModelOptions.map((option) => ({ ...option }));
   },
 
-  async getRetrievalIndexStatus(agentId: string) {
-    return { ...webRetrievalIndexStatusFor(agentId) };
+  async getRetrievalIndexStatus() {
+    return { ...webRetrievalIndexStatus };
   },
 
-  async rebuildRetrievalIndex(agentId: string) {
-    const status = webRetrievalIndexStatusFor(agentId);
+  async rebuildRetrievalIndex() {
+    const status = webRetrievalIndexStatus;
     status.pending += status.indexed + status.failed;
     status.indexed = 0;
     status.failed = 0;

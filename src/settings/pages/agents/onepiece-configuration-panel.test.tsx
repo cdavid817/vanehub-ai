@@ -315,7 +315,7 @@ describe("OnePieceConfigurationPanel", () => {
     expect((within(dialog).getByRole("button", { name: "获取模型" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("mounts the retrieval section with the panel's own agentId and Profile list", async () => {
+  it("mounts the retrieval section with the panel's own Profile list", async () => {
     const getRetrievalIndexStatus = vi.fn(async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }));
     const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile, proxyProfile], anthropicProfile.id),
@@ -327,9 +327,10 @@ describe("OnePieceConfigurationPanel", () => {
     );
 
     await screen.findByRole("heading", { name: "Anthropic 主账号" });
-    // Pins the `agentId="onepiece"` argument at the panel's mount line, not the standalone value
-    // OnePieceRetrievalSection's own tests hand-build.
-    await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledWith("onepiece"));
+    // Index status is global, like the configuration singleton it sits next to — the section takes
+    // no agent id, so the only thing to pin here is that the panel really mounts it and it really
+    // queries through the service boundary.
+    await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledWith());
 
     // Pins the `profiles={overview.profiles}` argument: the openai-compatible Profile the panel
     // loaded is the one the section offers as an embedding source, and the Anthropic Profile

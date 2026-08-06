@@ -125,7 +125,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
         ))}</div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.noMatches")}</p></div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.empty")}</p><Button className="mt-4" onClick={() => setEditingProfile(null)}><Plus className="h-4 w-4" />{t("onepiece.addProvider")}</Button></div>}
       </section>
 
-      <OnePieceRetrievalSection agentId="onepiece" profiles={overview.profiles} service={service} />
+      <OnePieceRetrievalSection profiles={overview.profiles} service={service} />
 
       {operationError ? <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{operationError instanceof Error ? operationError.message : String(operationError)}</p> : null}
       {notice ? <p className="rounded-md border p-3 text-sm ucd-status-success" role="status">{notice}</p> : null}

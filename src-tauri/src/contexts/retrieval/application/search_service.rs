@@ -296,10 +296,10 @@ mod tests {
             *self.received_keyword_query.lock().expect("lock") = Some(query.to_string());
             self.keyword_candidates_result.clone()
         }
-        fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+        fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
             unimplemented!("not exercised by search_service tests")
         }
-        fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+        fn requeue_all(&self) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by search_service tests")
         }
         fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {

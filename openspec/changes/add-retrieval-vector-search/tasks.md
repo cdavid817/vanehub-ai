@@ -27,7 +27,7 @@
 
 `env -u all_proxy -u ALL_PROXY npx playwright test tests/e2e/onepiece-retrieval.spec.ts` → **1 passed**（15.6s）。
 
-**已知限制（如实记录，不用更弱的断言掩盖）：** mock adapter（`src/services/web-agent-client.ts`）的 `rebuildRetrievalIndex` 只同步实现了"已索引/失败 → 待索引"的重新入队；全文件范围内 `webRetrievalIndexStatusByAgent` 只被这一个函数改写，没有任何定时器或模拟 worker 把 `pending` 行推进为 `indexed`。这与真实后端的契约形状一致——`contexts/retrieval/api.rs` 的 `rebuild` 本身也只同步调用 `requeue_all`，真正把 `pending` 变成 `indexed` 的是异步后台 worker（Task 8/12），mock 没有对应的模拟实现，组件级单测（`onepiece-retrieval-section.test.tsx` 的 "requeues everything when rebuild is confirmed"）也是同样用 `pending` 增大来断言这次重建，独立印证了这一点。因此本 E2E 只能覆盖"配置 embedding 源 → 触发索引 → 已索引/失败行被重新入队为 pending"这一半路径；`pending → indexed` 的转换只发生在真实 Rust 后端由异步 worker 驱动，在不打真实 embedding 服务的前提下无法通过这个 mock 观测到。这是 mock 现有状态模型的诚实边界，不是本任务遗留的缺陷，也未对 mock 做任何投机性修改去"造出"这段行为。
+**已知限制（如实记录，不用更弱的断言掩盖）：** mock adapter（`src/services/web-agent-client.ts`）的 `rebuildRetrievalIndex` 只同步实现了"已索引/失败 → 待索引"的重新入队；全文件范围内全局的 `webRetrievalIndexStatus`（索引状态与重建同配置一样是全局的，不按 agent 分组）只被这一个函数改写，没有任何定时器或模拟 worker 把 `pending` 行推进为 `indexed`。这与真实后端的契约形状一致——`contexts/retrieval/api.rs` 的 `rebuild` 本身也只同步调用 `requeue_all`，真正把 `pending` 变成 `indexed` 的是异步后台 worker（Task 8/12），mock 没有对应的模拟实现，组件级单测（`onepiece-retrieval-section.test.tsx` 的 "requeues everything when rebuild is confirmed"）也是同样用 `pending` 增大来断言这次重建，独立印证了这一点。因此本 E2E 只能覆盖"配置 embedding 源 → 触发索引 → 已索引/失败行被重新入队为 pending"这一半路径；`pending → indexed` 的转换只发生在真实 Rust 后端由异步 worker 驱动，在不打真实 embedding 服务的前提下无法通过这个 mock 观测到。这是 mock 现有状态模型的诚实边界，不是本任务遗留的缺陷，也未对 mock 做任何投机性修改去"造出"这段行为。
 
 ### 全量验收命令（Step 3，共 8 条，逐条实际运行并观察输出）
 

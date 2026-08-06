@@ -144,13 +144,13 @@ export interface AgentService {
   setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
   listAgentMemories(agentId: string): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
-  // Configuration is a global singleton; index status and rebuild are scoped per agent and
-  // aggregate across all of that agent's `scope_folder` rows (design doc §7.4).
+  // Configuration, index status and rebuild are all global: retrieval applies to every agent,
+  // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
   saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
   listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
-  getRetrievalIndexStatus(agentId: string): Promise<RetrievalIndexStatus>;
-  rebuildRetrievalIndex(agentId: string): Promise<void>;
+  getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
+  rebuildRetrievalIndex(): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;

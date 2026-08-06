@@ -1652,7 +1652,7 @@ describe("webAgentClient", () => {
 
   it("reports index status without issuing any network request", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    await expect(webAgentClient.getRetrievalIndexStatus("agent-1")).resolves.toEqual({
+    await expect(webAgentClient.getRetrievalIndexStatus()).resolves.toEqual({
       indexed: expect.any(Number),
       pending: expect.any(Number),
       failed: expect.any(Number),
@@ -1662,8 +1662,8 @@ describe("webAgentClient", () => {
   });
 
   it("rebuilding the index resets failures in the mock runtime", async () => {
-    await webAgentClient.rebuildRetrievalIndex("agent-1");
-    const status = await webAgentClient.getRetrievalIndexStatus("agent-1");
+    await webAgentClient.rebuildRetrievalIndex();
+    const status = await webAgentClient.getRetrievalIndexStatus();
     expect(status.failed).toBe(0);
   });
 });

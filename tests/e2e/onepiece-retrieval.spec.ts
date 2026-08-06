@@ -34,8 +34,9 @@ test.describe("OnePiece retrieval configuration", () => {
     const retrievalSection = onepiecePanel.getByRole("region", { name: "检索索引配置" });
     await expect(retrievalSection).toBeVisible();
 
-    // Baseline: the mock seeds a self-consistent status the first time it's read for this agent
-    // (web-agent-client.ts `webRetrievalIndexStatusFor`): indexed=12, pending=3, failed=2.
+    // Baseline: the mock seeds a self-consistent global status (web-agent-client.ts
+    // `seededWebRetrievalIndexStatus`): indexed=12, pending=3, failed=2. Status and rebuild are
+    // global rather than per-agent, matching the configuration singleton next to them.
     await expect(statusValue(retrievalSection, "已索引")).toHaveText("12");
     await expect(statusValue(retrievalSection, "待索引")).toHaveText("3");
     await expect(statusValue(retrievalSection, "失败")).toHaveText("2");

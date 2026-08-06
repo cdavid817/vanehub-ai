@@ -1,6 +1,7 @@
-//! `add-retrieval-vector-search` Task 15: reports index status for one agent, aggregated across
-//! *all* of that agent's `scope_folder` rows (design doc §7.4) — unlike configuration, this is
-//! scoped per agent rather than global.
+//! `add-retrieval-vector-search` Task 15: reports index status, aggregated across every agent and
+//! every `scope_folder`. Global like the configuration singleton it belongs to: retrieval applies
+//! to all agents, so a per-agent filter would hide other agents' rows from the only surface that
+//! reports them.
 
 use crate::contexts::retrieval::api::RetrievalApi;
 use serde::Serialize;
@@ -20,9 +21,8 @@ pub(crate) struct RetrievalIndexStatus {
 #[tauri::command]
 pub(crate) fn get_retrieval_index_status(
     api: State<'_, RetrievalApi>,
-    agent_id: String,
 ) -> Result<RetrievalIndexStatus, String> {
-    api.index_status(&agent_id)
+    api.index_status()
         .map(|status| RetrievalIndexStatus {
             indexed: status.indexed,
             pending: status.pending,

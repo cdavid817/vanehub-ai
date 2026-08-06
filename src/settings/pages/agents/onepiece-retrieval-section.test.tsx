@@ -47,7 +47,7 @@ describe("OnePieceRetrievalSection", () => {
       getRetrievalIndexStatus: async () => emptyStatus,
     });
     renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[anthropicProfile, openAiProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[anthropicProfile, openAiProfile]} service={service} />,
     );
 
     const select = await screen.findByRole("combobox", { name: "Embedding 来源" });
@@ -61,7 +61,7 @@ describe("OnePieceRetrievalSection", () => {
       getRetrievalIndexStatus: async () => emptyStatus,
     });
     renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[anthropicProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[anthropicProfile]} service={service} />,
     );
 
     expect(await screen.findByText(/需要一个 openai-compatible/)).toBeTruthy();
@@ -75,7 +75,7 @@ describe("OnePieceRetrievalSection", () => {
       getRetrievalIndexStatus: async () => ({ indexed: 5, pending: 3, failed: 2, lastFailureCategory: null }),
     });
     renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[openAiProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
     );
 
     expect(await screen.findByText("5")).toBeTruthy();
@@ -89,7 +89,7 @@ describe("OnePieceRetrievalSection", () => {
       getRetrievalIndexStatus: async () => ({ indexed: 5, pending: 0, failed: 2, lastFailureCategory: "auth" }),
     });
     renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[openAiProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
     );
 
     expect(await screen.findByText(/鉴权失败/)).toBeTruthy();
@@ -108,7 +108,7 @@ describe("OnePieceRetrievalSection", () => {
       listEmbeddingModels: async () => [],
     });
     const { user } = renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[openAiProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
     );
 
     await screen.findByText("3");
@@ -116,7 +116,7 @@ describe("OnePieceRetrievalSection", () => {
     const dialog = await screen.findByRole("dialog", { name: "重建检索索引" });
     await user.click(within(dialog).getByRole("button", { name: "确认重建" }));
 
-    await waitFor(() => expect(rebuildRetrievalIndex).toHaveBeenCalledWith("onepiece"));
+    await waitFor(() => expect(rebuildRetrievalIndex).toHaveBeenCalledWith());
     await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("8")).toBeTruthy();
   });
@@ -129,7 +129,7 @@ describe("OnePieceRetrievalSection", () => {
       listEmbeddingModels,
     });
     renderWithAppProviders(
-      <OnePieceRetrievalSection agentId="onepiece" profiles={[openAiProfile]} service={service} />,
+      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
     );
 
     await waitFor(() => expect(listEmbeddingModels).toHaveBeenCalledWith(openAiProfile.id));
