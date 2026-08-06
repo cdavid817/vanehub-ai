@@ -1400,6 +1400,68 @@ mod tests {
     }
 
     #[test]
+    fn applying_a_profile_and_projecting_the_permission_hook_do_not_touch_each_others_fields() {
+        // cli-agent-config-management's "Hook projection is independent of profile application"
+        // — the two operations only ever touch disjoint top-level fields (`env` vs. `hooks`) by
+        // construction, but that was previously only a code-review claim, not something a test
+        // demonstrated directly in either direction.
+        let directory = TempDirectory::new("cli-config-hook-profile-independence");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("claude-code").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            br#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/opt/vanehub/bin/vanehub-permission-hook"}]}]}}"#,
+        )
+        .expect("fixture");
+
+        let current = profile(
+            "claude-code",
+            CliConfigPayload::ClaudeCode {
+                base_url: "https://api.example.com".into(),
+                auth_mode: ClaudeAuthMode::None,
+                model: "model".into(),
+                haiku_model: "haiku".into(),
+                sonnet_model: "sonnet".into(),
+                opus_model: "opus".into(),
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let before = fs::read(&path).expect("read");
+        let expected =
+            fingerprint(&managed_fragment("claude-code", &before, None).expect("fragment"));
+        adapter
+            .apply(&current, None, None, false, &expected)
+            .expect("apply");
+
+        let after_apply: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(
+            after_apply["env"]["ANTHROPIC_BASE_URL"], "https://api.example.com",
+            "sanity check: the profile was actually applied"
+        );
+        assert_eq!(
+            after_apply["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "/opt/vanehub/bin/vanehub-permission-hook",
+            "applying a profile must not touch the existing permission hook entry"
+        );
+
+        adapter
+            .set_permission_hook_entries(&[json!({
+                "matcher": "Bash|Edit|Write|Read|Glob|Grep",
+                "hooks": [{"type": "command", "command": "/opt/vanehub/bin/vanehub-permission-hook"}]
+            })])
+            .expect("install");
+
+        let after_hook: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(
+            after_hook["env"]["ANTHROPIC_BASE_URL"], "https://api.example.com",
+            "installing the permission hook must not touch the profile's managed env fields"
+        );
+    }
+
+    #[test]
     fn codex_projection_preserves_comments_and_unrelated_tables() {
         let directory = TempDirectory::new("cli-config-codex");
         let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
