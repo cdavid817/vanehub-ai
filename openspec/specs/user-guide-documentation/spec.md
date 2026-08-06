@@ -28,24 +28,6 @@ Every user-guide workflow SHALL identify whether it is delivered, preview, Web/m
 - **WHEN** a workflow is labeled delivered
 - **THEN** an automated or recorded verification path SHALL exercise its user-visible controls from prerequisites through the documented result
 
-### Requirement: Representative Multi-Agent coding workflow
-The user-guide set SHALL include a representative coding workflow that explains task decomposition, stable primary and fallback Agent selection, prerequisite relationships, execution progress, output propagation, cancellation, and final result review.
-
-#### Scenario: Multi-Agent UI is available
-- **WHEN** user-visible coordination controls can create and run a plan
-- **THEN** the guide SHALL demonstrate a dependency graph with at least two independently ready implementation nodes and one dependent review or validation node
-- **AND** the workflow SHALL show how the user observes actual Agent selection, node status, bounded output, and terminal run state
-
-#### Scenario: Multi-Agent UI is not yet available
-- **WHEN** implementation of this documentation change finds the creation UI disabled or absent
-- **THEN** the developer guide MAY describe the coordination service and Web/mock contract
-- **AND** the user guide SHALL label the workflow as preview or planned and SHALL not publish simulated screenshots as delivered desktop behavior
-
-#### Scenario: Demonstrate fallback without misrepresenting failure
-- **WHEN** a guide demonstrates ordered fallback behavior
-- **THEN** it SHALL use a deterministic fixture or reproducible failure condition
-- **AND** it SHALL explain that non-retryable validation, policy, cancellation, or context-bound failures do not start fallback Agents
-
 ### Requirement: Deterministic documentation screenshots
 User-guide screenshots SHALL be produced by named Playwright scenarios with fixed fixtures, viewport, locale, visual style, reduced motion, and sanitized dynamic content.
 
