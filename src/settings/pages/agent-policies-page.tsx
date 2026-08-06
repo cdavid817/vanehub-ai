@@ -7,9 +7,23 @@ import { permissionsService } from "../../services/runtime-permissions-client";
 import { Button } from "../../components/ui/button";
 import { ApplicationDialog } from "../../components/ui/application-dialog";
 import { PageHeader, SectionPanel, SettingsRow } from "./page-parts";
-import { CLAUDE_CODE_AGENT_ID, type PolicyTemplateName, type PrincipalEntry } from "../../types/permissions";
+import {
+  CLAUDE_CODE_AGENT_ID,
+  MANAGED_CLI_AGENT_IDS,
+  type PolicyTemplateName,
+  type PrincipalEntry,
+} from "../../types/permissions";
 
 const templateOptions: PolicyTemplateName[] = ["readonly", "standard", "trusted", "yolo"];
+
+// Translation-key suffix for each managed CLI principal's display name — parallels how
+// `settings.agentPolicies.claudeCode` was already named before the other three tools existed.
+const managedCliDisplayNameKeys: Record<(typeof MANAGED_CLI_AGENT_IDS)[number], string> = {
+  "claude-code": "claudeCode",
+  "codex-cli": "codexCli",
+  "gemini-cli": "geminiCli",
+  opencode: "opencode",
+};
 
 function requiresConfirmationToAssign(template: PolicyTemplateName): boolean {
   return template === "trusted" || template === "yolo";
@@ -74,17 +88,25 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
     );
   }, [policyEligibleAgents, query]);
 
-  // claude-code is a stable CLI principal, not a registered AgentRegistryEntry, so it's rendered
-  // as its own row rather than folded into agentService.listAgents()'s results — but it still
-  // participates in the same search filter and empty-state logic as every other row.
-  const claudeCodeDisplayName = t("settings.agentPolicies.claudeCode");
-  const claudeCodeVisible =
-    !query || claudeCodeDisplayName.toLowerCase().includes(query) || CLAUDE_CODE_AGENT_ID.includes(query);
+  // The four managed CLI ids are stable CLI principals, not registered AgentRegistryEntry rows,
+  // so they're rendered independently of agentService.listAgents()'s results — but they still
+  // participate in the same search filter and empty-state logic as every other row.
+  const visibleManagedCliAgents = useMemo(
+    () =>
+      MANAGED_CLI_AGENT_IDS.map((agentId) => ({
+        agentId,
+        displayName: t(`settings.agentPolicies.${managedCliDisplayNameKeys[agentId]}`),
+      })).filter(
+        ({ agentId, displayName }) =>
+          !query || displayName.toLowerCase().includes(query) || agentId.includes(query),
+      ),
+    [query, t],
+  );
 
   const agentIds = useMemo(() => {
     const ids = visibleAgents.map((agent) => agent.id);
-    return claudeCodeVisible ? [...ids, CLAUDE_CODE_AGENT_ID] : ids;
-  }, [visibleAgents, claudeCodeVisible]);
+    return [...ids, ...visibleManagedCliAgents.map(({ agentId }) => agentId)];
+  }, [visibleAgents, visibleManagedCliAgents]);
 
   const principalsQuery = useQuery({
     queryKey: ["agent-policies", "principals", agentIds],
@@ -139,7 +161,7 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
     setPendingConfirm(null);
   }
 
-  const hasAnyVisibleRow = visibleAgents.length > 0 || claudeCodeVisible;
+  const hasAnyVisibleRow = visibleAgents.length > 0 || visibleManagedCliAgents.length > 0;
 
   return (
     <div>
@@ -163,16 +185,16 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
                 title={agent.displayName}
               />
             ))}
-            {claudeCodeVisible ? (
+            {visibleManagedCliAgents.map(({ agentId, displayName }) => (
               <AgentPolicyRow
-                description={CLAUDE_CODE_AGENT_ID}
+                description={agentId}
                 disabled={assignMutation.isPending}
-                key={CLAUDE_CODE_AGENT_ID}
-                onSelect={(template) => selectTemplate(CLAUDE_CODE_AGENT_ID, template)}
-                principal={principals?.get(CLAUDE_CODE_AGENT_ID)}
-                title={claudeCodeDisplayName}
+                key={agentId}
+                onSelect={(template) => selectTemplate(agentId, template)}
+                principal={principals?.get(agentId)}
+                title={displayName}
               />
-            ) : null}
+            ))}
           </>
         )}
       </SectionPanel>

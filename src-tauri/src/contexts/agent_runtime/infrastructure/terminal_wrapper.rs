@@ -1,4 +1,5 @@
 use crate::platform::logging;
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,10 @@ pub(crate) struct AgentTerminalWrapperRequest {
     pub(crate) shell: AgentTerminalShell,
     pub(crate) shell_executable: String,
     pub(crate) wrapper_dir: PathBuf,
+    /// Environment variables to export before launching `executable` — currently only ever
+    /// populated for opencode's `standard` policy template's `OPENCODE_PERMISSION`
+    /// (`add-cli-agent-permission-launch-flags`). Empty in every other case.
+    pub(crate) env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +61,10 @@ pub(crate) fn generate_agent_terminal_wrapper(
     validate_token(&request.executable, "executable")?;
     for arg in &request.args {
         validate_token(arg, "argument")?;
+    }
+    for (name, value) in &request.env {
+        validate_token(name, "environment variable name")?;
+        validate_token(value, "environment variable value")?;
     }
     fs::create_dir_all(&request.wrapper_dir).map_err(|error| error.to_string())?;
     let wrapper_path = request.wrapper_dir.join(format!(
@@ -99,21 +108,29 @@ fn wrapper_body(request: &AgentTerminalWrapperRequest) -> String {
             request.session_folder.as_deref(),
             &request.executable,
             &request.args,
+            &request.env,
         ),
         AgentTerminalShell::WindowsCmd => cmd_wrapper_body(
             request.session_folder.as_deref(),
             &request.executable,
             &request.args,
+            &request.env,
         ),
         AgentTerminalShell::UnixDefault => unix_wrapper_body(
             request.session_folder.as_deref(),
             &request.executable,
             &request.args,
+            &request.env,
         ),
     }
 }
 
-fn powershell_wrapper_body(folder: Option<&Path>, executable: &str, args: &[String]) -> String {
+fn powershell_wrapper_body(
+    folder: Option<&Path>,
+    executable: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> String {
     let mut lines = vec![
         "$ErrorActionPreference = 'Stop'".to_string(),
         "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()".to_string(),
@@ -123,6 +140,12 @@ fn powershell_wrapper_body(folder: Option<&Path>, executable: &str, args: &[Stri
         lines.push(format!(
             "Set-Location -LiteralPath {}",
             powershell_single_quote(&folder.to_string_lossy())
+        ));
+    }
+    for (name, value) in env {
+        lines.push(format!(
+            "$env:{name} = {}",
+            powershell_single_quote(value)
         ));
     }
     let args = args
@@ -143,13 +166,21 @@ fn powershell_wrapper_body(folder: Option<&Path>, executable: &str, args: &[Stri
     format!("{}\r\n", lines.join("\r\n"))
 }
 
-fn cmd_wrapper_body(folder: Option<&Path>, executable: &str, args: &[String]) -> String {
+fn cmd_wrapper_body(
+    folder: Option<&Path>,
+    executable: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> String {
     let mut lines = vec![
         "@echo off".to_string(),
         "setlocal DisableDelayedExpansion".to_string(),
     ];
     if let Some(folder) = folder {
         lines.push(format!("cd /d {}", cmd_quote(&folder.to_string_lossy())));
+    }
+    for (name, value) in env {
+        lines.push(format!("set \"{name}={}\"", cmd_env_escape(value)));
     }
     let args = args.iter().map(|arg| cmd_quote(arg)).collect::<Vec<_>>();
     let suffix = if args.is_empty() {
@@ -162,13 +193,21 @@ fn cmd_wrapper_body(folder: Option<&Path>, executable: &str, args: &[String]) ->
     format!("{}\r\n", lines.join("\r\n"))
 }
 
-fn unix_wrapper_body(folder: Option<&Path>, executable: &str, args: &[String]) -> String {
+fn unix_wrapper_body(
+    folder: Option<&Path>,
+    executable: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+) -> String {
     let mut lines = vec!["set -e".to_string()];
     if let Some(folder) = folder {
         lines.push(format!(
             "cd -- {}",
             shell_single_quote(&folder.to_string_lossy())
         ));
+    }
+    for (name, value) in env {
+        lines.push(format!("export {name}={}", shell_single_quote(value)));
     }
     let args = args
         .iter()
@@ -200,11 +239,17 @@ fn shell_single_quote(value: &str) -> String {
 }
 
 fn cmd_quote(value: &str) -> String {
-    let escaped = value
+    format!("\"{}\"", cmd_env_escape(value))
+}
+
+/// The interior escaping `cmd_quote` wraps in quotes — factored out for `set "NAME=value"`,
+/// which needs the same character escaping but supplies its own outer quotes around the whole
+/// `NAME=value` assignment rather than just the value.
+fn cmd_env_escape(value: &str) -> String {
+    value
         .replace('%', "%%")
         .replace('^', "^^")
-        .replace('"', "\"\"");
-    format!("\"{escaped}\"")
+        .replace('"', "\"\"")
 }
 
 fn redacted_command(executable: &str, args: &[String]) -> String {
@@ -268,6 +313,7 @@ mod tests {
                 }
                 .to_string(),
                 wrapper_dir,
+                env: BTreeMap::new(),
             },
         )
     }
@@ -331,6 +377,7 @@ mod tests {
             shell: AgentTerminalShell::UnixDefault,
             shell_executable: "/bin/zsh".to_string(),
             wrapper_dir: directory.path().join("wrappers"),
+            env: BTreeMap::new(),
         };
 
         let spec = generate_agent_terminal_wrapper(&request).expect("wrapper");
@@ -360,6 +407,55 @@ mod tests {
     }
 
     #[test]
+    fn env_vars_are_exported_before_the_launch_line_on_every_shell() {
+        for shell in [
+            AgentTerminalShell::WindowsPowerShell,
+            AgentTerminalShell::WindowsCmd,
+            AgentTerminalShell::UnixDefault,
+        ] {
+            let (_directory, mut request) = request(shell);
+            request.env = BTreeMap::from([(
+                "OPENCODE_PERMISSION".to_string(),
+                r#"{"edit":"ask","bash":"ask"}"#.to_string(),
+            )]);
+
+            let spec = generate_agent_terminal_wrapper(&request).expect("wrapper");
+            let body = fs::read_to_string(&spec.wrapper_path).expect("body");
+
+            let expected = match shell {
+                AgentTerminalShell::WindowsPowerShell => {
+                    r#"$env:OPENCODE_PERMISSION = '{"edit":"ask","bash":"ask"}'"#.to_string()
+                }
+                AgentTerminalShell::WindowsCmd => {
+                    "set \"OPENCODE_PERMISSION={\"\"edit\"\":\"\"ask\"\",\"\"bash\"\":\"\"ask\"\"}\""
+                        .to_string()
+                }
+                AgentTerminalShell::UnixDefault => {
+                    r#"export OPENCODE_PERMISSION='{"edit":"ask","bash":"ask"}'"#.to_string()
+                }
+            };
+            assert!(
+                body.contains(&expected),
+                "{shell:?}: expected body to contain {expected:?}, got:\n{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_env_lines_appear_when_env_is_empty() {
+        for shell in [
+            AgentTerminalShell::WindowsPowerShell,
+            AgentTerminalShell::WindowsCmd,
+            AgentTerminalShell::UnixDefault,
+        ] {
+            let (_directory, request) = request(shell);
+            let spec = generate_agent_terminal_wrapper(&request).expect("wrapper");
+            let body = fs::read_to_string(&spec.wrapper_path).expect("body");
+            assert!(!body.contains("OPENCODE_PERMISSION"), "{shell:?}");
+        }
+    }
+
+    #[test]
     fn rejects_empty_and_nul_tokens() {
         let directory = TempDirectory::new("agent-terminal-wrapper-invalid");
         let mut request = AgentTerminalWrapperRequest {
@@ -370,6 +466,7 @@ mod tests {
             shell: AgentTerminalShell::UnixDefault,
             shell_executable: "/bin/sh".to_string(),
             wrapper_dir: directory.path().join("wrappers"),
+            env: BTreeMap::new(),
         };
         assert!(generate_agent_terminal_wrapper(&request).is_err());
 

@@ -1,7 +1,15 @@
 use crate::contexts::agent_runtime::application::AgentChatConfiguration;
+use crate::contexts::permissions::api::PolicyTemplateName;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+
+/// The three managed CLI agents whose interactive launches `apply_policy_template_overrides`
+/// governs — `claude-code` is deliberately excluded, since its policy template is already
+/// enforced dynamically through `claude-code-permission-hook`'s per-call hook, not a launch flag
+/// (`add-cli-agent-permission-launch-flags` design.md).
+pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 3] =
+    ["codex-cli", "gemini-cli", "opencode"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderPromptDelivery {
@@ -275,6 +283,131 @@ pub(crate) fn apply_configuration_overrides(
     }
 
     selections
+}
+
+/// Projects an agent principal's assigned policy template onto `codex-cli`/`gemini-cli`/
+/// `opencode`'s own native launch-time approval/sandbox parameters, taking precedence over
+/// whatever the user separately saved in that agent's CLI Parameter profile for the specific
+/// keys it governs (`add-cli-agent-permission-launch-flags` design.md's mapping table). Every
+/// other selection is left untouched — this mirrors `apply_configuration_overrides`'s own
+/// override-only-what-you-govern shape, just driven by the launch-time policy template instead
+/// of the per-message chat `permission_mode`.
+///
+/// `trusted` and `yolo` deliberately resolve identically here, matching the established
+/// `permissions-core` precedent that the two templates already resolve identically in
+/// `evaluate()` — the difference between them is assignment-time confirmation friction, not
+/// technical capability, so it would be inconsistent to carve out a tool-specific middle tier
+/// (e.g. gemini-cli's `auto_edit`) for one of them here.
+///
+/// `opencode`'s `standard` deliberately makes no selections change: no existing `opencode`
+/// catalog value means "ask before edits/bash, stay permissive for reads," so that template is
+/// instead expressed via an injected `OPENCODE_PERMISSION` environment variable in the generated
+/// terminal wrapper script (see `terminal_wrapper.rs`).
+pub(crate) fn apply_policy_template_overrides(
+    agent_id: &str,
+    mut selections: BTreeMap<String, Value>,
+    template: PolicyTemplateName,
+) -> BTreeMap<String, Value> {
+    match (agent_id, template) {
+        ("codex-cli", PolicyTemplateName::Readonly) => {
+            selections.insert("sandbox".to_string(), Value::String("read-only".to_string()));
+            selections.insert(
+                "approvalPolicy".to_string(),
+                Value::String("never".to_string()),
+            );
+        }
+        ("codex-cli", PolicyTemplateName::Standard) => {
+            selections.insert(
+                "sandbox".to_string(),
+                Value::String("workspace-write".to_string()),
+            );
+            selections.insert(
+                "approvalPolicy".to_string(),
+                Value::String("on-request".to_string()),
+            );
+        }
+        ("codex-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            selections.insert(
+                "sandbox".to_string(),
+                Value::String("workspace-write".to_string()),
+            );
+            selections.insert(
+                "approvalPolicy".to_string(),
+                Value::String("never".to_string()),
+            );
+        }
+        ("gemini-cli", PolicyTemplateName::Readonly) => {
+            selections.insert(
+                "approvalMode".to_string(),
+                Value::String("plan".to_string()),
+            );
+        }
+        ("gemini-cli", PolicyTemplateName::Standard) => {
+            // `preview_args` omits any flag whose selected value is the literal string
+            // "default" (its convention for "don't override, respect whatever's already
+            // configured"). gemini-cli's own real ask-every-time mode happens to be spelled
+            // "default" too, so recording it here is necessary for the effective-selections
+            // view to be honest, but not sufficient on its own to guarantee the flag reaches
+            // argv — `force_gemini_standard_approval_flag` does that after `preview_args` runs.
+            selections.insert(
+                "approvalMode".to_string(),
+                Value::String("default".to_string()),
+            );
+        }
+        ("gemini-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            selections.insert(
+                "approvalMode".to_string(),
+                Value::String("yolo".to_string()),
+            );
+        }
+        ("opencode", PolicyTemplateName::Readonly) => {
+            selections.insert("agent".to_string(), Value::String("plan".to_string()));
+        }
+        ("opencode", PolicyTemplateName::Standard) => {}
+        ("opencode", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            selections.insert("autoApprove".to_string(), Value::Bool(true));
+        }
+        _ => {}
+    }
+    selections
+}
+
+/// Forces `--approval-mode default` onto a gemini-cli `standard` launch's final argv, undoing
+/// `preview_args`' general "a `default`-valued selection omits its flag" convention for this one
+/// case. Without this, `standard` would silently fall through to the user's own
+/// `~/.gemini/settings.json`, which may set anything (including `yolo`), breaking the guarantee
+/// that `standard` reliably asks. Safe to call for any agent/template; it only acts on
+/// `(gemini-cli, Standard)`.
+pub(crate) fn force_gemini_standard_approval_flag(
+    agent_id: &str,
+    template: PolicyTemplateName,
+    mut args: Vec<String>,
+) -> Vec<String> {
+    if agent_id != "gemini-cli" || template != PolicyTemplateName::Standard {
+        return args;
+    }
+    if let Some(position) = args.iter().position(|argument| argument == "--approval-mode") {
+        let end = (position + 2).min(args.len());
+        args.drain(position..end);
+    }
+    args.extend(["--approval-mode".to_string(), "default".to_string()]);
+    args
+}
+
+/// Opencode's `standard` template has no expressible `cli_parameters` catalog value for "ask
+/// before edits/bash, stay permissive for reads" (its `agent` enum is only `default`/`build`/
+/// `plan`, none of which mean that) — this returns the `OPENCODE_PERMISSION` environment
+/// variable to inject instead, so the generated terminal wrapper script can export it. `None`
+/// for every other `(agent_id, template)` combination.
+pub(crate) fn opencode_standard_permission_env_var(
+    agent_id: &str,
+    template: PolicyTemplateName,
+) -> Option<(&'static str, &'static str)> {
+    if agent_id == "opencode" && template == PolicyTemplateName::Standard {
+        Some(("OPENCODE_PERMISSION", r#"{"edit":"ask","bash":"ask"}"#))
+    } else {
+        None
+    }
 }
 
 fn mapped_model(agent_id: &str, model_id: &str) -> Option<&'static str> {

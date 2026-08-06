@@ -365,6 +365,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             shell,
             shell_executable,
             wrapper_dir: self.wrapper_dir.clone(),
+            env: request.cli_profile.env.clone(),
         })
         .map_err(|error| {
             let message = format!("Failed to prepare Agent terminal wrapper: {error}");
@@ -1593,6 +1594,7 @@ mod tests {
                     executable: "codex".to_string(),
                     selections: BTreeMap::from([("model".to_string(), json!("gpt-5"))]),
                     managed_args: vec!["--model".to_string(), "gpt-5".to_string()],
+                    env: BTreeMap::new(),
                 },
                 size: AgentTerminalSize { rows: 24, cols: 80 },
             },

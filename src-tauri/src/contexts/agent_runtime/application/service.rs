@@ -1666,6 +1666,7 @@ impl AgentRuntimeApplicationService {
                 executable: String::new(),
                 selections: std::collections::BTreeMap::new(),
                 managed_args: Vec::new(),
+                env: std::collections::BTreeMap::new(),
             }
         };
         let input_count = effective_prompt.content.chars().count();

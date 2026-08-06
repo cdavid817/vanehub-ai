@@ -470,6 +470,7 @@ impl AgentCliProfileGateway for FakeWorld {
                 Value::String("gpt-5.5".to_string()),
             )]),
             managed_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
+            env: BTreeMap::new(),
         })
     }
 }

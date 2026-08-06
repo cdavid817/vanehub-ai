@@ -1878,6 +1878,7 @@ mod tests {
                 executable: String::new(),
                 selections: BTreeMap::new(),
                 managed_args: Vec::new(),
+                env: BTreeMap::new(),
             },
         }
     }

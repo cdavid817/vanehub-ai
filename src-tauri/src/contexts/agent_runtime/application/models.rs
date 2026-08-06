@@ -517,6 +517,12 @@ pub(crate) struct CliProfileSnapshot {
     pub(crate) executable: String,
     pub(crate) selections: BTreeMap<String, Value>,
     pub(crate) managed_args: Vec<String>,
+    /// Environment variables the launch needs beyond argv — currently only populated for
+    /// opencode's `standard` policy template, whose "ask before edits/bash" posture has no
+    /// expressible `cli_parameters` catalog value and is instead carried via `OPENCODE_PERMISSION`
+    /// (`add-cli-agent-permission-launch-flags` design.md). Empty for every other case, including
+    /// every Chat-scope (`load`) snapshot.
+    pub(crate) env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,0 +1,49 @@
+## 1. Policy template → launch parameter mapping (pure function)
+
+- [x] 1.1 Add `apply_policy_template_overrides(agent_id, selections, template) -> selections` (new sibling of `apply_configuration_overrides` in `src-tauri/src/contexts/agent_runtime/infrastructure/providers/invocation.rs`), implementing the readonly/standard/trusted/yolo × codex-cli/gemini-cli/opencode mapping table from `design.md`.
+- [x] 1.2 Implement the Gemini-`standard` exception: force-emit `--approval-mode default` even though the general `preview_args` convention omits a flag whose value is the literal string `default`. Implemented as a separate `force_gemini_standard_approval_flag` post-`preview_args` step (operates on final argv, not the selections map) since `preview_args`'s "default means omit" convention lives one layer below where selections are built.
+- [x] 1.3 Unit test all 12 (3 tools × 4 templates) combinations against the mapping table. `fixtures/policy-template-overrides.json` + `policy_template_override_fixtures_cover_every_combination`.
+- [x] 1.4 Unit test that parameters a template does not govern (model, effort, chrome, thinking, ephemeral, strictConfig, etc.) pass through unchanged, for at least one combination per tool. Folded into the same fixture file — every entry carries an unrelated key through `base`/`expected` unchanged.
+- [x] 1.5 Unit test the Gemini-`standard` force-emit behavior specifically. `gemini_standard_force_emits_approval_mode_default` (append case, replace-conflicting-value case, and two "does not act" cases for wrong template/wrong agent).
+- [x] 1.6 Unit test that no template's projected values introduce a flag whose name contains "dangerously", for all 12 combinations. `policy_template_overrides_never_introduce_a_dangerous_flag`.
+
+## 2. Cross-context port: agent_runtime → permissions
+
+- [x] 2.1-2.3 **Design deviation (documented, no behavior change):** no new `PolicyTemplateLookupPort` trait was added. `RuntimeAgentCliProfileAdapter` already directly holds concrete cross-context dependencies (`CliParametersApi`, `CliApi`) with no port indirection — Phase 2's `ClaudeCodeHookPort` trait exists because `PermissionsApi::assign_template` (application-layer code) needed it for its own unit tests, which doesn't apply here since this call site is already infrastructure-layer, the same layer as the existing direct-dependency examples in this exact struct. Added `permissions: PermissionsApi` as a third concrete field instead, mirroring `parameters`/`cli`; wired into bootstrap (`bootstrap/agent_runtime.rs`) alongside the existing construction, cloning `dependencies.permissions` at its other use site (`PermissionsPortAdapter::new`) so both consumers get it. No circular-dependency risk (`contexts::permissions` has no reference back to `contexts::agent_runtime`).
+- [x] 2.4 Superseded by 3.4/3.5 below — tested against a real `PermissionsApi` (real SQLite via `NativeDatabase`, fakes only for `PermissionsApi`'s own leaf dependencies: `DefaultTemplatePort`, `ClaudeCodeHookPort`, `PendingApprovalEventPort`), not a fake of a port that no longer exists.
+
+## 3. Wire the override into the interactive launch path
+
+- [x] 3.1 `RuntimeAgentCliProfileAdapter::load_interactive` now calls `find_principal` directly (via its own `permissions: PermissionsApi` field) for `codex-cli`/`gemini-cli`/`opencode`, then applies `apply_policy_template_overrides` before `preview_args(..., CliParameterLaunchScope::Interactive)`, then `force_gemini_standard_approval_flag` after. The selections/args computation was factored into a free function `interactive_selections_and_args` so it's testable without also needing a fully-wired `CliApi` (executable resolution has its own, unrelated dependency graph).
+- [x] 3.2 `claude-code` is gated out via `POLICY_TEMPLATE_GOVERNED_AGENT_IDS.contains(&agent_id)` — no lookup call happens for it at all. Covered by `claude_code_is_never_looked_up`.
+- [x] 3.3 Lookup failure propagates through the existing `cli_profile_error` helper into `AgentRuntimeApplicationError::CliProfile`, identical to the pre-existing executable-resolution failure path — no new error variant, no fallback branch.
+- [x] 3.4 `readonly_template_overrides_a_conflicting_saved_codex_selection` — seeds a conflicting `sandbox=workspace-write` CLI Parameter selection, assigns `readonly`, asserts the resolved args use `read-only` and never mention `workspace-write`.
+- [x] 3.5 `unassigned_agent_resolves_the_configured_default_template` — no `assign_template` call at all; asserts `opencode` still resolves the site's configured default (`Trusted` in the test) via `find_principal`'s existing synthesis.
+
+## 4. OpenCode environment-variable injection
+
+- [x] 4.1 `AgentTerminalWrapperRequest`/`CliProfileSnapshot` both gained an `env: BTreeMap<String, String>` field; `interactive_selections_and_args` populates it via the new `opencode_standard_permission_env_var` helper, threaded through `terminal_process.rs` into the wrapper request. All three shell body generators (`powershell_wrapper_body`/`cmd_wrapper_body`/`unix_wrapper_body`) now emit one export/`set`/`$env:` line per entry, validated through the existing `validate_token` (NUL/empty rejection) before the script is written.
+- [x] 4.2 `env_vars_are_exported_before_the_launch_line_on_every_shell` (asserts the exact escaped line per shell) and `no_env_lines_appear_when_env_is_empty`, plus `opencode_standard_injects_the_permission_env_var` / `opencode_readonly_does_not_inject_the_permission_env_var` / `trusted` at the `interactive_selections_and_args` level (Group 3's tests).
+
+## 5. Agent Policies page generalization
+
+- [x] 5.1 Added `MANAGED_CLI_AGENT_IDS` to `src/types/permissions.ts`, alongside the existing `CLAUDE_CODE_AGENT_ID`.
+- [x] 5.2 `agent-policies-page.tsx` now maps over `MANAGED_CLI_AGENT_IDS` (via `visibleManagedCliAgents`, sharing the same search-filter/empty-state logic every other row already used); `pendingInstallConfirm` stays gated to `agentId === CLAUDE_CODE_AGENT_ID`, unchanged.
+- [x] 5.3 Added a new `describe` block to `agent-policies-page.interaction.test.tsx` covering `codex-cli`: standard applies immediately with no install-confirmation dialog, and trusted still shows the generic confirmation and applies on confirm. `beforeEach`'s mock switched from a single static `mockResolvedValue` to a per-agent-id `mockImplementation` so the now-multi-agent-id query resolves correctly for every test.
+- [x] 5.4 Confirmed — `web-permissions-client.ts`'s `getAgentPolicyPrincipal`/`applyPolicyTemplate` were already fully generic over `agentId`, no special-casing existed to remove.
+
+## 6. i18n and CLI Parameter Management page help text
+
+- [x] 6.1 Added `settings.agentPolicies.codexCli`/`geminiCli`/`opencode` across all five locale files, right after the existing `claudeCode` key. All four managed-CLI display names are established elsewhere in this codebase (`cliParameters.agents.*`) as untranslated brand names ("Codex CLI", "Gemini CLI", "OpenCode"), so all five locales use the identical literal strings — consistent with how `claudeCode` itself was never translated.
+- [x] 6.2 Added a `cliParameters.policyPrecedenceNotice` line to `cli-parameters-page.tsx`, shown for every managed CLI tab except `claude-code` (whose parameters aren't policy-template-governed at all — Phase 2's hook mechanism is unrelated to this page's flags, so showing the note there would be actively misleading, not just imprecise). i18n keys added across all five locales with real, non-machine-translated text.
+
+## 7. Verification
+
+- [x] 7.1 `cargo check --manifest-path src-tauri/Cargo.toml` — clean.
+- [x] 7.2 `cargo test --manifest-path src-tauri/Cargo.toml` — 1337 lib tests + all integration binaries (including the `architecture.rs` cross-context dependency governance suite) pass, 0 failed. Confirms the deviation in Group 2 (no new port trait, direct `PermissionsApi` dependency) doesn't violate this repo's own enforced architectural boundaries.
+- [x] 7.3 `cargo clippy --manifest-path src-tauri/Cargo.toml` — clean; only the same 5 pre-existing warnings in unrelated `permissions` dead code, none introduced by this change.
+- [x] 7.4 `npm run lint` — clean.
+- [x] 7.5 `npm run test` — 131 files / 531 tests pass.
+- [x] 7.6 `npm run build` — succeeds; the project's own lazy-chunk verification step ("Verified 16 lazy frontend chunks") also passes, confirming the Agent Policies page change didn't break code-splitting.
+- [x] 7.7 `openspec validate add-cli-agent-permission-launch-flags --strict` and `openspec validate --specs --strict` (87 passed, 0 failed) both clean.
+- [x] 7.8 **Partially verified, documented honestly:** `codex`/`gemini`/`opencode` binaries turned out to actually be installed on this development machine (`command -v` found all three), so every flag name and enum value this change relies on was checked against each tool's own real `--help` output rather than only against earlier research — confirmed exact matches: codex's `-s/--sandbox <SANDBOX_MODE>` (`read-only`/`workspace-write`/`danger-full-access`) and `-a/--ask-for-approval <APPROVAL_POLICY>` (`untrusted`/`on-request`/`never`); gemini's `--approval-mode` (`default`/`auto_edit`/`yolo`/`plan`); opencode's `--agent <string>` and `--auto` (boolean, "auto-approve permissions that are not explicitly denied (dangerous!)"). What this does **not** cover: an actual live launch through the running VaneHub desktop app with a real assigned template and a real PTY session — that would require starting the full desktop app interactively, which wasn't done as part of this pass. Flagged for the user rather than silently left as "same as no CLIs installed."

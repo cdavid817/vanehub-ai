@@ -157,7 +157,7 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.database.clone(),
     ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
-    let agent_permissions = Arc::new(PermissionsPortAdapter::new(dependencies.permissions));
+    let agent_permissions = Arc::new(PermissionsPortAdapter::new(dependencies.permissions.clone()));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -179,6 +179,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
         dependencies.cli_parameters,
         dependencies.cli,
+        dependencies.permissions,
     ));
     let events = Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app));
     let operations = Arc::new(AgentRuntimeOperationAdapter::new(dependencies.operations));
