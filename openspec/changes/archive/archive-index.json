@@ -1610,6 +1610,22 @@
                                               "notification-system",
                                               "visual-design-system"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-claude-code-permission-callback",
+                         "path":  "openspec/changes/archive/2026-08-06-add-claude-code-permission-callback/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "claude-code-permission-hook",
+                                              "cli-agent-config-management",
+                                              "permissions-approval",
+                                              "permissions-core"
+                                          ]
                      }
                  ]
 }
