@@ -16,9 +16,9 @@
 
 ## 3. Model Family Normalization
 
-- [ ] 3.1 Add a normalization mapping built-in Agents to model families and inferring families for custom API Agents from their endpoint type.
-- [ ] 3.2 Expose the normalized family on the Agent registry projection consumed by seat assignment.
-- [ ] 3.3 Unit-test that free-form `provider` values such as `"OpenAI"` normalize correctly and that unknown providers degrade to an explicit unknown family rather than a wrong one.
+- [x] 3.1 Add a normalization mapping built-in Agents to model families and inferring families for custom API Agents from their endpoint type.
+- [x] 3.2 Expose the normalized family on the Agent registry projection consumed by seat assignment.
+- [x] 3.3 Unit-test that free-form `provider` values such as `"OpenAI"` normalize correctly and that unknown providers degrade to an explicit unknown family rather than a wrong one.
 
 ## 4. Seats and Session Entity
 
