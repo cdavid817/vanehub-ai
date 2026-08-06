@@ -63,6 +63,9 @@ tracing = { version = "=0.1.44", features = ["attributes", "std"] }
 tracing-opentelemetry = { version = "=0.33.0", default-features = false }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
 tauri-plugin-opener = "2"
+globset = "0.4"
+ignore = "0.4"
+regex = "1"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.38.2"

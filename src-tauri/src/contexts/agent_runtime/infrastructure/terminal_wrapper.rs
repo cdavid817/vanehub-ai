@@ -143,10 +143,7 @@ fn powershell_wrapper_body(
         ));
     }
     for (name, value) in env {
-        lines.push(format!(
-            "$env:{name} = {}",
-            powershell_single_quote(value)
-        ));
+        lines.push(format!("$env:{name} = {}", powershell_single_quote(value)));
     }
     let args = args
         .iter()

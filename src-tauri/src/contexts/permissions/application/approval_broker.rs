@@ -10,8 +10,8 @@ use super::ports::{
     PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
-    risk_level_for, Action, ApprovalDecision, ApprovalRequest, Effect, Grant, Principal,
-    PolicyTemplateName, Resource, Scope,
+    risk_level_for, Action, ApprovalDecision, ApprovalRequest, Effect, Grant, PolicyTemplateName,
+    Principal, Resource, Scope,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -29,6 +29,10 @@ pub(crate) struct ApprovalBroker {
 }
 
 /// The result of resolving (or attempting to resolve) a pending approval.
+///
+/// `request`/`effect` are read by this module's own tests; no production caller consumes the
+/// resolved value beyond `is_some()` today — reserved for a future audit/UI surface.
+#[allow(dead_code)]
 pub(crate) struct ResolvedApproval {
     pub(crate) request: ApprovalRequest,
     pub(crate) effect: Effect,
@@ -131,7 +135,10 @@ impl ApprovalBroker {
         delivered: bool,
     ) -> Result<Option<ResolvedApproval>, PermissionsApplicationError> {
         let request = {
-            let mut pending = self.pending.lock().expect("pending approvals mutex poisoned");
+            let mut pending = self
+                .pending
+                .lock()
+                .expect("pending approvals mutex poisoned");
             match pending.remove(request_id) {
                 Some(request) => request,
                 None => return Ok(None),
@@ -179,7 +186,10 @@ impl ApprovalBroker {
     pub(crate) fn sweep_timed_out(&self) -> Vec<ApprovalRequest> {
         let now: i64 = self.clock.now().parse().unwrap_or(0);
         let expired: Vec<ApprovalRequest> = {
-            let mut pending = self.pending.lock().expect("pending approvals mutex poisoned");
+            let mut pending = self
+                .pending
+                .lock()
+                .expect("pending approvals mutex poisoned");
             let expired_ids: Vec<String> = pending
                 .values()
                 .filter(|request| {
@@ -214,7 +224,10 @@ impl ApprovalBroker {
         expired
     }
 
-    fn get_or_create_principal(&self, agent_id: &str) -> Result<Principal, PermissionsApplicationError> {
+    fn get_or_create_principal(
+        &self,
+        agent_id: &str,
+    ) -> Result<Principal, PermissionsApplicationError> {
         if let Some(principal) = self.principals.find_by_agent_id(agent_id)? {
             return Ok(principal);
         }
@@ -316,7 +329,12 @@ mod tests {
 
     fn broker(
         timeout_seconds: i64,
-    ) -> (ApprovalBroker, Arc<FakeGrants>, Arc<FakeAudit>, Arc<FakeEvents>) {
+    ) -> (
+        ApprovalBroker,
+        Arc<FakeGrants>,
+        Arc<FakeAudit>,
+        Arc<FakeEvents>,
+    ) {
         let grants = Arc::new(FakeGrants::default());
         let audit = Arc::new(FakeAudit::default());
         let events = Arc::new(FakeEvents::default());
@@ -426,12 +444,20 @@ mod tests {
             )
             .unwrap();
         let resolved = broker
-            .finalize(&request.id, ApprovalDecision::Approve, Scope::Session, false)
+            .finalize(
+                &request.id,
+                ApprovalDecision::Approve,
+                Scope::Session,
+                false,
+            )
             .unwrap()
             .expect("pending approval should still resolve, just as stale");
         assert_eq!(resolved.effect, Effect::Allow);
         assert!(grants.0.lock().unwrap().is_empty());
-        assert_eq!(*audit.0.lock().unwrap(), vec![AuditDecider::StaleGeneration]);
+        assert_eq!(
+            *audit.0.lock().unwrap(),
+            vec![AuditDecider::StaleGeneration]
+        );
     }
 
     #[test]

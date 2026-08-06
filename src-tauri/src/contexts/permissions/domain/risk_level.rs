@@ -14,6 +14,7 @@ pub(crate) enum RiskLevel {
     L2,
     /// Declared but never produced in Phase 1 — reserved for a future network/external-effect
     /// category (design.md Roadmap, Phase 3+).
+    #[allow(dead_code)]
     L3,
 }
 
@@ -53,6 +54,9 @@ mod tests {
 
     #[test]
     fn unknown_action_fails_closed_to_l2() {
-        assert_eq!(risk_level_for(&Action::new("codex.sandbox_escalation")), RiskLevel::L2);
+        assert_eq!(
+            risk_level_for(&Action::new("codex.sandbox_escalation")),
+            RiskLevel::L2
+        );
     }
 }

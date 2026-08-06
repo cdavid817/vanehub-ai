@@ -1,5 +1,5 @@
 use crate::contexts::permissions::application::{PermissionsApplicationError, PrincipalRepository};
-use crate::contexts::permissions::domain::{Principal, PolicyTemplateName};
+use crate::contexts::permissions::domain::{PolicyTemplateName, Principal};
 use crate::platform::database::NativeDatabase;
 use rusqlite::{params, OptionalExtension, Row};
 
@@ -19,10 +19,18 @@ impl SqlitePrincipalRepository {
         let template_name: String = row.get(2)?;
         let parent_principal_id: Option<String> = row.get(3)?;
         let budget_config_raw: Option<String> = row.get(4)?;
-        let template = PolicyTemplateName::from_str(&template_name).unwrap_or(PolicyTemplateName::Standard);
+        let template =
+            PolicyTemplateName::from_str(&template_name).unwrap_or(PolicyTemplateName::Standard);
         let budget_config = budget_config_raw.and_then(|raw| serde_json::from_str(&raw).ok());
-        Principal::new(id, agent_id, template, parent_principal_id, budget_config)
-            .map_err(|error| rusqlite::Error::InvalidColumnType(0, error.to_string(), rusqlite::types::Type::Text))
+        Principal::new(id, agent_id, template, parent_principal_id, budget_config).map_err(
+            |error| {
+                rusqlite::Error::InvalidColumnType(
+                    0,
+                    error.to_string(),
+                    rusqlite::types::Type::Text,
+                )
+            },
+        )
     }
 }
 
@@ -137,7 +145,10 @@ mod tests {
     #[test]
     fn find_by_unknown_agent_id_returns_none() {
         let (repository, _directory) = repository();
-        assert!(repository.find_by_agent_id("does-not-exist").unwrap().is_none());
+        assert!(repository
+            .find_by_agent_id("does-not-exist")
+            .unwrap()
+            .is_none());
     }
 
     #[test]

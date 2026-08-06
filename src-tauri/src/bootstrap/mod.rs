@@ -14,6 +14,7 @@ mod operations;
 mod permissions;
 mod plugin_integrations;
 mod prompt_hooks;
+mod retrieval;
 mod runtime;
 mod scheduled_tasks;
 mod sdk;
@@ -44,6 +45,9 @@ pub(crate) use operations::assemble_operations_api;
 pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;
+pub(crate) use retrieval::{
+    assemble_retrieval, start_retrieval_indexing_worker, DeferredAgentRetrieval, RetrievalAssembly,
+};
 pub(crate) use runtime::run;
 pub(crate) use scheduled_tasks::start_scheduled_task_jobs;
 pub(crate) use sdk::assemble_sdk_api;

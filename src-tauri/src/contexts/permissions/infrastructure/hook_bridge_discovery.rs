@@ -40,7 +40,11 @@ pub(crate) fn generate_token() -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub(crate) fn write_discovery_file(path: &std::path::Path, port: u16, token: &str) -> io::Result<()> {
+pub(crate) fn write_discovery_file(
+    path: &std::path::Path,
+    port: u16,
+    token: &str,
+) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -69,16 +73,16 @@ mod tests {
     fn discovery_file_path_is_scoped_under_a_vanehub_subdirectory() {
         let path = discovery_file_path().expect("dirs should resolve on the test platform");
         assert_eq!(path.file_name().unwrap(), "permission-hook.json");
-        assert_eq!(
-            path.parent().unwrap().file_name().unwrap(),
-            "VaneHub"
-        );
+        assert_eq!(path.parent().unwrap().file_name().unwrap(), "VaneHub");
     }
 
     #[test]
     fn write_discovery_file_round_trips_through_json() {
         let path = std::env::temp_dir()
-            .join(format!("vanehub-hook-discovery-test-{}", std::process::id()))
+            .join(format!(
+                "vanehub-hook-discovery-test-{}",
+                std::process::id()
+            ))
             .join("nested")
             .join("permission-hook.json");
 

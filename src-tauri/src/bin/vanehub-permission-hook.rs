@@ -277,7 +277,8 @@ mod tests {
 
     #[test]
     fn parse_http_response_splits_status_and_body() {
-        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"decision\":\"allow\"}";
+        let raw =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"decision\":\"allow\"}";
         let response = parse_http_response(raw).expect("should parse");
         assert_eq!(response.status, 200);
         assert_eq!(response.body, r#"{"decision":"allow"}"#);
@@ -338,8 +339,13 @@ mod tests {
             }
         });
 
-        let result = send_request(port, "tok", r#"{"tool_name":"Bash"}"#, Duration::from_secs(2))
-            .expect("should succeed");
+        let result = send_request(
+            port,
+            "tok",
+            r#"{"tool_name":"Bash"}"#,
+            Duration::from_secs(2),
+        )
+        .expect("should succeed");
         assert_eq!(result.status, 200);
         assert_eq!(result.body, r#"{"decision":"allow"}"#);
     }

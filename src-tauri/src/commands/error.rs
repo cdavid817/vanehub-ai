@@ -226,7 +226,8 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Skill(message)
             | AgentRuntimeApplicationError::Memory(message)
             | AgentRuntimeApplicationError::Mcp(message)
-            | AgentRuntimeApplicationError::Permission(message) => Self::storage(message),
+            | AgentRuntimeApplicationError::Permission(message)
+            | AgentRuntimeApplicationError::Personalization(message) => Self::storage(message),
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("credential error: {}", redact_text(&message)),

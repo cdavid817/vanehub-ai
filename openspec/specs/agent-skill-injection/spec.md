@@ -91,7 +91,7 @@ The system SHALL place the assembled system prompt using each wire format's nati
 - **THEN** the system SHALL prepend it as a `role: "system"` message ahead of the conversation messages in the request
 
 ### Requirement: System prompt is immune to compaction
-The system SHALL keep the assembled system prompt, including Agent core instructions, Skill content, and scoped memories, outside the turns list that context compaction measures and rewrites.
+The system SHALL keep the assembled system prompt, including Agent core instructions, custom instructions, Skill content, and scoped memories, outside the turns list that context compaction measures and rewrites.
 
 #### Scenario: Compaction does not alter or remove the system prompt
 - **WHEN** context compaction triggers during a generation with any assembled system-prompt sections
@@ -130,13 +130,13 @@ The system SHALL limit each injected Skill to 8,000 characters and all injected 
 - **THEN** the system SHALL skip it, continue evaluating later smaller Skills, and log the omission
 
 ### Requirement: Deterministic API system-prompt section ordering
-The system SHALL assemble an API Agent's provider-native system prompt from independently resolved sections in this order: mandatory Agent core instructions when defined, bound and enabled Skills, then scoped memories.
+The system SHALL assemble an API Agent's provider-native system prompt from independently resolved sections in this order: mandatory Agent core instructions when defined, host-level custom instructions when enabled and non-empty, bound and enabled Skills, then scoped memories.
 
 #### Scenario: Assemble all OnePiece prompt sources
-- **WHEN** OnePiece has core instructions, one or more included Skills, and scoped memories
-- **THEN** the provider-native system prompt SHALL contain three distinctly delimited sections in core, Skill, then memory order
+- **WHEN** OnePiece has core instructions, enabled non-empty custom instructions, one or more included Skills, and scoped memories
+- **THEN** the provider-native system prompt SHALL contain four distinctly delimited sections in core, custom-instructions, Skill, then memory order
 
 #### Scenario: Optional section is empty
-- **WHEN** an optional Skill or memory section resolves to no content
+- **WHEN** an optional custom-instructions, Skill, or memory section resolves to no content
 - **THEN** the system SHALL omit only that section without changing the order or content of the remaining sections
 

@@ -6,6 +6,12 @@ test.describe("Loop engineering", () => {
   test("runs a Loop through pause, inspection, feedback, and acceptance while preserving session state", async ({ page }) => {
     await page.goto("/");
     await createSession(page, "Loop 导航保留测试");
+    // The session-created toast auto-dismisses after ~5s (see notification-reducer.ts's
+    // DEFAULT_NOTIFICATION_DURATION_MS), but this test's own setup before the Loop pause/confirm
+    // step below can occasionally still be within that window, and the toast's `pointer-events-auto`
+    // article intercepts the confirm click underneath it — dismiss it immediately since this test,
+    // unlike notifications.spec.ts, has no assertions about toast timing or history.
+    await page.getByRole("status").filter({ hasText: "会话创建成功" }).getByRole("button", { name: "关闭通知" }).click();
     const workspaceInput = page.getByRole("textbox", { name: "工作区命令输入" });
     await workspaceInput.fill("保留 Loop 切换前的命令草稿");
     await page.getByRole("tab", { name: "日志" }).click();

@@ -55,13 +55,17 @@ impl ClaudeCodeHookPort for ClaudeCodeHookAdapter {
     fn install(&self) -> Result<(), PermissionsApplicationError> {
         self.projection
             .set_permission_hook_entries(&self.entries())
-            .map_err(|error| PermissionsApplicationError::infrastructure("cli_config", error.to_string()))
+            .map_err(|error| {
+                PermissionsApplicationError::infrastructure("cli_config", error.to_string())
+            })
     }
 
     fn remove(&self) -> Result<(), PermissionsApplicationError> {
         self.projection
             .set_permission_hook_entries(&[])
-            .map_err(|error| PermissionsApplicationError::infrastructure("cli_config", error.to_string()))
+            .map_err(|error| {
+                PermissionsApplicationError::infrastructure("cli_config", error.to_string())
+            })
     }
 }
 
@@ -146,14 +150,16 @@ mod tests {
     fn projection_failure_surfaces_as_an_infrastructure_error() {
         let projection = Arc::new(FakeProjection::default());
         *projection.fail_next.lock().unwrap() = true;
-        let adapter =
-            ClaudeCodeHookAdapter::new(projection, PathBuf::from("/opt/vanehub-hook"));
+        let adapter = ClaudeCodeHookAdapter::new(projection, PathBuf::from("/opt/vanehub-hook"));
 
         let result = adapter.install();
 
         assert!(matches!(
             result,
-            Err(PermissionsApplicationError::Infrastructure { category: "cli_config", .. })
+            Err(PermissionsApplicationError::Infrastructure {
+                category: "cli_config",
+                ..
+            })
         ));
     }
 }

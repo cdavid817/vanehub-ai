@@ -12,6 +12,9 @@ pub(crate) enum PermissionsApplicationError {
         category: &'static str,
         message: String,
     },
+    /// Not constructed by any current code path — kept for exhaustive error mapping at the
+    /// command boundary (`commands/error.rs`) ahead of a producer that needs it.
+    #[allow(dead_code)]
     #[error("{0}")]
     Internal(String),
 }

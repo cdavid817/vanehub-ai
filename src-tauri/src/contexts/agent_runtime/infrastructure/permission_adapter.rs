@@ -1,7 +1,9 @@
 //! Adapts `permissions::api::PermissionsApi` (a published cross-context facade) to
 //! `AgentPermissionPort`, the native tool-use loop's own dependency-inversion boundary.
 
-use crate::contexts::agent_runtime::application::{AgentPermissionPort, AgentRuntimeApplicationError};
+use crate::contexts::agent_runtime::application::{
+    AgentPermissionPort, AgentRuntimeApplicationError,
+};
 use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 

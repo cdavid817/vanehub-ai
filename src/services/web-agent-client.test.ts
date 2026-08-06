@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  resetWebAgentMemoriesForTest,
   resetWebLoopsForTest,
+  resetWebRetrievalForTest,
   seedWebImSessionForTest,
   simulateWebLoopRestartForTest,
   webAgentClient,
@@ -8,8 +10,9 @@ import {
 import { webOperationClient } from "./web-operation-client";
 import { webPermissionsClient } from "./web-permissions-client";
 import { webPrincipalTemplates } from "./web-permissions-mock-state";
+import { webSettingsClient } from "./web-settings-client";
 import { webSshConnectionClient } from "./web-ssh-connection-client";
-import type { CreateSessionInput, Session } from "../types/agent";
+import type { AgentMemory, CreateSessionInput, Session } from "../types/agent";
 import type { ChatStreamEvent } from "../types/chat";
 import type { PromptHookMutationInput } from "../types/prompt-hook";
 import type { SaveLoopDefinitionInput } from "../types/loop";
@@ -17,6 +20,8 @@ import { i18n } from "../i18n";
 
 afterEach(() => {
   resetWebLoopsForTest();
+  resetWebRetrievalForTest();
+  resetWebAgentMemoriesForTest();
   vi.useRealTimers();
 });
 
@@ -56,6 +61,27 @@ describe("webAgentClient", () => {
     const completed = await webOperationClient.getOperationStatus(operation.id);
     expect(completed.status).toBe("succeeded");
     return completed.result as unknown as Session;
+  }
+
+  /** This file runs in Vitest's default "node" environment (no `window`), but
+   * `webSettingsClient`/`readWebAppSettings` (`web-settings-client.ts`) are written for a real
+   * browser and no-op to defaults when `window` is undefined. Stub just enough of `window` for
+   * tests that need `sendMessage`'s memory simulation to see a saved setting — always pair with
+   * `vi.unstubAllGlobals()` so it never leaks into other tests in this file. */
+  function stubBrowserLocalStorage() {
+    const store = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+        clear: () => store.clear(),
+      },
+    });
   }
 
   it("simulates fixed Loop phases, evidence, and human acceptance", async () => {
@@ -641,7 +667,10 @@ describe("webAgentClient", () => {
     expect(events.some((event) => event.type === "completed")).toBe(true);
     expect(completedAssistant?.status).toBe("completed");
     expect(completedAssistant?.content).toContain("Mock codex-cli response");
-    expect(completedAssistant?.richBlocks?.map((block) => block.kind)).toEqual(["card", "checklist"]);
+    // `add-cli-memory-support`: `memoryEnabled` defaults to true (this test never stubs
+    // `window`/settings), so this CLI-kind session's turn also emits its own "Memory extracted"
+    // card ahead of the two generic preview cards below.
+    expect(completedAssistant?.richBlocks?.map((block) => block.kind)).toEqual(["card", "card", "checklist"]);
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("idle");
     unsubscribe();
   });
@@ -1313,7 +1342,7 @@ describe("webAgentClient", () => {
       interfaceFormat: "anthropic",
       baseUrl: null,
     });
-    expect(await webAgentClient.listAgentMemories(agent.id)).toEqual([]);
+    expect(await webAgentClient.listAllMemories()).toEqual([]);
 
     const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Remember tool" });
     const config = await webAgentClient.getSessionChatConfig(session.id);
@@ -1331,12 +1360,52 @@ describe("webAgentClient", () => {
     expect(rememberEvent).toBeDefined();
     unsubscribe();
 
-    const memories = await webAgentClient.listAgentMemories(agent.id);
+    const memories = await webAgentClient.listAllMemories();
     expect(memories).toHaveLength(1);
     expect(memories[0]).toMatchObject({ agentId: agent.id, source: "explicit" });
 
     await webAgentClient.deleteAgentMemory(memories[0].id);
-    expect(await webAgentClient.listAgentMemories(agent.id)).toEqual([]);
+    expect(await webAgentClient.listAllMemories()).toEqual([]);
+  });
+
+  it("shares memories from every agent in one pool, and reset clears all of them (add-cli-memory-support)", async () => {
+    vi.useFakeTimers();
+    const firstAgent = await webAgentClient.registerApiAgent({
+      displayName: "First Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    const secondAgent = await webAgentClient.registerApiAgent({
+      displayName: "Second Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+
+    for (const agent of [firstAgent, secondAgent]) {
+      const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Shared pool test" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, () => undefined);
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+      await vi.advanceTimersByTimeAsync(3_000);
+      unsubscribe();
+    }
+
+    // Unlike the pre-`add-cli-memory-support` per-agent isolation, both agents' memories now show
+    // up together in the one shared pool.
+    const beforeReset = await webAgentClient.listAllMemories();
+    expect(beforeReset).toHaveLength(2);
+    expect(beforeReset.some((memory) => memory.agentId === firstAgent.id)).toBe(true);
+    expect(beforeReset.some((memory) => memory.agentId === secondAgent.id)).toBe(true);
+
+    await webAgentClient.resetAllMemories();
+
+    expect(await webAgentClient.listAllMemories()).toEqual([]);
   });
 
   it("simulates an MCP-sourced tool call that requires approval before completing", async () => {
@@ -1412,8 +1481,8 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
     );
     expect(extractionEvent).toBeDefined();
-    const memoriesAfterExtraction = await webAgentClient.listAgentMemories(agent.id);
-    expect(memoriesAfterExtraction.some((memory) => memory.source === "automatic")).toBe(true);
+    const memoriesAfterExtraction = await webAgentClient.listAllMemories();
+    expect(memoriesAfterExtraction.some((memory: AgentMemory) => memory.source === "automatic")).toBe(true);
 
     const secondTurnEvents: ChatStreamEvent[] = [];
     const unsubscribeSecond = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
@@ -1427,6 +1496,191 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-"),
     );
     expect(injectionEvent).toBeDefined();
+  });
+
+  it("suppresses simulated remember and extraction events when memory is disabled (add-personalization-settings)", async () => {
+    vi.useFakeTimers();
+    stubBrowserLocalStorage();
+    await webSettingsClient.saveSetting({ key: "memoryEnabled", value: false });
+    try {
+      const agent = await webAgentClient.registerApiAgent({
+        displayName: "Memory Disabled Test Agent",
+        provider: "Anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-opus-4-8",
+        interfaceFormat: "anthropic",
+        baseUrl: null,
+      });
+      const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Memory disabled" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      const events: ChatStreamEvent[] = [];
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+        events.push(event);
+      });
+
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "x".repeat(2_100), config });
+      await vi.advanceTimersByTimeAsync(40_000);
+      unsubscribe();
+
+      expect(
+        events.find((event) => event.type === "tool_use" && event.toolUse.name === "remember"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
+      ).toBeUndefined();
+      expect(await webAgentClient.listAllMemories()).toEqual([]);
+    } finally {
+      await webSettingsClient.saveSetting({ key: "memoryEnabled", value: true });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps explicit remember available but suppresses automatic extraction when the tool-assisted sub-toggle is off (add-personalization-settings)", async () => {
+    vi.useFakeTimers();
+    stubBrowserLocalStorage();
+    await webSettingsClient.saveSetting({ key: "memoryToolAssistedChatsEnabled", value: false });
+    try {
+      const agent = await webAgentClient.registerApiAgent({
+        displayName: "Sub-toggle Test Agent",
+        provider: "Anthropic",
+        apiKey: "sk-test",
+        modelId: "claude-opus-4-8",
+        interfaceFormat: "anthropic",
+        baseUrl: null,
+      });
+      const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Sub-toggle off" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      const events: ChatStreamEvent[] = [];
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+        events.push(event);
+      });
+
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "x".repeat(2_100), config });
+      await vi.advanceTimersByTimeAsync(40_000);
+      unsubscribe();
+
+      expect(
+        events.find((event) => event.type === "tool_use" && event.toolUse.name === "remember" && event.toolUse.status === "completed"),
+      ).toBeDefined();
+      expect(
+        events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
+      ).toBeUndefined();
+      const memories = await webAgentClient.listAllMemories();
+      expect(memories.some((memory: AgentMemory) => memory.source === "explicit")).toBe(true);
+      expect(memories.some((memory: AgentMemory) => memory.source === "automatic")).toBe(false);
+    } finally {
+      await webSettingsClient.saveSetting({ key: "memoryToolAssistedChatsEnabled", value: true });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("extracts a mock memory for a CLI-wrapped agent session on every turn, with no length threshold (add-cli-memory-support)", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "CLI extraction" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    // Unlike the API-kind extraction tests above, a short message is enough: the real backend's
+    // CLI extraction fires after every completed turn, not gated by a compaction length threshold.
+    await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+    await vi.advanceTimersByTimeAsync(3_000);
+    unsubscribe();
+
+    const extractionEvent = events.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
+    );
+    expect(extractionEvent).toBeDefined();
+    const memories = await webAgentClient.listAllMemories();
+    expect(memories).toContainEqual(expect.objectContaining({ agentId: "codex-cli", source: "automatic" }));
+  });
+
+  it("suppresses CLI extraction when memory is disabled (add-cli-memory-support)", async () => {
+    vi.useFakeTimers();
+    stubBrowserLocalStorage();
+    await webSettingsClient.saveSetting({ key: "memoryEnabled", value: false });
+    try {
+      const session = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "CLI extraction disabled" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      const events: ChatStreamEvent[] = [];
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+        events.push(event);
+      });
+
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+      await vi.advanceTimersByTimeAsync(3_000);
+      unsubscribe();
+
+      expect(
+        events.find((event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-")),
+      ).toBeUndefined();
+      expect(await webAgentClient.listAllMemories()).toEqual([]);
+    } finally {
+      await webSettingsClient.saveSetting({ key: "memoryEnabled", value: true });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not gate CLI extraction on the tool-assisted sub-toggle, unlike OnePiece's compaction-triggered extraction (add-cli-memory-support)", async () => {
+    vi.useFakeTimers();
+    stubBrowserLocalStorage();
+    await webSettingsClient.saveSetting({ key: "memoryToolAssistedChatsEnabled", value: false });
+    try {
+      const session = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "CLI sub-toggle off" });
+      const config = await webAgentClient.getSessionChatConfig(session.id);
+      const events: ChatStreamEvent[] = [];
+      const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+        events.push(event);
+      });
+
+      await webAgentClient.sendMessage({ sessionId: session.id, content: "hello", config });
+      await vi.advanceTimersByTimeAsync(3_000);
+      unsubscribe();
+
+      const extractionEvent = events.find(
+        (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-extracted-"),
+      );
+      expect(extractionEvent).toBeDefined();
+    } finally {
+      await webSettingsClient.saveSetting({ key: "memoryToolAssistedChatsEnabled", value: true });
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shares a memory saved by an API agent with a later CLI-wrapped agent session via the shared pool (add-cli-memory-support)", async () => {
+    vi.useFakeTimers();
+    const apiAgent = await webAgentClient.registerApiAgent({
+      displayName: "Shared Pool Source Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    const apiSession = await createMockSession({ agentId: apiAgent.id, interactionMode: "api", title: "Shared pool source" });
+    const apiConfig = await webAgentClient.getSessionChatConfig(apiSession.id);
+    await webAgentClient.sendMessage({ sessionId: apiSession.id, content: "hello", config: apiConfig });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await webAgentClient.listAllMemories()).toContainEqual(
+      expect.objectContaining({ agentId: apiAgent.id, source: "explicit" }),
+    );
+
+    const cliSession = await createMockSession({ agentId: "codex-cli", interactionMode: "cli", title: "Shared pool CLI reader" });
+    const cliConfig = await webAgentClient.getSessionChatConfig(cliSession.id);
+    const cliEvents: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(cliSession.id, (event) => {
+      cliEvents.push(event);
+    });
+    await webAgentClient.sendMessage({ sessionId: cliSession.id, content: "hello", config: cliConfig });
+    await vi.advanceTimersByTimeAsync(3_000);
+    unsubscribe();
+
+    const appliedEvent = cliEvents.find(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-memory-applied-"),
+    );
+    expect(appliedEvent).toBeDefined();
   });
 
   it("manages mock Prompt Hooks, previews content, and stores safe traces", async () => {
@@ -1615,5 +1869,37 @@ describe("webAgentClient", () => {
     await expect(webAgentClient.stopAgentTerminal(terminal.terminalId)).resolves.toBe(true);
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("stopped");
     unsubscribe();
+  });
+
+  it("returns an unconfigured retrieval configuration by default", async () => {
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: null,
+      embeddingModel: null,
+    });
+  });
+
+  it("round-trips a saved retrieval configuration", async () => {
+    await webAgentClient.saveRetrievalConfiguration("profile-a", "text-embedding-3-small");
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: "profile-a",
+      embeddingModel: "text-embedding-3-small",
+    });
+  });
+
+  it("reports index status without issuing any network request", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(webAgentClient.getRetrievalIndexStatus()).resolves.toEqual({
+      indexed: expect.any(Number),
+      pending: expect.any(Number),
+      failed: expect.any(Number),
+      lastFailureCategory: null,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rebuilding the index resets failures in the mock runtime", async () => {
+    await webAgentClient.rebuildRetrievalIndex();
+    const status = await webAgentClient.getRetrievalIndexStatus();
+    expect(status.failed).toBe(0);
   });
 });

@@ -1,7 +1,9 @@
 //! End-to-end migration-equivalence regression (tasks.md group 9; `permissions-core`'s
 //! "Previously trusted agent keeps its effective behavior after migration"): runs the *real*
-//! migration against a *real* SQLite database — not fakes — starting from a pre-migration-42
+//! migration against a *real* SQLite database — not fakes — starting from a pre-migration-44
 //! state with `auto_approve_tools = 1` already set, then evaluates through the real repositories.
+//! (Renumbered from 42 to 44 when merging with main: `agent-memory-shared-pool` and
+//! `retrieval-vector-index` independently claimed 42/43 first.)
 //! This is the actual acceptance test for the migration, not just a unit test of the backfill SQL
 //! in isolation (`schema`'s own tests) or of template behavior in isolation
 //! (`evaluation_service`'s fake-backed tests) — it proves the two compose correctly.
@@ -45,13 +47,13 @@ fn migrated_service(temp_label: &str, trusted: bool) -> EvaluationService {
         }
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version = 42;
+                "DELETE FROM schema_migrations WHERE version = 44;
                  DROP TABLE agent_principals;
                  DROP TABLE permission_grants;
                  DROP TABLE approval_audit;",
             )
-            .expect("simulate pre-migration-42 schema");
-        migrate(&connection).expect("re-run migration 42 against the trust-flag fixture");
+            .expect("simulate pre-migration-44 schema");
+        migrate(&connection).expect("re-run migration 44 against the trust-flag fixture");
     }
 
     EvaluationService::new(

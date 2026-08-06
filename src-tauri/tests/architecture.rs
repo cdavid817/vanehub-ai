@@ -867,3 +867,138 @@ fn communications_completion_wait_stays_event_driven_without_sqlite_polling() {
         .join("contexts/communications/infrastructure/session_completion.rs")
         .exists());
 }
+
+/// `RetrievalError::Storage`/`Embedding` 的 `Display` 会把 rusqlite 消息和 provider 响应片段拼进
+/// 字符串，而设置页把 command 返回的错误串**原样**渲染（`onepiece-retrieval-section.tsx` 的
+/// `operationError`）。设计文档 §8.2 规定这类文本既不落盘也不外露，所以凡是碰 `RetrievalApi` 的
+/// command 都必须用 `category()` 过一道再跨边界，不能直接 `to_string()` 整个错误。
+///
+/// 逐个文件盯着改会漏——`save_retrieval_configuration` 就是这么漏的：它一直用 `to_string()`，
+/// 而 C1 的修复又给 `save_configuration` 新增了一条 `Storage` 失败路径（`requeue_stale_model`），
+/// 把一个原本只在理论上存在的泄漏变成了实际可达的。这个守卫按"是否持有 `RetrievalApi`"筛文件，
+/// 所以以后新增的 retrieval command 会自动被覆盖。
+#[test]
+fn commands_holding_the_retrieval_api_never_return_error_payload_text() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut violations = Vec::new();
+    let mut inspected = Vec::new();
+    for path in rust_files(&source_root).expect("enumerate native Rust sources") {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let source = fs::read_to_string(&path).expect("read command source");
+        if !holds_retrieval_api_in_a_command(&source).expect("parse command source") {
+            continue;
+        }
+        inspected.push(relative.clone());
+        for line in raw_error_display_conversions(&source).expect("parse command source") {
+            violations.push(format!("{relative}:{line}"));
+        }
+    }
+
+    // 检测器自身的护栏：筛选条件一旦失效（比如类型改名），上面的循环会静默地一个文件都不看，
+    // 断言就会变成永真。
+    assert!(
+        inspected.len() >= 4,
+        "detector matched too few RetrievalApi command files ({inspected:?}); it is broken"
+    );
+    assert!(
+        violations.is_empty(),
+        "these commands hand the raw error Display (rusqlite/provider text) to the settings page \
+         instead of `error.category()`:\n{}\n\nInspected:\n{}",
+        violations.join("\n"),
+        inspected.join("\n")
+    );
+}
+
+/// 判定依据是"文件里既有 `#[tauri::command]`，代码路径里又出现 `RetrievalApi`"。用代码路径而不是
+/// 文本搜索，是为了让 `list_embedding_models` 那种只在文档注释里提到 `retrieval::api`、实际持有
+/// `AgentRuntimeApi` 的命令不被误判——它返回的是另一套错误类型，本守卫管不着。
+fn holds_retrieval_api_in_a_command(source: &str) -> Result<bool, String> {
+    let syntax = syn::parse_file(source).map_err(|error| error.to_string())?;
+
+    struct RetrievalApiVisitor {
+        has_command: bool,
+        mentions_api: bool,
+    }
+
+    impl<'ast> Visit<'ast> for RetrievalApiVisitor {
+        fn visit_item_fn(&mut self, node: &'ast ItemFn) {
+            if is_tauri_command(node) {
+                self.has_command = true;
+            }
+            syn::visit::visit_item_fn(self, node);
+        }
+
+        fn visit_path(&mut self, node: &'ast syn::Path) {
+            if node
+                .segments
+                .iter()
+                .any(|segment| segment.ident == "RetrievalApi")
+            {
+                self.mentions_api = true;
+            }
+            syn::visit::visit_path(self, node);
+        }
+    }
+
+    let mut visitor = RetrievalApiVisitor {
+        has_command: false,
+        mentions_api: false,
+    };
+    visitor.visit_file(&syntax);
+    Ok(visitor.has_command && visitor.mentions_api)
+}
+
+/// 只认 `map_err(|error| error.to_string())` 这种把闭包参数**整个**转成字符串的形状。
+/// `map_err(|error| error.category().to_string())` 的接收者是方法调用而不是裸路径，
+/// `map_err(map_command_error)` 压根不是闭包，两者都不算违规。
+fn raw_error_display_conversions(source: &str) -> Result<Vec<usize>, String> {
+    let syntax = syn::parse_file(source).map_err(|error| error.to_string())?;
+
+    struct MapErrVisitor {
+        lines: Vec<usize>,
+    }
+
+    impl<'ast> Visit<'ast> for MapErrVisitor {
+        fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+            if node.method == "map_err" {
+                if let Some(Expr::Closure(closure)) = node.args.first() {
+                    if let Some(syn::Pat::Ident(binding)) = closure.inputs.first() {
+                        let mut body = ClosureBodyVisitor {
+                            parameter: binding.ident.to_string(),
+                            lines: Vec::new(),
+                        };
+                        body.visit_expr(&closure.body);
+                        self.lines.extend(body.lines);
+                    }
+                }
+            }
+            syn::visit::visit_expr_method_call(self, node);
+        }
+    }
+
+    struct ClosureBodyVisitor {
+        parameter: String,
+        lines: Vec<usize>,
+    }
+
+    impl<'ast> Visit<'ast> for ClosureBodyVisitor {
+        fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+            if node.method == "to_string" {
+                if let Expr::Path(receiver) = node.receiver.as_ref() {
+                    if receiver.path.is_ident(self.parameter.as_str()) {
+                        self.lines.push(node.span().start().line);
+                    }
+                }
+            }
+            syn::visit::visit_expr_method_call(self, node);
+        }
+    }
+
+    let mut visitor = MapErrVisitor { lines: Vec::new() };
+    visitor.visit_file(&syntax);
+    Ok(visitor.lines)
+}

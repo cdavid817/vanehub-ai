@@ -75,7 +75,6 @@ pub(super) fn update_api_agent_request(input: dto::UpdateApiAgentInput) -> Updat
     }
 }
 
-
 pub(super) fn start_coordination_request(
     input: dto::StartCoordinationInput,
 ) -> crate::contexts::agent_runtime::application::StartCoordinationRequest {

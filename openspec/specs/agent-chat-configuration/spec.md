@@ -40,18 +40,22 @@ The system SHALL, when the session's permission mode is plan mode, offer a nativ
 
 #### Scenario: Plan mode excludes shell and MCP-sourced tools from the catalog
 - **WHEN** a generation starts in plan mode
-- **THEN** the tool catalog offered to the model SHALL NOT include the shell tool or any MCP-sourced tool
+- **THEN** the tool catalog offered to the model SHALL NOT include the shell tool, the file-edit tool, or any MCP-sourced tool
 
 #### Scenario: Plan mode narrows the file tool to read-only
 - **WHEN** a generation starts in plan mode
 - **THEN** the tool catalog offered to the model SHALL only allow the file tool's read operation, not its write operation
+
+#### Scenario: Plan mode retains read-only search tools
+- **WHEN** a generation starts in plan mode
+- **THEN** the tool catalog offered to the model SHALL include the content-search and filename-search tools
 
 #### Scenario: Plan mode still allows saving memories
 - **WHEN** a generation starts in plan mode
 - **THEN** the tool catalog offered to the model SHALL still include the remember tool
 
 #### Scenario: A disallowed tool call is rejected even if requested
-- **WHEN** the model requests the shell tool, an MCP-sourced tool, or a file write operation while the session is in plan mode
+- **WHEN** the model requests the shell tool, the file-edit tool, an MCP-sourced tool, or a file write operation while the session is in plan mode
 - **THEN** the system SHALL reject the call as an error outcome without executing it, regardless of whether the tool appeared in the offered catalog
 
 #### Scenario: Other permission modes are unaffected

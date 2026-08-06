@@ -1642,6 +1642,68 @@
                                               "cli-parameter-management",
                                               "permissions-approval"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-cli-custom-instructions-injection",
+                         "path":  "openspec/changes/archive/2026-08-06-add-cli-custom-instructions-injection/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "custom-instructions",
+                                              "native-runtime-architecture"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-cli-memory-support",
+                         "path":  "openspec/changes/archive/2026-08-06-add-cli-memory-support/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "native-runtime-architecture"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-onepiece-search-and-edit-tools",
+                         "path":  "openspec/changes/archive/2026-08-06-add-onepiece-search-and-edit-tools/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-context-compaction",
+                                              "agent-tool-execution",
+                                              "agent-tool-trust",
+                                              "onepiece-native-agent"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-personalization-settings",
+                         "path":  "openspec/changes/archive/2026-08-06-add-personalization-settings/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "agent-skill-injection",
+                                              "app-settings",
+                                              "custom-instructions",
+                                              "settings-center-ui"
+                                          ]
                      }
                  ]
 }

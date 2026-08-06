@@ -21,7 +21,11 @@ pub(crate) struct RuntimeAgentCliProfileAdapter {
 }
 
 impl RuntimeAgentCliProfileAdapter {
-    pub(crate) fn new(parameters: CliParametersApi, cli: CliApi, permissions: PermissionsApi) -> Self {
+    pub(crate) fn new(
+        parameters: CliParametersApi,
+        cli: CliApi,
+        permissions: PermissionsApi,
+    ) -> Self {
         Self {
             parameters,
             cli,
@@ -107,8 +111,14 @@ fn interactive_selections_and_args(
     parameters: &CliParametersApi,
     permissions: &PermissionsApi,
     agent_id: &str,
-) -> Result<(BTreeMap<String, Value>, Vec<String>, BTreeMap<String, String>), AgentRuntimeApplicationError>
-{
+) -> Result<
+    (
+        BTreeMap<String, Value>,
+        Vec<String>,
+        BTreeMap<String, String>,
+    ),
+    AgentRuntimeApplicationError,
+> {
     let selections = parameters
         .load_selections(agent_id)
         .map_err(cli_profile_error)?;
@@ -299,8 +309,10 @@ mod tests {
 
     #[test]
     fn opencode_standard_injects_the_permission_env_var() {
-        let (parameters, permissions, _database) =
-            test_apis("cli-profile-opencode-standard", PolicyTemplateName::Standard);
+        let (parameters, permissions, _database) = test_apis(
+            "cli-profile-opencode-standard",
+            PolicyTemplateName::Standard,
+        );
 
         let (_selections, _managed_args, env) =
             interactive_selections_and_args(&parameters, &permissions, "opencode")
@@ -314,8 +326,10 @@ mod tests {
 
     #[test]
     fn opencode_readonly_does_not_inject_the_permission_env_var() {
-        let (parameters, permissions, _database) =
-            test_apis("cli-profile-opencode-readonly", PolicyTemplateName::Readonly);
+        let (parameters, permissions, _database) = test_apis(
+            "cli-profile-opencode-readonly",
+            PolicyTemplateName::Readonly,
+        );
 
         let (_selections, _managed_args, env) =
             interactive_selections_and_args(&parameters, &permissions, "opencode")

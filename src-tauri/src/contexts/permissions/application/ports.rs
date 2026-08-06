@@ -4,7 +4,7 @@
 
 use super::error::PermissionsApplicationError;
 use crate::contexts::permissions::domain::{
-    Action, ApprovalRequest, Effect, Grant, Principal, PolicyTemplateName, Resource, RiskLevel,
+    Action, ApprovalRequest, Effect, Grant, PolicyTemplateName, Principal, Resource, RiskLevel,
 };
 
 pub(crate) trait PermissionsClockPort: Send + Sync {
@@ -103,5 +103,8 @@ pub(crate) trait PendingApprovalEventPort: Send + Sync {
 /// agnostic to what these entries contain, per that design's own cross-context split.
 pub(crate) trait ClaudeCodeHookPort: Send + Sync {
     fn install(&self) -> Result<(), PermissionsApplicationError>;
+    /// Implemented and unit-tested on every adapter, but no production flow calls it yet — no
+    /// uninstall/policy-switch-away-from-claude-code action exists to invoke it.
+    #[allow(dead_code)]
     fn remove(&self) -> Result<(), PermissionsApplicationError>;
 }

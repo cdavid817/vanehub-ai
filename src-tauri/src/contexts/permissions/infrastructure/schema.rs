@@ -1,4 +1,6 @@
-//! Schema for the `permissions` context (migration 42) — three tables, per design.md's D4
+//! Schema for the `permissions` context (migration 44 — renumbered from 42 on merge with main,
+//! after `agent-memory-shared-pool` and `retrieval-vector-index` independently claimed 42/43
+//! first) — three tables, per design.md's D4
 //! correction: a template's rules are a pure function of its name, so no table persists them;
 //! `agent_principals.template_name` is the only durable template-related state.
 
@@ -151,7 +153,9 @@ mod tests {
         backfill_principals_from_legacy_trust_flag(&connection).expect("second backfill");
 
         let principal_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM agent_principals", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM agent_principals", [], |row| {
+                row.get(0)
+            })
             .expect("principal count");
         assert_eq!(principal_count, 2);
     }

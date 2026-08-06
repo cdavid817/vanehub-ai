@@ -20,6 +20,7 @@ pub(crate) mod loops;
 mod mapper;
 pub(crate) mod open_agent_terminal;
 pub(crate) mod register_api_agent;
+pub(crate) mod reset_agent_memories;
 pub(crate) mod reset_onepiece_provider_config;
 pub(crate) mod resize_agent_terminal;
 pub(crate) mod save_onepiece_provider_config;

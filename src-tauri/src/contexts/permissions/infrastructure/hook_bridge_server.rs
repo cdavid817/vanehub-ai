@@ -299,7 +299,8 @@ mod tests {
 
     #[tokio::test]
     async fn mapped_tool_with_an_allow_resolving_policy_returns_allow() {
-        let (permissions, waits) = test_permissions_api("hook-bridge-allow", PolicyTemplateName::Trusted);
+        let (permissions, waits) =
+            test_permissions_api("hook-bridge-allow", PolicyTemplateName::Trusted);
         let (url, token) = spawn_test_server(permissions, waits).await;
 
         let response = reqwest::Client::new()

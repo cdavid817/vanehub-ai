@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 pub(crate) use super::application::{PermissionsApplicationError, ResolvedApproval};
 pub(crate) use super::domain::{
-    Action, ApprovalDecision, ApprovalRequest, Effect, Principal, PolicyTemplateName, Resource,
+    Action, ApprovalDecision, ApprovalRequest, Effect, PolicyTemplateName, Principal, Resource,
     RiskLevel, Scope, CLAUDE_CODE_AGENT_ID,
 };
 

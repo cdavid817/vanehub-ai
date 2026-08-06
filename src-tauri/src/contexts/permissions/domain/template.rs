@@ -76,7 +76,11 @@ mod tests {
     use crate::contexts::permissions::domain::resource::Resource;
 
     fn effect_for(name: PolicyTemplateName, action: Action) -> Effect {
-        resolve_for(&policies_for_template(name), &action, &Resource::workspace())
+        resolve_for(
+            &policies_for_template(name),
+            &action,
+            &Resource::workspace(),
+        )
     }
 
     #[test]

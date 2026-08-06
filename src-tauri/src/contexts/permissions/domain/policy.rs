@@ -9,7 +9,10 @@ pub(crate) enum ResourcePattern {
     /// Matches any resource for the given action — how a policy template's rules are expressed
     /// (Phase 1 templates are action-scoped, not resource-scoped).
     Any,
-    /// Matches only the exact resource — how a remembered grant is expressed.
+    /// Matches only the exact resource — how a remembered grant is expressed. Not constructed by
+    /// any current policy rule (Phase 1 templates are action-scoped only); exercised by this
+    /// module's own tests ahead of a resource-scoped grant feature.
+    #[allow(dead_code)]
     Exact(Resource),
 }
 

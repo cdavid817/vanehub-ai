@@ -203,3 +203,33 @@ fn unix_permissions_are_private_before_writing() {
         0o600
     );
 }
+
+#[test]
+fn create_or_truncate_overwrites_a_stale_file_left_by_a_prior_crash() {
+    // A caller names this file with a pid plus a process-global counter; once a pid is recycled, a
+    // prior crash can leave a stale file at that exact name. `open_private_file`'s `create_new`
+    // would turn that into a permanent failure; this primitive exists specifically to overwrite it
+    // instead, since the current process already owns the name by construction.
+    let root = crate::test_support::TempDirectory::new("private-relay-create-or-truncate");
+    let path = root.path().join("stale-temp-file");
+    fs::write(&path, b"stale content from a prior crash").expect("seed a stale file");
+
+    let mut file = create_or_truncate_private_file(&path).expect("must overwrite, not fail");
+    file.write_all(b"fresh").expect("write");
+    drop(file);
+
+    assert_eq!(fs::read(&path).expect("read back"), b"fresh");
+}
+
+#[cfg(unix)]
+#[test]
+fn create_or_truncate_is_private_from_creation() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = crate::test_support::TempDirectory::new("private-relay-create-or-truncate-mode");
+    let path = root.path().join("temp-file");
+    drop(create_or_truncate_private_file(&path).expect("create"));
+    assert_eq!(
+        fs::metadata(&path).expect("metadata").permissions().mode() & 0o777,
+        0o600
+    );
+}

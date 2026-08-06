@@ -14,10 +14,10 @@ use super::{
     LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
     LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
     LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
-    OnePieceModelDiscoveryRequest, RegisterApiAgentInput, ResizeAgentTerminalRequest,
-    SaveLoopVerifierResultRequest, StartedGenerationProcess, StopAgentTerminalRequest,
-    ToolApprovalDecision, ToolDefinition, ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest,
+    OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
+    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
+    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -847,10 +847,15 @@ pub(crate) trait AgentMcpToolPort: Send + Sync {
     ) -> AgentToolCallOutcome;
 }
 
-/// Persistence boundary for cross-session agent memory (`add-agent-cross-session-memory`).
-/// Unlike `AgentSkillPort`, `agent_runtime` owns this concept outright — no other context reads
-/// or writes it — so this port has a single, directly-implementing SQLite adapter rather than a
-/// cross-context wrapper.
+/// Persistence boundary for cross-session agent memory (`add-agent-cross-session-memory`,
+/// `add-cli-memory-support`). Unlike `AgentSkillPort`, `agent_runtime` owns this concept outright
+/// — no other context reads or writes it — so this port has a single, directly-implementing
+/// SQLite adapter rather than a cross-context wrapper.
+///
+/// `add-cli-memory-support` turned this into a single host-level pool shared by every agent
+/// (OnePiece and all CLI-wrapped agents) — `agent_id`/`folder` on `save` remain provenance-only,
+/// no longer a filter, which is why `list`/`list_all_for_agent`/`delete_all_for_agent` collapsed
+/// into unscoped `list_all`/`delete_all`.
 pub(crate) trait AgentMemoryPort: Send + Sync {
     fn save(
         &self,
@@ -860,18 +865,80 @@ pub(crate) trait AgentMemoryPort: Send + Sync {
         source: MemorySource,
     ) -> Result<(), AgentRuntimeApplicationError>;
 
-    fn list(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
-
-    /// Lists every memory for `agent_id` regardless of folder — used by the management view,
-    /// which shows an agent's memories across all of its scopes at once.
-    fn list_all_for_agent(
-        &self,
-        agent_id: &str,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
+    /// Lists every memory in the shared pool, regardless of which agent or folder produced it.
+    fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError>;
 
     fn delete(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+
+    /// Deletes every memory in the shared pool in one action (`add-personalization-settings`
+    /// design.md D6, scope widened to the whole pool by `add-cli-memory-support`) — used by the
+    /// "reset memory" management action, distinct from `delete`'s single-row removal.
+    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError>;
+}
+
+/// Independent, on-demand memory extraction for CLI-wrapped agents (`add-cli-memory-support`
+/// design.md D3). Unlike OnePiece's `extract_memories`/`maybe_compact` (which reuse credentials
+/// already resolved for an in-flight OnePiece generation), a call through this port resolves
+/// OnePiece's credentials itself, since CLI-wrapped agents have no generation-scoped credential to
+/// reuse. Implementations SHALL return `AgentRuntimeApplicationError::Credential` when no usable
+/// OnePiece credential is configured (an expected, common condition, not a call failure) so the
+/// caller can log it distinctly from a genuine extraction-call failure
+/// (`AgentRuntimeApplicationError::Memory`).
+pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
+    /// `exchange` is the turn's plain-text content (the user's message and the agent's final
+    /// response) — not provider wire-format turns, since CLI-wrapped agents never produce those.
+    /// Returns `Ok(None)` when the call succeeds but finds nothing worth remembering, mirroring
+    /// `extract_memories`'s existing empty-result semantics. Does not persist anything itself —
+    /// the caller decides how to split and save the result (mirroring `extract_memories`'s own
+    /// one-memory-per-line convention) via `AgentMemoryPort`, using whatever `agent_id`/`folder`
+    /// it already has in scope.
+    fn extract(&self, exchange: &str) -> Result<Option<String>, AgentRuntimeApplicationError>;
+}
+
+/// Host-level personalization settings read from `desktop` at generation time
+/// (`add-personalization-settings`). `agent_runtime` does not own this data — `desktop` does, the
+/// same way `tooling::skills` owns Skill content — so this port exists purely to bridge across
+/// that context boundary, mirroring `AgentSkillPort`'s existing cross-context pattern rather than
+/// `AgentMemoryPort`'s directly-owned one.
+pub(crate) trait AgentPersonalizationPort: Send + Sync {
+    fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
+}
+
+/// Projected retrieval hit surfaced to the model through the `recall` tool result
+/// (`add-onepiece-vector-search` Task 13) — deliberately not `retrieval::domain::ScoredHit`:
+/// `source_id` and `score` are internal to that context and give the model no decision value, so
+/// they must not cross the context boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentRetrievalHit {
+    pub(crate) content: String,
+    pub(crate) created_at: String,
+    pub(crate) matched_via: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentRetrievalOutcome {
+    pub(crate) hits: Vec<AgentRetrievalHit>,
+    pub(crate) degraded: Option<String>,
+}
+
+/// Outbound port to the `retrieval` context's hybrid memory search, consumed by the `recall` tool
+/// (`add-onepiece-vector-search` Task 13). Implemented in `bootstrap` over
+/// `retrieval::api::RetrievalApi` — mirrors `AgentSkillPort`/`AgentMcpToolPort`'s existing pattern
+/// of depending on another context only through this context's own port, never that context's
+/// infrastructure.
+pub(crate) trait AgentRetrievalPort: Send + Sync {
+    /// Called on every generation's tool-catalog resolution path, so it must never block, panic,
+    /// or return an error — an unreadable configuration is indistinguishable from "not
+    /// configured", exactly like `RetrievalApi::is_configured`'s own contract.
+    fn is_configured(&self) -> bool;
+
+    /// No scope arguments: memories are a single host-level pool shared by every agent
+    /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
+    /// there is no per-agent or per-folder slice for a caller to name.
+    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
+
+    /// Best-effort wake signal for the background indexing worker after a memory changes —
+    /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
+    /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
+    fn notify_source_changed(&self);
 }

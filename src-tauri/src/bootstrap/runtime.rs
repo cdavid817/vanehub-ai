@@ -173,6 +173,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings_api.clone(),
         app.handle().clone(),
     );
+    // `assemble_retrieval` below needs `agent_runtime_api` (the output of this very call), so a
+    // real `RetrievalApi` cannot exist yet when `RuntimeAgentApiAdapter`'s `recall` tool is wired
+    // up — this cell starts empty and is bound once the real one is ready, a few lines down.
+    let deferred_retrieval = Arc::new(super::DeferredAgentRetrieval::default());
     let super::AgentRuntimeAssembly {
         api: agent_runtime_api,
         telemetry_lifecycle,
@@ -189,9 +193,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         workspaces: workspace_api.clone(),
         permissions: permissions_api.clone(),
         shared_registry: shared_agent_registry,
+        retrieval: deferred_retrieval.clone(),
+        desktop_settings: desktop_settings_api.clone(),
     });
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
+    let super::RetrievalAssembly {
+        api: retrieval_api,
+        worker: retrieval_worker,
+    } = super::assemble_retrieval(database.clone(), agent_runtime_api.clone());
+    deferred_retrieval.bind(retrieval_api.clone());
     agent_runtime_api
         .reconcile_coordination_startup()
         .map_err(boxed_message)?;
@@ -239,6 +250,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
+    app.manage(retrieval_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(communications_api.clone());
@@ -261,6 +273,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings_api,
         fallback_log_directory.clone(),
     );
+    super::start_retrieval_indexing_worker(retrieval_worker, fallback_log_directory.clone());
     start_agent_terminal_cleanup_job(agent_runtime_api.clone());
     let desktop_lifecycle_api = super::assemble_desktop_lifecycle_api(
         app.handle().clone(),

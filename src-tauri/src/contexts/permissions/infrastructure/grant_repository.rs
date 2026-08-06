@@ -53,7 +53,11 @@ impl GrantRepository for SqliteGrantRepository {
             )
             .map_err(repository_error)?
             .query_map(
-                params![query.principal_id, query.action.as_str(), query.resource.as_str()],
+                params![
+                    query.principal_id,
+                    query.action.as_str(),
+                    query.resource.as_str()
+                ],
                 Self::from_row,
             )
             .map_err(repository_error)?

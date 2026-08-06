@@ -2,7 +2,9 @@ use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::ToolApprovalDecision;
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::permissions::api::{Effect, PermissionsApi, PermissionsApplicationError};
-use crate::contexts::permissions::application::{ApprovalBroker, ClaudeCodeHookPort, EvaluationService};
+use crate::contexts::permissions::application::{
+    ApprovalBroker, ClaudeCodeHookPort, EvaluationService,
+};
 use crate::contexts::permissions::infrastructure::{
     start_hook_bridge_server, ClaudeCodeHookAdapter, DesktopDefaultTemplateAdapter,
     HookWaitRegistry, PermissionsSystemClock, PermissionsUuidIdGenerator, SqliteAuditRepository,

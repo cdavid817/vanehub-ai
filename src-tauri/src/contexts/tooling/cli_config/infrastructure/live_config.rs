@@ -1310,8 +1310,7 @@ mod tests {
         assert!(pre_tool_use
             .iter()
             .any(|entry| entry["hooks"][0]["command"] == "my-other-tool"));
-        assert!(pre_tool_use.iter().any(|entry| entry["hooks"][0]
-            ["command"]
+        assert!(pre_tool_use.iter().any(|entry| entry["hooks"][0]["command"]
             .as_str()
             .unwrap()
             .contains("vanehub-permission-hook")));
@@ -1336,7 +1335,13 @@ mod tests {
         let path = adapter.primary_path("claude-code").expect("path");
         let written: Value =
             serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
-        assert_eq!(written["hooks"]["PreToolUse"].as_array().expect("array").len(), 1);
+        assert_eq!(
+            written["hooks"]["PreToolUse"]
+                .as_array()
+                .expect("array")
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -1357,9 +1362,7 @@ mod tests {
             })])
             .expect("install");
 
-        adapter
-            .set_permission_hook_entries(&[])
-            .expect("remove");
+        adapter.set_permission_hook_entries(&[]).expect("remove");
 
         let written: Value =
             serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");

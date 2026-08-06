@@ -191,11 +191,15 @@ The system SHALL apply non-removable, versioned OnePiece core instructions to ev
 - **AND** it SHALL NOT remove, edit, or disable OnePiece core instructions
 
 ### Requirement: Safe OnePiece tool defaults
-The system SHALL initialize and reset OnePiece with automatic shell and file-write approval disabled and SHALL continue applying the existing MCP approval and plan-mode restrictions.
+The system SHALL initialize and reset OnePiece with automatic shell, file-write, and file-edit approval disabled and SHALL continue applying the existing MCP approval and plan-mode restrictions. Read-only content-search and filename-search calls SHALL NOT require approval.
 
 #### Scenario: First configuration retains approval prompts
 - **WHEN** OnePiece is configured for the first time
-- **THEN** shell and file-write calls SHALL require approval until the user explicitly enables the existing trust setting
+- **THEN** shell, file-write, and file-edit calls SHALL require approval until the user explicitly enables the existing trust setting
+
+#### Scenario: Read-only search does not prompt
+- **WHEN** OnePiece requests a content-search or filename-search tool call
+- **THEN** the system SHALL execute it without an approval prompt regardless of the trust setting
 
 #### Scenario: Trust does not bypass existing hard gates
 - **WHEN** a trusted OnePiece requests an MCP tool or runs in plan mode
@@ -221,3 +225,4 @@ Desktop and Web/mock runtimes SHALL expose OnePiece through the same frontend se
 #### Scenario: Generate through the desktop runtime
 - **WHEN** a ready OnePiece receives a message in the desktop runtime
 - **THEN** the existing API process gateway SHALL execute the generation without a OnePiece-specific provider execution branch
+

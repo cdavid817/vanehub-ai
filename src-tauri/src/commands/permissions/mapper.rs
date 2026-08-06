@@ -17,7 +17,9 @@ pub(super) fn pending_approval_to_dto(request: ApprovalRequest) -> PendingApprov
     }
 }
 
-pub(super) fn principal_to_dto((principal, has_explicit_assignment): (Principal, bool)) -> PrincipalEntry {
+pub(super) fn principal_to_dto(
+    (principal, has_explicit_assignment): (Principal, bool),
+) -> PrincipalEntry {
     let template = principal.template();
     PrincipalEntry {
         agent_id: principal.agent_id().to_string(),

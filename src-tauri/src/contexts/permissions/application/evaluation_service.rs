@@ -7,8 +7,8 @@ use super::ports::{
     PermissionsClockPort, PermissionsIdPort, PrincipalRepository,
 };
 use crate::contexts::permissions::domain::{
-    policies_for_template, resolve_for, risk_level_for, Action, Effect, Principal,
-    PolicyTemplateName, Resource,
+    policies_for_template, resolve_for, risk_level_for, Action, Effect, PolicyTemplateName,
+    Principal, Resource,
 };
 use std::sync::Arc;
 
@@ -291,10 +291,11 @@ mod tests {
 
     impl AuditRepository for FakeAudit {
         fn append(&self, record: AuditRecord) -> Result<(), PermissionsApplicationError> {
-            self.records
-                .lock()
-                .unwrap()
-                .push((record.action.as_str().to_string(), record.effect, record.decider));
+            self.records.lock().unwrap().push((
+                record.action.as_str().to_string(),
+                record.effect,
+                record.decider,
+            ));
             Ok(())
         }
     }
@@ -466,7 +467,10 @@ mod tests {
         );
         let records = audit.records.lock().unwrap();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0], ("file.read".to_string(), Effect::Allow, AuditDecider::Policy));
+        assert_eq!(
+            records[0],
+            ("file.read".to_string(), Effect::Allow, AuditDecider::Policy)
+        );
     }
 
     #[test]

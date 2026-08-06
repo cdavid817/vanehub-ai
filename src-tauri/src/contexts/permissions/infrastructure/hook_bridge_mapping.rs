@@ -105,8 +105,7 @@ mod tests {
 
     #[test]
     fn mcp_tool_name_containing_extra_double_underscores_keeps_them_in_the_tool_part() {
-        let (_, resource) =
-            map_tool_to_action("mcp__server__nested__tool", &json!({})).unwrap();
+        let (_, resource) = map_tool_to_action("mcp__server__nested__tool", &json!({})).unwrap();
         assert_eq!(resource, Resource::mcp_tool("server", "nested__tool"));
     }
 

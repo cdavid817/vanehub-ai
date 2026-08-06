@@ -310,7 +310,10 @@ pub(crate) fn apply_policy_template_overrides(
 ) -> BTreeMap<String, Value> {
     match (agent_id, template) {
         ("codex-cli", PolicyTemplateName::Readonly) => {
-            selections.insert("sandbox".to_string(), Value::String("read-only".to_string()));
+            selections.insert(
+                "sandbox".to_string(),
+                Value::String("read-only".to_string()),
+            );
             selections.insert(
                 "approvalPolicy".to_string(),
                 Value::String("never".to_string()),
@@ -386,7 +389,10 @@ pub(crate) fn force_gemini_standard_approval_flag(
     if agent_id != "gemini-cli" || template != PolicyTemplateName::Standard {
         return args;
     }
-    if let Some(position) = args.iter().position(|argument| argument == "--approval-mode") {
+    if let Some(position) = args
+        .iter()
+        .position(|argument| argument == "--approval-mode")
+    {
         let end = (position + 2).min(args.len());
         args.drain(position..end);
     }
