@@ -551,6 +551,27 @@ pub(crate) trait AgentEventPort: Send + Sync {
     fn publish(&self, event: AgentEvent) -> Result<(), AgentRuntimeApplicationError>;
 }
 
+/// Carries a completed seat turn from the generation sink to the turn coordinator.
+///
+/// The sink does not route the next seat itself: it holds ports rather than the application
+/// service, and starting a generation from inside a terminal handler would nest generations in each
+/// other's lifecycles. This mirrors how the Loop runtime hands its terminals off.
+pub(crate) trait SeatTurnCompletionPort: Send + Sync {
+    /// Returns false when this turn was already delivered, so a retried terminal cannot start the
+    /// next seat twice.
+    fn deliver(
+        &self,
+        terminal: super::SeatTurnTerminal,
+    ) -> Result<bool, AgentRuntimeApplicationError>;
+
+    /// Taken by the turn coordinator (task 7.2); the sink only delivers.
+    #[allow(dead_code)]
+    fn take_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<super::SeatTurnTerminal>, AgentRuntimeApplicationError>;
+}
+
 pub(crate) trait LoopRoleGenerationCompletionPort: Send + Sync {
     fn deliver(
         &self,

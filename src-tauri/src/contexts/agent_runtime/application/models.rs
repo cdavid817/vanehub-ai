@@ -133,6 +133,29 @@ pub(crate) enum LoopRoleGenerationOutcome {
     Cancelled,
 }
 
+/// Marks a generation as one seat's turn in a multi-seat session, so the sink knows to report the
+/// completed reply for routing. Absent for single-Agent sessions, which have no turn loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SeatTurnOwnership {
+    pub(crate) seat_index: usize,
+    /// The seat's own handle, so it can be filtered out of its own reply's mentions.
+    pub(crate) seat_mention: String,
+    /// How many handoffs deep this turn already is, for the chain bound.
+    pub(crate) depth: usize,
+}
+
+/// A completed seat turn, handed to the coordinator to decide what happens next.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SeatTurnTerminal {
+    pub(crate) session_id: String,
+    pub(crate) message_id: String,
+    pub(crate) seat_index: usize,
+    pub(crate) seat_mention: String,
+    pub(crate) depth: usize,
+    /// The full reply. `None` when the turn failed, in which case the chain simply stops.
+    pub(crate) reply: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoopRoleGenerationTerminal {
     pub(crate) run_id: String,

@@ -1303,6 +1303,9 @@ fn service_with_telemetry(
         execution_settings: world.clone(),
         telemetry: Arc::new(telemetry.clone()),
         loop_completions: world.clone(),
+        seat_completions: Arc::new(
+            crate::contexts::agent_runtime::infrastructure::InMemorySeatTurnCompletions::default(),
+        ),
         message_completions: Arc::new(FakeMessageTerminalCompletions::default()),
         api_agents: world.clone(),
         api_credentials: world.clone(),

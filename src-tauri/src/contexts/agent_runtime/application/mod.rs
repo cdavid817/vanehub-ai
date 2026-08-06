@@ -52,6 +52,7 @@ pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationSe
 #[cfg(test)]
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
+    SeatTurnOwnership, SeatTurnTerminal,
     AgentChatConfiguration, AgentCoreInstructions, AgentEvent, AgentFileReference, AgentLog,
     AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
     AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
@@ -84,6 +85,7 @@ pub(crate) use models::{
 
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
+pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,

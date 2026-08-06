@@ -1,4 +1,5 @@
 use super::{
+    SeatTurnCompletionPort, SeatTurnTerminal,
     AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort, AgentEvent, AgentEventPort,
     AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage,
     AgentMessageTerminal, AgentMessageTerminalCompletionPort, AgentMessageTerminalOutcome,
@@ -103,6 +104,7 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
+    pub(crate) seat_completions: Arc<dyn SeatTurnCompletionPort>,
     pub(crate) message_completions: Arc<dyn AgentMessageTerminalCompletionPort>,
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
@@ -1817,6 +1819,9 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
+                // Populated by the turn coordinator when it starts a seat's turn; a
+                // user-initiated message is always the first turn of a round.
+                seat_ownership: None,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
             },
@@ -2175,6 +2180,7 @@ struct GenerationEventHandler {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
     state: Mutex<GenerationStreamState>,
@@ -2191,6 +2197,7 @@ struct GenerationEventHandlerInput {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
 }
@@ -2267,6 +2274,7 @@ impl GenerationEventHandler {
             root_context: input.root_context,
             agent_context: input.agent_context,
             loop_ownership: input.loop_ownership,
+            seat_ownership: input.seat_ownership,
             prompt_versions: input.prompt_versions,
             prompt_started_at: input.prompt_started_at,
             state: Mutex::new(GenerationStreamState::default()),
@@ -2482,7 +2490,13 @@ impl GenerationEventHandler {
         let Some(response) = self.begin_terminal()? else {
             return Ok(());
         };
+        let reply = response.clone();
         let result = self.complete_claimed(response, usage);
+        if result.is_ok() {
+            // Delivered only after the reply is persisted: the coordinator reads the thread to build
+            // the next seat's context, and would otherwise race a message that is not there yet.
+            self.deliver_seat_turn(Some(reply));
+        }
         if result.is_err() {
             self.record_prompt_execution(PromptExecutionOutcome::Failed);
             self.finish_execution(
@@ -2612,6 +2626,9 @@ impl GenerationEventHandler {
             return Ok(());
         }
         self.record_log(AgentLogLevel::Error, diagnostic);
+        // A failed turn hands off nothing, but the coordinator still has to learn the round ended —
+        // otherwise a chain waits forever on a seat that already gave up.
+        self.deliver_seat_turn(None);
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
@@ -2677,6 +2694,24 @@ impl GenerationEventHandler {
                 error,
             })?;
         Ok(())
+    }
+
+    /// Reports a finished seat turn so the coordinator can route the next one.
+    ///
+    /// Failures deliver `None`: a turn that did not produce a reply has nothing to hand off, so the
+    /// chain stops rather than routing on an empty string.
+    fn deliver_seat_turn(&self, reply: Option<String>) {
+        let Some(ownership) = &self.seat_ownership else {
+            return;
+        };
+        let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
+            session_id: self.session_id.clone(),
+            message_id: self.message_id.clone(),
+            seat_index: ownership.seat_index,
+            seat_mention: ownership.seat_mention.clone(),
+            depth: ownership.depth,
+            reply,
+        });
     }
 
     fn current_message(&self) -> Result<AgentMessage, AgentRuntimeApplicationError> {

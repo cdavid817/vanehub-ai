@@ -14,7 +14,7 @@ use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
     CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
+    InMemoryLoopExecutionCoordinator, InMemorySeatTurnCompletions, InMemoryLoopRoleGenerationCompletions,
     NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
@@ -192,6 +192,7 @@ pub(crate) fn assemble_agent_runtime_api(
         std::env::temp_dir().join("vanehub-agent-terminal-wrappers"),
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());
+    let seat_completions = Arc::new(InMemorySeatTurnCompletions::default());
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: registry.clone(),
         workflows: repository.clone(),
@@ -208,6 +209,7 @@ pub(crate) fn assemble_agent_runtime_api(
         execution_settings: timeline.clone(),
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
+        seat_completions: seat_completions.clone(),
         message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
