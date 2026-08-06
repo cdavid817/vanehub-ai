@@ -17,6 +17,42 @@ A multi-Agent session SHALL be composed of seats, each pairing one expert role w
 - **THEN** the system SHALL recommend Agents whose normalized family differs from the Agent under review
 - **AND** when no cross-family Agent is available the system SHALL still offer same-family Agents together with an explicit notice that the cross-family preference could not be satisfied
 
+### Requirement: Seats change while a session runs
+
+The system SHALL allow seats to be added to and removed from a running session, because a
+collaboration path emerges during the work rather than being fully known when the session starts.
+
+#### Scenario: Add a seat mid-session
+
+- **WHEN** a user adds a seat to a running session
+- **THEN** the seat SHALL become routable from the next turn onward
+- **AND** its Agent SHALL receive the preceding turns of the thread within its context budget, so it
+  can act on work it did not witness
+
+#### Scenario: Remove a seat mid-session
+
+- **WHEN** a user removes a seat from a running session
+- **THEN** the seat SHALL stop being routable and SHALL stop appearing in the roster published to
+  other seats
+- **AND** the messages it already spoke SHALL remain in the thread, because removing a participant
+  is not a reason to rewrite history
+
+#### Scenario: A session always keeps at least one seat
+
+- **WHEN** a user attempts to remove the only remaining seat
+- **THEN** the system SHALL reject the removal
+
+#### Scenario: Removing the first seat updates the mirrored agent id
+
+- **WHEN** the first seat is removed from a session holding more than one seat
+- **THEN** the session's agent id SHALL be updated to the new first seat's agent id
+
+#### Scenario: Growing a single-Agent session
+
+- **WHEN** a user adds a second seat to a session that holds exactly one seat
+- **THEN** the session SHALL become a multi-seat session without being recreated
+- **AND** its existing messages SHALL remain attributed as they were
+
 ### Requirement: Shared thread with speaker identity
 Every message in a multi-Agent session SHALL carry the identity of its speaker, and the system SHALL render that identity.
 

@@ -25,6 +25,23 @@ A role is reusable and describes a job. A seat binds one role to one Agent for o
 
 *Alternative — role as an Agent attribute:* rejected. It forces one role per installed tool and makes a second reviewer impossible without installing a second CLI.
 
+### Seats are an initial line-up, not a fixed roster
+
+Seats can be added and removed while a session runs. Fixing them at creation would repeat, at a
+smaller scale, the mistake that killed the DAG approach: forcing the user to plan the collaboration
+path before any work has happened. A path emerges — you start with an architect and an implementer
+and only then discover you want a reviewer.
+
+`clowder-ai` goes further: it has no per-thread roster at all. Its roster is global, and
+participation is *derived from message history* — `concierge-target-cats-resolver` reads the last
+few non-system messages to decide who is in the conversation, and any cat can be pulled in by being
+mentioned.
+
+That is not adopted wholesale here because VaneHub's Agents are CLI processes. Each seat is a real
+process with a real context budget, so a fully emergent model would leave the user unable to see how
+many CLIs a session is burning. Creating a session with an explicit initial line-up keeps that cost
+visible; allowing seats to change afterwards keeps the collaboration path open.
+
 ### Role text injects through the CLI's native system-prompt channel
 
 `--system-prompt-file` for Claude, `-c developer_instructions` for Codex. `clowder-ai` calls this the compression-immune layer and deliberately keeps per-invocation content out of it.

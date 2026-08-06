@@ -60,7 +60,9 @@
 ## 9. Turn Status Surface
 
 - [ ] 9.1 Add the persistent turn-status bar showing the current holder, chain position against its limit, and waiting duration when paused.
-- [ ] 9.2 Add the seats view to the session info panel showing each seat's role, Agent, family, and state.
+- [ ] 9.2 Add the seats view to the session info panel showing each seat's role, Agent, family, and state, and let the user add or remove a seat there.
+- [ ] 9.4 Add a service-boundary method for updating a running session's seats, implemented identically in both adapters, rejecting removal of the last seat and re-mirroring `agentId` onto the first remaining seat.
+- [ ] 9.5 Give a seat added mid-session the preceding turns within its context budget, reusing the injection path from task 6.4, so it can act on work it did not witness.
 - [ ] 9.3 Confirm no control anywhere selects which seat speaks next.
 
 ## 10. Workspace Tab Scoping
