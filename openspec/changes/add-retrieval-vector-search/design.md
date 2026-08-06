@@ -15,7 +15,7 @@
 
 新增 peer context 需要一次架构决策并更新 `openspec/project.md:48-58` 的上下文表。
 
-## 数据模型（迁移 42 `retrieval-vector-index`）
+## 数据模型（迁移 43 `retrieval-vector-index`）
 
 ```sql
 CREATE TABLE IF NOT EXISTS retrieval_documents (

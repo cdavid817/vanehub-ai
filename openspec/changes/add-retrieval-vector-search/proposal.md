@@ -24,7 +24,7 @@
 
 ## Impact
 
-- 新增 SQLite 迁移 42 `retrieval-vector-index`（含 FTS5 虚拟表与三个 trigger）。
+- 新增 SQLite 迁移 43 `retrieval-vector-index`（含 FTS5 虚拟表与三个 trigger）。
 - Rust：新增 `contexts/retrieval/`、`bootstrap/retrieval.rs`、`commands/retrieval/`；
   修改 `contexts/mod.rs`、`platform/database/migrations.rs`、`agent_runtime` 的
   `api.rs` / `application/service.rs` / `application/tool_catalog.rs` /

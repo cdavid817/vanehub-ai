@@ -4,7 +4,7 @@
 
 - [x] 2. **`retrieval` 上下文骨架与领域类型** —— 建立 `contexts/retrieval` 目录骨架，定义 `SourceKind`/`IndexState`/`FailureCategory`/`RetrievalDocument`/`document_id`/`content_hash` 等领域类型与 `RetrievalError`。
 - [x] 3. **纯算法（余弦 / f32 BLOB 编解码 / RRF / FTS 转义）** —— 实现无 I/O 的算法内核：`encode_embedding`/`decode_embedding`、`cosine_similarity`、`fuse_with_rrf`、`escape_fts_query`，以及 `RetrievalScope`/`RetrievalQuery`/`ScoredHit` 等查询类型。
-- [x] 4. **迁移 42 与 schema** —— 新增 SQLite 迁移 `42 retrieval-vector-index`：`retrieval_documents` 表、FTS5 影子表（trigram）及三个同步 trigger、`retrieval_configuration` 单例配置表。
+- [x] 4. **迁移 43 与 schema** —— 新增 SQLite 迁移 `43 retrieval-vector-index`：`retrieval_documents` 表、FTS5 影子表（trigram）及三个同步 trigger、`retrieval_configuration` 单例配置表。
 - [x] 5. **文档仓储** —— 实现 `RetrievalDocumentRepository` trait 与 `SqliteRetrievalDocumentRepository`：upsert、按 scope/模型查候选、记录失败、索引状态统计、批量重新入队。
 - [x] 6. **配置仓储** —— 实现检索全局配置（来源 Profile、embedding 模型）的 `RetrievalConfigurationRepository` 读写。
 - [x] 7. **索引服务的差集协调** —— 实现 reconcile：新增记忆建 `pending` 行、内容哈希失效则重置 `pending`、源已删除的孤儿索引行清理；定义消费侧 `IndexSourcePort`。

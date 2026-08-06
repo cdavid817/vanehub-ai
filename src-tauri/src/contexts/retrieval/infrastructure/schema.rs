@@ -1,7 +1,7 @@
 use crate::platform::database::DatabaseError;
 use rusqlite::Connection;
 
-/// 迁移 42 `retrieval-vector-index`（`add-retrieval-vector-search`）。
+/// 迁移 43 `retrieval-vector-index`（`add-retrieval-vector-search`）。
 ///
 /// scope 冗余进本表而不是每次 JOIN 回源表：检索先按 `scope_agent_id + scope_folder` 过滤再
 /// 暴力扫描候选集，这是"不建 ANN 索引也够快"成立的前提。
