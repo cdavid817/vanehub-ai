@@ -8,11 +8,11 @@
 
 ## 2. Expert Role Settings Page
 
-- [ ] 2.1 Add the Expert Roles settings page with list, create, edit, delete, and copy-from-built-in.
-- [ ] 2.2 Add avatar and colour selection so roles are visually distinguishable in a thread.
-- [ ] 2.3 Add the peer-review eligibility and cross-family preference controls.
-- [ ] 2.4 Register the navigation entry between Agent configuration and skills per the settings-center-ui delta.
-- [ ] 2.5 Add `expertRoles.*` keys to all five locales and confirm i18n parity.
+- [x] 2.1 Add the Expert Roles settings page with list, create, edit, delete, and copy-from-built-in.
+- [x] 2.2 Add avatar and colour selection so roles are visually distinguishable in a thread.
+- [x] 2.3 Add the peer-review eligibility and cross-family preference controls.
+- [x] 2.4 Register the navigation entry between Agent configuration and skills per the settings-center-ui delta.
+- [x] 2.5 Add `expertRoles.*` keys to all five locales and confirm i18n parity.
 
 ## 3. Model Family Normalization
 

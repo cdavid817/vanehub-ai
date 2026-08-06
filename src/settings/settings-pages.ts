@@ -12,6 +12,7 @@ import {
   Settings2,
   SlidersHorizontal,
   Terminal,
+  UserRound,
   Workflow,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agent-configurations"
+  | "expert-roles"
   | "skills"
   | "prompt-hooks"
   | "im"
@@ -67,6 +69,8 @@ const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./page
   .then((module) => ({ default: module.McpPage }));
 const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
   .then((module) => ({ default: module.AgentConfigurationsPage }));
+const loadExpertRolesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/expert-roles-page")
+  .then((module) => ({ default: module.ExpertRolesPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
   .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
@@ -124,6 +128,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Settings2,
     searchPlaceholderKey: "settings.search.agentConfigurations",
     loader: loadAgentConfigurationsPage,
+  },
+  {
+    id: "expert-roles",
+    labelKey: "settings.pages.expertRoles",
+    crumbKey: "settings.pages.expertRoles",
+    icon: UserRound,
+    searchPlaceholderKey: "settings.search.expertRoles",
+    loader: loadExpertRolesPage,
   },
   {
     id: "skills",
