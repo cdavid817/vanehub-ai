@@ -564,8 +564,7 @@ pub(crate) trait SeatTurnCompletionPort: Send + Sync {
         terminal: super::SeatTurnTerminal,
     ) -> Result<bool, AgentRuntimeApplicationError>;
 
-    /// Taken by the turn coordinator (task 7.2); the sink only delivers.
-    #[allow(dead_code)]
+    /// Taken by the turn coordinator; the sink only delivers.
     fn take_for_session(
         &self,
         session_id: &str,

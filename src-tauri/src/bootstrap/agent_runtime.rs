@@ -1,5 +1,5 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
-use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
     AgentTerminalApplicationService, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
@@ -15,7 +15,8 @@ use crate::contexts::agent_runtime::infrastructure::{
     CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemorySeatTurnCompletions, InMemoryLoopRoleGenerationCompletions,
-    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, OsApiCredentialAdapter,
+    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
+    OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
     RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
@@ -193,6 +194,11 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());
     let seat_completions = Arc::new(InMemorySeatTurnCompletions::default());
+    // Shared with the expert role service below: the roster a seat is briefed with reads the same
+    // roles the settings page writes, so a role edited mid-session takes effect on the next turn.
+    let expert_role_repository = Arc::new(SqliteExpertRoleRepository::new(
+        dependencies.database.clone(),
+    ));
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: registry.clone(),
         workflows: repository.clone(),
@@ -210,6 +216,8 @@ pub(crate) fn assemble_agent_runtime_api(
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
         seat_completions: seat_completions.clone(),
+        expert_roles: expert_role_repository.clone(),
+        history: sessions.clone(),
         message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
@@ -228,7 +236,7 @@ pub(crate) fn assemble_agent_runtime_api(
         terminal_events: events,
     });
     let expert_roles = ExpertRoleApplicationService::new(ExpertRoleApplicationPorts {
-        repository: Arc::new(SqliteExpertRoleRepository::new(dependencies.database.clone())),
+        repository: expert_role_repository,
         clock: Arc::new(SystemExpertRoleClock),
         ids: Arc::new(UuidExpertRoleIds),
         builtins: builtin_expert_roles(),
@@ -294,8 +302,9 @@ pub(crate) fn assemble_agent_runtime_api(
         clock,
     });
     let loop_scheduler = NativeLoopScheduler::new((*loop_execution).clone(), loop_orchestrator);
+    let seat_turns = NativeSeatTurnCoordinator::new(service.clone());
     AgentRuntimeAssembly {
-        api: AgentRuntimeApi::new(
+        api: AgentRuntimeApi::new(AgentRuntimeApiServices {
             service,
             terminal_service,
             loops,
@@ -303,7 +312,8 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_recovery,
             loop_scheduler,
             expert_roles,
-        ),
+            seat_turns,
+        }),
         telemetry_lifecycle,
     }
 }

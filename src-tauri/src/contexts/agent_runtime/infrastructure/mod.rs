@@ -10,6 +10,7 @@ mod builtin_expert_roles;
 mod events;
 mod expert_role_repository;
 mod seat_turn_completions;
+mod seat_turn_coordinator;
 mod generation_coordinator;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
@@ -75,6 +76,7 @@ pub(crate) use runtime_support::{
 pub(crate) use builtin_expert_roles::builtin_expert_roles;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use seat_turn_completions::InMemorySeatTurnCompletions;
+pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;
 pub(crate) use schema::{
     apply_agent_origin_schema, apply_expert_role_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
     apply_onepiece_provider_catalog_schema, apply_onepiece_provider_endpoint_schema,

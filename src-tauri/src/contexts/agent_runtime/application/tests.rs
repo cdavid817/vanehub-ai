@@ -81,8 +81,9 @@ type ActiveGeneration = (
     Option<PendingPromptExecution>,
 );
 
-struct FakeWorld {
+pub(super) struct FakeWorld {
     agents: Mutex<Vec<AgentDefinition>>,
+    expert_roles: Mutex<Vec<crate::contexts::agent_runtime::domain::ExpertRole>>,
     workflow: Mutex<AgentWorkflow>,
     details: Mutex<(String, BTreeMap<String, String>)>,
     sessions: Mutex<BTreeMap<String, AgentSession>>,
@@ -141,6 +142,7 @@ impl FakeWorld {
             loop_ownership: None,
         };
         Self {
+            expert_roles: Mutex::new(Vec::new()),
             agents: Mutex::new(agents),
             workflow: Mutex::new(AgentWorkflow::new("build")),
             details: Mutex::new(("none".to_string(), BTreeMap::new())),
@@ -1221,6 +1223,51 @@ fn chat_configuration() -> AgentChatConfiguration {
     }
 }
 
+impl crate::contexts::agent_runtime::application::ExpertRolePort for FakeWorld {
+    fn list(
+        &self,
+    ) -> Result<Vec<crate::contexts::agent_runtime::domain::ExpertRole>, AgentRuntimeApplicationError>
+    {
+        Ok(self.expert_roles.lock().expect("expert roles").clone())
+    }
+
+    fn upsert(
+        &self,
+        role: &crate::contexts::agent_runtime::domain::ExpertRole,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut roles = self.expert_roles.lock().expect("expert roles");
+        roles.retain(|existing| existing.id != role.id);
+        roles.push(role.clone());
+        Ok(())
+    }
+
+    fn delete(&self, role_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.expert_roles
+            .lock()
+            .expect("expert roles")
+            .retain(|role| role.id != role_id);
+        Ok(())
+    }
+}
+
+impl crate::contexts::agent_runtime::application::ConversationHistoryPort for FakeWorld {
+    fn recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AgentMessage>, AgentRuntimeApplicationError> {
+        let messages = self.messages.lock().expect("messages");
+        let mut recent: Vec<AgentMessage> = messages
+            .values()
+            .filter(|message| message.session_id == session_id)
+            .cloned()
+            .collect();
+        recent.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        let skip = recent.len().saturating_sub(limit.max(0) as usize);
+        Ok(recent.split_off(skip))
+    }
+}
+
 impl LoopRoleGenerationCompletionPort for FakeWorld {
     fn deliver(
         &self,
@@ -1281,7 +1328,71 @@ fn verifier_generation_forces_read_only_permission_mode() {
     assert_eq!(requests[0].configuration.permission_mode, "plan");
 }
 
-fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
+/// A four-seat session, which is enough to exercise the two-mention cap and self-mention
+/// filtering at the same time.
+pub(super) fn seat_turn_world() -> Arc<FakeWorld> {
+    use crate::contexts::agent_runtime::application::AgentSessionSeat;
+    use crate::contexts::agent_runtime::domain::{
+        ExpertRole, ExpertRoleInput, ExpertRoleReviewPolicy,
+    };
+
+    let seats = [
+        ("role-architect", "架构师", "claude-code", "Claude Code"),
+        ("role-reviewer", "代码审查", "codex-cli", "Codex CLI"),
+        ("role-implementer", "实现者", "gemini-cli", "Gemini CLI"),
+        ("role-tester", "测试", "opencode", "OpenCode"),
+    ];
+
+    let world = Arc::new(FakeWorld::new(
+        seats
+            .iter()
+            .map(|(_, _, agent_id, display_name)| {
+                agent(agent_id, display_name, vec![InteractionMode::Cli], vec!["coding"])
+            })
+            .collect(),
+    ));
+    {
+        let mut roles = world.expert_roles.lock().expect("expert roles");
+        for (role_id, role_name, _, _) in seats {
+            roles.push(
+                ExpertRole::new(
+                    role_id.to_string(),
+                    ExpertRoleInput {
+                        display_name: role_name.to_string(),
+                        avatar: "🧭".to_string(),
+                        color: "#336699".to_string(),
+                        responsibility: format!("{role_name}的职责"),
+                        instruction: format!("你是{role_name}。"),
+                        skill_ids: Vec::new(),
+                        review_policy: ExpertRoleReviewPolicy {
+                            peer_reviewer: false,
+                            require_different_family: false,
+                        },
+                        preferred_providers: Vec::new(),
+                    },
+                    "2026-08-07T00:00:00+00:00".to_string(),
+                    "2026-08-07T00:00:00+00:00".to_string(),
+                )
+                .expect("role"),
+            );
+        }
+    }
+    {
+        let mut sessions = world.sessions.lock().expect("sessions");
+        let session = sessions.get_mut("session-1").expect("session");
+        session.agent_id = "claude-code".to_string();
+        session.seats = seats
+            .iter()
+            .map(|(role_id, _, agent_id, _)| AgentSessionSeat {
+                agent_id: (*agent_id).to_string(),
+                role_id: Some((*role_id).to_string()),
+            })
+            .collect();
+    }
+    world
+}
+
+pub(super) fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
     service_with_telemetry(world).0
 }
 
@@ -1308,6 +1419,8 @@ fn service_with_telemetry(
         seat_completions: Arc::new(
             crate::contexts::agent_runtime::infrastructure::InMemorySeatTurnCompletions::default(),
         ),
+        expert_roles: world.clone(),
+        history: world.clone(),
         message_completions: Arc::new(FakeMessageTerminalCompletions::default()),
         api_agents: world.clone(),
         api_credentials: world.clone(),
@@ -1318,7 +1431,7 @@ fn service_with_telemetry(
     (service, telemetry)
 }
 
-fn test_world() -> Arc<FakeWorld> {
+pub(super) fn test_world() -> Arc<FakeWorld> {
     Arc::new(FakeWorld::new(vec![
         agent(
             "codex-cli",

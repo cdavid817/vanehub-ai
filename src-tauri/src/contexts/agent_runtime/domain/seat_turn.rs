@@ -6,12 +6,6 @@
 //!
 //! Mirrors `src/services/mention-routing.ts`, `turn-routing.ts`, and `human-handoff.ts`.
 //!
-//! Nothing calls these yet: the turn coordinator that drives them is task 7.2, and the decisions
-//! were ported first so the coordinator has something tested to stand on. The `allow` below goes
-//! away with that task — see
-//! `docs/superpowers/plans/2026-08-07-multi-agent-turn-coordinator-handoff.md`.
-#![allow(dead_code)]
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ChainEndReason {
     TooManyMentions,

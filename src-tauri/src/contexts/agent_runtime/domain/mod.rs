@@ -15,9 +15,12 @@ pub(crate) use catalog::{
     ManagedSdkStatus,
 };
 #[allow(unused_imports)]
+pub(crate) use seat_roster::{
+    build_seat_briefing, build_seat_context, derive_mentions, normalize_model_family, ModelFamily,
+    SeatBriefingEntry, SeatContext, SeatContextMode, SeatTurn,
+};
 pub(crate) use seat_turn::{
     apply_human_handoff, next_turn_targets, parse_human_handoff, ChainEndReason,
-    HumanHandoffEffect, HumanHandoffIntent, NextTurn,
 };
 pub(crate) use expert_role::{ExpertRole, ExpertRoleInput, ExpertRoleOrigin, ExpertRoleReviewPolicy};
 pub(crate) use error::AgentRuntimeDomainError;

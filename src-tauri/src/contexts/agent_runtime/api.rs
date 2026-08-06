@@ -9,7 +9,7 @@ use super::application::{
     LoopApplicationService, LoopControlApplicationService,
     ExpertRoleApplicationService, LoopRecoveryApplicationService,
 };
-use super::infrastructure::NativeLoopScheduler;
+use super::infrastructure::{NativeLoopScheduler, NativeSeatTurnCoordinator};
 
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
@@ -31,6 +31,19 @@ pub(crate) use super::domain::{
     AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits, LoopVerificationCommand,
 };
 
+/// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
+/// positional argument list nobody can read.
+pub(crate) struct AgentRuntimeApiServices {
+    pub(crate) service: AgentRuntimeApplicationService,
+    pub(crate) terminal_service: AgentTerminalApplicationService,
+    pub(crate) loops: LoopApplicationService,
+    pub(crate) loop_controls: LoopControlApplicationService,
+    pub(crate) loop_recovery: LoopRecoveryApplicationService,
+    pub(crate) loop_scheduler: NativeLoopScheduler,
+    pub(crate) expert_roles: ExpertRoleApplicationService,
+    pub(crate) seat_turns: NativeSeatTurnCoordinator,
+}
+
 #[derive(Clone)]
 /// In-process Agent Runtime boundary assembled by bootstrap.
 ///
@@ -43,19 +56,22 @@ pub(crate) struct AgentRuntimeApi {
     loop_controls: LoopControlApplicationService,
     loop_recovery: LoopRecoveryApplicationService,
     loop_scheduler: NativeLoopScheduler,
+    seat_turns: NativeSeatTurnCoordinator,
     expert_roles: ExpertRoleApplicationService,
 }
 
 impl AgentRuntimeApi {
-    pub(crate) fn new(
-        service: AgentRuntimeApplicationService,
-        terminal_service: AgentTerminalApplicationService,
-        loops: LoopApplicationService,
-        loop_controls: LoopControlApplicationService,
-        loop_recovery: LoopRecoveryApplicationService,
-        loop_scheduler: NativeLoopScheduler,
-        expert_roles: ExpertRoleApplicationService,
-    ) -> Self {
+    pub(crate) fn new(services: AgentRuntimeApiServices) -> Self {
+        let AgentRuntimeApiServices {
+            service,
+            terminal_service,
+            loops,
+            loop_controls,
+            loop_recovery,
+            loop_scheduler,
+            expert_roles,
+            seat_turns,
+        } = services;
         Self {
             service,
             terminal_service,
@@ -64,6 +80,7 @@ impl AgentRuntimeApi {
             loop_recovery,
             loop_scheduler,
             expert_roles,
+            seat_turns,
         }
     }
 
@@ -392,7 +409,13 @@ impl AgentRuntimeApi {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message(request)
+        let session_id = request.session_id.clone();
+        let message = self.service.send_message(request)?;
+        // A single-seat session has nobody to hand off to, so it never pays for a coordinator.
+        if self.service.is_multi_seat_session(&session_id) {
+            self.seat_turns.schedule(&session_id)?;
+        }
+        Ok(message)
     }
 
     pub(crate) fn send_message_with_completion(

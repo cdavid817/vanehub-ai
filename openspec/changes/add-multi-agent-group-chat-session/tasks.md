@@ -22,7 +22,7 @@
 
 ## 4. Seats and Session Entity
 
-- [x] 4.1 Add an ordered seat list to the session in shared types, Rust domain, and both adapters, keeping the existing agent id as a mirror of the first seat. A hard replacement would touch ~148 frontend and ~138 native references; mirroring keeps every existing reader working and each commit reviewable.
+- [x] 4.1 Add an ordered seat list to the session in shared types, Rust domain, and both adapters, keeping the existing agent id as a mirror of the first seat. A hard replacement would touch ~148 frontend and ~138 native references; mirroring keeps every existing reader working and each commit reviewable. (Originally closed with only the SQLite column and the frontend types; the Rust model, DTO, and both adapters landed with task 7.2, which cannot route without a persisted roster.)
 - [x] 4.2 Add a migration presenting pre-seat sessions as one-seat sessions with no role, and test that no existing session becomes unreadable.
 - [x] 4.3 Enable the `multi` option in `SessionAgentModeSelector` and remove its coming-soon hint.
 - [x] 4.4 Add seat assignment to the create-session dialog: add and remove seats, pick role and Agent per seat, reject unavailable Agents.
@@ -30,7 +30,7 @@
 
 ## 5. Speaker Identity in the Thread
 
-- [x] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters.
+- [x] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters. (Originally closed with only the frontend type; the `messages.seat_index` column, record field, and DTO landed with task 7.2.)
 - [x] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row.
 - [x] 5.3 Mark a cross-family reviewer seat in its message header.
 - [x] 5.4 Verify single-seat sessions render exactly as they do today.
@@ -45,7 +45,7 @@
 ## 7. Handoff Routing
 
 - [x] 7.1 Add mention parsing that strips fenced code blocks, matches only line-leading mentions, and filters self-mentions.
-- [ ] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. Target selection and bounds are done and tested (`turn-routing.ts`, `mention-routing.ts`). The remaining work is a coordinator following the Loop runtime's precedent — see design.md: a seat ownership marker on `GenerationEventHandler`, a completions port and terminal mirroring `LoopRoleGenerationTerminal`, and a coordinator wired next to the loop scheduler. Chaining from inside the sink is explicitly rejected there.
+- [x] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. The sink delivers a `SeatTurnTerminal` through `SeatTurnCompletionPort`; `NativeSeatTurnCoordinator` drives one seat at a time on its own thread. Closing this required finishing tasks 4.1 and 5.1, which had only landed on the frontend — see the notes under those tasks.
 - [x] 7.3 Enforce maximum chain depth and maximum mentions per message, and surface why a chain ended.
 - [x] 7.4 Route a user message with no line-leading mention to the seat that most recently held the turn, falling back to the first seat.
 - [x] 7.5 Add `@` seat completion to the composer, showing role, Agent, and family, and making the line-leading rule discoverable.
@@ -54,7 +54,7 @@
 
 - [x] 8.1 Add the three handoff intents and their state effects: informational leaves the turn with the Agents, blocking transfers it to the human, completion ends the round.
 - [x] 8.2 Ensure an informational handoff raises no blocking prompt and does not disable the composer.
-- [ ] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred. The decision is implemented and tested in `applyHumanHandoff`; enforcing it needs the turn coordinator from task 7.2.
+- [x] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred. The coordinator abandons the queue on `AwaitingHuman` and `RoundComplete`: seats still waiting were routed on the premise that the round would continue.
 - [ ] 8.4 Accumulate and display the waiting duration for a paused round. `startsWaiting` is decided; the display lands with the turn-status bar in task 9.1.
 
 ## 9. Turn Status Surface

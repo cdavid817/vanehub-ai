@@ -16,6 +16,9 @@ mod loop_worker_prompt;
 mod models;
 mod onepiece_provider_catalog;
 mod ports;
+mod seat_turn;
+#[cfg(test)]
+mod seat_turn_tests;
 mod service;
 mod terminal_service;
 mod tool_catalog;
@@ -86,6 +89,7 @@ pub(crate) use models::{
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use ports::SeatTurnCompletionPort;
+pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort, AgentMemoryPort,

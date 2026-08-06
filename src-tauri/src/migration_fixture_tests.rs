@@ -6,11 +6,11 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Versions this branch applies: 1..=41 plus 43. 42 is deliberately absent — it is claimed by the
-/// concurrently-developed `permissions-core` branch, and the coordination-removal migration was
-/// numbered 43 to avoid colliding with it on shared local databases.
+/// Versions this branch applies: 1..=41 plus 43 onward. 42 is deliberately absent — it is claimed
+/// by the concurrently-developed `permissions-core` branch, and the coordination-removal migration
+/// was numbered 43 to avoid colliding with it on shared local databases.
 fn expected_versions() -> Vec<i64> {
-    (1..=41).chain([43, 44, 45]).collect()
+    (1..=41).chain(43..=46).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

@@ -7,6 +7,7 @@ use super::{
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot, CompleteAgentMessage,
+    ConversationHistoryPort,
     DiscoverOnePieceProviderModelsInput, EffectivePrompt, EffectivePromptGateway, GenerationLease,
     GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
@@ -105,6 +106,8 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
     pub(crate) seat_completions: Arc<dyn SeatTurnCompletionPort>,
+    pub(crate) expert_roles: Arc<dyn super::ExpertRolePort>,
+    pub(crate) history: Arc<dyn ConversationHistoryPort>,
     pub(crate) message_completions: Arc<dyn AgentMessageTerminalCompletionPort>,
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
@@ -115,20 +118,20 @@ pub(crate) struct AgentRuntimeApplicationPorts {
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
-    ports: AgentRuntimeApplicationPorts,
+    pub(super) ports: AgentRuntimeApplicationPorts,
 }
 
-struct MessageGenerationInput {
-    source: super::AgentMessageSource,
-    configuration: AgentChatConfiguration,
-    content: String,
-    file_references: Vec<super::AgentFileReference>,
+pub(super) struct MessageGenerationInput {
+    pub(super) source: super::AgentMessageSource,
+    pub(super) configuration: AgentChatConfiguration,
+    pub(super) content: String,
+    pub(super) file_references: Vec<super::AgentFileReference>,
     /// A multi-seat session's role briefing, placed in the CLI's own system-prompt channel.
-    role_briefing: Option<String>,
-    seat_ownership: Option<super::SeatTurnOwnership>,
+    pub(super) role_briefing: Option<String>,
+    pub(super) seat_ownership: Option<super::SeatTurnOwnership>,
     /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
     /// would put words the human never typed into the thread under their name.
-    record_user_message: bool,
+    pub(super) record_user_message: bool,
 }
 
 struct GenerationFailure {
@@ -189,6 +192,13 @@ fn normalize_api_provider_config(
 impl AgentRuntimeApplicationService {
     pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
         Self { ports }
+    }
+
+    pub(crate) fn take_seat_turn_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SeatTurnTerminal>, AgentRuntimeApplicationError> {
+        self.ports.seat_completions.take_for_session(session_id)
     }
 
     #[cfg(test)]
@@ -1342,7 +1352,7 @@ impl AgentRuntimeApplicationService {
         result.map(|message| (message, terminal))
     }
 
-    fn start_message_generation(
+    pub(super) fn start_message_generation(
         &self,
         session: &AgentSession,
         agent: &AgentDefinition,
@@ -2091,7 +2101,7 @@ impl AgentRuntimeApplicationService {
         Ok(())
     }
 
-    fn require_agent(
+    pub(super) fn require_agent(
         &self,
         agent_id: &str,
     ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
@@ -2101,7 +2111,7 @@ impl AgentRuntimeApplicationService {
             .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
     }
 
-    fn require_session(
+    pub(super) fn require_session(
         &self,
         session_id: &str,
     ) -> Result<AgentSession, AgentRuntimeApplicationError> {
