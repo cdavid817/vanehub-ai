@@ -1,6 +1,7 @@
 mod catalog;
 mod error;
 mod expert_role;
+mod seat_turn;
 mod generation;
 mod loop_decision;
 mod loop_engineering;
@@ -11,6 +12,11 @@ pub(crate) use catalog::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentId, AgentOrigin,
     AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
     ManagedSdkStatus,
+};
+#[allow(unused_imports)]
+pub(crate) use seat_turn::{
+    apply_human_handoff, next_turn_targets, parse_human_handoff, ChainEndReason,
+    HumanHandoffEffect, HumanHandoffIntent, NextTurn,
 };
 pub(crate) use expert_role::{ExpertRole, ExpertRoleInput, ExpertRoleOrigin, ExpertRoleReviewPolicy};
 pub(crate) use error::AgentRuntimeDomainError;
