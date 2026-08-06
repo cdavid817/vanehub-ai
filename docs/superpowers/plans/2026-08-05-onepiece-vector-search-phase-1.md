@@ -2162,6 +2162,10 @@ impl IndexingService {
 pub(crate) struct BatchOutcome {
     pub(crate) succeeded: usize,
     pub(crate) failed: usize,
+    /// 设计文档 §8.2 要求失败日志带错误类别。服务本身不打日志，所以类别必须随结构化结果
+    /// 一起交给 Task 12 的 worker 调用点——否则运维排查卡住的索引时分不清 auth / rate_limit /
+    /// network，而那恰恰是最常见失败最有用的那条诊断。
+    pub(crate) last_failure_category: Option<FailureCategory>,
 }
 ```
 
@@ -2817,10 +2821,14 @@ worker 循环：
 loop {
     if let Err(error) = service.reconcile() { /* warn 日志，继续 */ }
     if let Some((_, model)) = configuration.load().ok().and_then(|c| c.resolved_model().map(|(p, m)| (p.to_string(), m.to_string()))) {
-        // 串行执行，不并发冲击速率限制
-        while let Ok(outcome) = service.process_pending_batch(&model) {
-            if outcome.succeeded == 0 && outcome.failed == 0 { break; }
-        }
+        // 串行执行，不并发冲击速率限制。
+        //
+        // **不能写成 `while ... { if succeeded == 0 && failed == 0 { break } }`。**
+        // `record_failure(give_up = false)` 把行留在 `pending`，于是 `failed > 0` 恒成立，
+        // 循环会零延迟重新领取同一批、全速轰击 provider。必须在连续失败时按
+        // `RETRY_BACKOFF_SECONDS` 递增退避（这也正是那个常量的用途），并在拿到干净批次时归零。
+        // 退避期间要能被唤醒信号打断——否则用户改完配置点"重建索引"会看上去毫无反应达数分钟。
+        drain_pending_batches_with_backoff(&service, &model, &wakeups);
     }
     wait_for_signal_or_timeout(Duration::from_secs(RECONCILE_POLL_INTERVAL_SECONDS));
 }
