@@ -361,6 +361,22 @@ mod tests {
         assert_eq!(parse_human_handoff("这个要问 @用户 handoff 一下"), None);
     }
 
+    /// Verbatim from a real `codex-cli` run given `build_seat_briefing`'s output as
+    /// `developer_instructions` (task 11.6). The mention lands alone on its line, which is the
+    /// shape the roster asks for and the only one that routes.
+    #[test]
+    fn routes_a_real_codex_cli_handoff() {
+        let reply = "1. 明确限流策略：按 IP＋账号维度限制登录尝试次数。
+2. 设计实现与异常响应：超限返回 HTTP 429、`Retry-After` 和统一错误信息。
+3. 补齐验证与监控：记录限流指标与告警。
+
+@实现者
+请按以上方案检查项目现有技术栈并实现登录接口限流，同时补充相应测试。";
+        let result = next_turn_targets(reply, &mentions(), "架构师", 1, 15, 2);
+        assert_eq!(result.targets, ["实现者"]);
+        assert_eq!(result.ended_reason, None);
+    }
+
     #[test]
     fn only_a_blocking_handoff_interrupts() {
         assert!(!apply_human_handoff(HumanHandoffIntent::Fyi).turn_holder_is_human);
