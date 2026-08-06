@@ -301,9 +301,9 @@ mod tests {
             Ok(())
         }
 
-        // reconcile 用上面三个方法；process_pending_batch 用下面这三个。其余四个
-        // （vector_candidates/keyword_candidates/index_status/requeue_all）在本文件的测试里
-        // 仍不可达，走 unimplemented!()。
+        // reconcile 用上面三个方法；process_pending_batch 用下面这三个。其余五个
+        // （vector_candidates/keyword_candidates/index_status/requeue_all/requeue_stale_model）
+        // 在本文件的测试里仍不可达，走 unimplemented!()。
         fn claim_pending_batch(
             &self,
             _source_kind: SourceKind,
@@ -358,6 +358,9 @@ mod tests {
             unimplemented!("not exercised by indexing_service tests")
         }
         fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by indexing_service tests")
+        }
+        fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by indexing_service tests")
         }
     }

@@ -694,6 +694,9 @@ mod tests {
         fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by these tests")
         }
+        fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
     }
 
     /// 断言一组 `DiagnosticLog` 里没有任何一条的 message 或 context 值携带了哨兵文本。

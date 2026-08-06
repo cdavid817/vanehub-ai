@@ -54,6 +54,13 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     ) -> Result<Vec<String>, RetrievalError>;
     fn index_status(&self, agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError>;
     fn requeue_all(&self, agent_id: &str) -> Result<(), RetrievalError>;
+    /// 把 embedding 模型与 `new_model` 不一致的已索引行打回 `pending`。
+    ///
+    /// 换模型后 `vector_candidates` 会按 `embedding_model = ?` 把旧模型的行全部滤掉，而
+    /// reconcile 只在内容哈希变化时重新入队——换模型不改内容，所以没有这个方法，那些行会
+    /// 永远停在 `indexed` 却永远进不了向量召回，每次检索静默降级成关键词单路，状态页还显示
+    /// 一切正常。
+    fn requeue_stale_model(&self, new_model: &str) -> Result<(), RetrievalError>;
 }
 
 /// 算向量的消费侧契约。唯一实现是 infrastructure 的 `HttpEmbeddingAdapter`。

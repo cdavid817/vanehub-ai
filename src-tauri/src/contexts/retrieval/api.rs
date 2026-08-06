@@ -97,12 +97,19 @@ impl RetrievalApi {
     }
 
     /// 保存后立刻唤醒 worker：否则首次配置完成到第一批 embedding 之间要白等一个兜底周期。
+    ///
+    /// 唤醒之前先把旧模型的已索引行打回 `pending`：`vector_candidates` 按 `embedding_model`
+    /// 精确过滤，而 reconcile 只认内容哈希变化，两者叠加意味着换模型后旧行既进不了向量召回、
+    /// 也永远不会被重新 embedding（delta spec "Vector recall only compares same-model
+    /// embeddings" 的第三条要求）。重新入队而非清空 embedding，让重建随后台 worker 逐批收敛
+    /// 而不是一次性抹掉全部向量召回能力（设计文档权衡 3）。
     pub(crate) fn save_configuration(
         &self,
         profile_id: &str,
         model: &str,
     ) -> Result<(), RetrievalError> {
         self.configuration.save(profile_id, model)?;
+        self.documents.requeue_stale_model(model)?;
         self.worker.notify();
         Ok(())
     }
@@ -170,12 +177,13 @@ mod tests {
         }
     }
 
-    /// 记录两路召回收到的 scope 与 `delete_by_source` 收到的参数；其余方法在本文件的测试里
-    /// 不可达，走 `unimplemented!()`。
+    /// 记录两路召回收到的 scope、`delete_by_source` 收到的参数，以及 `requeue_stale_model`
+    /// 收到的模型 id；其余方法在本文件的测试里不可达，走 `unimplemented!()`。
     #[derive(Default)]
     struct FakeDocumentRepository {
         scopes: Mutex<Vec<RetrievalScope>>,
         deleted: Mutex<Vec<(&'static str, String)>>,
+        requeued_models: Mutex<Vec<String>>,
     }
 
     impl RetrievalDocumentRepository for FakeDocumentRepository {
@@ -246,6 +254,13 @@ mod tests {
         }
         fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by api tests")
+        }
+        fn requeue_stale_model(&self, new_model: &str) -> Result<(), RetrievalError> {
+            self.requeued_models
+                .lock()
+                .expect("lock")
+                .push(new_model.to_string());
+            Ok(())
         }
     }
 
@@ -355,6 +370,25 @@ mod tests {
         assert_eq!(
             *documents.deleted.lock().expect("lock"),
             vec![("agent_memory", "memory-1".to_string())]
+        );
+    }
+
+    #[test]
+    fn saving_a_configuration_requeues_rows_embedded_under_a_different_model() {
+        // delta spec "Vector recall only compares same-model embeddings" 的第三条要求。
+        // `vector_candidates` 会把旧模型的行滤掉，而 reconcile 只认内容哈希变化——不在保存
+        // 配置时重新入队，换模型后向量召回就永久归零，且状态页显示一切正常。
+        let (api, documents, wakeups) = api(FakeConfigurationRepository::Configured);
+
+        api.save_configuration(PROFILE, "model-b").expect("save");
+
+        assert_eq!(
+            *documents.requeued_models.lock().expect("lock"),
+            vec!["model-b".to_string()]
+        );
+        assert!(
+            wakeups.try_recv().is_ok(),
+            "the worker must still be woken after the requeue"
         );
     }
 

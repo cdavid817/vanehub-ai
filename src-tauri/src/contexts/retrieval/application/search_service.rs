@@ -209,7 +209,7 @@ mod tests {
     }
 
     /// `vector_candidates`/`keyword_candidates` 的返回值由测试摆放，且后者记录收到的 FTS
-    /// 查询串；其余八个方法在本文件的测试里都不可达，走 unimplemented!()。
+    /// 查询串；其余九个方法在本文件的测试里都不可达，走 unimplemented!()。
     struct FakeRepository {
         vector_candidates_result: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
         keyword_candidates_result: Result<Vec<String>, RetrievalError>,
@@ -291,6 +291,9 @@ mod tests {
             unimplemented!("not exercised by search_service tests")
         }
         fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+        fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by search_service tests")
         }
     }

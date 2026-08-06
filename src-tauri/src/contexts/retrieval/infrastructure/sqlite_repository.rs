@@ -294,6 +294,27 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .map_err(storage_error)?;
         Ok(())
     }
+
+    fn requeue_stale_model(&self, new_model: &str) -> Result<(), RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let now = SystemClock.rfc3339();
+        // 只动 `indexed` 行：`failed` 是达到重试上限的终态，换模型不该悄悄把它们复活；
+        // `pending` 行本来就会被下一批认领。旧向量刻意保留不清——重新 embedding 成功时
+        // `store_embedding` 会整体覆盖，在那之前保留只是多占一点空间，而清空会让本就
+        // 收敛缓慢的过程连"旧模型下的召回"都一并失去（设计文档权衡 3）。
+        connection
+            .execute(
+                r#"
+                UPDATE retrieval_documents
+                SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?2
+                WHERE index_state = 'indexed'
+                  AND (embedding_model IS NULL OR embedding_model <> ?1)
+                "#,
+                params![new_model, now],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
 }
 
 struct DocumentRow {
@@ -709,6 +730,128 @@ mod tests {
             0,
             "requeue_all must reset the attempt count"
         );
+    }
+
+    #[test]
+    fn requeue_stale_model_returns_rows_to_pending_until_they_are_re_embedded() {
+        // delta spec "Vector recall only compares same-model embeddings" 的第三条要求。
+        // 没有这一步，换模型后旧行既被 `vector_candidates` 的 `embedding_model = ?` 滤掉，
+        // 又因为 reconcile 只认内容哈希变化而永远不会被重新 embedding——向量召回永久归零，
+        // 状态页却报告 indexed=N / pending=0 / failed=0，看不出任何异常。
+        let fixture = Fixture::new("retrieval requeue stale model");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses npm"))
+            .expect("upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-a",
+                &[1.0, 0.0],
+            )
+            .expect("store under model-a");
+
+        fixture
+            .repository
+            .requeue_stale_model("model-b")
+            .expect("requeue");
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.pending, 1, "the stale row must be queued again");
+        assert_eq!(status.indexed, 0);
+        assert!(
+            fixture
+                .repository
+                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-b")
+                .expect("candidates")
+                .is_empty(),
+            "a requeued row must not be recallable under the new model until it is re-embedded"
+        );
+        assert!(
+            fixture
+                .repository
+                .claim_pending_batch(SourceKind::AgentMemory, 10)
+                .expect("batch")
+                .iter()
+                .any(|document| document.source_id == "m1"),
+            "the worker must be able to claim the requeued row"
+        );
+
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-b",
+                &[0.0, 1.0],
+            )
+            .expect("store under model-b");
+
+        assert_eq!(
+            fixture
+                .repository
+                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-b")
+                .expect("candidates")
+                .len(),
+            1,
+            "re-embedding under the new model must restore vector recall"
+        );
+    }
+
+    #[test]
+    fn requeue_stale_model_leaves_rows_already_on_the_configured_model_alone() {
+        // 与上一条成对：保存配置时模型没变（换的是来源 Profile，或只是重复保存同一份配置）
+        // 就不能把整张索引打回 pending——那等于每次点保存都重烧一遍全部 embedding 配额。
+        let fixture = Fixture::new("retrieval requeue stale model noop");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "uses npm"))
+            .expect("upsert");
+        fixture
+            .repository
+            .store_embedding(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                "model-a",
+                &[1.0, 0.0],
+            )
+            .expect("store");
+
+        fixture
+            .repository
+            .requeue_stale_model("model-a")
+            .expect("requeue");
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.indexed, 1);
+        assert_eq!(status.pending, 0);
+    }
+
+    #[test]
+    fn requeue_stale_model_does_not_revive_rows_that_gave_up() {
+        // `failed` 是达到重试上限后的终态，只有用户显式重建才该复活它；换模型顺手把它们
+        // 拉回 pending 会让一批确定性失败（例如 auth）的行在每次换模型时重新烧一轮重试。
+        let fixture = Fixture::new("retrieval requeue stale model failed");
+        fixture
+            .repository
+            .upsert_pending(&document("m1", "a", "", "x"))
+            .expect("upsert");
+        fixture
+            .repository
+            .record_failure(
+                &document_id(SourceKind::AgentMemory, "m1"),
+                FailureCategory::Auth,
+                true,
+            )
+            .expect("give up");
+
+        fixture
+            .repository
+            .requeue_stale_model("model-b")
+            .expect("requeue");
+
+        let status = fixture.repository.index_status("a").expect("status");
+        assert_eq!(status.failed, 1);
+        assert_eq!(status.pending, 0);
     }
 
     #[test]
