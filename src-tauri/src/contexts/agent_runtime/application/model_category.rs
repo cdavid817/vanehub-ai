@@ -2,7 +2,11 @@
 //! 两处各自维护关键词表，迟早会在新增模型时漂移成互相矛盾的判断。
 
 const NON_CHAT_KEYWORDS: &[&str] = &[
+    // `embed-` 是本次新增的一项（其余沿用 service.rs 的原表）。少了它，Cohere 的真实 id
+    // `embed-english-v3.0` 会同时满足 is_chat_model 与 is_embedding_model，在配置页的聊天模型
+    // 选择器和 embedding 选择器里各出现一次——这个双重列出是本特性引入 embedding 选择器才产生的。
     "embedding",
+    "embed-",
     "rerank",
     "whisper",
     "tts",
@@ -40,9 +44,12 @@ mod tests {
 
     #[test]
     fn chat_and_embedding_classifications_are_mutually_exclusive() {
+        // `embed-english-v3.0` 是这条测试的关键样本：它命中 EMBEDDING_KEYWORDS 的 `embed-`，
+        // 而 NON_CHAT_KEYWORDS 若只有 `embedding` 就漏掉它，于是两个分类同时为真。
         for id in [
             "gpt-4o",
             "text-embedding-3-small",
+            "embed-english-v3.0",
             "bge-reranker",
             "whisper-1",
         ] {
