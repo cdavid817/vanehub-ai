@@ -1379,7 +1379,7 @@ fn execute_recall(
     match retrieval.search(agent_id, workspace_folder, query, limit) {
         Ok(outcome) => ToolExecutionOutcome {
             output: serde_json::to_string(&recall_payload(&outcome))
-                .unwrap_or_else(|_| "{\"hits\":[]}".to_string()),
+                .unwrap_or_else(|_| "{\"results\":[]}".to_string()),
             is_error: false,
         },
         Err(_) => ToolExecutionOutcome {
@@ -1406,8 +1406,8 @@ fn recall_payload(outcome: &AgentRetrievalOutcome) -> Value {
         })
         .collect();
     match &outcome.degraded {
-        Some(degraded) => json!({ "hits": hits, "degraded": degraded }),
-        None => json!({ "hits": hits }),
+        Some(degraded) => json!({ "results": hits, "degraded": degraded }),
+        None => json!({ "results": hits }),
     }
 }
 
@@ -2382,6 +2382,63 @@ mod tests {
         );
     }
 
+    /// Pins `execute`'s only production call site of `resolve_tool_catalog` against argument
+    /// transposition. Every other `resolve_tool_catalog` test in this file calls it directly by
+    /// name, so swapping `execute`'s two adjacent `plan_mode`/`retrieval_available` `bool`
+    /// arguments at the call site would still compile and leave the whole suite green — while
+    /// actually handing a non-plan session the plan-mode catalog (no `shell`) and a plan-mode
+    /// session the full catalog (including `shell`) plus a dropped/spurious `recall`. Driving a
+    /// real generation with retrieval configured and `plan_mode` left at its default `false`
+    /// (`sample_request`'s `permission_mode: "default"`), then asserting the request body's
+    /// declared tools contain both `shell` (only ever offered outside plan mode) and `recall`
+    /// (only ever offered when retrieval is configured) kills that mutation.
+    #[test]
+    fn execute_wires_plan_mode_and_retrieval_available_to_the_correct_resolve_tool_catalog_argument(
+    ) {
+        let (address, server) = http_fixture("200 OK", sse_body(&["[DONE]"]));
+        let request = sample_request("api");
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+
+        let _event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &openai_compatible_config("test-model", Some(&address)),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &CapturingSink::default(),
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &NoopSkills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+        );
+
+        let request_bytes = server.join().expect("fixture server");
+        let body = request_json_body(&request_bytes);
+        let tool_names: Vec<&str> = body["tools"]
+            .as_array()
+            .expect("tools array present")
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().expect("tool name"))
+            .collect();
+        assert!(
+            tool_names.contains(&SHELL_TOOL_NAME),
+            "plan_mode must reach resolve_tool_catalog as false, not true: {tool_names:?}"
+        );
+        assert!(
+            tool_names.contains(&RECALL_TOOL_NAME),
+            "retrieval_available must reach resolve_tool_catalog as true, not false: {tool_names:?}"
+        );
+    }
+
     #[test]
     fn execute_returns_mcp_failure_as_tool_data_and_continues_generation() {
         let first_response = sse_body(&[
@@ -3322,13 +3379,16 @@ mod tests {
 
         assert!(!outcome.is_error);
         let parsed: Value = serde_json::from_str(&outcome.output).expect("valid JSON output");
-        let hit = &parsed["hits"][0];
+        let hit = &parsed["results"][0];
         assert_eq!(hit["content"], "uses npm not pnpm");
         assert_eq!(hit["created_at"], "2026-01-01T00:00:00Z");
         assert_eq!(hit["matched_via"], "vector");
         let hit_object = hit.as_object().expect("hit is an object");
         assert!(!hit_object.contains_key("source_id"));
         assert!(!hit_object.contains_key("score"));
+        // Whitelist, not just a blacklist: exactly content/created_at/matched_via — a fourth
+        // projected field would pass the absence checks above but must still fail here.
+        assert_eq!(hit_object.len(), 3);
     }
 
     #[test]
