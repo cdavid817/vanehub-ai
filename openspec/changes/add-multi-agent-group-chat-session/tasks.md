@@ -1,10 +1,10 @@
 ## 1. Expert Role Foundation
 
-- [ ] 1.1 Define the expert role entity (id, display name, avatar, colour, responsibility, role instruction, Skill references, peer-review eligibility, cross-family preference) in shared types.
+- [x] 1.1 Define the expert role entity (id, display name, avatar, colour, responsibility, role instruction, Skill references, peer-review eligibility, cross-family preference) in shared types.
 - [ ] 1.2 Add role persistence in the Rust SQLite layer with create, read, update, delete, and list.
-- [ ] 1.3 Add the matching role methods to `AgentService` and implement them identically in the Tauri and Web/mock adapters.
-- [ ] 1.4 Seed built-in starter roles covering architecture, code review, and implementation, marked read-only but copyable.
-- [ ] 1.5 Add validation rejecting a role without display name, responsibility, or instruction.
+- [x] 1.3 Add the matching role methods to `AgentService` and implement them identically in the Tauri and Web/mock adapters. Tauri side invokes `list_expert_roles` / `save_expert_role` / `delete_expert_role`; those Rust commands land with task 1.2.
+- [x] 1.4 Seed built-in starter roles covering architecture, code review, and implementation, marked read-only but copyable.
+- [x] 1.5 Add validation rejecting a role without display name, responsibility, or instruction.
 
 ## 2. Expert Role Settings Page
 

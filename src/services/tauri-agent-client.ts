@@ -109,6 +109,7 @@ import type { ProviderCredentialValidationResult } from "../types/provider-crede
 import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
+import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -266,6 +267,18 @@ export const tauriAgentClient: AgentService = {
 
   applyCliConfigProfile(input: ApplyCliConfigProfileInput) {
     return invoke<CliConfigApplyResult>("apply_cli_config_profile", { input });
+  },
+
+  listExpertRoles() {
+    return invoke<ExpertRole[]>("list_expert_roles");
+  },
+
+  saveExpertRole(input: SaveExpertRoleInput) {
+    return invoke<ExpertRole>("save_expert_role", { input });
+  },
+
+  deleteExpertRole(roleId: string) {
+    return invoke<void>("delete_expert_role", { roleId });
   },
 
   getAgentById(agentId) {

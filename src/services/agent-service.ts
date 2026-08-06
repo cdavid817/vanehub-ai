@@ -115,6 +115,7 @@ import type {
   ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
 import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
+import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 
 export interface AgentService {
   openExternalUrl(url: string): Promise<void>;
@@ -244,6 +245,9 @@ export interface AgentService {
   killShell(shellId: string): Promise<void>;
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
+  listExpertRoles(): Promise<ExpertRole[]>;
+  saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole>;
+  deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;
