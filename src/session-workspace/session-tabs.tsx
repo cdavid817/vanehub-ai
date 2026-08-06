@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { LazyFeature } from "../components/lazy-feature";
 import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
+import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import type { ChatMessage } from "../types/chat";
 import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChatTab } from "./chat-tab";
@@ -28,6 +29,7 @@ export function SessionTabs({
   onOpenSettings,
   requestedTab,
   sessionActivationKey,
+  turnStatus = null,
 }: {
   activeSession: Session | null;
   apiComposer?: ReactNode;
@@ -38,6 +40,8 @@ export function SessionTabs({
   onOpenSettings: () => void;
   requestedTab?: SessionTabId | null;
   sessionActivationKey: number;
+  /** Null in a single-seat session, which has no turn to hand off. */
+  turnStatus?: TurnStatus | null;
 }) {
   const sessionId = activeSession?.id ?? null;
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
@@ -70,6 +74,7 @@ export function SessionTabs({
             isStreaming={isStreaming}
             messages={messages}
             onLoadEarlier={onLoadEarlier}
+            turnStatus={turnStatus}
           />
         );
       }

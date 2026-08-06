@@ -55,7 +55,7 @@
 - [x] 8.1 Add the three handoff intents and their state effects: informational leaves the turn with the Agents, blocking transfers it to the human, completion ends the round.
 - [x] 8.2 Ensure an informational handoff raises no blocking prompt and does not disable the composer.
 - [x] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred. The coordinator abandons the queue on `AwaitingHuman` and `RoundComplete`: seats still waiting were routed on the premise that the round would continue.
-- [ ] 8.4 Accumulate and display the waiting duration for a paused round. `startsWaiting` is decided; the display lands with the turn-status bar in task 9.1.
+- [x] 8.4 Accumulate and display the waiting duration for a paused round. The coordinator publishes the moment the pause began; the bar counts from there and ticks on its own, so the duration keeps moving without the backend republishing it.
 
 ## 9. Turn Status Surface
 

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { MessageList } from "../components/chat/MessageList";
+import { TurnStatusBar, type TurnStatus } from "../components/chat/TurnStatusBar";
 import { useSessionSpeakers } from "../hooks/use-session-speakers";
 
 export function ChatTab({
@@ -11,12 +12,14 @@ export function ChatTab({
   isStreaming,
   messages,
   onLoadEarlier,
+  turnStatus = null,
 }: {
   activeSession: Session | null;
   composer: ReactNode;
   isStreaming: boolean;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
+  turnStatus?: TurnStatus | null;
 }) {
   const { t } = useTranslation();
   const speakers = useSessionSpeakers(activeSession);
@@ -34,6 +37,7 @@ export function ChatTab({
             {isStreaming ? t("layout.generating") : t("layout.ready")}
           </span>
         </div>
+        {turnStatus ? <TurnStatusBar status={turnStatus} /> : null}
         <MessageList
           hasActiveSession={Boolean(activeSession)}
           hasMore={messages.length >= 50}

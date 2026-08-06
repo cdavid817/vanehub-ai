@@ -11,8 +11,9 @@
 
 use super::service::MessageGenerationInput;
 use super::{
-    AgentChatConfiguration, AgentRuntimeApplicationError, AgentRuntimeApplicationService,
-    AgentSession, SeatTurnOwnership, SeatTurnTerminal,
+    AgentChatConfiguration, AgentEvent, AgentRuntimeApplicationError,
+    AgentRuntimeApplicationService, AgentSession, SeatTurnOwnership, SeatTurnStatus,
+    SeatTurnTerminal,
 };
 use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::agent_runtime::domain::{
@@ -150,12 +151,27 @@ impl AgentRuntimeApplicationService {
         if let Some(intent) = parse_human_handoff(reply) {
             let effect = apply_human_handoff(intent);
             if effect.round_complete {
+                self.announce_turn_status(
+                    &terminal.session_id,
+                    SeatTurnStatus::RoundComplete {
+                        seat_index: terminal.seat_index,
+                        mention: terminal.seat_mention.clone(),
+                    },
+                );
                 return Ok(SeatTurnDecision {
                     next: Vec::new(),
                     stop: Some(SeatTurnStop::RoundComplete),
                 });
             }
             if effect.turn_holder_is_human {
+                self.announce_turn_status(
+                    &terminal.session_id,
+                    SeatTurnStatus::WaitingHuman {
+                        seat_index: terminal.seat_index,
+                        mention: terminal.seat_mention.clone(),
+                        since: self.ports.clock.now(),
+                    },
+                );
                 return Ok(SeatTurnDecision {
                     next: Vec::new(),
                     stop: Some(SeatTurnStop::AwaitingHuman),
@@ -253,6 +269,15 @@ impl AgentRuntimeApplicationService {
             MAX_MENTIONS_PER_REPLY,
         );
 
+        self.announce_turn_status(
+            session_id,
+            SeatTurnStatus::Agent {
+                seat_index: seat.seat_index,
+                mention: seat.briefing.mention.clone(),
+                depth: assignment.depth,
+                max_depth: MAX_CHAIN_DEPTH,
+            },
+        );
         let prompt = self.seat_turn_prompt(session_id, &roster, seat)?;
         let lease = self.ports.generations.reserve(&session.id)?;
         let result = self.start_message_generation(
@@ -277,6 +302,15 @@ impl AgentRuntimeApplicationService {
             let _ = self.ports.generations.release(&lease);
         }
         result.map(|_| ())
+    }
+
+    /// A failed announcement must not fail the turn: the bar is a display, and losing it is a
+    /// smaller loss than losing the round.
+    fn announce_turn_status(&self, session_id: &str, status: SeatTurnStatus) {
+        let _ = self.ports.events.publish(AgentEvent::TurnStatusChanged {
+            session_id: session_id.to_string(),
+            status,
+        });
     }
 
     /// Builds what the seat reads when its turn starts.

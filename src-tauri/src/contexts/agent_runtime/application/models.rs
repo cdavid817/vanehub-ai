@@ -776,6 +776,35 @@ pub(crate) enum AgentEvent {
         session_id: String,
         message_id: String,
     },
+    TurnStatusChanged {
+        session_id: String,
+        status: SeatTurnStatus,
+    },
+}
+
+/// Who holds a multi-seat session's turn.
+///
+/// Only the paused case is emphasised downstream: an informational handoff must not look like an
+/// interruption, or Agents get blamed for using the channel that keeps the human informed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SeatTurnStatus {
+    Agent {
+        seat_index: usize,
+        mention: String,
+        depth: usize,
+        max_depth: usize,
+    },
+    WaitingHuman {
+        seat_index: usize,
+        mention: String,
+        /// When the wait began. The duration is counted from here rather than accumulated in the
+        /// native layer, so a reader watching the bar sees it tick without the backend polling.
+        since: String,
+    },
+    RoundComplete {
+        seat_index: usize,
+        mention: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

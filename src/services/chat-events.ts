@@ -8,6 +8,8 @@ function mergeRichBlock(message: ChatMessage, block: NonNullable<ChatMessage["ri
 }
 
 export function applyChatEvent(messages: ChatMessage[], event: ChatStreamEvent): ChatMessage[] {
+  // The turn status belongs to the session, not to any message, so it leaves the thread untouched.
+  if (event.type === "turn_status") return messages;
   return messages.map((message) => {
     if (message.id !== event.messageId) return message;
     const updatedAt = new Date().toISOString();

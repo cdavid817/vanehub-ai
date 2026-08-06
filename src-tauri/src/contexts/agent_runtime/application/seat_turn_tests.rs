@@ -1,6 +1,6 @@
 use super::tests::{seat_turn_world, service};
 use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
-use super::{SeatTurnAssignment, SeatTurnStop, SeatTurnTerminal};
+use super::{SeatTurnAssignment, SeatTurnStatus, SeatTurnStop, SeatTurnTerminal};
 use crate::contexts::agent_runtime::domain::ChainEndReason;
 
 fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTerminal {
@@ -327,4 +327,112 @@ fn a_seat_turn_marks_its_agent_span_with_the_seat() {
         agent_span.attributes.entries().get("vanehub.seat.mention"),
         Some(&SafeAttributeValue::String("代码审查".to_string()))
     );
+}
+
+/// The one question a reader of a multi-seat session has is who they are waiting on, so starting a
+/// seat's turn has to announce it.
+#[test]
+fn starting_a_seat_turn_announces_who_holds_it() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+
+    service
+        .start_seat_turn(
+            "session-1",
+            &SeatTurnAssignment {
+                seat_index: 1,
+                depth: 3,
+            },
+        )
+        .expect("start seat turn");
+
+    let events = world.events.lock().expect("events");
+    let status = events
+        .iter()
+        .find_map(|event| match event {
+            crate::contexts::agent_runtime::application::AgentEvent::TurnStatusChanged {
+                status,
+                ..
+            } => Some(status.clone()),
+            _ => None,
+        })
+        .expect("a turn status event");
+    assert_eq!(
+        status,
+        SeatTurnStatus::Agent {
+            seat_index: 1,
+            mention: "代码审查".to_string(),
+            depth: 3,
+            max_depth: 15,
+        }
+    );
+}
+
+/// A paused round has to say how long it has been paused, which starts from the moment it pauses.
+#[test]
+fn a_blocking_handoff_announces_that_the_turn_is_waiting_on_the_user() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+
+    service
+        .decide_seat_turn(&terminal(Some("@用户 handoff 你定一下"), "架构师", 1))
+        .expect("decide");
+
+    let events = world.events.lock().expect("events");
+    let status = events
+        .iter()
+        .find_map(|event| match event {
+            crate::contexts::agent_runtime::application::AgentEvent::TurnStatusChanged {
+                status,
+                ..
+            } => Some(status.clone()),
+            _ => None,
+        })
+        .expect("a turn status event");
+    match status {
+        SeatTurnStatus::WaitingHuman { mention, since, .. } => {
+            assert_eq!(mention, "架构师");
+            assert!(!since.is_empty(), "waiting has to start from a known moment");
+        }
+        other => panic!("expected a waiting status, got {other:?}"),
+    }
+}
+
+/// An informational handoff must not look like an interruption, or Agents get blamed for using it.
+#[test]
+fn an_informational_handoff_announces_no_pause() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+
+    service
+        .decide_seat_turn(&terminal(Some("@用户 fyi 顺带一提\n@代码审查 接着看"), "架构师", 1))
+        .expect("decide");
+
+    let events = world.events.lock().expect("events");
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        crate::contexts::agent_runtime::application::AgentEvent::TurnStatusChanged {
+            status: SeatTurnStatus::WaitingHuman { .. },
+            ..
+        }
+    )));
+}
+
+#[test]
+fn a_completion_handoff_announces_the_round_is_done() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+
+    service
+        .decide_seat_turn(&terminal(Some("@用户 done 完成"), "架构师", 1))
+        .expect("decide");
+
+    let events = world.events.lock().expect("events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        crate::contexts::agent_runtime::application::AgentEvent::TurnStatusChanged {
+            status: SeatTurnStatus::RoundComplete { .. },
+            ..
+        }
+    )));
 }

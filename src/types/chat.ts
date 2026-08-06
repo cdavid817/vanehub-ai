@@ -1,3 +1,4 @@
+import type { TurnStatusEvent } from "../services/turn-status";
 import type { InteractionMode } from "./agent";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -235,7 +236,8 @@ export type ChatStreamEvent =
   | { type: "rich_block"; sessionId: string; messageId: string; block: RichBlock }
   | { type: "completed"; sessionId: string; messageId: string; tokenUsage?: TokenUsage }
   | { type: "failed"; sessionId: string; messageId: string; error: string }
-  | { type: "cancelled"; sessionId: string; messageId: string };
+  | { type: "cancelled"; sessionId: string; messageId: string }
+  | { type: "turn_status"; sessionId: string; status: TurnStatusEvent };
 
 export interface SendMessageInput {
   sessionId: string;

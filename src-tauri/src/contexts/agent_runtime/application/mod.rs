@@ -89,6 +89,7 @@ pub(crate) use models::{
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use ports::SeatTurnCompletionPort;
+pub(crate) use models::SeatTurnStatus;
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,

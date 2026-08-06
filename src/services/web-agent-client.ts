@@ -1388,6 +1388,8 @@ function emitChatEvent(event: ChatStreamEvent) {
 }
 
 function applyStreamEvent(event: ChatStreamEvent) {
+  // The turn status belongs to the session, not to any message.
+  if (event.type === "turn_status") return;
   const messages = getSessionMessages(event.sessionId);
   const message = messages.find((candidate) => candidate.id === event.messageId);
   if (!message) return;

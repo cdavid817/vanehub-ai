@@ -285,6 +285,7 @@ export function MainLayout({
                   onOpenSettings={onOpenSettings}
                   requestedTab={requestedWorkspaceTab}
                   sessionActivationKey={sessionActivationKey}
+                  turnStatus={loopInspection ? null : model.turnStatus}
                 />
               </div>
             </section>

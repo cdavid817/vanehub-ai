@@ -97,7 +97,7 @@ pub(super) struct FakeWorld {
     launch_failure: AtomicBool,
     prompt_failure: AtomicBool,
     no_prompt_versions: AtomicBool,
-    events: Mutex<Vec<AgentEvent>>,
+    pub(super) events: Mutex<Vec<AgentEvent>>,
     logs: Mutex<Vec<AgentLog>>,
     operations: Mutex<Vec<OperationEvent>>,
     prompt_reports: Mutex<Vec<PromptExecutionReport>>,

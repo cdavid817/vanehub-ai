@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useChatConfig } from "../components/chat/hooks/useChatConfig";
@@ -6,6 +6,8 @@ import { createChatOperationFailureEvent } from "./chat-operation-failure";
 import { useNotifications } from "../notifications/notification-provider";
 import { normalizeDisplayPath } from "../lib/session-path";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
+import type { TurnStatus } from "../components/chat/TurnStatusBar";
+import { turnStatusFromEvent, waitedMinutes } from "../services/turn-status";
 import { applyChatEvent } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { settingsService } from "../services/runtime-settings-client";
@@ -20,6 +22,8 @@ export function useMainLayoutModel() {
   const [draft, setDraft] = useState("");
   const [fileReferences, setFileReferences] = useState<ChatFileReference[]>([]);
   const [messageLimit, setMessageLimit] = useState(50);
+  const [turnStatus, setTurnStatus] = useState<TurnStatus | null>(null);
+  const waitingSince = useRef<string | null>(null);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const normalizedSessionSearchQuery = sessionSearchQuery.trim();
   const debouncedSessionSearchQuery = useDebouncedValue(normalizedSessionSearchQuery, 250);
@@ -135,12 +139,33 @@ export function useMainLayoutModel() {
         void queryClient.invalidateQueries({ queryKey: ["session-usage-summary", event.sessionId] });
         void queryClient.invalidateQueries({ queryKey: ["usage-statistics"] });
       }
+      if (event.type === "turn_status") {
+        waitingSince.current = event.status.kind === "waiting_human" ? event.status.since : null;
+        setTurnStatus(turnStatusFromEvent(event.status));
+      }
+      // A round that ends leaves nobody holding the turn, so the bar has to go rather than freeze.
       if (["completed", "failed", "cancelled"].includes(event.type)) invalidateSessions();
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => { cancelled = true; cleanup?.(); };
   }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
 
-  useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); }, [activeSessionId]);
+  useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId]);
+
+  // A paused round is waiting on a person, so the duration has to keep moving without the backend
+  // republishing it every minute.
+  useEffect(() => {
+    if (turnStatus?.kind !== "waiting-human") return;
+    const timer = setInterval(() => {
+      const since = waitingSince.current;
+      if (!since) return;
+      setTurnStatus((current) =>
+        current?.kind === "waiting-human"
+          ? { ...current, waitedMinutes: waitedMinutes(since, new Date()) }
+          : current,
+      );
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [turnStatus?.kind]);
 
   function submit() {
     if (!activeSession || !draft.trim() || isStreaming) return;
@@ -157,7 +182,7 @@ export function useMainLayoutModel() {
     notify({ type: "success", title: t("notifications.sessionCreated.title"), message: t("notifications.sessionCreated.message", { title: session.title }), scope: { kind: "session", sessionId: session.id } });
   }
   return {
-    activeSession, activeSessionId, agents, agentsAvailable: Boolean(agentsQuery.data?.length), archivedSessions: archivedQuery.data ?? [],
+    activeSession, activeSessionId, agents, agentsAvailable: Boolean(agentsQuery.data?.length), archivedSessions: archivedQuery.data ?? [], turnStatus,
     assignCategory: (session: Session, categoryId: string | null) => assignCategory.mutate({ session, categoryId }),
     categories: categoriesQuery.data ?? [],
     chatConfig,
