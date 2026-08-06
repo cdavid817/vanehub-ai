@@ -617,6 +617,17 @@ mod tests {
             unimplemented!("not exercised by terminal usage ingestion tests")
         }
 
+        fn validate_seat_configuration(
+            &self,
+            _session: &crate::contexts::agent_runtime::application::AgentSession,
+            _configuration: crate::contexts::agent_runtime::application::AgentChatConfiguration,
+        ) -> Result<
+            crate::contexts::agent_runtime::application::AgentChatConfiguration,
+            AgentRuntimeApplicationError,
+        > {
+            unimplemented!("not exercised by terminal usage ingestion tests")
+        }
+
         fn compose_prompt(
             &self,
             _session_id: &str,

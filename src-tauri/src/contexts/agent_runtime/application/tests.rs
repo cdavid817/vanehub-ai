@@ -88,9 +88,9 @@ pub(super) struct FakeWorld {
     details: Mutex<(String, BTreeMap<String, String>)>,
     sessions: Mutex<BTreeMap<String, AgentSession>>,
     messages: Mutex<BTreeMap<String, AgentMessage>>,
-    created_messages: Mutex<Vec<NewAgentMessage>>,
+    pub(super) created_messages: Mutex<Vec<NewAgentMessage>>,
     lifecycle_updates: Mutex<Vec<AgentLifecycle>>,
-    generation_requests: Mutex<Vec<GenerationProcessRequest>>,
+    pub(super) generation_requests: Mutex<Vec<GenerationProcessRequest>>,
     generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
     loop_terminals: Mutex<Vec<LoopRoleGenerationTerminal>>,
     stopped_processes: Mutex<Vec<String>>,
@@ -128,6 +128,37 @@ pub(super) struct FakeWorld {
 }
 
 impl FakeWorld {
+    /// Appends a completed message to the session thread, in call order.
+    pub(super) fn seed_message(&self, _speaker: &str, seat_index: Option<usize>, content: &str) {
+        let mut messages = self.messages.lock().expect("messages");
+        let ordinal = messages.len() + 1;
+        let id = format!("seeded-{ordinal}");
+        messages.insert(
+            id.clone(),
+            AgentMessage {
+                id,
+                session_id: "session-1".to_string(),
+                seat_index,
+                role: if seat_index.is_some() {
+                    "assistant".to_string()
+                } else {
+                    "user".to_string()
+                },
+                content: content.to_string(),
+                status: "completed".to_string(),
+                tool_use: Vec::new(),
+                thinking_content: None,
+                rich_blocks: Vec::new(),
+                token_usage: None,
+                file_references: Vec::new(),
+                error: None,
+                // Ordered so `recent_messages` returns them in the order they were seeded.
+                created_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
+                updated_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
+            },
+        );
+    }
+
     fn new(agents: Vec<AgentDefinition>) -> Self {
         let session = AgentSession {
             id: "session-1".to_string(),
@@ -267,6 +298,14 @@ impl AgentSessionGateway for FakeWorld {
         Ok(configuration)
     }
 
+    fn validate_seat_configuration(
+        &self,
+        _session: &AgentSession,
+        configuration: AgentChatConfiguration,
+    ) -> Result<AgentChatConfiguration, AgentRuntimeApplicationError> {
+        Ok(configuration)
+    }
+
     fn compose_prompt(
         &self,
         _session_id: &str,
@@ -291,7 +330,7 @@ impl AgentSessionGateway for FakeWorld {
         let record = AgentMessage {
             id: id.clone(),
             session_id: message.session_id,
-            seat_index: None,
+            seat_index: message.seat_index,
             role: message.role,
             content: message.content,
             status: message.status,

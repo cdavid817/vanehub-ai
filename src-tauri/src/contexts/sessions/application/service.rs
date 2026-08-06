@@ -569,6 +569,37 @@ impl SessionsApplicationService {
         Ok(configuration_from_preferences(&session, &preferences))
     }
 
+    /// Normalizes a chat configuration against the Agent it names rather than the session's.
+    ///
+    /// A seat runs its own Agent, so normalizing against the session's — which mirrors only the
+    /// first seat — would hand every other seat the wrong model defaults, silently.
+    pub(crate) fn validate_seat_chat_configuration(
+        &self,
+        configuration: SessionChatConfiguration,
+    ) -> Result<SessionChatConfiguration, SessionsApplicationError> {
+        let session = self.load_session(&configuration.session_id)?;
+        if !session
+            .seats
+            .iter()
+            .any(|seat| seat.agent_id == configuration.agent_id)
+        {
+            return Err(SessionsApplicationError::Validation(format!(
+                "Agent '{}' holds no seat in this session.",
+                configuration.agent_id
+            )));
+        }
+        let preferences = normalize_chat_preferences(
+            &configuration.agent_id,
+            configuration.values.as_domain_request(),
+        )?;
+        Ok(SessionChatConfiguration {
+            session_id: configuration.session_id,
+            agent_id: configuration.agent_id,
+            interaction_mode: configuration.interaction_mode,
+            values: super::ChatConfigurationValues::from_preferences(&preferences),
+        })
+    }
+
     pub(crate) fn find_session(
         &self,
         session_id: &str,

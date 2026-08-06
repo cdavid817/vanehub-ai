@@ -226,7 +226,7 @@ impl AgentRuntimeApplicationService {
         } else {
             InteractionMode::Api
         };
-        let configuration = self.ports.sessions.validate_configuration(
+        let configuration = self.ports.sessions.validate_seat_configuration(
             &session,
             AgentChatConfiguration {
                 agent_id: seat.agent_id.clone(),

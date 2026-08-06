@@ -62,7 +62,7 @@
 - [x] 9.1 Add the persistent turn-status bar showing the current holder, chain position against its limit, and waiting duration when paused.
 - [x] 9.2 Add the seats view to the session info panel showing each seat's role, Agent, family, and state, and let the user add or remove a seat there.
 - [x] 9.4 Add a service-boundary method for updating a running session's seats, implemented identically in both adapters, rejecting removal of the last seat and re-mirroring `agentId` onto the first remaining seat.
-- [ ] 9.5 Give a seat added mid-session the preceding turns within its context budget, reusing the injection path from task 6.4, so it can act on work it did not witness. `buildSeatContext` already produces this; delivering it needs the turn coordinator from task 7.2.
+- [x] 9.5 Give a seat added mid-session the preceding turns within its context budget, reusing the injection path from task 6.4, so it can act on work it did not witness. The coordinator builds every seat's prompt from the thread, attributed by speaker, so a seat that joins late reads the same history as one that was there from the start.
 - [x] 9.3 Confirm no control anywhere selects which seat speaks next.
 
 ## 10. Workspace Tab Scoping

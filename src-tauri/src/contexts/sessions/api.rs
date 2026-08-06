@@ -171,6 +171,13 @@ impl SessionsApi {
         self.service.validate_chat_configuration(configuration)
     }
 
+    pub(crate) fn validate_seat_chat_configuration(
+        &self,
+        configuration: SessionChatConfiguration,
+    ) -> Result<SessionChatConfiguration, SessionsError> {
+        self.service.validate_seat_chat_configuration(configuration)
+    }
+
     pub(crate) fn runtime_session(
         &self,
         session_id: &str,

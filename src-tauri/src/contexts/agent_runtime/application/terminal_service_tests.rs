@@ -103,6 +103,14 @@ impl AgentSessionGateway for TerminalWorld {
         Ok(configuration)
     }
 
+    fn validate_seat_configuration(
+        &self,
+        _session: &AgentSession,
+        configuration: AgentChatConfiguration,
+    ) -> Result<AgentChatConfiguration, AgentRuntimeApplicationError> {
+        Ok(configuration)
+    }
+
     fn compose_prompt(
         &self,
         _session_id: &str,
