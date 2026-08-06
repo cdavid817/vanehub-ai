@@ -45,17 +45,17 @@
 ## 7. Handoff Routing
 
 - [x] 7.1 Add mention parsing that strips fenced code blocks, matches only line-leading mentions, and filters self-mentions.
-- [ ] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. Target selection and bounds are done and tested (`turn-routing.ts`); the remaining work is driving the serial loop from the native generation flow.
+- [ ] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. Target selection and bounds are done and tested (`turn-routing.ts`, `mention-routing.ts`). The remaining work is a coordinator following the Loop runtime's precedent — see design.md: a seat ownership marker on `GenerationEventHandler`, a completions port and terminal mirroring `LoopRoleGenerationTerminal`, and a coordinator wired next to the loop scheduler. Chaining from inside the sink is explicitly rejected there.
 - [x] 7.3 Enforce maximum chain depth and maximum mentions per message, and surface why a chain ended.
 - [x] 7.4 Route a user message with no line-leading mention to the seat that most recently held the turn, falling back to the first seat.
 - [x] 7.5 Add `@` seat completion to the composer, showing role, Agent, and family, and making the line-leading rule discoverable.
 
 ## 8. Human Turn Handling
 
-- [ ] 8.1 Add the three handoff intents and their state effects: informational leaves the turn with the Agents, blocking transfers it to the human, completion ends the round.
-- [ ] 8.2 Ensure an informational handoff raises no blocking prompt and does not disable the composer.
-- [ ] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred.
-- [ ] 8.4 Accumulate and display the waiting duration for a paused round.
+- [x] 8.1 Add the three handoff intents and their state effects: informational leaves the turn with the Agents, blocking transfers it to the human, completion ends the round.
+- [x] 8.2 Ensure an informational handoff raises no blocking prompt and does not disable the composer.
+- [ ] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred. The decision is implemented and tested in `applyHumanHandoff`; enforcing it needs the turn coordinator from task 7.2.
+- [ ] 8.4 Accumulate and display the waiting duration for a paused round. `startsWaiting` is decided; the display lands with the turn-status bar in task 9.1.
 
 ## 9. Turn Status Surface
 

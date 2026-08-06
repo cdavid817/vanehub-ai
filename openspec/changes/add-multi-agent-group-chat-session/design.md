@@ -69,6 +69,25 @@ Routing happens only after a reply completes, only for mentions at the start of 
 
 *Why bounded:* depth limits only matter when agents mention each other autonomously. Their existence in `clowder-ai` is itself evidence that unbounded A2A chains occur in practice.
 
+### The turn loop is driven by a coordinator, not from inside the generation sink
+
+A completed reply must be parsed for mentions and, if one is found, another seat must be invoked.
+The obvious place — chaining directly from the generation event sink — is the wrong one: the sink
+holds ports, not the service, and generating from inside a terminal handler would nest generations
+inside each other's lifecycles.
+
+The Loop runtime already solved this exact shape. Its sink does not continue the loop; on completion
+it delivers a terminal through `loop_completions`, and a separate coordinator decides what happens
+next. Multi-seat turn chaining follows that precedent: the sink carries a seat ownership marker
+alongside the existing `loop_ownership`, delivers the completed reply through a seat-completions
+port, and a coordinator parses mentions, applies the depth and mention bounds, and starts the next
+seat's generation.
+
+Concretely this needs a seat ownership struct on `GenerationEventHandler`, a completions port and
+terminal type mirroring `LoopRoleGenerationTerminal`, and a coordinator wired in bootstrap next to
+the loop scheduler. The routing decisions themselves are already implemented and tested in
+`turn-routing.ts` and `mention-routing.ts`; the coordinator only drives them.
+
 ### Handing to the human carries an intent
 
 Three intents with different blocking behaviour: informational (work continues), blocking (the round pauses and a waiting duration accumulates), completion (the round ends).
