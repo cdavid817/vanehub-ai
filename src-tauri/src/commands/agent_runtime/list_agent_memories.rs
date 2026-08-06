@@ -6,9 +6,8 @@ use tauri::State;
 #[tauri::command]
 pub(crate) fn list_agent_memories(
     api: State<'_, AgentRuntimeApi>,
-    agent_id: String,
 ) -> Result<Vec<dto::AgentMemoryEntry>, CommandError> {
-    api.list_agent_memories(&agent_id)
+    api.list_all_memories()
         .map(mapper::agent_memories_to_dto)
         .map_err(map_command_error)
 }

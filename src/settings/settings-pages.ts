@@ -11,6 +11,7 @@ import {
   Settings,
   Settings2,
   SlidersHorizontal,
+  Sparkles,
   Terminal,
   Workflow,
   type LucideIcon,
@@ -26,6 +27,7 @@ export type SettingsPageId =
   | "plugins"
   | "mcp"
   | "agent-configurations"
+  | "personalization"
   | "skills"
   | "prompt-hooks"
   | "im"
@@ -67,6 +69,8 @@ const loadMcpPage: LazyFeatureLoader<SettingsPageContext> = () => import("./page
   .then((module) => ({ default: module.McpPage }));
 const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-configurations-page")
   .then((module) => ({ default: module.AgentConfigurationsPage }));
+const loadPersonalizationPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/personalization-page")
+  .then((module) => ({ default: module.PersonalizationPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
   .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
@@ -124,6 +128,14 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: Settings2,
     searchPlaceholderKey: "settings.search.agentConfigurations",
     loader: loadAgentConfigurationsPage,
+  },
+  {
+    id: "personalization",
+    labelKey: "settings.pages.personalization",
+    crumbKey: "settings.pages.personalization",
+    icon: Sparkles,
+    searchPlaceholderKey: "settings.search.personalization",
+    loader: loadPersonalizationPage,
   },
   {
     id: "skills",

@@ -16,14 +16,14 @@ pub(crate) use super::application::{
     AgentMessageTerminalOutcome, AgentRuntimeApplicationError, AgentSessionDetails,
     AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize, AgentView,
     ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
-    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, OnePieceProviderConfig,
-    OnePieceProviderModelDiscoveryResult, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
-    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
-    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
-    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowView,
+    EmbeddingEndpointView, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    ProviderCredentialValidationResult, ReadinessView, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
+    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
+    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
+    ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -334,6 +334,35 @@ impl AgentRuntimeApi {
         self.service.delete_onepiece_provider_profile(profile_id)
     }
 
+    pub(crate) fn resolve_embedding_endpoint(
+        &self,
+        profile_id: &str,
+    ) -> Result<EmbeddingEndpointView, AgentRuntimeApplicationError> {
+        self.service.resolve_embedding_endpoint(profile_id)
+    }
+
+    // 与 discover_onepiece_provider_models / validate_onepiece_provider_credential 一样用
+    // spawn_blocking 包裹：底层复用同一个阻塞式 HTTP 客户端
+    // （HttpOnePieceModelDiscoveryAdapter），直接在异步上下文里调用会占住 tokio 工作线程。
+    pub(crate) async fn list_embedding_models(
+        &self,
+        profile_id: &str,
+        transient_credential: Option<&str>,
+    ) -> Result<Vec<OnePieceProviderModelOption>, AgentRuntimeApplicationError> {
+        let service = self.service.clone();
+        let profile_id = profile_id.to_string();
+        let transient_credential = transient_credential.map(str::to_string);
+        tauri::async_runtime::spawn_blocking(move || {
+            service.list_embedding_models(&profile_id, transient_credential.as_deref())
+        })
+        .await
+        .map_err(|error| {
+            AgentRuntimeApplicationError::Validation(format!(
+                "OnePiece embedding model discovery task failed: {error}"
+            ))
+        })?
+    }
+
     pub(crate) fn update_api_agent(
         &self,
         agent_id: &str,
@@ -367,11 +396,10 @@ impl AgentRuntimeApi {
             .resolve_tool_approval(session_id, call_id, decision)
     }
 
-    pub(crate) fn list_agent_memories(
+    pub(crate) fn list_all_memories(
         &self,
-        agent_id: &str,
     ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        self.service.list_agent_memories(agent_id)
+        self.service.list_all_memories()
     }
 
     pub(crate) fn delete_agent_memory(
@@ -379,6 +407,10 @@ impl AgentRuntimeApi {
         memory_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError> {
         self.service.delete_agent_memory(memory_id)
+    }
+
+    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
+        self.service.reset_all_memories()
     }
 
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {
@@ -472,5 +504,23 @@ impl AgentRuntimeApi {
         &self,
     ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
         self.terminal_service.shutdown()
+    }
+}
+
+/// Boundary `commands::agent_runtime::delete_agent_memory` needs from this facade to delete one
+/// stored memory (`add-onepiece-vector-search` Task 14). A trait — rather than that command
+/// calling the inherent `delete_agent_memory` method directly — so the command's own tests can
+/// substitute a fake instead of constructing a full `AgentRuntimeApi`, which would otherwise
+/// require every one of this facade's concrete application services just to delete one row.
+pub(crate) trait AgentMemoryDeletionGateway: Send + Sync {
+    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError>;
+}
+
+impl AgentMemoryDeletionGateway for AgentRuntimeApi {
+    fn delete_agent_memory(&self, memory_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        // Calls the inherent method above, not this trait method — method resolution always
+        // prefers an inherent impl over a trait impl for the same receiver type, so this cannot
+        // recurse.
+        self.delete_agent_memory(memory_id)
     }
 }

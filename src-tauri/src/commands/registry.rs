@@ -7,6 +7,7 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::list_agents::list_agents,
         crate::commands::agent_runtime::list_agent_memories::list_agent_memories,
         crate::commands::agent_runtime::delete_agent_memory::delete_agent_memory,
+        crate::commands::agent_runtime::reset_agent_memories::reset_agent_memories,
         crate::commands::agent_runtime::get_agent_by_id::get_agent_by_id,
         crate::commands::agent_runtime::register_api_agent::register_api_agent,
         crate::commands::agent_runtime::get_api_agent_provider_config::get_api_agent_provider_config,
@@ -245,6 +246,12 @@ pub(crate) fn invoke_handler(
         // Tooling: Plugin Integrations
         crate::commands::tooling::plugin_integrations::get_plugin_integration_overview::get_plugin_integration_overview,
         crate::commands::tooling::plugin_integrations::refresh_plugin_integrations::refresh_plugin_integrations,
-        crate::commands::tooling::plugin_integrations::test_plugin_integration::test_plugin_integration
+        crate::commands::tooling::plugin_integrations::test_plugin_integration::test_plugin_integration,
+        // Retrieval
+        crate::commands::retrieval::get_retrieval_configuration::get_retrieval_configuration,
+        crate::commands::retrieval::save_retrieval_configuration::save_retrieval_configuration,
+        crate::commands::retrieval::list_embedding_models::list_embedding_models,
+        crate::commands::retrieval::get_retrieval_index_status::get_retrieval_index_status,
+        crate::commands::retrieval::rebuild_retrieval_index::rebuild_retrieval_index
     ]
 }
