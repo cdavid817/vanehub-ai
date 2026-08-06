@@ -13,13 +13,9 @@ Describe affected platforms, migrations, security considerations, and rollback o
 
 ## Validation
 
-- [ ] `npm run lint`
-- [ ] `npm run test`
-- [ ] `npm run contracts:check`
-- [ ] `npm run build`
+- [ ] Every command in the AGENTS.md「校验命令」section passes locally (verbatim flags — `lint:ci`, `clippy --all-targets -- -D warnings`, `fmt --check`)
 - [ ] `npx playwright test` (when UI behavior changes)
-- [ ] Rust fmt, check, Clippy, and tests (when native code changes)
-- [ ] Strict OpenSpec validation
+- [ ] Conditional checks per AGENTS.md when applicable: coverage, contracts, and `openspec validate <change-name> --strict` for each active change touched
 
 ## Screenshots or diagnostics
 

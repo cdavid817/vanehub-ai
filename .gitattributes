@@ -1,0 +1,3 @@
+# husky hooks are executed by Git's sh.exe; CRLF in these files breaks
+# execution. This repo uses core.autocrlf=true on Windows, so pin LF here.
+.husky/* text eol=lf
