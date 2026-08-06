@@ -10,7 +10,7 @@ const CURRENT_V20_DATA_FIXTURE: &str =
 /// concurrently-developed `permissions-core` branch, and the coordination-removal migration was
 /// numbered 43 to avoid colliding with it on shared local databases.
 fn expected_versions() -> Vec<i64> {
-    (1..=41).chain([43, 44]).collect()
+    (1..=41).chain([43, 44, 45]).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

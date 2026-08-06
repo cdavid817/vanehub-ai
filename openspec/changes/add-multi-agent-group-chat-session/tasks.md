@@ -23,7 +23,7 @@
 ## 4. Seats and Session Entity
 
 - [x] 4.1 Add an ordered seat list to the session in shared types, Rust domain, and both adapters, keeping the existing agent id as a mirror of the first seat. A hard replacement would touch ~148 frontend and ~138 native references; mirroring keeps every existing reader working and each commit reviewable.
-- [ ] 4.2 Add a migration presenting pre-seat sessions as one-seat sessions with no role, and test that no existing session becomes unreadable.
+- [x] 4.2 Add a migration presenting pre-seat sessions as one-seat sessions with no role, and test that no existing session becomes unreadable.
 - [x] 4.3 Enable the `multi` option in `SessionAgentModeSelector` and remove its coming-soon hint.
 - [ ] 4.4 Add seat assignment to the create-session dialog: add and remove seats, pick role and Agent per seat, reject unavailable Agents.
 - [x] 4.5 Add cross-family reviewer recommendation with the open degradation notice when no cross-family Agent exists.

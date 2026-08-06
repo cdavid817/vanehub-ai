@@ -250,6 +250,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "expert-role-management",
         crate::contexts::agent_runtime::infrastructure::apply_expert_role_schema,
     )?;
+    apply_migration(
+        conn,
+        45,
+        "session-seats",
+        crate::contexts::sessions::infrastructure::apply_session_seat_schema,
+    )?;
 
     Ok(())
 }
@@ -888,7 +894,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (42, 44));
+        assert_eq!(migration_state, (43, 45));
 
         migrate(&connection).expect("upgrade migration");
 
@@ -1147,5 +1153,40 @@ mod tests {
         let connection = Connection::open_in_memory().expect("database");
         migrate(&connection).expect("migrate");
         assert!(!coordination_table_exists(&connection));
+    }
+
+    #[test]
+    fn session_seat_migration_adds_the_column_and_leaves_existing_rows_readable() {
+        let connection = Connection::open_in_memory().expect("database");
+        migrate(&connection).expect("migrate");
+
+        // `sessions.agent_id` carries a real FOREIGN KEY into `agents`, and `migrate` creates
+        // tables without seeding rows, so the referenced agent has to be inserted here.
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind)                  VALUES ('claude-code', 'Claude Code', 'Anthropic', 'cli')",
+                [],
+            )
+            .expect("agent fixture");
+        let agent_id = "claude-code";
+
+        // A session written before seats existed must still read back, with an empty seat list that
+        // callers present as the one-seat case built from agent_id.
+        connection
+            .execute(
+                "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state,                  pinned, archived, created_at, updated_at)                  VALUES ('s1', 'legacy', ?1, 'cli', 'idle', 0, 0, 't', 't')",
+                params![agent_id],
+            )
+            .expect("legacy session insert");
+
+        let seats: String = connection
+            .query_row("SELECT seats FROM sessions WHERE id = 's1'", [], |row| {
+                row.get(0)
+            })
+            .expect("seats column readable");
+        assert_eq!(seats, "[]");
+
+        // Re-running must not fail or duplicate the column.
+        migrate(&connection).expect("idempotent migrate");
     }
 }
