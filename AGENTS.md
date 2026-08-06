@@ -34,7 +34,7 @@ VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理�
 
 ## 代码规范(可执行规则,详细版见 openspec/project.md)
 
-- 提交前必须通过:`npm run lint`、`npm run test`、`cargo clippy --manifest-path src-tauri/Cargo.toml`
+- 提交前必须跑通本文件末尾「校验命令」一节的**全部**命令。不要在这里另维护一份子集——两份清单迟早漂移,而漂移的那一半正是 CI 会拦下来的东西
 - TypeScript:禁止 `any`,禁止 `// @ts-ignore`(需要绕过时用 `// @ts-expect-error` 并写明原因)
 - React:函数组件 + Hooks,禁止 class component;单文件不超过 300 行
 - Rust:跨 Tauri command 边界的错误必须转换为 `Result<T, String>` 或自定义 error enum,`unwrap()`/`expect()` 仅限测试代码
@@ -71,10 +71,20 @@ openspec/
 
 ## 校验命令(改完必须全部跑通)
 
+**逐字照抄参数。** `npm run lint` 而非 `lint:ci`、`cargo clippy` 不带 `--all-targets -- -D warnings`、漏掉 `cargo fmt`——这几种写法本地都会通过,而 `.github/workflows/ci.yml` 会拦下来。
+
 ```bash
+npm run lint:ci
 npm run test
 npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 openspec validate --specs --strict
 ```
+
+上面这些之外,CI 还有几条本地不必每次跑、但相应改动落到你手上时必须跑的:
+
+- `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run contracts:check`
+- 起了 proposal 时:`openspec validate <change-name> --strict`——CI 对 `openspec/changes/*` 下每个变更逐个校验,`--specs --strict` 不覆盖这一层
