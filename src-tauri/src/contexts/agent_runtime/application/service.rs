@@ -1,3 +1,4 @@
+use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
     AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort, AgentEvent, AgentEventPort,
     AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage,
@@ -6,22 +7,23 @@ use super::{
     AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
     AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot, CompleteAgentMessage,
-    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EffectivePromptGateway, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
-    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
-    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    PendingPromptExecution, PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
-    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
-    ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartedAgentMessage,
-    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
-    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest,
-    WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EffectivePromptGateway,
+    EmbeddingEndpointView, GenerationLease, GenerationProcessEvent, GenerationProcessRequest,
+    LaunchWorkflowResult, LoopGenerationControlPort, LoopRoleGenerationCompletionPort,
+    LoopRoleGenerationOutcome, LoopRoleGenerationTerminal, LoopVerifierGenerationPort,
+    LoopWorkerGenerationPort, MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort,
+    OnePieceModelDiscoveryRequest, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
+    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
+    OnePieceProviderProfiles, PendingPromptExecution, PromptExecutionOutcome,
+    PromptExecutionReport, PromptVersionReference, ProviderCredentialProbeAuthentication,
+    ProviderCredentialProbeProtocol, ProviderCredentialProbeRequest,
+    ProviderCredentialValidationResult, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
+    ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -66,24 +68,6 @@ fn push_model_option(
             source: source.to_string(),
         });
     }
-}
-
-fn is_chat_model(id: &str) -> bool {
-    let id = id.to_ascii_lowercase();
-    ![
-        "embedding",
-        "rerank",
-        "whisper",
-        "tts",
-        "audio",
-        "image",
-        "moderation",
-        "realtime",
-        "sora",
-        "stable-diffusion",
-    ]
-    .iter()
-    .any(|excluded| id.contains(excluded))
 }
 
 #[derive(Clone)]
@@ -935,6 +919,138 @@ impl AgentRuntimeApplicationService {
             return Err(error);
         }
         self.onepiece_provider_profiles()
+    }
+
+    // Task 12 的 bootstrap 适配器封装本方法以实现 retrieval::EmbeddingEndpointPort::resolve 后，
+    // 才经 agent_runtime::api::resolve_embedding_endpoint 变得可达；届时移除本属性。凭据只读出
+    // 一次、原样放进返回值供进程内传递给该适配器——不写日志、不拼进错误消息（见下方各分支，
+    // 全部是不含凭据的静态字符串）。
+    #[allow(dead_code)]
+    pub(crate) fn resolve_embedding_endpoint(
+        &self,
+        profile_id: &str,
+    ) -> Result<EmbeddingEndpointView, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        if profile.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Only openai-compatible OnePiece profiles support embeddings.".to_string(),
+            ));
+        }
+        let base_url = profile.base_url.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile has no base URL configured.".to_string(),
+            )
+        })?;
+        let credential = self
+            .ports
+            .api_credentials
+            .fetch(&onepiece_profile_credential_key(&profile.id))?
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider Profile has no API key.".to_string(),
+                )
+            })?;
+        Ok(EmbeddingEndpointView {
+            base_url,
+            interface_format: profile.interface_format,
+            credential,
+        })
+    }
+
+    // Task 15 的 Tauri command 调用 agent_runtime::api::list_embedding_models 后可达；届时移除
+    // 本属性。凭据只用于组装发往 HttpOnePieceModelDiscoveryAdapter 的请求，从不进入返回值或
+    // 错误消息——发现失败时直接把底层 Err 冒泡（该错误本身也不含凭据，见
+    // onepiece_model_discovery.rs 的 discovery_error），不像 discover_onepiece_provider_models
+    // 那样回退到目录：目录里没有任何 embedding 模型数据可回退。
+    #[allow(dead_code)]
+    pub(crate) fn list_embedding_models(
+        &self,
+        profile_id: &str,
+        transient_credential: Option<&str>,
+    ) -> Result<Vec<OnePieceProviderModelOption>, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        if profile.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Only openai-compatible OnePiece profiles support embedding model discovery."
+                    .to_string(),
+            ));
+        }
+        let provider_id = profile.source_provider_id.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile is missing its source provider.".to_string(),
+            )
+        })?;
+        let endpoint_type = profile.source_endpoint_type.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile is missing its source endpoint.".to_string(),
+            )
+        })?;
+        let preset = super::onepiece_provider_catalog::resolve(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let transient = transient_credential
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let stored = self
+            .ports
+            .api_credentials
+            .fetch(&onepiece_profile_credential_key(&profile.id))?;
+        let credential = transient.or(stored).ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "API key is required to list embedding models for this OnePiece provider."
+                    .to_string(),
+            )
+        })?;
+        let url = super::onepiece_provider_catalog::discovery_url(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The OnePiece provider has no model discovery endpoint.".to_string(),
+                )
+            })?;
+        let discovered =
+            self.ports
+                .onepiece_model_discovery
+                .list_models(OnePieceModelDiscoveryRequest {
+                    strategy: preset.model_discovery_strategy,
+                    url,
+                    api_key: credential,
+                })?;
+        let mut models = Vec::new();
+        let mut seen = BTreeSet::new();
+        for model in discovered
+            .into_iter()
+            .filter(|model| is_embedding_model(&model.id))
+            .take(1_000)
+        {
+            push_model_option(
+                &mut models,
+                &mut seen,
+                &model.id,
+                &model.display_name,
+                "api",
+            );
+        }
+        Ok(models)
     }
 
     /// Edits an existing API agent's `display_name`/`model_id`/`base_url`, and optionally

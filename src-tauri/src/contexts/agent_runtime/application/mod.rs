@@ -13,6 +13,7 @@ mod loop_verification;
 mod loop_verifier;
 mod loop_worker;
 mod loop_worker_prompt;
+mod model_category;
 mod models;
 mod onepiece_provider_catalog;
 mod ports;
@@ -61,26 +62,27 @@ pub(crate) use models::{
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
     BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
-    DiscoverOnePieceProviderModelsInput, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessFailureKind,
-    GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
-    LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
-    LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
-    OnePieceProviderConfig, OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult,
-    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
-    OnePieceProviderProfiles, OpenAgentTerminalRequest, PendingPromptExecution,
-    ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
-    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
-    ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
-    ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
-    ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
-    SendMessageRequest, StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest,
-    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier,
-    ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EmbeddingEndpointView,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessFailureKind, GenerationProcessRequest, LaunchWorkflowResult, LoopLog,
+    LoopOperationContext, LoopOperationKind, LoopRoleGenerationOutcome,
+    LoopRoleGenerationOwnership, LoopRoleGenerationTerminal, LoopVerificationCancellation,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, LoopVerificationProcessStatus,
+    MemorySource, MessageTokenUsage, NewAgentMessage, OnePieceDiscoveredModel,
+    OnePieceModelDiscoveryRequest, OnePieceProviderConfig, OnePieceProviderEndpoint,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
+    OnePieceProviderProfile, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    PendingPromptExecution, ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport,
+    PromptTrace, PromptVersionReference, ProviderCredentialProbeAuthentication,
+    ProviderCredentialProbeProtocol, ProviderCredentialProbeRequest,
+    ProviderCredentialValidationResult, ProviderCredentialValidationStatus, ReadinessView,
+    RegisterApiAgentInput, ReportedUsageTotals, ResizeAgentTerminalRequest,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest, StopGenerationResult,
+    StoredOnePieceProviderConfig, StoredOnePieceProviderProfile, ToolApprovalDecision,
+    ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier, ToolUseBlock,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{

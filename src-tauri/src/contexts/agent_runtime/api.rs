@@ -16,14 +16,14 @@ pub(crate) use super::application::{
     AgentMessageTerminalOutcome, AgentRuntimeApplicationError, AgentSessionDetails,
     AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize, AgentView,
     ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
-    LaunchWorkflowResult, LoopDefinitionView, LoopRunView, OnePieceProviderConfig,
-    OnePieceProviderModelDiscoveryResult, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, ProviderCredentialValidationResult, ReadinessView,
-    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
-    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
-    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
-    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowView,
+    EmbeddingEndpointView, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    ProviderCredentialValidationResult, ReadinessView, RegisterApiAgentInput,
+    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
+    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
+    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
+    ValidateOnePieceProviderCredentialInput, WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -332,6 +332,40 @@ impl AgentRuntimeApi {
         profile_id: &str,
     ) -> Result<OnePieceProviderProfiles, AgentRuntimeApplicationError> {
         self.service.delete_onepiece_provider_profile(profile_id)
+    }
+
+    // Task 12 的 bootstrap 适配器封装本方法以实现 retrieval::EmbeddingEndpointPort::resolve 后
+    // 可达；届时移除本属性。
+    #[allow(dead_code)]
+    pub(crate) fn resolve_embedding_endpoint(
+        &self,
+        profile_id: &str,
+    ) -> Result<EmbeddingEndpointView, AgentRuntimeApplicationError> {
+        self.service.resolve_embedding_endpoint(profile_id)
+    }
+
+    // Task 15 的 Tauri command 调用本方法后可达；届时移除本属性。与
+    // discover_onepiece_provider_models / validate_onepiece_provider_credential 一样用
+    // spawn_blocking 包裹：底层复用同一个阻塞式 HTTP 客户端
+    // （HttpOnePieceModelDiscoveryAdapter），直接在异步上下文里调用会占住 tokio 工作线程。
+    #[allow(dead_code)]
+    pub(crate) async fn list_embedding_models(
+        &self,
+        profile_id: &str,
+        transient_credential: Option<&str>,
+    ) -> Result<Vec<OnePieceProviderModelOption>, AgentRuntimeApplicationError> {
+        let service = self.service.clone();
+        let profile_id = profile_id.to_string();
+        let transient_credential = transient_credential.map(str::to_string);
+        tauri::async_runtime::spawn_blocking(move || {
+            service.list_embedding_models(&profile_id, transient_credential.as_deref())
+        })
+        .await
+        .map_err(|error| {
+            AgentRuntimeApplicationError::Validation(format!(
+                "OnePiece embedding model discovery task failed: {error}"
+            ))
+        })?
     }
 
     pub(crate) fn update_api_agent(

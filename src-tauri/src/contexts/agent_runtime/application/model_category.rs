@@ -1,0 +1,84 @@
+//! 模型类别判定的唯一真源。chat 与 embedding 两个过滤器必须从这里派生——
+//! 两处各自维护关键词表，迟早会在新增模型时漂移成互相矛盾的判断。
+
+const NON_CHAT_KEYWORDS: &[&str] = &[
+    "embedding",
+    "rerank",
+    "whisper",
+    "tts",
+    "audio",
+    "image",
+    "moderation",
+    "realtime",
+    "sora",
+    "stable-diffusion",
+];
+
+const EMBEDDING_KEYWORDS: &[&str] = &["embedding", "embed-"];
+
+pub(crate) fn is_chat_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    !NON_CHAT_KEYWORDS
+        .iter()
+        .any(|excluded| id.contains(excluded))
+}
+
+// Task 15 的 Tauri command 调用 agent_runtime::api::list_embedding_models 后，这条判定才经
+// service.rs 的同名方法变得可达（is_chat_model 已经被既有的 discover_onepiece_provider_models
+// 使用，天然存活，这条则不然）。届时移除本属性。
+#[allow(dead_code)]
+pub(crate) fn is_embedding_model(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    EMBEDDING_KEYWORDS
+        .iter()
+        .any(|keyword| id.contains(keyword))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chat_and_embedding_classifications_are_mutually_exclusive() {
+        for id in [
+            "gpt-4o",
+            "text-embedding-3-small",
+            "bge-reranker",
+            "whisper-1",
+        ] {
+            assert!(
+                !(is_chat_model(id) && is_embedding_model(id)),
+                "{id} classified as both"
+            );
+        }
+    }
+
+    #[test]
+    fn embedding_models_are_recognized_case_insensitively() {
+        assert!(is_embedding_model("text-embedding-3-small"));
+        assert!(is_embedding_model("TEXT-EMBEDDING-ADA-002"));
+        assert!(is_embedding_model("bge-m3-embedding"));
+    }
+
+    #[test]
+    fn chat_models_are_not_embedding_models() {
+        for id in ["gpt-4o", "deepseek-chat", "claude-opus-4-8"] {
+            assert!(!is_embedding_model(id), "{id}");
+            assert!(is_chat_model(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn non_chat_non_embedding_models_belong_to_neither() {
+        // "dall-e-3" (as originally drafted) doesn't contain any NON_CHAT_KEYWORDS substring —
+        // the exclusion list only catches "image", and "dall-e-3" doesn't spell that out — so
+        // is_chat_model("dall-e-3") is actually `true` under the frozen, verified-current keyword
+        // list this module must reproduce unchanged. Swapped for "stable-diffusion-xl", a real
+        // image-generation model id that (like the original example) is neither chat nor
+        // embedding, but actually matches the "stable-diffusion" keyword already in the list.
+        for id in ["whisper-1", "stable-diffusion-xl", "bge-reranker-v2"] {
+            assert!(!is_chat_model(id), "{id}");
+            assert!(!is_embedding_model(id), "{id}");
+        }
+    }
+}

@@ -1038,6 +1038,18 @@ pub(crate) struct StoredOnePieceProviderProfile {
     pub(crate) active: bool,
 }
 
+// 唯一构造点是 resolve_embedding_endpoint；该方法要到 Task 12 的 bootstrap 适配器调用它（实现
+// retrieval::EmbeddingEndpointPort::resolve）才可达。届时移除本属性。凭据是原始字符串，故意不
+// 派生 Debug——避免某处 `{:?}` 意外把它写进日志或错误消息，呼应 OnePieceModelDiscoveryRequest
+// （同样携带 api_key）不派生 Debug 的既有先例。
+#[allow(dead_code)]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct EmbeddingEndpointView {
+    pub(crate) base_url: String,
+    pub(crate) interface_format: String,
+    pub(crate) credential: String,
+}
+
 /// A Skill bound to an API agent, resolved and ready to inject as that agent's generation
 /// requests' system prompt (`add-agent-skill-support`) — `name` and `body` only, no metadata
 /// `agent_runtime` has no use for.
