@@ -10,7 +10,18 @@ The system SHALL persist at most one normalized usage record per VaneHub assista
 #### Scenario: Persist reported tokens for an interactive terminal session
 - **WHEN** any of the four supported CLIs (claude-code, opencode, codex-cli, or gemini-cli) runs as an interactive embedded-terminal session rather than through VaneHub's managed invocation pipeline
 - **THEN** the system SHALL read that CLI's own persisted session log or database to obtain reported usage
-- **AND** it SHALL persist that usage the same way as managed-pipeline usage, with accounting kind `reported` and unit `tokens`
+- **AND** it SHALL bind provider-native data to the exact provider runtime session when that identity is available
+- **AND** repeated polling or reopening the same VaneHub session SHALL update one stable terminal usage record instead of adding prior cumulative usage again
+- **AND** persistence failure SHALL be returned to the caller and recorded through unified logging
+
+#### Scenario: Materialize provider log revisions
+- **WHEN** a provider session log contains multiple revisions for the same provider message id or a snapshot replacing prior messages
+- **THEN** the system SHALL materialize the provider's latest message state before aggregating usage
+- **AND** it SHALL NOT count superseded revisions as additional responses
+
+#### Scenario: Preserve cache-only reported usage
+- **WHEN** a supported CLI reports a positive cache-read or cache-creation count while input and output counts are zero
+- **THEN** the system SHALL persist the non-zero reported usage rather than treating the observation as empty
 
 #### Scenario: Persist successful fallback estimate
 - **WHEN** a VaneHub assistant response completes successfully without valid reported usage

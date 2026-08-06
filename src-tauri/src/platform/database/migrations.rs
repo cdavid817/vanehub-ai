@@ -244,6 +244,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "retrieval-vector-index",
         crate::contexts::retrieval::infrastructure::apply_retrieval_schema,
     )?;
+    apply_migration(
+        conn,
+        42,
+        "agent-memory-shared-pool",
+        crate::contexts::agent_runtime::infrastructure::apply_memory_shared_pool_schema,
+    )?;
 
     Ok(())
 }

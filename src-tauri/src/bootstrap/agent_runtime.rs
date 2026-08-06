@@ -18,13 +18,14 @@ use crate::contexts::agent_runtime::infrastructure::{
     NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
-    RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteCoordinationRepository,
-    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidCoordinationIds,
-    WorkspaceLoopProjectAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteCoordinationRepository, SqliteLoopRepository,
+    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
 };
+use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
@@ -67,6 +68,7 @@ pub(crate) struct AgentRuntimeDependencies {
     /// this function's own output (`AgentRuntimeApi`), so the real `RetrievalApi` cannot exist
     /// yet; `runtime.rs`'s `setup` binds it right after `assemble_retrieval` returns.
     pub(crate) retrieval: Arc<dyn AgentRetrievalPort>,
+    pub(crate) desktop_settings: DesktopSettingsApi,
 }
 
 #[derive(Clone)]
@@ -159,6 +161,13 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.database.clone(),
     ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
+    let agent_personalization = Arc::new(RuntimeAgentPersonalizationAdapter::new(
+        dependencies.desktop_settings,
+    ));
+    let agent_memory_extraction = Arc::new(RuntimeAgentMemoryExtractionAdapter::new(
+        api_credentials.clone(),
+        repository.clone(),
+    ));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -170,6 +179,7 @@ pub(crate) fn assemble_agent_runtime_api(
         agent_memories.clone(),
         agent_mcp_tools,
         dependencies.retrieval,
+        agent_personalization.clone(),
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
@@ -220,6 +230,8 @@ pub(crate) fn assemble_agent_runtime_api(
         onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
         tool_approvals: tool_approvals.clone(),
         memories: agent_memories,
+        memory_extraction: agent_memory_extraction,
+        personalization: agent_personalization,
     });
     let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
         registry: registry.clone(),

@@ -188,6 +188,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         workspaces: workspace_api.clone(),
         shared_registry: shared_agent_registry,
         retrieval: deferred_retrieval.clone(),
+        desktop_settings: desktop_settings_api.clone(),
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let super::RetrievalAssembly {

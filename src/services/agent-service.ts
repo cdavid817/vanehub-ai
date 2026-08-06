@@ -142,8 +142,11 @@ export interface AgentService {
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
   setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
-  listAgentMemories(agentId: string): Promise<AgentMemory[]>;
+  /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
+   * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
+  listAllMemories(): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
+  resetAllMemories(): Promise<void>;
   // Configuration, index status and rebuild are all global: retrieval applies to every agent,
   // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;

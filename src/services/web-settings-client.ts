@@ -6,7 +6,10 @@ import type { AppSettings, DataManagementInfo, NodeInfo } from "../types/setting
 const storageKey = "vanehub.appSettings";
 const settingsSubscribers = new Set<(event: SettingsStateEvent) => void>();
 
-function readStoredSettings(): AppSettings {
+/** Exported so other Web/mock clients simulating cross-cutting settings-driven behavior (e.g.
+ * `web-agent-client.ts` gating memory simulation on the personalization toggles) can read the
+ * same persisted state without duplicating the storage key or normalization logic. */
+export function readWebAppSettings(): AppSettings {
   if (typeof window === "undefined") return defaultAppSettings;
   const raw = window.localStorage.getItem(storageKey);
   if (!raw) return defaultAppSettings;
@@ -24,12 +27,12 @@ function writeStoredSettings(settings: AppSettings) {
 
 export const webSettingsClient: SettingsService = {
   async getSettings() {
-    return readStoredSettings();
+    return readWebAppSettings();
   },
 
   async saveSetting(input) {
     validateSettingValue(input.key, input.value);
-    const nextSettings = { ...readStoredSettings(), [input.key]: input.value };
+    const nextSettings = { ...readWebAppSettings(), [input.key]: input.value };
     writeStoredSettings(nextSettings);
     settingsSubscribers.forEach((handler) => handler({ kind: "settings-changed", key: input.key }));
     return nextSettings;

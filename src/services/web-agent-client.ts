@@ -46,6 +46,7 @@ import type {
 import { managedCliAgentIds } from "../types/agent";
 import { getOnePieceProviderPresets, resolveOnePieceProviderPreset } from "../config/onepiece-provider-presets";
 import { findWebSshConnection } from "./web-ssh-connection-client";
+import { readWebAppSettings } from "./web-settings-client";
 import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
@@ -566,10 +567,10 @@ function applyWebOnePieceActiveProfile(profileId: string | null) {
   }
 }
 
-/** Mock cross-session memories (`add-agent-cross-session-memory`) — starts empty, since real
- * memories only ever come from a `remember` tool call or extraction, both simulated in
- * `sendMessage` for `launch.kind === "api"` sessions; there is no fixed "api" agent id to
- * pre-seed against (API agents are registered at runtime with generated ids). */
+/** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
+ * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
+ * the real backend's shared-pool model. Starts empty; real memories only ever come from a
+ * `remember` tool call or extraction, both simulated in `sendMessage`. */
 let webAgentMemories: AgentMemory[] = [];
 let nextAgentMemoryId = 1;
 
@@ -1636,6 +1637,12 @@ function addLoopEvidence(
   emitLoopEvent(run, "evidence-added");
 }
 
+/** `add-cli-memory-support`: the shared memory pool is no longer isolated per agent id, so tests
+ * that seed memories can leak into later tests within the same file unless explicitly cleared. */
+export function resetWebAgentMemoriesForTest() {
+  webAgentMemories = [];
+}
+
 export function resetWebLoopsForTest() {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
@@ -2161,12 +2168,16 @@ export const webAgentClient: AgentService = {
     return agent;
   },
 
-  async listAgentMemories(agentId: string) {
-    return webAgentMemories.filter((memory) => memory.agentId === agentId);
+  async listAllMemories() {
+    return webAgentMemories;
   },
 
   async deleteAgentMemory(memoryId: string) {
     webAgentMemories = webAgentMemories.filter((memory) => memory.id !== memoryId);
+  },
+
+  async resetAllMemories() {
+    webAgentMemories = [];
   },
 
   async getRetrievalConfiguration() {
@@ -3119,6 +3130,14 @@ export const webAgentClient: AgentService = {
 
     const responseText = `Mock ${session.agentId} response: I received "${userMessage.content}". This is a streaming preview in Web mode.`;
     const tokens = responseText.match(/.{1,6}/g) ?? [responseText];
+    // Memory simulation below is gated on these (`add-personalization-settings`) — unlike custom
+    // instructions, memory's on/off effect is structurally observable in mock mode via the
+    // `tool_use`/`rich_block` event stream, so the mock must respect the toggles rather than
+    // always firing. Every mock session already simulates a tool call (shell/remember/mcp) below,
+    // so it is "tool-assisted" under the real definition — the sub-toggle applies accordingly.
+    const personalizationSettings = readWebAppSettings();
+    const memoryEnabled = personalizationSettings.memoryEnabled;
+    const toolAssistedExtractionEnabled = personalizationSettings.memoryToolAssistedChatsEnabled;
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
     const startTimeoutId = setTimeout(() => {
       emitChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
@@ -3147,7 +3166,11 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(compactionTimeoutId);
       // Extraction (`add-agent-cross-session-memory`) piggybacks on the same trigger as
       // compaction in the real runtime, so the mock fires it at the identical condition.
-      if (mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api") {
+      if (
+        memoryEnabled &&
+        toolAssistedExtractionEnabled &&
+        mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api"
+      ) {
         const extractionTimeoutId = setTimeout(() => {
           const memory = createAgentMemory(
             session.agentId,
@@ -3172,10 +3195,39 @@ export const webAgentClient: AgentService = {
         timeoutIds.push(extractionTimeoutId);
       }
     }
-    const hadExistingMemoriesForScope = webAgentMemories.some(
-      (memory) => memory.agentId === session.agentId && memory.folder === session.folder,
-    );
-    if (hadExistingMemoriesForScope) {
+    // CLI-completion-triggered extraction (`add-cli-memory-support`): unlike the compaction-gated
+    // block above, the real backend's CLI extraction fires after every completed CLI turn with no
+    // length threshold (design.md D3 MVP) and is gated only by the memory master toggle, never the
+    // tool-assisted sub-toggle — that sub-toggle governs only OnePiece's own compaction-triggered
+    // extraction (see `personalization.memory.toolAssistedDesc`).
+    if (memoryEnabled && mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "cli") {
+      const cliExtractionTimeoutId = setTimeout(() => {
+        const memory = createAgentMemory(
+          session.agentId,
+          session.folder,
+          `Extracted from a CLI session: "${userMessage.content.slice(0, 60)}"`,
+          "automatic",
+        );
+        publishChatEvent({
+          type: "rich_block",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          block: {
+            id: `web-memory-extracted-${assistantMessage.id}`,
+            kind: "card",
+            v: 1,
+            title: "Memory extracted",
+            bodyMarkdown: `Saved for future sessions: "${memory.content}"`,
+            tone: "info",
+          },
+        });
+      }, 150);
+      timeoutIds.push(cliExtractionTimeoutId);
+    }
+    // Shared pool (`add-cli-memory-support`): any memory from any agent counts, not just ones
+    // produced by this session's own agent/folder.
+    const hadExistingMemories = webAgentMemories.length > 0;
+    if (memoryEnabled && hadExistingMemories) {
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -3322,27 +3374,31 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(grepTimeoutId);
       // Explicit path (`add-agent-cross-session-memory`): simulates the model calling the
       // `remember` tool, mirroring the deterministic `read_file`/`shell` tool_use events above.
-      const rememberTimeoutId = setTimeout(() => {
-        const memory = createAgentMemory(
-          session.agentId,
-          session.folder,
-          `User said: "${userMessage.content.slice(0, 60)}"`,
-          "explicit",
-        );
-        publishChatEvent({
-          type: "tool_use",
-          sessionId: input.sessionId,
-          messageId: assistantMessage.id,
-          toolUse: {
-            id: `web-remember-${assistantMessage.id}`,
-            name: "remember",
-            input: { content: memory.content },
-            output: "Saved.",
-            status: "completed",
-          },
-        });
-      }, 235);
-      timeoutIds.push(rememberTimeoutId);
+      // Gated on `memoryEnabled` only — the tool-assisted sub-toggle never affects explicit
+      // saves (`add-personalization-settings`).
+      if (memoryEnabled) {
+        const rememberTimeoutId = setTimeout(() => {
+          const memory = createAgentMemory(
+            session.agentId,
+            session.folder,
+            `User said: "${userMessage.content.slice(0, 60)}"`,
+            "explicit",
+          );
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-remember-${assistantMessage.id}`,
+              name: "remember",
+              input: { content: memory.content },
+              output: "Saved.",
+              status: "completed",
+            },
+          });
+        }, 235);
+        timeoutIds.push(rememberTimeoutId);
+      }
       // MCP-sourced tool call (`add-agent-mcp-tools`): simulates the model calling a tool
       // exposed by a configured MCP server. Always approval-gated, mirroring the same
       // `pendingMockToolApprovals`/`resolveToolApproval` flow `shell` already uses above — the

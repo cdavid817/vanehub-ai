@@ -7,6 +7,7 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::list_agents::list_agents,
         crate::commands::agent_runtime::list_agent_memories::list_agent_memories,
         crate::commands::agent_runtime::delete_agent_memory::delete_agent_memory,
+        crate::commands::agent_runtime::reset_agent_memories::reset_agent_memories,
         crate::commands::agent_runtime::get_agent_by_id::get_agent_by_id,
         crate::commands::agent_runtime::register_api_agent::register_api_agent,
         crate::commands::agent_runtime::get_api_agent_provider_config::get_api_agent_provider_config,
