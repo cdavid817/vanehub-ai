@@ -17,6 +17,8 @@ import {
 } from "./create-session-dialog-utils";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
+import type { SessionSeat } from "../types/agent";
+import type { ExpertRole } from "../types/expert-role";
 import type {
   AgentRegistryEntry,
   InteractionMode,
@@ -59,6 +61,8 @@ export function CreateSessionDialog({
   const [interactionMode, setInteractionMode] =
     useState<InteractionMode>("cli");
   const [agentMode, setAgentMode] = useState<SessionAgentMode>("single");
+  const [multiSeats, setMultiSeats] = useState<SessionSeat[]>([]);
+  const [expertRoles, setExpertRoles] = useState<ExpertRole[]>([]);
   const [title, setTitle] = useState("");
   const [titleUserEdited, setTitleUserEdited] = useState(false);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("local");
@@ -103,6 +107,7 @@ export function CreateSessionDialog({
     setSaveSshConnection(false);
     setSshConnectionDraft(defaultSshConnectionDraft);
     setError(null);
+    void agentService.listExpertRoles().then(setExpertRoles).catch(() => setExpertRoles([]));
     void agentService
       .listKnownProjects()
       .then(setKnownProjects)
@@ -208,6 +213,7 @@ export function CreateSessionDialog({
   const gitCapable = inspection?.isGit ?? false;
   const canSubmit = canCreateSession({
     agentMode,
+    multiSeats,
     projectPath,
     remoteHost,
     remotePath,
@@ -224,6 +230,9 @@ export function CreateSessionDialog({
     <CreateSessionDialogContent
       agentMode={agentMode}
       availableAgents={availableAgents}
+      expertRoles={expertRoles}
+      multiSeats={multiSeats}
+      onSeatsChange={setMultiSeats}
       canSubmit={canSubmit}
       error={error}
       gitCapable={gitCapable}
@@ -231,7 +240,17 @@ export function CreateSessionDialog({
       knownProjects={knownProjects}
       knownRemoteWorkspaces={knownRemoteWorkspaces}
       loading={loading}
-      onAgentModeChange={setAgentMode}
+      onAgentModeChange={(mode) => {
+        setAgentMode(mode);
+        // Seed two seats on first switch so the editor opens in a usable state rather than empty.
+        if (mode === "multi" && multiSeats.length === 0) {
+          const first = availableAgents[0]?.id ?? "";
+          setMultiSeats([
+            { agentId: first, roleId: null },
+            { agentId: availableAgents[1]?.id ?? first, roleId: null },
+          ]);
+        }
+      }}
       onAgentSelect={(agent) => {
         setAgentId(agent.id);
         setInteractionMode(firstMode(agent));
@@ -244,6 +263,7 @@ export function CreateSessionDialog({
       onSubmit={() =>
         void submitCreateSession({
           agentMode,
+          multiSeats,
           interactionMode,
           projectPath,
           remoteDisplayName,

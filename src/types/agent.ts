@@ -353,6 +353,11 @@ export interface KnownRemoteWorkspace extends RemoteWorkspace {
 
 export interface CreateSessionInput {
   agentId: string;
+  /**
+   * Omitted for a single-Agent session, which the native layer records as one seat built from
+   * `agentId`. When present, `agentId` must equal `seats[0].agentId`.
+   */
+  seats?: SessionSeat[];
   interactionMode: InteractionMode;
   title?: string;
   folder?: string | null;

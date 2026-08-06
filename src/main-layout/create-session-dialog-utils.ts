@@ -1,6 +1,7 @@
 import { agentService } from "../services/runtime-agent-client";
 import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import type {
+  SessionSeat,
   AgentRegistryEntry,
   CreateSessionInput,
   InteractionMode,
@@ -117,6 +118,7 @@ export function sessionResult(result: OperationTask["result"]): Session | null {
 
 export function canCreateSession({
   agentMode,
+  multiSeats,
   projectPath,
   remoteHost,
   remotePath,
@@ -130,6 +132,7 @@ export function canCreateSession({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  multiSeats: SessionSeat[];
   projectPath: string;
   remoteHost: string;
   remotePath: string;
@@ -147,11 +150,16 @@ export function canCreateSession({
   const savedConnectionValid =
     !saveSshConnection ||
     sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft) === null;
+  // A multi-Agent session needs at least two seats, each bound to an Agent; otherwise it is just
+  // a single-Agent session wearing the wrong mode.
+  const seatsReady =
+    agentMode === "single" ||
+    (multiSeats.length >= 2 && multiSeats.every((seat) => seat.agentId.trim().length > 0));
   return Boolean(
     selectedAgent &&
     isSessionAgentSelectable(selectedAgent) &&
     !(selectedAgent.id === "onepiece" && workspaceMode === "remote") &&
-    agentMode === "single" &&
+    seatsReady &&
     (workspaceMode === "remote"
       ? remoteHost.trim() &&
         remotePath.trim() &&
@@ -163,6 +171,7 @@ export function canCreateSession({
 
 export async function submitCreateSession({
   agentMode,
+  multiSeats,
   interactionMode,
   projectPath,
   remoteDisplayName,
@@ -185,6 +194,7 @@ export async function submitCreateSession({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  multiSeats: SessionSeat[];
   interactionMode: InteractionMode;
   projectPath: string;
   remoteDisplayName: string;
@@ -207,7 +217,6 @@ export async function submitCreateSession({
   worktreeName: string;
 }) {
   if (!selectedAgent) return;
-  if (agentMode !== "single") return;
   if (workspaceMode === "local" && !projectPath.trim()) return;
   if (workspaceMode === "remote" && (!remoteHost.trim() || !remotePath.trim()))
     return;
@@ -229,8 +238,11 @@ export async function submitCreateSession({
 
   setLoading(true);
   setError(null);
+  // agentId mirrors seat 0 so every existing reader of the session's agent keeps working.
+  const seats = agentMode === "multi" && multiSeats.length > 0 ? multiSeats : null;
   const input: CreateSessionInput = {
-    agentId: selectedAgent.id,
+    agentId: seats ? seats[0].agentId : selectedAgent.id,
+    ...(seats ? { seats } : {}),
     interactionMode,
     title,
     projectPath: workspaceMode === "local" ? projectPath : null,
