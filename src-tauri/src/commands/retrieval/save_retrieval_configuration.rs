@@ -11,5 +11,5 @@ pub(crate) fn save_retrieval_configuration(
     model_id: String,
 ) -> Result<(), String> {
     api.save_configuration(&profile_id, &model_id)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.category().to_string())
 }
