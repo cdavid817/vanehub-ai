@@ -185,6 +185,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_registry: shared_agent_registry,
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
+    let super::RetrievalAssembly {
+        api: retrieval_api,
+        worker: retrieval_worker,
+    } = super::assemble_retrieval(database.clone(), agent_runtime_api.clone());
     agent_runtime_api
         .reconcile_coordination_startup()
         .map_err(boxed_message)?;
@@ -231,6 +235,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
+    app.manage(retrieval_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(communications_api.clone());
@@ -253,6 +258,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         desktop_settings_api,
         fallback_log_directory.clone(),
     );
+    super::start_retrieval_indexing_worker(retrieval_worker, fallback_log_directory.clone());
     start_agent_terminal_cleanup_job(agent_runtime_api.clone());
     let desktop_lifecycle_api = super::assemble_desktop_lifecycle_api(
         app.handle().clone(),

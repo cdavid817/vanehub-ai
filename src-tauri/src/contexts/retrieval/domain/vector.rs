@@ -1,10 +1,5 @@
 /// 存储格式：f32 little-endian 连续字节。选它而不是 JSON 数组，是因为向量路要在候选集上做
 /// 暴力扫描，反序列化开销直接进热路径。
-// Task 5 的仓储已经在 store_embedding 里调用它编码为 BLOB，但 store_embedding 本身是
-// SqliteRetrievalDocumentRepository 的 trait 方法，要到 Task 12 的 bootstrap 装配把仓储从
-// 活根构造出来才可达（已用 cargo check 实测确认：仓储 struct 与它实现的 trait 仍带各自的
-// allow 时不会告警，必须连同它们一起摘掉才会看到本函数被判定为未使用）。届时移除本属性。
-#[allow(dead_code)]
 pub(crate) fn encode_embedding(values: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(values.len() * 4);
     for value in values {
@@ -13,9 +8,6 @@ pub(crate) fn encode_embedding(values: &[f32]) -> Vec<u8> {
     bytes
 }
 
-// 同上：Task 5 的仓储已经在 vector_candidates 里调用它把 BLOB 解码回向量，但 vector_candidates
-// 同样要到 Task 12 才随仓储一起可达。届时移除本属性。
-#[allow(dead_code)]
 pub(crate) fn decode_embedding(bytes: &[u8]) -> Option<Vec<f32>> {
     if !bytes.len().is_multiple_of(4) {
         return None;
@@ -30,8 +22,6 @@ pub(crate) fn decode_embedding(bytes: &[u8]) -> Option<Vec<f32>> {
 
 /// 维度不一致或任一侧为零向量时返回 `None`——没有有意义的相似度可言，交由调用方跳过该候选，
 /// 而不是伪造一个 0.0 混进排名。
-// Task 9 的检索服务会用它给候选集打分排序；届时移除本属性。
-#[allow(dead_code)]
 pub(crate) fn cosine_similarity(left: &[f32], right: &[f32]) -> Option<f32> {
     if left.len() != right.len() || left.is_empty() {
         return None;

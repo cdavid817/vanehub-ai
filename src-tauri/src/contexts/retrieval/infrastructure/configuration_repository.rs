@@ -6,15 +6,11 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, OptionalExtension};
 
-// Task 12 的 bootstrap 装配会构造它并把它交给 RetrievalApi；届时移除本属性。
-#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct SqliteRetrievalConfigurationRepository {
     database: NativeDatabase,
 }
 
-// 同上，随 SqliteRetrievalConfigurationRepository 一起在 Task 12 移除。
-#[allow(dead_code)]
 impl SqliteRetrievalConfigurationRepository {
     pub(crate) fn new(database: NativeDatabase) -> Self {
         Self { database }
@@ -62,13 +58,6 @@ impl RetrievalConfigurationRepository for SqliteRetrievalConfigurationRepository
     }
 }
 
-// 被本文件的 load/save 调用；Task 9 的检索服务会把 RetrievalConfigurationRepository 当依赖
-// 注入进来读配置，但那只是把它记成字段类型/trait 对象——只要 SqliteRetrievalConfigurationRepository
-// 自身还没被真实构造过，光靠这层依赖注入不足以让 load/save 被判定为"已使用"（已用 cargo check
-// 实测确认：仅移除本属性、保留仓储 struct 与它实现的 trait 自身的 allow 时不会触发告警，必须
-// 连同它们一起摘掉 allow 才会看到 database_error 被判定为未使用）。真正让仓储从活根被构造出来
-// 的是 Task 12 的 bootstrap 装配；届时移除本属性。
-#[allow(dead_code)]
 fn database_error(error: DatabaseError) -> RetrievalError {
     match error {
         DatabaseError::Database(error) => storage_error(error),
@@ -76,8 +65,6 @@ fn database_error(error: DatabaseError) -> RetrievalError {
     }
 }
 
-// 同上，随 database_error 一起在 Task 12 移除。
-#[allow(dead_code)]
 fn storage_error(error: rusqlite::Error) -> RetrievalError {
     RetrievalError::Storage(error.to_string())
 }

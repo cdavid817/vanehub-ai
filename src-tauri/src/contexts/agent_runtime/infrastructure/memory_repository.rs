@@ -18,6 +18,32 @@ impl SqliteAgentMemoryRepository {
     pub(crate) fn new(database: NativeDatabase) -> Self {
         Self { database }
     }
+
+    /// Every memory of every Agent, in one snapshot. Deliberately not on `AgentMemoryPort`: the
+    /// only caller is the composition root's retrieval index source, and no use case inside this
+    /// context ever wants a cross-Agent view.
+    ///
+    /// The snapshot has to be global rather than per-Agent because its consumer reconciles it
+    /// against the whole index and deletes rows it cannot find here — a partial snapshot would
+    /// look like every absent Agent's memories had been deleted.
+    pub(crate) fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT id, agent_id, folder, content, source, created_at
+                FROM agent_memories
+                ORDER BY created_at DESC
+                "#,
+            )
+            .map_err(repository_error)?;
+        let rows = statement
+            .query_map([], MemoryRow::read)
+            .map_err(repository_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(repository_error)?;
+        rows.into_iter().map(MemoryRow::into_memory).collect()
+    }
 }
 
 impl AgentMemoryPort for SqliteAgentMemoryRepository {
@@ -302,6 +328,36 @@ mod tests {
             .expect("list all");
 
         assert_eq!(memories.len(), 2);
+    }
+
+    #[test]
+    fn list_all_spans_every_agent_not_just_one() {
+        // The retrieval index reconciler treats anything missing from this snapshot as deleted,
+        // so scoping it to a single Agent would silently drop every other Agent's index rows.
+        let fixture = Fixture::new("agent memory list all agents", &["agent-a", "agent-b"]);
+        fixture
+            .repository
+            .save(
+                "agent-a",
+                Some("D:/project"),
+                "A fact.",
+                MemorySource::Explicit,
+            )
+            .expect("save a");
+        fixture
+            .repository
+            .save("agent-b", None, "B fact.", MemorySource::Automatic)
+            .expect("save b");
+
+        let memories = fixture.repository.list_all().expect("list all");
+
+        let mut contents = memories
+            .iter()
+            .map(|memory| memory.content.as_str())
+            .collect::<Vec<_>>();
+        contents.sort_unstable();
+        assert_eq!(contents, vec!["A fact.", "B fact."]);
+        assert!(memories.iter().any(|memory| memory.agent_id == "agent-b"));
     }
 
     #[test]

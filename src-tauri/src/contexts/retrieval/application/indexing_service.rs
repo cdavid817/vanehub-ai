@@ -12,47 +12,31 @@ use std::sync::Arc;
 
 use super::ports::{EmbeddingPort, RetrievalDocumentRepository};
 // EmbeddingFailure 只在测试里的 FakeEmbedder::embed 构造它（Err 分支）；非测试代码只经
-// EmbeddingPort::embed 的返回类型隐式用到它，从不在本文件里显式写出它的名字。
+// EmbeddingPort::embed 的返回类型隐式用到它，从不在本文件里显式写出它的名字。同上，这个
+// import 不会有"届时移除"的那一天。
 #[allow(unused_imports)]
 use super::ports::EmbeddingFailure;
 // 同理，RetrievalIndexStatus 只出现在测试里 FakeRepository::index_status 的签名
-// （unimplemented!()）。真正调用方是 Task 12 的 RetrievalApi，经仓储直接读，不经过本文件。
+// （unimplemented!()）。真正调用方是 api.rs 的 RetrievalApi，经仓储直接读，不经过本文件。
 #[allow(unused_imports)]
 use super::ports::RetrievalIndexStatus;
 
 /// 可调常量集中在此，不散落调用点（设计文档 §5.2）。
-// 只在 process_pending_batch 内部出现（claim_pending_batch 的 limit 参数）。process_pending_batch
-// 所在的 impl IndexingService 已带 #[allow(dead_code)]——但那只是单独摘除本属性时的假阴性
-// 遮蔽（同一机制见下方 impl 块注释）：IndexingService 本身要到 Task 12 的 bootstrap 装配从活根
-// 构造出来，本常量才真正可达。届时移除本属性。
-#[allow(dead_code)]
 pub(crate) const EMBEDDING_BATCH_SIZE: usize = 32;
-// 本任务不消费：真正的消费方是 Task 12 后台 worker 的轮询循环（两次 reconcile/批处理之间等待
-// 多久），reconcile 与 process_pending_batch 都不读取轮询间隔。届时移除本属性。
-#[allow(dead_code)]
+/// 后台 worker 两轮之间的兜底轮询周期：唤醒信号丢失时，最多延迟一个周期。
 pub(crate) const RECONCILE_POLL_INTERVAL_SECONDS: u64 = 300;
-// 同 EMBEDDING_BATCH_SIZE，只在 process_pending_batch 内部出现（give_up 判定的攀升上限）。
-#[allow(dead_code)]
 pub(crate) const MAX_EMBEDDING_ATTEMPTS: u32 = 5;
-// 按设计明确不在本任务消费：这是 Task 12 worker 两次重试之间的退避表，process_pending_batch
-// 只负责单次批处理判定 give_up，不负责调度下一次尝试的时间点。届时移除本属性。
-#[allow(dead_code)]
+/// 后台 worker 两次重试之间的退避表。`process_pending_batch` 只判定单次批处理是否 give_up，
+/// 不负责调度下一次尝试的时间点——那是调用方的事。
 pub(crate) const RETRY_BACKOFF_SECONDS: [u64; 5] = [1, 4, 15, 60, 300];
 /// 超长内容 embedding 前截断；FTS 仍索引全文，所以长记忆的尾部仍可被关键词命中。
-// 同 EMBEDDING_BATCH_SIZE，只在 truncate_for_embedding 内部出现。
-#[allow(dead_code)]
 pub(crate) const EMBEDDING_CONTENT_LIMIT: usize = 8000;
 
-/// retrieval 从源上下文取快照的消费侧契约。第 1 期唯一实现是 agent_runtime 的记忆表适配器。
-// 唯一实现要到 Task 12 的 bootstrap 装配把 agent_runtime 的记忆表适配器构造出来、
-// 注入 IndexingService 才会存在；届时移除本属性。
-#[allow(dead_code)]
+/// retrieval 从源上下文取快照的消费侧契约。第 1 期唯一实现是 bootstrap 里的记忆表适配器。
 pub(crate) trait IndexSourcePort: Send + Sync {
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
 }
 
-// 同上，随 IndexSourcePort 一起在 Task 12 移除。
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IndexSourceRecord {
     pub(crate) source_id: String,
@@ -64,16 +48,12 @@ pub(crate) struct IndexSourceRecord {
     pub(crate) created_at: String,
 }
 
-// 唯一构造点是 Task 12 的 bootstrap 装配；届时移除本属性。
-#[allow(dead_code)]
 pub(crate) struct IndexingService {
     repository: Arc<dyn RetrievalDocumentRepository>,
     source: Arc<dyn IndexSourcePort>,
     embeddings: Arc<dyn EmbeddingPort>,
 }
 
-// 同上，随 IndexingService 一起在 Task 12 移除。
-#[allow(dead_code)]
 impl IndexingService {
     pub(crate) fn new(
         repository: Arc<dyn RetrievalDocumentRepository>,
@@ -135,8 +115,9 @@ impl IndexingService {
         Ok(outcome)
     }
 
-    /// 一次只处理一批（`EMBEDDING_BATCH_SIZE` 条），成功与失败都是终态——调用方（Task 12 的
-    /// worker 循环）负责按 `RECONCILE_POLL_INTERVAL_SECONDS` 的节奏反复调用它，不在这里睡眠等待。
+    /// 一次只处理一批（`EMBEDDING_BATCH_SIZE` 条），成功与失败都是终态——调用方（后台 worker
+    /// 循环）负责按 `RECONCILE_POLL_INTERVAL_SECONDS` 与 `RETRY_BACKOFF_SECONDS` 的节奏反复调用
+    /// 它，不在这里睡眠等待。
     pub(crate) fn process_pending_batch(
         &self,
         model: &str,
@@ -195,13 +176,10 @@ impl IndexingService {
 }
 
 /// 按字符而非字节截断——按字节切会把多字节 UTF-8 字符劈成两半并 panic。
-#[allow(dead_code)]
 fn truncate_for_embedding(content: &str) -> String {
     content.chars().take(EMBEDDING_CONTENT_LIMIT).collect()
 }
 
-// 唯一构造点是 reconcile 内部；reconcile 要到 Task 12 才被真正调用，届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ReconcileOutcome {
     pub(crate) added: usize,
@@ -209,8 +187,6 @@ pub(crate) struct ReconcileOutcome {
     pub(crate) orphans_removed: usize,
 }
 
-// 唯一构造点是 process_pending_batch 内部；它要到 Task 12 才被真正调用，届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct BatchOutcome {
     pub(crate) succeeded: usize,

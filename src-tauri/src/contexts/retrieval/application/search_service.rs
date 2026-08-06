@@ -10,9 +10,6 @@ use super::ports::{EmbeddingPort, RetrievalConfigurationRepository, RetrievalDoc
 
 /// `degraded` 为 `None` 时 `hits` 为空表示"搜了，确实没有"；`degraded` 为 `Some` 时 `hits`
 /// 仍可能非空，表示"某一路搜不了，用另一路的结果兜底"——两者是不同的语义，不能互相替代。
-// 唯一构造点是 search() 内部；search() 本身要到 Task 12 的 bootstrap 装配才会被真正调用，
-// 从一个还没活起来的方法内部构造，不足以让 SearchOutcome 被判定为"已使用"。届时移除本属性。
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SearchOutcome {
     pub(crate) hits: Vec<ScoredHit>,
@@ -20,8 +17,6 @@ pub(crate) struct SearchOutcome {
 }
 
 /// 双路（向量 + 关键词）混合检索，第 1 期只服务 `SourceKind::AgentMemory`。
-// 唯一构造点是 Task 12 的 bootstrap 装配；届时移除本属性。
-#[allow(dead_code)]
 pub(crate) struct SearchService {
     configuration: Arc<dyn RetrievalConfigurationRepository>,
     repository: Arc<dyn RetrievalDocumentRepository>,
@@ -29,10 +24,6 @@ pub(crate) struct SearchService {
     embeddings: Arc<dyn EmbeddingPort>,
 }
 
-// 同上，随 SearchService 一起在 Task 12 移除；本属性同时覆盖 new/search/vector_ranking 三者——
-// search 内部对 vector_ranking 的调用发生在一个自身仍是 dead code 的方法内部，不足以单独让
-// vector_ranking 被判定为"已使用"（同 indexing_service.rs 中 IndexingService 的同类结论）。
-#[allow(dead_code)]
 impl SearchService {
     pub(crate) fn new(
         configuration: Arc<dyn RetrievalConfigurationRepository>,

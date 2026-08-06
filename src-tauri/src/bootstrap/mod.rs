@@ -13,6 +13,7 @@ mod mcp;
 mod operations;
 mod plugin_integrations;
 mod prompt_hooks;
+mod retrieval;
 mod runtime;
 mod scheduled_tasks;
 mod sdk;
@@ -42,6 +43,9 @@ pub(crate) use mcp::assemble_mcp_api;
 pub(crate) use operations::assemble_operations_api;
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;
+pub(crate) use retrieval::{
+    assemble_retrieval, start_retrieval_indexing_worker, RetrievalAssembly,
+};
 pub(crate) use runtime::run;
 pub(crate) use scheduled_tasks::start_scheduled_task_jobs;
 pub(crate) use sdk::assemble_sdk_api;

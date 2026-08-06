@@ -921,11 +921,8 @@ impl AgentRuntimeApplicationService {
         self.onepiece_provider_profiles()
     }
 
-    // Task 12 的 bootstrap 适配器封装本方法以实现 retrieval::EmbeddingEndpointPort::resolve 后，
-    // 才经 agent_runtime::api::resolve_embedding_endpoint 变得可达；届时移除本属性。凭据只读出
-    // 一次、原样放进返回值供进程内传递给该适配器——不写日志、不拼进错误消息（见下方各分支，
-    // 全部是不含凭据的静态字符串）。
-    #[allow(dead_code)]
+    // 凭据只读出一次、原样放进返回值供进程内传递给 bootstrap 的 embedding 端点适配器——
+    // 不写日志、不拼进错误消息（见下方各分支，全部是不含凭据的静态字符串）。
     pub(crate) fn resolve_embedding_endpoint(
         &self,
         profile_id: &str,

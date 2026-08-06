@@ -2,14 +2,10 @@ use std::collections::HashMap;
 
 /// RRF 的平滑常数。60 是原论文的取值，作用是压低头部名次的边际优势，让"两路都中游"
 /// 胜过"一路头名、另一路缺席"——这正是混合检索想要的行为。
-// 仅被 fuse_with_rrf 使用；fuse_with_rrf 在 Task 9 变为可达后本常量一并可达，届时移除本属性。
-#[allow(dead_code)]
 const RRF_SMOOTHING: f64 = 60.0;
 
 /// 输入是若干条已排好序的 id 列表（每条代表一路召回），输出按融合分降序。
 /// 同分时按 id 升序，保证同样输入永远给出同样顺序——否则测试与 UI 都会闪。
-// Task 9 的检索服务会用它融合向量路与关键词路的排名；届时移除本属性。
-#[allow(dead_code)]
 pub(crate) fn fuse_with_rrf(rankings: &[Vec<String>]) -> Vec<(String, f64)> {
     let mut scores: HashMap<&str, f64> = HashMap::new();
     for ranking in rankings {

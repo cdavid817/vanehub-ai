@@ -7,15 +7,11 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, Row};
 
-// Task 12 的 bootstrap 装配会构造它并把它交给 RetrievalApi；届时移除本属性。
-#[allow(dead_code)]
 #[derive(Clone)]
 pub(crate) struct SqliteRetrievalDocumentRepository {
     database: NativeDatabase,
 }
 
-// 同上，随 SqliteRetrievalDocumentRepository 一起在 Task 12 移除。
-#[allow(dead_code)]
 impl SqliteRetrievalDocumentRepository {
     pub(crate) fn new(database: NativeDatabase) -> Self {
         Self { database }
@@ -300,14 +296,6 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
     }
 }
 
-// 唯一调用方是 claim_pending_batch——它是 SqliteRetrievalDocumentRepository 的 trait 方法，
-// Task 8 会给它添加第一个调用方（IndexingService::process_pending_batch），但那个调用方本身
-// 是 IndexingService 的方法，要到 Task 12 的 bootstrap 装配把仓储与索引服务从活根构造出来才
-// 可达——从一个还没活起来的方法内部发起调用，不足以让 claim_pending_batch（进而 DocumentRow）
-// 被判定为"已使用"（已用 cargo check 实测确认：仓储 struct 与它实现的 trait 仍带各自的 allow
-// 时不会告警，必须连同它们一起摘掉才会看到本 struct 被判定为未构造）。真正的移除点是
-// Task 12。届时移除本属性。
-#[allow(dead_code)]
 struct DocumentRow {
     id: String,
     source_kind: String,
@@ -321,8 +309,6 @@ struct DocumentRow {
     embedding_model: Option<String>,
 }
 
-// 同上，read()/into_document() 随 DocumentRow 一起在 Task 12 变为可达；届时移除本属性。
-#[allow(dead_code)]
 impl DocumentRow {
     fn read(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -367,14 +353,6 @@ impl DocumentRow {
     }
 }
 
-// 被本文件中的全部 10 个 trait 方法调用；Task 7 的差集协调服务确实开始调用其中的
-// upsert_pending/list_indexed_source_ids/delete_by_source 了，但 reconcile() 本身要到
-// Task 12 的 bootstrap 装配构造出 IndexingService 才会被真正调用——从一个还没活起来的方法
-// 内部发起调用，不足以让被调用者被判定为"已使用"（已用 cargo check 实测确认：仅移除本属性、
-// 保留 SqliteRetrievalDocumentRepository 及其实现的 trait 自身的 allow 时不会触发告警，必须
-// 连同 Task 7/12 那条调用链一起摘掉 allow 才会看到 database_error 被判定为未使用）。真正的
-// 移除点是 Task 12。届时移除本属性。
-#[allow(dead_code)]
 fn database_error(error: DatabaseError) -> RetrievalError {
     match error {
         DatabaseError::Database(error) => storage_error(error),
@@ -382,8 +360,6 @@ fn database_error(error: DatabaseError) -> RetrievalError {
     }
 }
 
-// 同上，随 database_error 一起在 Task 12 移除。
-#[allow(dead_code)]
 fn storage_error(error: rusqlite::Error) -> RetrievalError {
     RetrievalError::Storage(error.to_string())
 }

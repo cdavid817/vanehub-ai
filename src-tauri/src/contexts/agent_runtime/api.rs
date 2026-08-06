@@ -334,9 +334,6 @@ impl AgentRuntimeApi {
         self.service.delete_onepiece_provider_profile(profile_id)
     }
 
-    // Task 12 的 bootstrap 适配器封装本方法以实现 retrieval::EmbeddingEndpointPort::resolve 后
-    // 可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn resolve_embedding_endpoint(
         &self,
         profile_id: &str,

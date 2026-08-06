@@ -19,15 +19,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// openai-compatible `/embeddings` 端点的 HTTP 适配器。`credential` 只经
 /// `resolved.credential` → `bearer_auth` 流入 Authorization 头，从不写日志、从不进
 /// `EmbeddingFailure::message`。
-// 唯一构造点是 Task 12 的 bootstrap 装配；届时移除本属性。
-#[allow(dead_code)]
 pub(crate) struct HttpEmbeddingAdapter {
     endpoint: Arc<dyn EmbeddingEndpointPort>,
     profile_id: String,
 }
 
-// 同上，随 HttpEmbeddingAdapter 一起在 Task 12 移除。
-#[allow(dead_code)]
 impl HttpEmbeddingAdapter {
     pub(crate) fn new(endpoint: Arc<dyn EmbeddingEndpointPort>, profile_id: String) -> Self {
         Self {
@@ -47,10 +43,10 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
                 // InvalidRequest 是确定性失败，重试只会烧配额"）。分类成 InvalidRequest 能让这一行
                 // 立刻标记 failed、在设置页露出失败计数，用户靠修正配置、点击重建来恢复。
                 category: FailureCategory::InvalidRequest,
-                // RetrievalError::Display 目前只可能带内部存储/配置文本（见 domain/error.rs 及其
-                // 全部构造点：rusqlite/r2d2 错误信息、"invalid persisted ..." 字面量），从不带凭据
-                // 或 provider 响应体，插值是安全的；Task 12 给 resolve() 接上真实实现后需要重新
-                // 核实这一结论。
+                // 插值安全性已随 bootstrap 的真实 EmbeddingEndpointPort 实现复核过一次：那个
+                // 适配器把 agent_runtime 的任何失败折叠成一句不含参数的字面量
+                // （RetrievalError::Embedding），所以这里的 {error} 不可能带出凭据或 provider
+                // 响应体。给 resolve() 换实现时必须重做这次核实。
                 message: format!("failed to resolve embedding endpoint: {error}"),
             }
         })?;
