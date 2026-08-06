@@ -556,8 +556,8 @@ pub(super) fn insert_message(
             INSERT INTO messages (
                 id, session_id, role, status, content, thinking_content, tool_use,
                 rich_blocks, token_input, token_output, metadata, file_references,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                created_at, updated_at, seat_index
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             "#,
             params![
                 message.message.id().as_str(),
@@ -574,6 +574,7 @@ pub(super) fn insert_message(
                 file_references_json(message)?,
                 message.created_at,
                 message.updated_at,
+                message.seat_index.map(|index| index as i64),
             ],
         )
         .map_err(repository_error)?;

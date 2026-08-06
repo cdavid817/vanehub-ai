@@ -93,6 +93,7 @@ fn message_record(
             .expect("reference")])
             .expect("references"),
         ),
+        seat_index: None,
         content: content.to_string(),
         thinking_content: Some("thinking".to_string()),
         tool_use: Some(vec![json!({"id": "tool-1", "name": "read"})]),
@@ -1252,4 +1253,52 @@ fn a_session_without_seats_reads_as_one_seat() {
             role_id: None,
         }]
     );
+}
+
+/// Rendering a thread means naming who spoke, so the seat has to survive persistence.
+#[test]
+fn a_message_records_the_seat_that_spoke_it() {
+    let fixture = fixture("messages-seat-index");
+    let session = session_record(
+        "session-speakers",
+        SessionLifecycle::Idle,
+        "多 Agent 会话",
+        "2026-08-07T00:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create session");
+
+    let mut seated = message_record(
+        "message-seated",
+        "session-speakers",
+        MessageRole::Assistant,
+        MessageStatus::Completed,
+        "方案如下",
+    );
+    seated.seat_index = Some(1);
+    SessionMessageRepository::insert(&fixture.repository, &seated).expect("insert seated");
+
+    // A user message has no seat, and a default of 0 would attribute it to the first one.
+    let spoken_by_user = message_record(
+        "message-user",
+        "session-speakers",
+        MessageRole::User,
+        MessageStatus::Completed,
+        "改下登录",
+    );
+    SessionMessageRepository::insert(&fixture.repository, &spoken_by_user).expect("insert user");
+
+    let loaded = SessionMessageRepository::find(&fixture.repository, seated.message.id())
+        .expect("find seated")
+        .expect("seated message");
+    assert_eq!(loaded.seat_index, Some(1));
+
+    let loaded_user = SessionMessageRepository::find(&fixture.repository, spoken_by_user.message.id())
+        .expect("find user")
+        .expect("user message");
+    assert_eq!(loaded_user.seat_index, None);
 }

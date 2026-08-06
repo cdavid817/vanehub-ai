@@ -358,6 +358,7 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
     dto::ChatMessage {
         id: message.id,
         session_id: message.session_id,
+        seat_index: message.seat_index,
         role: message.role,
         content: message.content,
         status: message.status,
@@ -564,6 +565,7 @@ mod tests {
         let value = serde_json::to_value(message_to_dto(AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            seat_index: None,
             role: "assistant".to_string(),
             content: "done".to_string(),
             status: "completed".to_string(),

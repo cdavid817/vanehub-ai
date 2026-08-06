@@ -986,6 +986,7 @@ fn message_record(
             status,
             FileReferenceSet::default(),
         ),
+        seat_index: None,
         content: String::new(),
         thinking_content: None,
         tool_use: None,
@@ -1502,6 +1503,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .service
         .create_message(CreateMessageRequest {
             session_id: session.id().to_string(),
+            seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
             content: "  explain this  ".to_string(),
@@ -1938,6 +1940,7 @@ fn category_and_message_domain_failures_stop_before_persistence() {
         .service
         .create_message(CreateMessageRequest {
             session_id: "session-fixture".to_string(),
+            seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
             content: "  ".to_string(),

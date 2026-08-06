@@ -256,6 +256,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-seats",
         crate::contexts::sessions::infrastructure::apply_session_seat_schema,
     )?;
+    apply_migration(
+        conn,
+        46,
+        "message-speaker",
+        crate::contexts::sessions::infrastructure::apply_message_speaker_schema,
+    )?;
 
     Ok(())
 }

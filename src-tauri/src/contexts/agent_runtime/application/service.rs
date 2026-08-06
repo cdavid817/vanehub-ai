@@ -123,6 +123,12 @@ struct MessageGenerationInput {
     configuration: AgentChatConfiguration,
     content: String,
     file_references: Vec<super::AgentFileReference>,
+    /// A multi-seat session's role briefing, placed in the CLI's own system-prompt channel.
+    role_briefing: Option<String>,
+    seat_ownership: Option<super::SeatTurnOwnership>,
+    /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
+    /// would put words the human never typed into the thread under their name.
+    record_user_message: bool,
 }
 
 struct GenerationFailure {
@@ -1321,6 +1327,9 @@ impl AgentRuntimeApplicationService {
                 configuration,
                 content,
                 file_references: request.file_references,
+                role_briefing: None,
+                seat_ownership: None,
+                record_user_message: true,
             },
             &lease,
         );
@@ -1345,6 +1354,9 @@ impl AgentRuntimeApplicationService {
             configuration,
             content,
             file_references,
+            role_briefing,
+            seat_ownership,
+            record_user_message,
         } = input;
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
@@ -1462,25 +1474,31 @@ impl AgentRuntimeApplicationService {
             &self.ports.clock.now(),
             None,
         );
-        let user_message = match self.ports.sessions.create_message(NewAgentMessage {
-            session_id: session.id.clone(),
-            role: "user".to_string(),
-            status: "completed".to_string(),
-            content,
-            file_references,
-        }) {
-            Ok(message) => message,
-            Err(error) => {
-                self.finish_execution_root(
-                    &root_context,
-                    ExecutionStatus::Failed,
-                    Some("user_message_persistence_failed"),
-                );
-                return Err(error);
+        let user_message = if record_user_message {
+            match self.ports.sessions.create_message(NewAgentMessage {
+                session_id: session.id.clone(),
+                seat_index: None,
+                role: "user".to_string(),
+                status: "completed".to_string(),
+                content,
+                file_references,
+            }) {
+                Ok(message) => Some(message),
+                Err(error) => {
+                    self.finish_execution_root(
+                        &root_context,
+                        ExecutionStatus::Failed,
+                        Some("user_message_persistence_failed"),
+                    );
+                    return Err(error);
+                }
             }
+        } else {
+            None
         };
         let assistant = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
+            seat_index: seat_ownership.as_ref().map(|ownership| ownership.seat_index),
             role: "assistant".to_string(),
             status: "streaming".to_string(),
             content: String::new(),
@@ -1516,7 +1534,7 @@ impl AgentRuntimeApplicationService {
                 );
             }
         };
-        run.user_message_id = Some(user_message.id);
+        run.user_message_id = user_message.map(|message| message.id);
         run.assistant_message_id = Some(assistant.id.clone());
         run.operation_id = Some(operation.id.clone());
         let _ = self.ports.telemetry.start_run(&run);
@@ -1737,9 +1755,8 @@ impl AgentRuntimeApplicationService {
                 operation_id: operation.id.clone(),
                 configuration: configuration.clone(),
                 effective_prompt: effective_prompt.content,
-                // Single-Agent sessions carry no briefing, so their invocation is unchanged. The
-                // multi-seat path will populate this once the serial turn loop lands (task 7.2).
-                role_briefing: None,
+                // Single-Agent sessions carry no briefing, so their invocation is unchanged.
+                role_briefing: role_briefing.clone(),
                 cli_profile: profile,
             }) {
             Ok(started) => started,
@@ -1819,9 +1836,7 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
-                // Populated by the turn coordinator when it starts a seat's turn; a
-                // user-initiated message is always the first turn of a round.
-                seat_ownership: None,
+                seat_ownership,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
             },

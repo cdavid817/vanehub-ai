@@ -438,6 +438,7 @@ pub(crate) struct MessageTokenUsage {
 pub(crate) struct AgentMessage {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) content: String,
     pub(crate) status: String,
@@ -454,6 +455,8 @@ pub(crate) struct AgentMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NewAgentMessage {
     pub(crate) session_id: String,
+    /// Which seat is speaking. `None` for a user message and for single-Agent sessions.
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,

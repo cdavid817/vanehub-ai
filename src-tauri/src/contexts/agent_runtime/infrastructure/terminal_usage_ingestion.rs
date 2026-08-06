@@ -235,6 +235,7 @@ fn persist_terminal_usage(
                 sessions
                     .create_message(NewAgentMessage {
                         session_id: session_id.to_string(),
+                        seat_index: None,
                         role: "assistant".to_string(),
                         status: "completed".to_string(),
                         content: String::new(),
@@ -633,6 +634,7 @@ mod tests {
             Ok(AgentMessage {
                 id: "placeholder-message".to_string(),
                 session_id: message.session_id,
+                seat_index: None,
                 role: message.role,
                 content: message.content,
                 status: message.status,
@@ -710,6 +712,7 @@ mod tests {
             Ok(AgentMessage {
                 id: message.message_id,
                 session_id: message.session_id,
+                seat_index: None,
                 role: "assistant".to_string(),
                 content: message.content,
                 status: "completed".to_string(),

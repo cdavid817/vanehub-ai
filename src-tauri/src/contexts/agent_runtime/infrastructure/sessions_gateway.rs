@@ -168,6 +168,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         self.sessions
             .create_message(CreateMessageRequest {
                 session_id: message.session_id,
+                seat_index: message.seat_index,
                 role: message.role,
                 status: message.status,
                 content: message.content,
@@ -342,6 +343,7 @@ fn agent_message(message: RuntimeMessageSnapshot) -> AgentMessage {
     AgentMessage {
         id: message.id,
         session_id: message.session_id,
+        seat_index: message.seat_index,
         role: message.role,
         content: message.content,
         status: message.status,

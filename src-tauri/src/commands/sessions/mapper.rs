@@ -229,6 +229,7 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
     dto::ChatMessage {
         id: record.message.id().as_str().to_string(),
         session_id: record.message.session_id().as_str().to_string(),
+        seat_index: record.seat_index,
         role: record.message.role().as_str().to_string(),
         content: record.content,
         status: record.message.status().as_str().to_string(),
@@ -499,6 +500,7 @@ mod tests {
                 .expect("file reference")])
                 .expect("references"),
             ),
+            seat_index: None,
             content: "done".to_string(),
             thinking_content: Some("reasoning".to_string()),
             tool_use: Some(vec![serde_json::json!({

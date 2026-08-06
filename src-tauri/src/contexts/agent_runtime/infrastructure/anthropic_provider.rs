@@ -274,6 +274,7 @@ mod tests {
         AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            seat_index: None,
             role: role.to_string(),
             content: content.to_string(),
             status: "completed".to_string(),

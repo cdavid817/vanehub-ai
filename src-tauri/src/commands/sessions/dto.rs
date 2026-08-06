@@ -243,6 +243,9 @@ pub(crate) struct ChatFileReference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatMessage {
+    /// Index of the seat that spoke this. Absent for user messages and single-Agent sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) seat_index: Option<usize>,
     pub(crate) id: String,
     pub(crate) session_id: String,
     pub(crate) role: String,

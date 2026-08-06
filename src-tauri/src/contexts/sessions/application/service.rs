@@ -667,6 +667,7 @@ impl SessionsApplicationService {
         let now = self.ports.clock.now();
         self.ports.messages.insert(&MessageRecord {
             message,
+            seat_index: request.seat_index,
             content,
             thinking_content: None,
             tool_use: None,

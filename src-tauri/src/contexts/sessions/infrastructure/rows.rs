@@ -13,7 +13,7 @@ use serde_json::Value;
 
 pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats FROM sessions";
 pub(super) const SESSION_SEARCH_SELECT: &str = "SELECT sessions.id, sessions.title, sessions.agent_id, sessions.interaction_mode, sessions.lifecycle_state, sessions.folder, sessions.project_path, sessions.worktree_path, sessions.worktree_name, sessions.worktree_branch, sessions.remote_workspace_host, sessions.remote_workspace_port, sessions.remote_workspace_user, sessions.remote_workspace_path, sessions.remote_workspace_display_name, sessions.remote_workspace_uri, sessions.remote_ssh_connection_id, sessions.remote_ssh_connection_revision, sessions.runtime_session_id, sessions.category_id, sessions.source_kind, sessions.source_connector, sessions.pinned, sessions.archived, sessions.created_at, sessions.updated_at, sessions.loop_run_id, sessions.loop_iteration_id, sessions.loop_role, sessions.seats, message_matches.id, message_matches.content FROM sessions";
-pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at FROM messages";
+pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at, seat_index FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
 
@@ -186,6 +186,7 @@ pub(super) struct MessageRow {
     file_references: Option<String>,
     created_at: String,
     updated_at: String,
+    seat_index: Option<i64>,
 }
 
 impl MessageRow {
@@ -205,6 +206,7 @@ impl MessageRow {
             file_references: row.get(11)?,
             created_at: row.get(12)?,
             updated_at: row.get(13)?,
+            seat_index: row.get(14)?,
         })
     }
 
@@ -239,6 +241,9 @@ impl MessageRow {
             });
         Ok(MessageRecord {
             message,
+            seat_index: self
+                .seat_index
+                .and_then(|index| usize::try_from(index).ok()),
             content: self.content,
             thinking_content: self.thinking_content,
             tool_use: parse_json_values(self.tool_use.as_deref()),

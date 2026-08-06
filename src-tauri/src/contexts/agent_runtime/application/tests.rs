@@ -289,6 +289,7 @@ impl AgentSessionGateway for FakeWorld {
         let record = AgentMessage {
             id: id.clone(),
             session_id: message.session_id,
+            seat_index: None,
             role: message.role,
             content: message.content,
             status: message.status,

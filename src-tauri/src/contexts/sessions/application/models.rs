@@ -271,6 +271,7 @@ pub(crate) struct FileReferenceInput {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CreateMessageRequest {
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,
@@ -287,6 +288,8 @@ pub(crate) struct MessageTokenUsage {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MessageRecord {
     pub(crate) message: SessionMessage,
+    /// Which seat spoke this. `None` for a user message and for anything predating seats.
+    pub(crate) seat_index: Option<usize>,
     pub(crate) content: String,
     pub(crate) thinking_content: Option<String>,
     pub(crate) tool_use: Option<Vec<Value>>,
@@ -310,6 +313,7 @@ pub(crate) struct RuntimeFileReferenceSnapshot {
 pub(crate) struct RuntimeMessageSnapshot {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,
@@ -328,6 +332,7 @@ impl RuntimeMessageSnapshot {
         Self {
             id: record.message.id().as_str().to_string(),
             session_id: record.message.session_id().as_str().to_string(),
+            seat_index: record.seat_index,
             role: record.message.role().as_str().to_string(),
             status: record.message.status().as_str().to_string(),
             content: record.content.clone(),
