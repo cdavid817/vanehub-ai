@@ -13,3 +13,17 @@ coverage/
 
 # subagent-driven-development scratch (progress ledger, task briefs, review packages)
 .superpowers/
+
+# environment files (never commit secrets)
+.env
+.env.*
+
+# AI assistant local/scratch files
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+.agents/
+
+# non-npm lockfiles are forbidden (npm-only repo)
+pnpm-lock.yaml
+yarn.lock

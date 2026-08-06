@@ -15,7 +15,7 @@ VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理�
 - 状态管理:仅用 React 内置 state/context,不引入 Redux/Zustand/MobX
 - 样式:Tailwind CSS,不写内联 style,不引入 styled-components/CSS Modules/其他 UI 组件库
 - 数据库:SQLite,通过 Rust 侧访问,前端不直接连库
-- 测试:Playwright(E2E)
+- 测试:Vitest(单元/组件测试,CI 强制覆盖率门槛)+ Playwright(E2E)
 - 包管理:npm(项目已有 package-lock.json,不要切到 pnpm/yarn)
 
 ## 架构核心约束
@@ -49,7 +49,7 @@ src/
 ├─ hooks/            # 自定义 hook
 src-tauri/
 ├─ src/commands/     # 每个 Tauri command 一个文件,按功能域分组
-├─ src/db/           # SQLite schema 与迁移脚本
+├─ src/platform/database/  # SQLite 访问层(schema 与迁移)
 openspec/
 ├─ changes/          # 未归档的变更提案
 │  └─ archive/       # 已完成变更的历史记录
@@ -87,4 +87,5 @@ openspec validate --specs --strict
 上面这些之外,CI 还有几条本地不必每次跑、但相应改动落到你手上时必须跑的:
 
 - `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run contracts:check`
+- UI 行为变更时:`npx playwright test`(CI 的 e2e job 恒跑,本地在改动 UI 行为时必须跑)
 - 起了 proposal 时:`openspec validate <change-name> --strict`——CI 对 `openspec/changes/*` 下每个变更逐个校验,`--specs --strict` 不覆盖这一层
