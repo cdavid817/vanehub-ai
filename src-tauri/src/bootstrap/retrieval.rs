@@ -180,9 +180,26 @@ fn drain_pending_batches(
             [
                 ("failed", outcome.failed.to_string()),
                 ("attempt", (consecutive_failures + 1).to_string()),
+                (
+                    "category",
+                    outcome
+                        .last_failure_category
+                        .map(FailureCategory::as_str)
+                        .unwrap_or("unknown")
+                        .to_string(),
+                ),
             ],
         );
-        thread::sleep(retry_backoff(consecutive_failures));
+        // 退避期间也监听唤醒信号：`rebuild()`/`save_configuration()` 全靠 `notify()` 才能不等一整个
+        // 轮询周期就生效，但如果这里只会 `thread::sleep`，用户在退避中途修好配置、按下"重建"，
+        // 最多要等 300s 才会看到反应。收到唤醒就立刻结束退避、回到循环顶部重试；发送端没了则
+        // 退化成真正的睡眠——和 `start_retrieval_indexing_worker` 对同一种情况的处理保持一致
+        // （同一个理由：`recv_timeout` 在发送端消失后会立刻返回，不特殊处理就会把退避变成忙等）。
+        let delay = retry_backoff(consecutive_failures);
+        match worker.wakeups.recv_timeout(delay) {
+            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => thread::sleep(delay),
+        }
         consecutive_failures += 1;
     }
 }
@@ -192,6 +209,10 @@ fn retry_backoff(consecutive_failures: usize) -> Duration {
     Duration::from_secs(RETRY_BACKOFF_SECONDS[step])
 }
 
+/// 这里的 `.ok()` 同样把"读配置失败"与"没配置"揉成一个 `None`，但在这里是安全的：`None`
+/// 只让本轮 `run_indexing_cycle` 提前返回，不落任何 `failed` 状态，下一轮轮询/唤醒会重新读
+/// 配置——不像 `ConfiguredProfileEmbeddingAdapter::embed`，这里没有"一批文档被打成永久失败"
+/// 的下游后果，不需要区分瞬时故障与确定性的"没配置"。
 fn configured_model(configuration: &dyn RetrievalConfigurationRepository) -> Option<String> {
     configuration
         .load()
@@ -331,17 +352,17 @@ struct ConfiguredProfileEmbeddingAdapter {
 
 impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
     fn embed(&self, model: &str, inputs: &[String]) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
-        let profile_id = self
-            .configuration
-            .load()
-            .ok()
-            .and_then(|configuration| {
-                configuration
-                    .resolved_model()
-                    .map(|(profile, _model)| profile.to_string())
-            })
+        // 读配置失败与"没配置"是两回事：前者是瞬时的（连接池 checkout 超时），归为可重试，
+        // 让退避在下一轮重来；后者是确定性的，失败即停。混为一谈会让一次池超时把整批
+        // 32 条记忆永久打成 failed，而 reconcile 因内容哈希未变会保留 failed，只能靠人工重建。
+        let configuration = self.configuration.load().map_err(|_| EmbeddingFailure {
+            category: FailureCategory::Network,
+            message: "the retrieval configuration could not be read".to_string(),
+        })?;
+        let profile_id = configuration
+            .resolved_model()
+            .map(|(profile, _model)| profile.to_string())
             .ok_or_else(|| EmbeddingFailure {
-                // 读不到配置是确定性失败，重试只会烧配额（`document.rs` 的重试哲学）。
                 category: FailureCategory::InvalidRequest,
                 message: "no embedding profile is configured".to_string(),
             })?;
@@ -352,6 +373,15 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::operations::api::OperationsError;
+    use crate::contexts::retrieval::application::{RetrievalConfiguration, RetrievalIndexStatus};
+    use crate::contexts::retrieval::domain::{
+        IndexState, RetrievalDocument, RetrievalScope, SourceKind,
+    };
+    use std::sync::mpsc::sync_channel;
+    use std::sync::Mutex;
+
+    const MODEL: &str = "test-embedding-model";
 
     #[test]
     fn the_retry_backoff_follows_the_documented_table_and_then_holds() {
@@ -368,8 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn logged_error_categories_never_carry_the_error_payload() {
-        // 哨兵：把敏感文本塞进错误载荷，证明落盘的只有类别。
+    fn error_category_maps_each_variant_without_the_payload_text() {
+        // 这条只钉死纯函数 `error_category` 的映射表，不驱动任何 `write_*_log` 调用点——
+        // 它不能证明日志管线本身不泄漏，那部分由下面两条驱动真实调用路径的测试负责
+        // （`a_reconcile_failure_...` / `a_batch_outcome_failure_...`）。
         assert_eq!(
             error_category(&RetrievalError::Storage("SENSITIVE-SENTINEL".to_string())),
             "storage"
@@ -383,5 +415,345 @@ mod tests {
             "not_configured"
         );
         assert_eq!(error_category(&RetrievalError::Unavailable), "unavailable");
+    }
+
+    /// 三种可编排行为，与 `retrieval::api` 测试模块里的同名 fake 同构：已配置 / 未配置 /
+    /// 读配置本身失败（模拟 r2d2 连接池 checkout 超时这类瞬时故障）。
+    enum FakeConfigurationRepository {
+        Configured,
+        Unconfigured,
+        Failing,
+    }
+
+    impl RetrievalConfigurationRepository for FakeConfigurationRepository {
+        fn load(&self) -> Result<RetrievalConfiguration, RetrievalError> {
+            match self {
+                Self::Configured => Ok(RetrievalConfiguration {
+                    source_profile_id: Some("profile-a".to_string()),
+                    embedding_model: Some(MODEL.to_string()),
+                }),
+                Self::Unconfigured => Ok(RetrievalConfiguration::default()),
+                Self::Failing => Err(RetrievalError::Storage(
+                    "connection pool checkout timed out".to_string(),
+                )),
+            }
+        }
+
+        fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+    }
+
+    struct UnreachableEmbeddingEndpoint;
+
+    impl EmbeddingEndpointPort for UnreachableEmbeddingEndpoint {
+        fn resolve(&self, _profile_id: &str) -> Result<ResolvedEmbeddingEndpoint, RetrievalError> {
+            panic!("must not resolve an endpoint once profile resolution has already failed")
+        }
+    }
+
+    #[test]
+    fn a_transient_configuration_read_failure_is_retryable_not_invalid_request() {
+        // r2d2 连接池 checkout 超时这类瞬时故障必须映射成 `Network`（可重试），而不是
+        // `InvalidRequest`（确定性、立刻放弃）——否则一次池超时就会把整批 32 条记忆永久
+        // 打成 failed，且 reconcile 因内容哈希未变不会重新入队，只能靠人工重建（Fix 1）。
+        let adapter = ConfiguredProfileEmbeddingAdapter {
+            configuration: Arc::new(FakeConfigurationRepository::Failing),
+            endpoint: Arc::new(UnreachableEmbeddingEndpoint),
+        };
+
+        let failure = adapter
+            .embed(MODEL, &["hello".to_string()])
+            .expect_err("a storage failure while reading configuration must not succeed");
+
+        assert_eq!(failure.category, FailureCategory::Network);
+    }
+
+    #[test]
+    fn a_genuinely_unconfigured_profile_is_still_invalid_request() {
+        // 与上一条成对存在：真的没配置时必须保持确定性失败，不能被 Fix 1 误改成可重试——
+        // 那会让从未配置过 embedding 的用户被无限重试烧配额。
+        let adapter = ConfiguredProfileEmbeddingAdapter {
+            configuration: Arc::new(FakeConfigurationRepository::Unconfigured),
+            endpoint: Arc::new(UnreachableEmbeddingEndpoint),
+        };
+
+        let failure = adapter
+            .embed(MODEL, &["hello".to_string()])
+            .expect_err("an unconfigured profile must fail");
+
+        assert_eq!(failure.category, FailureCategory::InvalidRequest);
+    }
+
+    #[derive(Default)]
+    struct CapturingLogPort {
+        logs: Mutex<Vec<DiagnosticLog>>,
+    }
+
+    impl DiagnosticLogPort for CapturingLogPort {
+        fn write_diagnostic(&self, log: DiagnosticLog) -> Result<(), OperationsError> {
+            self.logs.lock().expect("lock").push(log);
+            Ok(())
+        }
+    }
+
+    struct FailingSource;
+
+    impl IndexSourcePort for FailingSource {
+        fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            Err(RetrievalError::Storage("SENSITIVE-SENTINEL".to_string()))
+        }
+    }
+
+    struct EmptySource;
+
+    impl IndexSourcePort for EmptySource {
+        fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct FailingEmbedder;
+
+    impl EmbeddingPort for FailingEmbedder {
+        fn embed(
+            &self,
+            _model: &str,
+            _inputs: &[String],
+        ) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
+            // Auth 是确定性失败：不论 attempt_count 多少都会立刻 give_up（见
+            // indexing_service.rs 的 an_auth_failure_gives_up_immediately_...），这样下面驱动
+            // drain_pending_batches/run_indexing_cycle 的测试不用关心重试计数是否达到上限。
+            Err(EmbeddingFailure {
+                category: FailureCategory::Auth,
+                message: "SENSITIVE-SENTINEL".to_string(),
+            })
+        }
+    }
+
+    /// `claim_pending_batch` 只在第一次调用时吐出一条待处理文档，之后返回空——模拟真实仓储里
+    /// "已被认领过的行不会再被认领"，让被测的循环能自然收敛到 `BatchOutcome::default()`，不需要
+    /// 在测试里实现完整的状态机。
+    #[derive(Default)]
+    struct OnceThenEmptyRepository {
+        claimed: Mutex<bool>,
+    }
+
+    impl RetrievalDocumentRepository for OnceThenEmptyRepository {
+        fn upsert_pending(&self, _document: &RetrievalDocument) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn list_indexed_source_ids(
+            &self,
+            _source_kind: SourceKind,
+        ) -> Result<Vec<(String, String)>, RetrievalError> {
+            Ok(Vec::new())
+        }
+        fn delete_by_source(
+            &self,
+            _source_kind: SourceKind,
+            _source_id: &str,
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn claim_pending_batch(
+            &self,
+            _source_kind: SourceKind,
+            _limit: usize,
+        ) -> Result<Vec<RetrievalDocument>, RetrievalError> {
+            let mut claimed = self.claimed.lock().expect("lock");
+            if *claimed {
+                return Ok(Vec::new());
+            }
+            *claimed = true;
+            Ok(vec![RetrievalDocument {
+                id: "agent_memory:m1".to_string(),
+                source_kind: SourceKind::AgentMemory,
+                source_id: "m1".to_string(),
+                scope_agent_id: "agent-a".to_string(),
+                scope_folder: String::new(),
+                content: "uses npm".to_string(),
+                content_hash: "irrelevant".to_string(),
+                index_state: IndexState::Pending,
+                attempt_count: 0,
+                embedding_model: None,
+            }])
+        }
+        fn store_embedding(
+            &self,
+            _id: &str,
+            _model: &str,
+            _embedding: &[f32],
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn record_failure(
+            &self,
+            _id: &str,
+            _category: FailureCategory,
+            _give_up: bool,
+        ) -> Result<(), RetrievalError> {
+            Ok(())
+        }
+        fn vector_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            _model: &str,
+        ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn keyword_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            _query: &str,
+            _limit: usize,
+        ) -> Result<Vec<String>, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+    }
+
+    /// 断言一组 `DiagnosticLog` 里没有任何一条的 message 或 context 值携带了哨兵文本。
+    /// Fix 3 要防的正是这种泄漏：`write_failure_log` 的某个调用点若被改成塞入
+    /// `error.to_string()`/`EmbeddingFailure::message` 之类的原始载荷，这个断言就会失败。
+    fn assert_no_log_carries_the_sentinel(logs: &[DiagnosticLog]) {
+        for log in logs {
+            assert!(
+                !log.message.contains("SENSITIVE-SENTINEL"),
+                "a log message leaked the underlying payload: {log:?}"
+            );
+            for value in log.context.values() {
+                assert!(
+                    !value.contains("SENSITIVE-SENTINEL"),
+                    "a log context value leaked the underlying payload: {log:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_reconcile_failure_is_logged_by_category_without_the_underlying_storage_error_text() {
+        // 驱动真实调用点——`run_indexing_cycle` 里的 reconcile 失败分支——而不是直接调纯函数
+        // `error_category`，证明设计文档 §8.2 的"只落盘类别"约束在实际日志管线里成立。
+        let logging = CapturingLogPort::default();
+        let (_wake_tx, wakeups) = sync_channel::<()>(1);
+        let worker = RetrievalIndexingWorker {
+            indexing: IndexingService::new(
+                Arc::new(OnceThenEmptyRepository::default()),
+                Arc::new(FailingSource),
+                Arc::new(FailingEmbedder),
+            ),
+            configuration: Arc::new(FakeConfigurationRepository::Unconfigured),
+            wakeups,
+        };
+
+        run_indexing_cycle(&worker, &logging);
+
+        let logs = logging.logs.lock().expect("lock");
+        let reconcile_log = logs
+            .iter()
+            .find(|log| log.category == RECONCILE_CATEGORY)
+            .expect("a reconcile failure must be logged");
+        assert_eq!(reconcile_log.severity, LogSeverity::Warn);
+        assert_eq!(
+            reconcile_log.context.get("category").map(String::as_str),
+            Some("storage")
+        );
+        assert_no_log_carries_the_sentinel(&logs);
+    }
+
+    #[test]
+    fn a_batch_outcome_failure_is_logged_with_category_and_never_the_underlying_message() {
+        // 驱动 `drain_pending_batches` 里 Fix 2 新加的 category 字段所在的那条 warn：
+        // provider 的失败类别必须出现，但 `EmbeddingFailure::message`（可能夹带响应体片段）
+        // 绝不能。
+        let logging = CapturingLogPort::default();
+        let (_wake_tx, wakeups) = sync_channel::<()>(1);
+        let worker = RetrievalIndexingWorker {
+            indexing: IndexingService::new(
+                Arc::new(OnceThenEmptyRepository::default()),
+                Arc::new(EmptySource),
+                Arc::new(FailingEmbedder),
+            ),
+            configuration: Arc::new(FakeConfigurationRepository::Configured),
+            wakeups,
+        };
+
+        run_indexing_cycle(&worker, &logging);
+
+        let logs = logging.logs.lock().expect("lock");
+        let failure_log = logs
+            .iter()
+            .find(|log| log.message.contains("backing off"))
+            .expect("a batch failure must be logged with a backoff message");
+        assert_eq!(
+            failure_log.context.get("category").map(String::as_str),
+            Some("auth")
+        );
+        assert_no_log_carries_the_sentinel(&logs);
+    }
+
+    #[test]
+    fn a_wake_received_during_backoff_ends_it_immediately_instead_of_waiting_out_the_delay() {
+        // 退避表第一档是 1s（`RETRY_BACKOFF_SECONDS[0]`）。预先把唤醒塞进容量 1 的 channel，
+        // 模拟"用户在退避开始前就已经按下重建"：`drain_pending_batches` 必须立刻消费掉它、
+        // 回到循环顶部重试，而不是把它晾在缓冲区里直到退避走完（Fix 4 的核心断言）。
+        let logging = CapturingLogPort::default();
+        let (wake_tx, wakeups) = sync_channel::<()>(1);
+        wake_tx.try_send(()).expect("capacity-1 buffer has room");
+        let worker = RetrievalIndexingWorker {
+            indexing: IndexingService::new(
+                Arc::new(OnceThenEmptyRepository::default()),
+                Arc::new(EmptySource),
+                Arc::new(FailingEmbedder),
+            ),
+            configuration: Arc::new(FakeConfigurationRepository::Configured),
+            wakeups,
+        };
+
+        let started = Instant::now();
+        drain_pending_batches(&worker, MODEL, &logging);
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "a buffered wake should end the backoff immediately, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn a_disconnected_wake_channel_still_waits_out_the_full_backoff() {
+        // 发送端没了时 `recv_timeout` 会立刻返回 `Disconnected` 而不是等到超时——如果不特殊
+        // 处理，退避形同虚设，会在同一批失败文档上原地打转，把 provider 的速率限制撞穿
+        // （见 `drain_pending_batches` 顶部注释）。门面被丢弃后 worker 只剩这条退避路径，必须
+        // 仍然真的睡够一档，行为与 `start_retrieval_indexing_worker` 对同一种情况的处理一致。
+        let logging = CapturingLogPort::default();
+        let (wake_tx, wakeups) = sync_channel::<()>(1);
+        drop(wake_tx);
+        let worker = RetrievalIndexingWorker {
+            indexing: IndexingService::new(
+                Arc::new(OnceThenEmptyRepository::default()),
+                Arc::new(EmptySource),
+                Arc::new(FailingEmbedder),
+            ),
+            configuration: Arc::new(FakeConfigurationRepository::Configured),
+            wakeups,
+        };
+
+        let started = Instant::now();
+        drain_pending_batches(&worker, MODEL, &logging);
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_secs(1),
+            "a disconnected wake channel must still wait out the backoff, took {elapsed:?}"
+        );
     }
 }

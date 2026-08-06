@@ -147,6 +147,7 @@ impl IndexingService {
                 Ok(BatchOutcome {
                     succeeded: 0,
                     failed: batch.len(),
+                    last_failure_category: Some(FailureCategory::InvalidRequest),
                 })
             }
             Ok(vectors) => {
@@ -157,6 +158,7 @@ impl IndexingService {
                 Ok(BatchOutcome {
                     succeeded: batch.len(),
                     failed: 0,
+                    last_failure_category: None,
                 })
             }
             Err(failure) => {
@@ -169,6 +171,7 @@ impl IndexingService {
                 Ok(BatchOutcome {
                     succeeded: 0,
                     failed: batch.len(),
+                    last_failure_category: Some(failure.category),
                 })
             }
         }
@@ -191,6 +194,9 @@ pub(crate) struct ReconcileOutcome {
 pub(crate) struct BatchOutcome {
     pub(crate) succeeded: usize,
     pub(crate) failed: usize,
+    /// 只给类别，不带原始错误文本——设计文档 §8.2 只允许索引失败日志落盘错误类别，不允许
+    /// provider 响应体或凭据经这条路径渗出。`None` 表示本批没有失败（全部成功，或本来就是空批）。
+    pub(crate) last_failure_category: Option<FailureCategory>,
 }
 
 #[cfg(test)]
@@ -525,7 +531,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 3,
-                failed: 0
+                failed: 0,
+                ..BatchOutcome::default()
             }
         );
         assert_eq!(
@@ -555,7 +562,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 0,
-                failed: 1
+                failed: 1,
+                last_failure_category: Some(FailureCategory::Auth)
             }
         );
         assert_eq!(
@@ -581,7 +589,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 0,
-                failed: 1
+                failed: 1,
+                last_failure_category: Some(FailureCategory::InvalidRequest)
             }
         );
         assert_eq!(
@@ -606,7 +615,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 0,
-                failed: 1
+                failed: 1,
+                last_failure_category: Some(FailureCategory::Network)
             }
         );
         assert_eq!(
@@ -635,7 +645,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 0,
-                failed: 1
+                failed: 1,
+                last_failure_category: Some(FailureCategory::Network)
             }
         );
         assert_eq!(
@@ -706,7 +717,8 @@ mod tests {
             outcome,
             BatchOutcome {
                 succeeded: 0,
-                failed: 3
+                failed: 3,
+                last_failure_category: Some(FailureCategory::InvalidRequest)
             }
         );
         assert!(repository.stored.lock().expect("lock").is_empty());
