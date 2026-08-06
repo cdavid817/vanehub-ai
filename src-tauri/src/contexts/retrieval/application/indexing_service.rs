@@ -32,9 +32,15 @@ pub(crate) const RETRY_BACKOFF_SECONDS: [u64; 5] = [1, 4, 15, 60, 300];
 /// 超长内容 embedding 前截断；FTS 仍索引全文，所以长记忆的尾部仍可被关键词命中。
 pub(crate) const EMBEDDING_CONTENT_LIMIT: usize = 8000;
 
-/// retrieval 从源上下文取快照的消费侧契约。第 1 期唯一实现是 bootstrap 里的记忆表适配器。
+/// retrieval 从源上下文取记录的消费侧契约。第 1 期唯一实现是 bootstrap 里的记忆表适配器。
 pub(crate) trait IndexSourcePort: Send + Sync {
+    /// 全量快照。`reconcile` 需要全局视图才能判定孤儿行，所以这一个方法必须是全量的。
     fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
+    /// 按 id 取记录，命中不到的 id 直接缺席（源已删）。
+    ///
+    /// 检索路只需要按融合排名解析出的至多 `limit` 条记录，走 `snapshot()` 会在生成的工具调用
+    /// 里同步加载并克隆全部 Agent 的全部记忆，而源表是只增不减的。
+    fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +217,9 @@ mod tests {
     impl IndexSourcePort for FakeSource {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Ok(self.records.clone())
+        }
+        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            unimplemented!("only the search path fetches by id")
         }
     }
 

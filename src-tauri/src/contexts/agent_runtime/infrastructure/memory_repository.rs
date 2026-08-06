@@ -44,6 +44,45 @@ impl SqliteAgentMemoryRepository {
             .map_err(repository_error)?;
         rows.into_iter().map(MemoryRow::into_memory).collect()
     }
+
+    /// The memories behind an explicit id list, in no particular order. Same caller as `list_all`
+    /// and deliberately also off `AgentMemoryPort` for the same reason: it crosses Agent
+    /// boundaries, which no use case inside this context ever wants.
+    ///
+    /// Exists so the retrieval *search* path does not have to reuse `list_all`: a recall resolves
+    /// at most `limit` (<= 20) ids, while `list_all` loads and clones every memory of every Agent
+    /// synchronously inside the generation's tool call, and `agent_memories` is INSERT-only with
+    /// no cap.
+    pub(crate) fn list_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let connection = self.database.connection().map_err(app_error)?;
+        // Only the *placeholders* are built from the id count; every id itself is bound, so no
+        // caller-supplied text ever reaches the SQL text. `ids` comes from the retrieval index and
+        // is bounded by the recall limit, so the SQLite variable ceiling is not in reach.
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut statement = connection
+            .prepare(&format!(
+                r#"
+                SELECT id, agent_id, folder, content, source, created_at
+                FROM agent_memories
+                WHERE id IN ({placeholders})
+                "#
+            ))
+            .map_err(repository_error)?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(ids.iter()), MemoryRow::read)
+            .map_err(repository_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(repository_error)?;
+        rows.into_iter().map(MemoryRow::into_memory).collect()
+    }
 }
 
 impl AgentMemoryPort for SqliteAgentMemoryRepository {
@@ -358,6 +397,62 @@ mod tests {
         contents.sort_unstable();
         assert_eq!(contents, vec!["A fact.", "B fact."]);
         assert!(memories.iter().any(|memory| memory.agent_id == "agent-b"));
+    }
+
+    #[test]
+    fn list_by_ids_returns_only_the_requested_memories_and_tolerates_missing_ids() {
+        // The retrieval search path resolves at most `limit` (<= 20) ids per recall. Falling back
+        // to `list_all` there loads and clones every memory of every Agent synchronously inside
+        // the generation's tool call, on an INSERT-only table with no cap.
+        let fixture = Fixture::new("agent memory list by ids", &["agent-a", "agent-b"]);
+        for (agent, content) in [
+            ("agent-a", "A fact."),
+            ("agent-a", "Another fact."),
+            ("agent-b", "B fact."),
+        ] {
+            fixture
+                .repository
+                .save(agent, None, content, MemorySource::Explicit)
+                .expect("save");
+        }
+        let all = fixture.repository.list_all().expect("list all");
+        let wanted = all
+            .iter()
+            .filter(|memory| memory.content != "Another fact.")
+            .map(|memory| memory.id.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(wanted.len(), 2, "the fixture must span both agents");
+
+        let mut ids = wanted.clone();
+        // An id whose source row is gone must simply be absent, not an error: the retrieval index
+        // can outlive a deleted memory, and skipping it is what keeps deleted memories from ever
+        // being surfaced again.
+        ids.push("this-memory-was-deleted".to_string());
+        let memories = fixture.repository.list_by_ids(&ids).expect("list by ids");
+
+        let mut contents = memories
+            .iter()
+            .map(|memory| memory.content.as_str())
+            .collect::<Vec<_>>();
+        contents.sort_unstable();
+        assert_eq!(contents, vec!["A fact.", "B fact."]);
+    }
+
+    #[test]
+    fn list_by_ids_short_circuits_on_an_empty_id_list() {
+        // An empty `IN ()` is a SQL syntax error, and a recall that fused nothing is an ordinary
+        // "no hits" result rather than a failure — it must not become one here.
+        let fixture = Fixture::new("agent memory list by no ids", &["agent-a"]);
+        fixture
+            .repository
+            .save("agent-a", None, "A fact.", MemorySource::Explicit)
+            .expect("save");
+
+        assert!(fixture
+            .repository
+            .list_by_ids(&[])
+            .expect("an empty id list is not an error")
+            .is_empty());
     }
 
     #[test]

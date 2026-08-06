@@ -79,9 +79,18 @@ impl SearchService {
 
         // 回查源表拿权威内容：索引行可能陈旧，源已删则跳过——这保证已删记忆永不外泄，
         // 也是显式撤销失败时的第一道兜底（§5.3）。
+        //
+        // 只回查融合后的候选 id，不取全量快照：本方法跑在生成的工具调用里，而源表只增不减。
+        // 取的是**全部**候选而不是前 `limit` 条——下面的 `take(limit)` 在跳过"源已删"的条目
+        // *之后*才截断，只回查前 `limit` 条会让一条已删记忆白占一个名额。候选数本身有界
+        // （两路各至多 `over_fetch` 条 = 4 × limit）。
+        let wanted: Vec<String> = fused
+            .iter()
+            .map(|(source_id, _score)| source_id.clone())
+            .collect();
         let sources: HashMap<String, IndexSourceRecord> = self
             .source
-            .snapshot()?
+            .fetch(&wanted)?
             .into_iter()
             .map(|record| (record.source_id.clone(), record))
             .collect();
@@ -298,13 +307,25 @@ mod tests {
         }
     }
 
+    /// `snapshot()` 故意 `unimplemented!()`：检索路一旦退回全量快照，就会在生成的工具调用里
+    /// 同步加载并克隆全部 Agent 的全部记忆（源表只增不减）。让它直接炸掉，而不是安静地退化。
     struct FakeSource {
         records: Vec<IndexSourceRecord>,
+        fetched: Mutex<Vec<Vec<String>>>,
     }
 
     impl IndexSourcePort for FakeSource {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
-            Ok(self.records.clone())
+            unimplemented!("the search path must resolve records by id, never snapshot the source")
+        }
+        fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            self.fetched.lock().expect("lock").push(source_ids.to_vec());
+            Ok(self
+                .records
+                .iter()
+                .filter(|record| source_ids.contains(&record.source_id))
+                .cloned()
+                .collect())
         }
     }
 
@@ -345,30 +366,35 @@ mod tests {
         RetrievalError::Storage("boom".to_string())
     }
 
-    /// 装配一个完全受控的服务：四个依赖都由调用方摆放。返回仓储句柄以便断言它收到的调用参数。
+    /// 装配一个完全受控的服务：四个依赖都由调用方摆放。返回仓储与源的句柄以便断言它们收到的
+    /// 调用参数。
     fn service(
         configuration: FakeConfigurationRepository,
         embedder: FakeEmbedder,
         vector_candidates: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
         keyword_candidates: Result<Vec<String>, RetrievalError>,
         records: Vec<IndexSourceRecord>,
-    ) -> (SearchService, Arc<FakeRepository>) {
+    ) -> (SearchService, Arc<FakeRepository>, Arc<FakeSource>) {
         let repository = Arc::new(FakeRepository::new(vector_candidates, keyword_candidates));
+        let source = Arc::new(FakeSource {
+            records,
+            fetched: Mutex::new(Vec::new()),
+        });
         let search_service = SearchService::new(
             Arc::new(configuration),
             repository.clone(),
-            Arc::new(FakeSource { records }),
+            source.clone(),
             Arc::new(embedder),
         );
-        (search_service, repository)
+        (search_service, repository, source)
     }
 
-    /// 两路都健康（已配置 + embedding 成功）的常见装配，测试只需要摆放候选与源快照。
+    /// 两路都健康（已配置 + embedding 成功）的常见装配，测试只需要摆放候选与源记录。
     fn healthy_service(
         vector_candidates: Result<Vec<(String, Vec<f32>)>, RetrievalError>,
         keyword_candidates: Result<Vec<String>, RetrievalError>,
         records: Vec<IndexSourceRecord>,
-    ) -> (SearchService, Arc<FakeRepository>) {
+    ) -> (SearchService, Arc<FakeRepository>, Arc<FakeSource>) {
         service(
             FakeConfigurationRepository::configured(PROFILE, MODEL),
             FakeEmbedder::Succeeds(matching_vector()),
@@ -380,7 +406,7 @@ mod tests {
 
     #[test]
     fn both_paths_healthy_yields_no_degradation_and_marks_overlap_as_both() {
-        let (service, _repository) = healthy_service(
+        let (service, _repository, _source) = healthy_service(
             Ok(vec![("m1".to_string(), matching_vector())]),
             Ok(vec!["m1".to_string()]),
             vec![record("m1", "uses npm not pnpm")],
@@ -397,7 +423,7 @@ mod tests {
 
     #[test]
     fn a_hit_found_only_by_the_vector_path_is_marked_vector() {
-        let (service, _repository) = healthy_service(
+        let (service, _repository, _source) = healthy_service(
             Ok(vec![("m1".to_string(), matching_vector())]),
             Ok(Vec::new()),
             vec![record("m1", "uses npm")],
@@ -413,7 +439,7 @@ mod tests {
 
     #[test]
     fn a_hit_found_only_by_the_keyword_path_is_marked_keyword() {
-        let (service, _repository) = healthy_service(
+        let (service, _repository, _source) = healthy_service(
             Ok(Vec::new()),
             Ok(vec!["m1".to_string()]),
             vec![record("m1", "uses npm")],
@@ -429,7 +455,7 @@ mod tests {
     #[test]
     fn query_embedding_failure_degrades_to_keyword_only_instead_of_erroring() {
         // fake embedding 返回 Err → outcome.degraded == Some(Degradation::KeywordOnly)，且 hits 非空
-        let (service, _repository) = service(
+        let (service, _repository, _source) = service(
             FakeConfigurationRepository::configured(PROFILE, MODEL),
             FakeEmbedder::Fails,
             Ok(Vec::new()),
@@ -446,7 +472,7 @@ mod tests {
     #[test]
     fn keyword_path_failure_degrades_to_vector_only_instead_of_erroring() {
         // fake 仓储的 keyword_candidates 返回 Err → degraded == Some(Degradation::VectorOnly)
-        let (service, _repository) = healthy_service(
+        let (service, _repository, _source) = healthy_service(
             Ok(vec![("m1".to_string(), matching_vector())]),
             Err(storage_failure()),
             vec![record("m1", "uses npm")],
@@ -461,7 +487,8 @@ mod tests {
     #[test]
     fn both_paths_available_but_empty_is_success_not_an_error() {
         // 两路都可用、都没命中 → Ok，hits 为空，degraded 为 None
-        let (service, _repository) = healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
+        let (service, _repository, _source) =
+            healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
 
         let outcome = service.search(&sample_query("npm", 5)).expect("search");
 
@@ -474,7 +501,7 @@ mod tests {
         // fake embedding 返回 Err 且 fake 仓储的 keyword_candidates 也返回 Err
         // → Err(RetrievalError::Unavailable)，**不是** Ok(空列表)。
         // 这一条与上一条成对存在：区分"搜不了"和"没有"正是它们的全部意义。
-        let (service, _repository) = service(
+        let (service, _repository, _source) = service(
             FakeConfigurationRepository::configured(PROFILE, MODEL),
             FakeEmbedder::Fails,
             Ok(Vec::new()),
@@ -494,7 +521,8 @@ mod tests {
         let ids = ["m1", "m2", "m3", "m4", "m5"];
         let records = ids.iter().map(|&id| record(id, "content")).collect();
         let keyword_hits = ids.iter().map(|&id| id.to_string()).collect();
-        let (service, _repository) = healthy_service(Ok(Vec::new()), Ok(keyword_hits), records);
+        let (service, _repository, _source) =
+            healthy_service(Ok(Vec::new()), Ok(keyword_hits), records);
 
         let outcome = service.search(&sample_query("npm", 2)).expect("search");
 
@@ -512,7 +540,7 @@ mod tests {
     #[test]
     fn a_hit_whose_source_row_is_gone_is_skipped_rather_than_returned_stale() {
         // 候选里有 m1、m2，但源快照只有 m1 → 结果只含 m1
-        let (service, _repository) = healthy_service(
+        let (service, _repository, _source) = healthy_service(
             Ok(Vec::new()),
             Ok(vec!["m1".to_string(), "m2".to_string()]),
             vec![record("m1", "still here")],
@@ -525,10 +553,35 @@ mod tests {
     }
 
     #[test]
+    fn the_source_is_resolved_by_candidate_id_rather_than_by_a_whole_table_snapshot() {
+        // 回归对象：检索路复用 `snapshot()`。那会在生成的工具调用里同步加载并克隆**全部**
+        // Agent 的**全部**记忆（`agent_memories` 只增不减），只为解析至多 limit 条 id。
+        // `FakeSource::snapshot` 是 `unimplemented!()`，所以退回全量快照会直接 panic；这里
+        // 进一步钉死"只问了候选 id"这件事。
+        let (service, _repository, source) = healthy_service(
+            Ok(vec![("m1".to_string(), matching_vector())]),
+            Ok(vec!["m2".to_string()]),
+            vec![record("m1", "uses npm"), record("m2", "uses cargo")],
+        );
+
+        service.search(&sample_query("npm", 5)).expect("search");
+
+        let fetched = source.fetched.lock().expect("lock");
+        assert_eq!(
+            fetched.len(),
+            1,
+            "the source must be consulted exactly once"
+        );
+        let mut asked = fetched[0].clone();
+        asked.sort();
+        assert_eq!(asked, vec!["m1".to_string(), "m2".to_string()]);
+    }
+
+    #[test]
     fn an_unconfigured_service_reports_not_configured() {
         let query = sample_query("npm", 5);
 
-        let (absent, _repository) = service(
+        let (absent, _repository, _source) = service(
             FakeConfigurationRepository::unconfigured(),
             FakeEmbedder::Succeeds(matching_vector()),
             Ok(Vec::new()),
@@ -542,7 +595,7 @@ mod tests {
 
         // resolved_model 要求两半都非空；空串 profile id 不该被当作"已配置"——这个分支此前
         // 没有测试覆盖到，顺手在这里一并补上。
-        let (empty_profile, _repository) = service(
+        let (empty_profile, _repository, _source) = service(
             FakeConfigurationRepository::configured("", MODEL),
             FakeEmbedder::Succeeds(matching_vector()),
             Ok(Vec::new()),
@@ -558,7 +611,8 @@ mod tests {
     #[test]
     fn the_query_is_escaped_before_reaching_fts() {
         // query 文本 `a OR b` → fake 仓储收到的 query 参数是 "\"a OR b\""
-        let (service, repository) = healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
+        let (service, repository, _source) =
+            healthy_service(Ok(Vec::new()), Ok(Vec::new()), Vec::new());
 
         service.search(&sample_query("a OR b", 5)).expect("search");
 

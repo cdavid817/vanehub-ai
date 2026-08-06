@@ -318,18 +318,29 @@ impl IndexSourcePort for AgentMemoryIndexSource {
             .memories
             .list_all()
             .map_err(|error| RetrievalError::Storage(error.to_string()))?;
-        Ok(memories
-            .into_iter()
-            .map(|memory| IndexSourceRecord {
-                source_id: memory.id,
-                agent_id: memory.agent_id,
-                // 无工作区文件夹用空串哨兵，与 `agent_memories.folder` 的列约定一致；检索侧的
-                // scope 也这样映射，两侧不一致就永远搜不到。
-                folder: memory.folder.unwrap_or_default(),
-                content: memory.content,
-                created_at: memory.created_at,
-            })
-            .collect())
+        Ok(memories.into_iter().map(index_source_record).collect())
+    }
+
+    fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+        let memories = self
+            .memories
+            .list_by_ids(source_ids)
+            .map_err(|error| RetrievalError::Storage(error.to_string()))?;
+        Ok(memories.into_iter().map(index_source_record).collect())
+    }
+}
+
+fn index_source_record(
+    memory: crate::contexts::agent_runtime::application::AgentMemory,
+) -> IndexSourceRecord {
+    IndexSourceRecord {
+        source_id: memory.id,
+        agent_id: memory.agent_id,
+        // 无工作区文件夹用空串哨兵，与 `agent_memories.folder` 的列约定一致；检索侧的 scope
+        // 也这样映射，两侧不一致就永远搜不到。
+        folder: memory.folder.unwrap_or_default(),
+        content: memory.content,
+        created_at: memory.created_at,
     }
 }
 
@@ -593,6 +604,9 @@ mod tests {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Err(RetrievalError::Storage("SENSITIVE-SENTINEL".to_string()))
         }
+        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            unimplemented!("these tests drive the indexing worker, not the search path")
+        }
     }
 
     struct EmptySource;
@@ -600,6 +614,9 @@ mod tests {
     impl IndexSourcePort for EmptySource {
         fn snapshot(&self) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
             Ok(Vec::new())
+        }
+        fn fetch(&self, _source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError> {
+            unimplemented!("these tests drive the indexing worker, not the search path")
         }
     }
 
