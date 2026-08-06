@@ -146,6 +146,14 @@ fn run_indexing_cycle(worker: &RetrievalIndexingWorker, logging: &dyn Diagnostic
 }
 
 /// 串行处理，不并发冲击速率限制（设计文档 §5.2）。
+///
+/// 连续失败 `RETRY_BACKOFF_SECONDS.len()` 批就返回，把控制权交回外层轮询循环，而不是一直
+/// 排到队列见底。持续可重试的失败（429/5xx/超时）下每条文档要失败 `MAX_EMBEDDING_ATTEMPTS`
+/// 次才会出队，退避又会顶到 300s，几百条 pending 就能让本函数占住整个 worker 线程几小时——
+/// 而 `reconcile` 与本函数共用这一个线程。那不只是"索引慢"：`retrieval_documents` 的行只由
+/// `reconcile` 建立，FTS5 影子表又建在这张表上，所以停摆期间新存的记忆连**关键词**路都搜不到，
+/// `recall` 会返回空且不带 `degraded`，等于告诉模型"没有这条记忆"——正是 §8.1 与
+/// `Unavailable` 变体要避免的那件事。
 fn drain_pending_batches(
     worker: &RetrievalIndexingWorker,
     model: &str,
@@ -194,6 +202,12 @@ fn drain_pending_batches(
                 ),
             ],
         );
+        // 退避表用尽即返回：外层轮询循环会重新进入，而它的第一件事是 `reconcile()`——被本轮
+        // 失败挤掉的新记忆因此最多晚一个轮询周期就能拿到索引行（进而被 FTS 命中），不必等到
+        // 整个 pending 队列排空。
+        if consecutive_failures + 1 >= RETRY_BACKOFF_SECONDS.len() {
+            return;
+        }
         // 退避期间也监听唤醒信号：`rebuild()`/`save_configuration()` 全靠 `notify()` 才能不等一整个
         // 轮询周期就生效，但如果这里只会 `thread::sleep`，用户在退避中途修好配置、按下"重建"，
         // 最多要等 300s 才会看到反应。收到唤醒就立刻结束退避、回到循环顶部重试；发送端没了则
@@ -697,6 +711,148 @@ mod tests {
         fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by these tests")
         }
+    }
+
+    /// 持续可重试地失败：`RateLimit` 是 `is_retryable()` 的，配合 `attempt_count: 0` 的文档，
+    /// `process_pending_batch` 每次都把行留在 `pending`——这正是 429/5xx 持续发生时的现实。
+    struct RetryableFailingEmbedder;
+
+    impl EmbeddingPort for RetryableFailingEmbedder {
+        fn embed(
+            &self,
+            _model: &str,
+            _inputs: &[String],
+        ) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
+            Err(EmbeddingFailure {
+                category: FailureCategory::RateLimit,
+                message: "SENSITIVE-SENTINEL".to_string(),
+            })
+        }
+    }
+
+    /// `claim_pending_batch` 永远吐得出下一条待处理文档——模拟持续失败下排不空的 pending
+    /// 队列。计数用来断言 drain 的批次上限。
+    #[derive(Default)]
+    struct AlwaysPendingRepository {
+        claims: Mutex<usize>,
+    }
+
+    impl RetrievalDocumentRepository for AlwaysPendingRepository {
+        fn upsert_pending(&self, _document: &RetrievalDocument) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn list_indexed_source_ids(
+            &self,
+            _source_kind: SourceKind,
+        ) -> Result<Vec<(String, String)>, RetrievalError> {
+            Ok(Vec::new())
+        }
+        fn delete_by_source(
+            &self,
+            _source_kind: SourceKind,
+            _source_id: &str,
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn claim_pending_batch(
+            &self,
+            _source_kind: SourceKind,
+            _limit: usize,
+        ) -> Result<Vec<RetrievalDocument>, RetrievalError> {
+            *self.claims.lock().expect("lock") += 1;
+            Ok(vec![RetrievalDocument {
+                id: "agent_memory:m1".to_string(),
+                source_kind: SourceKind::AgentMemory,
+                source_id: "m1".to_string(),
+                scope_agent_id: "agent-a".to_string(),
+                scope_folder: String::new(),
+                content: "uses npm".to_string(),
+                content_hash: "irrelevant".to_string(),
+                index_state: IndexState::Pending,
+                attempt_count: 0,
+                embedding_model: None,
+            }])
+        }
+        fn store_embedding(
+            &self,
+            _id: &str,
+            _model: &str,
+            _embedding: &[f32],
+        ) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn record_failure(
+            &self,
+            _id: &str,
+            _category: FailureCategory,
+            _give_up: bool,
+        ) -> Result<(), RetrievalError> {
+            Ok(())
+        }
+        fn vector_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            _model: &str,
+        ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn keyword_candidates(
+            &self,
+            _scope: &RetrievalScope,
+            _source_kind: SourceKind,
+            _query: &str,
+            _limit: usize,
+        ) -> Result<Vec<String>, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn index_status(&self, _agent_id: &str) -> Result<RetrievalIndexStatus, RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn requeue_all(&self, _agent_id: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+        fn requeue_stale_model(&self, _new_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+    }
+
+    #[test]
+    fn the_drain_returns_after_the_backoff_table_instead_of_starving_reconcile() {
+        // 回归对象：无上限的 drain。`reconcile` 与 drain 共用同一个 worker 线程，pending 队列
+        // 在持续可重试失败下排不空时，无上限的 drain 会把线程占住数小时；期间新存的记忆连
+        // `retrieval_documents` 的行都建不起来，FTS 也就搜不到它们。
+        //
+        // 用一个持续发唤醒的线程把每次退避立刻打断，好让"批次数有上限"这件事能在秒级内被断言
+        // ——被测的是循环的终止条件，退避时长本身由另外两条测试盯着。
+        let repository = Arc::new(AlwaysPendingRepository::default());
+        let (wake_tx, wakeups) = sync_channel::<()>(1);
+        let worker = RetrievalIndexingWorker {
+            indexing: IndexingService::new(
+                repository.clone(),
+                Arc::new(EmptySource),
+                Arc::new(RetryableFailingEmbedder),
+            ),
+            configuration: Arc::new(FakeConfigurationRepository::Configured),
+            wakeups,
+        };
+        // 接收端随 worker 一起在下面的线程里被丢弃，`send` 届时返回 Err，本线程自然退出。
+        thread::spawn(move || while wake_tx.send(()).is_ok() {});
+
+        let (done_tx, done_rx) = sync_channel::<()>(1);
+        thread::spawn(move || {
+            drain_pending_batches(&worker, MODEL, &CapturingLogPort::default());
+            let _ = done_tx.send(());
+        });
+
+        done_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("drain_pending_batches must return while batches still fail, not loop forever");
+        assert_eq!(
+            *repository.claims.lock().expect("lock"),
+            RETRY_BACKOFF_SECONDS.len(),
+            "the drain must hand control back after the backoff table is exhausted"
+        );
     }
 
     /// 断言一组 `DiagnosticLog` 里没有任何一条的 message 或 context 值携带了哨兵文本。
