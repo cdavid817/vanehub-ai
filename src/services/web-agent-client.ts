@@ -1663,6 +1663,11 @@ export function resetWebLoopsForTest() {
   nextCoordinationRunId = 1;
 }
 
+export function resetWebRetrievalForTest() {
+  webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+  webRetrievalIndexStatusByAgent.clear();
+}
+
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
   const run = findLoopRun(runId);
   if (!["queued", "running", "awaiting-acceptance"].includes(run.status)) {

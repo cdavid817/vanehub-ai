@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   resetWebLoopsForTest,
+  resetWebRetrievalForTest,
   seedWebImSessionForTest,
   simulateWebLoopRestartForTest,
   webAgentClient,
@@ -15,6 +16,7 @@ import { i18n } from "../i18n";
 
 afterEach(() => {
   resetWebLoopsForTest();
+  resetWebRetrievalForTest();
   vi.useRealTimers();
 });
 
@@ -1633,10 +1635,6 @@ describe("webAgentClient", () => {
     unsubscribe();
   });
 
-  // `add-retrieval-vector-search` Task 15: this codebase's Web/mock client is a singleton
-  // (`webAgentClient`) backed by module-level mutable state, not a per-test factory — these run
-  // in file order against shared state, so the "default" assertion below must stay the first
-  // test to touch retrieval configuration.
   it("returns an unconfigured retrieval configuration by default", async () => {
     await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
       sourceProfileId: null,
