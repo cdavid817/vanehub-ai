@@ -183,6 +183,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
         shared_registry: shared_agent_registry,
+        desktop_settings: desktop_settings_api.clone(),
     });
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     agent_runtime_api

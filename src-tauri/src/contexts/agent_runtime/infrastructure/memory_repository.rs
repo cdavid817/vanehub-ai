@@ -50,50 +50,19 @@ impl AgentMemoryPort for SqliteAgentMemoryRepository {
         Ok(())
     }
 
-    fn list(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
+    fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
         let connection = self.database.connection().map_err(app_error)?;
         let mut statement = connection
             .prepare(
                 r#"
                 SELECT id, agent_id, folder, content, source, created_at
                 FROM agent_memories
-                WHERE agent_id = ?1 AND folder = ?2
                 ORDER BY created_at DESC
                 "#,
             )
             .map_err(repository_error)?;
         let rows = statement
-            .query_map(
-                params![agent_id, folder.unwrap_or_default()],
-                MemoryRow::read,
-            )
-            .map_err(repository_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(repository_error)?;
-        rows.into_iter().map(MemoryRow::into_memory).collect()
-    }
-
-    fn list_all_for_agent(
-        &self,
-        agent_id: &str,
-    ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        let connection = self.database.connection().map_err(app_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT id, agent_id, folder, content, source, created_at
-                FROM agent_memories
-                WHERE agent_id = ?1
-                ORDER BY created_at DESC
-                "#,
-            )
-            .map_err(repository_error)?;
-        let rows = statement
-            .query_map(params![agent_id], MemoryRow::read)
+            .query_map([], MemoryRow::read)
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
@@ -107,6 +76,14 @@ impl AgentMemoryPort for SqliteAgentMemoryRepository {
                 "DELETE FROM agent_memories WHERE id = ?1",
                 params![memory_id],
             )
+            .map_err(repository_error)?;
+        Ok(())
+    }
+
+    fn delete_all(&self) -> Result<(), AgentRuntimeApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        connection
+            .execute("DELETE FROM agent_memories", [])
             .map_err(repository_error)?;
         Ok(())
     }
@@ -200,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn save_and_list_round_trip_within_a_scope() {
+    fn save_records_provenance_and_list_all_returns_it() {
         let fixture = Fixture::new("agent memory save and list", &["my-agent"]);
         fixture
             .repository
@@ -212,10 +189,7 @@ mod tests {
             )
             .expect("save");
 
-        let memories = fixture
-            .repository
-            .list("my-agent", Some("D:/project"))
-            .expect("list");
+        let memories = fixture.repository.list_all().expect("list");
 
         assert_eq!(memories.len(), 1);
         assert_eq!(memories[0].agent_id, "my-agent");
@@ -224,64 +198,12 @@ mod tests {
         assert_eq!(memories[0].source, MemorySource::Explicit);
     }
 
+    /// `add-cli-memory-support`: memories are a shared host-level pool — unlike the previous
+    /// per-agent-scoped behavior, `list_all` SHALL return memories from every agent and every
+    /// folder together, not just the one that produced them.
     #[test]
-    fn list_excludes_other_agents_and_other_folders() {
-        let fixture = Fixture::new("agent memory scope isolation", &["my-agent", "other-agent"]);
-        fixture
-            .repository
-            .save(
-                "my-agent",
-                Some("D:/project-a"),
-                "A fact.",
-                MemorySource::Explicit,
-            )
-            .expect("save a");
-        fixture
-            .repository
-            .save(
-                "my-agent",
-                Some("D:/project-b"),
-                "B fact.",
-                MemorySource::Explicit,
-            )
-            .expect("save b");
-        fixture
-            .repository
-            .save(
-                "other-agent",
-                Some("D:/project-a"),
-                "Not mine.",
-                MemorySource::Explicit,
-            )
-            .expect("save other agent");
-
-        let memories = fixture
-            .repository
-            .list("my-agent", Some("D:/project-a"))
-            .expect("list");
-
-        assert_eq!(memories.len(), 1);
-        assert_eq!(memories[0].content, "A fact.");
-    }
-
-    #[test]
-    fn folder_less_sessions_use_the_agent_global_bucket() {
-        let fixture = Fixture::new("agent memory global bucket", &["my-agent"]);
-        fixture
-            .repository
-            .save("my-agent", None, "Global fact.", MemorySource::Automatic)
-            .expect("save");
-
-        let memories = fixture.repository.list("my-agent", None).expect("list");
-
-        assert_eq!(memories.len(), 1);
-        assert_eq!(memories[0].folder, None);
-        assert_eq!(memories[0].source, MemorySource::Automatic);
-    }
-
-    #[test]
-    fn list_all_for_agent_spans_every_folder() {
-        let fixture = Fixture::new("agent memory list all", &["my-agent"]);
+    fn list_all_spans_every_agent_and_every_folder() {
+        let fixture = Fixture::new("agent memory shared pool", &["my-agent", "other-agent"]);
         fixture
             .repository
             .save(
@@ -295,13 +217,38 @@ mod tests {
             .repository
             .save("my-agent", None, "Global fact.", MemorySource::Automatic)
             .expect("save global");
-
-        let memories = fixture
+        fixture
             .repository
-            .list_all_for_agent("my-agent")
-            .expect("list all");
+            .save(
+                "other-agent",
+                Some("D:/project-b"),
+                "Other agent's fact.",
+                MemorySource::Automatic,
+            )
+            .expect("save other agent");
 
-        assert_eq!(memories.len(), 2);
+        let memories = fixture.repository.list_all().expect("list all");
+
+        assert_eq!(memories.len(), 3);
+        assert!(memories
+            .iter()
+            .any(|memory| memory.agent_id == "other-agent"
+                && memory.content == "Other agent's fact."));
+    }
+
+    #[test]
+    fn folder_is_recorded_as_provenance_without_restricting_list_all() {
+        let fixture = Fixture::new("agent memory global bucket", &["my-agent"]);
+        fixture
+            .repository
+            .save("my-agent", None, "Global fact.", MemorySource::Automatic)
+            .expect("save");
+
+        let memories = fixture.repository.list_all().expect("list");
+
+        assert_eq!(memories.len(), 1);
+        assert_eq!(memories[0].folder, None);
+        assert_eq!(memories[0].source, MemorySource::Automatic);
     }
 
     #[test]
@@ -315,10 +262,7 @@ mod tests {
             .repository
             .save("my-agent", None, "Delete me.", MemorySource::Explicit)
             .expect("save delete");
-        let before = fixture
-            .repository
-            .list("my-agent", None)
-            .expect("list before");
+        let before = fixture.repository.list_all().expect("list before");
         let target = before
             .iter()
             .find(|memory| memory.content == "Delete me.")
@@ -326,11 +270,33 @@ mod tests {
 
         fixture.repository.delete(&target.id).expect("delete");
 
-        let after = fixture
-            .repository
-            .list("my-agent", None)
-            .expect("list after");
+        let after = fixture.repository.list_all().expect("list after");
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].content, "Keep me.");
+    }
+
+    /// `add-cli-memory-support`: reset is no longer scoped to one agent — it clears the entire
+    /// shared pool, since there is no longer a per-agent boundary to reset within.
+    #[test]
+    fn delete_all_removes_every_memory_across_every_agent() {
+        let fixture = Fixture::new("agent memory reset", &["my-agent", "other-agent"]);
+        fixture
+            .repository
+            .save(
+                "my-agent",
+                Some("D:/project-a"),
+                "A fact.",
+                MemorySource::Explicit,
+            )
+            .expect("save a");
+        fixture
+            .repository
+            .save("other-agent", None, "Not mine.", MemorySource::Explicit)
+            .expect("save other agent");
+
+        fixture.repository.delete_all().expect("reset");
+
+        let after = fixture.repository.list_all().expect("list all after reset");
+        assert!(after.is_empty());
     }
 }

@@ -23,7 +23,7 @@ fn empty_fixture_migrates_to_latest_schema() {
 
     migrate(&conn).expect("migrate empty fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "onepiece_provider_profiles", "active")
             .expect("OnePiece provider profile table")
@@ -83,7 +83,7 @@ fn legacy_v1_fixture_upgrades_without_losing_records() {
 
     migrate(&conn).expect("migrate legacy fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("managed SDK column")
     );
@@ -123,7 +123,7 @@ fn current_v20_fixture_is_idempotent_and_readable() {
 
     migrate(&conn).expect("repeat current migration");
 
-    assert_eq!(applied_versions(&conn), (1..=41).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), (1..=42).collect::<Vec<_>>());
     assert!(
         table_has_column(&conn, "sdk_operation_logs", "operation_id")
             .expect("SDK operation log column")

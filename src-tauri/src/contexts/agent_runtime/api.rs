@@ -367,11 +367,10 @@ impl AgentRuntimeApi {
             .resolve_tool_approval(session_id, call_id, decision)
     }
 
-    pub(crate) fn list_agent_memories(
+    pub(crate) fn list_all_memories(
         &self,
-        agent_id: &str,
     ) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        self.service.list_agent_memories(agent_id)
+        self.service.list_all_memories()
     }
 
     pub(crate) fn delete_agent_memory(
@@ -379,6 +378,10 @@ impl AgentRuntimeApi {
         memory_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError> {
         self.service.delete_agent_memory(memory_id)
+    }
+
+    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
+        self.service.reset_all_memories()
     }
 
     pub(crate) fn workflow(&self) -> Result<WorkflowView, AgentRuntimeApplicationError> {

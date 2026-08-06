@@ -189,12 +189,16 @@ export const tauriAgentClient: AgentService = {
     return invoke<AgentRegistryEntry>("set_agent_tool_trust", { agentId, enabled });
   },
 
-  listAgentMemories(agentId: string) {
-    return invoke<AgentMemory[]>("list_agent_memories", { agentId });
+  listAllMemories() {
+    return invoke<AgentMemory[]>("list_agent_memories");
   },
 
   deleteAgentMemory(memoryId: string) {
     return invoke<void>("delete_agent_memory", { memoryId });
+  },
+
+  resetAllMemories() {
+    return invoke<void>("reset_agent_memories");
   },
 
   listCliTools() {

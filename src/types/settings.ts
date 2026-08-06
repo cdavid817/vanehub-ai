@@ -46,7 +46,19 @@ export type AppSettingKey =
   | "logDirectory"
   | "networkProxyUrl"
   | "networkProxyBypass"
-  | "launchOnStartup";
+  | "launchOnStartup"
+  | "customInstructionsAboutUser"
+  | "customInstructionsStyleRules"
+  | "customInstructionsEnabled"
+  | "memoryEnabled"
+  | "memoryToolAssistedChatsEnabled";
+
+export const customInstructionsFieldCharacterLimit = 3000;
+
+/** Counts Unicode code points (not UTF-16 code units), matching the Rust backend's `.chars().count()` so a field is never blocked in the UI below the limit the native command layer actually enforces. */
+export function countCustomInstructionsCharacters(value: string): number {
+  return [...value].length;
+}
 
 export interface AppSettings {
   applicationLanguage: AppLanguage;
@@ -58,6 +70,11 @@ export interface AppSettings {
   networkProxyBypass: string;
   launchOnStartup: boolean;
   loggingPolicy: LoggingPolicy;
+  customInstructionsAboutUser: string;
+  customInstructionsStyleRules: string;
+  customInstructionsEnabled: boolean;
+  memoryEnabled: boolean;
+  memoryToolAssistedChatsEnabled: boolean;
 }
 
 export interface NodeInfo {

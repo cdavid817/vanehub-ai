@@ -67,6 +67,54 @@ describe("settings-service", () => {
     expect(settings.networkProxyBypass).toBe(defaultAppSettings.networkProxyBypass);
   });
 
+  it("defaults personalization settings to empty custom instructions and memory fully enabled", () => {
+    const settings = normalizeAppSettings({});
+
+    expect(settings.customInstructionsAboutUser).toBe("");
+    expect(settings.customInstructionsStyleRules).toBe("");
+    expect(settings.customInstructionsEnabled).toBe(true);
+    expect(settings.memoryEnabled).toBe(true);
+    expect(settings.memoryToolAssistedChatsEnabled).toBe(true);
+  });
+
+  it("normalizes custom instructions and memory preference settings", () => {
+    const settings = normalizeAppSettings({
+      customInstructionsAboutUser: "Works on VaneHub AI.",
+      customInstructionsStyleRules: "Always answer in Chinese.",
+      customInstructionsEnabled: false,
+      memoryEnabled: false,
+      memoryToolAssistedChatsEnabled: false,
+    });
+
+    expect(settings.customInstructionsAboutUser).toBe("Works on VaneHub AI.");
+    expect(settings.customInstructionsStyleRules).toBe("Always answer in Chinese.");
+    expect(settings.customInstructionsEnabled).toBe(false);
+    expect(settings.memoryEnabled).toBe(false);
+    expect(settings.memoryToolAssistedChatsEnabled).toBe(false);
+  });
+
+  it("falls back to empty custom-instruction fields when a field exceeds the character limit", () => {
+    const settings = normalizeAppSettings({
+      customInstructionsAboutUser: "x".repeat(3001),
+      customInstructionsStyleRules: "x".repeat(3000),
+    });
+
+    expect(settings.customInstructionsAboutUser).toBe("");
+    expect(settings.customInstructionsStyleRules).toBe("x".repeat(3000));
+  });
+
+  it("counts custom-instruction fields by Unicode code point, matching the Rust backend's char count instead of UTF-16 length", () => {
+    // U+1F600 is a single Unicode scalar value but occupies a UTF-16 surrogate pair (String.length
+    // === 2) — a naive `.length` check would wrongly treat 3000 of these as 6000 and reject them.
+    const emoji = "\u{1F600}";
+    const atLimit = emoji.repeat(3000);
+    expect(atLimit.length).toBe(6000);
+
+    const settings = normalizeAppSettings({ customInstructionsAboutUser: atLimit });
+
+    expect(settings.customInstructionsAboutUser).toBe(atLimit);
+  });
+
   it("keeps web mock client log events as no-op and blocks opening local directories", async () => {
     await activateAppLanguage("en");
 
