@@ -10,7 +10,7 @@
 - 新建 `retrieval` 对等上下文：自持 `retrieval_documents` 表，同一行同时承载内容、f32 向量与 FTS5 影子索引。
 - 索引以差集协调（reconcile）为真源、后台异步补齐，保存记忆的路径不因 embedding 网络失败而失败。
 - 检索为向量 + FTS5 双路召回、RRF 融合；任一路不可用即降级返回，不报错。
-- 新增模型可主动调用的 `recall` 工具，scope 由运行时注入而非模型指定。
+- 新增模型可主动调用的 `recall` 工具；检索面向 `agent-memory-shared-pool` 同一个主机级共享记忆池，工具 schema 不暴露任何 scope 参数。
 - OnePiece 配置页新增"检索"区块：来源 Profile、embedding 模型、索引状态、重建索引。
 - **Non-goal（明确不做）**：分块、rerank 模型、ANN 索引、embedding 模型自动选择、改动现有 recency 注入链路、索引 `messages` 与本地文件。
 

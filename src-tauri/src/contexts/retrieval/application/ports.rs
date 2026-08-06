@@ -1,5 +1,5 @@
 use crate::contexts::retrieval::domain::{
-    FailureCategory, RetrievalDocument, RetrievalError, RetrievalScope, SourceKind,
+    FailureCategory, RetrievalDocument, RetrievalError, SourceKind,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,15 +39,16 @@ pub(crate) trait RetrievalDocumentRepository: Send + Sync {
         category: FailureCategory,
         give_up: bool,
     ) -> Result<(), RetrievalError>;
+    /// 覆盖整个共享池，不按 agent/folder 过滤：`agent-memory-shared-pool` 之后每条记忆对每个
+    /// Agent 都可见，过滤只会让 `recall` 搜不到已经注入进系统提示词的记忆。
     fn vector_candidates(
         &self,
-        scope: &RetrievalScope,
         source_kind: SourceKind,
         model: &str,
     ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError>;
+    /// 与 `vector_candidates` 同样覆盖整个共享池。
     fn keyword_candidates(
         &self,
-        scope: &RetrievalScope,
         source_kind: SourceKind,
         query: &str,
         limit: usize,

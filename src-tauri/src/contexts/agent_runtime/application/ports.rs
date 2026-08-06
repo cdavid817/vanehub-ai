@@ -910,13 +910,10 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     /// configured", exactly like `RetrievalApi::is_configured`'s own contract.
     fn is_configured(&self) -> bool;
 
-    fn search(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        query: &str,
-        limit: usize,
-    ) -> Result<AgentRetrievalOutcome, String>;
+    /// No scope arguments: memories are a single host-level pool shared by every agent
+    /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
+    /// there is no per-agent or per-folder slice for a caller to name.
+    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
 
     /// Best-effort wake signal for the background indexing worker after a memory changes —
     /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and

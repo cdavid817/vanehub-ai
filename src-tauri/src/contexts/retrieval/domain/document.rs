@@ -82,8 +82,11 @@ pub(crate) struct RetrievalDocument {
     pub(crate) id: String,
     pub(crate) source_kind: SourceKind,
     pub(crate) source_id: String,
+    /// 溯源，不是作用域：与 `agent_memories.agent_id` 在 `agent-memory-shared-pool` 之后的定位
+    /// 一致——写入时记录，读取时**不**用于过滤。检索面向整个共享池。
     pub(crate) scope_agent_id: String,
-    /// 空串哨兵表示"无工作区文件夹"，与 `agent_memories.folder` 一致（`memory_schema.rs:4-6`）。
+    /// 同为溯源。空串哨兵表示"无工作区文件夹"，与 `agent_memories.folder` 一致
+    /// （`memory_schema.rs:4-6`）。
     pub(crate) scope_folder: String,
     pub(crate) content: String,
     pub(crate) content_hash: String,

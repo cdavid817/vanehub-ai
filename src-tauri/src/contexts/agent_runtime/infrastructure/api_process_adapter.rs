@@ -1395,11 +1395,10 @@ fn execute_tool_call(
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
-    // plan-mode restriction. `agent_id`/`workspace_folder` come from the session, not `input` —
-    // the model has no schema property to smuggle a different scope through
-    // (`tool_catalog::recall_tool_definition`).
+    // plan-mode restriction. It also needs no `agent_id`/`workspace_folder`: memories are one
+    // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
     if name == RECALL_TOOL_NAME {
-        return execute_recall(input, agent_id, workspace_folder, retrieval);
+        return execute_recall(input, retrieval);
     }
     // Plan mode (`add-agent-chat-configuration`) excludes MCP-sourced tools and `shell` from the
     // catalog entirely, and narrows `file` to `read` — but the catalog only shapes what the model
@@ -1573,12 +1572,7 @@ fn execute_remember(
 /// model that recall is temporarily unavailable, so generation continues. Bubbling an optional
 /// enhancement's failure up as a generation failure is unacceptable (design.md §8.1): the model
 /// must never confuse "search failed" with "no such memory exists".
-fn execute_recall(
-    input: &Value,
-    agent_id: &str,
-    workspace_folder: Option<&str>,
-    retrieval: &dyn AgentRetrievalPort,
-) -> ToolExecutionOutcome {
+fn execute_recall(input: &Value, retrieval: &dyn AgentRetrievalPort) -> ToolExecutionOutcome {
     let query = input
         .get("query")
         .and_then(Value::as_str)
@@ -1595,7 +1589,7 @@ fn execute_recall(
         .and_then(Value::as_u64)
         .unwrap_or(5)
         .clamp(1, 20) as usize;
-    match retrieval.search(agent_id, workspace_folder, query, limit) {
+    match retrieval.search(query, limit) {
         Ok(outcome) => ToolExecutionOutcome {
             output: serde_json::to_string(&recall_payload(&outcome))
                 .unwrap_or_else(|_| "{\"results\":[]}".to_string()),
@@ -1937,13 +1931,7 @@ mod tests {
             false
         }
 
-        fn search(
-            &self,
-            _agent_id: &str,
-            _folder: Option<&str>,
-            _query: &str,
-            _limit: usize,
-        ) -> Result<AgentRetrievalOutcome, String> {
+        fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
             Err("NoopRetrieval cannot search.".to_string())
         }
 
@@ -1951,7 +1939,7 @@ mod tests {
     }
 
     /// `(agent_id, folder, query, limit)` per `search` call, as recorded by `FakeRetrieval::search`.
-    type RecordedRetrievalCall = (String, Option<String>, String, usize);
+    type RecordedRetrievalCall = (String, usize);
 
     /// Records one `RecordedRetrievalCall` per `search` call and hands back a configurable
     /// outcome — used where a test needs to observe or control the retrieval path rather than
@@ -1981,19 +1969,11 @@ mod tests {
             self.configured
         }
 
-        fn search(
-            &self,
-            agent_id: &str,
-            folder: Option<&str>,
-            query: &str,
-            limit: usize,
-        ) -> Result<AgentRetrievalOutcome, String> {
-            self.calls.lock().expect("calls").push((
-                agent_id.to_string(),
-                folder.map(str::to_string),
-                query.to_string(),
-                limit,
-            ));
+        fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push((query.to_string(), limit));
             self.outcome.clone()
         }
 
@@ -3959,8 +3939,10 @@ mod tests {
     }
 
     #[test]
-    fn recall_scope_comes_from_the_session_not_from_model_input() {
-        // 模型传 {"query":"x","agent_id":"other"} → fake 收到的 agent_id 仍是会话自身的
+    fn recall_ignores_scope_properties_the_model_invents_because_the_pool_is_shared() {
+        // 这条从前断言的是"scope 来自会话而非模型输入"（安全边界）。
+        // `agent-memory-shared-pool` 之后没有 scope 可传了：`AgentRetrievalPort::search` 只收
+        // query 与 limit，模型硬塞的 agent_id/folder 连一个能落脚的参数都没有，被整体忽略。
         let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
             hits: Vec::new(),
             degraded: None,
@@ -3982,13 +3964,9 @@ mod tests {
         let calls = retrieval.calls.lock().expect("calls");
         assert_eq!(calls.len(), 1);
         assert_eq!(
-            calls[0].0, "real-agent",
-            "agent_id must come from the session"
-        );
-        assert_eq!(
-            calls[0].1.as_deref(),
-            Some("D:\\real\\project"),
-            "folder must come from the session"
+            calls[0],
+            ("x".to_string(), 5),
+            "only the query and the clamped limit may reach the retrieval port"
         );
     }
 
@@ -4019,7 +3997,7 @@ mod tests {
         }
 
         let calls = retrieval.calls.lock().expect("calls");
-        let limits: Vec<usize> = calls.iter().map(|call| call.3).collect();
+        let limits: Vec<usize> = calls.iter().map(|call| call.1).collect();
         assert_eq!(limits, vec![5, 1, 20]);
     }
 

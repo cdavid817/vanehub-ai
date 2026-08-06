@@ -10,7 +10,5 @@ pub(crate) use document::{
 pub(crate) use error::RetrievalError;
 
 pub(crate) use fusion::fuse_with_rrf;
-pub(crate) use query::{
-    escape_fts_query, Degradation, MatchedVia, RetrievalQuery, RetrievalScope, ScoredHit,
-};
+pub(crate) use query::{escape_fts_query, Degradation, MatchedVia, RetrievalQuery, ScoredHit};
 pub(crate) use vector::{cosine_similarity, decode_embedding, encode_embedding};

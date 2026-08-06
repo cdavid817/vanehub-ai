@@ -3,8 +3,11 @@ use rusqlite::Connection;
 
 /// 迁移 43 `retrieval-vector-index`（`add-retrieval-vector-search`）。
 ///
-/// scope 冗余进本表而不是每次 JOIN 回源表：检索先按 `scope_agent_id + scope_folder` 过滤再
-/// 暴力扫描候选集，这是"不建 ANN 索引也够快"成立的前提。
+/// `scope_agent_id`/`scope_folder` 是**溯源**，不是作用域：`agent-memory-shared-pool`（迁移 42）
+/// 之后记忆是主机级共享池，两路召回都不按它们过滤，与 `agent_memories.agent_id`/`folder` 在
+/// 那次变更之后的定位一致。列保留在本表，是为了让索引行仍能说清"这条记忆最初由谁、在哪个
+/// 工作区存下"。`idx_retrieval_documents_scope` 因此只剩前导列 `source_kind` 还在为召回服务；
+/// 不改它的定义，是因为改列不改名会让已经跑过本迁移的库与新库拿到两份同名不同义的索引。
 /// FTS 建在本表而非 `agent_memories`：第 2/3 期的源表不同，统一在本表做 FTS 才能让混合检索
 /// 只实现一次。
 /// 不建到 `agent_memories` 的外键：跨期源表不同，靠 `source_kind + source_id` 逻辑关联，

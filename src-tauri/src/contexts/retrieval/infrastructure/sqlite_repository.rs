@@ -1,7 +1,7 @@
 use crate::contexts::retrieval::application::{RetrievalDocumentRepository, RetrievalIndexStatus};
 use crate::contexts::retrieval::domain::{
     decode_embedding, encode_embedding, FailureCategory, IndexState, RetrievalDocument,
-    RetrievalError, RetrievalScope, SourceKind,
+    RetrievalError, SourceKind,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
@@ -173,9 +173,10 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
         Ok(())
     }
 
+    /// 不按 `scope_agent_id`/`scope_folder` 过滤：那两列在 `agent-memory-shared-pool` 之后只是
+    /// 溯源信息，记忆池本身是主机级共享的。
     fn vector_candidates(
         &self,
-        scope: &RetrievalScope,
         source_kind: SourceKind,
         model: &str,
     ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
@@ -184,16 +185,15 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .prepare(
                 r#"
                 SELECT source_id, embedding FROM retrieval_documents
-                WHERE source_kind = ?1 AND scope_agent_id = ?2 AND scope_folder = ?3
-                  AND index_state = 'indexed' AND embedding_model = ?4 AND embedding IS NOT NULL
+                WHERE source_kind = ?1
+                  AND index_state = 'indexed' AND embedding_model = ?2 AND embedding IS NOT NULL
                 "#,
             )
             .map_err(storage_error)?;
         let rows = statement
-            .query_map(
-                params![source_kind.as_str(), scope.agent_id, scope.folder, model],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
+            .query_map(params![source_kind.as_str(), model], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
@@ -210,9 +210,9 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .collect()
     }
 
+    /// 与 `vector_candidates` 同样覆盖整个共享池。
     fn keyword_candidates(
         &self,
-        scope: &RetrievalScope,
         source_kind: SourceKind,
         query: &str,
         limit: usize,
@@ -224,23 +224,16 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
                 SELECT d.source_id FROM retrieval_documents d
                 JOIN retrieval_documents_fts f ON f.rowid = d.rowid
                 WHERE retrieval_documents_fts MATCH ?1
-                  AND d.source_kind = ?2 AND d.scope_agent_id = ?3 AND d.scope_folder = ?4
+                  AND d.source_kind = ?2
                 ORDER BY bm25(retrieval_documents_fts)
-                LIMIT ?5
+                LIMIT ?3
                 "#,
             )
             .map_err(storage_error)?;
         let rows = statement
-            .query_map(
-                params![
-                    query,
-                    source_kind.as_str(),
-                    scope.agent_id,
-                    scope.folder,
-                    limit as i64
-                ],
-                |row| row.get::<_, String>(0),
-            )
+            .query_map(params![query, source_kind.as_str(), limit as i64], |row| {
+                row.get::<_, String>(0)
+            })
             .map_err(storage_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(storage_error)?;
@@ -438,13 +431,6 @@ mod tests {
         }
     }
 
-    fn scope(agent: &str, folder: &str) -> RetrievalScope {
-        RetrievalScope {
-            agent_id: agent.to_string(),
-            folder: folder.to_string(),
-        }
-    }
-
     #[test]
     fn upsert_is_idempotent_and_refreshes_content_and_hash() {
         let fixture = Fixture::new("retrieval upsert idempotent");
@@ -499,7 +485,7 @@ mod tests {
         assert_eq!(
             fixture
                 .repository
-                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-a")
+                .vector_candidates(SourceKind::AgentMemory, "model-a")
                 .expect("candidates")
                 .len(),
             1,
@@ -534,7 +520,7 @@ mod tests {
 
         let candidates = fixture
             .repository
-            .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-a")
+            .vector_candidates(SourceKind::AgentMemory, "model-a")
             .expect("candidates");
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0, "m1");
@@ -571,14 +557,18 @@ mod tests {
 
         let candidates = fixture
             .repository
-            .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "new-model")
+            .vector_candidates(SourceKind::AgentMemory, "new-model")
             .expect("candidates");
         assert!(candidates.is_empty());
     }
 
     #[test]
-    fn candidates_never_cross_agent_or_folder_boundaries() {
-        let fixture = Fixture::new("retrieval scope isolation");
+    fn candidates_span_every_agent_and_every_folder() {
+        // 这条测试原先断言的是相反的事（按 agent + folder 隔离）。`agent-memory-shared-pool`
+        // （迁移 42）把记忆改成主机级共享池：每条记忆都会被注入进**每个** Agent 的系统提示词。
+        // 再按 scope 过滤召回，只会让 `recall` 返回模型已经看得到的内容的一个真子集——
+        // 换个 Agent 存下的记忆能被注入却搜不到，这不是安全边界，是自相矛盾。
+        let fixture = Fixture::new("retrieval shared pool");
         for (source_id, agent, folder) in [
             ("m1", "a", "D:/one"),
             ("m2", "a", "D:/two"),
@@ -598,28 +588,22 @@ mod tests {
                 .expect("store");
         }
 
-        let vectors = fixture
+        let mut vectors = fixture
             .repository
-            .vector_candidates(&scope("a", "D:/one"), SourceKind::AgentMemory, "m")
-            .expect("vectors");
-        let keywords = fixture
+            .vector_candidates(SourceKind::AgentMemory, "m")
+            .expect("vectors")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
+        vectors.sort();
+        let mut keywords = fixture
             .repository
-            .keyword_candidates(
-                &scope("a", "D:/one"),
-                SourceKind::AgentMemory,
-                "\"shared\"",
-                10,
-            )
+            .keyword_candidates(SourceKind::AgentMemory, "\"shared\"", 10)
             .expect("keywords");
+        keywords.sort();
 
-        assert_eq!(
-            vectors
-                .iter()
-                .map(|(id, _)| id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["m1"]
-        );
-        assert_eq!(keywords, vec!["m1".to_string()]);
+        assert_eq!(vectors, vec!["m1", "m2", "m3"]);
+        assert_eq!(keywords, vec!["m1", "m2", "m3"]);
     }
 
     #[test]
@@ -632,7 +616,7 @@ mod tests {
 
         let hits = fixture
             .repository
-            .keyword_candidates(&scope("a", ""), SourceKind::AgentMemory, "\"pnpm\"", 10)
+            .keyword_candidates(SourceKind::AgentMemory, "\"pnpm\"", 10)
             .expect("keywords");
         assert_eq!(hits, vec!["m1".to_string()]);
     }
@@ -762,7 +746,7 @@ mod tests {
         assert!(
             fixture
                 .repository
-                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-b")
+                .vector_candidates(SourceKind::AgentMemory, "model-b")
                 .expect("candidates")
                 .is_empty(),
             "a requeued row must not be recallable under the new model until it is re-embedded"
@@ -789,7 +773,7 @@ mod tests {
         assert_eq!(
             fixture
                 .repository
-                .vector_candidates(&scope("a", ""), SourceKind::AgentMemory, "model-b")
+                .vector_candidates(SourceKind::AgentMemory, "model-b")
                 .expect("candidates")
                 .len(),
             1,
@@ -905,7 +889,7 @@ mod tests {
 
         let keywords = fixture
             .repository
-            .keyword_candidates(&scope("a", ""), SourceKind::AgentMemory, "\"npm\"", 10)
+            .keyword_candidates(SourceKind::AgentMemory, "\"npm\"", 10)
             .expect("keywords");
         assert!(keywords.is_empty());
         assert!(fixture

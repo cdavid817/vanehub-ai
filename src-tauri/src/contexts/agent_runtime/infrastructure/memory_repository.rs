@@ -19,40 +19,14 @@ impl SqliteAgentMemoryRepository {
         Self { database }
     }
 
-    /// Every memory of every Agent, in one snapshot. Deliberately not on `AgentMemoryPort`: the
-    /// only caller is the composition root's retrieval index source, and no use case inside this
-    /// context ever wants a cross-Agent view.
+    /// The memories behind an explicit id list, in no particular order. Deliberately off
+    /// `AgentMemoryPort`: its only caller is the composition root's retrieval index source, and no
+    /// use case inside this context resolves memories by id.
     ///
-    /// The snapshot has to be global rather than per-Agent because its consumer reconciles it
-    /// against the whole index and deletes rows it cannot find here — a partial snapshot would
-    /// look like every absent Agent's memories had been deleted.
-    pub(crate) fn list_all(&self) -> Result<Vec<AgentMemory>, AgentRuntimeApplicationError> {
-        let connection = self.database.connection().map_err(app_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT id, agent_id, folder, content, source, created_at
-                FROM agent_memories
-                ORDER BY created_at DESC
-                "#,
-            )
-            .map_err(repository_error)?;
-        let rows = statement
-            .query_map([], MemoryRow::read)
-            .map_err(repository_error)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(repository_error)?;
-        rows.into_iter().map(MemoryRow::into_memory).collect()
-    }
-
-    /// The memories behind an explicit id list, in no particular order. Same caller as `list_all`
-    /// and deliberately also off `AgentMemoryPort` for the same reason: it crosses Agent
-    /// boundaries, which no use case inside this context ever wants.
-    ///
-    /// Exists so the retrieval *search* path does not have to reuse `list_all`: a recall resolves
-    /// at most `limit` (<= 20) ids, while `list_all` loads and clones every memory of every Agent
-    /// synchronously inside the generation's tool call, and `agent_memories` is INSERT-only with
-    /// no cap.
+    /// Exists so the retrieval *search* path does not have to reuse `AgentMemoryPort::list_all`:
+    /// a recall resolves at most `limit` (<= 20) ids, while `list_all` loads and clones the whole
+    /// shared pool synchronously inside the generation's tool call, and `agent_memories` is
+    /// INSERT-only with no cap.
     pub(crate) fn list_by_ids(
         &self,
         ids: &[String],

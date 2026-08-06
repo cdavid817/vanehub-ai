@@ -1,14 +1,9 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RetrievalScope {
-    pub(crate) agent_id: String,
-    /// 空串表示"无工作区文件夹"，与 `agent_memories.folder` 的哨兵一致。
-    pub(crate) folder: String,
-}
-
+/// 检索面向的是**同一个主机级共享记忆池**——`agent-memory-shared-pool`（迁移 42）之后，
+/// `agent_memories` 对每个 Agent 全量可见，最近记忆的注入也不再按 agent/folder 过滤。查询因此
+/// 不带 scope：带了反而会让 `recall` 只能搜到系统提示词里已经注入过的内容的一个真子集。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RetrievalQuery {
     pub(crate) text: String,
-    pub(crate) scope: RetrievalScope,
     pub(crate) limit: usize,
 }
 

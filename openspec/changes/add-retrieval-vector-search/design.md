@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS retrieval_configuration (
 
 四个关键取舍：
 
-1. **scope 冗余进本表**。检索先按 `scope_agent_id + scope_folder` 过滤再暴力扫描，只反序列化候选集——这是暴力余弦成立的前提。
+1. **`scope_agent_id`/`scope_folder` 只作溯源**。`agent-memory-shared-pool`（迁移 42）把记忆改成主机级共享池，两路召回都不按这两列过滤；列保留在本表，只为说清索引行的来历。暴力余弦因此改由 `source_kind + index_state + embedding_model` 界定候选集。
 2. **FTS 建在 `retrieval_documents` 而非 `agent_memories`**。第 2/3 期源表不同，统一在本表做 FTS，混合检索只实现一次。
 3. **模型与维度存在行上**。换 embedding 模型时不清库：检索**只用 `embedding_model` 等于当前配置模型的行做向量召回**，不匹配的行降级走 FTS 并被后台重新入队逐步收敛。既避免换模型瞬间打爆 API 配额，也杜绝不同维度的向量进入同一次余弦比较。
 4. **不建到 `agent_memories` 的外键**。跨期源表不同，靠 `source_kind + source_id` 逻辑关联。检索只返回引用，由消费方回查源表——源已删则跳过，陈旧索引不会泄露内容。

@@ -660,7 +660,10 @@ mod tests {
 
     #[test]
     fn the_recall_tool_never_exposes_scope_to_the_model() {
-        // scope 若进 schema，模型就能构造参数读别的 agent 或别的项目的记忆。这是安全边界。
+        // 这条断言从前的理由是安全边界（防模型自行放宽 scope）。`agent-memory-shared-pool`
+        // 之后理由变了：记忆是一个主机级共享池，所有 Agent 本来就都看得到，压根没有"别的
+        // agent 的记忆"这种切片可指定。schema 里多出任何 scope 参数，都是在向模型承诺一个
+        // 检索侧根本不会执行的过滤。
         let definition = recall_tool_definition();
         let properties = definition.input_schema["properties"]
             .as_object()

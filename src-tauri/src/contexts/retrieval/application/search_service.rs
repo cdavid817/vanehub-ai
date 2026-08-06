@@ -55,11 +55,10 @@ impl SearchService {
         // 的短语塞进 FTS。
         let text = truncate_for_embedding(&query.text);
 
-        let vector_ranking = self.vector_ranking(&text, query, model, over_fetch);
+        let vector_ranking = self.vector_ranking(&text, model, over_fetch);
         let keyword_ranking = self
             .repository
             .keyword_candidates(
-                &query.scope,
                 SourceKind::AgentMemory,
                 &escape_fts_query(&text),
                 over_fetch,
@@ -128,18 +127,12 @@ impl SearchService {
 
     /// `None` 表示这一路整体不可用（query embedding 失败或候选查询失败），交由调用方降级；
     /// 空 `Vec` 表示这一路可用但没有命中，是正常结果。
-    fn vector_ranking(
-        &self,
-        text: &str,
-        query: &RetrievalQuery,
-        model: &str,
-        limit: usize,
-    ) -> Option<Vec<String>> {
+    fn vector_ranking(&self, text: &str, model: &str, limit: usize) -> Option<Vec<String>> {
         let embedded = self.embeddings.embed(model, &[text.to_string()]).ok()?;
         let query_vector = embedded.into_iter().next()?;
         let candidates = self
             .repository
-            .vector_candidates(&query.scope, SourceKind::AgentMemory, model)
+            .vector_candidates(SourceKind::AgentMemory, model)
             .ok()?;
         let mut scored: Vec<(String, f32)> = candidates
             .into_iter()
@@ -165,7 +158,7 @@ mod tests {
     use crate::contexts::retrieval::application::ports::{
         EmbeddingFailure, RetrievalConfiguration, RetrievalIndexStatus,
     };
-    use crate::contexts::retrieval::domain::{FailureCategory, RetrievalDocument, RetrievalScope};
+    use crate::contexts::retrieval::domain::{FailureCategory, RetrievalDocument};
     use std::sync::Mutex;
 
     /// embed() 的可编排行为：多数测试只需要"这一路整体可用/不可用"。`Recording` 额外把收到的
@@ -290,7 +283,6 @@ mod tests {
         }
         fn vector_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
@@ -298,7 +290,6 @@ mod tests {
         }
         fn keyword_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             query: &str,
             _limit: usize,
@@ -347,17 +338,9 @@ mod tests {
         vec![1.0, 0.0]
     }
 
-    fn scope() -> RetrievalScope {
-        RetrievalScope {
-            agent_id: "a".to_string(),
-            folder: String::new(),
-        }
-    }
-
     fn sample_query(text: &str, limit: usize) -> RetrievalQuery {
         RetrievalQuery {
             text: text.to_string(),
-            scope: scope(),
             limit,
         }
     }

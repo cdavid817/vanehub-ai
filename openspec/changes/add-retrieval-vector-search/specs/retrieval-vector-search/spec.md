@@ -1,12 +1,17 @@
 ## ADDED Requirements
 
-### Requirement: Retrieval scope is runtime-injected
-The system SHALL derive retrieval scope from the session runtime and SHALL NOT accept agent id or workspace folder as model-supplied tool input.
+### Requirement: Retrieval searches the shared host-level memory pool
+The system SHALL search the same host-level memory pool that recency-based memory injection draws from (`agent-memory-shared-pool`), and SHALL NOT restrict recall by agent id or workspace folder. Agent id and workspace folder SHALL be recorded on an index row as provenance only, and SHALL NOT be exposed as recall tool input.
 
-#### Scenario: Model cannot widen its own scope
-- **WHEN** the model invokes the recall tool
-- **THEN** the system SHALL scope the search to the session's own agent id and workspace folder
-- **AND** the tool input schema SHALL NOT expose any scope parameter
+#### Scenario: Memory saved under a different agent is recallable
+- **WHEN** the model invokes the recall tool from one agent's session
+- **THEN** the system SHALL consider memories saved under every other agent and every workspace folder
+- **AND** recall SHALL NOT return a strict subset of what memory injection already placed in the system prompt
+
+#### Scenario: Recall tool exposes no scope parameter
+- **WHEN** the recall tool definition is resolved
+- **THEN** its input schema SHALL expose exactly `query` and `limit`
+- **AND** it SHALL NOT expose an agent id, folder, or any other scope parameter, because the shared pool has no slice for the model to name
 
 ### Requirement: Retrieval failure never fails generation
 The system SHALL return a successful tool result describing unavailability when retrieval fails, and SHALL NOT surface retrieval failure as a generation error.
@@ -58,7 +63,7 @@ The system SHALL NOT persist memory content, raw query text, credentials, or pro
 
 #### Scenario: Query logged for diagnostics
 - **WHEN** a retrieval executes
-- **THEN** the system SHALL log only the query's length and hash alongside scope hash, candidate count, per-path hit counts, and duration
+- **THEN** the system SHALL log only the query's length and hash alongside candidate count, per-path hit counts, and duration
 
 ### Requirement: Web runtime contract parity
 The Web/mock runtime SHALL expose the same retrieval contract shape and observable behavior as the desktop runtime, and SHALL NOT issue network requests.

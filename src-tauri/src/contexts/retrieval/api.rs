@@ -7,7 +7,7 @@ use super::application::{
     RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
     RetrievalIndexStatus, SearchOutcome, SearchService,
 };
-use super::domain::{RetrievalError, RetrievalQuery, RetrievalScope, SourceKind};
+use super::domain::{RetrievalError, RetrievalQuery, SourceKind};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
@@ -57,21 +57,15 @@ impl RetrievalApi {
         }
     }
 
+    /// 不收 agent/folder：检索面向的就是最近记忆注入所读的那一个主机级共享池
+    /// （`agent-memory-shared-pool`）。
     pub(crate) fn search(
         &self,
-        agent_id: &str,
-        folder: Option<&str>,
         query: &str,
         limit: usize,
     ) -> Result<SearchOutcome, RetrievalError> {
         self.search.search(&RetrievalQuery {
             text: query.to_string(),
-            scope: RetrievalScope {
-                agent_id: agent_id.to_string(),
-                // 无工作区文件夹的会话映射到空串哨兵，与 `agent_memories.folder` 自身的约定
-                // 一致；索引行的 scope_folder 也是这样写进去的，两侧不一致就永远搜不到。
-                folder: folder.unwrap_or_default().to_string(),
-            },
             limit,
         })
     }
@@ -144,7 +138,7 @@ mod tests {
         RetrievalIndexStatus, SearchService,
     };
     use crate::contexts::retrieval::domain::{
-        FailureCategory, RetrievalDocument, RetrievalError, RetrievalScope, SourceKind,
+        FailureCategory, RetrievalDocument, RetrievalError, SourceKind,
     };
     use std::sync::{Arc, Mutex};
 
@@ -176,11 +170,11 @@ mod tests {
         }
     }
 
-    /// 记录两路召回收到的 scope、`delete_by_source` 收到的参数，以及 `requeue_stale_model`
+    /// 记录两路召回各被调用了几次、`delete_by_source` 收到的参数，以及 `requeue_stale_model`
     /// 收到的模型 id；其余方法在本文件的测试里不可达，走 `unimplemented!()`。
     #[derive(Default)]
     struct FakeDocumentRepository {
-        scopes: Mutex<Vec<RetrievalScope>>,
+        recall_calls: Mutex<Vec<&'static str>>,
         deleted: Mutex<Vec<(&'static str, String)>>,
         requeued_models: Mutex<Vec<String>>,
     }
@@ -231,21 +225,19 @@ mod tests {
         }
         fn vector_candidates(
             &self,
-            scope: &RetrievalScope,
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
-            self.scopes.lock().expect("lock").push(scope.clone());
+            self.recall_calls.lock().expect("lock").push("vector");
             Ok(Vec::new())
         }
         fn keyword_candidates(
             &self,
-            scope: &RetrievalScope,
             _source_kind: SourceKind,
             _query: &str,
             _limit: usize,
         ) -> Result<Vec<String>, RetrievalError> {
-            self.scopes.lock().expect("lock").push(scope.clone());
+            self.recall_calls.lock().expect("lock").push("keyword");
             Ok(Vec::new())
         }
         fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
@@ -335,31 +327,18 @@ mod tests {
     }
 
     #[test]
-    fn search_scopes_a_folderless_session_to_the_empty_string_sentinel() {
+    fn search_reaches_both_recall_paths_without_narrowing_them_to_a_scope() {
+        // 这条曾经断言门面把会话的 agent/folder 织进 scope 再传给两路召回。
+        // `agent-memory-shared-pool` 之后没有 scope 可传了：门面只转发 query 与 limit，
+        // 检索面向的就是注入所读的同一个共享池。方法签名本身已经让"传 scope"无从表达，
+        // 这里钉死的是两路都仍然被调用到。
         let (api, documents, _wakeups) = api(FakeConfigurationRepository::Configured);
 
-        api.search("agent-a", None, "npm", 5).expect("search");
+        api.search("npm", 5).expect("search");
 
-        let scopes = documents.scopes.lock().expect("lock");
-        assert!(!scopes.is_empty(), "both recall paths must receive a scope");
-        for scope in scopes.iter() {
-            assert_eq!(scope.agent_id, "agent-a");
-            assert_eq!(scope.folder, "");
-        }
-    }
-
-    #[test]
-    fn search_passes_a_present_folder_through_unchanged() {
-        let (api, documents, _wakeups) = api(FakeConfigurationRepository::Configured);
-
-        api.search("agent-a", Some("D:/project"), "npm", 5)
-            .expect("search");
-
-        let scopes = documents.scopes.lock().expect("lock");
-        assert!(!scopes.is_empty(), "both recall paths must receive a scope");
-        for scope in scopes.iter() {
-            assert_eq!(scope.folder, "D:/project");
-        }
+        let mut calls = documents.recall_calls.lock().expect("lock").clone();
+        calls.sort_unstable();
+        assert_eq!(calls, vec!["keyword", "vector"]);
     }
 
     #[test]

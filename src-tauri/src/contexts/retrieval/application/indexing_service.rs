@@ -2,11 +2,6 @@ use crate::contexts::retrieval::domain::{
     content_hash, document_id, FailureCategory, IndexState, RetrievalDocument, RetrievalError,
     SourceKind,
 };
-// RetrievalScope 同样只出现在测试里 FakeRepository::vector_candidates/keyword_candidates 的
-// 签名（两者都 unimplemented!()），纯粹是为了让 trait 实现完整。真正调用这两个方法的是
-// Task 9 的 search_service.rs，不在本文件——这个 import 不会有"届时移除"的那一天。
-#[allow(unused_imports)]
-use crate::contexts::retrieval::domain::RetrievalScope;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -39,7 +34,7 @@ pub(crate) trait IndexSourcePort: Send + Sync {
     /// 按 id 取记录，命中不到的 id 直接缺席（源已删）。
     ///
     /// 检索路只需要按融合排名解析出的至多 `limit` 条记录，走 `snapshot()` 会在生成的工具调用
-    /// 里同步加载并克隆全部 Agent 的全部记忆，而源表是只增不减的。
+    /// 里同步加载并克隆整个共享池，而源表是只增不减的。
     fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
 }
 
@@ -351,7 +346,6 @@ mod tests {
         }
         fn vector_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
@@ -359,7 +353,6 @@ mod tests {
         }
         fn keyword_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _query: &str,
             _limit: usize,

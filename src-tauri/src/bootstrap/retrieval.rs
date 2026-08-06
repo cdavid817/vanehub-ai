@@ -11,7 +11,7 @@
 
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
-    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentMemoryPort, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
 };
 use crate::contexts::agent_runtime::infrastructure::SqliteAgentMemoryRepository;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
@@ -444,18 +444,12 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
         self.bound.get().is_some_and(RetrievalApi::is_configured)
     }
 
-    fn search(
-        &self,
-        agent_id: &str,
-        folder: Option<&str>,
-        query: &str,
-        limit: usize,
-    ) -> Result<AgentRetrievalOutcome, String> {
+    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String> {
         let Some(retrieval) = self.bound.get() else {
             return Err("retrieval is not yet available".to_string());
         };
         retrieval
-            .search(agent_id, folder, query, limit)
+            .search(query, limit)
             .map(project_search_outcome)
             .map_err(|error| error.to_string())
     }
@@ -493,8 +487,7 @@ mod tests {
     use crate::contexts::operations::api::OperationsError;
     use crate::contexts::retrieval::application::{RetrievalConfiguration, RetrievalIndexStatus};
     use crate::contexts::retrieval::domain::{
-        Degradation, IndexState, MatchedVia, RetrievalDocument, RetrievalScope, ScoredHit,
-        SourceKind,
+        Degradation, IndexState, MatchedVia, RetrievalDocument, ScoredHit, SourceKind,
     };
     use std::sync::mpsc::sync_channel;
     use std::sync::Mutex;
@@ -721,7 +714,6 @@ mod tests {
         }
         fn vector_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
@@ -729,7 +721,6 @@ mod tests {
         }
         fn keyword_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _query: &str,
             _limit: usize,
@@ -825,7 +816,6 @@ mod tests {
         }
         fn vector_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _model: &str,
         ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
@@ -833,7 +823,6 @@ mod tests {
         }
         fn keyword_candidates(
             &self,
-            _scope: &RetrievalScope,
             _source_kind: SourceKind,
             _query: &str,
             _limit: usize,
@@ -1034,7 +1023,7 @@ mod tests {
         let deferred = DeferredAgentRetrieval::default();
 
         assert!(!deferred.is_configured());
-        assert!(deferred.search("agent-a", None, "npm", 5).is_err());
+        assert!(deferred.search("npm", 5).is_err());
     }
 
     #[test]
