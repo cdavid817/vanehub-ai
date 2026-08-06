@@ -3,6 +3,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOnePieceProviderPresets } from "../../../config/onepiece-provider-presets";
+import type { AgentService } from "../../../services/agent-service";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
 import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../../types/agent";
 import { OnePieceConfigurationPanel } from "./onepiece-configuration-panel";
@@ -39,6 +40,20 @@ function overview(profiles: OnePieceProviderProfile[], activeProfileId: string |
   return { profiles, activeProfileId };
 }
 
+// The panel unconditionally mounts OnePieceRetrievalSection (onepiece-configuration-panel.tsx),
+// which fires these two queries on every render. Centralized here so every double in this file
+// gets harmless defaults without repeating them per test; a future third retrieval method needs
+// one edit here, not one per `it` block. Individual tests still override either key when the
+// scenario under test needs to observe or control that call.
+const retrievalDoubleDefaults: Partial<AgentService> = {
+  getRetrievalConfiguration: async () => ({ sourceProfileId: null, embeddingModel: null }),
+  getRetrievalIndexStatus: async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }),
+};
+
+function createPanelServiceDouble(overrides: Partial<AgentService>): AgentService {
+  return createAgentServiceDouble({ ...retrievalDoubleDefaults, ...overrides });
+}
+
 describe("OnePieceConfigurationPanel", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -46,7 +61,7 @@ describe("OnePieceConfigurationPanel", () => {
 
   it("verifies a saved OnePiece credential from its provider card", async () => {
     const validateOnePieceProviderCredential = vi.fn(async () => ({ status: "invalid-credential" as const, latencyMs: 18, httpStatus: 401 }));
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
       validateOnePieceProviderCredential,
@@ -72,7 +87,7 @@ describe("OnePieceConfigurationPanel", () => {
     const configured = overview([anthropicProfile], anthropicProfile.id);
     const saveOnePieceProviderProfile = vi.fn(async () => configured);
     const onChanged = vi.fn(async () => undefined);
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([], null),
       listOnePieceProviderPresets,
       saveOnePieceProviderProfile,
@@ -110,7 +125,7 @@ describe("OnePieceConfigurationPanel", () => {
     const activatedProxy = { ...proxyProfile, active: true };
     const activated = overview([{ ...anthropicProfile, active: false }, activatedProxy], proxyProfile.id);
     const activateOnePieceProviderProfile = vi.fn(async () => activated);
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => initial,
       listOnePieceProviderPresets,
       activateOnePieceProviderProfile,
@@ -132,7 +147,7 @@ describe("OnePieceConfigurationPanel", () => {
   });
 
   it("filters provider cards with the Settings search term", async () => {
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile, proxyProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
     });
@@ -148,7 +163,7 @@ describe("OnePieceConfigurationPanel", () => {
     const initial = overview([anthropicProfile, proxyProfile], anthropicProfile.id);
     const deleted = overview([proxyProfile], null);
     const deleteOnePieceProviderProfile = vi.fn(async () => deleted);
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => initial,
       listOnePieceProviderPresets,
       deleteOnePieceProviderProfile,
@@ -175,7 +190,7 @@ describe("OnePieceConfigurationPanel", () => {
     const initial = overview([anthropicProfile], anthropicProfile.id);
     const updatedProfile = { ...anthropicProfile, modelId: "claude-opus-4-6" };
     const saveOnePieceProviderProfile = vi.fn(async () => overview([updatedProfile], updatedProfile.id));
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => initial,
       listOnePieceProviderPresets,
       saveOnePieceProviderProfile,
@@ -211,7 +226,7 @@ describe("OnePieceConfigurationPanel", () => {
       source: "merged" as const,
       warning: null,
     }));
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
       discoverOnePieceProviderModels,
@@ -249,7 +264,7 @@ describe("OnePieceConfigurationPanel", () => {
       source: "merged";
       warning: null;
     }>((resolve) => { resolveDiscovery = resolve; }));
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
       discoverOnePieceProviderModels,
@@ -283,7 +298,7 @@ describe("OnePieceConfigurationPanel", () => {
       source: "catalog" as const,
       warning: "live-unavailable" as const,
     }));
-    const service = createAgentServiceDouble({
+    const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
       discoverOnePieceProviderModels,
@@ -298,5 +313,31 @@ describe("OnePieceConfigurationPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "获取模型" }));
     expect(await within(dialog).findByText(/暂时无法从厂商获取模型/)).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "获取模型" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("mounts the retrieval section with the panel's own agentId and Profile list", async () => {
+    const getRetrievalIndexStatus = vi.fn(async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }));
+    const service = createPanelServiceDouble({
+      listOnePieceProviderProfiles: async () => overview([anthropicProfile, proxyProfile], anthropicProfile.id),
+      listOnePieceProviderPresets,
+      getRetrievalIndexStatus,
+    });
+    renderWithAppProviders(
+      <OnePieceConfigurationPanel onChanged={vi.fn(async () => undefined)} service={service} />,
+    );
+
+    await screen.findByRole("heading", { name: "Anthropic 主账号" });
+    // Pins the `agentId="onepiece"` argument at the panel's mount line, not the standalone value
+    // OnePieceRetrievalSection's own tests hand-build.
+    await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledWith("onepiece"));
+
+    // Pins the `profiles={overview.profiles}` argument: the openai-compatible Profile the panel
+    // loaded is the one the section offers as an embedding source, and the Anthropic Profile
+    // (no embeddings API) is filtered out — proof this is the panel's real data, not a stub.
+    const select = await screen.findByRole("combobox", { name: "Embedding 来源" });
+    expect(within(select).getByRole("option", { name: "OpenRouter" })).toBeTruthy();
+    expect(within(select).queryByRole("option", { name: "Anthropic 主账号" })).toBeNull();
+
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
