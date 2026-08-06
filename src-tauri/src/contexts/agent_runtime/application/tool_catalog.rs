@@ -47,7 +47,7 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Path relative to the workspace root."
+                        "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
                     },
                     "content": {
                         "type": "string",
@@ -55,7 +55,7 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "0-based index of the first line to return; 0 is the file's first line. Ignored when writing."
+                        "description": "0-based index of the first line to return; 0 is the file's first line. Ignored when writing. Line numbers shown in this tool's own output and in grep results are 1-based, so to jump to displayed line N, pass offset: N-1."
                     },
                     "limit": {
                         "type": "integer",
@@ -94,11 +94,11 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Path relative to the workspace root."
+                        "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "0-based index of the first line to return; 0 is the file's first line."
+                        "description": "0-based index of the first line to return; 0 is the file's first line. Line numbers shown in this tool's own output and in grep results are 1-based, so to jump to displayed line N, pass offset: N-1."
                     },
                     "limit": {
                         "type": "integer",
@@ -139,7 +139,7 @@ fn remember_tool_definition() -> ToolDefinition {
 fn grep_tool_definition() -> ToolDefinition {
     ToolDefinition {
         name: GREP_TOOL_NAME.to_string(),
-        description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore and skips binary files. Prefer this over running grep through the shell.".to_string(),
+        description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore, skips hidden files and directories (any path component starting with \".\"), and skips binary files. Prefer this over running grep through the shell.".to_string(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -149,7 +149,7 @@ fn grep_tool_definition() -> ToolDefinition {
                 },
                 "glob": {
                     "type": "string",
-                    "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\"."
+                    "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\". Matched against paths relative to path when path is given, otherwise relative to the workspace root; matched files are still reported relative to the workspace root."
                 },
                 "path": {
                     "type": "string",
@@ -181,13 +181,13 @@ fn grep_tool_definition() -> ToolDefinition {
 fn glob_tool_definition() -> ToolDefinition {
     ToolDefinition {
         name: GLOB_TOOL_NAME.to_string(),
-        description: "Find files by name pattern in the session's workspace folder. Respects .gitignore. Prefer this over listing files through the shell.".to_string(),
+        description: "Find files by name pattern in the session's workspace folder. Respects .gitignore and skips hidden files and directories (any path component starting with \".\"). Prefer this over listing files through the shell.".to_string(),
         input_schema: json!({
             "type": "object",
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern matched against workspace-relative paths, e.g. \"**/*.test.ts\"."
+                    "description": "Glob pattern, e.g. \"**/*.test.ts\". Matched against paths relative to path when path is given, otherwise relative to the workspace root; results are always reported relative to the workspace root."
                 },
                 "path": {
                     "type": "string",
@@ -208,7 +208,7 @@ fn edit_tool_definition() -> ToolDefinition {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path relative to the workspace root."
+                    "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
                 },
                 "old_string": {
                     "type": "string",

@@ -83,7 +83,7 @@ The system SHALL classify each tool call's risk by which tool/operation is being
 - **THEN** the system SHALL request user approval before executing it, regardless of the specific command
 
 ### Requirement: Sandboxed tool execution
-The shell tool SHALL execute through a bounded, timed-out, cancellable process execution mechanism rather than an unbounded subprocess call. The file tool SHALL resolve all paths relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder. The file-edit tool SHALL resolve its target path relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder, exactly as the file tool does. The content-search and filename-search tools SHALL traverse only within the session's workspace folder, SHALL respect the workspace's `.gitignore`/`.ignore` rules, SHALL skip symbolic links and binary file content rather than following or reading through them, SHALL be cancellable mid-traversal, and SHALL cap their returned results at an explicitly declared limit rather than returning an unbounded result set.
+The shell tool SHALL execute through a bounded, timed-out, cancellable process execution mechanism rather than an unbounded subprocess call. The file tool SHALL resolve all paths relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder. The file-edit tool SHALL resolve its target path relative to the session's workspace folder and SHALL reject any path that would resolve outside that folder, exactly as the file tool does. Neither the file tool nor the file-edit tool SHALL be able to access a path with any hidden component (a path segment starting with `.`); such a call SHALL be rejected with an explicit error. The content-search and filename-search tools SHALL traverse only within the session's workspace folder, SHALL respect the workspace's `.gitignore`/`.ignore` rules, SHALL skip hidden files and directories (any path component starting with `.`) as well as symbolic links and binary file content rather than following or reading through them, SHALL be cancellable mid-traversal, and SHALL cap their returned results at an explicitly declared limit rather than returning an unbounded result set. Every tool whose description could lead a caller to expect it can reach a hidden path SHALL state in that description that hidden files and directories are unavailable to it.
 
 #### Scenario: Shell command exceeds its timeout
 - **WHEN** a shell tool call runs longer than the system's fixed timeout
@@ -101,9 +101,14 @@ The shell tool SHALL execute through a bounded, timed-out, cancellable process e
 - **WHEN** a session has no workspace folder configured
 - **THEN** the system SHALL reject any file tool call for that session with a non-retryable failure
 
-#### Scenario: Search traversal respects ignore rules and skips unsafe entries
+#### Scenario: File and file-edit paths with a hidden component are rejected
+- **WHEN** the native agent calls the file tool or the file-edit tool with a path that has any component starting with `.` (e.g. `.github/workflows/ci.yml`)
+- **THEN** the system SHALL reject the call with an explicit error rather than attempting to access the path
+
+#### Scenario: Search traversal respects ignore rules and skips unsafe or hidden entries
 - **WHEN** the content-search or filename-search tool traverses the workspace folder
 - **THEN** the system SHALL exclude paths matched by the workspace's `.gitignore`/`.ignore` rules
+- **AND** it SHALL exclude hidden files and directories (any path component starting with `.`)
 - **AND** it SHALL skip symbolic links and binary file content rather than following or reading them
 
 #### Scenario: Search traversal is cancellable

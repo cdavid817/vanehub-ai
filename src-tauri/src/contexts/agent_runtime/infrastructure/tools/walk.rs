@@ -1,6 +1,9 @@
-//! Workspace-bounded traversal shared by `grep` and `glob`. Boundary concerns (path escape,
-//! symlinks, cancellation, size limits) are implemented once here so neither tool has to repeat
-//! them.
+//! Workspace-bounded traversal shared by `grep` and `glob`. Path-escape/boundary resolution,
+//! symlink skipping, hidden-file/`.gitignore` filtering, and cancellation are enforced
+//! unconditionally inside the walk itself. Per-file size limits are different: `exceeds_size_limit`
+//! is defined once here, but each caller that reads file content (`grep`, and separately `file`/
+//! `edit`, which do not walk at all) must invoke it themselves before `fs::read` -- the walk does
+//! not call it, and `glob` never needs to, since matching a file name never reads its content.
 
 use crate::platform::filesystem::BoundedFilesystem;
 use ignore::WalkBuilder;
@@ -16,6 +19,12 @@ pub(crate) const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// and a NUL byte in a text file — if one is there at all — almost always shows up near the
 /// start.
 const BINARY_SNIFF_BYTES: usize = 8 * 1024;
+
+/// Shared suffix `grep`/`glob` append to their own "no matches" message when their own
+/// `visit_workspace_files` call visited zero files -- see the `parents(true)`/`git_global(true)`
+/// note on `visit_workspace_files` above. Kept here as one string so the two tools can't drift
+/// into saying this differently.
+pub(crate) const ZERO_FILES_VISITED_NOTE: &str = " The search visited zero files -- this can mean the path argument doesn't exist or is empty, or that an ancestor directory's ignore rules exclude the whole workspace, not that the pattern was checked against the workspace's content and failed to match. Verify the path and ignore rules before concluding the target doesn't exist.";
 
 /// What the visitor decides after each file: keep walking, or stop early (once a result-count
 /// or byte budget the caller tracks has been reached).
@@ -63,7 +72,12 @@ pub(crate) struct WalkedFile<'a> {
 /// workspace: a workspace nested under a directory that an ancestor repository's `.gitignore`
 /// excludes will walk to zero files and return `Ok(())`, so the caller reports "no matches"
 /// rather than an error. This matches ripgrep's own behavior and should stay as-is, but it is
-/// worth knowing about up front rather than losing an hour to it later.
+/// worth knowing about up front rather than losing an hour to it later. Combined with hidden-file
+/// skipping below, an entire workspace can be invisible to a search while it still reports a
+/// confident, non-error "no matches" -- indistinguishable from a pattern that genuinely isn't
+/// present. Callers should count how many files this function actually visits (trivial: increment
+/// once per `visit` call) and say so when that count is zero, rather than let a "found nothing"
+/// answer stand in for "searched nothing" -- see `ZERO_FILES_VISITED_NOTE`.
 pub(crate) fn visit_workspace_files(
     workspace_folder: &str,
     relative_root: Option<&str>,
@@ -89,6 +103,11 @@ pub(crate) fn visit_workspace_files(
     };
 
     let walker = WalkBuilder::new(&root)
+        // Any path component starting with `.` is skipped, not just VCS/editor dotfiles -- this
+        // is what makes `.claude/`, `.github/`, etc. invisible to every tool built on this walk.
+        // Callers that describe this traversal to a model (`grep`, `glob`) must say so explicitly
+        // in their tool descriptions; a model has no other way to learn that a hidden path can
+        // never be found this way.
         .hidden(true)
         .git_ignore(true)
         .git_global(true)

@@ -206,14 +206,18 @@ fn read_file(
         // `offset + rendered.len()` does double duty: as a 1-indexed line number it names the
         // last line rendered above; as a 0-indexed offset it is exactly the value that resumes
         // right after that line. The two indexing bases happen to land on the same integer here,
-        // but only spelling out the word "offset" next to it tells the model which meaning it
-        // may reuse -- without that, "continue with offset" on its own is a coin flip between
-        // this number and this number plus one, and losing it silently skips or repeats a line.
+        // which is exactly the trap: a notice that puts "line N" and "offset: N" next to each
+        // other with nothing but the bare word "offset" to tell them apart reads as "these two
+        // numbers mean the same thing" -- and a model that internalizes that then hands grep's
+        // 1-based `path:N:` line numbers straight to `offset` unadjusted, landing one line past
+        // the one it wanted. Naming each number's own base inline, rather than letting the shared
+        // integer imply they're interchangeable, is what keeps this from teaching that shortcut.
         let resume_offset = offset + rendered.len();
         if more_remains {
             output.push_str(&format!(
-                "\n\n[Output truncated after line {resume_offset}. The file has {} lines; \
-                 continue with offset: {resume_offset}.]",
+                "\n\n[Output truncated after 1-based line {resume_offset} of {}. Offset is \
+                 0-based, so call again with offset: {resume_offset} to continue right after \
+                 that line.]",
                 all.len()
             ));
         } else {
@@ -787,10 +791,14 @@ mod tests {
 
     #[test]
     fn the_truncation_notice_states_the_literal_resume_offset() {
-        // Line numbers in the notice are 1-indexed; `offset` is 0-indexed. A notice that says
-        // "truncated at line 4 ... continue with offset" without spelling out the number forces
-        // the model to guess whether to reuse 4 or advance to 5 -- a coin flip that, lost,
-        // silently skips or repeats a line. The notice must state the exact value to pass back.
+        // Line numbers in the notice are 1-indexed; `offset` is 0-indexed. A notice that names
+        // both without spelling out which is which -- "truncated at line 4 ... continue with
+        // offset" -- forces the model to guess whether to reuse 4 or advance to 5, a coin flip
+        // that, lost, silently skips or repeats a line. The notice must state the exact value to
+        // pass back, with each number's own base named next to it (see the comment above
+        // `resume_offset` in `read_file`) so a model can't generalize "line N" and "offset: N"
+        // into meaning the same thing -- the mistake this guards against is a model reusing a
+        // 1-based line number from grep's `path:N:` output as `offset` unadjusted.
         let directory = TempDirectory::new("file-tool-resume-offset");
         let body: String = (1..=10).map(|index| format!("line{index}\n")).collect();
         std::fs::write(directory.path().join("a.txt"), body).expect("write fixture");
@@ -803,7 +811,8 @@ mod tests {
             &directory.path().to_string_lossy(),
         );
         assert!(!outcome.is_error);
-        assert!(outcome.output.contains("continue with offset: 4"));
+        assert!(outcome.output.contains("1-based line 4"));
+        assert!(outcome.output.contains("call again with offset: 4"));
     }
 
     #[test]
@@ -845,7 +854,7 @@ mod tests {
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("truncated"));
         assert!(
-            !outcome.output.contains("continue with offset"),
+            !outcome.output.contains("call again with offset"),
             "no content remains beyond the file's last (clipped) line, so paging advice is \
              unreachable: {}",
             outcome.output

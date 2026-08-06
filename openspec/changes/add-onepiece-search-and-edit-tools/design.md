@@ -59,11 +59,11 @@ OnePiece 是 VaneHub 内置的原生 Agent（`launch_kind = api`），当前工�
 新工具全部对齐 `shell_tool` 已有约束，同时回补 `file_tool` 缺失的部分：
 
 - **取消**：`grep` / `glob` 遍历大仓库可能耗时较长，复用 `shell` 的 `Arc<AtomicBool>` 取消信号，在遍历循环每个条目处检查。`file` 的 read **不接取消** —— 单次 `std::fs::read` 没有可插入检查点的循环，加参数只是空摆设；该路径靠下面的三档上限约束，而非靠取消。
-- **输出上限**：沿用 `SHELL_OUTPUT_LIMIT`（64KB）作为统一字节上限。`grep` / `glob` 都额外加 200 条结果硬上限，两者取先触发者；`grep` 的 `head_limit` 参数可以把这个 200 条上限调低，但不能调高，`glob` 没有 `head_limit` 参数，其 200 条上限固定不可调。**截断必须显式告知** —— 静默截断会让模型误以为已搜完。
+- **输出上限**：`shell` / `grep` / `file` read 共用 `MAX_TOOL_OUTPUT_BYTES`（64KB，即 `SHELL_OUTPUT_LIMIT`）字节上限。`grep` 在字节上限之外还叠加 200 条结果行硬上限，两者取先触发者；其 `head_limit` 参数可以把这 200 条上限调低，但不能调高。`glob` **只有** 200 条结果硬上限，没有字节上限，也没有 `head_limit` 参数、其上限固定不可调 —— 这是刻意的范围选择而非遗漏：`glob` 的返回值是短小的 workspace-relative 路径列表，不是任意长度的文件内容行，200 条路径在实践中远不会逼近 64KB，为它单独实现一套"按剩余预算逐条截断"的逻辑（`grep`/`file` 都有的那种）收益不值当这份复杂度。`tools/mod.rs` 里 `MAX_TOOL_OUTPUT_BYTES` 的文档注释如实列出了它的使用方（`shell`/`grep`/`file` read），`glob` 从未在其列——代码本身是自洽的，本节此前的措辞暗示两者都受它约束，是文档的错误，不是代码的疏漏。**截断必须显式告知** —— 静默截断会让模型误以为已搜完。
 - **输入上限**：`grep` / `edit` / `file read` 在 `std::fs::read` **之前**先用 `metadata().len()` 判断文件大小，超过 10MB 即放弃。否则一个未被 `.gitignore` 排除的超大日志会在任何输出上限生效前就分配等量内存 —— 输出边界保护上下文窗口，输入边界保护进程本身。`grep` 静默跳过超大文件（搜索不该因单个文件而失败），`file read` 与 `edit` 报明确错误（用户点名了这个文件，静默跳过等于骗人）。
 - **二进制保护**：读到 NUL 字节即判定二进制，返回明确原因，而非抛 UTF-8 解码错误。
-- **路径边界**：全部走现成的 `BoundedFilesystem`。遍历时**逐条目校验**，防止 symlink 指向工作区外。
-- **默认过滤**：尊重 `.gitignore` / `.ignore`，跳过隐藏目录与二进制文件。不过滤的话，本仓一次 grep 会被 `node_modules` 与 `src-tauri/target` 淹没，工具等同不可用。
+- **路径边界**：`grep`/`glob` 的起始路径（工作区根，或 `path` 收窄后的子目录）走 `BoundedFilesystem` 解析**一次**；`edit`/`file` 的目标路径每次调用各自独立走一次。遍历本身**不**对每个访问到的条目重复调用 `BoundedFilesystem`——而是跳过所有符号链接条目、用 `strip_prefix` 计算相对路径（见下方 Decision 3）。跳过符号链接本身就整体消除了"symlink 指向工作区外"这一类越界风险，不需要、也没有逐条目校验；本节此前"遍历时逐条目校验"的措辞与 Decision 3 描述的实现相互矛盾，以 Decision 3 及代码本身为准。
+- **默认过滤**：尊重 `.gitignore` / `.ignore`，跳过隐藏文件与目录（任意路径分量以 `.` 开头，不止 `.git`/`.gitignore` 这类）与二进制文件。不过滤的话，本仓一次 grep 会被 `node_modules` 与 `src-tauri/target` 淹没，工具等同不可用。隐藏文件跳过是全局性的、无法关闭的——包括本仓 `AGENTS.md` 要求代理阅读的 `.claude/skills/`——`grep`/`glob` 的工具描述与 `file`/`edit` 的 `path` 参数描述都需要说明这一点，否则模型无法区分"该内容确实不存在"与"该内容因为隐藏而从未被搜索/无法访问"。
 
 ## 代码组织
 
@@ -82,7 +82,7 @@ src-tauri/src/contexts/agent_runtime/infrastructure/tools/
 
 `walk.rs` 是关键抽象 —— `grep` 与 `glob` 共用同一套"安全遍历"（`BoundedFilesystem` 边界 + `ignore` 过滤 + 取消信号 + 上限），边界逻辑只实现一次。
 
-`api_process_adapter.rs` 中仅在 `execute_tool_call` 的 `match` 上新增三个分支，纯路由。
+`api_process_adapter.rs` 中在 `execute_tool_call` 的 `match` 上新增三个分支（`grep`/`glob`/`edit`）。实现过程中另加了两个小型辅助函数（`parse_optional_non_negative_integer_arg`/`non_negative_integer`），把 JSON 数字解析成非负整数——这是审查中发现 `{"limit": 3.0}` 这类以浮点数编码到达的整数值会被 `Value::as_u64` 静默当成"未提供"的修复，服务于路由本身而非独立的新能力，但严格来说已不只是三个 match 分支那么"纯"。
 
 ## 集成点
 

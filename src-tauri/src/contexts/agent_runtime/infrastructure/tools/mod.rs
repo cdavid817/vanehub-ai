@@ -1,5 +1,10 @@
-//! Sandboxed execution for the native tool-use loop's six tools. Each wraps an existing,
-//! already-hardened `platform` primitive rather than reimplementing process/path safety.
+//! Sandboxed execution for five of the native tool-use loop's six tools (`remember` is the sixth
+//! -- it never touches the filesystem or a process, so it executes directly in
+//! `api_process_adapter.rs` rather than living here). `file`, `edit`, and `shell` each wrap an
+//! existing, already-hardened `platform` primitive (`platform::filesystem::BoundedFilesystem`;
+//! `platform::process`) rather than reimplementing process/path safety. `grep` and `glob` instead
+//! wrap `walk.rs`, a traversal primitive introduced alongside them in this same change, not a
+//! pre-existing one.
 
 mod edit_tool;
 mod file_tool;

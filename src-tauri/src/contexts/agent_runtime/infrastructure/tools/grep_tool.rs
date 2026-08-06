@@ -2,7 +2,9 @@
 //! delegated to `walk`; this module handles regex matching, the three output shapes, and
 //! result/byte limits.
 
-use super::walk::{exceeds_size_limit, is_binary, visit_workspace_files, Visit};
+use super::walk::{
+    exceeds_size_limit, is_binary, visit_workspace_files, Visit, ZERO_FILES_VISITED_NOTE,
+};
 use super::{ToolExecutionOutcome, MAX_SEARCH_RESULTS, MAX_TOOL_OUTPUT_BYTES};
 use globset::GlobBuilder;
 use regex::RegexBuilder;
@@ -110,8 +112,14 @@ pub(crate) fn execute_grep(
     let mut lines: Vec<String> = Vec::new();
     let mut bytes = 0usize;
     let mut truncated = false;
+    // Counted before any filtering (glob/size/binary/UTF-8) below: this measures whether the walk
+    // itself reached any files at all, which is a different question from whether any of those
+    // files matched `pattern` or survived this tool's own `glob`/size/binary filters. See
+    // `visit_workspace_files`'s doc comment on `parents(true)`/`git_global(true)`.
+    let mut files_visited = 0usize;
 
     let walk = visit_workspace_files(workspace_folder, request.path, &cancelled, &mut |file| {
+        files_visited += 1;
         // Filtered against `scoped`, not `display`: once `path` narrows the search, `display`
         // still carries the narrowed directory's own name, which `literal_separator` matching
         // would keep an unanchored glob from ever crossing. Output still uses `display` — the
@@ -172,8 +180,13 @@ pub(crate) fn execute_grep(
         return error(&failure);
     }
     if lines.is_empty() {
+        let note = if files_visited == 0 {
+            ZERO_FILES_VISITED_NOTE
+        } else {
+            ""
+        };
         return ToolExecutionOutcome {
-            output: format!("No matches for \"{pattern}\"."),
+            output: format!("No matches for \"{pattern}\".{note}"),
             is_error: false,
         };
     }
@@ -618,6 +631,28 @@ mod tests {
         );
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("No matches"));
+        // This fixture's walk visits 3 files (src/alpha.rs, src/beta.rs, notes.md) before finding
+        // no match among them -- the zero-visited note must not fire here, or every genuine
+        // "searched but found nothing" answer would carry a misleading "did I even search?" caveat.
+        assert!(!outcome.output.contains("visited zero files"));
+    }
+
+    #[test]
+    fn a_search_that_visits_zero_files_says_so_distinctly_from_a_genuine_no_match() {
+        // Mirrors `glob_tool`'s identical test: `path` pointing at an existing-but-empty directory
+        // makes `visit_workspace_files` visit zero files -- the same observable shape
+        // `parents(true)`/`git_global(true)` can produce for a whole workspace nested under an
+        // ancestor's `.gitignore` (see `walk.rs`). Both would otherwise report the identical
+        // confident "No matches" a genuinely absent pattern gets, with no way for the caller to
+        // tell "nothing was searched" from "nothing matched".
+        let directory = TempDirectory::new("grep-zero-visited");
+        std::fs::create_dir(directory.path().join("empty")).expect("mkdir empty");
+        let mut input = request("needle", "files_with_matches");
+        input.path = Some("empty");
+        let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("No matches"));
+        assert!(outcome.output.contains("visited zero files"));
     }
 
     #[test]
@@ -771,6 +806,30 @@ mod tests {
         let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
         assert!(!outcome.is_error);
         assert_eq!(outcome.output, "docs/guide.md");
+    }
+
+    #[test]
+    fn a_path_scope_matches_an_anchored_glob_filter_against_the_narrowed_root_not_the_workspace_root(
+    ) {
+        // The unanchored counterpart above proves the `scoped`-vs-`display` distinction only in
+        // one direction. An *anchored* glob filter -- one with a literal leading path segment --
+        // proves the `glob` argument's documented matching basis ("relative to `path` when `path`
+        // is given") the other way: if the filter ran against `display` ("docs/sub/file.md")
+        // instead of `scoped` ("sub/file.md"), a literal "sub/*.md" prefix would never match,
+        // since the string doesn't start with "sub/".
+        let directory = workspace("grep-scope-anchored");
+        std::fs::create_dir_all(directory.path().join("docs/sub")).expect("mkdir docs/sub");
+        std::fs::write(
+            directory.path().join("docs/sub/file.md"),
+            "needle in file\n",
+        )
+        .expect("write file");
+        let mut input = request("needle", "files_with_matches");
+        input.path = Some("docs");
+        input.glob = Some("sub/*.md");
+        let outcome = execute_grep(input, &directory.path().to_string_lossy(), not_cancelled());
+        assert!(!outcome.is_error);
+        assert_eq!(outcome.output, "docs/sub/file.md");
     }
 
     #[test]

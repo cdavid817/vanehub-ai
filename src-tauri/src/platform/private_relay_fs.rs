@@ -248,6 +248,14 @@ fn open_private_file(path: &Path) -> io::Result<File> {
 /// user has to fix by hand-deleting a hidden file; overwriting it here is safe instead, because
 /// the current process already owns that name by construction and there is nothing in a stale
 /// file worth preserving.
+///
+/// This module is named and organized around the MCP relay's own temp-file needs, but this
+/// function is also a hard dependency of
+/// `contexts::agent_runtime::infrastructure::tools::edit_tool::create_temp_file` --
+/// `tests/architecture.rs` confines raw `OpenOptions` construction to the modules under
+/// `platform/`, so `edit_tool.rs` cannot open its own file handle and calls this instead. A future
+/// relay-focused refactor that removes, renames, or narrows this function without grepping for
+/// that caller would silently break `edit`.
 #[cfg(unix)]
 pub(crate) fn create_or_truncate_private_file(path: &Path) -> io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt;

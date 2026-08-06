@@ -1,4 +1,4 @@
-> **Task 10 回填状态（务必先读）**：Task 1-9 的实现与自审均已完成并落盘；Task 10 执行全量校验时，`cargo test --manifest-path src-tauri/Cargo.toml`（不带 `--lib`，即包含 `tests/architecture.rs` 等集成测试可执行文件）在本变更范围内**首次**被完整跑通，发现一个真实的、非环境抖动的架构边界回归：`edit_tool.rs`（Task 5 引入的原子写入实现）触发了 `runtime_processes_and_append_logs_use_shared_adapters` 这条既有架构适配测试。详见 §9.1。**在这一项被修复并重新验证之前，本变更不满足「全部通过」的归档前提，不应执行 `openspec archive`。**
+> **Task 10 回填状态（务必先读，2026-08-06 由最终全分支审查更新）**：Task 1-9 的实现与自审均已完成并落盘。Task 10 执行全量校验时曾发现一个真实的、非环境抖动的架构边界回归：`edit_tool.rs`（Task 5 引入的原子写入实现）的临时文件创建绕开了 `platform/` 下的共享私有文件原语，触发了 `runtime_processes_and_append_logs_use_shared_adapters` 这条既有架构适配测试。详见 §9.1 与新增的 §4.4。**该回归已在 commit `018baaf`（`fix(edit-tool): route temp-file creation through the shared private-file adapter`）中修复**：`platform/private_relay_fs.rs` 新增 `create_or_truncate_private_file` 原语（create-or-truncate 语义，刻意区别于同文件里 `open_private_file` 的 `create_new` 语义——原因见 §4.4），`edit_tool.rs::create_temp_file` 改为在所有平台上委托给它，`private_relay_fs_tests.rs` 新增 2 条测试覆盖新原语。全量校验已在修复后的 tip 上重新跑通并全绿（本文件末尾 §9 记录了最终全分支审查这一轮的具体命令输出）。此前"不应执行 `openspec archive`"的阻塞条件已不再适用于 §9.1 本身；本变更是否满足归档的其余前提由执行 `openspec archive` 的人在当时另行判断，本文件仅如实记录已验证的事实。
 
 ## 1. 共享依赖与受限遍历（walk.rs）
 
@@ -52,6 +52,8 @@
 
   **第二轮外部审查又发现"匹配次数"本身完全未被钉住**：`outcome.output.contains('3')`/`.contains('2')` 在把 `{occurrences}` 改写成 `occurrences + 10` 后依然通过（"13 次"里含 '3'，"12 次"里含 '2'）——而这个次数是这个工具的核心契约（防止"以为只改了一处，实际改了很多处"）。改为断言完整短语 `"matches 3 times"` / `"Replaced 2 occurrence"`。同一轮还发现路径越界测试用的 `../outside.rs` 根本不存在，测试在 `canonicalize` 阶段就已经失败，从未真正走到越界检查那一步——把越界检查整个删掉，这条测试依然会因为"文件不存在"而报错，`is_error` 看不出区别；改为让 `../outside.rs` 真实存在（workspace 的同级兄弟文件），越界检查被删除后确实还会报错，但报的是不同的 `OutsideRoot` 信息而非越界专属信息，从而让测试真正对特定护栏敏感。
 
+- [x] 4.4 修复 §9.1 发现的架构边界回归：`platform/private_relay_fs.rs` 新增 `create_or_truncate_private_file`，`edit_tool.rs::create_temp_file` 改为委托给它 —— commit `018baaf`（Task 10 完成、本 tasks.md 曾一度声称"需要一个专门的后续任务"之后落地，见上方 Task 10 状态说明）。`create_or_truncate_private_file` 与既有的 `open_private_file` 是**兄弟原语**而非对后者的提升/复用：`open_private_file` 是 `create_new`（目标已存在即报错），`create_or_truncate_private_file` 是 create-or-truncate（目标已存在则截断覆盖）。两者语义刻意不同——`edit_tool.rs` 的临时文件名是 pid 加进程内自增序号，进程崩溃后一旦 pid 被系统回收，可能残留一个同名 stale 文件；`create_new` 会让这种残留变成一次性的、需要用户手动删除隐藏文件才能恢复的永久失败，而 create-or-truncate 覆盖它是安全的，因为当前进程已经通过命名规则独占这个名字，残留文件里没有任何值得保留的内容。`private_relay_fs_tests.rs` 新增 2 条测试：`create_or_truncate_overwrites_a_stale_file_left_by_a_prior_crash`（覆盖上述场景）、`create_or_truncate_is_private_from_creation`（`#[cfg(unix)]`，创建时即为 `0o600`，不经历"先默认权限再收紧"的窗口）。这两个文件的这部分改动此前不在任何任务清单的认领范围内，本条补记。
+
 ## 5. `file` read 边界
 
 - [x] 5.1 `file_tool.rs` 的 read 操作增加 `offset`/`limit` 分页与行号前缀 —— `execute_file` 签名增加 `offset: Option<usize>`、`limit: Option<usize>` 两个参数（4 参 → 6 参）；输出前缀 `"{1-indexed 行号}\t{内容}"`。commit（初版）`26e8441`。
@@ -96,7 +98,7 @@
 
 ## 9. Verification
 
-- [ ] 9.1 `cargo test --manifest-path src-tauri/Cargo.toml` —— **未能全绿，发现一处真实的、非环境抖动的回归。** 这是本变更全程第一次运行不带 `--lib` 限定的 `cargo test`：Task 1-9 的每一次校验都只跑过 `--lib`（或再加 `tools::`/`tool_catalog`/`api_process_adapter` 模块过滤）范围，从未编译执行过 `tests/architecture.rs` 这个独立集成测试可执行文件。`--lib` 部分本身干净：**1358 passed; 0 failed; 10 ignored**（含已知偶发的 `contexts::tooling::mcp::infrastructure::relay::tests` 一组，本次运行未触发该抖动）。`src/main.rs` 0 tests。`tests/architecture.rs` 12 个测试里 1 个失败：
+- [x] 9.1 `cargo test --manifest-path src-tauri/Cargo.toml` —— **首次运行未能全绿，发现一处真实的、非环境抖动的回归；已在 commit `018baaf` 修复并在修复后的 tip 上重新跑通全绿（见本条末尾与 §4.4）。** 这是本变更全程第一次运行不带 `--lib` 限定的 `cargo test`：Task 1-9 的每一次校验都只跑过 `--lib`（或再加 `tools::`/`tool_catalog`/`api_process_adapter` 模块过滤）范围，从未编译执行过 `tests/architecture.rs` 这个独立集成测试可执行文件。`--lib` 部分本身干净：**1358 passed; 0 failed; 10 ignored**（含已知偶发的 `contexts::tooling::mcp::infrastructure::relay::tests` 一组，本次运行未触发该抖动）。`src/main.rs` 0 tests。`tests/architecture.rs` 12 个测试里 1 个失败：
 
     ```
     thread 'runtime_processes_and_append_logs_use_shared_adapters' panicked at tests\architecture.rs:800:5:
@@ -107,7 +109,11 @@
 
     根因：`edit_tool.rs` 的 `#[cfg(unix)] fn create_temp_file`（Task 5 第三轮审查为修复"临时文件短暂可被其他用户读取"而新增，commit `b31d722`）里用 `std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600)` 直接创建私有临时文件。`tests/architecture.rs` 的 `runtime_processes_and_append_logs_use_shared_adapters` 用 `syn::parse_file` 静态扫描全部源码（不会求值 `#[cfg]`，所以即便这段代码只在 Unix 上编译，扫描仍然会看到它），凡是调用路径以 `["new", "OpenOptions"]` 结尾、且所在文件不是 `platform/logging.rs` 或 `platform/private_relay_fs.rs` 的，一律判定为"feature-local append-file construction"违规——不检查是否真的调用了 `.append(true)`，规则本身比名字暗示的更宽。`platform/private_relay_fs.rs` 里已经有一个几乎同构的私有 `open_private_file()` 辅助函数（`OpenOptions::new().write(true).create_new(true).mode(0o600)`），`edit_tool.rs` 这次相当于重新发明了一遍而不是复用它，正是这条架构护栏想防止的那类重复。
 
-    这是本次全量验证中确认的**第三处计划/实现缺陷**：Task 5 第三轮审查在加固原子写入时引入了这处违规，因为 Task 1-9 全程没有一次运行覆盖 `tests/architecture.rs` 的完整 `cargo test`，所以三轮审查都没有捕捉到。已复核确认可稳定复现（非计时/socket 类问题，是纯静态 AST 扫描，重跑两次结果完全一致），不属于 brief 预警的 `relay_tests`/`relay_streamable_http*` 已知抖动模式（本次运行这组测试反而全部通过），也不属于前端 vitest worker 池耗尽的已知模式。**按照本任务的执行要求，未尝试修复 `edit_tool.rs` 或放宽/修改 `tests/architecture.rs`——需要一个专门的后续任务，在 `platform/` 下暴露一个共享的"以私有权限创建新文件"原语（很可能是把 `private_relay_fs.rs` 的 `open_private_file` 提升为 `pub(crate)` 并复用，或在 `platform/logging.rs` 补一个等价项），让 `edit_tool.rs` 改为调用它，而不是自建 `OpenOptions`。**
+    这是本次全量验证中确认的**第三处计划/实现缺陷**：Task 5 第三轮审查在加固原子写入时引入了这处违规，因为 Task 1-9 全程没有一次运行覆盖 `tests/architecture.rs` 的完整 `cargo test`，所以三轮审查都没有捕捉到。已复核确认可稳定复现（非计时/socket 类问题，是纯静态 AST 扫描，重跑两次结果完全一致），不属于 brief 预警的 `relay_tests`/`relay_streamable_http*` 已知抖动模式（本次运行这组测试反而全部通过），也不属于前端 vitest worker 池耗尽的已知模式。当时按照该任务的执行要求，未尝试修复 `edit_tool.rs` 或放宽/修改 `tests/architecture.rs`，而是记录为需要一个专门的后续任务。
+
+    **该后续任务已完成（commit `018baaf`，见 §4.4 的完整记录）**：`platform/private_relay_fs.rs` 新增 `create_or_truncate_private_file`——不是把 `open_private_file` 提升/复用，而是与它并列的一个兄弟原语，因为二者的 `create_new` 与 create-or-truncate 语义刻意不同（原因见 §4.4）；`edit_tool.rs::create_temp_file` 改为在所有平台上统一委托给它，不再自建 `OpenOptions`，也不再需要 `#[cfg(unix)]`/`#[cfg(not(unix))]` 两条可能漂移的独立实现。修复后 `cargo test --manifest-path src-tauri/Cargo.toml`（含 `tests/architecture.rs`）已重新跑通，`tests/architecture.rs` 12 个测试全部通过，0 失败——本条下方 §9.2-9.8 记录的、以及本文件顶部"Task 10 回填状态"引用的验证结果，均取自这次修复之后、并叠加了最终全分支审查自身改动之后的 tip。
+
+> §9.2-9.8 的勾选与数字记录的是 Task 10 当时（`018baaf` 之前）那一轮运行的结果，与 §9.1 所述回归取自同一次 `cargo test` 会话。`018baaf` 落地、以及最终全分支审查（本文件顶部 2026-08-06 更新）自身的改动完成之后，全部校验命令已在当前 tip 上重新跑过；重新验证的结果记录在 §9.9，不是对下面数字的静默替换。
 
 - [x] 9.2 `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` —— 干净，0 警告，退出码 0。另外额外用 CI 实际执行的 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`（`.github/workflows/ci.yml:218`）复核，同样 0 警告——说明 §9.1 的失败是这条静态架构护栏特有的问题，不是 clippy 能捕捉的一类问题（`OpenOptions::new()` 本身不违反任何 clippy lint）。
 
@@ -123,6 +129,16 @@
 
 - [x] 9.8 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`（同上，原始草稿未列，AGENTS.md「校验命令」隐含要求，Task 10 按 orchestrator 指示一并执行）—— 退出码 0，无差异输出。
 
+- [x] 9.9 全量校验在最终全分支审查改动完成之后的 tip 上重新跑通（`018baaf` 之后，叠加本轮九项审查发现的修复——工具描述/schema 文案、`glob`/`grep` 的零命中提示、`file` 的 offset/1-based 行号说明、`format_memory_section` 的可信度分隔、`tasks.md` 本身的回填，均为文档/schema/提示语/测试层面的改动，未触碰任何风险分级、信任白名单、plan mode 强制、路径边界或原子写入的既有属性）：
+  - `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` —— 退出码 0。
+  - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` —— 干净，0 警告。
+  - `cargo test --manifest-path src-tauri/Cargo.toml`（`--lib` + `tests/architecture.rs` + `tests/mcp_fixture_contracts.rs` + `tests/mcp_relay_provider_invocations.rs` + doc-tests）—— **1364 lib + 12 architecture + 3 + 3 全部通过，0 failed，10 ignored**（`tools::` 从 104 增至 108、`tool_catalog` 29 个不变、`api_process_adapter` 从 86 增至 87，新增测试见各任务小节）。首次运行时 `mcp_fixture_contracts::streamable_http_fixture_contract_is_complete` 单次失败，单独重跑与整体重跑均转绿——这是仓库里已知的偶发性 relay/streamable-http 探针抖动模式，与本轮改动的代码路径无关联，不是回归。
+  - `npm run lint` —— `eslint .` 干净。
+  - `npm run test` —— 528/528 测试通过，130/130 文件。
+  - `npm run build` —— 干净，"Verified 16 lazy frontend chunks; main static closure 105.3 KiB gzip."
+  - `openspec validate --specs --strict` —— 85 passed, 0 failed（85 items）。
+  - `openspec validate add-onepiece-search-and-edit-tools --strict` —— `Change 'add-onepiece-search-and-edit-tools' is valid`。
+
 ### 跨任务复盘：反复出现的"伪阳性测试"问题
 
 以下六次独立的审查/自查里，都发现了同一类问题——**某条测试在它所声称覆盖的护栏被删除/破坏之后仍然全绿**，因为要么是另一个不相关的护栏在同一夹具上顶替报了错，要么断言本身太弱（只查子串/`is_error`，不查具体数值或具体错误原因），要么测的根本不是生产代码真正调用的那个函数。全部六处都已修复，但记录下来是因为这类问题在这条 9 任务链里出现的频率高到值得作为一条通用教训：
@@ -136,4 +152,6 @@
 
 **结论**：本变更里几乎每一类"结果正确性由一个数值/名单/具体错误信息定义"的护栏，第一版测试都倾向于只断言"有没有报错"或"字符串里有没有某个词"，而不是断言具体的值或具体的原因；只有在审查方主动做 mutation-testing（临时禁用/破坏被测护栏，观察测试是否真的变红）之后，这类伪阳性才会暴露。后续新增工具类测试时，应当默认对"数量/边界/唯一性"类护栏做一次 mutation 验证，而不是等审查发现。
 
-**综合结论（Task 10）**：openspec 两条 `validate --strict` 均通过、前端 lint/test/build 三项均通过、Rust `--lib` 测试与两种 clippy 调用均通过；**但 `cargo test --manifest-path src-tauri/Cargo.toml` 的完整调用（含 `tests/architecture.rs`）未能全绿**，见 §9.1。本变更尚不满足"全部通过"的归档前提，`openspec archive add-onepiece-search-and-edit-tools` 不应在此状态下执行。
+**综合结论（Task 10 当时）**：openspec 两条 `validate --strict` 均通过、前端 lint/test/build 三项均通过、Rust `--lib` 测试与两种 clippy 调用均通过；**但 `cargo test --manifest-path src-tauri/Cargo.toml` 的完整调用（含 `tests/architecture.rs`）未能全绿**，见 §9.1。当时本变更尚不满足"全部通过"的归档前提。
+
+**综合结论（最终全分支审查，2026-08-06 更新）**：§9.1 的回归已在 `018baaf` 修复，§4.4 记录了完整改动。最终全分支审查另修复了九项审查发现（工具描述/schema 文案、`format_memory_section` 的可信度分隔、零命中提示等，均为文档/schema/提示语与测试补强，未改动任何风险分级、信任白名单、plan mode 强制、路径边界或原子写入的既有属性），完整校验已在这些改动之后的 tip 上重新跑过，见 §9.9。是否满足归档的其余前提（例如是否还有未完成的 review 意见）由执行 `openspec archive` 的人在当时另行判断；本文件只如实记录：截至最终全分支审查这次提交，全部校验命令均已重新验证为绿色。

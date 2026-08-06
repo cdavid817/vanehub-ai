@@ -10,7 +10,7 @@ OnePiece 的原生工具目录只有 `shell`、`file`（整文件 read/write）�
 ## What Changes
 
 - 新增 `grep`（内容搜索）、`glob`（文件名搜索）、`edit`（唯一匹配的串替换）三个工具。
-- 为 `file` 的 read 操作增加 `offset` / `limit` 分页、行号前缀、行数/单行/字节三档上限、二进制拒绝、取消信号接入。
+- 为 `file` 的 read 操作增加 `offset` / `limit` 分页、行号前缀、行数/单行/字节三档上限、二进制拒绝。（取消信号只接入 `grep`/`glob` 的遍历循环——`file` read 是单次 `std::fs::read`，没有可插入检查点的循环，加取消参数只是空摆设；这一点在 design.md 的"安全与执行边界"一节已如实记录，本节此前的措辞与之不一致，予以订正。）
 - `grep` / `glob` 归入 `AutoApprove`；`edit` 归入 `RequiresApproval` 并纳入信任授权白名单。
 - Plan mode 目录增加 `grep` / `glob`；`execute_tool_call` 增加对 `edit` 的 plan mode 硬拒。
 - 校正 `agent-tool-execution` 中「exactly two tools」的既有漂移 —— 该措辞在 `remember` 工具落地时未同步更新。

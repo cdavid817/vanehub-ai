@@ -2,7 +2,7 @@
 //! filtering, and boundary enforcement are all delegated to `walk`; this module only matches
 //! patterns and shapes output.
 
-use super::walk::{visit_workspace_files, Visit};
+use super::walk::{visit_workspace_files, Visit, ZERO_FILES_VISITED_NOTE};
 use super::{ToolExecutionOutcome, MAX_SEARCH_RESULTS};
 use globset::GlobBuilder;
 use std::sync::atomic::AtomicBool;
@@ -39,7 +39,13 @@ pub(crate) fn execute_glob(
 
     let mut matches: Vec<String> = Vec::new();
     let mut truncated = false;
+    // Distinguishes "the walk visited files but none matched" from "the walk never reached any
+    // files at all" (empty `path` scope, or the whole workspace excluded by an ancestor's
+    // `.gitignore` -- see `visit_workspace_files`'s doc comment). Both would otherwise report the
+    // identical confident "No files matched", with no way for the caller to tell them apart.
+    let mut files_visited = 0usize;
     let outcome = visit_workspace_files(workspace_folder, path, &cancelled, &mut |file| {
+        files_visited += 1;
         // Matched against `scoped`, not `display`: once `path` narrows the search, `display`
         // still carries the narrowed directory's own name, which `literal_separator` matching
         // would keep any unanchored pattern from ever crossing.
@@ -64,8 +70,13 @@ pub(crate) fn execute_glob(
         };
     }
     if matches.is_empty() {
+        let note = if files_visited == 0 {
+            ZERO_FILES_VISITED_NOTE
+        } else {
+            ""
+        };
         return ToolExecutionOutcome {
-            output: format!("No files matched \"{pattern}\"."),
+            output: format!("No files matched \"{pattern}\".{note}"),
             is_error: false,
         };
     }
@@ -126,6 +137,10 @@ mod tests {
         );
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("No files matched"));
+        // This fixture's walk visits 3 files (src/main.rs, src/lib.rs, README.md) before finding
+        // no ".py" match among them -- the zero-visited note must not fire here, or every genuine
+        // "searched but found nothing" answer would carry a misleading "did I even search?" caveat.
+        assert!(!outcome.output.contains("visited zero files"));
     }
 
     #[test]
@@ -188,6 +203,49 @@ mod tests {
         // Must be the workspace-relative path, not `guide.md` — the model hands this straight to
         // the `file`/`edit` tools, which reject anything but a workspace-relative path.
         assert_eq!(outcome.output, "docs/guide.md");
+    }
+
+    #[test]
+    fn a_path_scope_matches_an_anchored_pattern_against_the_narrowed_root_not_the_workspace_root() {
+        // Every other `path`-scoped test above uses an unanchored pattern (no literal directory
+        // component), which happens to prove the `scoped`-vs-`display` distinction only in one
+        // direction. An *anchored* pattern -- one with a literal leading path segment -- proves
+        // the tool's documented matching basis ("relative to `path` when `path` is given") the
+        // other way: if matching ran against `display` (workspace-relative, "docs/sub/file.md")
+        // instead of `scoped` (`path`-relative, "sub/file.md"), this literal "sub/*.md" prefix
+        // would never match at all, since the string doesn't start with "sub/".
+        let directory = workspace("glob-scope-anchored");
+        std::fs::create_dir_all(directory.path().join("docs/sub")).expect("mkdir docs/sub");
+        std::fs::write(directory.path().join("docs/sub/file.md"), "g").expect("write file");
+        let outcome = execute_glob(
+            "sub/*.md",
+            Some("docs"),
+            &directory.path().to_string_lossy(),
+            not_cancelled(),
+        );
+        assert!(!outcome.is_error);
+        // Output is still workspace-relative, per the same schema fix.
+        assert_eq!(outcome.output, "docs/sub/file.md");
+    }
+
+    #[test]
+    fn a_search_that_visits_zero_files_says_so_distinctly_from_a_genuine_no_match() {
+        // `path` pointing at an existing-but-empty directory makes `visit_workspace_files` visit
+        // zero files -- the same observable shape `parents(true)`/`git_global(true)` can produce
+        // for a whole workspace nested under an ancestor's `.gitignore` (see `walk.rs`). Both would
+        // otherwise report the identical confident "No files matched" a genuinely absent pattern
+        // gets, with no way for the caller to tell "nothing was searched" from "nothing matched".
+        let directory = TempDirectory::new("glob-zero-visited");
+        std::fs::create_dir(directory.path().join("empty")).expect("mkdir empty");
+        let outcome = execute_glob(
+            "**/*",
+            Some("empty"),
+            &directory.path().to_string_lossy(),
+            not_cancelled(),
+        );
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("No files matched"));
+        assert!(outcome.output.contains("visited zero files"));
     }
 
     #[test]

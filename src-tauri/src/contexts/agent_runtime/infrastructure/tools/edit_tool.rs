@@ -208,8 +208,10 @@ fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
     result
 }
 
-/// Writes `contents` to a brand-new file at `temp_path`, via `private_relay_fs`'s shared
-/// create-or-truncate primitive rather than a second, file-local `OpenOptions` call here --
+/// Writes `contents` to `temp_path`, creating it if absent or truncating it if a stale file from
+/// a prior crash already occupies that name (see the create-or-truncate rationale below), via
+/// `private_relay_fs`'s shared create-or-truncate primitive rather than a second, file-local
+/// `OpenOptions` call here --
 /// `tests/architecture.rs` confines raw file-handle construction to the reviewed platform modules
 /// that own it, so duplicating it here is a hard failure, not just a style nit. On Unix that
 /// primitive opens at mode `0o600` from the start instead of the process umask's default
