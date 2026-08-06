@@ -1735,6 +1735,9 @@ impl AgentRuntimeApplicationService {
                 operation_id: operation.id.clone(),
                 configuration: configuration.clone(),
                 effective_prompt: effective_prompt.content,
+                // Single-Agent sessions carry no briefing, so their invocation is unchanged. The
+                // multi-seat path will populate this once the serial turn loop lands (task 7.2).
+                role_briefing: None,
                 cli_profile: profile,
             }) {
             Ok(started) => started,

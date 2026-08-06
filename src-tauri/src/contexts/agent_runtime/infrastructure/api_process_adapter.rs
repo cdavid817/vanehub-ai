@@ -1753,6 +1753,7 @@ mod tests {
                 long_context: false,
             },
             effective_prompt: "hello".to_string(),
+            role_briefing: None,
             cli_profile: CliProfileSnapshot {
                 executable: String::new(),
                 selections: BTreeMap::new(),

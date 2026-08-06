@@ -549,6 +549,12 @@ pub(crate) struct GenerationProcessRequest {
     pub(crate) operation_id: String,
     pub(crate) configuration: AgentChatConfiguration,
     pub(crate) effective_prompt: String,
+    /**
+     * A multi-seat session's role briefing, placed in the CLI's own system-prompt channel so it
+     * survives context compaction. `None` for single-Agent sessions, whose invocation must stay
+     * byte-identical to what it was before seats existed.
+     */
+    pub(crate) role_briefing: Option<String>,
     pub(crate) cli_profile: CliProfileSnapshot,
 }
 

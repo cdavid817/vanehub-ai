@@ -4,7 +4,7 @@ mod session_capture;
 
 pub(crate) use invocation::{
     add_codex_output_capture_args, apply_configuration_overrides, build_interactive_invocation,
-    build_invocation, ProviderPromptDelivery,
+    build_invocation_with_role, ProviderPromptDelivery,
 };
 pub(crate) use output::{
     output_parser_for, ProviderOutputEvent, ProviderReportedUsage, ProviderToolEvent,
@@ -20,3 +20,6 @@ pub(crate) use session_capture::{
 mod session_capture_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) use invocation::build_invocation;

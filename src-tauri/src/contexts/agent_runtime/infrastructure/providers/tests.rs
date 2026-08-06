@@ -1,6 +1,6 @@
 use super::invocation::ProviderInvocationError;
 use super::{
-    apply_configuration_overrides, build_interactive_invocation, build_invocation,
+    apply_configuration_overrides, build_interactive_invocation, build_invocation, build_invocation_with_role,
     output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
     ProviderToolEvent, ProviderToolPhase,
 };
@@ -597,5 +597,78 @@ fn claude_error_result_without_a_status_stays_retryable() {
             );
         }
         other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+/// Role briefings must ride the CLI's own system-prompt mechanism, which survives context
+/// compaction. Passing them as ordinary prompt text would let a long session compact the role away
+/// and the Agent would quietly stop being the reviewer.
+#[test]
+fn claude_role_briefing_uses_the_native_system_prompt_flag() {
+    let spec = build_invocation_with_role(
+        "claude-code",
+        "claude".to_string(),
+        "hello",
+        None,
+        &[],
+        Some("你是架构师。"),
+    )
+    .expect("invocation");
+
+    let index = spec
+        .args
+        .iter()
+        .position(|argument| argument == "--append-system-prompt")
+        .expect("claude takes the briefing through --append-system-prompt");
+    assert_eq!(spec.args[index + 1], "你是架构师。");
+}
+
+#[test]
+fn codex_role_briefing_uses_developer_instructions() {
+    let spec = build_invocation_with_role(
+        "codex-cli",
+        "codex".to_string(),
+        "hello",
+        None,
+        &[],
+        Some("你是审查者。"),
+    )
+    .expect("invocation");
+
+    let index = spec
+        .args
+        .iter()
+        .position(|argument| argument == "-c")
+        .expect("codex takes the briefing through -c");
+    assert!(spec.args[index + 1].starts_with("developer_instructions="));
+    assert!(spec.args[index + 1].contains("你是审查者。"));
+}
+
+/// A single-Agent session passes no briefing, and its command line must be byte-identical to what
+/// it was before seats existed.
+#[test]
+fn no_role_briefing_leaves_the_invocation_untouched() {
+    for agent_id in ["claude-code", "codex-cli", "gemini-cli", "opencode"] {
+        let plain = build_invocation(agent_id, agent_id.to_string(), "hello", None, &[])
+            .expect("plain invocation");
+        let with_none =
+            build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], None)
+                .expect("invocation without a briefing");
+        assert_eq!(plain, with_none, "{agent_id} must be unchanged without a briefing");
+    }
+}
+
+/// gemini-cli and opencode expose no native channel; the briefing must not be silently dropped, so
+/// the builder reports that it could not place it.
+#[test]
+fn agents_without_a_native_channel_report_that_the_briefing_was_not_placed() {
+    for agent_id in ["gemini-cli", "opencode"] {
+        let spec =
+            build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], Some("角色"))
+                .expect("invocation");
+        assert!(
+            !spec.args.iter().any(|argument| argument.contains("角色")),
+            "{agent_id} has no native channel, so the briefing must not be forced into args"
+        );
     }
 }

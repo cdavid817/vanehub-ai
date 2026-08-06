@@ -1,5 +1,5 @@
 use super::providers::{
-    add_codex_output_capture_args, build_invocation, output_parser_for, ProviderOutputEvent,
+    add_codex_output_capture_args, build_invocation_with_role, output_parser_for, ProviderOutputEvent,
     ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
@@ -116,12 +116,13 @@ impl RuntimeAgentProcessAdapter {
         }
         let executable =
             normalize_generation_executable(&request.agent.id, &request.cli_profile.executable);
-        let mut spec = build_invocation(
+        let mut spec = build_invocation_with_role(
             &request.agent.id,
             executable,
             &request.effective_prompt,
             request.session.runtime_session_id.as_deref(),
             &request.cli_profile.managed_args,
+            request.role_briefing.as_deref(),
         )
         .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
         let mut relay_guard = None;

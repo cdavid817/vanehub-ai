@@ -37,7 +37,7 @@
 
 ## 6. Role and Roster Injection
 
-- [ ] 6.1 Inject a seat's role instruction through the Agent CLI's native system-prompt channel, reusing existing CLI parameter plumbing. Composition and channel selection are done and tested; the remaining work is passing the composed text into `build_invocation` in `providers/invocation.rs`.
+- [x] 6.1 Inject a seat's role instruction through the Agent CLI's native system-prompt channel, reusing existing CLI parameter plumbing. Composition and channel selection are done and tested; the remaining work is passing the composed text into `build_invocation` in `providers/invocation.rs`.
 - [x] 6.2 Inject the roster of other seats with their role names, mentions, and model families.
 - [x] 6.3 Fall back to per-turn injection when an Agent exposes no native channel, and surface on the seat that its role is not compaction-immune.
 - [x] 6.4 Feed prior turns by resuming the seat's provider session when one exists, and by injecting attributed prior replies within a per-seat context budget otherwise.
