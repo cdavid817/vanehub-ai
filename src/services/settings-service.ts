@@ -1,5 +1,5 @@
 import { isSupportedAppLanguage } from "../i18n/supported-locales";
-import { appFontSizes, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { appFontSizes, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
@@ -39,6 +39,11 @@ export const defaultAppSettings: AppSettings = {
   networkProxyBypass: "localhost,127.0.0.1,::1",
   launchOnStartup: false,
   loggingPolicy: defaultLoggingPolicy,
+  customInstructionsAboutUser: "",
+  customInstructionsStyleRules: "",
+  customInstructionsEnabled: true,
+  memoryEnabled: true,
+  memoryToolAssistedChatsEnabled: true,
 };
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
@@ -91,6 +96,10 @@ function isNetworkProxyBypass(value: string): boolean {
   return !/[\u0000-\u001f\u007f]/.test(value);
 }
 
+function isValidCustomInstructionsField(value: unknown): value is string {
+  return typeof value === "string" && countCustomInstructionsCharacters(value) <= customInstructionsFieldCharacterLimit;
+}
+
 export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
   const networkProxyBypass =
     typeof input.networkProxyBypass === "string" && isNetworkProxyBypass(input.networkProxyBypass)
@@ -113,6 +122,22 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
     launchOnStartup:
       typeof input.launchOnStartup === "boolean" ? input.launchOnStartup : defaultAppSettings.launchOnStartup,
     loggingPolicy: normalizeLoggingPolicy(input.loggingPolicy),
+    customInstructionsAboutUser: isValidCustomInstructionsField(input.customInstructionsAboutUser)
+      ? input.customInstructionsAboutUser
+      : defaultAppSettings.customInstructionsAboutUser,
+    customInstructionsStyleRules: isValidCustomInstructionsField(input.customInstructionsStyleRules)
+      ? input.customInstructionsStyleRules
+      : defaultAppSettings.customInstructionsStyleRules,
+    customInstructionsEnabled:
+      typeof input.customInstructionsEnabled === "boolean"
+        ? input.customInstructionsEnabled
+        : defaultAppSettings.customInstructionsEnabled,
+    memoryEnabled:
+      typeof input.memoryEnabled === "boolean" ? input.memoryEnabled : defaultAppSettings.memoryEnabled,
+    memoryToolAssistedChatsEnabled:
+      typeof input.memoryToolAssistedChatsEnabled === "boolean"
+        ? input.memoryToolAssistedChatsEnabled
+        : defaultAppSettings.memoryToolAssistedChatsEnabled,
   };
 }
 

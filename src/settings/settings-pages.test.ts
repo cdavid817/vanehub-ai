@@ -3,7 +3,7 @@ import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
   it("registers every page as a lazy first-visit module", () => {
-    expect(settingsPages).toHaveLength(14);
+    expect(settingsPages).toHaveLength(15);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
     expect(settingsPages.every((page) => !("component" in page))).toBe(true);
   });
@@ -22,6 +22,19 @@ describe("settingsPages", () => {
       searchPlaceholderKey: "settings.search.agentConfigurations",
     });
     expect(settingsPages[configurationsIndex].loader).toBeTypeOf("function");
+  });
+
+  it("registers Personalization after Agent configurations and before Skills", () => {
+    const configurationsIndex = settingsPages.findIndex((page) => page.id === "agent-configurations");
+    const personalizationIndex = settingsPages.findIndex((page) => page.id === "personalization");
+    const skillsIndex = settingsPages.findIndex((page) => page.id === "skills");
+
+    expect(personalizationIndex).toBe(configurationsIndex + 1);
+    expect(skillsIndex).toBe(personalizationIndex + 1);
+    expect(settingsPages[personalizationIndex]).toMatchObject({
+      labelKey: "settings.pages.personalization",
+      searchPlaceholderKey: "settings.search.personalization",
+    });
   });
 
   it("registers extensions below higher-frequency management pages", () => {
