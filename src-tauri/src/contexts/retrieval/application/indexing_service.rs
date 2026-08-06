@@ -185,7 +185,10 @@ impl IndexingService {
 }
 
 /// 按字符而非字节截断——按字节切会把多字节 UTF-8 字符劈成两半并 panic。
-fn truncate_for_embedding(content: &str) -> String {
+///
+/// 检索路（`search_service.rs`）也用它截断 query：query 由模型自撰、没有天然长度约束，
+/// 两侧用同一个上限才不会出现"能被索引、却无法被查询"的长度带。
+pub(super) fn truncate_for_embedding(content: &str) -> String {
     content.chars().take(EMBEDDING_CONTENT_LIMIT).collect()
 }
 

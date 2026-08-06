@@ -12,5 +12,6 @@ use tauri::State;
 
 #[tauri::command]
 pub(crate) fn rebuild_retrieval_index(api: State<'_, RetrievalApi>) -> Result<(), String> {
-    api.rebuild().map_err(|error| error.to_string())
+    // 类别而非 `Display`：这个串会被设置页原样渲染（设计文档 §8.2）。
+    api.rebuild().map_err(|error| error.category().to_string())
 }

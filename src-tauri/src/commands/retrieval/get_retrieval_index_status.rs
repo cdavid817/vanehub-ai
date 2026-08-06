@@ -29,5 +29,7 @@ pub(crate) fn get_retrieval_index_status(
             failed: status.failed,
             last_failure_category: status.last_failure_category,
         })
-        .map_err(|error| error.to_string())
+        // 类别而非 `Display`：同 `RetrievalIndexStatus::last_failure_category`，这个串会被
+        // 设置页原样渲染，不能夹带存储层原文（设计文档 §8.2）。
+        .map_err(|error| error.category().to_string())
 }

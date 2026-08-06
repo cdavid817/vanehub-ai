@@ -5,7 +5,7 @@ use crate::contexts::retrieval::domain::{
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use super::indexing_service::{IndexSourcePort, IndexSourceRecord};
+use super::indexing_service::{truncate_for_embedding, IndexSourcePort, IndexSourceRecord};
 use super::ports::{EmbeddingPort, RetrievalConfigurationRepository, RetrievalDocumentRepository};
 
 /// `degraded` 为 `None` 时 `hits` 为空表示"搜了，确实没有"；`degraded` 为 `Some` 时 `hits`
@@ -50,13 +50,18 @@ impl SearchService {
         };
         let over_fetch = query.limit.saturating_mul(4).max(query.limit);
 
-        let vector_ranking = self.vector_ranking(query, model, over_fetch);
+        // query 是模型自撰的，长度不受任何约束。用与索引侧相同的上限截断：超长 query 会让
+        // embedding 调用直接失败（对用户表现为无声的 `keyword_only` 降级），同时把几千 token
+        // 的短语塞进 FTS。
+        let text = truncate_for_embedding(&query.text);
+
+        let vector_ranking = self.vector_ranking(&text, query, model, over_fetch);
         let keyword_ranking = self
             .repository
             .keyword_candidates(
                 &query.scope,
                 SourceKind::AgentMemory,
-                &escape_fts_query(&query.text),
+                &escape_fts_query(&text),
                 over_fetch,
             )
             .ok();
@@ -125,14 +130,12 @@ impl SearchService {
     /// 空 `Vec` 表示这一路可用但没有命中，是正常结果。
     fn vector_ranking(
         &self,
+        text: &str,
         query: &RetrievalQuery,
         model: &str,
         limit: usize,
     ) -> Option<Vec<String>> {
-        let embedded = self
-            .embeddings
-            .embed(model, std::slice::from_ref(&query.text))
-            .ok()?;
+        let embedded = self.embeddings.embed(model, &[text.to_string()]).ok()?;
         let query_vector = embedded.into_iter().next()?;
         let candidates = self
             .repository
@@ -158,23 +161,26 @@ impl SearchService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::retrieval::application::indexing_service::EMBEDDING_CONTENT_LIMIT;
     use crate::contexts::retrieval::application::ports::{
         EmbeddingFailure, RetrievalConfiguration, RetrievalIndexStatus,
     };
     use crate::contexts::retrieval::domain::{FailureCategory, RetrievalDocument, RetrievalScope};
     use std::sync::Mutex;
 
-    /// embed() 的两种可编排行为：测试只需要"这一路整体可用/不可用"，不需要更细的行为。
+    /// embed() 的可编排行为：多数测试只需要"这一路整体可用/不可用"。`Recording` 额外把收到的
+    /// inputs 录进调用方持有的句柄，只有断言 query 截断的那条测试需要它。
     enum FakeEmbedder {
         Succeeds(Vec<f32>),
         Fails,
+        Recording(Vec<f32>, Arc<Mutex<Vec<String>>>),
     }
 
     impl EmbeddingPort for FakeEmbedder {
         fn embed(
             &self,
             _model: &str,
-            _inputs: &[String],
+            inputs: &[String],
         ) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
             match self {
                 Self::Succeeds(vector) => Ok(vec![vector.clone()]),
@@ -182,6 +188,10 @@ mod tests {
                     category: FailureCategory::Network,
                     message: "fake embedding failure".to_string(),
                 }),
+                Self::Recording(vector, received) => {
+                    received.lock().expect("lock").extend_from_slice(inputs);
+                    Ok(vec![vector.clone()])
+                }
             }
         }
     }
@@ -550,6 +560,45 @@ mod tests {
 
         assert_eq!(outcome.hits.len(), 1);
         assert_eq!(outcome.hits[0].source_id, "m1");
+    }
+
+    #[test]
+    fn an_over_long_query_is_truncated_before_it_reaches_either_path() {
+        // query 完全由模型自撰，长度没有任何约束，而索引侧在 embedding 前按
+        // `EMBEDDING_CONTENT_LIMIT` 截断。检索侧不截断的话，超长 query 会让 embedding 调用
+        // 直接失败——对用户表现为一次无声的 `keyword_only` 降级——同时把几千 token 的短语
+        // 交给 FTS。
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let query_text = "x".repeat(EMBEDDING_CONTENT_LIMIT + 500);
+        let (service, repository, _source) = service(
+            FakeConfigurationRepository::configured(PROFILE, MODEL),
+            FakeEmbedder::Recording(matching_vector(), received.clone()),
+            Ok(Vec::new()),
+            Ok(Vec::new()),
+            Vec::new(),
+        );
+
+        service
+            .search(&sample_query(&query_text, 5))
+            .expect("search");
+
+        let embedded = received.lock().expect("lock");
+        assert_eq!(embedded.len(), 1);
+        assert_eq!(
+            embedded[0].chars().count(),
+            EMBEDDING_CONTENT_LIMIT,
+            "the embedding call must receive the same bounded text the indexing side sends"
+        );
+        // `escape_fts_query` 把整串裹进一对引号，所以 FTS 侧比上限多 2 个字符。
+        assert_eq!(
+            repository
+                .received_keyword_query
+                .lock()
+                .expect("lock")
+                .as_deref()
+                .map(|query| query.chars().count()),
+            Some(EMBEDDING_CONTENT_LIMIT + 2)
+        );
     }
 
     #[test]

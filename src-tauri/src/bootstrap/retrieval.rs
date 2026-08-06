@@ -38,6 +38,7 @@ use std::time::{Duration, Instant};
 const POLL_INTERVAL: Duration = Duration::from_secs(RECONCILE_POLL_INTERVAL_SECONDS);
 const RECONCILE_CATEGORY: &str = "retrieval.indexing.reconcile";
 const BATCH_CATEGORY: &str = "retrieval.indexing.batch";
+const WORKER_CATEGORY: &str = "retrieval.indexing.worker";
 
 pub(crate) struct RetrievalAssembly {
     pub(crate) api: RetrievalApi,
@@ -103,16 +104,36 @@ pub(crate) fn start_retrieval_indexing_worker(
 ) {
     thread::spawn(move || {
         let logging = UnifiedLoggingAdapter::active(fallback_log_directory);
-        loop {
-            run_indexing_cycle(&worker, &logging);
-            match worker.wakeups.recv_timeout(POLL_INTERVAL) {
-                Ok(()) | Err(RecvTimeoutError::Timeout) => {}
-                // 发送端全没了（门面被丢弃）。`recv_timeout` 此后会立刻返回，不自己睡一觉
-                // 就会把兜底轮询变成忙等。
-                Err(RecvTimeoutError::Disconnected) => thread::sleep(POLL_INTERVAL),
-            }
+        // 裸 `thread::spawn` 里的一次 panic 会让索引在进程余下的生命周期里彻底停摆，且没有
+        // 任何信号：设置页仍显示上一次的计数，`recall` 仍返回旧索引的结果。至少让它留下一条
+        // error 级日志。panic payload 不落盘——它可能带记忆内容或 provider 文本（§8.2），
+        // 只记录"发生了 panic"这件事本身。
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            worker_loop(&worker, &logging);
+        }))
+        .is_err()
+        {
+            write_log(
+                &logging,
+                LogSeverity::Error,
+                WORKER_CATEGORY,
+                "Retrieval indexing worker stopped after a panic; indexing is disabled until restart",
+                [],
+            );
         }
     });
+}
+
+fn worker_loop(worker: &RetrievalIndexingWorker, logging: &dyn DiagnosticLogPort) -> ! {
+    loop {
+        run_indexing_cycle(worker, logging);
+        match worker.wakeups.recv_timeout(POLL_INTERVAL) {
+            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+            // 发送端全没了（门面被丢弃）。`recv_timeout` 此后会立刻返回，不自己睡一觉
+            // 就会把兜底轮询变成忙等。
+            Err(RecvTimeoutError::Disconnected) => thread::sleep(POLL_INTERVAL),
+        }
+    }
 }
 
 fn run_indexing_cycle(worker: &RetrievalIndexingWorker, logging: &dyn DiagnosticLogPort) {
@@ -296,14 +317,10 @@ fn write_log<const N: usize>(
 }
 
 /// 只把变体名写进日志。`RetrievalError` 的载荷可能带存储层原文（例如 rusqlite 的消息），而
-/// 设计文档 §8.2 只允许落盘错误**类别**。
+/// 设计文档 §8.2 只允许落盘错误**类别**。映射本身住在领域类型上，command 层向 UI 返回的
+/// 错误串走同一份，两处不会各自漂移。
 fn error_category(error: &RetrievalError) -> &'static str {
-    match error {
-        RetrievalError::Storage(_) => "storage",
-        RetrievalError::Embedding(_) => "embedding",
-        RetrievalError::NotConfigured => "not_configured",
-        RetrievalError::Unavailable => "unavailable",
-    }
+    error.category()
 }
 
 /// `retrieval` 的索引源。它只知道"给我全部源记录"，不知道 `agent_memories` 表和
