@@ -246,6 +246,12 @@ pub(crate) fn invoke_handler(
         // Tooling: Plugin Integrations
         crate::commands::tooling::plugin_integrations::get_plugin_integration_overview::get_plugin_integration_overview,
         crate::commands::tooling::plugin_integrations::refresh_plugin_integrations::refresh_plugin_integrations,
-        crate::commands::tooling::plugin_integrations::test_plugin_integration::test_plugin_integration
+        crate::commands::tooling::plugin_integrations::test_plugin_integration::test_plugin_integration,
+        // Retrieval
+        crate::commands::retrieval::get_retrieval_configuration::get_retrieval_configuration,
+        crate::commands::retrieval::save_retrieval_configuration::save_retrieval_configuration,
+        crate::commands::retrieval::list_embedding_models::list_embedding_models,
+        crate::commands::retrieval::get_retrieval_index_status::get_retrieval_index_status,
+        crate::commands::retrieval::rebuild_retrieval_index::rebuild_retrieval_index
     ]
 }

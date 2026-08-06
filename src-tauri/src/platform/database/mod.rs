@@ -143,7 +143,7 @@ mod tests {
             )
             .expect("Skill reliability migration");
 
-        assert_eq!(migration_count, 42);
+        assert_eq!(migration_count, 43);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 5);
         assert_eq!(skill_table_exists, 0);
@@ -181,7 +181,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 42);
+        assert_eq!(migration_count, 43);
     }
 
     #[test]

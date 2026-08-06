@@ -1,12 +1,12 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
-    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, CoordinationApplicationPorts, CoordinationApplicationService,
-    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
-    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
-    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
-    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, CoordinationApplicationPorts,
+    CoordinationApplicationService, LoopApplicationPorts, LoopApplicationService,
+    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
+    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
+    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
@@ -63,6 +63,11 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
     pub(crate) shared_registry: SharedAgentRegistry,
+    /// Consumed by `RuntimeAgentApiAdapter`'s `recall` tool (Task 13). A concrete
+    /// `Arc<retrieval::DeferredAgentRetrieval>`, coerced here — `assemble_retrieval` itself needs
+    /// this function's own output (`AgentRuntimeApi`), so the real `RetrievalApi` cannot exist
+    /// yet; `runtime.rs`'s `setup` binds it right after `assemble_retrieval` returns.
+    pub(crate) retrieval: Arc<dyn AgentRetrievalPort>,
     pub(crate) desktop_settings: DesktopSettingsApi,
 }
 
@@ -173,6 +178,7 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(NativeAgentCoreInstructionsAdapter),
         agent_memories.clone(),
         agent_mcp_tools,
+        dependencies.retrieval,
         agent_personalization.clone(),
     ));
     let tool_approvals = api_processes.clone();

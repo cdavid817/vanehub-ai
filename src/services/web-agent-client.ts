@@ -23,10 +23,13 @@ import type {
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
+  EmbeddingModelOption,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   ProjectInspection,
   RemoteWorkspace,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   RenameSessionCategoryInput,
   ScheduledTask,
   SetScheduledTaskEnabledInput,
@@ -584,6 +587,27 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
   webAgentMemories = [memory, ...webAgentMemories];
   return memory;
 }
+
+/** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
+ * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
+ * install (design doc §7.4). */
+let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+
+/** Mock retrieval index status — a single global aggregate, mirroring the real one across every
+ * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
+ * so a settings UI has something realistic to render before ever calling `rebuildRetrievalIndex`.
+ * `lastFailureCategory` is deliberately always `null`: the Web/mock runtime guarantees the same
+ * contract shape and observable behavior as the real one, not algorithmic equivalence with the
+ * Rust-side failure classification (design doc §7.5). */
+const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
+let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
+
+/** Static catalog, independent of the requested profile — listing embedding models never hits
+ * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
+const webEmbeddingModelOptions: EmbeddingModelOption[] = [
+  { id: "text-embedding-3-small", displayName: "text-embedding-3-small" },
+  { id: "text-embedding-3-large", displayName: "text-embedding-3-large" },
+];
 
 const promptHookStorageKey = "vanehub.prompt-hooks.v1";
 const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
@@ -1639,6 +1663,11 @@ export function resetWebLoopsForTest() {
   nextCoordinationRunId = 1;
 }
 
+export function resetWebRetrievalForTest() {
+  webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+  webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
+}
+
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
   const run = findLoopRun(runId);
   if (!["queued", "running", "awaiting-acceptance"].includes(run.status)) {
@@ -2149,6 +2178,38 @@ export const webAgentClient: AgentService = {
 
   async resetAllMemories() {
     webAgentMemories = [];
+  },
+
+  async getRetrievalConfiguration() {
+    return { ...webRetrievalConfiguration };
+  },
+
+  async saveRetrievalConfiguration(profileId: string, modelId: string) {
+    webRetrievalConfiguration = { sourceProfileId: profileId, embeddingModel: modelId };
+  },
+
+  async listEmbeddingModels(profileId: string, transientCredential?: string) {
+    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error("OnePiece provider profile was not found.");
+    if (profile.interfaceFormat !== "openai-compatible") {
+      throw new Error("Only openai-compatible OnePiece profiles support embedding model discovery.");
+    }
+    if (!transientCredential?.trim() && !profile.credentialPresent) {
+      throw new Error("API key is required to list embedding models for this OnePiece provider.");
+    }
+    return webEmbeddingModelOptions.map((option) => ({ ...option }));
+  },
+
+  async getRetrievalIndexStatus() {
+    return { ...webRetrievalIndexStatus };
+  },
+
+  async rebuildRetrievalIndex() {
+    const status = webRetrievalIndexStatus;
+    status.pending += status.indexed + status.failed;
+    status.indexed = 0;
+    status.failed = 0;
+    status.lastFailureCategory = null;
   },
 
   async listCliTools() {

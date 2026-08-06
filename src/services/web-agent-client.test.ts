@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   resetWebAgentMemoriesForTest,
   resetWebLoopsForTest,
+  resetWebRetrievalForTest,
   seedWebImSessionForTest,
   simulateWebLoopRestartForTest,
   webAgentClient,
@@ -17,6 +18,7 @@ import { i18n } from "../i18n";
 
 afterEach(() => {
   resetWebLoopsForTest();
+  resetWebRetrievalForTest();
   resetWebAgentMemoriesForTest();
   vi.useRealTimers();
 });
@@ -1883,5 +1885,37 @@ describe("webAgentClient", () => {
     await expect(webAgentClient.stopAgentTerminal(terminal.terminalId)).resolves.toBe(true);
     expect((await webAgentClient.getActiveSession())?.lifecycleState).toBe("stopped");
     unsubscribe();
+  });
+
+  it("returns an unconfigured retrieval configuration by default", async () => {
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: null,
+      embeddingModel: null,
+    });
+  });
+
+  it("round-trips a saved retrieval configuration", async () => {
+    await webAgentClient.saveRetrievalConfiguration("profile-a", "text-embedding-3-small");
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
+      sourceProfileId: "profile-a",
+      embeddingModel: "text-embedding-3-small",
+    });
+  });
+
+  it("reports index status without issuing any network request", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await expect(webAgentClient.getRetrievalIndexStatus()).resolves.toEqual({
+      indexed: expect.any(Number),
+      pending: expect.any(Number),
+      failed: expect.any(Number),
+      lastFailureCategory: null,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rebuilding the index resets failures in the mock runtime", async () => {
+    await webAgentClient.rebuildRetrievalIndex();
+    const status = await webAgentClient.getRetrievalIndexStatus();
+    expect(status.failed).toBe(0);
   });
 });

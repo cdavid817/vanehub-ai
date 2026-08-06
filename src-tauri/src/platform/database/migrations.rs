@@ -244,6 +244,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "agent-memory-shared-pool",
         crate::contexts::agent_runtime::infrastructure::apply_memory_shared_pool_schema,
     )?;
+    // 43, not 42: `agent-memory-shared-pool` landed on main under 42 first and may already be in
+    // users' databases. `apply_migration` 是版本门控的——两条 42 号迁移里的第二条永远不会执行，
+    // 启动即 "no such table: retrieval_documents"。
+    apply_migration(
+        conn,
+        43,
+        "retrieval-vector-index",
+        crate::contexts::retrieval::infrastructure::apply_retrieval_schema,
+    )?;
 
     Ok(())
 }
@@ -864,7 +873,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (41, 42));
+        assert_eq!(migration_state, (42, 43));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -183,6 +183,27 @@ export interface AgentMemory {
   createdAt: string;
 }
 
+// `add-retrieval-vector-search` §7.4: configuration is a global singleton, while index status
+// and rebuild are scoped per agent and aggregate across all of that agent's `scope_folder` rows.
+export interface RetrievalConfiguration {
+  sourceProfileId: string | null;
+  embeddingModel: string | null;
+}
+
+export interface RetrievalIndexStatus {
+  indexed: number;
+  pending: number;
+  failed: number;
+  // Category only (e.g. "auth" | "invalid_request" | "rate_limit" | "network") — never raw error
+  // text, which may carry credentials or provider response content (design doc §8.2).
+  lastFailureCategory: string | null;
+}
+
+export interface EmbeddingModelOption {
+  id: string;
+  displayName: string;
+}
+
 export interface WorkflowState {
   activeAgentId: string | null;
   activeInteractionMode: InteractionMode | null;

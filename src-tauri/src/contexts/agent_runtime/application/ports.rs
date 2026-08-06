@@ -881,3 +881,42 @@ pub(crate) trait AgentMemoryExtractionPort: Send + Sync {
 pub(crate) trait AgentPersonalizationPort: Send + Sync {
     fn settings(&self) -> Result<PersonalizationSettings, AgentRuntimeApplicationError>;
 }
+
+/// Projected retrieval hit surfaced to the model through the `recall` tool result
+/// (`add-onepiece-vector-search` Task 13) — deliberately not `retrieval::domain::ScoredHit`:
+/// `source_id` and `score` are internal to that context and give the model no decision value, so
+/// they must not cross the context boundary.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentRetrievalHit {
+    pub(crate) content: String,
+    pub(crate) created_at: String,
+    pub(crate) matched_via: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentRetrievalOutcome {
+    pub(crate) hits: Vec<AgentRetrievalHit>,
+    pub(crate) degraded: Option<String>,
+}
+
+/// Outbound port to the `retrieval` context's hybrid memory search, consumed by the `recall` tool
+/// (`add-onepiece-vector-search` Task 13). Implemented in `bootstrap` over
+/// `retrieval::api::RetrievalApi` — mirrors `AgentSkillPort`/`AgentMcpToolPort`'s existing pattern
+/// of depending on another context only through this context's own port, never that context's
+/// infrastructure.
+pub(crate) trait AgentRetrievalPort: Send + Sync {
+    /// Called on every generation's tool-catalog resolution path, so it must never block, panic,
+    /// or return an error — an unreadable configuration is indistinguishable from "not
+    /// configured", exactly like `RetrievalApi::is_configured`'s own contract.
+    fn is_configured(&self) -> bool;
+
+    /// No scope arguments: memories are a single host-level pool shared by every agent
+    /// (`agent-memory-shared-pool`), which is the same pool the recency injection draws from, so
+    /// there is no per-agent or per-folder slice for a caller to name.
+    fn search(&self, query: &str, limit: usize) -> Result<AgentRetrievalOutcome, String>;
+
+    /// Best-effort wake signal for the background indexing worker after a memory changes —
+    /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
+    /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
+    fn notify_source_changed(&self);
+}

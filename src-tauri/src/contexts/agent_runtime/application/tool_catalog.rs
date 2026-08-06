@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
+pub(crate) const RECALL_TOOL_NAME: &str = "recall";
 pub(crate) const GREP_TOOL_NAME: &str = "grep";
 pub(crate) const GLOB_TOOL_NAME: &str = "glob";
 pub(crate) const EDIT_TOOL_NAME: &str = "edit";
@@ -131,6 +132,31 @@ fn remember_tool_definition() -> ToolDefinition {
     }
 }
 
+/// scope（agent id 与工作区文件夹）**刻意不进 schema**：它由运行时从会话上下文注入，模型无法
+/// 指定——否则模型可构造参数读取其他 agent 或其他项目的记忆。这是安全边界，不是省事。Not part
+/// of the unconditional `tool_catalog()`/`plan_mode_tool_catalog()` — `resolve_tool_catalog`
+/// injects it only when retrieval is actually configured.
+pub(crate) fn recall_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: RECALL_TOOL_NAME.to_string(),
+        description: "Search your saved memories for this project by meaning, not just keywords. Use when the user refers to something from an earlier session, or when you need context that isn't in the current conversation.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to look for, in natural language."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "How many memories to return. Defaults to 5, capped at 20."
+                }
+            },
+            "required": ["query"]
+        }),
+    }
+}
+
 /// `grep` and `glob` are each offered from both `tool_catalog()` and `plan_mode_tool_catalog()`
 /// (`edit` only from the former, but factored the same way for consistency) -- extracted so the
 /// two catalogs share one schema each instead of maintaining duplicate copies that could drift
@@ -242,6 +268,11 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
         // shell, or anything else external — so a wrong or low-value memory is no worse than a
         // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
         REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Only ever reads this app's own internal storage — never the user's filesystem, shell,
+        // or anything else external. The one new outbound surface is the query text going to the
+        // embedding provider, which is not a new exposure: the memory content it searches over
+        // was already sent to that same provider at index time.
+        RECALL_TOOL_NAME => ToolRiskTier::AutoApprove,
         // Both are read-only and bounded by the workspace boundary and .gitignore. Making them
         // auto-approve is the entire point of this capability — prompting on every search would
         // push the model back toward guessing via shell instead, which is more dangerous, not less.
@@ -625,5 +656,47 @@ mod tests {
         let input = json!({"path": "a.rs", "old_string": "a", "new_string": "b"});
         assert!(requires_approval(EDIT_TOOL_NAME, &input, false));
         assert!(!requires_approval(EDIT_TOOL_NAME, &input, true));
+    }
+
+    #[test]
+    fn the_recall_tool_never_exposes_scope_to_the_model() {
+        // 这条断言从前的理由是安全边界（防模型自行放宽 scope）。`agent-memory-shared-pool`
+        // 之后理由变了：记忆是一个主机级共享池，所有 Agent 本来就都看得到，压根没有"别的
+        // agent 的记忆"这种切片可指定。schema 里多出任何 scope 参数，都是在向模型承诺一个
+        // 检索侧根本不会执行的过滤。
+        let definition = recall_tool_definition();
+        let properties = definition.input_schema["properties"]
+            .as_object()
+            .expect("properties");
+        assert!(properties.contains_key("query"));
+        assert!(properties.contains_key("limit"));
+        assert_eq!(properties.len(), 2);
+        for forbidden in ["agent_id", "agentId", "folder", "scope", "project"] {
+            assert!(
+                !properties.contains_key(forbidden),
+                "{forbidden} must not be model-supplied"
+            );
+        }
+        assert_eq!(definition.input_schema["required"], json!(["query"]));
+    }
+
+    #[test]
+    fn recall_auto_approves_for_the_same_reason_remember_does() {
+        assert_eq!(
+            risk_tier_for(RECALL_TOOL_NAME, &json!({"query": "npm"})),
+            ToolRiskTier::AutoApprove
+        );
+    }
+
+    #[test]
+    fn the_fixed_catalog_stays_unconditional_and_excludes_recall() {
+        // tool_catalog()/plan_mode_tool_catalog() 保持纯函数、不感知配置；
+        // 条件性只存在于 resolve_tool_catalog()。
+        assert!(tool_catalog()
+            .iter()
+            .all(|tool| tool.name != RECALL_TOOL_NAME));
+        assert!(plan_mode_tool_catalog()
+            .iter()
+            .all(|tool| tool.name != RECALL_TOOL_NAME));
     }
 }
