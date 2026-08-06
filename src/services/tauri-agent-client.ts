@@ -50,11 +50,6 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
-  CoordinationRun,
-  StartCoordinationInput,
-  StartCoordinationResult,
-} from "../types/coordination";
-import type {
   ContinueLoopInput,
   LoopDefinition,
   LoopEvent,
@@ -271,22 +266,6 @@ export const tauriAgentClient: AgentService = {
 
   applyCliConfigProfile(input: ApplyCliConfigProfileInput) {
     return invoke<CliConfigApplyResult>("apply_cli_config_profile", { input });
-  },
-
-  startCoordination(input: StartCoordinationInput) {
-    return invoke<StartCoordinationResult>("start_coordination", { input });
-  },
-
-  listCoordinationRuns() {
-    return invoke<CoordinationRun[]>("list_coordination_runs");
-  },
-
-  getCoordinationRun(runId: string) {
-    return invoke<CoordinationRun>("get_coordination_run", { runId });
-  },
-
-  cancelCoordinationRun(runId: string) {
-    return invoke<CoordinationRun>("cancel_coordination_run", { runId });
   },
 
   getAgentById(agentId) {
