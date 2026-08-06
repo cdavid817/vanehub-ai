@@ -371,8 +371,11 @@ fn claude_code_completion_line_reports_usage() {
 
 #[test]
 fn claude_code_all_zero_usage_is_treated_as_absent() {
+    // The original payload here carried `is_error: true`, which now routes to a failure event.
+    // This test is about usage normalization, so it exercises the success path deliberately;
+    // the error path has its own tests below.
     let event = output_parser_for("claude-code").parse_line(
-        r#"{"type":"result","is_error":true,"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#,
+        r#"{"type":"result","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#,
     );
     assert_eq!(event, ProviderOutputEvent::Completed(None));
 }
@@ -530,4 +533,69 @@ fn assert_stable_agent_coverage<'a>(agent_ids: impl Iterator<Item = &'a str>) {
         agent_ids.collect::<BTreeSet<_>>(),
         STABLE_AGENT_IDS.into_iter().collect::<BTreeSet<_>>()
     );
+}
+
+/// claude-code reports failures through a `result` event carrying `is_error`, not through an
+/// `error` event, and writes nothing to stderr — so if the parser reads this as a completion the
+/// user is left with only an exit code. Fixture is a real captured payload.
+#[test]
+fn claude_error_result_becomes_a_failure_carrying_the_cli_diagnostic() {
+    let line = include_str!("fixtures/claude-code.error-result.jsonl");
+    let event = output_parser_for("claude-code").parse_line(line.trim());
+
+    match event {
+        ProviderOutputEvent::Failed(failure) => {
+            assert_eq!(
+                failure.diagnostic, "Failed to authenticate. API Error: 403 Request not allowed",
+                "the CLI's own text must reach the user"
+            );
+            assert_eq!(
+                failure.kind,
+                GenerationProcessFailureKind::NonRetryable,
+                "a 403 is an authentication problem; retrying cannot fix it"
+            );
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+#[test]
+fn claude_successful_result_still_completes_with_its_usage() {
+    let line = serde_json::json!({
+        "type": "result",
+        "subtype": "success",
+        "usage": {"input_tokens": 11, "output_tokens": 5},
+    })
+    .to_string();
+
+    match output_parser_for("claude-code").parse_line(&line) {
+        ProviderOutputEvent::Completed(usage) => {
+            let usage = usage.expect("successful results keep reporting usage");
+            assert_eq!(usage.input_tokens, 11);
+            assert_eq!(usage.output_tokens, 5);
+        }
+        other => panic!("expected a completed event, got {other:?}"),
+    }
+}
+
+#[test]
+fn claude_error_result_without_a_status_stays_retryable() {
+    let line = serde_json::json!({
+        "type": "result",
+        "is_error": true,
+        "result": "upstream timed out",
+    })
+    .to_string();
+
+    match output_parser_for("claude-code").parse_line(&line) {
+        ProviderOutputEvent::Failed(failure) => {
+            assert_eq!(failure.diagnostic, "upstream timed out");
+            assert_eq!(
+                failure.kind,
+                GenerationProcessFailureKind::Retryable,
+                "without a classifying code the existing retryable default must hold"
+            );
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
 }

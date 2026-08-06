@@ -698,22 +698,23 @@ impl ProcessMonitor {
             )]),
             Err(_) => SafeAttributes::default(),
         };
-        let terminal = match (terminal_error, exit_status) {
-            (Some(error), _) => GenerationProcessEvent::Failed(error),
-            (None, Ok(status)) if status.success() => {
-                GenerationProcessEvent::Completed(reported_usage)
-            }
-            (None, Ok(status)) => GenerationProcessEvent::Failed(
-                GenerationProcessFailure::retryable(if stderr_output.trim().is_empty() {
-                    format!("Agent CLI exited with status {status}.")
-                } else {
-                    stderr_output.trim().to_string()
-                }),
-            ),
-            (None, Err(error)) => {
-                GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(error))
-            }
-        };
+        let terminal = compose_terminal_event(
+            terminal_error,
+            exit_status
+                .as_ref()
+                .map(|status| {
+                    if status.success() {
+                        ProcessExitOutcome::Success
+                    } else {
+                        ProcessExitOutcome::Failure {
+                            status: status.to_string(),
+                        }
+                    }
+                })
+                .map_err(|error| error.clone()),
+            &stderr_output,
+            reported_usage,
+        );
         let (process_status, process_error) = match &terminal {
             GenerationProcessEvent::Completed(_) => (ExecutionStatus::Succeeded, None),
             GenerationProcessEvent::Failed(_) => {
@@ -927,4 +928,106 @@ fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
     resolved
         .is_file()
         .then(|| resolved.to_string_lossy().to_string())
+}
+
+
+/// How a finished Agent process exited, carrying the rendered status so the fallback message can
+/// still name it when nothing better is available.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProcessExitOutcome {
+    Success,
+    Failure { status: String },
+}
+
+/// Chooses the terminal event for a finished Agent process.
+///
+/// Order matters: a diagnostic parsed from the provider's own output wins over anything derived
+/// from the exit status. claude-code exits non-zero with empty stderr after stating the cause on
+/// stdout, so deriving the message from the exit status discards the only useful information.
+fn compose_terminal_event(
+    terminal_error: Option<GenerationProcessFailure>,
+    exit_outcome: Result<ProcessExitOutcome, String>,
+    stderr_output: &str,
+    reported_usage: Option<ReportedUsageTotals>,
+) -> GenerationProcessEvent {
+    match (terminal_error, exit_outcome) {
+        (Some(error), _) => GenerationProcessEvent::Failed(error),
+        (None, Ok(ProcessExitOutcome::Success)) => GenerationProcessEvent::Completed(reported_usage),
+        (None, Ok(ProcessExitOutcome::Failure { status })) => GenerationProcessEvent::Failed(
+            GenerationProcessFailure::retryable(if stderr_output.trim().is_empty() {
+                format!("Agent CLI exited with status {status}.")
+            } else {
+                stderr_output.trim().to_string()
+            }),
+        ),
+        (None, Err(error)) => {
+            GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(error))
+        }
+    }
+}
+
+#[cfg(test)]
+mod terminal_event_tests {
+    use super::*;
+    use crate::contexts::agent_runtime::application::GenerationProcessFailureKind;
+
+    fn failure(message: &str) -> GenerationProcessFailure {
+        GenerationProcessFailure::non_retryable(message)
+    }
+
+    /// claude-code exits non-zero with empty stderr after reporting the cause on stdout. The
+    /// parsed diagnostic must survive; reporting the exit status here is what left users with
+    /// `Agent CLI exited with status exit code: 1.` and no reason.
+    #[test]
+    fn parsed_diagnostic_survives_a_non_zero_exit_with_empty_stderr() {
+        let terminal = compose_terminal_event(
+            Some(failure("Failed to authenticate. API Error: 403 Request not allowed")),
+            Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }),
+            "",
+            None,
+        );
+
+        match terminal {
+            GenerationProcessEvent::Failed(error) => {
+                assert_eq!(
+                    error.diagnostic,
+                    "Failed to authenticate. API Error: 403 Request not allowed"
+                );
+                assert_eq!(error.kind, GenerationProcessFailureKind::NonRetryable);
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn exit_status_is_reported_only_when_nothing_better_exists() {
+        let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }), "", None);
+
+        match terminal {
+            GenerationProcessEvent::Failed(error) => {
+                assert!(
+                    error.diagnostic.contains("exit code: 1"),
+                    "with no diagnostic and no stderr the exit status is all we have, got {}",
+                    error.diagnostic
+                );
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stderr_is_used_when_present_and_nothing_was_parsed() {
+        let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }), "  boom  ", None);
+
+        match terminal {
+            GenerationProcessEvent::Failed(error) => assert_eq!(error.diagnostic, "boom"),
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_successful_exit_completes_with_its_usage() {
+        let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Success), "", None);
+        assert!(matches!(terminal, GenerationProcessEvent::Completed(None)));
+    }
 }
