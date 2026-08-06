@@ -1580,6 +1580,23 @@
                                               "notification-system",
                                               "visual-design-system"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-onepiece-search-and-edit-tools",
+                         "path":  "openspec/changes/archive/2026-08-06-add-onepiece-search-and-edit-tools/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-context-compaction",
+                                              "agent-tool-execution",
+                                              "agent-tool-trust",
+                                              "onepiece-native-agent"
+                                          ]
                      }
                  ]
 }

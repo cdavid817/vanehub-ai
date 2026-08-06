@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
+pub(crate) const GREP_TOOL_NAME: &str = "grep";
+pub(crate) const GLOB_TOOL_NAME: &str = "glob";
+pub(crate) const EDIT_TOOL_NAME: &str = "edit";
 /// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
 /// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
 /// always prefixed before entering the catalog.
@@ -44,16 +47,27 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Path relative to the workspace root."
+                        "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
                     },
                     "content": {
                         "type": "string",
                         "description": "Content to write. Required when operation is \"write\", ignored otherwise."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "0-based index of the first line to return; 0 is the file's first line. Ignored when writing. Line numbers shown in this tool's own output and in grep results are 1-based, so to jump to displayed line N, pass offset: N-1."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return. Capped at 2000; larger values are clamped. Must be at least 1 if provided. Ignored when writing."
                     }
                 },
                 "required": ["operation", "path"]
             }),
         },
+        grep_tool_definition(),
+        glob_tool_definition(),
+        edit_tool_definition(),
         remember_tool_definition(),
     ]
 }
@@ -80,12 +94,22 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Path relative to the workspace root."
+                        "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "0-based index of the first line to return; 0 is the file's first line. Line numbers shown in this tool's own output and in grep results are 1-based, so to jump to displayed line N, pass offset: N-1."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return. Capped at 2000; larger values are clamped. Must be at least 1 if provided."
                     }
                 },
                 "required": ["operation", "path"]
             }),
         },
+        grep_tool_definition(),
+        glob_tool_definition(),
         remember_tool_definition(),
     ]
 }
@@ -107,6 +131,103 @@ fn remember_tool_definition() -> ToolDefinition {
     }
 }
 
+/// `grep` and `glob` are each offered from both `tool_catalog()` and `plan_mode_tool_catalog()`
+/// (`edit` only from the former, but factored the same way for consistency) -- extracted so the
+/// two catalogs share one schema each instead of maintaining duplicate copies that could drift
+/// apart the first time either one is edited, following the `remember_tool_definition()`
+/// precedent above.
+fn grep_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: GREP_TOOL_NAME.to_string(),
+        description: "Search file contents in the session's workspace folder with a regular expression. Respects .gitignore, skips hidden files and directories (any path component starting with \".\"), and skips binary files. Prefer this over running grep through the shell.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Regular expression to search for."
+                },
+                "glob": {
+                    "type": "string",
+                    "description": "Optional glob limiting which files are searched, e.g. \"**/*.rs\". Matched against paths relative to path when path is given, otherwise relative to the workspace root; matched files are still reported relative to the workspace root."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional subdirectory (relative to the workspace root) to search within."
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["files_with_matches", "content", "count"],
+                    "description": "\"files_with_matches\" (default) lists matching file paths; \"content\" returns matching lines with line numbers; \"count\" returns per-file match counts."
+                },
+                "context": {
+                    "type": "integer",
+                    "description": "Lines of context around each match. Only used when output_mode is \"content\". Capped at 20; larger values are clamped."
+                },
+                "case_insensitive": {
+                    "type": "boolean",
+                    "description": "Match case-insensitively. Defaults to false."
+                },
+                "head_limit": {
+                    "type": "integer",
+                    "description": "Maximum number of result lines to return. Capped at 200; larger values are clamped. Must be at least 1 if provided."
+                }
+            },
+            "required": ["pattern"]
+        }),
+    }
+}
+
+fn glob_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: GLOB_TOOL_NAME.to_string(),
+        description: "Find files by name pattern in the session's workspace folder. Respects .gitignore and skips hidden files and directories (any path component starting with \".\"). Prefer this over listing files through the shell.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "Glob pattern, e.g. \"**/*.test.ts\". Matched against paths relative to path when path is given, otherwise relative to the workspace root; results are always reported relative to the workspace root."
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Optional subdirectory (relative to the workspace root) to search within."
+                }
+            },
+            "required": ["pattern"]
+        }),
+    }
+}
+
+fn edit_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: EDIT_TOOL_NAME.to_string(),
+        description: "Replace an exact string in a file relative to the session's workspace folder. old_string must match exactly once unless replace_all is true. Prefer this over rewriting a whole file with the file tool.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path relative to the workspace root. Hidden files and directories (any path component starting with \".\") are not accessible."
+                },
+                "old_string": {
+                    "type": "string",
+                    "description": "Exact text to replace. Include enough surrounding context to match exactly once."
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "Replacement text."
+                },
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace every occurrence instead of requiring a unique match. Defaults to false."
+                }
+            },
+            "required": ["path", "old_string", "new_string"]
+        }),
+    }
+}
+
 /// Classifies a tool call's risk tier by tool name and, for the file tool, its `operation`
 /// field — a structural distinction (which operation was requested), not a content-safety
 /// judgment about a specific command or path. Unknown tool names and file calls with a missing
@@ -121,6 +242,14 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
         // shell, or anything else external — so a wrong or low-value memory is no worse than a
         // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
         REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Both are read-only and bounded by the workspace boundary and .gitignore. Making them
+        // auto-approve is the entire point of this capability — prompting on every search would
+        // push the model back toward guessing via shell instead, which is more dangerous, not less.
+        GREP_TOOL_NAME | GLOB_TOOL_NAME => ToolRiskTier::AutoApprove,
+        // Falls into the default `_` arm below anyway, but listed explicitly so this contract is
+        // locked by its own test (`edit_always_requires_approval`) rather than being an accident
+        // of the default branch that a future change to that branch could silently widen.
+        EDIT_TOOL_NAME => ToolRiskTier::RequiresApproval,
         _ => ToolRiskTier::RequiresApproval,
     }
 }
@@ -129,11 +258,15 @@ pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
 /// classification with a per-agent trust grant (`add-agent-tool-trust`). `risk_tier_for` itself
 /// stays agent-trust-unaware — this function is the only place the two are combined, kept
 /// separate so `risk_tier_for`'s existing pure "classify by name+input" contract and test suite
-/// need no changes. `auto_approve_tools` can only ever skip approval for `shell` and `file`
-/// calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
+/// need no changes. `auto_approve_tools` can only ever skip approval for `shell`, `file`, and
+/// `edit` calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
 /// `RequiresApproval` for any name it doesn't explicitly recognize, with no carve-out here.
 pub(crate) fn requires_approval(tool_name: &str, input: &Value, auto_approve_tools: bool) -> bool {
-    if auto_approve_tools && (tool_name == SHELL_TOOL_NAME || tool_name == FILE_TOOL_NAME) {
+    if auto_approve_tools
+        && (tool_name == SHELL_TOOL_NAME
+            || tool_name == FILE_TOOL_NAME
+            || tool_name == EDIT_TOOL_NAME)
+    {
         return false;
     }
     risk_tier_for(tool_name, input) == ToolRiskTier::RequiresApproval
@@ -144,24 +277,171 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_declares_exactly_shell_file_and_remember_tools() {
+    fn catalog_declares_the_six_native_tools_in_a_stable_order() {
         let catalog = tool_catalog();
-        assert_eq!(catalog.len(), 3);
-        assert_eq!(catalog[0].name, SHELL_TOOL_NAME);
-        assert_eq!(catalog[1].name, FILE_TOOL_NAME);
-        assert_eq!(catalog[2].name, REMEMBER_TOOL_NAME);
+        let names: Vec<&str> = catalog.iter().map(|tool| tool.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+            ]
+        );
     }
 
     #[test]
-    fn plan_mode_catalog_offers_only_read_only_file_and_remember() {
+    fn plan_mode_catalog_offers_only_read_only_tools() {
         let catalog = plan_mode_tool_catalog();
-        assert_eq!(catalog.len(), 2);
-        assert_eq!(catalog[0].name, FILE_TOOL_NAME);
+        let names: Vec<&str> = catalog.iter().map(|tool| tool.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+            ]
+        );
         assert_eq!(
             catalog[0].input_schema["properties"]["operation"]["enum"],
             json!(["read"])
         );
-        assert_eq!(catalog[1].name, REMEMBER_TOOL_NAME);
+    }
+
+    #[test]
+    fn plan_mode_catalog_never_offers_shell_or_edit() {
+        let names: Vec<String> = plan_mode_tool_catalog()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect();
+        assert!(!names.contains(&SHELL_TOOL_NAME.to_string()));
+        assert!(!names.contains(&EDIT_TOOL_NAME.to_string()));
+    }
+
+    /// Pins the exact argument surface the model is told about for `grep`, cross-checked against
+    /// `execute_tool_call`'s parsing in `api_process_adapter.rs`. A schema missing one of these
+    /// properties would leave that argument live in the parser but unreachable from the model --
+    /// exactly the failure mode `offset`/`limit` had on `file` before this task.
+    #[test]
+    fn grep_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == GREP_TOOL_NAME)
+            .expect("grep tool present in catalog");
+        assert_eq!(tool.input_schema["required"], json!(["pattern"]));
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in [
+            "pattern",
+            "glob",
+            "path",
+            "output_mode",
+            "context",
+            "case_insensitive",
+            "head_limit",
+        ] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+        assert_eq!(
+            tool.input_schema["properties"]["output_mode"]["enum"],
+            json!(["files_with_matches", "content", "count"])
+        );
+    }
+
+    #[test]
+    fn glob_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == GLOB_TOOL_NAME)
+            .expect("glob tool present in catalog");
+        assert_eq!(tool.input_schema["required"], json!(["pattern"]));
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["pattern", "path"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+    }
+
+    #[test]
+    fn edit_tool_schema_declares_its_full_argument_surface() {
+        let tool = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == EDIT_TOOL_NAME)
+            .expect("edit tool present in catalog");
+        assert_eq!(
+            tool.input_schema["required"],
+            json!(["path", "old_string", "new_string"])
+        );
+        let properties = tool.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["path", "old_string", "new_string", "replace_all"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+    }
+
+    /// Full-surface pin for `file`'s schema in both catalogs -- not just `offset`/`limit`
+    /// presence, per a code-review mutation test that found deleting `content` from the full
+    /// catalog's `file` schema and weakening its `required` from `["operation", "path"]` to
+    /// `["operation"]` left every other test in this module (and the crate: `tool_catalog.rs` is
+    /// the only file that asserts on `input_schema["properties"]` at all) green. `file` has no
+    /// shared constructor like `grep`/`glob` -- its full and plan-mode schemas are two
+    /// hand-maintained `ToolDefinition` literals -- so both need checking independently,
+    /// including the plan-mode copy's narrower `operation` enum and its deliberately absent
+    /// `content` property (plan mode cannot write).
+    #[test]
+    fn file_tool_schema_declares_its_full_argument_surface_in_both_catalogs() {
+        let full_file = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == FILE_TOOL_NAME)
+            .expect("file tool present in full catalog");
+        assert_eq!(
+            full_file.input_schema["required"],
+            json!(["operation", "path"])
+        );
+        assert_eq!(
+            full_file.input_schema["properties"]["operation"]["enum"],
+            json!(["read", "write"])
+        );
+        let full_properties = full_file.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["operation", "path", "content", "offset", "limit"] {
+            assert!(full_properties.contains_key(key), "missing property {key}");
+        }
+
+        let plan_mode_file = plan_mode_tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == FILE_TOOL_NAME)
+            .expect("file tool present in plan mode catalog");
+        assert_eq!(
+            plan_mode_file.input_schema["required"],
+            json!(["operation", "path"])
+        );
+        assert_eq!(
+            plan_mode_file.input_schema["properties"]["operation"]["enum"],
+            json!(["read"])
+        );
+        let plan_mode_properties = plan_mode_file.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["operation", "path", "offset", "limit"] {
+            assert!(
+                plan_mode_properties.contains_key(key),
+                "missing property {key}"
+            );
+        }
+        // Plan mode's tool description and `operation` enum already say writing is unavailable --
+        // a stray `content` property here would be the schema quietly contradicting that (see
+        // finding 2: plan mode's `offset`/`limit` used to carry a leftover "Ignored when writing"
+        // clause for the same reason).
+        assert!(!plan_mode_properties.contains_key("content"));
     }
 
     #[test]
@@ -295,5 +575,55 @@ mod tests {
             &json!({"operation": "read", "path": "a.txt"}),
             false
         ));
+        // `grep`/`glob` are AutoApprove unconditionally and are not part of `requires_approval`'s
+        // trust allowlist at all -- unlike `shell`/`file`/`edit`, nothing here should depend on
+        // the trust flag either way. Exercises `requires_approval` itself (the actual production
+        // entry point composing `risk_tier_for` with the trust flag), not just `risk_tier_for` in
+        // isolation, with the flag both on and off: a future change that narrows
+        // `requires_approval`'s carve-out logic and accidentally starts gating search tools on
+        // trust would fail here even though `search_tools_do_not_require_approval` alone
+        // (asserting on `risk_tier_for`) would still pass.
+        for trusted in [false, true] {
+            assert!(!requires_approval(
+                GREP_TOOL_NAME,
+                &json!({"pattern": "needle"}),
+                trusted
+            ));
+            assert!(!requires_approval(
+                GLOB_TOOL_NAME,
+                &json!({"pattern": "**/*.rs"}),
+                trusted
+            ));
+        }
+    }
+
+    #[test]
+    fn search_tools_do_not_require_approval() {
+        assert_eq!(
+            risk_tier_for(GREP_TOOL_NAME, &json!({"pattern": "needle"})),
+            ToolRiskTier::AutoApprove
+        );
+        assert_eq!(
+            risk_tier_for(GLOB_TOOL_NAME, &json!({"pattern": "**/*.rs"})),
+            ToolRiskTier::AutoApprove
+        );
+    }
+
+    #[test]
+    fn edit_always_requires_approval() {
+        assert_eq!(
+            risk_tier_for(
+                EDIT_TOOL_NAME,
+                &json!({"path": "a.rs", "old_string": "a", "new_string": "b"})
+            ),
+            ToolRiskTier::RequiresApproval
+        );
+    }
+
+    #[test]
+    fn a_trusted_agent_skips_approval_for_edit() {
+        let input = json!({"path": "a.rs", "old_string": "a", "new_string": "b"});
+        assert!(requires_approval(EDIT_TOOL_NAME, &input, false));
+        assert!(!requires_approval(EDIT_TOOL_NAME, &input, true));
     }
 }

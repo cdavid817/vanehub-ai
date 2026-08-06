@@ -112,5 +112,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-04 | maximize-main-window-on-startup | desktop-background-lifecycle | `openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/` |
 | 2026-08-04 | remove-agent-management-page | agent-switching, cli-agent-config-management, settings-center-ui | `openspec/changes/archive/2026-08-04-remove-agent-management-page/` |
 | 2026-08-05 | polish-workspace-visual-consistency | agent-terminal-runtime, main-layout-ui, notification-system, visual-design-system | `openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/` |
+| 2026-08-06 | add-onepiece-search-and-edit-tools | agent-chat-configuration, agent-context-compaction, agent-tool-execution, agent-tool-trust, onepiece-native-agent | `openspec/changes/archive/2026-08-06-add-onepiece-search-and-edit-tools/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
