@@ -890,13 +890,8 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
         limit: usize,
     ) -> Result<AgentRetrievalOutcome, String>;
 
-    /// Best-effort wake signal for the background indexing worker after a memory changes
-    /// (wired into the save/delete paths in Task 14): no write, no wait, and failure is
-    /// harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
-    // Task 14's save/delete-memory hook calls this after it, making it reachable; remove this
-    // attribute then. The concrete `DeferredAgentRetrieval` impl in bootstrap already forwards to
-    // `RetrievalApi::wake_worker` (also still `#[allow(dead_code)]`, for the same reason), but
-    // that alone does not make this trait method itself reachable — nothing calls it yet.
-    #[allow(dead_code)]
+    /// Best-effort wake signal for the background indexing worker after a memory changes —
+    /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
+    /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
     fn notify_source_changed(&self);
 }

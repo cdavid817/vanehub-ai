@@ -76,8 +76,6 @@ impl RetrievalApi {
         })
     }
 
-    // Task 14 的删除记忆挂钩调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn remove(
         &self,
         source_kind: SourceKind,
@@ -134,8 +132,6 @@ impl RetrievalApi {
 
     /// 返回 `()` 而不是 `Result`：调用方（Task 14 的保存记忆路径）不该有机会因为索引唤醒
     /// 失败而改变自己的结果。
-    // Task 14 的保存记忆挂钩调用它后可达；届时移除本属性。
-    #[allow(dead_code)]
     pub(crate) fn wake_worker(&self) {
         self.worker.notify();
     }

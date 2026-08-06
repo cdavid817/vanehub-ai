@@ -1253,7 +1253,7 @@ fn execute_tool_call(
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
     // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
     if name == REMEMBER_TOOL_NAME {
-        return execute_remember(input, agent_id, workspace_folder, memories);
+        return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
@@ -1321,11 +1321,18 @@ fn execute_tool_call(
     }
 }
 
+/// After a successful save, wakes the background indexing worker (`retrieval.
+/// notify_source_changed()`) so the new memory is indexed promptly instead of waiting up to one
+/// reconcile poll period. That call writes nothing, waits for nothing, and cannot fail by
+/// construction (`AgentRetrievalPort::notify_source_changed` returns `()`) — it is skipped
+/// entirely on the empty-content rejection path above, since there is no new memory to index and
+/// waking the worker would just burn a full two-table reconcile scan for nothing.
 fn execute_remember(
     input: &Value,
     agent_id: &str,
     folder: Option<&str>,
     memories: &dyn AgentMemoryPort,
+    retrieval: &dyn AgentRetrievalPort,
 ) -> ToolExecutionOutcome {
     let content = input
         .get("content")
@@ -1339,10 +1346,13 @@ fn execute_remember(
         };
     }
     match memories.save(agent_id, folder, content, MemorySource::Explicit) {
-        Ok(()) => ToolExecutionOutcome {
-            output: "Saved.".to_string(),
-            is_error: false,
-        },
+        Ok(()) => {
+            retrieval.notify_source_changed();
+            ToolExecutionOutcome {
+                output: "Saved.".to_string(),
+                is_error: false,
+            }
+        }
         Err(error) => ToolExecutionOutcome {
             output: format!("Failed to save memory: {error}"),
             is_error: true,
@@ -1445,6 +1455,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::AtomicUsize;
 
     #[derive(Default)]
     struct FakeCredentials {
@@ -1703,10 +1714,13 @@ mod tests {
     /// Records one `RecordedRetrievalCall` per `search` call and hands back a configurable
     /// outcome — used where a test needs to observe or control the retrieval path rather than
     /// just satisfy the trait bound (`NoopRetrieval` covers the latter), mirroring `FakeMcp`.
+    /// `wake_calls` counts `notify_source_changed()` invocations for the `remember`/save-hook
+    /// tests (Task 14) — unrelated to `calls`, which is `search`-only.
     struct FakeRetrieval {
         configured: bool,
         outcome: Result<AgentRetrievalOutcome, String>,
         calls: Mutex<Vec<RecordedRetrievalCall>>,
+        wake_calls: AtomicUsize,
     }
 
     impl FakeRetrieval {
@@ -1715,6 +1729,7 @@ mod tests {
                 configured: true,
                 outcome,
                 calls: Mutex::new(Vec::new()),
+                wake_calls: AtomicUsize::new(0),
             }
         }
     }
@@ -1740,7 +1755,9 @@ mod tests {
             self.outcome.clone()
         }
 
-        fn notify_source_changed(&self) {}
+        fn notify_source_changed(&self) {
+            self.wake_calls.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     #[derive(Default)]
@@ -2898,6 +2915,51 @@ mod tests {
             false,
         );
         assert!(outcome.is_error);
+    }
+
+    /// Task 14: a successful save must wake the background indexing worker so the new memory is
+    /// indexed promptly instead of waiting up to one reconcile poll period.
+    #[test]
+    fn saving_a_memory_wakes_the_indexing_worker() {
+        let memories = FakeMemories::default();
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+
+        let outcome = execute_remember(
+            &json!({"content": "Uses npm."}),
+            "test-agent",
+            None,
+            &memories,
+            &retrieval,
+        );
+
+        assert!(!outcome.is_error);
+        assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// Task 14: an empty/whitespace-only `content` is rejected before `memories.save` is ever
+    /// called — there is no new memory to index, so waking the worker would just burn a full
+    /// two-table reconcile scan for nothing.
+    #[test]
+    fn a_rejected_memory_does_not_wake_the_worker() {
+        let memories = FakeMemories::default();
+        let retrieval = FakeRetrieval::configured(Ok(AgentRetrievalOutcome {
+            hits: Vec::new(),
+            degraded: None,
+        }));
+
+        let outcome = execute_remember(
+            &json!({"content": "   "}),
+            "test-agent",
+            None,
+            &memories,
+            &retrieval,
+        );
+
+        assert!(outcome.is_error);
+        assert_eq!(retrieval.wake_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
