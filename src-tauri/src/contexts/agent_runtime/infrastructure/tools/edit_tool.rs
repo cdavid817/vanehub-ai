@@ -208,29 +208,24 @@ fn write_atomically(target: &Path, contents: &str) -> std::io::Result<()> {
     result
 }
 
-/// Writes `contents` to a brand-new file at `temp_path`. Unix creates it at mode `0o600` from the
-/// start rather than going through `fs::write`, which creates at the process umask's default
-/// (typically `0o644`) and only narrows permissions -- via `write_atomically`'s later
-/// `set_permissions` call -- after the content is already on disk. Editing a `0o600` source file
-/// would otherwise expose its new content at `0o644` for that window, and permanently if the
-/// process dies before the narrowing runs. Low practical impact on this Windows-primary app, but
-/// cheap to close.
-#[cfg(unix)]
+/// Writes `contents` to a brand-new file at `temp_path`, via `private_relay_fs`'s shared
+/// create-or-truncate primitive rather than a second, file-local `OpenOptions` call here --
+/// `tests/architecture.rs` confines raw file-handle construction to the reviewed platform modules
+/// that own it, so duplicating it here is a hard failure, not just a style nit. On Unix that
+/// primitive opens at mode `0o600` from the start instead of the process umask's default
+/// (typically `0o644`) with a later narrowing step, the way `fs::write` would: editing a `0o600`
+/// source file would otherwise expose its new content at `0o644` for that window, and permanently
+/// if the process dies before `write_atomically`'s later `set_permissions` call runs. Low
+/// practical impact on this Windows-primary app, but cheap to close. Create-or-truncate (rather
+/// than `open_private_file`'s `create_new`) also matters here specifically: this name is a pid
+/// plus a process-global counter, and a prior crash can leave a stale file under that exact name
+/// once a pid is recycled -- `create_new` would turn that into a permanent failure the user has to
+/// fix by hand-deleting a hidden file, while truncating it is safe because this process already
+/// owns that name by construction.
 fn create_temp_file(temp_path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(temp_path)?
+    crate::platform::private_relay_fs::create_or_truncate_private_file(temp_path)?
         .write_all(contents.as_bytes())
-}
-
-#[cfg(not(unix))]
-fn create_temp_file(temp_path: &Path, contents: &str) -> std::io::Result<()> {
-    std::fs::write(temp_path, contents)
 }
 
 /// Formats a `write_atomically` failure for the model. A locked destination -- another process

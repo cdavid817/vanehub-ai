@@ -240,6 +240,34 @@ fn open_private_file(path: &Path) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
 
+/// Opens `path` for writing, creating it if absent and truncating it if present, at mode `0o600`
+/// on Unix from the moment it is created. This differs from `open_private_file`'s `create_new`
+/// semantics on purpose: callers of this function name their file with a pid plus a
+/// process-global counter, and a prior crash can leave a stale file under that exact name behind
+/// once a pid gets recycled. Under `create_new` that collision becomes a permanent failure the
+/// user has to fix by hand-deleting a hidden file; overwriting it here is safe instead, because
+/// the current process already owns that name by construction and there is nothing in a stale
+/// file worth preserving.
+#[cfg(unix)]
+pub(crate) fn create_or_truncate_private_file(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(windows)]
+pub(crate) fn create_or_truncate_private_file(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+}
+
 #[cfg(unix)]
 fn restrict_to_current_user(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
