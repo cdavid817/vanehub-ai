@@ -1,4 +1,5 @@
 use super::tests::{seat_turn_world, service};
+use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
 use super::{SeatTurnAssignment, SeatTurnStop, SeatTurnTerminal};
 use crate::contexts::agent_runtime::domain::ChainEndReason;
 
@@ -286,4 +287,44 @@ fn starting_a_turn_for_a_removed_seat_is_rejected() {
             },
         )
         .is_err());
+}
+
+/// The execution trace stays session-scoped and shows a whole round including the handoffs, so it
+/// distinguishes seats by marking each Agent span with the seat that ran it.
+#[test]
+fn a_seat_turn_marks_its_agent_span_with_the_seat() {
+    use crate::contexts::execution_observability::api::SafeAttributeValue;
+
+    let world = seat_turn_world();
+    let (service, telemetry) = super::tests::service_with_telemetry(world);
+
+    service
+        .start_seat_turn(
+            "session-1",
+            &SeatTurnAssignment {
+                seat_index: 1,
+                depth: 2,
+            },
+        )
+        .expect("start seat turn");
+
+    let agent_span = telemetry
+        .records()
+        .expect("records")
+        .into_iter()
+        .find_map(|record| match record {
+            CapturedTelemetryRecord::SpanStarted(span) if span.name.starts_with("invoke_agent") => {
+                Some(span)
+            }
+            _ => None,
+        })
+        .expect("an agent span");
+    assert_eq!(
+        agent_span.attributes.entries().get("vanehub.seat.index"),
+        Some(&SafeAttributeValue::String("1".to_string()))
+    );
+    assert_eq!(
+        agent_span.attributes.entries().get("vanehub.seat.mention"),
+        Some(&SafeAttributeValue::String("代码审查".to_string()))
+    );
 }

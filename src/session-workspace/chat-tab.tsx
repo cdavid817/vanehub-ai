@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { MessageList } from "../components/chat/MessageList";
+import { useSessionSpeakers } from "../hooks/use-session-speakers";
 
 export function ChatTab({
   activeSession,
@@ -18,6 +19,7 @@ export function ChatTab({
   onLoadEarlier: () => void;
 }) {
   const { t } = useTranslation();
+  const speakers = useSessionSpeakers(activeSession);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))] shadow-xs">
@@ -37,6 +39,7 @@ export function ChatTab({
           hasMore={messages.length >= 50}
           messages={messages}
           onLoadEarlier={onLoadEarlier}
+          speakers={speakers}
         />
       </div>
       <div className="mt-3">{composer}</div>

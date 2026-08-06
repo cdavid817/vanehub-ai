@@ -85,7 +85,7 @@ export function SessionTabs({
       return <LazyFeature componentProps={{ active: activeTab === "shell", sessionId }} loader={loadShellTab} />;
     }
     if (id === "logs") return <LazyFeature componentProps={{ sessionId }} loader={loadLogsTab} />;
-    if (id === "traces") return <LazyFeature componentProps={{ sessionId }} loader={loadExecutionTimelineTab} />;
+    if (id === "traces") return <LazyFeature componentProps={{ session: activeSession, sessionId }} loader={loadExecutionTimelineTab} />;
     return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadReportTab} />;
   }
 

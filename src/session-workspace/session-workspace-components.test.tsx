@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import ReactMarkdown from "react-markdown";
@@ -69,14 +70,16 @@ describe("session workspace components", () => {
       updatedAt: "2026-08-02T00:00:00.000Z",
     };
     const html = renderToStaticMarkup(
-      <SessionTabs
-        activeSession={session}
-        apiComposer={<div>API composer</div>}
-        messages={[message]}
-        messagesPartial={false}
-        onOpenSettings={() => undefined}
-        sessionActivationKey={0}
-      />,
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionTabs
+          activeSession={session}
+          apiComposer={<div>API composer</div>}
+          messages={[message]}
+          messagesPartial={false}
+          onOpenSettings={() => undefined}
+          sessionActivationKey={0}
+        />
+      </QueryClientProvider>,
     );
 
     expect(html).toContain("OnePiece session");

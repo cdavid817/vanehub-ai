@@ -1741,6 +1741,18 @@ impl AgentRuntimeApplicationService {
                 SafeAttributeValue::String(model_id.clone()),
             ));
         }
+        // The trace stays session-scoped and shows a whole round including the handoffs between
+        // seats, so it has to say which seat each Agent span belongs to.
+        if let Some(ownership) = &seat_ownership {
+            agent_attributes.push((
+                "vanehub.seat.index".to_string(),
+                SafeAttributeValue::String(ownership.seat_index.to_string()),
+            ));
+            agent_attributes.push((
+                "vanehub.seat.mention".to_string(),
+                SafeAttributeValue::String(ownership.seat_mention.clone()),
+            ));
+        }
         let agent_span = ExecutionSpan {
             context: agent_context.clone(),
             parent_span_id: Some(root_context.span_id.clone()),

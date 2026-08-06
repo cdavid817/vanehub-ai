@@ -1435,7 +1435,7 @@ pub(super) fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
     service_with_telemetry(world).0
 }
 
-fn service_with_telemetry(
+pub(super) fn service_with_telemetry(
     world: Arc<FakeWorld>,
 ) -> (AgentRuntimeApplicationService, CapturingExecutionTelemetry) {
     let telemetry = CapturingExecutionTelemetry::default();

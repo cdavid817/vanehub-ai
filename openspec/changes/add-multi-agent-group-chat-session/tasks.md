@@ -31,7 +31,7 @@
 ## 5. Speaker Identity in the Thread
 
 - [x] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters. (Originally closed with only the frontend type; the `messages.seat_index` column, record field, and DTO landed with task 7.2.)
-- [x] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row.
+- [x] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row. (The component took a `speaker` prop from the start but nothing supplied it; `useSessionSpeakers` wires it into the thread with task 10.3.)
 - [x] 5.3 Mark a cross-family reviewer seat in its message header.
 - [x] 5.4 Verify single-seat sessions render exactly as they do today.
 
@@ -69,7 +69,7 @@
 
 - [x] 10.1 Add a scope declaration to each workspace tab.
 - [x] 10.2 Add the in-tab seat switcher to terminal transcript, Shell, and logs.
-- [ ] 10.3 Colour execution-trace entries by seat while keeping the tab session-scoped. Scope is fixed and tested; colouring needs trace entries to carry a seat, which arrives with the turn coordinator from task 7.2.
+- [x] 10.3 Colour execution-trace entries by seat while keeping the tab session-scoped. Agent spans carry `vanehub.seat.index` and `vanehub.seat.mention`; the trace reads them and tints each span with the seat's role colour.
 - [x] 10.4 Hide seat switchers in single-seat sessions and confirm the tab count does not change with seats.
 
 ## 11. Verification

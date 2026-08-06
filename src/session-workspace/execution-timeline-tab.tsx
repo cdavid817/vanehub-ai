@@ -5,19 +5,26 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "../components/ui/badge";
 import { formatAppDateTime } from "../i18n/format";
 import { cn } from "../lib/utils";
+import { useSessionSpeakers } from "../hooks/use-session-speakers";
+import type { MessageSpeaker } from "../services/message-speaker";
+import type { Session } from "../types/agent";
 import type { ExecutionObservabilityService } from "../services/execution-observability-service";
 import { executionObservabilityService } from "../services/runtime-execution-observability-client";
 import type { ExecutionSpanSummary, ExecutionStatus } from "../types/execution-observability";
+import { traceSeat } from "./trace-seat";
 import { WorkspaceState } from "./workspace-state";
 
 export function ExecutionTimelineTab({
+  session = null,
   sessionId,
   service = executionObservabilityService,
 }: {
+  session?: Session | null;
   sessionId: string | null;
   service?: ExecutionObservabilityService;
 }) {
   const { i18n, t } = useTranslation();
+  const speakers = useSessionSpeakers(session);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const runs = useInfiniteQuery({
     queryKey: ["execution-runs", sessionId],
@@ -70,13 +77,19 @@ export function ExecutionTimelineTab({
       <section className="min-h-0 overflow-y-auto rounded-lg border border-border bg-background p-3 sm:p-4">
         {timeline.isLoading ? <WorkspaceState kind="loading" message={t("traces.loading")} /> : null}
         {timeline.isError ? <WorkspaceState kind="error" message={t("traces.error")} /> : null}
-        {timeline.data ? <TimelineDetail timeline={timeline.data} /> : null}
+        {timeline.data ? <TimelineDetail speakers={speakers} timeline={timeline.data} /> : null}
       </section>
     </div>
   );
 }
 
-function TimelineDetail({ timeline }: { timeline: Awaited<ReturnType<ExecutionObservabilityService["getTimeline"]>> }) {
+function TimelineDetail({
+  speakers,
+  timeline,
+}: {
+  speakers: Map<number, MessageSpeaker>;
+  timeline: Awaited<ReturnType<ExecutionObservabilityService["getTimeline"]>>;
+}) {
   const { i18n, t } = useTranslation();
   const roots = useMemo(() => spanTree(timeline.spans), [timeline.spans]);
   return (
@@ -101,7 +114,7 @@ function TimelineDetail({ timeline }: { timeline: Awaited<ReturnType<ExecutionOb
       </section>
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("traces.topology")}</h3>
-        <div className="grid gap-2">{roots.map((node) => <SpanNode key={node.span.spanId} node={node} />)}</div>
+        <div className="grid gap-2">{roots.map((node) => <SpanNode key={node.span.spanId} node={node} speakers={speakers} />)}</div>
       </section>
       <section>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("traces.events")}</h3>
@@ -127,12 +140,17 @@ export function spanTree(spans: ExecutionSpanSummary[]): SpanTreeNode[] {
   return roots;
 }
 
-function SpanNode({ node }: { node: SpanTreeNode }) {
+function SpanNode({ node, speakers }: { node: SpanTreeNode; speakers: Map<number, MessageSpeaker> }) {
   const { t } = useTranslation();
   const gap = node.span.fidelity === "opaque" || node.span.status === "incomplete";
   const stage = node.span.name.includes("mcp") ? "MCP" : node.span.name.includes("tool") ? t("traces.toolStage") : null;
+  const seat = traceSeat(node.span.attributes);
+  const speaker = seat ? speakers.get(seat.seatIndex) ?? null : null;
   return (
-    <div className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3">
+    <div
+      className={cn("rounded-md border bg-[hsl(var(--panel-muted))] p-3", speaker ? "border-l-4" : "border-border")}
+      style={speaker ? { borderLeftColor: speaker.color } : undefined}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="wrap-break-word font-mono text-sm font-medium">{node.span.name}</div>
@@ -143,13 +161,14 @@ function SpanNode({ node }: { node: SpanTreeNode }) {
           </div>
         </div>
         <div className="flex gap-1.5">
+          {speaker ? <Badge tone="muted">{speaker.roleName ?? speaker.agentName}</Badge> : null}
           {stage ? <Badge tone="muted">{stage}</Badge> : null}
           <StatusBadge status={node.span.status} />
           <Badge tone={node.span.fidelity === "native" ? "success" : node.span.fidelity === "opaque" ? "danger" : "warning"}>{t(`traces.fidelity.${node.span.fidelity}`)}</Badge>
         </div>
       </div>
       {gap ? <div className="mt-3 flex gap-2 rounded border p-2 text-xs ucd-status-warning"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" /><span><strong>{t("traces.gap")}</strong> — {t("traces.gapDescription")}</span></div> : null}
-      {node.children.length ? <div className="ml-2 mt-3 grid gap-2 border-l border-border pl-3">{node.children.map((child) => <SpanNode key={child.span.spanId} node={child} />)}</div> : null}
+      {node.children.length ? <div className="ml-2 mt-3 grid gap-2 border-l border-border pl-3">{node.children.map((child) => <SpanNode key={child.span.spanId} node={child} speakers={speakers} />)}</div> : null}
     </div>
   );
 }
