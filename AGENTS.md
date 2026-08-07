@@ -69,9 +69,10 @@ openspec/
 - 查询归档时优先读取 `openspec/changes/archive/archive-index.json`,按 `changeName` 或 `capabilities` 过滤;仅在定位到具体变更后才读取其 Markdown 工件。
 - 每 6 个月审查一次在线归档。迁往冷归档前必须验证目标 Git 仓库、不可变分支或 tag,在 `openspec/archive-cold-migrations.md` 记录可验证引用后,才能移除在线副本。
 
-## Pull Request 规范
+## 提交与 PR 语言规范
 
-- 创建 PR 时,标题与描述一律使用英文;提交信息(commit message)语言不受此限制。
+- 创建 PR 时,标题与描述一律使用英文。
+- 提交信息(commit message)同样一律使用英文。
 
 ## 机器强制层(hooks 与提交拦截)
 
