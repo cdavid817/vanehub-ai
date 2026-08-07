@@ -563,6 +563,7 @@ impl AgentCliProfileGateway for LifecycleDoubles {
             executable: "deterministic-process-double".to_string(),
             selections: BTreeMap::new(),
             managed_args: Vec::new(),
+            env: BTreeMap::new(),
         })
     }
 }

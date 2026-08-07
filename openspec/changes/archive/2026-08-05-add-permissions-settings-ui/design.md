@@ -1,0 +1,49 @@
+## Context
+
+`add-permissions-core` (not yet archived — 52/59 tasks; outstanding items are 4.4 `auto_approve_tools` column drop decision, 4.5/4.6 the `permission://request` push event and its notification-system wiring, 8.4 the file-write diff preview, and 8.3/8.5 which this change resolves) built the full Policy Decision Point: `permissions::api::PermissionsApi` with `evaluate`, `assign_template`, and the approval-broker methods, backed by SQLite (`agent_principals`, `permission_grants`, `approval_audit`). `assign_template` is write-only and already has a Tauri command (`apply_policy_template`) and a frontend service method — but nothing calls either, because there is no page that lists agents to call it *for*. Verified this session: `agent-configurations-page.tsx` renders exactly 4 hardcoded CLI-type tabs and never calls `listAgents()`; every other caller of `listAgents()` only populates a `<select>`; `registerApiAgent` has zero `.tsx` callers.
+
+This change adds that missing UI surface, plus the one backend piece it needs that doesn't exist yet: a non-mutating read of a principal's current template.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Let a user see every custom API agent's (and OnePiece's) current policy template and change it, from Settings.
+- Let a user set a global default template applied to agents that have never been assigned one explicitly.
+- Complete `add-permissions-core`'s deferred confirm-to-increase-trust interaction (tasks 8.3/8.5) using the `requiresConfirmationToAssign` field that capability already computes.
+
+**Non-Goals:**
+- A form to create new custom API agents. `registerApiAgent` having no UI caller is a pre-existing gap unrelated to permissions; out of scope here.
+- Any CLI agent (Claude Code/Gemini CLI/OpenCode/Codex CLI) policy configuration. None of them are wired into `permissions::evaluate()` yet — that starts at Phase 2/3.
+- The `permission://request` push event or notification-system wiring. Still `add-permissions-core`'s own outstanding tasks 4.5/4.6; this change does not touch the chat-inline `ApprovalCard` at all.
+- An audit-log viewer for `approval_audit`. A real future need, not this one — this change is about setting policy, not reviewing history.
+- Any change to `evaluate()`'s resolution algorithm (explicit-Deny-first precedence, the MCP/Plan-Mode floors). Untouched; this change only affects which template a principal is assigned and how that assignment happens.
+
+## Decisions
+
+**D1 — The read path is a genuine nullable lookup, not lazy-create-on-read.** `PrincipalRepository::find_by_agent_id` already exists and returns `Option<Principal>`; the new `PermissionsApi::find_principal(agent_id) -> Option<Principal>` calls it directly. It deliberately does **not** go through `EvaluationService::get_or_create_principal`. Rendering a settings list must not have the side effect of writing a database row for every agent merely because the page was opened — only an explicit `apply_policy_template` call (or the agent's first real tool-call evaluation) should ever create a principal row. When no row exists, the command synthesizes a `PrincipalEntry` reporting the effective default (`template: "<current desktop-setting default>"`, `requiresConfirmationToAssign` computed the same way as a real row) — behaviorally indistinguishable from a real row at that template, so the frontend needs no separate "not yet customized" affordance.
+
+**D2 — The desktop default-template setting reaches `permissions` through a port, not a direct cross-context read.** `tests/architecture.rs` enforces that `application`-layer code cannot reach into another context except through its published `api` module, and infrastructure-layer adapters are where legitimate cross-context wiring belongs (the exact shape `AgentPermissionPort`/`PermissionsPortAdapter` already established for the `agent_runtime` → `permissions` boundary in `add-permissions-core`). This change adds the mirror image: a `DefaultTemplatePort` trait in `permissions::application::ports` (one method, `default_template() -> PolicyTemplateName`), implemented by a `DesktopDefaultTemplateAdapter` in `permissions::infrastructure` that calls `crate::contexts::desktop::api` — never `desktop::domain` directly. `EvaluationService::get_or_create_principal` takes this port instead of hardcoding `PolicyTemplateName::Standard`. On any read failure or an absent setting, the adapter returns `Standard` — the port itself is infallible by construction so `get_or_create_principal` keeps its current signature.
+
+**D3 — Confirm-to-increase-trust is a frontend-only gate, matching `add-permissions-core`'s own established split.** `apply_policy_template`'s command doc comment already states this: "Confirm-to-increase-trust is a frontend concern... this command applies the change unconditionally once called." The new settings page reads `requiresConfirmationToAssign` on the *target* template before calling `applyPolicyTemplate`, and shows a confirmation dialog only when it's `true` (i.e., raising to trusted/yolo) — lowering trust (or picking readonly/standard) applies immediately, no dialog. No backend change needed for this decision beyond D1's read path exposing the field.
+
+**D4 — Agent list scope is `agentOrigin === "user"` unioned with the literal id `"onepiece"`, not a blanket exclusion of `"builtin"`.** `listAgents()` returns registry entries for launchable things generally, which may include the 4 CLI-type entries alongside `onepiece` and user-created agents; naively filtering on `agentOrigin !== "builtin"` would only be correct if CLI-type entries are also marked `"user"` (unverified, and not worth depending on). Filtering explicitly by `(agentOrigin === "user") || (id === "onepiece")` is correct regardless of how CLI entries are tagged, and self-documents *why* OnePiece is included (it's the one built-in agent that runs the native tool-use loop `permissions::evaluate()` actually gates).
+
+**D5 — New dedicated settings page, not folded into `agent-configurations-page.tsx`.** That page's entire structure (`configurableAgentIds: ConfigurableAgentId[]`, 4 static tabs) is shaped around a fixed enum of CLI-type configs, not a dynamic list of arbitrary agent instances. Forcing a per-instance list and a per-type config panel into one page would mean two unrelated data-fetching/rendering models sharing a shell for no benefit. New page id `agent-policies`, registered in `settings-pages.ts` following the existing lazy-loader pattern.
+
+## Risks / Trade-offs
+
+- [Risk] The new `DefaultTemplatePort` is a second cross-context port on the `permissions` context (after `AgentPermissionPort`'s inverse direction) — if built carelessly (e.g., importing `desktop::domain` types directly in `permissions::infrastructure`, or worse, in `permissions::application`) it reproduces the exact violation class `tests/architecture.rs` already caught once this cycle in `add-permissions-core`. → Mitigation: `cargo test` (which runs the architecture suite) is a hard gate in tasks.md before this change is considered done; do not use `cargo test --lib` as a substitute.
+- [Risk] Changing the global default-template setting must not retroactively change already-assigned agents' effective trust — that would be a silent, security-relevant behavior change for existing agents the user never touched. → Mitigation: the setting is read only inside `get_or_create_principal`'s *lazy-create* branch; an agent that already has a row is entirely unaffected by later changes to the desktop setting. `find_principal` (D1) must never call this path either, for the same reason.
+- [Risk] `find_principal`'s "synthesize a default `PrincipalEntry` when no row exists" (D1) reads the *current* desktop-setting default at list-render time — if the user changes the global default between opening the list and clicking a row, the displayed "current template" for not-yet-customized agents could go stale within that one page view. → Accepted; low-stakes (a settings list, not a live security boundary), refreshing the page corrects it.
+- [Trade-off] `find_principal` and `get_or_create_principal` now both need `DefaultTemplatePort`-shaped knowledge of "what's the effective default," but only the latter actually writes it. Keeping them as two call sites (rather than having `find_principal` call `get_or_create_principal` and discard the write) is deliberate per D1, at the cost of the default-resolution logic existing conceptually in two places. Both ultimately call the same port method, so there is no duplicated *value*, only two call sites reading it.
+
+## Migration Plan
+
+- New SQLite: one new column or key on the existing `desktop` settings table (a new `DesktopSettingKey::DefaultPolicyTemplate` variant, following the exact pattern `automaticArchivalEnabled` already established) — additive, no migration of existing rows needed since `load_settings()` already treats absent keys as "use the struct default" (`Standard`).
+- No changes to `agent_principals`/`permission_grants`/`approval_audit` schema (migration 42, already shipped) — this change is additive at the application layer only.
+- Rollback: purely additive (new command, new port, new settings key, new page); reverting is deleting the new files/entries with no data cleanup required, since no existing row or column is touched.
+
+## Open Questions
+
+- Exact visual layout of the agent-policy list (table vs. card list, where the risk-tier legend from `ApprovalCard` should be echoed, if at all) — left to implementation time, per this project's usual practice of not over-specifying visual shape in design.md.
+- Whether `agent-policies` should also surface each agent's most recent `approval_audit` entries inline (a lightweight preview, not a full log viewer) — deferred; raise as its own follow-up if wanted after this ships, not blocking.

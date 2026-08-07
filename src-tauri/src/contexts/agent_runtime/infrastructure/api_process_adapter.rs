@@ -5,9 +5,9 @@ use super::tools::{
 };
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    plan_mode_tool_catalog, recall_tool_definition, requires_approval, tool_catalog,
-    AgentChatConfiguration, AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel,
-    AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage,
+    plan_mode_tool_catalog, recall_tool_definition, tool_catalog, AgentChatConfiguration,
+    AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentPermissionPort,
     AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
     AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
@@ -18,6 +18,7 @@ use crate::contexts::agent_runtime::application::{
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
     SHELL_TOOL_NAME,
 };
+use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -71,6 +72,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
+    permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
@@ -95,6 +97,7 @@ impl RuntimeAgentApiAdapter {
         core_instructions: Arc<dyn AgentCoreInstructionsPort>,
         memories: Arc<dyn AgentMemoryPort>,
         mcp: Arc<dyn AgentMcpToolPort>,
+        permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
         personalization: Arc<dyn AgentPersonalizationPort>,
     ) -> Self {
@@ -108,6 +111,7 @@ impl RuntimeAgentApiAdapter {
             core_instructions,
             memories,
             mcp,
+            permissions,
             retrieval,
             personalization,
             generations: Arc::new(Mutex::new(HashMap::new())),
@@ -188,6 +192,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let core_instructions = self.core_instructions.clone();
         let memories = self.memories.clone();
         let mcp = self.mcp.clone();
+        let permissions = self.permissions.clone();
         let retrieval = self.retrieval.clone();
         let personalization = self.personalization.clone();
         thread::spawn(move || {
@@ -203,6 +208,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 core_instructions,
                 memories,
                 mcp,
+                permissions,
                 retrieval,
                 personalization,
                 sink,
@@ -275,6 +281,7 @@ fn run_generation(
     core_instructions: Arc<dyn AgentCoreInstructionsPort>,
     memories: Arc<dyn AgentMemoryPort>,
     mcp: Arc<dyn AgentMcpToolPort>,
+    permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     sink: Arc<dyn AgentProcessEventSink>,
@@ -294,6 +301,7 @@ fn run_generation(
         core_instructions.as_ref(),
         memories.as_ref(),
         mcp.as_ref(),
+        permissions.as_ref(),
         retrieval.as_ref(),
         personalization.as_ref(),
     );
@@ -442,6 +450,7 @@ fn execute(
     core_instructions: &dyn AgentCoreInstructionsPort,
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
+    permissions: &dyn AgentPermissionPort,
     retrieval: &dyn AgentRetrievalPort,
     personalization: &dyn AgentPersonalizationPort,
 ) -> GenerationProcessEvent {
@@ -630,33 +639,71 @@ fn execute(
                 return failed_non_retryable("Generation was cancelled.");
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
-            if requires_approval(&tool_use.name, &input, provider_config.auto_approve_tools) {
-                tool_use.status = "awaiting_approval".to_string();
-                if sink
-                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                    .is_err()
-                {
-                    return failed_retryable("Agent generation event handling failed.");
-                }
-                match await_approval(&tool_use.id, &cancelled, pending_approvals) {
-                    ApprovalOutcome::Approved => {}
-                    ApprovalOutcome::Denied => {
-                        let denial = "Denied by user.".to_string();
-                        tool_use.status = "failed".to_string();
-                        tool_use.output = Some(Value::String(denial.clone()));
-                        if sink
-                            .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
-                            .is_err()
-                        {
-                            return failed_retryable("Agent generation event handling failed.");
-                        }
-                        executed.push((tool_use, denial, true));
-                        continue;
+            let (permission_action, permission_resource) =
+                permission_action_and_resource(&tool_use.name, &input);
+            let project_key = request.session.folder.as_deref().unwrap_or("");
+            let effect = permissions.evaluate(
+                agent_id,
+                permission_action.clone(),
+                permission_resource.clone(),
+                &request.session.id,
+                &request.operation_id,
+                project_key,
+            );
+            match effect {
+                Effect::Allow => {}
+                Effect::Deny => {
+                    let denial = "Denied by policy.".to_string();
+                    tool_use.status = "failed".to_string();
+                    tool_use.output = Some(Value::String(denial.clone()));
+                    if sink
+                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                        .is_err()
+                    {
+                        return failed_retryable("Agent generation event handling failed.");
                     }
-                    ApprovalOutcome::Cancelled => {
-                        return failed_non_retryable(
-                            "Generation was cancelled while a tool call was awaiting approval.",
-                        );
+                    executed.push((tool_use, denial, true));
+                    continue;
+                }
+                Effect::Ask => {
+                    tool_use.status = "awaiting_approval".to_string();
+                    if sink
+                        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                        .is_err()
+                    {
+                        return failed_retryable("Agent generation event handling failed.");
+                    }
+                    if let Err(error) = permissions.create_pending_approval(
+                        agent_id,
+                        permission_action,
+                        permission_resource,
+                        &request.session.id,
+                        &request.operation_id,
+                        &tool_use.id,
+                        project_key,
+                    ) {
+                        return failed_non_retryable(&error.to_string());
+                    }
+                    match await_approval(&tool_use.id, &cancelled, pending_approvals) {
+                        ApprovalOutcome::Approved => {}
+                        ApprovalOutcome::Denied => {
+                            let denial = "Denied by user.".to_string();
+                            tool_use.status = "failed".to_string();
+                            tool_use.output = Some(Value::String(denial.clone()));
+                            if sink
+                                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                                .is_err()
+                            {
+                                return failed_retryable("Agent generation event handling failed.");
+                            }
+                            executed.push((tool_use, denial, true));
+                            continue;
+                        }
+                        ApprovalOutcome::Cancelled => {
+                            return failed_non_retryable(
+                                "Generation was cancelled while a tool call was awaiting approval.",
+                            );
+                        }
                     }
                 }
             }
@@ -1288,6 +1335,31 @@ fn extract_memories(
     }
 }
 
+/// Maps a tool call to the `permissions` domain's `(Action, Resource)` pair, mirroring
+/// `risk_tier_for`'s exact classification (design.md/tasks.md 6.2a): `file` + `operation ==
+/// "read"` is the only case that isn't treated as a mutating write, matching `risk_tier_for`'s
+/// `Some("read") => AutoApprove, _ => RequiresApproval` fail-closed default for a missing or
+/// unrecognized operation. A tool name outside the fixed catalog (a hallucinated call) maps to a
+/// synthetic action no template declares a rule for, so it always falls through to the default
+/// `Ask` — it can never be silently `Allow`ed under a `trusted`/`yolo` template the way `shell_exec`
+/// or `file_write` legitimately can be.
+fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Resource) {
+    match tool_name {
+        SHELL_TOOL_NAME => (Action::shell_exec(), Resource::workspace()),
+        FILE_TOOL_NAME => {
+            let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            let resource = Resource::file_path(path);
+            match input.get("operation").and_then(Value::as_str) {
+                Some("read") => (Action::file_read(), resource),
+                _ => (Action::file_write(), resource),
+            }
+        }
+        REMEMBER_TOOL_NAME => (Action::memory_write(), Resource::memory()),
+        name if name.starts_with(MCP_TOOL_NAME_PREFIX) => (Action::mcp_tool(), Resource::new(name)),
+        name => (Action::new(format!("unknown:{name}")), Resource::new(name)),
+    }
+}
+
 enum ApprovalOutcome {
     Approved,
     Denied,
@@ -1732,13 +1804,6 @@ mod tests {
         fn delete(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
             unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
         }
-        fn set_auto_approve_tools(
-            &self,
-            _agent_id: &str,
-            _enabled: bool,
-        ) -> Result<(), AgentRuntimeApplicationError> {
-            unimplemented!("not exercised by RuntimeAgentApiAdapter tests")
-        }
     }
 
     enum FakeHistoryOutcome {
@@ -1861,6 +1926,60 @@ mod tests {
                 output: format!("NoopMcp cannot call \"{name}\"."),
                 is_error: true,
             }
+        }
+    }
+
+    /// Defaults to `risk_tier_for`'s old classification exactly (`file.read`/`memory.write`
+    /// auto-allow, everything else — including `mcp.tool` — asks), with per-action overrides for
+    /// tests that need to prove a specific `Allow`/`Deny` outcome without a real `permissions`
+    /// context.
+    #[derive(Default)]
+    struct FakePermissions {
+        overrides: std::collections::HashMap<String, Effect>,
+    }
+
+    impl FakePermissions {
+        fn default_classification() -> Self {
+            Self::default()
+        }
+
+        fn with_override(action: Action, effect: Effect) -> Self {
+            let mut overrides = std::collections::HashMap::new();
+            overrides.insert(action.as_str().to_string(), effect);
+            Self { overrides }
+        }
+    }
+
+    impl AgentPermissionPort for FakePermissions {
+        fn evaluate(
+            &self,
+            _agent_id: &str,
+            action: Action,
+            _resource: Resource,
+            _session_id: &str,
+            _generation_id: &str,
+            _project_key: &str,
+        ) -> Effect {
+            if let Some(effect) = self.overrides.get(action.as_str()) {
+                return *effect;
+            }
+            match action.as_str() {
+                "file.read" | "memory.write" => Effect::Allow,
+                _ => Effect::Ask,
+            }
+        }
+
+        fn create_pending_approval(
+            &self,
+            _agent_id: &str,
+            _action: Action,
+            _resource: Resource,
+            _session_id: &str,
+            _generation_id: &str,
+            _call_id: &str,
+            _project_key: &str,
+        ) -> Result<(), AgentRuntimeApplicationError> {
+            Ok(())
         }
     }
 
@@ -2165,6 +2284,7 @@ mod tests {
                 executable: String::new(),
                 selections: BTreeMap::new(),
                 managed_args: Vec::new(),
+                env: BTreeMap::new(),
             },
         }
     }
@@ -2191,6 +2311,7 @@ mod tests {
             ),
             Arc::new(FakeMemories::default()),
             Arc::new(NoopMcp),
+            Arc::new(FakePermissions::default_classification()),
             Arc::new(NoopRetrieval),
             Arc::new(NoopPersonalization),
         )
@@ -2332,6 +2453,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2365,6 +2487,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2394,6 +2517,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2426,6 +2550,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2458,6 +2583,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2491,6 +2617,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2521,6 +2648,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2552,6 +2680,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2564,16 +2693,19 @@ mod tests {
         }
     }
 
-    /// Proves the full wiring end to end: `provider_config.auto_approve_tools` actually reaches
-    /// `requires_approval` inside `execute()`'s round-trip loop, and a trusted agent's shell call
-    /// runs straight through with no `awaiting_approval` event, matching `requires_approval`'s
-    /// own unit-tested behavior (`tool_catalog.rs`). Only the trusted path is exercised here —
-    /// the untrusted path is unchanged pre-existing behavior already covered by every other
-    /// `execute_tool_call`/`requires_approval` test in this file, and driving it through a full
-    /// `execute()` round trip would mean blocking on `await_approval`'s real (timeout-less) wait
-    /// for a decision nothing in this test would ever send.
+    /// Proves the full wiring end to end: an `AgentPermissionPort::evaluate` result of `Allow`
+    /// actually reaches `execute()`'s round-trip loop and a `shell` call resolved that way runs
+    /// straight through with no `awaiting_approval` event — the replacement for what
+    /// `auto_approve_tools`/`requires_approval` used to prove (`add-permissions-core`'s
+    /// `trusted` template resolves `shell.exec` to `Allow`, which is exactly what this fake
+    /// reproduces at this integration boundary without needing a real `permissions` context).
+    /// Only the allowed path is exercised here — the `Ask` path is unchanged pre-existing
+    /// behavior already covered by every other `execute_tool_call`/default-classification test
+    /// in this file, and driving it through a full `execute()` round trip would mean blocking on
+    /// `await_approval`'s real (timeout-less) wait for a decision nothing in this test would
+    /// ever send.
     #[test]
-    fn execute_skips_the_approval_prompt_for_a_trusted_agents_shell_call() {
+    fn execute_skips_the_approval_prompt_for_an_allowed_shell_call() {
         let directory = crate::test_support::TempDirectory::new("execute-trusted-shell-round-trip");
         let sse_body = concat!(
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"shell\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n",
@@ -2592,7 +2724,7 @@ mod tests {
                 model_id: "test-model".to_string(),
                 interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                 base_url: Some(address),
-                auto_approve_tools: true,
+                auto_approve_tools: false,
             }),
         };
         let sink = CapturingSink::default();
@@ -2613,6 +2745,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::with_override(Action::shell_exec(), Effect::Allow),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2670,6 +2803,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &retrieval,
             &NoopPersonalization,
         );
@@ -2736,6 +2870,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &memories,
             &NoopMcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &personalization,
         );
@@ -2805,6 +2940,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2882,6 +3018,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -2952,6 +3089,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &FakeMemories::default(),
             &mcp,
+            &FakePermissions::default_classification(),
             &NoopRetrieval,
             &NoopPersonalization,
         );
@@ -5205,6 +5343,7 @@ mod tests {
             &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
             &memories,
             &NoopMcp,
+            &FakePermissions::with_override(Action::shell_exec(), Effect::Allow),
             &NoopRetrieval,
             &personalization,
         );

@@ -1112,25 +1112,6 @@ impl AgentRuntimeApplicationService {
         Ok(AgentView::from(&definition))
     }
 
-    /// Sets the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`) — grants
-    /// or revokes that agent's exemption from per-call approval for `shell`, file-`write`, and
-    /// `edit` tool calls. MCP calls and plan mode are both unaffected regardless of this setting.
-    pub(crate) fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<AgentView, AgentRuntimeApplicationError> {
-        self.ports
-            .api_agents
-            .set_auto_approve_tools(agent_id, enabled)?;
-        let definition = self
-            .ports
-            .registry
-            .find(agent_id)?
-            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))?;
-        Ok(AgentView::from(&definition))
-    }
-
     /// Deletes a registered API agent and its stored credential. The repository rejects (and
     /// changes nothing) if the agent is still referenced by other stored data
     /// (`add-agent-lifecycle-management` design.md Decision 2) — `credentials.remove` only runs
@@ -1858,6 +1839,7 @@ impl AgentRuntimeApplicationService {
                 executable: String::new(),
                 selections: std::collections::BTreeMap::new(),
                 managed_args: Vec::new(),
+                env: std::collections::BTreeMap::new(),
             }
         };
         let input_count = effective_prompt.content.chars().count();

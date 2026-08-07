@@ -192,9 +192,6 @@ impl ApiAgentGateway for FakeWorld {
     fn delete(&self, _: &str) -> Result<(), AgentRuntimeApplicationError> {
         unreachable!()
     }
-    fn set_auto_approve_tools(&self, _: &str, _: bool) -> Result<(), AgentRuntimeApplicationError> {
-        unreachable!()
-    }
 }
 
 impl LoopProjectPort for FakeWorld {

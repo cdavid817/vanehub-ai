@@ -8,6 +8,7 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { applyChatEvent } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
+import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import type { SessionDocument } from "../types/session-workspace";
@@ -141,6 +142,23 @@ export function useMainLayoutModel() {
   }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
 
   useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); }, [activeSessionId]);
+
+  useEffect(() => {
+    // Global — not gated on activeSessionId — so a pending approval in a session the user isn't
+    // currently viewing is still surfaced (`permissions-approval`'s "Pending-approval visibility
+    // uses the existing notification system", specifically "visible without opening the session").
+    let cleanup: (() => void) | null = null;
+    let cancelled = false;
+    void permissionsService.subscribePendingApprovalEvents((event) => {
+      notify({
+        type: "warning",
+        title: t("notifications.pendingApproval.title"),
+        message: t("notifications.pendingApproval.message", { agentId: event.agentId, action: event.action }),
+        scope: { kind: "global" },
+      });
+    }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
+    return () => { cancelled = true; cleanup?.(); };
+  }, [notify, t]);
 
   function submit() {
     if (!activeSession || !draft.trim() || isStreaming) return;

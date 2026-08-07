@@ -299,26 +299,6 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
             .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
     }
 
-    fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<(), AgentRuntimeApplicationError> {
-        let changed = self
-            .connection()?
-            .execute(
-                "UPDATE agents SET auto_approve_tools = ?2 WHERE id = ?1 AND launch_kind = 'api'",
-                params![agent_id, enabled],
-            )
-            .map_err(registry_error)?;
-        if changed == 0 {
-            return Err(AgentRuntimeApplicationError::AgentNotFound(
-                agent_id.to_string(),
-            ));
-        }
-        Ok(())
-    }
-
     fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction().map_err(registry_error)?;
@@ -989,9 +969,6 @@ mod tests {
                 auto_approve_tools: true,
             })
             .expect("configure OnePiece");
-        repository
-            .set_auto_approve_tools("onepiece", true)
-            .expect("trust OnePiece");
         seed_session(&repository, "onepiece");
         seed_memory(&repository, "onepiece");
         seed_usage_record(&repository, "onepiece");

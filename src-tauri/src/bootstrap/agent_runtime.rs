@@ -17,13 +17,14 @@ use crate::contexts::agent_runtime::infrastructure::{
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
     NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
-    PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
-    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteCoordinationRepository, SqliteLoopRepository,
-    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter,
-    TerminalExecutionObservability, UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
+    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
+    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
+    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
+    SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
+    SqliteCoordinationRepository, SqliteLoopRepository, StructuredLoopVerificationProcess,
+    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UuidCoordinationIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -36,6 +37,7 @@ use crate::contexts::operations::api::{
     OperationsApi,
 };
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -62,6 +64,7 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
+    pub(crate) permissions: PermissionsApi,
     pub(crate) shared_registry: SharedAgentRegistry,
     /// Consumed by `RuntimeAgentApiAdapter`'s `recall` tool (Task 13). A concrete
     /// `Arc<retrieval::DeferredAgentRetrieval>`, coerced here — `assemble_retrieval` itself needs
@@ -161,6 +164,9 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.database.clone(),
     ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
+    let agent_permissions = Arc::new(PermissionsPortAdapter::new(
+        dependencies.permissions.clone(),
+    ));
     let agent_personalization = Arc::new(RuntimeAgentPersonalizationAdapter::new(
         dependencies.desktop_settings,
     ));
@@ -178,6 +184,7 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(NativeAgentCoreInstructionsAdapter),
         agent_memories.clone(),
         agent_mcp_tools,
+        agent_permissions,
         dependencies.retrieval,
         agent_personalization.clone(),
     ));
@@ -190,6 +197,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
         dependencies.cli_parameters,
         dependencies.cli,
+        dependencies.permissions,
     ));
     let events = Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app));
     let operations = Arc::new(AgentRuntimeOperationAdapter::new(dependencies.operations));

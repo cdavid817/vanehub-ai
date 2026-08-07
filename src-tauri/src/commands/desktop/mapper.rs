@@ -38,6 +38,7 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         automatic_archival_enabled: archival.enabled(),
         automatic_archival_inactive_days: archival.inactive_days(),
         launch_on_startup: settings.startup().enabled(),
+        default_policy_template: settings.default_policy_template().to_string(),
         logging_policy: logging_policy_to_dto(view.logging_policy),
     }
 }
@@ -212,6 +213,7 @@ mod tests {
                 "automaticArchivalEnabled": true,
                 "automaticArchivalInactiveDays": 10,
                 "launchOnStartup": false,
+                "defaultPolicyTemplate": "standard",
                 "loggingPolicy": {
                     "retentionDays": 30,
                     "archiveEnabled": true,

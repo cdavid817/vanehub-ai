@@ -1,0 +1,165 @@
+//! Constructs and installs/removes VaneHub's `PreToolUse` entries in Claude Code's global
+//! `settings.json`, via `cli_config`'s independent hook-projection operation
+//! (`add-claude-code-permission-callback` design.md D7). `cli_config` itself stays agnostic to
+//! what these entries contain — this adapter is the one place that knows the matcher list and
+//! the wrapper binary's path.
+
+use crate::contexts::permissions::application::{ClaudeCodeHookPort, PermissionsApplicationError};
+use crate::contexts::tooling::cli_config::api::ClaudeCodeHookProjectionPort;
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+/// Every built-in tool `claude-code-permission-hook`'s mapping table
+/// (`hook_bridge_mapping::map_tool_to_action`) covers, pipe-separated per Claude Code's matcher
+/// syntax — kept in sync with that table by hand, since the two live in different bounded
+/// contexts and the mapping itself is deliberately not shared code.
+const BUILT_IN_TOOLS_MATCHER: &str = "Bash|Edit|Write|Read|Glob|Grep";
+
+/// Matches every MCP tool call (`mcp__<server>__<tool>`) via Claude Code's documented regex
+/// matcher support — confirmed against official docs this session, not guessed.
+const MCP_TOOLS_MATCHER: &str = "mcp__.*";
+
+/// Above the wrapper's own internal HTTP-call timeout (320s, design.md D8), so the wrapper
+/// always resolves the decision itself before this hook-level timeout would ever fire; well
+/// below Claude Code's own 600s ceiling.
+const HOOK_TIMEOUT_SECONDS: u64 = 330;
+
+// design.md D8's ordering constraint, enforced at compile time rather than by a runtime test:
+// wrapper's own timeout (320s) < this hook-level timeout < Claude Code's 600s ceiling.
+const _: () = assert!(HOOK_TIMEOUT_SECONDS > 320);
+const _: () = assert!(HOOK_TIMEOUT_SECONDS < 600);
+
+pub(crate) struct ClaudeCodeHookAdapter {
+    projection: Arc<dyn ClaudeCodeHookProjectionPort>,
+    wrapper_path: PathBuf,
+}
+
+impl ClaudeCodeHookAdapter {
+    pub(crate) fn new(
+        projection: Arc<dyn ClaudeCodeHookProjectionPort>,
+        wrapper_path: PathBuf,
+    ) -> Self {
+        Self {
+            projection,
+            wrapper_path,
+        }
+    }
+
+    fn entries(&self) -> Vec<Value> {
+        hook_entries(&self.wrapper_path.display().to_string())
+    }
+}
+
+impl ClaudeCodeHookPort for ClaudeCodeHookAdapter {
+    fn install(&self) -> Result<(), PermissionsApplicationError> {
+        self.projection
+            .set_permission_hook_entries(&self.entries())
+            .map_err(|error| {
+                PermissionsApplicationError::infrastructure("cli_config", error.to_string())
+            })
+    }
+
+    fn remove(&self) -> Result<(), PermissionsApplicationError> {
+        self.projection
+            .set_permission_hook_entries(&[])
+            .map_err(|error| {
+                PermissionsApplicationError::infrastructure("cli_config", error.to_string())
+            })
+    }
+}
+
+fn hook_entries(command: &str) -> Vec<Value> {
+    [BUILT_IN_TOOLS_MATCHER, MCP_TOOLS_MATCHER]
+        .into_iter()
+        .map(|matcher| {
+            json!({
+                "matcher": matcher,
+                "hooks": [{
+                    "type": "command",
+                    "command": command,
+                    "timeout": HOOK_TIMEOUT_SECONDS,
+                }]
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::tooling::cli_config::api::CliConfigError;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct FakeProjection {
+        calls: Mutex<Vec<Vec<Value>>>,
+        fail_next: Mutex<bool>,
+    }
+
+    impl ClaudeCodeHookProjectionPort for FakeProjection {
+        fn set_permission_hook_entries(&self, entries: &[Value]) -> Result<(), CliConfigError> {
+            if std::mem::take(&mut *self.fail_next.lock().unwrap()) {
+                return Err(CliConfigError::Repository);
+            }
+            self.calls.lock().unwrap().push(entries.to_vec());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn install_sends_one_entry_per_matcher_pointing_at_the_wrapper_path() {
+        let projection = Arc::new(FakeProjection::default());
+        let adapter = ClaudeCodeHookAdapter::new(
+            projection.clone(),
+            PathBuf::from("/opt/vanehub/bin/vanehub-permission-hook"),
+        );
+
+        adapter.install().expect("install should succeed");
+
+        let calls = projection.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        let entries = &calls[0];
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["matcher"], "Bash|Edit|Write|Read|Glob|Grep");
+        assert_eq!(entries[1]["matcher"], "mcp__.*");
+        for entry in entries {
+            assert_eq!(
+                entry["hooks"][0]["command"],
+                "/opt/vanehub/bin/vanehub-permission-hook"
+            );
+            assert_eq!(entry["hooks"][0]["type"], "command");
+            assert_eq!(entry["hooks"][0]["timeout"], 330);
+        }
+    }
+
+    #[test]
+    fn remove_sends_an_empty_entry_list() {
+        let projection = Arc::new(FakeProjection::default());
+        let adapter =
+            ClaudeCodeHookAdapter::new(projection.clone(), PathBuf::from("/opt/vanehub-hook"));
+
+        adapter.remove().expect("remove should succeed");
+
+        let calls = projection.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].is_empty());
+    }
+
+    #[test]
+    fn projection_failure_surfaces_as_an_infrastructure_error() {
+        let projection = Arc::new(FakeProjection::default());
+        *projection.fail_next.lock().unwrap() = true;
+        let adapter = ClaudeCodeHookAdapter::new(projection, PathBuf::from("/opt/vanehub-hook"));
+
+        let result = adapter.install();
+
+        assert!(matches!(
+            result,
+            Err(PermissionsApplicationError::Infrastructure {
+                category: "cli_config",
+                ..
+            })
+        ));
+    }
+}

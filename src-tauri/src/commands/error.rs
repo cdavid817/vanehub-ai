@@ -2,6 +2,7 @@ use crate::contexts::agent_runtime::api::AgentRuntimeApplicationError;
 use crate::contexts::communications::api::CommunicationsApplicationError;
 use crate::contexts::desktop::api::{DesktopSettingsError, FloatingAssistantError};
 use crate::contexts::operations::application::ApplicationError;
+use crate::contexts::permissions::api::PermissionsApplicationError;
 use crate::contexts::sessions::api::SessionsError;
 use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
@@ -94,6 +95,26 @@ impl From<ApplicationError> for CommandError {
                 message,
             },
             ApplicationError::Internal(message) => Self {
+                category: CommandErrorCategory::Internal,
+                message,
+            },
+        }
+    }
+}
+
+impl From<PermissionsApplicationError> for CommandError {
+    fn from(error: PermissionsApplicationError) -> Self {
+        match error {
+            PermissionsApplicationError::NotFound(message) => Self {
+                category: CommandErrorCategory::NotFound,
+                message,
+            },
+            PermissionsApplicationError::Domain(error) => Self::validation(error.to_string()),
+            PermissionsApplicationError::Infrastructure { message, .. } => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message,
+            },
+            PermissionsApplicationError::Internal(message) => Self {
                 category: CommandErrorCategory::Internal,
                 message,
             },
@@ -205,6 +226,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Skill(message)
             | AgentRuntimeApplicationError::Memory(message)
             | AgentRuntimeApplicationError::Mcp(message)
+            | AgentRuntimeApplicationError::Permission(message)
             | AgentRuntimeApplicationError::Personalization(message) => Self::storage(message),
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
