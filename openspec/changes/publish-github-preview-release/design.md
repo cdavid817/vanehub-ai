@@ -83,13 +83,17 @@ This must land in the same commit as the README edits. `npm run docs:check` runs
 
 Preview-specific guidance lives in `.github/PREVIEW_RELEASE_NOTES.md` so it is reviewable, diffable, and cannot drift from the workflow that consumes it. The publish job prepends it to the auto-generated pull-request summary.
 
-`gh release create --help` documents the prepend behavior for `--notes` specifically and does not name `--notes-file`. The implementation uses `--notes-file` and the rehearsal must confirm that generated notes are appended rather than replaced. If they are replaced, the fallback is to fetch generated notes explicitly and concatenate before publishing:
+`gh release create --help` documents the prepend behavior for `--notes` specifically and does not name `--notes-file`, but both populate the same field. In `pkg/cmd/release/create/create.go`, `--notes-file` is read into `opts.Body`, and generated notes are appended to whatever body is already present:
 
-```bash
-gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-  -f tag_name="${GITHUB_REF_NAME}" --jq .body > generated-notes.md
-cat .github/PREVIEW_RELEASE_NOTES.md generated-notes.md > release-notes.md
+```go
+if opts.Body == "" {
+  params["body"] = generatedNotes.Body
+} else {
+  params["body"] = fmt.Sprintf("%s\n%s", opts.Body, generatedNotes.Body)
+}
 ```
+
+The preview guidance therefore lands above the generated pull-request summary, which is the intended order. No concatenation step is needed.
 
 The notes file stays version-independent so it does not need editing per preview: it refers to assets by format rather than by filename, and the `xattr` path is the installed application path, not a download path.
 
