@@ -185,7 +185,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 ### 规范可能落后于代码
 
-根 `README.md` 的 Feature status 一节就出现过两处滞后（多 Agent 模式、日语 UI），详见 [功能总览](../02-features/README.md#已知的文档陈述过时点)。
+根 `README.md` 的 Feature status 一节就出现过三处滞后——其中一处描述的甚至是**一个做过又被撤掉的能力**（依赖图协调运行时）。详见 [功能总览](../02-features/README.md#已修正的文档陈述过时点)。
 
 **归档是不可变的历史记录，主 specs 才是当前真源**——但主 specs 也可能落后于最新合并的代码。**代码 > 主 specs > 归档 > README。**
 

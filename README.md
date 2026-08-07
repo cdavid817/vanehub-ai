@@ -36,17 +36,17 @@ VaneHub AI brings Claude Code, OpenCode, Codex CLI, and Gemini CLI into a shared
 
 - **Delivered:** CLI management, single-Agent sessions, interactive Agent terminals, session organization, project/worktree and SSH workspace tools, settings, MCP/SDK/Skills/Prompt Hooks/extensions, IM connectors, scheduled tasks, notifications, usage reporting, unified redacted logs, and cross-platform packaging.
 
-<!-- feature:multi-agent-runtime status:preview -->
+<!-- feature:multi-agent-runtime status:delivered -->
 
-- **Preview:** Multi-Agent coordination has native and Web/mock service contracts for validated dependency graphs, ordered fallback, persistence, cancellation, and output propagation.
+- **Delivered:** Multi-Agent group chat runtime. A session holds several Agent seats, a reply hands the turn over with an `@` mention, and both mention count and chain depth are bounded. This replaces the earlier dependency-graph coordination runtime, which has been removed.
 
-<!-- feature:multi-agent-ui status:planned -->
+<!-- feature:multi-agent-ui status:delivered -->
 
-- **Planned:** The normal create-session UI still disables Multi Agent mode. The [workflow guide](docs/user-guide/README.md) does not present unavailable controls as delivered.
+- **Delivered:** Seat assignment in the normal create-session dialog, plus seat switching, speaker attribution, and turn status inside the session workspace.
 
-<!-- feature:japanese-ui status:planned -->
+<!-- feature:japanese-ui status:delivered -->
 
-- **Planned:** Japanese runtime UI resources. Japanese is currently supported for this README, not for the application UI.
+- **Delivered:** Japanese application UI resources, at key parity with the other supported locales — English, Simplified Chinese, Traditional Chinese, and Korean.
 
 <!-- docs-section:architecture -->
 

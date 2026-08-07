@@ -95,7 +95,7 @@ flowchart LR
 
 ## 表清单
 
-**全库约 70 个表定义**，按上下文归属：
+**全库约 70 处 `CREATE TABLE` 定义**（含测试夹具，以及后续迁移中被删除的表，例如 `coordination_runs` 已由迁移 45 删除），按上下文归属：
 
 ### sessions
 
@@ -109,7 +109,7 @@ flowchart LR
 | 记忆 | `agent_memories` |
 | 角色 | `expert_roles` |
 | 原生 Agent | `onepiece_provider_profiles` |
-| 协作 | `workflow_state`、`coordination_runs` |
+| 协作 | `workflow_state` |
 | Loop | `loop_definitions`、`loop_runs`、`loop_iterations`、`loop_evidence` |
 
 ### permissions

@@ -28,7 +28,7 @@
 | **聊天配置** | 权限模式、provider、模型、推理深度、流式、思考、长上下文 | 已交付 | `session-chat-configuration`、`agent-chat-configuration`；`sessions/domain/chat_configuration.rs` |
 | **交互式 Agent 终端** | 基于 PTY 的真实终端交互，含命令管理与输出搜索 | 已交付 | `agent-terminal-runtime`、`terminal-command-management`、`terminal-output-search`、`session-shell` |
 | **工作区标签页** | 会话内 9 个标签：对话、变更、文档、文件、终端、shell、日志、追踪、报告 | 已交付 | `session-workspace-tabs`；`src/session-workspace/session-tab-bar.tsx:19-28` |
-| **多 Agent 群聊** | 一个会话内多个 Agent 席位，通过 `@` 交接发言权 | 已交付 | `multi-agent-group-chat`、`multi-agent-coordination`；入口 `src/main-layout/session-seat-assignment.tsx` |
+| **多 Agent 群聊** | 一个会话内多个 Agent 席位，通过 `@` 交接发言权 | 已交付 | `multi-agent-group-chat`；入口 `src/main-layout/session-seat-assignment.tsx`。**取代了已被移除的 `multi-agent-coordination`**（迁移 45 `remove-multi-agent-coordination` 删除了 `coordination_runs` 表） |
 | **Loop 工程化运行时** | 目标驱动的自动循环：编排、执行、校验、恢复；强制人工验收 | 已交付 | `loop-engineering-runtime`、`loop-management-ui`；入口 `src/loop-center/` |
 | **原生 API Agent** | 内置 OnePiece Agent，直连 25 家模型 provider | 已交付 | `onepiece-native-agent`、`api-agent-runtime`、`native-model-discovery` |
 
@@ -126,16 +126,17 @@
 | `retrieval` | 记忆池的混合检索（服务于原生 API Agent） |
 | `desktop` | 设置、悬浮助手、托盘、启动项、网络代理、前端日志上报 |
 
-## 已知的文档陈述过时点
+## 已修正的文档陈述过时点
 
-**根 `README.md` 的 Feature status 一节有两处已落后于代码：**
+**撰写本文档集时，根 README 的 Feature status 一节有三处已落后于代码，现已随本次改动一并修正：**
 
-| README 的说法 | 实际情况 |
-|---|---|
-| "Planned: The normal create-session UI still disables Multi Agent mode" | 多 Agent 群聊已随 commit `d104027` 合入 `main`，创建会话对话框中已挂载席位分配组件（`src/main-layout/create-session-dialog-content.tsx:158`） |
-| "Planned: Japanese runtime UI resources. Japanese is currently supported for this README, not for the application UI." | **日语 UI 已完整支持**——`ja` 已注册进 `supportedLocales`（`src/i18n/supported-locales.ts:32`），且 `ja.json` 与其余四种语言**键数完全一致（各 2197 条）** |
+| 原先的说法 | 实际情况 | 依据 |
+|---|---|---|
+| "Planned: The normal create-session UI still disables Multi Agent mode" | 多 Agent 群聊已合入 `main`，创建会话对话框已挂载席位分配组件 | commit `d104027`；`src/main-layout/create-session-dialog-content.tsx:158` |
+| "Planned: Japanese runtime UI resources... not for the application UI" | **日语 UI 已完整支持** | `ja` 已注册进 `supportedLocales`（`src/i18n/supported-locales.ts:32`）；五种语言资源**键数完全一致（各 2197 条）** |
+| "Preview: Multi-Agent coordination has native and Web/mock service contracts..." | **该运行时已被移除**，由群聊取代 | 迁移 45 `remove-multi-agent-coordination` 执行 `DROP TABLE coordination_runs`；`src/services`、`src/contracts`、`src-tauri/src/contexts` 中已无任何 coordination 引用 |
 
-本文档集以代码与归档为准；根 README 的修订不在本次范围内。
+**第三处最值得留意**：它描述的不是"尚未做完"，而是**一个做过又被撤掉的能力**。归档区仍保留 `multi-agent-coordination` 的两条变更记录，但那是历史，不是现状——这正是 [OpenSpec 工作流](../04-development/openspec-workflow.md#使用文档中的陷阱) 里"代码 > 主 specs > 归档 > README"这条优先级的由来。
 
 ## 运行时差异提醒
 

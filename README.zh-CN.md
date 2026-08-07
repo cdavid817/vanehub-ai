@@ -36,17 +36,17 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI 和 Gemini CLI 汇集到统一
 
 - **已交付：**CLI 管理、单 Agent 会话、交互式 Agent 终端、会话组织、项目/worktree 与 SSH 工作区工具、设置、MCP/SDK/Skills/Prompt Hooks/Extensions、IM Connector、定时任务、通知、用量统计、统一脱敏日志和跨平台打包。
 
-<!-- feature:multi-agent-runtime status:preview -->
+<!-- feature:multi-agent-runtime status:delivered -->
 
-- **预览：**多 Agent 协调已具备 native 与 Web/mock service contract，支持依赖图校验、有序 fallback、持久化、取消和输出传播。
+- **已交付：**多 Agent 群聊运行时。一个会话可容纳多个 Agent 席位，回复通过 `@` 提及交接发言权，提及数量与交接链深度均有上限。它取代了此前基于依赖图的协调运行时，后者已被移除。
 
-<!-- feature:multi-agent-ui status:planned -->
+<!-- feature:multi-agent-ui status:delivered -->
 
-- **规划中：**正常创建会话 UI 仍禁用多 Agent 模式。[工作流指南](docs/user-guide/README.md)不会把尚不存在的控件描述为已交付功能。
+- **已交付：**正常创建会话对话框中的席位分配，以及会话工作区内的席位切换、发言人标注与轮次状态。
 
-<!-- feature:japanese-ui status:planned -->
+<!-- feature:japanese-ui status:delivered -->
 
-- **规划中：**日文 runtime UI 资源。当前日文仅用于 README，应用 UI 尚不支持日文。
+- **已交付：**日文应用 UI 资源，与其余支持的语言——English、简体中文、繁體中文、한국어——保持键级一致。
 
 <!-- docs-section:architecture -->
 
