@@ -93,6 +93,7 @@ pub(super) struct FakeWorld {
     pub(super) generation_requests: Mutex<Vec<GenerationProcessRequest>>,
     generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
     loop_terminals: Mutex<Vec<LoopRoleGenerationTerminal>>,
+    seat_terminals: Mutex<Vec<SeatTurnTerminal>>,
     stopped_processes: Mutex<Vec<String>>,
     launch_failure: AtomicBool,
     prompt_failure: AtomicBool,
@@ -202,6 +203,7 @@ impl FakeWorld {
             generation_requests: Mutex::new(Vec::new()),
             generation_sinks: Mutex::new(BTreeMap::new()),
             loop_terminals: Mutex::new(Vec::new()),
+            seat_terminals: Mutex::new(Vec::new()),
             stopped_processes: Mutex::new(Vec::new()),
             launch_failure: AtomicBool::new(false),
             prompt_failure: AtomicBool::new(false),
@@ -1343,6 +1345,33 @@ impl crate::contexts::agent_runtime::application::ConversationHistoryPort for Fa
     }
 }
 
+impl SeatTurnCompletionPort for FakeWorld {
+    fn deliver(&self, terminal: SeatTurnTerminal) -> Result<bool, AgentRuntimeApplicationError> {
+        let mut terminals = self.seat_terminals.lock().expect("seat terminals");
+        if terminals.iter().any(|existing| {
+            existing.session_id == terminal.session_id && existing.message_id == terminal.message_id
+        }) {
+            return Ok(false);
+        }
+        terminals.push(terminal);
+        Ok(true)
+    }
+
+    fn take_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SeatTurnTerminal>, AgentRuntimeApplicationError> {
+        let mut terminals = self.seat_terminals.lock().expect("seat terminals");
+        let Some(index) = terminals
+            .iter()
+            .position(|terminal| terminal.session_id == session_id)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(terminals.remove(index)))
+    }
+}
+
 impl LoopRoleGenerationCompletionPort for FakeWorld {
     fn deliver(
         &self,
@@ -1496,9 +1525,7 @@ pub(super) fn service_with_telemetry(
         execution_settings: world.clone(),
         telemetry: Arc::new(telemetry.clone()),
         loop_completions: world.clone(),
-        seat_completions: Arc::new(
-            crate::contexts::agent_runtime::infrastructure::InMemorySeatTurnCompletions::default(),
-        ),
+        seat_completions: world.clone(),
         expert_roles: world.clone(),
         history: world.clone(),
         message_completions: Arc::new(FakeMessageTerminalCompletions::default()),
