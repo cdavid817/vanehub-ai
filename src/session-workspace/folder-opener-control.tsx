@@ -40,13 +40,16 @@ export function FolderOpenerControl({ session, onOpenSettings }: { session: Sess
   }, [menuOpen]);
 
   useEffect(() => {
+    // Unmounting before the subscription resolves must still release it, otherwise the
+    // listener outlives the component with nothing left holding its unsubscribe handle.
+    let active = true;
     let unsubscribe: (() => void) | undefined;
     void agentService.subscribeFolderOpenerEvents(() => {
       void Promise.all([agentService.listFolderOpeners(), agentService.getFolderOpenerPreferences()]).then(([nextOpeners, nextPreferences]) => {
-        setOpeners(nextOpeners); setPreferences(nextPreferences);
-      });
-    }).then((cleanup) => { unsubscribe = cleanup; });
-    return () => unsubscribe?.();
+        if (active) { setOpeners(nextOpeners); setPreferences(nextPreferences); }
+      }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
+    }).then((cleanup) => { if (active) unsubscribe = cleanup; else cleanup(); });
+    return () => { active = false; unsubscribe?.(); };
   }, []);
 
   const targetAvailable = Boolean(session && !session.remoteWorkspace && (session.worktreePath || session.folder || session.projectPath));
