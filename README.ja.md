@@ -44,17 +44,17 @@ VaneHub AI は Claude Code、OpenCode、Codex CLI、Gemini CLI を共有デス�
 
 - **提供済み:** CLI 管理、単一 Agent セッション、対話型 Agent ターミナル、セッション整理、プロジェクト/worktree と SSH ワークスペースツール、設定、MCP/SDK/Skills/Prompt Hooks/Extensions、IM Connector、scheduled task、通知、usage、統一された秘匿情報マスキング済みログ、クロスプラットフォームパッケージング。
 
-<!-- feature:multi-agent-runtime status:preview -->
+<!-- feature:multi-agent-runtime status:delivered -->
 
-- **プレビュー:** マルチ Agent coordination には、検証済み依存グラフ、順序付き fallback、永続化、キャンセル、出力伝播を扱う native と Web/mock の service contract があります。
+- **提供済み:** マルチ Agent グループチャット runtime。1 つのセッションが複数の Agent seat を保持し、返信は `@` メンションでターンを引き渡します。メンション数と引き渡しチェーンの深さにはいずれも上限があります。これは以前の依存グラフベースの coordination runtime を置き換えるもので、後者は削除されました。
 
-<!-- feature:multi-agent-ui status:planned -->
+<!-- feature:multi-agent-ui status:delivered -->
 
-- **計画中:** 通常のセッション作成 UI では Multi Agent mode がまだ無効です。[ワークフローガイド](docs/user-guide/README.md)は、存在しない操作を提供済みとして扱いません。
+- **提供済み:** 通常のセッション作成ダイアログでの seat 割り当てと、セッションワークスペース内での seat 切り替え、発言者表示、ターンステータス。
 
-<!-- feature:japanese-ui status:planned -->
+<!-- feature:japanese-ui status:delivered -->
 
-- **計画中:** 日本語 runtime UI リソース。現在、日本語は README のみで、アプリケーション UI では利用できません。
+- **提供済み:** 日本語アプリケーション UI リソース。他のサポート対象ロケール（English、简体中文、繁體中文、한국어）とキー単位で同等です。
 
 <!-- docs-section:architecture -->
 

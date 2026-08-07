@@ -59,6 +59,14 @@ function resolveAuthoredTarget(file, target) {
   ) {
     return resolve(repositoryRoot, "src-tauri", "ARCHITECTURE.md");
   }
+  // `docs/zh` links to the sibling books by their assembled-site paths, the same way
+  // `developer-guide` links to `../reference/`. Map them back to the authored sources.
+  if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../user/zh-CN/index.html") {
+    return resolve(repositoryRoot, "docs", "user-guide", "zh-CN", "src", "index.md");
+  }
+  if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../developer/index.html") {
+    return resolve(repositoryRoot, "docs", "developer-guide", "src", "index.md");
+  }
   return resolve(dirname(file), target);
 }
 
@@ -172,6 +180,7 @@ function validateAssembled(errors) {
     ".docs-build/developer/index.html",
     ".docs-build/user/en/index.html",
     ".docs-build/user/zh-CN/index.html",
+    ".docs-build/zh/index.html",
     ".docs-build/api/vanehub_ai_lib/index.html",
   ];
   for (const path of expected) {

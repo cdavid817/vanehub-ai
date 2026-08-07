@@ -13,4 +13,4 @@
 
 On desktop, the project path represents a real directory and Agent execution uses the selected installed CLI. In Web/mock, the same flow uses synthetic state and a simulated terminal; no local process or SQLite database is changed.
 
-The currently disabled **Multi Agent** option is not part of this delivered workflow. See the [Multi-Agent preview](multi-agent-workflow.md).
+To put several Agents in one session instead, assign seats in the same dialog. See [Multi-Agent group chat](multi-agent-workflow.md).

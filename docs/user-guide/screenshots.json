@@ -2,6 +2,7 @@
   "screenshots": [
     {
       "id": "create-session-en",
+      "scenario": "create-session",
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
@@ -9,10 +10,163 @@
     },
     {
       "id": "create-session-zh-CN",
+      "scenario": "create-session",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/create-session-zh-CN.png"
+    },
+    {
+      "id": "create-session-multi-agent-zh-CN",
+      "scenario": "create-session-multi-agent",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/create-session-multi-agent-zh-CN.png"
+    },
+    {
+      "id": "permissions-zh-CN",
+      "scenario": "settings-agent-policies",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/permissions-zh-CN.png"
+    },
+    {
+      "id": "personalization-zh-CN",
+      "scenario": "settings-personalization",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/personalization-zh-CN.png"
+    },
+    {
+      "id": "expert-roles-zh-CN",
+      "scenario": "settings-expert-roles",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/expert-roles-zh-CN.png"
+    },
+    {
+      "id": "mcp-zh-CN",
+      "scenario": "settings-mcp",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/mcp-zh-CN.png"
+    },
+    {
+      "id": "cli-zh-CN",
+      "scenario": "settings-cli",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/cli-zh-CN.png"
+    },
+    {
+      "id": "usage-zh-CN",
+      "scenario": "settings-usage",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/usage-zh-CN.png"
+    },
+    {
+      "id": "loop-center-zh-CN",
+      "scenario": "loop-center",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/loop-center-zh-CN.png"
+    },
+    {
+      "id": "skills-zh-CN",
+      "scenario": "settings-skills",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/skills-zh-CN.png"
+    },
+    {
+      "id": "prompt-hooks-zh-CN",
+      "scenario": "settings-prompt-hooks",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/prompt-hooks-zh-CN.png"
+    },
+    {
+      "id": "im-zh-CN",
+      "scenario": "settings-im",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/im-zh-CN.png"
+    },
+    {
+      "id": "ssh-zh-CN",
+      "scenario": "settings-ssh",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/ssh-zh-CN.png"
+    },
+    {
+      "id": "extensions-zh-CN",
+      "scenario": "settings-extensions",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/extensions-zh-CN.png"
+    },
+    {
+      "id": "observability-zh-CN",
+      "scenario": "settings-observability",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/observability-zh-CN.png"
+    },
+    {
+      "id": "scheduled-tasks-zh-CN",
+      "scenario": "scheduled-tasks",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/scheduled-tasks-zh-CN.png"
+    },
+    {
+      "id": "session-workspace-zh-CN",
+      "scenario": "session-workspace",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-workspace-zh-CN.png"
+    },
+    {
+      "id": "session-traces-zh-CN",
+      "scenario": "session-traces",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-traces-zh-CN.png"
+    },
+    {
+      "id": "session-logs-zh-CN",
+      "scenario": "session-logs",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-logs-zh-CN.png"
+    },
+    {
+      "id": "im-connected-zh-CN",
+      "scenario": "im-connected",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/im-connected-zh-CN.png"
     }
   ]
 }
