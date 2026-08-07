@@ -102,6 +102,6 @@ openspec validate --specs --strict
 
 上面这些之外,CI 还有几条本地不必每次跑、但相应改动落到你手上时必须跑的:
 
-- `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run contracts:check`
+- `npm run test:coverage`(CI 用它取代 `npm run test`,带覆盖率门槛)、`npm run coverage:policy:test`、`npm run version:unit:test`、`npm run contracts:check`
 - UI 行为变更时:`npx playwright test`(CI 的 e2e job 恒跑,本地在改动 UI 行为时必须跑)
 - 起了 proposal 时:`openspec validate <change-name> --strict`——CI 对 `openspec/changes/*` 下每个变更逐个校验,`--specs --strict` 不覆盖这一层
