@@ -54,7 +54,7 @@
 | `session-workspace-zh-CN.png` | `quick-start.md` | 会话工作区，9 个标签页 + 信息面板 | 新建 → 创建 → 关闭成功提示 | 逐个标注标签名 |
 | `session-traces-zh-CN.png` | `observability.md` | 链路标签，执行时间线与链路拓扑 | 同上 → 点「链路」 | 箭头指向「不可见」徽标与「观测缺口」提示 |
 | `session-logs-zh-CN.png` | `observability.md` | 日志标签，搜索与时间定位 | 同上 → 点「日志」 | 红框标注搜索框与定位控件 |
-| `tool-approval-zh-CN.png` | `permissions.md` | 展开的工具调用块，审批区与作用域 | 配置 OnePiece → 用它建会话 → 发消息 → 展开 `awaiting_approval` 块 | 红框标注「记住我的选择」，箭头指向「高风险」徽标 |
+| `im-connected-zh-CN.png` | `remote-and-im.md` | IM 页，飞书处于**已连接**（Web/mock 模拟态） | 建会话 → 设置 → IM → 配默认路由 → 填飞书凭据 → 勾选启用 | 红框标注「已连接」徽标；**时间戳已遮罩** |
 
 ## 待补充
 
@@ -75,6 +75,22 @@
 | `settings-cli-zh-CN.png` | `tooling.md` | 设置 → CLI 管理，四个 CLI 状态 | 活动栏「设置」→ 侧栏「CLI 管理」 | 红框标注冲突提示 |
 | `scheduled-tasks-zh-CN.png` | `automation.md` | 定时任务对话框，频率选择 | 活动栏「定时任务」 | 红框标注频率选项 |
 | `usage-statistics-zh-CN.png` | `automation.md` | 设置 → 使用统计，四维 token | 活动栏「设置」→ 侧栏「使用统计」 | 箭头指向口径说明 |
+
+## 尝试过但放弃的：工具审批
+
+**结论：可以走到，但截不稳，已放弃。**
+
+审批状态在 Web/mock 中是可达的——配好 OnePiece provider、用它建会话、发一条消息，工具调用块就会停在 `awaiting_approval`。过程中确认了几件事，值得记下来：
+
+| 发现 | 说明 |
+| --- | --- |
+| 只有 API Agent 会触发 | Web/mock 的模拟审批限定 `launch.kind === "api"`，即只有 OnePiece |
+| 配置不能刷新页面 | OnePiece provider 存在模块内存里，`page.goto` 会清空，必须全程走客户端路由 |
+| 审批区在折叠块内 | `<details>` 默认收起，展开才可见 |
+
+**放弃的原因是无法确定性截图。**消息在等待审批期间始终处于流式状态，气泡宽度跟随最宽的兄弟块变化。依次尝试过：等最后一个工具块到达、用 CSS 固定块宽度、按工具名精确定位、过滤可见元素——最后两次运行仍稳定地相差 14867 像素，说明渲染是双模态的。
+
+**提交一张会间歇性挂 CI 的截图，比没有截图更糟**，因此该场景已从清单与脚本中移除。若将来要补，方向是让 mock 提供一个「流式已结束但仍待审批」的确定状态。
 
 ## 桌面专属、无法自动截图的项
 

@@ -224,58 +224,44 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
 
   /**
-   * Tool approval. In Web/mock the simulated approval only fires for an API agent,
-   * so OnePiece has to be configured first — the dialog is otherwise unreachable.
+   * A connector reaching "connected" in Web/mock. The mock refuses to enable one
+   * before default routing is saved, which is the same prerequisite the desktop
+   * runtime enforces — so the capture also documents that ordering.
    */
-  "tool-approval": async (page, locale) => {
-    await visit(page, "/settings?section=agent-configurations");
+  "im-connected": async (page, locale) => {
+    // Creating a session first is what puts a project into the routing dropdown.
+    await createSession(page, locale);
+    await page.getByRole("button", { name: text(locale, "设置", "Settings") }).click();
     const shell = page.locator("main").first();
+    await shell.getByRole("button", { name: text(locale, "IM 能力", "Instant messaging") }).click();
     await waitForFeature(shell);
-    // The page opens on the first CLI tab, so the OnePiece panel has to be selected
-    // explicitly before its "add" button is the one in reach.
-    await shell.getByRole("tab", { name: "OnePiece" }).click();
-    const panel = shell.getByRole("tabpanel", { name: "OnePiece" });
-    await panel.getByRole("button", { name: /新增|Add/ }).first().click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: /^Anthropic/ }).first().click();
-    await dialog.getByLabel(text(locale, "API 密钥", "API key")).fill("web-mock-key");
-    await dialog
-      .getByRole("button", { name: text(locale, "保存 OnePiece", "Save OnePiece") })
-      .click();
-    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
 
-    // Client-side navigation only: a reload would drop the provider we just saved.
-    await shell.getByRole("button", { name: text(locale, "返回", "Back") }).click();
-    const workspace = await createSession(page, locale, {
-      agent: "OnePiece",
-      navigate: false,
-    });
-    // OnePiece renders the chat composer, not the CLI terminal input.
-    await workspace
-      .getByPlaceholder(/输入指令|Send a message/)
-      .fill(text(locale, "请执行一次演示命令。", "Run a demo command."));
-    await workspace
-      .getByRole("button", { name: text(locale, "发送", "Send") })
-      .first()
+    // Every settings page stays mounted and only the active one is visible, so every
+    // control here must be filtered to what is actually on screen.
+    const visible = { visible: true } as const;
+    const selects = shell.locator("select").filter(visible);
+    await selects.nth(0).selectOption({ index: 1 });
+    await selects.nth(1).selectOption({ index: 1 });
+    await shell
+      .getByRole("button", { name: text(locale, "保存路由", "Save routing") })
+      .filter(visible)
       .click();
-    // The approval card sits inside a collapsed <details>, so it has to be expanded
-    // before it is on screen at all. This is also how a real user reaches it.
-    const pendingTool = workspace
-      .locator("details")
-      .filter({ has: page.getByText("awaiting_approval") })
-      .first();
-    await expect(pendingTool).toBeVisible({ timeout: 15_000 });
-    await pendingTool.locator("summary").click();
+
+    await shell.getByRole("button", { name: /飞书/ }).filter(visible).first().click();
+    const credentials = shell
+      .locator('input[type="text"], input[type="password"]')
+      .filter(visible);
+    for (const field of await credentials.all()) await field.fill("web-mock-value");
+    await shell
+      .getByRole("button", { name: text(locale, "保存凭据", "Save credentials") })
+      .filter(visible)
+      .click();
+    await shell.locator('input[type="checkbox"]').filter(visible).first().check();
     await expect(
-      pendingTool.getByText(
-        text(locale, "该工具调用需要你的确认才能执行", "needs your approval"),
-      ),
-    ).toBeVisible();
+      shell.getByText(text(locale, "已连接", "Connected")).filter(visible).first(),
+    ).toBeVisible({ timeout: 15_000 });
     await dismissToasts(page, locale);
-    // Capture the approval block alone. The surrounding message is still streaming and
-    // its sibling tool blocks land on timers, so a full-workspace frame is not stable.
-    return pendingTool;
+    return shell;
   },
 
   "session-workspace": async (page, locale) => {
@@ -320,6 +306,15 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   },
 };
 
+/**
+ * Elements painted over before capture. The spec requires repeated generation not to
+ * introduce unrelated timestamp, id, or path changes, and a live clock in the frame
+ * would otherwise make a screenshot impossible to regression-check.
+ */
+const masks: Record<string, (page: Page) => Locator[]> = {
+  "im-connected": (page) => [page.getByText(/更新时间|Updated/)],
+};
+
 test.describe("documentation screenshots", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -347,6 +342,7 @@ test.describe("documentation screenshots", () => {
       const image = await target.screenshot({
         animations: "disabled",
         caret: "hide",
+        mask: masks[definition.scenario]?.(page) ?? [],
         scale: "css",
       });
       const assetPath = resolve(repositoryRoot, "docs", "user-guide", definition.path);

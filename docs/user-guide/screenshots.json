@@ -161,12 +161,12 @@
       "path": "assets/screenshots/session-logs-zh-CN.png"
     },
     {
-      "id": "tool-approval-zh-CN",
-      "scenario": "tool-approval",
+      "id": "im-connected-zh-CN",
+      "scenario": "im-connected",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
-      "path": "assets/screenshots/tool-approval-zh-CN.png"
+      "path": "assets/screenshots/im-connected-zh-CN.png"
     }
   ]
 }
