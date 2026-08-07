@@ -12,6 +12,7 @@ pub(crate) struct StderrCapture {
 }
 
 impl StderrCapture {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn retained(&self) -> &[u8] {
         &self.retained
     }

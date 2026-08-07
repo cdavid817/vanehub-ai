@@ -1,5 +1,4 @@
 //! Explicit-argument external process construction and bounded execution.
-#![allow(dead_code)]
 
 mod managed_child;
 mod stderr_drain;
@@ -74,6 +73,9 @@ impl ProcessCancellation {
         Self { cancelled }
     }
 
+    /// Production cancels through the `from_signal` flag its owner already holds; this
+    /// setter exists for tests that drive cancellation directly.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
@@ -135,6 +137,9 @@ impl ProcessRequest {
         self
     }
 
+    // Unused builder surface: every current caller inherits the parent environment. Kept
+    // as the counterpart to `environment`, which `command()` still applies.
+    #[allow(dead_code)]
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.environment.insert(key.into(), value.into());
         self
@@ -270,13 +275,6 @@ pub(crate) fn audit_command(category: &str, executable: &str, args: &[String]) {
         &format!("executing {executable}{args_label}"),
         BTreeMap::new(),
     );
-}
-
-pub(crate) fn output_with_timeout(
-    command: &mut Command,
-    timeout: Duration,
-) -> Result<ProcessOutput, ProcessError> {
-    output_with_control(command, timeout, None, None)
 }
 
 fn output_with_control(
