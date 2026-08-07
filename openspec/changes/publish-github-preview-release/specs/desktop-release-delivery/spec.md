@@ -22,7 +22,34 @@ Successful tagged builds SHALL create a GitHub Release with generated notes, dow
 - **WHEN** a version tag matches all project version declarations and all builds succeed
 - **THEN** the workflow SHALL publish exactly one GitHub Release for that tag
 
+### Requirement: Protected release credentials
+Signing and notarization credentials MUST be read only from GitHub encrypted secrets scoped to a protected release environment and MUST NOT be committed to the repository or exposed to pull-request workflows. A credential that has not been provisioned MUST NOT reach the build as an empty value.
+
+#### Scenario: Release credentials are absent
+- **WHEN** the repository has not been provisioned with real signing credentials
+- **THEN** configuration SHALL identify the missing deployment prerequisite without fabricating or persisting a secret
+
+#### Scenario: Release job accesses credentials
+- **WHEN** an authorized release deployment runs
+- **THEN** only the release job SHALL receive the environment-scoped credentials required by its target platform
+
+#### Scenario: Build runs without provisioned credentials
+- **WHEN** a platform build runs and no signing credential is provisioned for it
+- **THEN** the build SHALL receive no credential variable at all rather than a blank one
+- **AND** it SHALL produce an unsigned distributable rather than failing
+
 ## ADDED Requirements
+
+### Requirement: Published release assets
+A published release SHALL attach only distributable package files. Intermediate build output produced while assembling a package MUST NOT be attached.
+
+#### Scenario: Packaging leaves intermediate output beside a distributable
+- **WHEN** a bundler writes staging directories or unpacked trees into the bundle output directory
+- **THEN** those files SHALL NOT be collected as release assets
+
+#### Scenario: Release assets are collected
+- **WHEN** platform artifacts are gathered for publication
+- **THEN** each collected file SHALL be an installable package in one of the declared distributable formats
 
 ### Requirement: Pre-release publication marking
 The release workflow SHALL determine a release's pre-release status from the published tag alone and SHALL mark a release carrying a pre-release identifier as a GitHub pre-release that is not promoted to the repository's latest release.

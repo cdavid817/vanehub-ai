@@ -62,15 +62,6 @@ jobs:
             runner: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
             npm_script: package:linux:x64
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,6 +113,35 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Forward provisioned signing credentials
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # An unset secret expands to an empty string rather than being absent, and the Tauri
+          # bundler treats a defined APPLE_CERTIFICATE as a request to sign. Forwarding a blank
+          # value fails the macOS build at `security import` instead of producing the unsigned
+          # bundle an unprovisioned repository should get, so only non-empty values are exported.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID \
+                      TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            value="${!name}"
+            if [[ -n "${value}" ]]; then
+              printf '%s<<__VANEHUB_ENV__\n%s\n__VANEHUB_ENV__\n' "${name}" "${value}" >> "${GITHUB_ENV}"
+            fi
+          done
+
+          if [[ -z "${APPLE_CERTIFICATE}" && "${RUNNER_OS}" == "macOS" ]]; then
+            echo "No Apple signing credentials configured; producing an unsigned, un-notarized bundle."
+          fi
+
       - name: Build package
         run: npm run ${{ matrix.npm_script }}
 
@@ -129,9 +149,14 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: VaneHub-AI-${{ matrix.platform }}-${{ matrix.arch }}
+          # Collect distributables by format rather than the whole bundle tree. `bundle/**` also
+          # matches the AppImage's unpacked `.AppDir` and the deb build directory (268 extra
+          # files in one Linux run), and every one of them would be attached to the release.
           path: |
-            src-tauri/target/${{ matrix.rust_target }}/release/bundle/**
-            src-tauri/target/release/bundle/**
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.exe
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.dmg
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.deb
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/*/*.AppImage
           if-no-files-found: error
           retention-days: 7
 
