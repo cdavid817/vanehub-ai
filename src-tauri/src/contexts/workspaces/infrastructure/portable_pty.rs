@@ -4,27 +4,38 @@ use crate::contexts::workspaces::application::{
 };
 use crate::contexts::workspaces::domain::{reset_directory_command, ShellHost, TerminalDimensions};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
+use crate::platform::text::take_decodable_utf8;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+/// The blocking halves of a shell, shared out of the registry so PTY writes and resizes
+/// never run while the registry lock is held. A shell whose child stopped draining its
+/// pipe would otherwise stall input, resize and shutdown for *every* other shell.
+struct ShellIo {
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    writer: Mutex<Box<dyn Write + Send>>,
+}
+
 struct ManagedShell {
     session_id: String,
     root: PathBuf,
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    io: Arc<ShellIo>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-const TRANSCRIPT_LIMIT_BYTES: usize = 1024 * 1024;
+/// Larger reads coalesce bursty PTY output into fewer IPC events without adding latency:
+/// a read still returns as soon as any bytes are available, so interactive echo is
+/// unaffected, while a flood of build output emits far fewer events than a 4 KiB buffer.
+/// Matches the agent terminal's read width.
+const SHELL_READ_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct PortablePtyShellRuntime {
     shells: Arc<Mutex<HashMap<String, ManagedShell>>>,
-    transcripts: Arc<Mutex<HashMap<String, VecDeque<u8>>>>,
     events: Arc<dyn WorkspaceShellEventPort>,
     logging: Arc<dyn WorkspaceShellLogPort>,
 }
@@ -36,7 +47,6 @@ impl PortablePtyShellRuntime {
     ) -> Self {
         Self {
             shells: Arc::new(Mutex::new(HashMap::new())),
-            transcripts: Arc::new(Mutex::new(HashMap::new())),
             events,
             logging,
         }
@@ -124,6 +134,50 @@ impl PortablePtyShellRuntime {
             .insert(shell_id, shell);
         Ok(())
     }
+
+    /// Resolves a shell to its owning session and shared I/O handles, releasing the
+    /// registry lock before the caller performs any blocking PTY operation.
+    fn checkout(&self, shell_id: &str) -> Result<(String, Arc<ShellIo>), AppError> {
+        let shells = self
+            .shells
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        let shell = shells
+            .get(shell_id)
+            .ok_or_else(|| AppError::Validation("Shell session is not connected.".to_string()))?;
+        Ok((shell.session_id.clone(), shell.io.clone()))
+    }
+
+    /// Resolves a shell's working root alongside its I/O handles, for the directory reset
+    /// command that has to be rendered from the root before anything is written.
+    fn checkout_with_root(
+        &self,
+        shell_id: &str,
+    ) -> Result<(String, PathBuf, Arc<ShellIo>), AppError> {
+        let shells = self
+            .shells
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        let shell = shells
+            .get(shell_id)
+            .ok_or_else(|| AppError::Validation("Shell session is not connected.".to_string()))?;
+        Ok((
+            shell.session_id.clone(),
+            shell.root.clone(),
+            shell.io.clone(),
+        ))
+    }
+
+    fn write_all(io: &ShellIo, bytes: &[u8]) -> Result<(), AppError> {
+        let mut writer = io
+            .writer
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))?;
+        writer
+            .write_all(bytes)
+            .and_then(|_| writer.flush())
+            .map_err(|error| AppError::Storage(error.to_string()))
+    }
 }
 
 impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
@@ -165,30 +219,26 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             .map_err(|error| AppError::Storage(error.to_string()))?;
 
         let events = self.events.clone();
-        let transcripts = self.transcripts.clone();
-        if let Ok(mut stored) = self.transcripts.lock() {
-            stored.insert(launch.shell_id.clone(), VecDeque::new());
-        }
         let reader_shell_id = launch.shell_id.clone();
         let reader_session_id = launch.session_id.clone();
         thread::spawn(move || {
-            let mut buffer = [0u8; 4096];
+            let mut buffer = [0u8; SHELL_READ_BUFFER_BYTES];
+            // Reads land on arbitrary byte boundaries, so a multi-byte UTF-8 sequence can be
+            // split across two reads; carry the incomplete tail until the next read completes it.
+            let mut pending: Vec<u8> = Vec::new();
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(count) => {
-                        if let Ok(mut all) = transcripts.lock() {
-                            if let Some(transcript) = all.get_mut(&reader_shell_id) {
-                                transcript.extend(&buffer[..count]);
-                                while transcript.len() > TRANSCRIPT_LIMIT_BYTES {
-                                    transcript.pop_front();
-                                }
-                            }
+                        pending.extend_from_slice(&buffer[..count]);
+                        let content = take_decodable_utf8(&mut pending);
+                        if content.is_empty() {
+                            continue;
                         }
                         events.publish(ShellEvent::Output {
                             shell_id: reader_shell_id.clone(),
                             session_id: reader_session_id.clone(),
-                            content: String::from_utf8_lossy(&buffer[..count]).to_string(),
+                            content,
                         })
                     }
                     Err(_) => break,
@@ -207,31 +257,23 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
             ManagedShell {
                 session_id: launch.session_id.clone(),
                 root,
-                master: pair.master,
-                writer,
+                io: Arc::new(ShellIo {
+                    master: Mutex::new(pair.master),
+                    writer: Mutex::new(writer),
+                }),
                 child,
             },
         )
     }
 
     fn write_input(&self, shell_id: &str, content: &str) -> Result<(), AppError> {
-        let mut shells = self
-            .shells
-            .lock()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
-        let shell = shells
-            .get_mut(shell_id)
-            .ok_or_else(|| AppError::Validation("Shell session is not connected.".to_string()))?;
-        let result = shell
-            .writer
-            .write_all(content.as_bytes())
-            .and_then(|_| shell.writer.flush())
-            .map_err(|error| AppError::Storage(error.to_string()));
+        let (session_id, io) = self.checkout(shell_id)?;
+        let result = Self::write_all(&io, content.as_bytes());
         if result.is_err() {
             write_shell_log(
                 self.logging.as_ref(),
                 WorkspaceLogLevel::Warn,
-                &shell.session_id,
+                &session_id,
                 shell_id,
                 "Shell input failed.",
             );
@@ -240,29 +282,19 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
     }
 
     fn reset_directory(&self, shell_id: &str) -> Result<(), AppError> {
-        let mut shells = self
-            .shells
-            .lock()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
-        let shell = shells
-            .get_mut(shell_id)
-            .ok_or_else(|| AppError::Validation("Shell session is not connected.".to_string()))?;
+        let (session_id, root, io) = self.checkout_with_root(shell_id)?;
         let host = if cfg!(target_os = "windows") {
             ShellHost::Windows
         } else {
             ShellHost::Unix
         };
-        let command = reset_directory_command(&shell.root.to_string_lossy(), host);
-        let result = shell
-            .writer
-            .write_all(command.as_bytes())
-            .and_then(|_| shell.writer.flush())
-            .map_err(|error| AppError::Storage(error.to_string()));
+        let command = reset_directory_command(&root.to_string_lossy(), host);
+        let result = Self::write_all(&io, command.as_bytes());
         if result.is_err() {
             write_shell_log(
                 self.logging.as_ref(),
                 WorkspaceLogLevel::Warn,
-                &shell.session_id,
+                &session_id,
                 shell_id,
                 "Shell directory reset failed.",
             );
@@ -271,22 +303,21 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
     }
 
     fn resize(&self, shell_id: &str, dimensions: TerminalDimensions) -> Result<(), AppError> {
-        let shells = self
-            .shells
-            .lock()
-            .map_err(|error| AppError::Storage(error.to_string()))?;
-        let shell = shells
-            .get(shell_id)
-            .ok_or_else(|| AppError::Validation("Shell session is not connected.".to_string()))?;
-        let result = shell
+        let (session_id, io) = self.checkout(shell_id)?;
+        let result = io
             .master
-            .resize(terminal_size(dimensions))
-            .map_err(|error| AppError::Storage(error.to_string()));
+            .lock()
+            .map_err(|error| AppError::Storage(error.to_string()))
+            .and_then(|master| {
+                master
+                    .resize(terminal_size(dimensions))
+                    .map_err(|error| AppError::Storage(error.to_string()))
+            });
         if result.is_err() {
             write_shell_log(
                 self.logging.as_ref(),
                 WorkspaceLogLevel::Warn,
-                &shell.session_id,
+                &session_id,
                 shell_id,
                 "Shell resize failed.",
             );
@@ -303,9 +334,6 @@ impl WorkspaceShellRuntimePort for PortablePtyShellRuntime {
         let Some(mut shell) = shell else {
             return Ok(None);
         };
-        if let Ok(mut transcripts) = self.transcripts.lock() {
-            transcripts.remove(shell_id);
-        }
         terminate_child(
             &mut *shell.child,
             self.logging.as_ref(),
@@ -459,8 +487,10 @@ mod tests {
         ManagedShell {
             session_id: session_id.to_string(),
             root: root.to_path_buf(),
-            master: pair.master,
-            writer,
+            io: Arc::new(ShellIo {
+                master: Mutex::new(pair.master),
+                writer: Mutex::new(writer),
+            }),
             child,
         }
     }
@@ -576,6 +606,45 @@ mod tests {
             Some("session-two")
         );
         assert!(manager.shells.lock().expect("shell map").is_empty());
+        remove_test_dir(&root);
+    }
+
+    #[test]
+    fn a_blocked_shell_writer_does_not_stall_other_shells() {
+        let root = temp_dir("writer-isolation");
+        std::fs::create_dir_all(&root).expect("root");
+        let (manager, _) = runtime();
+        manager
+            .insert(
+                "shell-one".to_string(),
+                managed_test_shell("session-one", &root),
+            )
+            .expect("insert first");
+        manager
+            .insert(
+                "shell-two".to_string(),
+                managed_test_shell("session-two", &root),
+            )
+            .expect("insert second");
+
+        // Stands in for a child that stopped draining its pipe: shell-one's writer is held
+        // for the whole test. The registry lock must not be part of that critical section.
+        let (_, blocked) = manager.checkout("shell-one").expect("checkout first");
+        let _held = blocked.writer.lock().expect("hold first writer");
+
+        manager
+            .resize("shell-two", TerminalDimensions::bounded(30, 100))
+            .expect("second shell resizes while the first writer is blocked");
+        manager
+            .write_input("shell-two", if cfg!(windows) { "\r\n" } else { "\n" })
+            .expect("second shell accepts input while the first writer is blocked");
+        assert_eq!(
+            manager.stop("shell-two").expect("stop second").as_deref(),
+            Some("session-two")
+        );
+
+        drop(_held);
+        manager.stop("shell-one").expect("stop first");
         remove_test_dir(&root);
     }
 
