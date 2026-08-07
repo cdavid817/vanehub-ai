@@ -1752,6 +1752,19 @@
                                               "agent-cross-session-memory",
                                               "retrieval-vector-search"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-07",
+                         "changeName":  "surface-cli-error-results",
+                         "path":  "openspec/changes/archive/2026-08-07-surface-cli-error-results/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "session-runtime-management"
+                                          ]
                      }
                  ]
 }
