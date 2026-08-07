@@ -2,6 +2,7 @@
   "screenshots": [
     {
       "id": "create-session-en",
+      "scenario": "create-session",
       "locale": "en",
       "runtime": "web-mock",
       "featureState": "delivered",
@@ -9,10 +10,19 @@
     },
     {
       "id": "create-session-zh-CN",
+      "scenario": "create-session",
       "locale": "zh-CN",
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/create-session-zh-CN.png"
+    },
+    {
+      "id": "create-session-multi-agent-zh-CN",
+      "scenario": "create-session-multi-agent",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/create-session-multi-agent-zh-CN.png"
     }
   ]
 }

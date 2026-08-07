@@ -4,11 +4,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+type Locale = "en" | "zh-CN";
 
 interface ScreenshotDefinition {
   id: string;
-  locale: "en" | "zh-CN";
+  scenario: string;
+  locale: Locale;
   runtime: "web-mock" | "desktop-reviewed";
   featureState: "delivered" | "preview" | "planned";
   path: string;
@@ -25,6 +28,62 @@ if (mode !== "update" && mode !== "check") {
   throw new Error("DOCS_SCREENSHOT_MODE must be update or check.");
 }
 
+function text(locale: Locale, zh: string, en: string) {
+  return locale === "en" ? en : zh;
+}
+
+/** Opens the create-session dialog with the project and title fields already filled. */
+async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
+  await page.getByRole("button", { name: /^(新建|New)$/ }).click();
+  const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
+  await expect(
+    dialog.getByRole("heading", { name: text(locale, "创建会话", "Create Session") }),
+  ).toBeVisible();
+  await dialog.locator('input[placeholder*="code"]').fill("D:\\VaneHub-Demo");
+  await dialog
+    .getByPlaceholder(text(locale, "新会话", "New session"))
+    .fill(text(locale, "文档演示", "Documentation demo"));
+  return dialog;
+}
+
+/**
+ * Each scenario returns the element to capture. Scenarios must only assert on
+ * user-visible controls: a Web/mock capture is never evidence of a native side effect.
+ */
+const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>> = {
+  "create-session": async (page, locale) => {
+    const dialog = await openCreateSessionDialog(page, locale);
+    await expect(
+      dialog.getByRole("button", { name: text(locale, "创建", "Create"), exact: true }),
+    ).toBeEnabled();
+    await expect(dialog.getByRole("button", { name: /^Claude Code/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^Gemini CLI/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^Codex CLI/ })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /^OpenCode/ })).toBeVisible();
+    const bounds = await dialog.boundingBox();
+    expect(bounds?.width).toBeGreaterThanOrEqual(580);
+    expect(bounds?.height).toBeGreaterThanOrEqual(650);
+    return dialog;
+  },
+
+  /**
+   * Multi-Agent seat assignment. This scenario exists because the guide previously
+   * documented Multi Agent as disabled, which is no longer true.
+   */
+  "create-session-multi-agent": async (page, locale) => {
+    const dialog = await openCreateSessionDialog(page, locale);
+    const multiAgent = dialog.getByRole("button", {
+      name: new RegExp(`^${text(locale, "多 Agent", "Multi Agent")}`),
+    });
+    await expect(multiAgent).toBeEnabled();
+    await multiAgent.click();
+    await expect(multiAgent).toHaveAttribute("aria-pressed", "true");
+    const bounds = await dialog.boundingBox();
+    expect(bounds?.width).toBeGreaterThanOrEqual(580);
+    return dialog;
+  },
+};
+
 test.describe("documentation screenshots", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -32,6 +91,8 @@ test.describe("documentation screenshots", () => {
     test(definition.id, async ({ page }) => {
       expect(definition.runtime).toBe("web-mock");
       expect(definition.featureState).toBe("delivered");
+      const capture = scenarios[definition.scenario];
+      expect(capture, `unknown scenario "${definition.scenario}"`).toBeTruthy();
 
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.addInitScript(({ locale }) => {
@@ -59,32 +120,8 @@ test.describe("documentation screenshots", () => {
         `,
       });
 
-      await page.getByRole("button", { name: /^(新建|New)$/ }).click();
-      const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
-      await expect(
-        dialog.getByRole("heading", {
-          name: definition.locale === "en" ? "Create Session" : "创建会话",
-        }),
-      ).toBeVisible();
-      await dialog.locator('input[placeholder*="code"]').fill("D:\\VaneHub-Demo");
-      await dialog.getByPlaceholder(
-        definition.locale === "en" ? "New session" : "新会话",
-      ).fill(definition.locale === "en" ? "Documentation demo" : "文档演示");
-      await expect(
-        dialog.getByRole("button", {
-          name: definition.locale === "en" ? "Create" : "创建",
-          exact: true,
-        }),
-      ).toBeEnabled();
-      await expect(dialog.getByRole("button", { name: /^Claude Code/ })).toBeVisible();
-      await expect(dialog.getByRole("button", { name: /^Gemini CLI/ })).toBeVisible();
-      await expect(dialog.getByRole("button", { name: /^Codex CLI/ })).toBeVisible();
-      await expect(dialog.getByRole("button", { name: /^OpenCode/ })).toBeVisible();
-      const bounds = await dialog.boundingBox();
-      expect(bounds?.width).toBeGreaterThanOrEqual(580);
-      expect(bounds?.height).toBeGreaterThanOrEqual(650);
-
-      const image = await dialog.screenshot({
+      const target = await capture(page, definition.locale);
+      const image = await target.screenshot({
         animations: "disabled",
         caret: "hide",
         scale: "css",
