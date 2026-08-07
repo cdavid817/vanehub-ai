@@ -12,11 +12,11 @@
 
 Desktop-first workspace for managing AI coding agents through one React interface and explicit Web/mock and Tauri runtime boundaries.
 
-<!-- docs-fact:project-version value:0.1.0 -->
+<!-- docs-fact:project-version value:0.1.0-preview.1 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](package.json)
+[![Version](https://img.shields.io/badge/version-0.1.0--preview.1-blue.svg)](package.json)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB.svg)](src-tauri/Cargo.toml)
 [![React](https://img.shields.io/badge/React-19.x-61DAFB.svg)](package.json)
 [![CI](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/cdavid817/vanehub-ai/actions/workflows/ci.yml)
@@ -27,6 +27,14 @@ Desktop-first workspace for managing AI coding agents through one React interfac
 ## Overview
 
 VaneHub AI brings Claude Code, OpenCode, Codex CLI, and Gemini CLI into a shared desktop workspace. It manages CLI availability, sessions, terminal execution, projects and worktrees, settings, tools, observability, and desktop integrations without letting React components depend directly on native APIs.
+
+<!-- docs-section:download -->
+
+## Download
+
+Prebuilt desktop packages are published on the [Releases page](https://github.com/cdavid817/vanehub-ai/releases): a Windows `.exe` installer, a macOS `.dmg`, and Linux `.deb` and AppImage builds. No `.msi` or `.rpm` is published.
+
+The current build is an unsigned preview. Windows and macOS warn before running it, and the release notes carry the steps for each platform. Verify your download against the published `SHA256SUMS` before installing.
 
 <!-- docs-section:feature-status -->
 

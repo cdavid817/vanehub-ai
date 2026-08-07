@@ -29,7 +29,7 @@ jobs:
           cache: npm
 
       - name: Validate synchronized project versions
-        run: npm run version:check -- ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: npm run version:check
 
   package:
     name: Package (${{ matrix.platform }}-${{ matrix.arch }})
@@ -52,6 +52,11 @@ jobs:
             runner: macos-14
             rust_target: aarch64-apple-darwin
             npm_script: package:macos:arm64
+          - platform: macos
+            arch: x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            npm_script: package:macos:x64
           - platform: linux
             arch: x64
             runner: ubuntu-latest
@@ -186,9 +191,22 @@ jobs:
         shell: bash
         run: |
           mapfile -d '' assets < <(find release-assets -type f -print0)
-          gh release create "${GITHUB_REF_NAME}" \
-            "${assets[@]}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "VaneHub AI ${GITHUB_REF_NAME}" \
-            --generate-notes \
+
+          args=(
+            --repo "${GITHUB_REPOSITORY}"
+            --title "VaneHub AI ${GITHUB_REF_NAME}"
+            --generate-notes
             --verify-tag
+          )
+
+          # Semantic versioning introduces a pre-release identifier with a hyphen and permits one
+          # in no other version component, so the tag alone decides this and there is no separate
+          # input a maintainer can forget to set.
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "Publishing ${GITHUB_REF_NAME} as a pre-release."
+            args+=(--prerelease --latest=false --notes-file .github/PREVIEW_RELEASE_NOTES.md)
+          else
+            echo "Publishing ${GITHUB_REF_NAME} as a stable release."
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" "${assets[@]}" "${args[@]}"

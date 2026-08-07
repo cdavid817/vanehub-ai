@@ -1,5 +1,4 @@
 //! Explicit-argument external process construction and bounded execution.
-#![allow(dead_code)]
 
 mod managed_child;
 mod stderr_drain;
@@ -10,13 +9,14 @@ pub(crate) use managed_child::{ManagedChild, ManagedTokioChild};
 pub(crate) use stderr_drain::{BlockingStderrDrain, TokioStderrDrain};
 
 use crate::platform::network;
+use process_wrap::std as process_std;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -48,6 +48,12 @@ pub(crate) enum ProcessError {
     },
 }
 
+/// How long output collection waits for the pipes after the child is done. A pipe reaches
+/// EOF the moment its last writer closes, so this only elapses when a descendant inherited
+/// the pipe and outlived the child — without a bound, collection blocks forever and the
+/// caller's timeout never takes effect.
+const OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
+
 #[derive(Debug)]
 pub(crate) struct ProcessOutput {
     pub(crate) status: ExitStatus,
@@ -68,6 +74,9 @@ impl ProcessCancellation {
         Self { cancelled }
     }
 
+    /// Production cancels through the `from_signal` flag its owner already holds; this
+    /// setter exists for tests that drive cancellation directly.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
@@ -129,6 +138,9 @@ impl ProcessRequest {
         self
     }
 
+    // Unused builder surface: every current caller inherits the parent environment. Kept
+    // as the counterpart to `environment`, which `command()` still applies.
+    #[allow(dead_code)]
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.environment.insert(key.into(), value.into());
         self
@@ -166,9 +178,8 @@ pub(crate) struct ProcessAdapter;
 
 impl ProcessAdapter {
     pub(crate) fn execute(&self, request: &ProcessRequest) -> Result<ProcessOutput, ProcessError> {
-        let mut command = request.command()?;
         output_with_control(
-            &mut command,
+            request.command()?,
             request.timeout,
             request.cancellation.as_ref(),
             request.output_limit,
@@ -266,35 +277,53 @@ pub(crate) fn audit_command(category: &str, executable: &str, args: &[String]) {
     );
 }
 
-pub(crate) fn output_with_timeout(
-    command: &mut Command,
-    timeout: Duration,
-) -> Result<ProcessOutput, ProcessError> {
-    output_with_control(command, timeout, None, None)
+/// Contains a bounded-execution command so its descendants can be reached on teardown.
+///
+/// Distinct from the containment [`ManagedChild`] uses: this one must not gate completion
+/// on the tree draining, and must not kill the tree when the handle is released.
+#[cfg(windows)]
+fn add_execution_containment(command: &mut process_std::CommandWrap) {
+    command.wrap(windows_job::TerminateTreeJobObject::new());
 }
 
+/// `ProcessGroupChild::try_wait` tries the group first but falls back to the directly
+/// launched child, so a surviving group member does not hide that child's exit. That
+/// fallback is what makes this wrapper usable here, and it is what
+/// `successful_command_leaves_its_descendant_running` pins when the suite runs on Unix.
+#[cfg(unix)]
+fn add_execution_containment(command: &mut process_std::CommandWrap) {
+    command.wrap(process_std::ProcessGroup::leader());
+}
+
+#[cfg(not(any(windows, unix)))]
+fn add_execution_containment(_command: &mut process_std::CommandWrap) {}
+
 fn output_with_control(
-    command: &mut Command,
+    mut command: Command,
     timeout: Duration,
     cancellation: Option<&ProcessCancellation>,
     output_limit: Option<usize>,
 ) -> Result<ProcessOutput, ProcessError> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // The containment primitive is used purely as a kill handle: completion is still
+    // decided by `try_wait` on the process launched here, so a command that exits while
+    // a descendant lives is still reported as finished rather than as a timeout.
+    let mut wrapped = process_std::CommandWrap::from(command);
+    add_execution_containment(&mut wrapped);
+    let mut child = wrapped
         .spawn()
         .map_err(|error| ProcessError::Spawn(error.to_string()))?;
     let stdout = child
-        .stdout
+        .stdout()
         .take()
         .ok_or_else(|| ProcessError::Wait("stdout pipe is unavailable".to_string()))?;
     let stderr = child
-        .stderr
+        .stderr()
         .take()
         .ok_or_else(|| ProcessError::Wait("stderr pipe is unavailable".to_string()))?;
     let limit = output_limit.unwrap_or(usize::MAX);
-    let stdout_reader = thread::spawn(move || read_pipe(stdout, limit));
-    let stderr_reader = thread::spawn(move || read_pipe(stderr, limit));
+    let stdout_reader = spawn_pipe_reader(stdout, limit);
+    let stderr_reader = spawn_pipe_reader(stderr, limit);
     let start = Instant::now();
 
     let status = loop {
@@ -303,8 +332,9 @@ fn output_with_control(
             Ok(None) if cancellation.is_some_and(ProcessCancellation::is_cancelled) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
-                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
+                let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+                let (stdout, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+                let (stderr, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
                 return Err(ProcessError::Cancelled {
                     stdout: decode_output(&stdout),
                     stderr: decode_output(&stderr),
@@ -314,8 +344,9 @@ fn output_with_control(
             Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
-                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
+                let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+                let (stdout, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+                let (stderr, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
                 return Err(ProcessError::TimedOut {
                     timeout_seconds: timeout.as_secs(),
                     stdout: decode_output(&stdout),
@@ -328,8 +359,9 @@ fn output_with_control(
         }
     };
 
-    let (stdout_bytes, stdout_truncated) = join_reader(stdout_reader)?;
-    let (stderr_bytes, stderr_truncated) = join_reader(stderr_reader)?;
+    let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+    let (stdout_bytes, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+    let (stderr_bytes, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
     Ok(ProcessOutput {
         stdout: decode_output(&stdout_bytes),
         stderr: decode_output(&stderr_bytes),
@@ -340,29 +372,81 @@ fn output_with_control(
     })
 }
 
-fn read_pipe(mut pipe: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
-    let mut retained = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    let mut truncated = false;
-    loop {
-        let count = pipe.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        let remaining = limit.saturating_sub(retained.len());
-        retained.extend_from_slice(&buffer[..count.min(remaining)]);
-        truncated |= count > remaining;
-    }
-    Ok((retained, truncated))
+#[derive(Default)]
+struct PipeCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+    finished: bool,
+    failure: Option<String>,
 }
 
-fn join_reader(
-    reader: thread::JoinHandle<std::io::Result<(Vec<u8>, bool)>>,
-) -> Result<(Vec<u8>, bool), ProcessError> {
+struct PipeReader {
+    capture: Mutex<PipeCapture>,
+    finished: Condvar,
+}
+
+/// Streams a child pipe into a shared buffer the collector can take at any point.
+///
+/// The reader thread is deliberately never joined: a descendant that inherited the pipe
+/// keeps it from reaching EOF, which would park this thread in `read` indefinitely. It
+/// exits on its own once the last writer closes.
+fn spawn_pipe_reader<R: Read + Send + 'static>(mut pipe: R, limit: usize) -> Arc<PipeReader> {
+    let reader = Arc::new(PipeReader {
+        capture: Mutex::new(PipeCapture::default()),
+        finished: Condvar::new(),
+    });
+    let sink = Arc::clone(&reader);
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 4096];
+        let failure = loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => break None,
+                Ok(count) => {
+                    let Ok(mut capture) = sink.capture.lock() else {
+                        return;
+                    };
+                    let remaining = limit.saturating_sub(capture.bytes.len());
+                    capture
+                        .bytes
+                        .extend_from_slice(&buffer[..count.min(remaining)]);
+                    capture.truncated |= count > remaining;
+                }
+                Err(error) => break Some(error.to_string()),
+            }
+        };
+        if let Ok(mut capture) = sink.capture.lock() {
+            capture.failure = failure;
+            capture.finished = true;
+            sink.finished.notify_all();
+        }
+    });
     reader
-        .join()
-        .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?
-        .map_err(|error| ProcessError::Wait(error.to_string()))
+}
+
+/// Takes everything read so far, waiting until the pipe closes or `deadline` passes.
+fn collect_pipe(reader: &PipeReader, deadline: Instant) -> Result<(Vec<u8>, bool), ProcessError> {
+    let mut capture = reader
+        .capture
+        .lock()
+        .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?;
+    while !capture.finished {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let (guard, wait) = reader
+            .finished
+            .wait_timeout(capture, remaining)
+            .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?;
+        capture = guard;
+        if wait.timed_out() {
+            break;
+        }
+    }
+    if let Some(failure) = capture.failure.take() {
+        return Err(ProcessError::Wait(failure));
+    }
+    Ok((std::mem::take(&mut capture.bytes), capture.truncated))
 }
 
 fn decode_output(bytes: &[u8]) -> String {
@@ -372,6 +456,7 @@ fn decode_output(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn explicit_arguments_are_never_concatenated_into_a_shell_program() {
@@ -440,6 +525,152 @@ mod tests {
     }
 
     #[test]
+    fn output_collection_is_bounded_when_a_descendant_inherits_the_pipe() {
+        // The command's own timeout is far longer than the assertion window, so this
+        // pins the *collection* bound: a grandchild holding the stdout pipe must not
+        // keep `execute` blocked after the child it was spawned from has exited.
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_orphan_pipe_child_fixture",
+                "--nocapture",
+            ])
+            .timeout(Duration::from_secs(30));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let _ = sender.send(ProcessAdapter.execute(&request).map(|output| output.stdout));
+        });
+
+        let collected = receiver
+            .recv_timeout(Duration::from_secs(10))
+            .expect("collection must not block on a descendant that still holds the pipe");
+
+        assert!(collected
+            .expect("child exited normally")
+            .contains("parent-done"));
+    }
+
+    #[test]
+    fn timed_out_command_terminates_its_descendants() {
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_parent_fixture",
+                "--nocapture",
+            ])
+            .timeout(Duration::from_millis(500));
+
+        let error = ProcessAdapter.execute(&request).expect_err("timeout");
+
+        let ProcessError::TimedOut { stdout, .. } = &error else {
+            panic!("expected a timeout, got {error:?}");
+        };
+        wait_until_process_stops(descendant_pid(stdout));
+    }
+
+    #[test]
+    fn successful_command_leaves_its_descendant_running() {
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_exiting_parent_fixture",
+                "--nocapture",
+            ])
+            // Far longer than the command needs, so a failure here means the command was
+            // misjudged as unfinished rather than that it genuinely ran long.
+            .timeout(Duration::from_secs(30));
+
+        let output = ProcessAdapter.execute(&request).expect("command completes");
+
+        assert!(output.success(), "{}", output.stderr);
+        let descendant = descendant_pid(&output.stdout);
+        assert!(
+            process_is_running(descendant),
+            "a command that succeeded must keep whatever it started"
+        );
+        terminate_process(descendant);
+    }
+
+    fn descendant_pid(output: &str) -> u32 {
+        output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("DESCENDANT_PID "))
+            .unwrap_or_else(|| panic!("fixture never reported its descendant: {output}"))
+            .parse()
+            .expect("descendant pid")
+    }
+
+    #[test]
+    #[ignore = "spawned only by the process-tree termination test"]
+    fn process_tree_parent_fixture() {
+        spawn_reported_descendant();
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    #[ignore = "spawned only by the surviving-descendant test"]
+    fn process_tree_exiting_parent_fixture() {
+        spawn_reported_descendant();
+    }
+
+    #[allow(clippy::zombie_processes)] // The descendant must outlive this process to be observable.
+    fn spawn_reported_descendant() {
+        let executable = std::env::current_exe().expect("test executable");
+        let descendant = Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_descendant_fixture",
+            ])
+            .stdin(Stdio::null())
+            // Null rather than inherit: this fixture is about process-tree termination, not
+            // about a descendant holding the output pipe open.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("descendant");
+        println!("DESCENDANT_PID {}", descendant.id());
+        std::io::stdout().flush().expect("flush pid");
+    }
+
+    #[test]
+    #[ignore = "spawned only by the process-tree fixtures"]
+    fn process_tree_descendant_fixture() {
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    #[ignore = "spawned only by the orphaned-pipe collection test"]
+    #[allow(clippy::zombie_processes)] // Must exit while its descendant still holds the inherited stdout pipe.
+    fn process_orphan_pipe_child_fixture() {
+        let executable = std::env::current_exe().expect("test executable");
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_orphan_pipe_grandchild_fixture",
+            ])
+            .stdin(Stdio::null())
+            // Inheriting stdout hands the grandchild a live write handle to the pipe, so
+            // the pipe cannot reach EOF when this process exits a moment from now.
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("grandchild");
+        print!("parent-done");
+        std::io::stdout().flush().expect("flush");
+    }
+
+    #[test]
+    #[ignore = "spawned only by the orphaned-pipe collection fixture"]
+    fn process_orphan_pipe_grandchild_fixture() {
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
     #[ignore = "spawned only by the timeout adapter test"]
     fn process_timeout_child_fixture() {
         thread::sleep(Duration::from_secs(5));
@@ -449,6 +680,54 @@ mod tests {
     #[ignore = "spawned only by the bounded output adapter test"]
     fn process_output_child_fixture() {
         print!("{}", "x".repeat(4096));
+    }
+
+    #[cfg(windows)]
+    fn process_is_running(process_id: u32) -> bool {
+        use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let Ok(process) =
+            (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) })
+        else {
+            return false;
+        };
+        let mut exit_code = 0;
+        let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) }.is_ok();
+        let _ = unsafe { CloseHandle(process) };
+        queried && exit_code == STILL_ACTIVE.0 as u32
+    }
+
+    #[cfg(unix)]
+    fn process_is_running(process_id: u32) -> bool {
+        unsafe { libc::kill(process_id as i32, 0) == 0 }
+    }
+
+    #[cfg(windows)]
+    fn terminate_process(process_id: u32) {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        if let Ok(process) = unsafe { OpenProcess(PROCESS_TERMINATE, false, process_id) } {
+            let _ = unsafe { TerminateProcess(process, 1) };
+            let _ = unsafe { CloseHandle(process) };
+        }
+    }
+
+    #[cfg(unix)]
+    fn terminate_process(process_id: u32) {
+        unsafe { libc::kill(process_id as i32, libc::SIGKILL) };
+    }
+
+    fn wait_until_process_stops(process_id: u32) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process_is_running(process_id) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !process_is_running(process_id),
+            "descendant {process_id} survived the termination of its parent"
+        );
     }
 
     #[test]

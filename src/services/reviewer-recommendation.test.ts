@@ -28,7 +28,7 @@ describe("recommendReviewerAgents", () => {
     expect(result.degraded).toBe(false);
   });
 
-  // Shipped by clowder-ai as a fix: a strict version left users unable to assign any reviewer.
+  // Regression guard: a strict version left users unable to assign any reviewer.
   it("falls back to same-family agents with an explicit notice when no cross-family agent exists", () => {
     const anotherAnthropic = agent("claude-alt", "anthropic");
     const result = recommendReviewerAgents([claude, anotherAnthropic], "claude-code");

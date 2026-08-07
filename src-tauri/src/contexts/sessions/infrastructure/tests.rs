@@ -1,12 +1,13 @@
+use super::sqlite_repository::{compatibility_search_statement, indexed_search_statement};
 use super::*;
 use crate::contexts::sessions::application::{
     CategoryRecord, ChatConfigurationValues, FileReferenceInput, LoopSessionOwnership,
     MessagePageQuery, MessageRecord, MessageTokenUsage, MessageUsageRecord,
     SessionCategoryRepository, SessionConfigurationRepository, SessionListScope,
     SessionMessageRepository, SessionRecord, SessionRemoteWorkspace, SessionRepository,
-    SessionSearchMatchKind, SessionSearchQuery, SessionSshBinding, SessionTransactionPort,
-    SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit, SessionWorkspace,
-    UsageStatisticsRange,
+    SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult, SessionSshBinding,
+    SessionTransactionPort, SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit,
+    SessionWorkspace, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, CategoryId, CategoryName, ChatConfigurationRequest, FileReference,
@@ -558,6 +559,215 @@ fn fts_migration_keeps_archived_sessions_with_existing_messages_searchable() {
         matched.kind == SessionSearchMatchKind::Message
             && matched.message_id.as_deref() == Some(message.message.id().as_str())
     }));
+}
+
+/// Seeds three sessions whose ordering and per-session newest-match are unambiguous, so
+/// the same expectations hold for both the indexed and the compatibility search branch.
+///
+/// The seeded content carries "目标词" so a three-character query reaches the trigram
+/// index while a two-character "目标" substring falls to the compatibility path.
+fn seed_search_ranking_fixture(fixture: &Fixture) {
+    let repository = &fixture.repository;
+    for (id, title, updated_at) in [
+        ("session-alpha", "Alpha", "2026-07-18T12:00:00+00:00"),
+        ("session-bravo", "Bravo", "2026-07-18T13:00:00+00:00"),
+        ("session-charlie", "Charlie", "2026-07-18T11:00:00+00:00"),
+    ] {
+        let session = session_record(id, SessionLifecycle::Idle, title, updated_at);
+        SessionTransactionPort::create_session(
+            repository,
+            &session,
+            SessionActivation::PreserveActive,
+        )
+        .expect("create ranking session");
+    }
+
+    // Distinct timestamps: the later message must win.
+    insert_message_at(
+        fixture,
+        "message-alpha-old",
+        "session-alpha",
+        "定位 目标词 旧",
+        "2026-07-18T10:00:00+00:00",
+    );
+    insert_message_at(
+        fixture,
+        "message-alpha-new",
+        "session-alpha",
+        "定位 目标词 新",
+        "2026-07-18T11:00:00+00:00",
+    );
+    // Identical timestamps: only the rowid tiebreak separates them, and the later insert
+    // holds the higher rowid.
+    insert_message_at(
+        fixture,
+        "message-bravo-tie-early",
+        "session-bravo",
+        "定位 目标词 平局一",
+        "2026-07-18T10:00:00+00:00",
+    );
+    insert_message_at(
+        fixture,
+        "message-bravo-tie-late",
+        "session-bravo",
+        "定位 目标词 平局二",
+        "2026-07-18T10:00:00+00:00",
+    );
+    // Charlie must never appear: neither its title nor its message matches.
+    insert_message_at(
+        fixture,
+        "message-charlie",
+        "session-charlie",
+        "无关内容",
+        "2026-07-18T10:00:00+00:00",
+    );
+}
+
+fn insert_message_at(fixture: &Fixture, id: &str, session_id: &str, content: &str, at: &str) {
+    let mut record = message_record(
+        id,
+        session_id,
+        MessageRole::User,
+        MessageStatus::Completed,
+        content,
+    );
+    record.created_at = at.to_string();
+    record.updated_at = at.to_string();
+    SessionMessageRepository::insert(&fixture.repository, &record).expect("insert ranking message");
+}
+
+fn searched_session_ids(results: &[SessionSearchResult]) -> Vec<String> {
+    results
+        .iter()
+        .map(|result| result.session.aggregate.id().as_str().to_string())
+        .collect()
+}
+
+fn matched_message_id(result: &SessionSearchResult) -> Option<String> {
+    result
+        .matches
+        .iter()
+        .find(|matched| matched.kind == SessionSearchMatchKind::Message)
+        .and_then(|matched| matched.message_id.clone())
+}
+
+fn assert_ranking_expectations(results: &[SessionSearchResult], label: &str) {
+    assert_eq!(
+        searched_session_ids(results),
+        vec!["session-bravo".to_string(), "session-alpha".to_string()],
+        "{label}: sessions come back newest-updated first, without the non-matching session"
+    );
+    assert_eq!(
+        matched_message_id(&results[0]).as_deref(),
+        Some("message-bravo-tie-late"),
+        "{label}: the rowid tiebreak decides when created_at ties"
+    );
+    assert_eq!(
+        matched_message_id(&results[1]).as_deref(),
+        Some("message-alpha-new"),
+        "{label}: the newest matching message is the match context"
+    );
+}
+
+#[test]
+fn short_query_search_orders_sessions_and_picks_the_newest_matching_message() {
+    let fixture = fixture("sessions-short-query-ranking");
+    seed_search_ranking_fixture(&fixture);
+
+    let results = SessionRepository::search(
+        &fixture.repository,
+        &SessionSearchQuery {
+            // Two characters, below the trigram floor, so this takes the compatibility path.
+            text: "目标".to_string(),
+            limit: 10,
+        },
+    )
+    .expect("short query search");
+
+    assert_ranking_expectations(&results, "short query");
+}
+
+#[test]
+fn indexed_query_search_orders_sessions_and_picks_the_newest_matching_message() {
+    let fixture = fixture("sessions-indexed-query-ranking");
+    seed_search_ranking_fixture(&fixture);
+
+    let results = SessionRepository::search(
+        &fixture.repository,
+        &SessionSearchQuery {
+            // Three characters, so this one reaches the trigram index.
+            text: "目标词".to_string(),
+            limit: 10,
+        },
+    )
+    .expect("indexed query search");
+
+    assert_ranking_expectations(&results, "indexed query");
+}
+
+#[test]
+fn search_that_matches_nothing_returns_no_sessions() {
+    let fixture = fixture("sessions-search-no-match");
+    seed_search_ranking_fixture(&fixture);
+
+    for text in ["零", "零零", "零零零"] {
+        let results = SessionRepository::search(
+            &fixture.repository,
+            &SessionSearchQuery {
+                text: text.to_string(),
+                limit: 10,
+            },
+        )
+        .expect("no-match search");
+        assert!(
+            results.is_empty(),
+            "{text} matched unexpectedly: {results:?}"
+        );
+    }
+}
+
+fn search_query_plan(fixture: &Fixture, sql: &str, message_query: &str) -> Vec<String> {
+    let connection = fixture.database.connection().expect("plan connection");
+    let mut statement = connection
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .expect("prepare search plan");
+    statement
+        .query_map(params![message_query, "%目标%", 10_i64], |row| row.get(3))
+        .expect("query search plan")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect search plan")
+}
+
+#[test]
+fn short_query_plan_seeks_the_session_index_instead_of_ranking_every_match() {
+    let fixture = fixture("sessions-short-query-plan");
+    seed_search_ranking_fixture(&fixture);
+
+    let plan = search_query_plan(&fixture, &compatibility_search_statement(), "%目标%");
+
+    assert!(
+        plan.iter()
+            .any(|detail| detail.contains("idx_messages_session_created")),
+        "expected a per-session index seek, got {plan:?}"
+    );
+    assert!(
+        !plan.iter().any(|detail| detail.contains("MATERIALIZE")),
+        "the compatibility path must not materialize a ranked match set, got {plan:?}"
+    );
+}
+
+#[test]
+fn indexed_query_plan_still_drives_the_full_text_index() {
+    let fixture = fixture("sessions-indexed-query-plan");
+    seed_search_ranking_fixture(&fixture);
+
+    let plan = search_query_plan(&fixture, &indexed_search_statement(), "\"目标词\"");
+
+    assert!(
+        plan.iter()
+            .any(|detail| detail.contains("session_message_fts")),
+        "expected the FTS branch to keep using the index, got {plan:?}"
+    );
 }
 
 fn fts_match_count(fixture: &Fixture, query: &str) -> i64 {

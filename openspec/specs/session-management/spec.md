@@ -480,7 +480,7 @@ The session search UI MUST suppress trivial or superseded requests and MUST pres
 - **AND** the result count SHALL remain bounded by the requested service limit
 
 ### Requirement: Indexed desktop message search
-Desktop historical-session search MUST use an SQLite full-text index for ordinary persisted message substring queries and MUST return session records plus bounded match context without per-result database loads.
+Desktop historical-session search MUST use an SQLite full-text index for ordinary persisted message substring queries and MUST return session records plus bounded match context without per-result database loads. Search MUST bound the work it performs, not only the number of rows it returns: it MUST NOT rank or sort every matching message in the database in order to produce a limited result page.
 
 #### Scenario: Search existing indexed messages
 - **WHEN** a query of at least three characters matches persisted message content
@@ -500,6 +500,16 @@ Desktop historical-session search MUST use an SQLite full-text index for ordinar
 - **WHEN** the desktop repository receives a two-character query that cannot use the trigram index
 - **THEN** it SHALL use a bounded compatibility query
 - **AND** it SHALL return the same service result shape
+
+#### Scenario: Short query resolves match context through the session index
+- **WHEN** the desktop repository runs the short-query compatibility path
+- **THEN** it SHALL resolve each candidate session's newest matching message through the session/created-at message index
+- **AND** it SHALL NOT materialize and rank the full set of matching messages across all sessions
+
+#### Scenario: Short query returns the same results as the ranking form
+- **WHEN** the same two-character query is served by the bounded compatibility path
+- **THEN** it SHALL return the same sessions, in the same order, as ranking every matching message would
+- **AND** each returned session's match context SHALL be its newest matching message
 
 ### Requirement: Service-backed session Agent discovery
 The create-session UI SHALL derive candidate Agents from service-backed registry entries and their declared interaction modes and availability rather than from a fixed stable-id allowlist.

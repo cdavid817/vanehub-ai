@@ -61,55 +61,12 @@ impl SessionRepository for SqliteSessionsRepository {
     ) -> Result<Vec<SessionSearchResult>, SessionsApplicationError> {
         let connection = self.connection()?;
         let pattern = like_pattern(&query.text);
-        let (message_source, message_query) = if query.text.chars().count() >= 3 {
-            (
-                "FROM session_message_fts
-                 JOIN messages ON messages.rowid = session_message_fts.rowid
-                 WHERE session_message_fts MATCH ?1",
-                fts_literal(&query.text),
-            )
+        let (sql, message_query) = if query.text.chars().count() >= MIN_INDEXED_QUERY_CHARS {
+            (indexed_search_statement(), fts_literal(&query.text))
         } else {
-            (
-                "FROM messages WHERE messages.content LIKE ?1 ESCAPE '\\'",
-                pattern.clone(),
-            )
+            (compatibility_search_statement(), pattern.clone())
         };
-        let mut statement = connection
-            .prepare(&format!(
-                r#"
-                WITH ranked_message_matches AS (
-                    SELECT messages.session_id, messages.id, messages.content,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY messages.session_id
-                               ORDER BY messages.created_at DESC, messages.rowid DESC
-                           ) AS match_rank
-                    {message_source}
-                ),
-                message_matches AS (
-                    SELECT session_id, id, content
-                    FROM ranked_message_matches
-                    WHERE match_rank = 1
-                )
-                {SESSION_SEARCH_SELECT}
-                LEFT JOIN message_matches ON message_matches.session_id = sessions.id
-                WHERE sessions.loop_run_id IS NULL
-                  AND (sessions.title LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.project_path, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.folder, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_path, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_name, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.worktree_branch, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_host, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_user, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_path, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_display_name, '') LIKE ?2 ESCAPE '\'
-                   OR COALESCE(sessions.remote_workspace_uri, '') LIKE ?2 ESCAPE '\'
-                   OR message_matches.id IS NOT NULL)
-                ORDER BY sessions.updated_at DESC
-                LIMIT ?3
-                "#,
-            ))
-            .map_err(repository_error)?;
+        let mut statement = connection.prepare(&sql).map_err(repository_error)?;
         let rows = statement
             .query_map(params![message_query, pattern, query.limit as i64], |row| {
                 Ok((
@@ -668,6 +625,87 @@ fn search_matches(
         });
     }
     matches
+}
+
+/// Below this length the trigram tokenizer emits no tokens at all, so an FTS `MATCH`
+/// cannot match anything and the compatibility statement is required for correctness.
+const MIN_INDEXED_QUERY_CHARS: usize = 3;
+
+/// Session-metadata predicates, kept in one place so the two search statements cannot
+/// drift apart on which fields a query is matched against.
+const SESSION_SEARCH_METADATA_PREDICATES: &str = r"sessions.title LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.project_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.folder, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_name, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.worktree_branch, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_host, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_user, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_path, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_display_name, '') LIKE ?2 ESCAPE '\'
+                   OR COALESCE(sessions.remote_workspace_uri, '') LIKE ?2 ESCAPE '\'";
+
+/// Ranks the FTS match set and keeps the newest match per session.
+///
+/// Materializing the match set is affordable here because `MATCH` prunes to matching rows
+/// through the index first. Correlating it per session instead would re-run the full-text
+/// query once for every candidate.
+pub(super) fn indexed_search_statement() -> String {
+    format!(
+        r#"
+                WITH ranked_message_matches AS (
+                    SELECT messages.session_id, messages.id, messages.content,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY messages.session_id
+                               ORDER BY messages.created_at DESC, messages.rowid DESC
+                           ) AS match_rank
+                    FROM session_message_fts
+                    JOIN messages ON messages.rowid = session_message_fts.rowid
+                    WHERE session_message_fts MATCH ?1
+                ),
+                message_matches AS (
+                    SELECT session_id, id, content
+                    FROM ranked_message_matches
+                    WHERE match_rank = 1
+                )
+                {SESSION_SEARCH_SELECT}
+                LEFT JOIN message_matches ON message_matches.session_id = sessions.id
+                WHERE sessions.loop_run_id IS NULL
+                  AND ({SESSION_SEARCH_METADATA_PREDICATES}
+                   OR message_matches.id IS NOT NULL)
+                ORDER BY sessions.updated_at DESC
+                LIMIT ?3
+                "#
+    )
+}
+
+/// Resolves each candidate session's newest matching message with a correlated lookup.
+///
+/// Without an index to prune with, ranking every match would mean sorting the entire scan
+/// before the outer `LIMIT` could apply. The correlated form drives
+/// `idx_messages_session_created` and stops at the first match per session instead, and it
+/// selects the same message the ranking form would: the ordering key, `rowid` tiebreak
+/// included, is identical.
+pub(super) fn compatibility_search_statement() -> String {
+    format!(
+        r#"
+                {SESSION_SEARCH_SELECT}
+                LEFT JOIN messages AS message_matches
+                       ON message_matches.id = (
+                              SELECT candidate.id
+                              FROM messages AS candidate
+                              WHERE candidate.session_id = sessions.id
+                                AND candidate.content LIKE ?1 ESCAPE '\'
+                              ORDER BY candidate.created_at DESC, candidate.rowid DESC
+                              LIMIT 1
+                          )
+                WHERE sessions.loop_run_id IS NULL
+                  AND ({SESSION_SEARCH_METADATA_PREDICATES}
+                   OR message_matches.id IS NOT NULL)
+                ORDER BY sessions.updated_at DESC
+                LIMIT ?3
+                "#
+    )
 }
 
 fn fts_literal(query: &str) -> String {
