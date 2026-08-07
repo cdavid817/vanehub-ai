@@ -16,7 +16,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -47,6 +47,12 @@ pub(crate) enum ProcessError {
         output_truncated: bool,
     },
 }
+
+/// How long output collection waits for the pipes after the child is done. A pipe reaches
+/// EOF the moment its last writer closes, so this only elapses when a descendant inherited
+/// the pipe and outlived the child — without a bound, collection blocks forever and the
+/// caller's timeout never takes effect.
+const OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub(crate) struct ProcessOutput {
@@ -293,8 +299,8 @@ fn output_with_control(
         .take()
         .ok_or_else(|| ProcessError::Wait("stderr pipe is unavailable".to_string()))?;
     let limit = output_limit.unwrap_or(usize::MAX);
-    let stdout_reader = thread::spawn(move || read_pipe(stdout, limit));
-    let stderr_reader = thread::spawn(move || read_pipe(stderr, limit));
+    let stdout_reader = spawn_pipe_reader(stdout, limit);
+    let stderr_reader = spawn_pipe_reader(stderr, limit);
     let start = Instant::now();
 
     let status = loop {
@@ -303,8 +309,9 @@ fn output_with_control(
             Ok(None) if cancellation.is_some_and(ProcessCancellation::is_cancelled) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
-                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
+                let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+                let (stdout, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+                let (stderr, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
                 return Err(ProcessError::Cancelled {
                     stdout: decode_output(&stdout),
                     stderr: decode_output(&stderr),
@@ -314,8 +321,9 @@ fn output_with_control(
             Ok(None) if start.elapsed() >= timeout => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
-                let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
+                let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+                let (stdout, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+                let (stderr, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
                 return Err(ProcessError::TimedOut {
                     timeout_seconds: timeout.as_secs(),
                     stdout: decode_output(&stdout),
@@ -328,8 +336,9 @@ fn output_with_control(
         }
     };
 
-    let (stdout_bytes, stdout_truncated) = join_reader(stdout_reader)?;
-    let (stderr_bytes, stderr_truncated) = join_reader(stderr_reader)?;
+    let drain = Instant::now() + OUTPUT_DRAIN_GRACE;
+    let (stdout_bytes, stdout_truncated) = collect_pipe(&stdout_reader, drain)?;
+    let (stderr_bytes, stderr_truncated) = collect_pipe(&stderr_reader, drain)?;
     Ok(ProcessOutput {
         stdout: decode_output(&stdout_bytes),
         stderr: decode_output(&stderr_bytes),
@@ -340,29 +349,81 @@ fn output_with_control(
     })
 }
 
-fn read_pipe(mut pipe: impl Read, limit: usize) -> std::io::Result<(Vec<u8>, bool)> {
-    let mut retained = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    let mut truncated = false;
-    loop {
-        let count = pipe.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        let remaining = limit.saturating_sub(retained.len());
-        retained.extend_from_slice(&buffer[..count.min(remaining)]);
-        truncated |= count > remaining;
-    }
-    Ok((retained, truncated))
+#[derive(Default)]
+struct PipeCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+    finished: bool,
+    failure: Option<String>,
 }
 
-fn join_reader(
-    reader: thread::JoinHandle<std::io::Result<(Vec<u8>, bool)>>,
-) -> Result<(Vec<u8>, bool), ProcessError> {
+struct PipeReader {
+    capture: Mutex<PipeCapture>,
+    finished: Condvar,
+}
+
+/// Streams a child pipe into a shared buffer the collector can take at any point.
+///
+/// The reader thread is deliberately never joined: a descendant that inherited the pipe
+/// keeps it from reaching EOF, which would park this thread in `read` indefinitely. It
+/// exits on its own once the last writer closes.
+fn spawn_pipe_reader<R: Read + Send + 'static>(mut pipe: R, limit: usize) -> Arc<PipeReader> {
+    let reader = Arc::new(PipeReader {
+        capture: Mutex::new(PipeCapture::default()),
+        finished: Condvar::new(),
+    });
+    let sink = Arc::clone(&reader);
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 4096];
+        let failure = loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => break None,
+                Ok(count) => {
+                    let Ok(mut capture) = sink.capture.lock() else {
+                        return;
+                    };
+                    let remaining = limit.saturating_sub(capture.bytes.len());
+                    capture
+                        .bytes
+                        .extend_from_slice(&buffer[..count.min(remaining)]);
+                    capture.truncated |= count > remaining;
+                }
+                Err(error) => break Some(error.to_string()),
+            }
+        };
+        if let Ok(mut capture) = sink.capture.lock() {
+            capture.failure = failure;
+            capture.finished = true;
+            sink.finished.notify_all();
+        }
+    });
     reader
-        .join()
-        .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?
-        .map_err(|error| ProcessError::Wait(error.to_string()))
+}
+
+/// Takes everything read so far, waiting until the pipe closes or `deadline` passes.
+fn collect_pipe(reader: &PipeReader, deadline: Instant) -> Result<(Vec<u8>, bool), ProcessError> {
+    let mut capture = reader
+        .capture
+        .lock()
+        .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?;
+    while !capture.finished {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let (guard, wait) = reader
+            .finished
+            .wait_timeout(capture, remaining)
+            .map_err(|_| ProcessError::Wait("process output reader panicked".to_string()))?;
+        capture = guard;
+        if wait.timed_out() {
+            break;
+        }
+    }
+    if let Some(failure) = capture.failure.take() {
+        return Err(ProcessError::Wait(failure));
+    }
+    Ok((std::mem::take(&mut capture.bytes), capture.truncated))
 }
 
 fn decode_output(bytes: &[u8]) -> String {
@@ -372,6 +433,7 @@ fn decode_output(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
 
     #[test]
     fn explicit_arguments_are_never_concatenated_into_a_shell_program() {
@@ -437,6 +499,61 @@ mod tests {
             running.join().expect("process thread"),
             Err(ProcessError::Cancelled { .. })
         ));
+    }
+
+    #[test]
+    fn output_collection_is_bounded_when_a_descendant_inherits_the_pipe() {
+        // The command's own timeout is far longer than the assertion window, so this
+        // pins the *collection* bound: a grandchild holding the stdout pipe must not
+        // keep `execute` blocked after the child it was spawned from has exited.
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_orphan_pipe_child_fixture",
+                "--nocapture",
+            ])
+            .timeout(Duration::from_secs(30));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let _ = sender.send(ProcessAdapter.execute(&request).map(|output| output.stdout));
+        });
+
+        let collected = receiver
+            .recv_timeout(Duration::from_secs(10))
+            .expect("collection must not block on a descendant that still holds the pipe");
+
+        assert!(collected
+            .expect("child exited normally")
+            .contains("parent-done"));
+    }
+
+    #[test]
+    #[ignore = "spawned only by the orphaned-pipe collection test"]
+    #[allow(clippy::zombie_processes)] // Must exit while its descendant still holds the inherited stdout pipe.
+    fn process_orphan_pipe_child_fixture() {
+        let executable = std::env::current_exe().expect("test executable");
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_orphan_pipe_grandchild_fixture",
+            ])
+            .stdin(Stdio::null())
+            // Inheriting stdout hands the grandchild a live write handle to the pipe, so
+            // the pipe cannot reach EOF when this process exits a moment from now.
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("grandchild");
+        print!("parent-done");
+        std::io::stdout().flush().expect("flush");
+    }
+
+    #[test]
+    #[ignore = "spawned only by the orphaned-pipe collection fixture"]
+    fn process_orphan_pipe_grandchild_fixture() {
+        thread::sleep(Duration::from_secs(30));
     }
 
     #[test]
