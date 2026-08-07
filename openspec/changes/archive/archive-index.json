@@ -1738,6 +1738,20 @@
                                               "session-workspace-tabs",
                                               "settings-center-ui"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-07",
+                         "changeName":  "add-retrieval-vector-search",
+                         "path":  "openspec/changes/archive/2026-08-07-add-retrieval-vector-search/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "retrieval-vector-search"
+                                          ]
                      }
                  ]
 }

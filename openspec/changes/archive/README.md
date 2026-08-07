@@ -122,5 +122,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-06 | add-personalization-settings | agent-cross-session-memory, agent-skill-injection, app-settings, custom-instructions, settings-center-ui | `openspec/changes/archive/2026-08-06-add-personalization-settings/` |
 | 2026-08-06 | remove-multi-agent-coordination | agent-execution-observability, multi-agent-coordination, multilingual-readme, user-guide-documentation | `openspec/changes/archive/2026-08-06-remove-multi-agent-coordination/` |
 | 2026-08-07 | add-multi-agent-group-chat-session | chat-experience, expert-role-management, multi-agent-group-chat, session-management, session-workspace-tabs, settings-center-ui | `openspec/changes/archive/2026-08-07-add-multi-agent-group-chat-session/` |
+| 2026-08-07 | add-retrieval-vector-search | agent-cross-session-memory, retrieval-vector-search | `openspec/changes/archive/2026-08-07-add-retrieval-vector-search/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
