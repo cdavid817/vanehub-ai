@@ -58,23 +58,13 @@
 
 ## 待补充
 
-以下截图有价值但**尚未验证能否在 Web/mock 中稳定复现**，需要先确认目标界面在模拟数据下渲染完整，再补 scenario。
+**只剩一项。**其余候选都已完成，见上表。
 
 | 建议文件名 | 拟用于 | 需要展示的页面/状态 | 复现步骤（待验证） | 建议标注 |
 | --- | --- | --- | --- | --- |
-| `settings-agent-policies-zh-CN.png` | `permissions.md` | 设置 → Agent 权限策略，四档模板可见 | 活动栏「设置」→ 侧栏「Agent 权限策略」 | 红框标注模板选择区 |
-| `approval-dialog-zh-CN.png` | `permissions.md` | 审批弹窗，含作用域选项 | **需要触发一次 `Ask` 判定**——Web/mock 是否可复现待确认 | 箭头指向记忆范围选项 |
-| `settings-personalization-zh-CN.png` | `personalization.md` | 设置 → 个性化，两段指令与记忆开关 | 活动栏「设置」→ 侧栏「个性化」 | 红框标注「关于你」「风格规则」 |
-| `settings-expert-roles-zh-CN.png` | `personalization.md` | 设置 → 专家角色，三个内置角色 | 活动栏「设置」→ 侧栏「专家角色」 | 红框标注「职责」字段 |
-| `loop-center-zh-CN.png` | `loop-engineering.md` | 循环工程中心，定义列表 | 活动栏「循环工程」 | 无 |
-| `loop-definition-dialog-zh-CN.png` | `loop-engineering.md` | Loop 定义对话框，限额与验收命令 | 循环工程 → 新建 | 红框标注迭代上限与验收命令区 |
-| `session-tabs-zh-CN.png` | `quick-start.md` | 会话工作区，9 个标签页可见 | 创建会话后进入工作区 | 逐个标注标签名 |
-| `traces-tab-zh-CN.png` | `observability.md` | 链路标签，Span 树 | 会话 → 链路标签 | 箭头指向「不透明」节点 |
-| `logs-tab-zh-CN.png` | `observability.md` | 日志标签，搜索与定位 | 会话 → 日志标签 | 红框标注搜索框与定位控件 |
-| `settings-mcp-zh-CN.png` | `tooling.md` | 设置 → MCP 服务器 | 活动栏「设置」→ 侧栏「MCP 服务器」 | 无 |
-| `settings-cli-zh-CN.png` | `tooling.md` | 设置 → CLI 管理，四个 CLI 状态 | 活动栏「设置」→ 侧栏「CLI 管理」 | 红框标注冲突提示 |
-| `scheduled-tasks-zh-CN.png` | `automation.md` | 定时任务对话框，频率选择 | 活动栏「定时任务」 | 红框标注频率选项 |
-| `usage-statistics-zh-CN.png` | `automation.md` | 设置 → 使用统计，四维 token | 活动栏「设置」→ 侧栏「使用统计」 | 箭头指向口径说明 |
+| `loop-definition-dialog-zh-CN.png` | `loop-engineering.md` | Loop 定义对话框，限额与验收命令 | 活动栏「循环工程」→ 左栏 **+** | 红框标注迭代上限与验收命令区 |
+
+补的时候留意：对话框里若有实时计算的下次运行时间之类的动态内容，需要用 `mask` 遮掉，否则回归校验会失败。
 
 ## 尝试过但放弃的：工具审批
 
@@ -92,16 +82,26 @@
 
 **提交一张会间歇性挂 CI 的截图，比没有截图更糟**，因此该场景已从清单与脚本中移除。若将来要补，方向是让 mock 提供一个「流式已结束但仍待审批」的确定状态。
 
-## 桌面专属、无法自动截图的项
+## 桌面专属：**本轮已放弃，不配图**
 
-以下界面依赖原生运行时，Web/mock 中要么不渲染、要么只是模拟态，**若要配图需人工截取并标为 `desktop-reviewed`**：
+以下界面依赖原生运行时，无法自动截取，需要人工拍摄并标为 `desktop-reviewed`。**本轮决定不为它们配图**，相关章节以文字说明代替。
 
-| 场景 | 说明 |
-| --- | --- |
-| SSH 连接成功后的远程终端 | 需要真实 SSH 连接 |
-| IM 连接器已连接状态 | 需要真实开放平台凭据 |
-| 微信扫码授权二维码 | 同上，且含动态内容 |
-| CLI 冲突的真实检测结果 | 依赖本机实际安装状态 |
-| 权限审批的真实拦截 | 需要真实进程执行 |
+| 场景 | 为什么自动化不了 | 当前处理 |
+| --- | --- | --- |
+| SSH 连通后的远程终端 | 需要真实 SSH 连接 | 文字说明，见 `remote-and-im.md` |
+| 微信扫码授权二维码 | 需要真实凭据，且二维码是动态内容 | 文字说明 |
+| CLI 冲突的真实检测结果 | 依赖本机实际安装状态，无法构造 | 文字说明，已有 Web/mock 的 CLI 页截图 |
+| 权限审批的真实拦截 | 需要真实进程执行 | 文字说明，见 `permissions.md` |
 
-**人工截图前请注意规范要求**：不得包含凭据、令牌、个人文件系统路径、未脱敏日志；需提供本地化的替代文本。
+**IM 已连接状态不在此列**——它在 Web/mock 中可达，已截取并明确标注为模拟态，见上表 `im-connected-zh-CN.png`。
+
+### 将来若要补拍
+
+规范对 `desktop-reviewed` 截图有硬要求：
+
+- **不得包含**凭据、令牌、个人文件系统路径、未脱敏日志
+- 需提供**本地化的替代文本**
+- 需在 `screenshots.json` 中标 `runtime: "desktop-reviewed"`，并经人工审核
+- **不得**把 Web/mock 截图冒充成原生行为的证据
+
+由于人工截图不进 Playwright 回归，补拍后要额外注意：界面改版时它们不会被自动发现失效。
