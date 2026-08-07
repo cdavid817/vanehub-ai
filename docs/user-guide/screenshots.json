@@ -135,6 +135,30 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/scheduled-tasks-zh-CN.png"
+    },
+    {
+      "id": "session-workspace-zh-CN",
+      "scenario": "session-workspace",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-workspace-zh-CN.png"
+    },
+    {
+      "id": "session-traces-zh-CN",
+      "scenario": "session-traces",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-traces-zh-CN.png"
+    },
+    {
+      "id": "session-logs-zh-CN",
+      "scenario": "session-logs",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/session-logs-zh-CN.png"
     }
   ]
 }

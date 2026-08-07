@@ -87,6 +87,45 @@ async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Loca
 }
 
 /**
+ * Creates a session through the dialog and returns the workspace screen.
+ *
+ * The tab bar is already mounted behind the modal, so waiting for the dialog to
+ * close is what separates a real workspace capture from one of the dialog itself.
+ */
+async function createSession(page: Page, locale: Locale): Promise<Locator> {
+  const dialog = await openCreateSessionDialog(page, locale);
+  await dialog
+    .getByRole("button", { name: text(locale, "创建", "Create"), exact: true })
+    .click();
+  await expect(page.locator(".fixed.inset-0").locator(".ucd-panel")).toHaveCount(0, {
+    timeout: 15_000,
+  });
+  const shell = page.locator("main").first();
+  await expect(
+    shell.getByRole("tablist", { name: text(locale, "会话工作区", "Session workspace") }),
+  ).toBeVisible();
+  // The success toast auto-dismisses on a timer, so a slower run would capture it
+  // half-faded or gone. Dismissing it pins the frame.
+  const toast = page.getByRole("button", {
+    name: text(locale, "关闭通知", "Dismiss notification"),
+  });
+  for (const button of await toast.all()) await button.click();
+  await expect(toast).toHaveCount(0, { timeout: 5_000 });
+  return shell;
+}
+
+/** Switches the open session workspace to a tab and waits for its lazily loaded panel. */
+async function openSessionTab(page: Page, label: string) {
+  const shell = page.locator("main").first();
+  await shell.getByRole("tab", { name: label }).click();
+  await expect(shell.getByRole("tab", { name: label })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await waitForFeature(shell);
+}
+
+/**
  * Each scenario returns the element to capture. Scenarios must only assert on
  * user-visible controls: a Web/mock capture is never evidence of a native side effect.
  */
@@ -158,6 +197,23 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
 
   "settings-observability": (page, locale) =>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
+
+  "session-workspace": async (page, locale) => {
+    const shell = await createSession(page, locale);
+    return shell;
+  },
+
+  "session-traces": async (page, locale) => {
+    const shell = await createSession(page, locale);
+    await openSessionTab(page, text(locale, "链路", "Traces"));
+    return shell;
+  },
+
+  "session-logs": async (page, locale) => {
+    const shell = await createSession(page, locale);
+    await openSessionTab(page, text(locale, "日志", "Logs"));
+    return shell;
+  },
 
   "scheduled-tasks": async (page, locale) => {
     await visit(page, "/");

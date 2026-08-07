@@ -51,6 +51,9 @@
 | `extensions-zh-CN.png` | `tooling.md` | 扩展能力页，PaddleOCR 与 faster-whisper | `/settings?section=extensions` | 箭头指向「预计磁盘占用」 |
 | `observability-zh-CN.png` | `observability.md` | 执行可观测性页，本地时间线与 OTLP | `/settings?section=observability` | 红框标注「保留天数」与「外部采样比例」 |
 | `scheduled-tasks-zh-CN.png` | `automation.md` | 定时任务对话框，任务列表与新建表单 | 活动栏「定时任务」 | 箭头指向底部补跑说明 |
+| `session-workspace-zh-CN.png` | `quick-start.md` | 会话工作区，9 个标签页 + 信息面板 | 新建 → 创建 → 关闭成功提示 | 逐个标注标签名 |
+| `session-traces-zh-CN.png` | `observability.md` | 链路标签，执行时间线与链路拓扑 | 同上 → 点「链路」 | 箭头指向「不可见」徽标与「观测缺口」提示 |
+| `session-logs-zh-CN.png` | `observability.md` | 日志标签，搜索与时间定位 | 同上 → 点「日志」 | 红框标注搜索框与定位控件 |
 
 ## 待补充
 
