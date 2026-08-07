@@ -1720,6 +1720,24 @@
                                               "multilingual-readme",
                                               "user-guide-documentation"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-07",
+                         "changeName":  "add-multi-agent-group-chat-session",
+                         "path":  "openspec/changes/archive/2026-08-07-add-multi-agent-group-chat-session/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "expert-role-management",
+                                              "multi-agent-group-chat",
+                                              "session-management",
+                                              "session-workspace-tabs",
+                                              "settings-center-ui"
+                                          ]
                      }
                  ]
 }
