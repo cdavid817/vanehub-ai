@@ -38,6 +38,7 @@ const SEAT_CONTEXT_MESSAGE_LIMIT: i64 = 40;
 
 const USER_SPEAKER: &str = "用户";
 
+/// One seat of a session, resolved from its stored role and Agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatRosterEntry {
     pub(crate) seat_index: usize,
@@ -67,6 +68,7 @@ pub(crate) struct SeatTurnDecision {
     pub(crate) stop: Option<SeatTurnStop>,
 }
 
+/// A seat the coordinator is to invoke, and how deep into the chain that turn sits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatTurnAssignment {
     pub(crate) seat_index: usize,

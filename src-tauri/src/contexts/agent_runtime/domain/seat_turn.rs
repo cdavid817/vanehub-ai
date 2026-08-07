@@ -6,12 +6,14 @@
 //!
 //! Mirrors `src/services/mention-routing.ts`, `turn-routing.ts`, and `human-handoff.ts`.
 //!
+/// Why a handoff chain stopped extending, when it stopped for a reason worth showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ChainEndReason {
     TooManyMentions,
     MaxDepth,
 }
 
+/// Who a completed reply hands the turn to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NextTurn {
     pub(crate) targets: Vec<String>,
@@ -20,6 +22,8 @@ pub(crate) struct NextTurn {
     pub(crate) ended_reason: Option<ChainEndReason>,
 }
 
+/// How an Agent meant to hand the turn to the human. Separating these is what keeps the
+/// informational case cheap enough that Agents keep using it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HumanHandoffIntent {
     Handoff,
@@ -27,6 +31,7 @@ pub(crate) enum HumanHandoffIntent {
     Done,
 }
 
+/// What a handoff intent does to the round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct HumanHandoffEffect {
     pub(crate) turn_holder_is_human: bool,

@@ -27,6 +27,7 @@ impl ModelFamily {
     }
 }
 
+/// One participant as the others read it when deciding whom to hand off to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatBriefingEntry {
     /// The handle other seats type after `@` to route a turn here.
@@ -38,12 +39,14 @@ pub(crate) struct SeatBriefingEntry {
     pub(crate) instruction: String,
 }
 
+/// One attributed turn of the shared thread.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatTurn {
     pub(crate) speaker: String,
     pub(crate) content: String,
 }
 
+/// How a seat receives what happened before its turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SeatContextMode {
     /// The Agent's own session already holds the history and nothing is injected.
@@ -51,6 +54,7 @@ pub(crate) enum SeatContextMode {
     Inject,
 }
 
+/// The prior conversation handed to a seat, and how it got there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatContext {
     pub(crate) mode: SeatContextMode,
@@ -96,6 +100,7 @@ fn family_by_agent_id(agent_id: &str) -> Option<ModelFamily> {
     }
 }
 
+/// Resolves an Agent to a comparable model family, by stable id first and display text second.
 pub(crate) fn normalize_model_family(
     agent_id: &str,
     provider: &str,
