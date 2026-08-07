@@ -28,12 +28,52 @@ if (mode !== "update" && mode !== "check") {
   throw new Error("DOCS_SCREENSHOT_MODE must be update or check.");
 }
 
+/** Removes animation, caret, and font variance so repeated runs rasterize identically. */
+const deterministicCss = `
+  *, *::before, *::after {
+    animation-duration: 0s !important;
+    caret-color: transparent !important;
+    transition-duration: 0s !important;
+  }
+  body {
+    font-family: Arial, "Microsoft YaHei UI", sans-serif !important;
+  }
+`;
+
 function text(locale: Locale, zh: string, en: string) {
   return locale === "en" ? en : zh;
 }
 
+async function visit(page: Page, path: string) {
+  await page.goto(path, { waitUntil: "domcontentloaded" });
+  await page.addStyleTag({ content: deterministicCss });
+}
+
+/**
+ * Feature surfaces are lazily loaded, so the shell renders long before its content.
+ * Without this wait a capture silently freezes on "Loading feature..." — the surrounding
+ * chrome is visible either way, so asserting on a label alone proves nothing.
+ */
+async function waitForFeature(shell: Locator) {
+  await expect(shell.getByText(/正在加载功能|Loading feature/)).toHaveCount(0, {
+    timeout: 15_000,
+  });
+}
+
+/** Opens a settings section by route and returns the settings screen. */
+async function openSettings(page: Page, section: string, heading: string): Promise<Locator> {
+  await visit(page, `/settings?section=${section}`);
+  const shell = page.locator("main").first();
+  await expect(shell).toBeVisible();
+  await waitForFeature(shell);
+  // The top bar repeats the section name as an h1, so match the content heading by level.
+  await expect(shell.getByRole("heading", { level: 2, name: heading })).toBeVisible();
+  return shell;
+}
+
 /** Opens the create-session dialog with the project and title fields already filled. */
 async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
+  await visit(page, "/");
   await page.getByRole("button", { name: /^(新建|New)$/ }).click();
   const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
   await expect(
@@ -82,6 +122,35 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     expect(bounds?.width).toBeGreaterThanOrEqual(580);
     return dialog;
   },
+
+  "settings-agent-policies": (page, locale) =>
+    openSettings(page, "agent-policies", text(locale, "Agent 权限策略", "Agent policies")),
+
+  "settings-personalization": (page, locale) =>
+    openSettings(page, "personalization", text(locale, "个性化", "Personalization")),
+
+  "settings-expert-roles": (page, locale) =>
+    openSettings(page, "expert-roles", text(locale, "专家角色", "Expert roles")),
+
+  "settings-mcp": (page, locale) =>
+    openSettings(page, "mcp", text(locale, "MCP 服务器", "MCP servers")),
+
+  "settings-cli": (page, locale) =>
+    openSettings(page, "providers", text(locale, "CLI 管理", "CLI management")),
+
+  "settings-usage": (page, locale) =>
+    openSettings(page, "usage", text(locale, "使用统计", "Usage")),
+
+  "loop-center": async (page, locale) => {
+    await visit(page, "/");
+    await page
+      .getByRole("button", { name: text(locale, "循环工程", "Loops"), exact: true })
+      .click();
+    const shell = page.locator("main").first();
+    await expect(shell).toBeVisible();
+    await waitForFeature(shell);
+    return shell;
+  },
 };
 
 test.describe("documentation screenshots", () => {
@@ -106,19 +175,6 @@ test.describe("documentation screenshots", () => {
           }),
         );
       }, { locale: definition.locale });
-      await page.goto("/", { waitUntil: "domcontentloaded" });
-      await page.addStyleTag({
-        content: `
-          *, *::before, *::after {
-            animation-duration: 0s !important;
-            caret-color: transparent !important;
-            transition-duration: 0s !important;
-          }
-          body {
-            font-family: Arial, "Microsoft YaHei UI", sans-serif !important;
-          }
-        `,
-      });
 
       const target = await capture(page, definition.locale);
       const image = await target.screenshot({
@@ -136,7 +192,7 @@ test.describe("documentation screenshots", () => {
 
       // Hosted Windows Chromium can rasterize one-pixel borders across several form
       // controls on adjacent rows even when layout and content are unchanged. The
-      // bound remains below 0.3% of this fixed-size dialog screenshot.
+      // bound remains below 0.3% of a fixed-size capture.
       expect(image).toMatchSnapshot(definition.path.split("/"), {
         maxDiffPixels,
       });

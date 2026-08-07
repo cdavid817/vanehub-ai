@@ -37,6 +37,13 @@
 | `create-session-zh-CN.png` | `first-session.md` | 创建会话对话框，单 Agent，已填项目与标题 | 新建 → 填 `D:\VaneHub-Demo` → 填标题 | 无 |
 | `create-session-en.png` | （英文版 `first-session.md`） | 同上，英文界面 | 同上 | 无 |
 | `create-session-multi-agent-zh-CN.png` | `multi-agent-workflow.md` | 创建会话对话框，**已选中多 Agent**，显示席位分配区 | 新建 → 填项目与标题 → 点击「多 Agent」 | 建议红框标注「会话类型」区与席位分配区 |
+| `permissions-zh-CN.png` | `permissions.md` | Agent 权限策略页，5 个 Agent 与四档模板 | 访问 `/settings?section=agent-policies` | 红框标注模板按钮组 |
+| `personalization-zh-CN.png` | `personalization.md` | 个性化页，自定义指令与记忆两区 | `/settings?section=personalization` | 红框标注「关于你」「回复风格」 |
+| `expert-roles-zh-CN.png` | `personalization.md` | 专家角色页，三个内置角色 | `/settings?section=expert-roles` | 箭头指向复制按钮 |
+| `mcp-zh-CN.png` | `tooling.md` | MCP 服务器页，用户配置与项目配置 | `/settings?section=mcp` | 红框标注传输方式标签 |
+| `cli-zh-CN.png` | `tooling.md` | CLI 管理页，四个 CLI 卡片 | `/settings?section=providers` | 红框标注「本地 CLI 检测仅在桌面运行时可用」提示 |
+| `usage-zh-CN.png` | `automation.md` | 使用统计页，Token 卡片与趋势 | `/settings?section=usage` | 箭头指向「真实数据覆盖率」 |
+| `loop-center-zh-CN.png` | `loop-engineering.md` | 循环工程中心三栏布局（空态） | 活动栏「循环工程」 | 标注左栏「定义」与右栏「检查器」 |
 
 ## 待补充
 
