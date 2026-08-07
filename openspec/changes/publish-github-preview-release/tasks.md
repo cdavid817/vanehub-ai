@@ -74,6 +74,8 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 
 ## 9. Rehearse and release
 
+- [x] 9.0a Forward Apple and Tauri signing credentials to the build only when non-empty. An unset secret expands to a blank string, and the bundler read that as a request to sign, failing both macOS jobs at `security import` in the first rehearsal
+- [x] 9.0b Collect artifacts by distributable format instead of `bundle/**`, which swept in the AppImage `.AppDir` tree and deb staging directory — 270 files in the Linux artifact where 2 are distributables
 - [ ] 9.1 Run `workflow_dispatch` against the change branch before merging, and confirm every matrix job uploads artifacts
 - [ ] 9.2 Download the Windows, macOS, and Linux artifacts and install each on a real machine, following the published guidance verbatim
 - [ ] 9.3 Confirm the macOS `xattr` step actually resolves the quarantine prompt on a clean machine
