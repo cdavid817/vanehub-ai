@@ -1422,7 +1422,12 @@ pub(super) fn seat_turn_world() -> Arc<FakeWorld> {
         seats
             .iter()
             .map(|(_, _, agent_id, display_name)| {
-                agent(agent_id, display_name, vec![InteractionMode::Cli], vec!["coding"])
+                agent(
+                    agent_id,
+                    display_name,
+                    vec![InteractionMode::Cli],
+                    vec!["coding"],
+                )
             })
             .collect(),
     ));

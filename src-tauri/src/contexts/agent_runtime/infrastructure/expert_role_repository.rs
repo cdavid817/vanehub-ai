@@ -153,8 +153,7 @@ mod tests {
     #[test]
     fn round_trips_a_role_including_its_lists_and_policy() {
         let directory = TempDirectory::new("expert role round trip");
-        let database =
-            NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("test database");
         let repository = SqliteExpertRoleRepository::new(database);
 
         repository.upsert(&role("r1", "架构师")).expect("insert");

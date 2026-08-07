@@ -1,7 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentOperation,
-    AgentRuntimeApplicationError, AgentTaskPort,
-    LoopLog, LoopLoggingPort, LoopOperationContext,
+    AgentRuntimeApplicationError, AgentTaskPort, LoopLog, LoopLoggingPort, LoopOperationContext,
 };
 use crate::contexts::operations::api::{
     DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationKind, OperationLog, OperationLogPort,
@@ -31,7 +30,6 @@ impl crate::contexts::agent_runtime::application::ExpertRoleIdPort for UuidExper
         format!("expert-role-{}", uuid::Uuid::new_v4())
     }
 }
-
 
 impl AgentClockPort for SystemAgentRuntimeClock {
     fn now(&self) -> String {

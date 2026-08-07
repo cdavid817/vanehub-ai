@@ -1,7 +1,7 @@
 use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
     format_memory_section, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
-    AgentEvent, AgentEventPort, AgentGenerationPort, AgentLog, AgentLoggingPort, AgentLogLevel,
+    AgentEvent, AgentEventPort, AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort,
     AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
     AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
     AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
@@ -13,18 +13,18 @@ use super::{
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
     LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
     MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
-    SeatTurnCompletionPort, SeatTurnTerminal,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartedAgentMessage,
-    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
-    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest,
-    WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
+    StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
+    ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -1604,7 +1604,9 @@ impl AgentRuntimeApplicationService {
         };
         let assistant = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
-            seat_index: seat_ownership.as_ref().map(|ownership| ownership.seat_index),
+            seat_index: seat_ownership
+                .as_ref()
+                .map(|ownership| ownership.seat_index),
             role: "assistant".to_string(),
             status: "streaming".to_string(),
             content: String::new(),

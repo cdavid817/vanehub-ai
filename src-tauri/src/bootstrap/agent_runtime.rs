@@ -11,8 +11,8 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
-    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
-    CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
+    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
+    CompositeAgentProcessGateway, CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
     InMemorySeatTurnCompletions, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,

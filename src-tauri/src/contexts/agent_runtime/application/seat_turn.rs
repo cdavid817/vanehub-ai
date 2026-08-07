@@ -18,7 +18,8 @@ use super::{
 use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::agent_runtime::domain::{
     apply_human_handoff, build_seat_briefing, build_seat_context, derive_mentions,
-    next_turn_targets, normalize_model_family, parse_human_handoff, ChainEndReason, SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
+    next_turn_targets, normalize_model_family, parse_human_handoff, ChainEndReason,
+    SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
 };
 
 /// Borrowed from `clowder-ai`, which runs the same two limits. Whether they transfer is unknown
@@ -114,20 +115,28 @@ impl AgentRuntimeApplicationService {
             .into_iter()
             .zip(mentions)
             .enumerate()
-            .map(|(seat_index, ((agent_id, agent, role, role_name), mention))| SeatRosterEntry {
-                seat_index,
-                agent_id,
-                briefing: SeatBriefingEntry {
-                    mention,
-                    role_name,
-                    agent_name: agent.display_name().to_string(),
-                    model_family: normalize_model_family(agent.id().as_str(), agent.provider(), None),
-                    responsibility: role
-                        .map(|role| role.responsibility.clone())
-                        .unwrap_or_default(),
-                    instruction: role.map(|role| role.instruction.clone()).unwrap_or_default(),
+            .map(
+                |(seat_index, ((agent_id, agent, role, role_name), mention))| SeatRosterEntry {
+                    seat_index,
+                    agent_id,
+                    briefing: SeatBriefingEntry {
+                        mention,
+                        role_name,
+                        agent_name: agent.display_name().to_string(),
+                        model_family: normalize_model_family(
+                            agent.id().as_str(),
+                            agent.provider(),
+                            None,
+                        ),
+                        responsibility: role
+                            .map(|role| role.responsibility.clone())
+                            .unwrap_or_default(),
+                        instruction: role
+                            .map(|role| role.instruction.clone())
+                            .unwrap_or_default(),
+                    },
                 },
-            })
+            )
             .collect())
     }
 

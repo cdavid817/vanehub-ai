@@ -5,9 +5,8 @@
 //! terminals, loop engineering, and durable Multi-Agent runs.
 
 use super::application::{
-    AgentRuntimeApplicationService, AgentTerminalApplicationService,
-    LoopApplicationService, LoopControlApplicationService,
-    ExpertRoleApplicationService, LoopRecoveryApplicationService,
+    AgentRuntimeApplicationService, AgentTerminalApplicationService, ExpertRoleApplicationService,
+    LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
 };
 use super::infrastructure::{NativeLoopScheduler, NativeSeatTurnCoordinator};
 
@@ -28,7 +27,8 @@ pub(crate) use super::application::{
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits, LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits,
+    LoopVerificationCommand,
 };
 
 /// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a

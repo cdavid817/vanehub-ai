@@ -53,7 +53,9 @@ impl SeatTurnCompletionPort for InMemorySeatTurnCompletions {
 }
 
 impl InMemorySeatTurnCompletions {
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, SeatTurnState>, AgentRuntimeApplicationError> {
+    fn lock(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, SeatTurnState>, AgentRuntimeApplicationError> {
         self.state
             .lock()
             .map_err(|error| AgentRuntimeApplicationError::Generation(error.to_string()))
@@ -82,7 +84,10 @@ mod tests {
 
         let taken = completions.take_for_session("s1").expect("take");
         assert_eq!(taken.map(|value| value.message_id), Some("m1".to_string()));
-        assert!(completions.take_for_session("s1").expect("drained").is_none());
+        assert!(completions
+            .take_for_session("s1")
+            .expect("drained")
+            .is_none());
     }
 
     /// A redelivered terminal must not start the next seat a second time.
@@ -93,7 +98,10 @@ mod tests {
         assert!(!completions.deliver(terminal("m1", 0)).expect("second"));
 
         assert!(completions.take_for_session("s1").expect("take").is_some());
-        assert!(completions.take_for_session("s1").expect("only once").is_none());
+        assert!(completions
+            .take_for_session("s1")
+            .expect("only once")
+            .is_none());
     }
 
     /// Seats respond one at a time, so a later turn must not overtake an earlier one.
@@ -103,8 +111,14 @@ mod tests {
         completions.deliver(terminal("m1", 0)).expect("first");
         completions.deliver(terminal("m2", 1)).expect("second");
 
-        let first = completions.take_for_session("s1").expect("take").expect("present");
-        let second = completions.take_for_session("s1").expect("take").expect("present");
+        let first = completions
+            .take_for_session("s1")
+            .expect("take")
+            .expect("present");
+        let second = completions
+            .take_for_session("s1")
+            .expect("take")
+            .expect("present");
         assert_eq!(first.message_id, "m1");
         assert_eq!(second.message_id, "m2");
     }
@@ -112,6 +126,9 @@ mod tests {
     #[test]
     fn returns_nothing_for_a_session_with_no_pending_turn() {
         let completions = InMemorySeatTurnCompletions::default();
-        assert!(completions.take_for_session("unknown").expect("take").is_none());
+        assert!(completions
+            .take_for_session("unknown")
+            .expect("take")
+            .is_none());
     }
 }

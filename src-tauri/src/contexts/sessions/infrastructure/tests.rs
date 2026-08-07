@@ -1297,8 +1297,9 @@ fn a_message_records_the_seat_that_spoke_it() {
         .expect("seated message");
     assert_eq!(loaded.seat_index, Some(1));
 
-    let loaded_user = SessionMessageRepository::find(&fixture.repository, spoken_by_user.message.id())
-        .expect("find user")
-        .expect("user message");
+    let loaded_user =
+        SessionMessageRepository::find(&fixture.repository, spoken_by_user.message.id())
+            .expect("find user")
+            .expect("user message");
     assert_eq!(loaded_user.seat_index, None);
 }

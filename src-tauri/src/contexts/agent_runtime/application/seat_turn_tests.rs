@@ -1,7 +1,7 @@
 use super::tests::{seat_turn_world, service};
-use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
 use super::{SeatTurnAssignment, SeatTurnStatus, SeatTurnStop, SeatTurnTerminal};
 use crate::contexts::agent_runtime::domain::ChainEndReason;
+use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
 
 fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTerminal {
     SeatTurnTerminal {
@@ -18,7 +18,11 @@ fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTermina
 fn a_line_leading_mention_routes_the_turn_to_that_seat() {
     let service = service(seat_turn_world());
     let decision = service
-        .decide_seat_turn(&terminal(Some("方案写好了。\n@代码审查 帮我看下"), "架构师", 1))
+        .decide_seat_turn(&terminal(
+            Some("方案写好了。\n@代码审查 帮我看下"),
+            "架构师",
+            1,
+        ))
         .expect("decide");
     assert_eq!(
         decision.next,
@@ -112,7 +116,9 @@ fn a_completion_handoff_ends_the_round() {
 #[test]
 fn a_failed_turn_ends_the_chain() {
     let service = service(seat_turn_world());
-    let decision = service.decide_seat_turn(&terminal(None, "架构师", 1)).expect("decide");
+    let decision = service
+        .decide_seat_turn(&terminal(None, "架构师", 1))
+        .expect("decide");
     assert!(decision.next.is_empty());
     assert_eq!(decision.stop, Some(SeatTurnStop::TurnFailed));
 }
@@ -392,7 +398,10 @@ fn a_blocking_handoff_announces_that_the_turn_is_waiting_on_the_user() {
     match status {
         SeatTurnStatus::WaitingHuman { mention, since, .. } => {
             assert_eq!(mention, "架构师");
-            assert!(!since.is_empty(), "waiting has to start from a known moment");
+            assert!(
+                !since.is_empty(),
+                "waiting has to start from a known moment"
+            );
         }
         other => panic!("expected a waiting status, got {other:?}"),
     }
@@ -405,7 +414,11 @@ fn an_informational_handoff_announces_no_pause() {
     let service = service(world.clone());
 
     service
-        .decide_seat_turn(&terminal(Some("@用户 fyi 顺带一提\n@代码审查 接着看"), "架构师", 1))
+        .decide_seat_turn(&terminal(
+            Some("@用户 fyi 顺带一提\n@代码审查 接着看"),
+            "架构师",
+            1,
+        ))
         .expect("decide");
 
     let events = world.events.lock().expect("events");

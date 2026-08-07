@@ -293,7 +293,6 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         crate::contexts::sessions::infrastructure::apply_message_speaker_schema,
     )?;
 
-
     Ok(())
 }
 

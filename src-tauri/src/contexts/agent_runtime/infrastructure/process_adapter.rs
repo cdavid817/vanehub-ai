@@ -1,6 +1,7 @@
 use super::providers::{
-    add_codex_output_capture_args, build_invocation_with_role, output_parser_for, ProviderOutputEvent,
-    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
+    add_codex_output_capture_args, build_invocation_with_role, output_parser_for,
+    ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent,
+    ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
@@ -931,7 +932,6 @@ fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
         .then(|| resolved.to_string_lossy().to_string())
 }
 
-
 /// How a finished Agent process exited, carrying the rendered status so the fallback message can
 /// still name it when nothing better is available.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -953,7 +953,9 @@ fn compose_terminal_event(
 ) -> GenerationProcessEvent {
     match (terminal_error, exit_outcome) {
         (Some(error), _) => GenerationProcessEvent::Failed(error),
-        (None, Ok(ProcessExitOutcome::Success)) => GenerationProcessEvent::Completed(reported_usage),
+        (None, Ok(ProcessExitOutcome::Success)) => {
+            GenerationProcessEvent::Completed(reported_usage)
+        }
         (None, Ok(ProcessExitOutcome::Failure { status })) => GenerationProcessEvent::Failed(
             GenerationProcessFailure::retryable(if stderr_output.trim().is_empty() {
                 format!("Agent CLI exited with status {status}.")
@@ -982,8 +984,12 @@ mod terminal_event_tests {
     #[test]
     fn parsed_diagnostic_survives_a_non_zero_exit_with_empty_stderr() {
         let terminal = compose_terminal_event(
-            Some(failure("Failed to authenticate. API Error: 403 Request not allowed")),
-            Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }),
+            Some(failure(
+                "Failed to authenticate. API Error: 403 Request not allowed",
+            )),
+            Ok(ProcessExitOutcome::Failure {
+                status: "exit code: 1".to_string(),
+            }),
             "",
             None,
         );
@@ -1002,7 +1008,14 @@ mod terminal_event_tests {
 
     #[test]
     fn exit_status_is_reported_only_when_nothing_better_exists() {
-        let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }), "", None);
+        let terminal = compose_terminal_event(
+            None,
+            Ok(ProcessExitOutcome::Failure {
+                status: "exit code: 1".to_string(),
+            }),
+            "",
+            None,
+        );
 
         match terminal {
             GenerationProcessEvent::Failed(error) => {
@@ -1018,7 +1031,14 @@ mod terminal_event_tests {
 
     #[test]
     fn stderr_is_used_when_present_and_nothing_was_parsed() {
-        let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Failure { status: "exit code: 1".to_string() }), "  boom  ", None);
+        let terminal = compose_terminal_event(
+            None,
+            Ok(ProcessExitOutcome::Failure {
+                status: "exit code: 1".to_string(),
+            }),
+            "  boom  ",
+            None,
+        );
 
         match terminal {
             GenerationProcessEvent::Failed(error) => assert_eq!(error.diagnostic, "boom"),

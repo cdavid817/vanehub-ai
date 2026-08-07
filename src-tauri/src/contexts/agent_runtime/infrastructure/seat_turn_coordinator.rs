@@ -43,9 +43,10 @@ impl NativeSeatTurnCoordinator {
     /// each take turns off the same queue and invoke seats in parallel.
     pub(crate) fn schedule(&self, session_id: &str) -> Result<(), AgentRuntimeApplicationError> {
         {
-            let mut running = self.running.lock().map_err(|error| {
-                AgentRuntimeApplicationError::Generation(error.to_string())
-            })?;
+            let mut running = self
+                .running
+                .lock()
+                .map_err(|error| AgentRuntimeApplicationError::Generation(error.to_string()))?;
             if !running.insert(session_id.to_string()) {
                 return Ok(());
             }
@@ -95,7 +96,11 @@ impl NativeSeatTurnCoordinator {
             let Some(assignment) = queue.pop_front() else {
                 return;
             };
-            if self.runtime.start_seat_turn(session_id, &assignment).is_err() {
+            if self
+                .runtime
+                .start_seat_turn(session_id, &assignment)
+                .is_err()
+            {
                 return;
             }
         }

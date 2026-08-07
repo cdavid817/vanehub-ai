@@ -2,8 +2,8 @@ use super::invocation::ProviderInvocationError;
 use super::{
     apply_configuration_overrides, apply_policy_template_overrides, build_interactive_invocation,
     build_invocation, build_invocation_with_role, force_gemini_standard_approval_flag,
-    output_parser_for, POLICY_TEMPLATE_GOVERNED_AGENT_IDS, ProviderOutputEvent,
-    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
+    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    ProviderToolEvent, ProviderToolPhase, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
 };
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
@@ -784,7 +784,10 @@ fn no_role_briefing_leaves_the_invocation_untouched() {
         let with_none =
             build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], None)
                 .expect("invocation without a briefing");
-        assert_eq!(plain, with_none, "{agent_id} must be unchanged without a briefing");
+        assert_eq!(
+            plain, with_none,
+            "{agent_id} must be unchanged without a briefing"
+        );
     }
 }
 
@@ -793,9 +796,15 @@ fn no_role_briefing_leaves_the_invocation_untouched() {
 #[test]
 fn agents_without_a_native_channel_report_that_the_briefing_was_not_placed() {
     for agent_id in ["gemini-cli", "opencode"] {
-        let spec =
-            build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], Some("角色"))
-                .expect("invocation");
+        let spec = build_invocation_with_role(
+            agent_id,
+            agent_id.to_string(),
+            "hello",
+            None,
+            &[],
+            Some("角色"),
+        )
+        .expect("invocation");
         assert!(
             !spec.args.iter().any(|argument| argument.contains("角色")),
             "{agent_id} has no native channel, so the briefing must not be forced into args"

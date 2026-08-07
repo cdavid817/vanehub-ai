@@ -2,7 +2,9 @@
 //! runtimes offer the same starting point. They are never persisted: editing one is rejected, and
 //! the UI copies it into a user role instead.
 
-use crate::contexts::agent_runtime::domain::{ExpertRole, ExpertRoleOrigin, ExpertRoleReviewPolicy};
+use crate::contexts::agent_runtime::domain::{
+    ExpertRole, ExpertRoleOrigin, ExpertRoleReviewPolicy,
+};
 
 const EPOCH: &str = "1970-01-01T00:00:00.000Z";
 

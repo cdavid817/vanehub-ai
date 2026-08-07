@@ -2,7 +2,7 @@ use super::*;
 use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
     MessageStatus, SessionActivation, SessionAggregate, SessionCategory, SessionId,
-    SessionLifecycle, SessionSeat, SessionMessage, SessionOwner, SessionTitle,
+    SessionLifecycle, SessionMessage, SessionOwner, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1955,7 +1955,12 @@ fn category_and_message_domain_failures_stop_before_persistence() {
 #[test]
 fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
     let fixture = fixture();
-    let mut session = session_record("session-seated", "gemini-cli", SessionLifecycle::Idle, false);
+    let mut session = session_record(
+        "session-seated",
+        "gemini-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
     session.seats = vec![
         SessionSeat {
             agent_id: "gemini-cli".to_string(),
@@ -1994,7 +1999,12 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
 #[test]
 fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
     let fixture = fixture();
-    let mut session = session_record("session-seated", "gemini-cli", SessionLifecycle::Idle, false);
+    let mut session = session_record(
+        "session-seated",
+        "gemini-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
     session.seats = vec![SessionSeat {
         agent_id: "gemini-cli".to_string(),
         role_id: None,

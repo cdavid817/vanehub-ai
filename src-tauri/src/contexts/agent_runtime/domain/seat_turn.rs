@@ -62,10 +62,7 @@ fn strip_line_prefix(line: &str) -> &str {
 }
 
 fn strip_ordered_marker(value: &str) -> Option<&str> {
-    let digits = value
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .count();
+    let digits = value.chars().take_while(char::is_ascii_digit).count();
     if digits == 0 {
         return None;
     }

@@ -270,12 +270,18 @@ mod tests {
     /// A handle is typed after `@`, where whitespace ends the token.
     #[test]
     fn whitespace_in_a_role_name_is_collapsed() {
-        assert_eq!(derive_mentions(&["Code Reviewer".to_string()]), ["Code-Reviewer"]);
+        assert_eq!(
+            derive_mentions(&["Code Reviewer".to_string()]),
+            ["Code-Reviewer"]
+        );
     }
 
     #[test]
     fn a_nameless_seat_still_gets_a_handle() {
-        assert_eq!(derive_mentions(&["".to_string(), "  ".to_string()]), ["席位1", "席位2"]);
+        assert_eq!(
+            derive_mentions(&["".to_string(), "  ".to_string()]),
+            ["席位1", "席位2"]
+        );
     }
 
     #[test]
@@ -284,15 +290,24 @@ mod tests {
             normalize_model_family("claude-code", "whatever", None),
             ModelFamily::Anthropic
         );
-        assert_eq!(normalize_model_family("codex-cli", "", None), ModelFamily::OpenAi);
-        assert_eq!(normalize_model_family("gemini-cli", "", None), ModelFamily::Google);
+        assert_eq!(
+            normalize_model_family("codex-cli", "", None),
+            ModelFamily::OpenAi
+        );
+        assert_eq!(
+            normalize_model_family("gemini-cli", "", None),
+            ModelFamily::Google
+        );
     }
 
     /// OpenCode drives whichever model the user configured, so claiming a family would make a
     /// cross-family reviewer check act on a false premise.
     #[test]
     fn opencode_has_no_fixed_family() {
-        assert_eq!(normalize_model_family("opencode", "Anthropic", None), ModelFamily::Unknown);
+        assert_eq!(
+            normalize_model_family("opencode", "Anthropic", None),
+            ModelFamily::Unknown
+        );
     }
 
     #[test]
@@ -304,7 +319,10 @@ mod tests {
                 "failed for {provider}"
             );
         }
-        assert_eq!(normalize_model_family("custom-2", "Claude", None), ModelFamily::Anthropic);
+        assert_eq!(
+            normalize_model_family("custom-2", "Claude", None),
+            ModelFamily::Anthropic
+        );
     }
 
     #[test]
@@ -313,7 +331,10 @@ mod tests {
             normalize_model_family("custom-3", "Acme Cloud", Some("anthropic-messages")),
             ModelFamily::Anthropic
         );
-        assert_eq!(normalize_model_family("custom-4", "Acme Cloud", None), ModelFamily::Unknown);
+        assert_eq!(
+            normalize_model_family("custom-4", "Acme Cloud", None),
+            ModelFamily::Unknown
+        );
     }
 
     #[test]

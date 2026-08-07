@@ -122,7 +122,9 @@ fn required(value: String, field: &str) -> Result<String, AgentRuntimeDomainErro
 fn is_hex_color(value: &str) -> bool {
     value.len() == 7
         && value.starts_with('#')
-        && value[1..].chars().all(|character| character.is_ascii_hexdigit())
+        && value[1..]
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -162,7 +164,10 @@ mod tests {
             "t".to_string(),
             "t".to_string(),
         );
-        assert!(role.is_err(), "responsibility drives handoff routing and cannot be blank");
+        assert!(
+            role.is_err(),
+            "responsibility drives handoff routing and cannot be blank"
+        );
     }
 
     #[test]

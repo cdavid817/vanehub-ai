@@ -66,11 +66,20 @@ pub(crate) fn build_invocation_with_role(
 ) -> Result<ProviderInvocationSpec, ProviderInvocationError> {
     let briefing = role_briefing.map(str::trim).filter(|text| !text.is_empty());
     let Some(briefing) = briefing else {
-        return build_invocation(agent_id, executable, prompt, runtime_session_id, managed_args);
+        return build_invocation(
+            agent_id,
+            executable,
+            prompt,
+            runtime_session_id,
+            managed_args,
+        );
     };
     let extra: Vec<String> = match agent_id {
         "claude-code" => vec!["--append-system-prompt".to_string(), briefing.to_string()],
-        "codex-cli" => vec!["-c".to_string(), format!("developer_instructions={briefing}")],
+        "codex-cli" => vec![
+            "-c".to_string(),
+            format!("developer_instructions={briefing}"),
+        ],
         // No native channel; the caller injects per turn instead.
         _ => Vec::new(),
     };

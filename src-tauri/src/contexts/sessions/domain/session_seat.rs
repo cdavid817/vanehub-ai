@@ -89,7 +89,10 @@ mod tests {
     /// Every session predating seats stores `[]`, and each must open as its single Agent.
     #[test]
     fn presents_an_empty_list_as_the_one_seat_case() {
-        assert_eq!(decode_seats("[]", "claude-code"), vec![seat("claude-code", None)]);
+        assert_eq!(
+            decode_seats("[]", "claude-code"),
+            vec![seat("claude-code", None)]
+        );
     }
 
     /// A corrupted column must cost the seat list, not the session.
@@ -108,6 +111,9 @@ mod tests {
     #[test]
     fn drops_entries_with_no_agent() {
         let stored = r#"[{"agentId":"claude-code"},{"agentId":"  "},{"roleId":"role-1"}]"#;
-        assert_eq!(decode_seats(stored, "codex-cli"), vec![seat("claude-code", None)]);
+        assert_eq!(
+            decode_seats(stored, "codex-cli"),
+            vec![seat("claude-code", None)]
+        );
     }
 }

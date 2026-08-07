@@ -2,11 +2,10 @@ use super::dto;
 use crate::contexts::agent_runtime::api::{
     AgentAvailability, AgentChatConfiguration, AgentFileReference, AgentLifecycle, AgentMemory,
     AgentMessage, AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession,
-    AgentTerminalSize as ApiAgentTerminalSize, AgentView, ApiProviderConfig,
-    InteractionMode, LaunchWorkflowResult,
-    OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SendMessageRequest,
-    StopAgentTerminalRequest, UpdateApiAgentInput, WorkflowView,
+    AgentTerminalSize as ApiAgentTerminalSize, AgentView, ApiProviderConfig, InteractionMode,
+    LaunchWorkflowResult, OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput,
+    SendMessageRequest, StopAgentTerminalRequest, UpdateApiAgentInput, WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
