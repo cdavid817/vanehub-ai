@@ -23,14 +23,14 @@ npm run dev
 \`\`\`
 `;
 
-function fixture(contents = [base, base, base]) {
+function fixture(contents = [base, base, base], version = "0.1.0") {
   const root = mkdtempSync(join(tmpdir(), "vanehub-readme-parity-"));
   const files = ["README.md", "README.zh-CN.md", "README.ja.md"];
   files.forEach((file, index) => writeFileSync(join(root, file), contents[index], "utf8"));
   writeFileSync(
     join(root, "package.json"),
     JSON.stringify({
-      version: "0.1.0",
+      version,
       dependencies: {
         "@tauri-apps/api": "^2.0.0",
         react: "^19.2.8",
@@ -39,6 +39,14 @@ function fixture(contents = [base, base, base]) {
     "utf8",
   );
   return { root, files };
+}
+
+// Shields.io escapes a literal hyphen as `--`, so the badge and the fact marker never carry the
+// same spelling of a pre-release version.
+function withVersion(content, version) {
+  return content
+    .replace("project-version value:0.1.0", `project-version value:${version}`)
+    .replace("badge/version-0.1.0-", `badge/version-${version.replaceAll("-", "--")}-`);
 }
 
 test("accepts translated prose with matching stable facts", () => {
@@ -72,6 +80,42 @@ test("reports a visible badge that drifts from its stable fact marker", () => {
   assert.throws(
     () => checkReadmeParity(files, root),
     /README\.zh-CN\.md: visible fact "react-major" is "18\.x"/,
+  );
+});
+
+test("accepts a pre-release version whose badge escapes the hyphen", () => {
+  const preview = withVersion(base, "0.1.0-preview.1");
+  const { root, files } = fixture([preview, preview, preview], "0.1.0-preview.1");
+  assert.doesNotThrow(() => checkReadmeParity(files, root));
+});
+
+test("accepts a multi-segment pre-release identifier", () => {
+  const candidate = withVersion(base, "0.1.0-rc.1");
+  const { root, files } = fixture([candidate, candidate, candidate], "0.1.0-rc.1");
+  assert.doesNotThrow(() => checkReadmeParity(files, root));
+});
+
+test("reports a stale pre-release identifier against package.json", () => {
+  const stale = withVersion(base, "0.1.0-preview.1");
+  const { root, files } = fixture([stale, stale, stale], "0.1.0-preview.2");
+  assert.throws(
+    () => checkReadmeParity(files, root),
+    /README\.md: stable fact "project-version" differs from package\.json/,
+  );
+});
+
+test("reports a badge that drops the pre-release identifier its marker declares", () => {
+  const mismatched = withVersion(base, "0.1.0-preview.1").replace(
+    "badge/version-0.1.0--preview.1-",
+    "badge/version-0.1.0-",
+  );
+  const { root, files } = fixture(
+    [mismatched, mismatched, mismatched],
+    "0.1.0-preview.1",
+  );
+  assert.throws(
+    () => checkReadmeParity(files, root),
+    /README\.md: visible fact "project-version" is "0\.1\.0", but its marker is "0\.1\.0-preview\.1"/,
   );
 });
 
