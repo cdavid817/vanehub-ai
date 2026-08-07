@@ -50,7 +50,7 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 - [x] 6.2 Pass `--prerelease` and `--latest=false` when the tag carries a pre-release identifier, and neither when it does not
 - [x] 6.3 Pass `.github/PREVIEW_RELEASE_NOTES.md` via `--notes-file` alongside `--generate-notes`
 - [x] 6.5 Add a `macos-x64` matrix entry on the `macos-15-intel` runner so Intel Macs have a download, and list it in the release notes download table
-- [ ] 6.4 Confirm during rehearsal that generated notes are appended rather than replaced; if replaced, switch to fetching notes via `gh api .../releases/generate-notes` and concatenating before publishing, as recorded in `design.md`
+- [x] 6.4 Confirm generated notes are appended rather than replaced. `gh` reads `--notes-file` into `opts.Body` and formats `"%s\n%s"` with the generated notes second, so the preview guidance lands above the generated summary and no concatenation fallback is needed
 
 ## 7. Update release documentation
 
@@ -76,7 +76,7 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 
 - [x] 9.0a Forward Apple and Tauri signing credentials to the build only when non-empty. An unset secret expands to a blank string, and the bundler read that as a request to sign, failing both macOS jobs at `security import` in the first rehearsal
 - [x] 9.0b Collect artifacts by distributable format instead of `bundle/**`, which swept in the AppImage `.AppDir` tree and deb staging directory — 270 files in the Linux artifact where 2 are distributables
-- [ ] 9.1 Run `workflow_dispatch` against the change branch before merging, and confirm every matrix job uploads artifacts
+- [x] 9.1 Run `workflow_dispatch` against the change branch before merging, and confirm every matrix job uploads artifacts
 - [ ] 9.2 Download the Windows, macOS, and Linux artifacts and install each on a real machine, following the published guidance verbatim
 - [ ] 9.3 Confirm the macOS `xattr` step actually resolves the quarantine prompt on a clean machine
 - [ ] 9.4 Create and push the annotated tag `v0.1.0-preview.1`
