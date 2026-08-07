@@ -9,6 +9,7 @@ pub(crate) use managed_child::{ManagedChild, ManagedTokioChild};
 pub(crate) use stderr_drain::{BlockingStderrDrain, TokioStderrDrain};
 
 use crate::platform::network;
+use process_wrap::std as process_std;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
@@ -177,9 +178,8 @@ pub(crate) struct ProcessAdapter;
 
 impl ProcessAdapter {
     pub(crate) fn execute(&self, request: &ProcessRequest) -> Result<ProcessOutput, ProcessError> {
-        let mut command = request.command()?;
         output_with_control(
-            &mut command,
+            request.command()?,
             request.timeout,
             request.cancellation.as_ref(),
             request.output_limit,
@@ -277,23 +277,48 @@ pub(crate) fn audit_command(category: &str, executable: &str, args: &[String]) {
     );
 }
 
+/// Contains a bounded-execution command so its descendants can be reached on teardown.
+///
+/// Distinct from the containment [`ManagedChild`] uses: this one must not gate completion
+/// on the tree draining, and must not kill the tree when the handle is released.
+#[cfg(windows)]
+fn add_execution_containment(command: &mut process_std::CommandWrap) {
+    command.wrap(windows_job::TerminateTreeJobObject::new());
+}
+
+/// `ProcessGroupChild::try_wait` tries the group first but falls back to the directly
+/// launched child, so a surviving group member does not hide that child's exit. That
+/// fallback is what makes this wrapper usable here, and it is what
+/// `successful_command_leaves_its_descendant_running` pins when the suite runs on Unix.
+#[cfg(unix)]
+fn add_execution_containment(command: &mut process_std::CommandWrap) {
+    command.wrap(process_std::ProcessGroup::leader());
+}
+
+#[cfg(not(any(windows, unix)))]
+fn add_execution_containment(_command: &mut process_std::CommandWrap) {}
+
 fn output_with_control(
-    command: &mut Command,
+    mut command: Command,
     timeout: Duration,
     cancellation: Option<&ProcessCancellation>,
     output_limit: Option<usize>,
 ) -> Result<ProcessOutput, ProcessError> {
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // The containment primitive is used purely as a kill handle: completion is still
+    // decided by `try_wait` on the process launched here, so a command that exits while
+    // a descendant lives is still reported as finished rather than as a timeout.
+    let mut wrapped = process_std::CommandWrap::from(command);
+    add_execution_containment(&mut wrapped);
+    let mut child = wrapped
         .spawn()
         .map_err(|error| ProcessError::Spawn(error.to_string()))?;
     let stdout = child
-        .stdout
+        .stdout()
         .take()
         .ok_or_else(|| ProcessError::Wait("stdout pipe is unavailable".to_string()))?;
     let stderr = child
-        .stderr
+        .stderr()
         .take()
         .ok_or_else(|| ProcessError::Wait("stderr pipe is unavailable".to_string()))?;
     let limit = output_limit.unwrap_or(usize::MAX);
@@ -527,6 +552,97 @@ mod tests {
     }
 
     #[test]
+    fn timed_out_command_terminates_its_descendants() {
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_parent_fixture",
+                "--nocapture",
+            ])
+            .timeout(Duration::from_millis(500));
+
+        let error = ProcessAdapter.execute(&request).expect_err("timeout");
+
+        let ProcessError::TimedOut { stdout, .. } = &error else {
+            panic!("expected a timeout, got {error:?}");
+        };
+        wait_until_process_stops(descendant_pid(stdout));
+    }
+
+    #[test]
+    fn successful_command_leaves_its_descendant_running() {
+        let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_exiting_parent_fixture",
+                "--nocapture",
+            ])
+            // Far longer than the command needs, so a failure here means the command was
+            // misjudged as unfinished rather than that it genuinely ran long.
+            .timeout(Duration::from_secs(30));
+
+        let output = ProcessAdapter.execute(&request).expect("command completes");
+
+        assert!(output.success(), "{}", output.stderr);
+        let descendant = descendant_pid(&output.stdout);
+        assert!(
+            process_is_running(descendant),
+            "a command that succeeded must keep whatever it started"
+        );
+        terminate_process(descendant);
+    }
+
+    fn descendant_pid(output: &str) -> u32 {
+        output
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("DESCENDANT_PID "))
+            .unwrap_or_else(|| panic!("fixture never reported its descendant: {output}"))
+            .parse()
+            .expect("descendant pid")
+    }
+
+    #[test]
+    #[ignore = "spawned only by the process-tree termination test"]
+    fn process_tree_parent_fixture() {
+        spawn_reported_descendant();
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
+    #[ignore = "spawned only by the surviving-descendant test"]
+    fn process_tree_exiting_parent_fixture() {
+        spawn_reported_descendant();
+    }
+
+    #[allow(clippy::zombie_processes)] // The descendant must outlive this process to be observable.
+    fn spawn_reported_descendant() {
+        let executable = std::env::current_exe().expect("test executable");
+        let descendant = Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "platform::process::tests::process_tree_descendant_fixture",
+            ])
+            .stdin(Stdio::null())
+            // Null rather than inherit: this fixture is about process-tree termination, not
+            // about a descendant holding the output pipe open.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("descendant");
+        println!("DESCENDANT_PID {}", descendant.id());
+        std::io::stdout().flush().expect("flush pid");
+    }
+
+    #[test]
+    #[ignore = "spawned only by the process-tree fixtures"]
+    fn process_tree_descendant_fixture() {
+        thread::sleep(Duration::from_secs(30));
+    }
+
+    #[test]
     #[ignore = "spawned only by the orphaned-pipe collection test"]
     #[allow(clippy::zombie_processes)] // Must exit while its descendant still holds the inherited stdout pipe.
     fn process_orphan_pipe_child_fixture() {
@@ -564,6 +680,54 @@ mod tests {
     #[ignore = "spawned only by the bounded output adapter test"]
     fn process_output_child_fixture() {
         print!("{}", "x".repeat(4096));
+    }
+
+    #[cfg(windows)]
+    fn process_is_running(process_id: u32) -> bool {
+        use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let Ok(process) =
+            (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) })
+        else {
+            return false;
+        };
+        let mut exit_code = 0;
+        let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) }.is_ok();
+        let _ = unsafe { CloseHandle(process) };
+        queried && exit_code == STILL_ACTIVE.0 as u32
+    }
+
+    #[cfg(unix)]
+    fn process_is_running(process_id: u32) -> bool {
+        unsafe { libc::kill(process_id as i32, 0) == 0 }
+    }
+
+    #[cfg(windows)]
+    fn terminate_process(process_id: u32) {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+        if let Ok(process) = unsafe { OpenProcess(PROCESS_TERMINATE, false, process_id) } {
+            let _ = unsafe { TerminateProcess(process, 1) };
+            let _ = unsafe { CloseHandle(process) };
+        }
+    }
+
+    #[cfg(unix)]
+    fn terminate_process(process_id: u32) {
+        unsafe { libc::kill(process_id as i32, libc::SIGKILL) };
+    }
+
+    fn wait_until_process_stops(process_id: u32) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process_is_running(process_id) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !process_is_running(process_id),
+            "descendant {process_id} survived the termination of its parent"
+        );
     }
 
     #[test]
