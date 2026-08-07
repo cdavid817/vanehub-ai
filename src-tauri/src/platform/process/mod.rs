@@ -306,8 +306,8 @@ fn output_with_control(
                 let (stdout, stdout_truncated) = join_reader(stdout_reader)?;
                 let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
                 return Err(ProcessError::Cancelled {
-                    stdout: decode_output(stdout),
-                    stderr: decode_output(stderr),
+                    stdout: decode_output(&stdout),
+                    stderr: decode_output(&stderr),
                     output_truncated: stdout_truncated || stderr_truncated,
                 });
             }
@@ -318,8 +318,8 @@ fn output_with_control(
                 let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
                 return Err(ProcessError::TimedOut {
                     timeout_seconds: timeout.as_secs(),
-                    stdout: decode_output(stdout),
-                    stderr: decode_output(stderr),
+                    stdout: decode_output(&stdout),
+                    stderr: decode_output(&stderr),
                     output_truncated: stdout_truncated || stderr_truncated,
                 });
             }
@@ -331,9 +331,9 @@ fn output_with_control(
     let (stdout_bytes, stdout_truncated) = join_reader(stdout_reader)?;
     let (stderr_bytes, stderr_truncated) = join_reader(stderr_reader)?;
     Ok(ProcessOutput {
+        stdout: decode_output(&stdout_bytes),
+        stderr: decode_output(&stderr_bytes),
         status,
-        stdout: decode_output(stdout_bytes.clone()),
-        stderr: decode_output(stderr_bytes.clone()),
         stdout_bytes,
         stderr_bytes,
         output_truncated: stdout_truncated || stderr_truncated,
@@ -365,8 +365,8 @@ fn join_reader(
         .map_err(|error| ProcessError::Wait(error.to_string()))
 }
 
-fn decode_output(bytes: Vec<u8>) -> String {
-    String::from_utf8_lossy(&bytes).trim().to_string()
+fn decode_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
 }
 
 #[cfg(test)]
