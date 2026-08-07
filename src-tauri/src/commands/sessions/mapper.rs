@@ -6,13 +6,21 @@ use crate::contexts::sessions::api::{
     CategoryRecord, ChatConfigurationValues, MessageRecord, NewRemoteWorkspace, NewSessionRequest,
     NewSessionWorkspace, NewWorktree, SessionActivation, SessionChatConfiguration,
     SessionCreationOperation, SessionExportFormat, SessionExportResult, SessionLifecycle,
-    SessionOwner, SessionRecord, SessionSearchMatchKind, SessionSearchResult,
+    SessionOwner, SessionRecord, SessionSearchMatchKind, SessionSearchResult, SessionSeat,
     SessionUsageStatistics, SessionsError, UsageStatisticsRange,
 };
 
 pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequest {
     NewSessionRequest {
         agent_id: input.agent_id,
+        seats: input
+            .seats
+            .into_iter()
+            .map(|seat| SessionSeat {
+                agent_id: seat.agent_id,
+                role_id: seat.role_id,
+            })
+            .collect(),
         interaction_mode: input.interaction_mode.as_str().to_string(),
         title: input.title,
         workspace: NewSessionWorkspace {
@@ -58,6 +66,14 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
         id: session.id().to_string(),
         title: session.aggregate.title().as_str().to_string(),
         agent_id: session.agent_id,
+        seats: session
+            .seats
+            .into_iter()
+            .map(|seat| dto::SessionSeat {
+                agent_id: seat.agent_id,
+                role_id: seat.role_id,
+            })
+            .collect(),
         interaction_mode: interaction_mode(&session.interaction_mode)?,
         lifecycle_state: lifecycle_state(session.aggregate.lifecycle()),
         folder: session.workspace.folder,
@@ -213,6 +229,7 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
     dto::ChatMessage {
         id: record.message.id().as_str().to_string(),
         session_id: record.message.session_id().as_str().to_string(),
+        seat_index: record.seat_index,
         role: record.message.role().as_str().to_string(),
         content: record.content,
         status: record.message.status().as_str().to_string(),
@@ -403,6 +420,7 @@ mod tests {
                 false,
             ),
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "native-desktop".to_string(),
             workspace: SessionWorkspace {
                 folder: Some("ssh://dev@example.com/work/app".to_string()),
@@ -482,6 +500,7 @@ mod tests {
                 .expect("file reference")])
                 .expect("references"),
             ),
+            seat_index: None,
             content: "done".to_string(),
             thinking_content: Some("reasoning".to_string()),
             tool_use: Some(vec![serde_json::json!({

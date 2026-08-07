@@ -6,6 +6,13 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
+/// Contiguous again: the 42 this branch left open was taken by `agent-memory-shared-pool` on
+/// main, and this branch's own four moved up to 45-48 behind `retrieval-vector-index` and
+/// `permissions-core`.
+fn expected_versions() -> Vec<i64> {
+    (1..=48).collect()
+}
+
 fn applied_versions(conn: &Connection) -> Vec<i64> {
     conn.prepare("SELECT version FROM schema_migrations ORDER BY version")
         .expect("prepare versions")
@@ -23,7 +30,7 @@ fn empty_fixture_migrates_to_latest_schema() {
 
     migrate(&conn).expect("migrate empty fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=44).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), expected_versions());
     assert!(
         table_has_column(&conn, "onepiece_provider_profiles", "active")
             .expect("OnePiece provider profile table")
@@ -42,8 +49,6 @@ fn empty_fixture_migrates_to_latest_schema() {
     assert!(table_has_column(&conn, "execution_spans", "fidelity").expect("execution span table"));
     assert!(table_has_column(&conn, "loop_runs", "definition_snapshot").expect("Loop run table"));
     assert!(table_has_column(&conn, "sessions", "loop_role").expect("Loop role column"));
-    assert!(table_has_column(&conn, "coordination_runs", "run_snapshot")
-        .expect("coordination run table"));
     assert!(
         table_has_column(&conn, "ssh_connections", "revision").expect("SSH connection revision")
     );
@@ -83,7 +88,7 @@ fn legacy_v1_fixture_upgrades_without_losing_records() {
 
     migrate(&conn).expect("migrate legacy fixture");
 
-    assert_eq!(applied_versions(&conn), (1..=44).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), expected_versions());
     assert!(
         table_has_column(&conn, "agents", "managed_sdk_dependency_id").expect("managed SDK column")
     );
@@ -123,7 +128,7 @@ fn current_v20_fixture_is_idempotent_and_readable() {
 
     migrate(&conn).expect("repeat current migration");
 
-    assert_eq!(applied_versions(&conn), (1..=44).collect::<Vec<_>>());
+    assert_eq!(applied_versions(&conn), expected_versions());
     assert!(
         table_has_column(&conn, "sdk_operation_logs", "operation_id")
             .expect("SDK operation log column")

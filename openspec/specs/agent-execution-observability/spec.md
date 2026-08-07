@@ -16,7 +16,7 @@ The system SHALL create one execution run with independent run, trace, and root 
 - **THEN** the system SHALL create the same execution-run contract with the corresponding source classification
 
 ### Requirement: Correlated execution topology
-The system SHALL represent task execution, prompt assembly, Agent invocation, managed or interactive child-process execution, stream milestones, observable tool activity, observable MCP activity, coordination nodes, failover attempts, and terminal outcome as one correlated trace when those stages occur.
+The system SHALL represent task execution, prompt assembly, Agent invocation, managed or interactive child-process execution, stream milestones, observable tool activity, observable MCP activity, and terminal outcome as one correlated trace when those stages occur.
 
 #### Scenario: Agent CLI run completes
 - **WHEN** a submitted task invokes a managed Agent CLI process and completes
@@ -38,11 +38,6 @@ The system SHALL represent task execution, prompt assembly, Agent invocation, ma
 - **WHEN** the runtime observes delegated, retried, parallel, or child-Agent work
 - **THEN** it SHALL preserve explicit parent-Agent, delegation, and attempt metadata when available
 - **AND** it SHALL use parent spans or span links without reusing the original run or trace identity for an independent retry
-
-#### Scenario: Coordination fallback is observed
-- **WHEN** a coordination node advances from its primary Agent to a fallback Agent
-- **THEN** both attempts SHALL remain correlated to the coordination run and node with distinct attempt spans or events
-- **AND** telemetry SHALL identify bounded candidate role, stable Agent id, failure classification, and attempt number without capturing raw instructions, context, or output
 
 ### Requirement: Observation fidelity
 Every observed Agent child operation SHALL report whether its telemetry is `native`, `proxied`, `inferred`, or `opaque`.
@@ -94,11 +89,11 @@ The desktop runtime SHALL export traces, metrics, and correlated logs over OTLP 
 - **AND** the runtime SHALL emit a rate-limited redacted local diagnostic without recursively exporting through the failing path
 
 ### Requirement: Bounded observability metrics
-The system SHALL record bounded metrics for task, Agent, process, tool, MCP, coordination node, failover, cancellation, failure, and first-output performance where the required boundaries are available.
+The system SHALL record bounded metrics for task, Agent, process, tool, MCP, cancellation, failure, and first-output performance where the required boundaries are available.
 
 #### Scenario: Metric dimensions are recorded
 - **WHEN** observability metrics are emitted
-- **THEN** their dimensions SHALL be limited to stable low-cardinality classifications such as Agent id, provider id, source, outcome, operation class, candidate role, failure classification, and fidelity
+- **THEN** their dimensions SHALL be limited to stable low-cardinality classifications such as Agent id, provider id, source, outcome, operation class, failure classification, and fidelity
 - **AND** they SHALL NOT include run, trace, span, session, message, operation, process, node, or tool-call identifiers
 
 ### Requirement: Metadata-only privacy default

@@ -1,6 +1,7 @@
 import { agentService } from "../services/runtime-agent-client";
 import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import type {
+  SessionSeat,
   AgentRegistryEntry,
   CreateSessionInput,
   InteractionMode,
@@ -8,82 +9,10 @@ import type {
 } from "../types/agent";
 import type { OperationTask } from "../types/operation";
 import type { SaveSshConnectionInput } from "../types/ssh-connection";
+import { isSessionAgentSelectable } from "./create-session-agents";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 
-const defaultCliOrder = ["codex-cli", "claude-code", "gemini-cli", "opencode"];
-export const previousSessionAgentStorageKey = "vanehub.create-session.agent.v1";
-
-export function isSessionAgentSelectable(agent: AgentRegistryEntry): boolean {
-  if (agent.availabilityState === "available" || agent.availabilityState === "unknown") {
-    return true;
-  }
-  const sdkId = agent.managedSdkDependencyId;
-  return agent.availabilityState === "unavailable"
-    && agent.supportedInteractionModes.includes("cli")
-    && Boolean(sdkId)
-    && agent.unavailableReason === `Managed SDK dependency '${sdkId}' is not installed.`;
-}
-
-export function selectSessionAgents(agents: AgentRegistryEntry[]): AgentRegistryEntry[] {
-  return agents
-    .filter((agent) =>
-      agent.supportedInteractionModes.some((mode) => mode === "cli" || mode === "api"),
-    )
-    .sort((left, right) => {
-      const leftCli = defaultCliOrder.indexOf(left.id);
-      const rightCli = defaultCliOrder.indexOf(right.id);
-      if (leftCli !== -1 || rightCli !== -1) {
-        return (leftCli === -1 ? Number.MAX_SAFE_INTEGER : leftCli)
-          - (rightCli === -1 ? Number.MAX_SAFE_INTEGER : rightCli);
-      }
-      if (left.id === "onepiece") return -1;
-      if (right.id === "onepiece") return 1;
-      return left.displayName.localeCompare(right.displayName);
-    });
-}
-
-export function defaultSessionAgent(
-  agents: AgentRegistryEntry[],
-  previousAgentId: string | null,
-): AgentRegistryEntry | null {
-  if (previousAgentId === "onepiece") {
-    const onepiece = agents.find((agent) =>
-      agent.id === "onepiece"
-      && isSessionAgentSelectable(agent),
-    );
-    if (onepiece) return onepiece;
-  }
-  return agents.find((agent) =>
-    defaultCliOrder.includes(agent.id) && isSessionAgentSelectable(agent),
-  ) ?? agents.find(isSessionAgentSelectable) ?? agents[0] ?? null;
-}
-
-export function groupSessionAgents(agents: AgentRegistryEntry[]) {
-  return [
-    {
-      id: "builtin-cli" as const,
-      labelKey: "onepiece.group.builtinCli",
-      agents: agents.filter((agent) =>
-        agent.id !== "onepiece"
-        && agent.agentOrigin === "builtin"
-        && agent.supportedInteractionModes.includes("cli"),
-      ),
-    },
-    {
-      id: "native" as const,
-      labelKey: "onepiece.group.native",
-      agents: agents.filter((agent) => agent.id === "onepiece"),
-    },
-    {
-      id: "custom-api" as const,
-      labelKey: "onepiece.group.customApi",
-      agents: agents.filter((agent) =>
-        agent.agentOrigin === "user" && agent.supportedInteractionModes.includes("api"),
-      ),
-    },
-  ].filter((group) => group.agents.length > 0);
-}
 
 export const defaultSshConnectionDraft: SaveSshConnectionInput = {
   name: "",
@@ -117,6 +46,7 @@ export function sessionResult(result: OperationTask["result"]): Session | null {
 
 export function canCreateSession({
   agentMode,
+  multiSeats,
   projectPath,
   remoteHost,
   remotePath,
@@ -130,6 +60,7 @@ export function canCreateSession({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  multiSeats: SessionSeat[];
   projectPath: string;
   remoteHost: string;
   remotePath: string;
@@ -147,11 +78,16 @@ export function canCreateSession({
   const savedConnectionValid =
     !saveSshConnection ||
     sshConnectionSaveErrorKey(remoteUser, sshConnectionDraft) === null;
+  // A multi-Agent session needs at least two seats, each bound to an Agent; otherwise it is just
+  // a single-Agent session wearing the wrong mode.
+  const seatsReady =
+    agentMode === "single" ||
+    (multiSeats.length >= 2 && multiSeats.every((seat) => seat.agentId.trim().length > 0));
   return Boolean(
     selectedAgent &&
     isSessionAgentSelectable(selectedAgent) &&
     !(selectedAgent.id === "onepiece" && workspaceMode === "remote") &&
-    agentMode === "single" &&
+    seatsReady &&
     (workspaceMode === "remote"
       ? remoteHost.trim() &&
         remotePath.trim() &&
@@ -163,6 +99,7 @@ export function canCreateSession({
 
 export async function submitCreateSession({
   agentMode,
+  multiSeats,
   interactionMode,
   projectPath,
   remoteDisplayName,
@@ -185,6 +122,7 @@ export async function submitCreateSession({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  multiSeats: SessionSeat[];
   interactionMode: InteractionMode;
   projectPath: string;
   remoteDisplayName: string;
@@ -207,7 +145,6 @@ export async function submitCreateSession({
   worktreeName: string;
 }) {
   if (!selectedAgent) return;
-  if (agentMode !== "single") return;
   if (workspaceMode === "local" && !projectPath.trim()) return;
   if (workspaceMode === "remote" && (!remoteHost.trim() || !remotePath.trim()))
     return;
@@ -229,8 +166,11 @@ export async function submitCreateSession({
 
   setLoading(true);
   setError(null);
+  // agentId mirrors seat 0 so every existing reader of the session's agent keeps working.
+  const seats = agentMode === "multi" && multiSeats.length > 0 ? multiSeats : null;
   const input: CreateSessionInput = {
-    agentId: selectedAgent.id,
+    agentId: seats ? seats[0].agentId : selectedAgent.id,
+    ...(seats ? { seats } : {}),
     interactionMode,
     title,
     projectPath: workspaceMode === "local" ? projectPath : null,

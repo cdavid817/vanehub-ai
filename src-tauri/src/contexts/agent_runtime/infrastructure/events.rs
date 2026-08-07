@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     AgentEvent, AgentEventPort, AgentRuntimeApplicationError, AgentTerminalEvent,
-    AgentTerminalEventPort, AgentTerminalState, MessageTokenUsage, ToolUseBlock,
+    AgentTerminalEventPort, AgentTerminalState, MessageTokenUsage, SeatTurnStatus, ToolUseBlock,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -88,6 +88,31 @@ enum ChatStreamEvent {
         session_id: String,
         message_id: String,
     },
+    #[serde(rename_all = "camelCase")]
+    TurnStatus {
+        session_id: String,
+        status: SerializableTurnStatus,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+enum SerializableTurnStatus {
+    #[serde(rename_all = "camelCase")]
+    Agent {
+        seat_index: usize,
+        mention: String,
+        depth: usize,
+        max_depth: usize,
+    },
+    #[serde(rename_all = "camelCase")]
+    WaitingHuman {
+        seat_index: usize,
+        mention: String,
+        since: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    RoundComplete { seat_index: usize, mention: String },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -130,9 +155,45 @@ struct SerializableTokenUsage {
     output: i64,
 }
 
+fn turn_status(status: SeatTurnStatus) -> SerializableTurnStatus {
+    match status {
+        SeatTurnStatus::Agent {
+            seat_index,
+            mention,
+            depth,
+            max_depth,
+        } => SerializableTurnStatus::Agent {
+            seat_index,
+            mention,
+            depth,
+            max_depth,
+        },
+        SeatTurnStatus::WaitingHuman {
+            seat_index,
+            mention,
+            since,
+        } => SerializableTurnStatus::WaitingHuman {
+            seat_index,
+            mention,
+            since,
+        },
+        SeatTurnStatus::RoundComplete {
+            seat_index,
+            mention,
+        } => SerializableTurnStatus::RoundComplete {
+            seat_index,
+            mention,
+        },
+    }
+}
+
 fn chat_event(event: AgentEvent) -> Option<ChatStreamEvent> {
     match event {
         AgentEvent::WorkflowChanged(_) => None,
+        AgentEvent::TurnStatusChanged { session_id, status } => Some(ChatStreamEvent::TurnStatus {
+            session_id,
+            status: turn_status(status),
+        }),
         AgentEvent::MessageStarted {
             session_id,
             message_id,

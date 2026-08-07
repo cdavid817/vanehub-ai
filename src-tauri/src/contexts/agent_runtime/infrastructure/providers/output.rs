@@ -146,7 +146,19 @@ fn parse_claude_line(line: &str) -> ProviderOutputEvent {
         "tool_use" | "tool_result" | "tool_error" | "tool_failure" => {
             ProviderOutputEvent::ToolLifecycle(Box::new(parse_tool_event(&value, event_type)))
         }
-        "result" | "complete" | "completed" => ProviderOutputEvent::Completed(claude_usage(&value)),
+        "result" | "complete" | "completed" => {
+            // claude-code reports failures through `result` with `is_error`, never through the
+            // `error` arm below, and leaves `subtype` as "success" — so this flag is the only
+            // trustworthy signal that the run failed.
+            if value.get("is_error").and_then(Value::as_bool) == Some(true) {
+                ProviderOutputEvent::Failed(provider_failure(
+                    &value,
+                    "Agent CLI reported a failed result.",
+                ))
+            } else {
+                ProviderOutputEvent::Completed(claude_usage(&value))
+            }
+        }
         "error" | "failed" => {
             ProviderOutputEvent::Failed(provider_failure(&value, "Agent output reported an error."))
         }
@@ -385,6 +397,7 @@ fn error_value(value: &Value) -> Option<String> {
     value
         .get("message")
         .or_else(|| value.get("error"))
+        .or_else(|| value.get("result"))
         .and_then(Value::as_str)
         .or_else(|| value.pointer("/error/message").and_then(Value::as_str))
         .map(str::to_string)
@@ -416,7 +429,23 @@ fn structured_error_codes(value: &Value) -> Vec<String> {
     .into_iter()
     .filter_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
     .map(normalize_error_code)
+    .chain(http_status_error_code(value))
     .collect()
+}
+
+/// Maps a numeric HTTP status to the code vocabulary `is_non_retryable_error_code` understands.
+/// Only statuses whose meaning is unambiguous are mapped: 429 and 5xx stay unmapped so they keep
+/// the retryable default.
+fn http_status_error_code(value: &Value) -> Option<String> {
+    let status = ["/api_error_status", "/status_code", "/http_status"]
+        .into_iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(Value::as_i64))?;
+    match status {
+        400 => Some("bad_request".to_string()),
+        401 => Some("unauthorized".to_string()),
+        403 => Some("forbidden".to_string()),
+        _ => None,
+    }
 }
 
 fn normalize_error_code(value: &str) -> String {

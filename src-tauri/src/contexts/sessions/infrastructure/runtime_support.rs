@@ -282,7 +282,6 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         | AgentRuntimeApplicationError::CliProfile(message)
         | AgentRuntimeApplicationError::Prompt(message)
         | AgentRuntimeApplicationError::Operation(message)
-        | AgentRuntimeApplicationError::Coordination(message)
         | AgentRuntimeApplicationError::Loop(message)
         | AgentRuntimeApplicationError::VerificationProcess(message)
         | AgentRuntimeApplicationError::Logging(message)

@@ -9,7 +9,9 @@ use crate::contexts::sessions::application::{
     SessionMessageRepository, SessionRecord, SessionRepository, SessionSearchMatch,
     SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult, SessionsApplicationError,
 };
-use crate::contexts::sessions::domain::{CategoryId, ChatPreferences, MessageId, SessionId};
+use crate::contexts::sessions::domain::{
+    encode_seats, CategoryId, ChatPreferences, MessageId, SessionId,
+};
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -112,8 +114,8 @@ impl SessionRepository for SqliteSessionsRepository {
             .query_map(params![message_query, pattern, query.limit as i64], |row| {
                 Ok((
                     SessionRow::read(row)?,
-                    row.get::<_, Option<String>>(29)?,
                     row.get::<_, Option<String>>(30)?,
+                    row.get::<_, Option<String>>(31)?,
                 ))
             })
             .map_err(repository_error)?
@@ -164,8 +166,9 @@ impl SessionRepository for SqliteSessionsRepository {
                 UPDATE sessions
                 SET title = ?1, lifecycle_state = ?2, runtime_session_id = ?3,
                     category_id = ?4, pinned = ?5, archived = ?6, updated_at = ?7,
-                    remote_ssh_connection_id = ?8, remote_ssh_connection_revision = ?9
-                WHERE id = ?10
+                    remote_ssh_connection_id = ?8, remote_ssh_connection_revision = ?9,
+                    seats = ?10
+                WHERE id = ?11
                 "#,
                 params![
                     session.aggregate.title().as_str(),
@@ -185,6 +188,7 @@ impl SessionRepository for SqliteSessionsRepository {
                         .remote_ssh_binding
                         .as_ref()
                         .map(|binding| binding.revision),
+                    encode_seats(&session.seats),
                     session.id(),
                 ],
             )
@@ -552,8 +556,8 @@ pub(super) fn insert_message(
             INSERT INTO messages (
                 id, session_id, role, status, content, thinking_content, tool_use,
                 rich_blocks, token_input, token_output, metadata, file_references,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                created_at, updated_at, seat_index
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             "#,
             params![
                 message.message.id().as_str(),
@@ -570,6 +574,7 @@ pub(super) fn insert_message(
                 file_references_json(message)?,
                 message.created_at,
                 message.updated_at,
+                message.seat_index.map(|index| index as i64),
             ],
         )
         .map_err(repository_error)?;

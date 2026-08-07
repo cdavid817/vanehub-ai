@@ -49,6 +49,45 @@ impl Display for ProviderInvocationError {
 
 impl std::error::Error for ProviderInvocationError {}
 
+/// Builds an invocation, optionally placing a seat's role briefing in the CLI's own system-prompt
+/// channel.
+///
+/// The briefing must not travel as ordinary prompt text: that channel is subject to context
+/// compaction, so a long session would drop the role and the Agent would quietly stop playing it.
+/// Agents with no such channel get no briefing here — the caller falls back to per-turn injection
+/// and marks the seat as not compaction-immune, rather than this silently dropping it.
+pub(crate) fn build_invocation_with_role(
+    agent_id: &str,
+    executable: String,
+    prompt: &str,
+    runtime_session_id: Option<&str>,
+    managed_args: &[String],
+    role_briefing: Option<&str>,
+) -> Result<ProviderInvocationSpec, ProviderInvocationError> {
+    let briefing = role_briefing.map(str::trim).filter(|text| !text.is_empty());
+    let Some(briefing) = briefing else {
+        return build_invocation(
+            agent_id,
+            executable,
+            prompt,
+            runtime_session_id,
+            managed_args,
+        );
+    };
+    let extra: Vec<String> = match agent_id {
+        "claude-code" => vec!["--append-system-prompt".to_string(), briefing.to_string()],
+        "codex-cli" => vec![
+            "-c".to_string(),
+            format!("developer_instructions={briefing}"),
+        ],
+        // No native channel; the caller injects per turn instead.
+        _ => Vec::new(),
+    };
+    let mut managed = managed_args.to_vec();
+    managed.extend(extra);
+    build_invocation(agent_id, executable, prompt, runtime_session_id, &managed)
+}
+
 pub(crate) fn build_invocation(
     agent_id: &str,
     executable: String,

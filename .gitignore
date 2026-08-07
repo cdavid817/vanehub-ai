@@ -11,6 +11,7 @@ coverage/
 .docs-target/
 .docs-screenshots/
 
+
 # subagent-driven-development scratch (progress ledger, task briefs, review packages)
 .superpowers/
 
@@ -25,5 +26,9 @@ CLAUDE.local.md
 .agents/
 
 # non-npm lockfiles are forbidden (npm-only repo)
+# npm is this project's package manager (AGENTS.md); package-lock.json is the committed lockfile.
+# Something on developer machines periodically runs pnpm here, and the stray lockfile has been
+# committed by accident. Detect contamination with `ls node_modules/.pnpm`, not by this file's
+# presence — it has been absent during at least one occurrence.
 pnpm-lock.yaml
 yarn.lock

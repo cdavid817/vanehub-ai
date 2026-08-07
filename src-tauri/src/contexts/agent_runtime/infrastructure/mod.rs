@@ -2,15 +2,13 @@ mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;
 mod availability;
+mod builtin_expert_roles;
 mod cli_profile;
 mod composite_process_gateway;
-mod coordination_executor;
-mod coordination_repository;
-mod coordination_scheduler;
-mod coordination_schema;
 mod core_instructions;
 mod credential_aware_registry;
 mod events;
+mod expert_role_repository;
 mod generation_coordinator;
 mod loop_execution_coordinator;
 mod loop_generation_completions;
@@ -36,6 +34,8 @@ mod prompt_gateway;
 pub(crate) mod providers;
 mod runtime_support;
 mod schema;
+mod seat_turn_completions;
+mod seat_turn_coordinator;
 mod sessions_gateway;
 mod skill_gateway;
 mod sqlite_repository;
@@ -49,15 +49,13 @@ mod tools;
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
+pub(crate) use builtin_expert_roles::builtin_expert_roles;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
-pub(crate) use coordination_executor::NativeCoordinationNodeExecutor;
-pub(crate) use coordination_repository::SqliteCoordinationRepository;
-pub(crate) use coordination_scheduler::NativeCoordinationScheduler;
-pub(crate) use coordination_schema::apply_coordination_schema;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
+pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
 pub(crate) use loop_generation_completions::InMemoryLoopRoleGenerationCompletions;
@@ -80,13 +78,16 @@ pub(crate) use process_adapter::{
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
     AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, SystemAgentRuntimeClock,
-    UuidCoordinationIds,
+    SystemExpertRoleClock, UuidExpertRoleIds,
 };
 pub(crate) use schema::{
     apply_agent_origin_schema, apply_agent_tool_trust_schema, apply_api_agent_schema,
-    apply_onepiece_provider_catalog_schema, apply_onepiece_provider_endpoint_schema,
-    apply_onepiece_provider_profiles_schema, apply_openai_compatible_schema, seed_registry,
+    apply_expert_role_schema, apply_onepiece_provider_catalog_schema,
+    apply_onepiece_provider_endpoint_schema, apply_onepiece_provider_profiles_schema,
+    apply_openai_compatible_schema, seed_registry,
 };
+pub(crate) use seat_turn_completions::InMemorySeatTurnCompletions;
+pub(crate) use seat_turn_coordinator::NativeSeatTurnCoordinator;
 pub(crate) use sessions_gateway::SessionsAgentRuntimeAdapter;
 pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;

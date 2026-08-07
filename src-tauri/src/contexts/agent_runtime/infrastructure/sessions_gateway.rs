@@ -93,6 +93,16 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         Ok(Some(AgentSession {
             id: session.id,
             agent_id: session.agent_id,
+            seats: session
+                .seats
+                .into_iter()
+                .map(
+                    |seat| crate::contexts::agent_runtime::application::AgentSessionSeat {
+                        agent_id: seat.agent_id,
+                        role_id: seat.role_id,
+                    },
+                )
+                .collect(),
             interaction_mode,
             lifecycle: AgentLifecycle::from_storage_lossy(&session.lifecycle),
             folder: session.folder,
@@ -111,6 +121,41 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         let validated = self
             .sessions
             .validate_chat_configuration(SessionChatConfiguration {
+                session_id: session.id.clone(),
+                agent_id: configuration.agent_id,
+                interaction_mode: configuration.interaction_mode.as_str().to_string(),
+                values: ChatConfigurationValues {
+                    permission_mode: configuration.permission_mode,
+                    provider_id: configuration.provider_id,
+                    model_id: configuration.model_id,
+                    reasoning_depth: configuration.reasoning_depth,
+                    streaming: configuration.streaming,
+                    thinking: configuration.thinking,
+                    long_context: configuration.long_context,
+                },
+            })
+            .map_err(session_error)?;
+        Ok(AgentChatConfiguration {
+            agent_id: validated.agent_id,
+            interaction_mode: InteractionMode::parse(&validated.interaction_mode)?,
+            permission_mode: validated.values.permission_mode,
+            provider_id: validated.values.provider_id,
+            model_id: validated.values.model_id,
+            reasoning_depth: validated.values.reasoning_depth,
+            streaming: validated.values.streaming,
+            thinking: validated.values.thinking,
+            long_context: validated.values.long_context,
+        })
+    }
+
+    fn validate_seat_configuration(
+        &self,
+        session: &AgentSession,
+        configuration: AgentChatConfiguration,
+    ) -> Result<AgentChatConfiguration, AgentRuntimeApplicationError> {
+        let validated = self
+            .sessions
+            .validate_seat_chat_configuration(SessionChatConfiguration {
                 session_id: session.id.clone(),
                 agent_id: configuration.agent_id,
                 interaction_mode: configuration.interaction_mode.as_str().to_string(),
@@ -160,6 +205,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         self.sessions
             .create_message(CreateMessageRequest {
                 session_id: message.session_id,
+                seat_index: message.seat_index,
                 role: message.role,
                 status: message.status,
                 content: message.content,
@@ -334,6 +380,7 @@ fn agent_message(message: RuntimeMessageSnapshot) -> AgentMessage {
     AgentMessage {
         id: message.id,
         session_id: message.session_id,
+        seat_index: message.seat_index,
         role: message.role,
         content: message.content,
         status: message.status,

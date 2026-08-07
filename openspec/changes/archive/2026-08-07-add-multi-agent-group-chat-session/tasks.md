@@ -1,0 +1,86 @@
+## 1. Expert Role Foundation
+
+- [x] 1.1 Define the expert role entity (id, display name, avatar, colour, responsibility, role instruction, Skill references, peer-review eligibility, cross-family preference) in shared types.
+- [x] 1.2 Add role persistence in the Rust SQLite layer with create, read, update, delete, and list.
+- [x] 1.3 Add the matching role methods to `AgentService` and implement them identically in the Tauri and Web/mock adapters. Tauri side invokes `list_expert_roles` / `save_expert_role` / `delete_expert_role`; those Rust commands land with task 1.2.
+- [x] 1.4 Seed built-in starter roles covering architecture, code review, and implementation, marked read-only but copyable.
+- [x] 1.5 Add validation rejecting a role without display name, responsibility, or instruction.
+
+## 2. Expert Role Settings Page
+
+- [x] 2.1 Add the Expert Roles settings page with list, create, edit, delete, and copy-from-built-in.
+- [x] 2.2 Add avatar and colour selection so roles are visually distinguishable in a thread.
+- [x] 2.3 Add the peer-review eligibility and cross-family preference controls.
+- [x] 2.4 Register the navigation entry between Agent configuration and skills per the settings-center-ui delta.
+- [x] 2.5 Add `expertRoles.*` keys to all five locales and confirm i18n parity.
+
+## 3. Model Family Normalization
+
+- [x] 3.1 Add a normalization mapping built-in Agents to model families and inferring families for custom API Agents from their endpoint type.
+- [x] 3.2 Expose the normalized family on the Agent registry projection consumed by seat assignment.
+- [x] 3.3 Unit-test that free-form `provider` values such as `"OpenAI"` normalize correctly and that unknown providers degrade to an explicit unknown family rather than a wrong one.
+
+## 4. Seats and Session Entity
+
+- [x] 4.1 Add an ordered seat list to the session in shared types, Rust domain, and both adapters, keeping the existing agent id as a mirror of the first seat. A hard replacement would touch ~148 frontend and ~138 native references; mirroring keeps every existing reader working and each commit reviewable. (Originally closed with only the SQLite column and the frontend types; the Rust model, DTO, and both adapters landed with task 7.2, which cannot route without a persisted roster.)
+- [x] 4.2 Add a migration presenting pre-seat sessions as one-seat sessions with no role, and test that no existing session becomes unreadable.
+- [x] 4.3 Enable the `multi` option in `SessionAgentModeSelector` and remove its coming-soon hint.
+- [x] 4.4 Add seat assignment to the create-session dialog: add and remove seats, pick role and Agent per seat, reject unavailable Agents.
+- [x] 4.5 Add cross-family reviewer recommendation with the open degradation notice when no cross-family Agent exists.
+
+## 5. Speaker Identity in the Thread
+
+- [x] 5.1 Add a speaker field to the chat message model across shared types, persistence, and both adapters. (Originally closed with only the frontend type; the `messages.seat_index` column, record field, and DTO landed with task 7.2.)
+- [x] 5.2 Extend `MessageItem` to render role avatar, role colour, and the `role · Agent` label, reusing its existing avatar slot and header row. (The component took a `speaker` prop from the start but nothing supplied it; `useSessionSpeakers` wires it into the thread with task 10.3.)
+- [x] 5.3 Mark a cross-family reviewer seat in its message header.
+- [x] 5.4 Verify single-seat sessions render exactly as they do today.
+
+## 6. Role and Roster Injection
+
+- [x] 6.1 Inject a seat's role instruction through the Agent CLI's native system-prompt channel, reusing existing CLI parameter plumbing. Composition and channel selection are done and tested; the remaining work is passing the composed text into `build_invocation` in `providers/invocation.rs`.
+- [x] 6.2 Inject the roster of other seats with their role names, mentions, and model families.
+- [x] 6.3 Fall back to per-turn injection when an Agent exposes no native channel, and surface on the seat that its role is not compaction-immune.
+- [x] 6.4 Feed prior turns by resuming the seat's provider session when one exists, and by injecting attributed prior replies within a per-seat context budget otherwise.
+
+## 7. Handoff Routing
+
+- [x] 7.1 Add mention parsing that strips fenced code blocks, matches only line-leading mentions, and filters self-mentions.
+- [x] 7.2 Route the turn to mentioned seats after a reply completes, serially, each seat seeing preceding replies. The sink delivers a `SeatTurnTerminal` through `SeatTurnCompletionPort`; `NativeSeatTurnCoordinator` drives one seat at a time on its own thread. Closing this required finishing tasks 4.1 and 5.1, which had only landed on the frontend — see the notes under those tasks.
+- [x] 7.3 Enforce maximum chain depth and maximum mentions per message, and surface why a chain ended.
+- [x] 7.4 Route a user message with no line-leading mention to the seat that most recently held the turn, falling back to the first seat.
+- [x] 7.5 Add `@` seat completion to the composer, showing role, Agent, and family, and making the line-leading rule discoverable.
+
+## 8. Human Turn Handling
+
+- [x] 8.1 Add the three handoff intents and their state effects: informational leaves the turn with the Agents, blocking transfers it to the human, completion ends the round.
+- [x] 8.2 Ensure an informational handoff raises no blocking prompt and does not disable the composer.
+- [x] 8.3 Stop invoking further seats once a blocking handoff or completion has occurred. The coordinator abandons the queue on `AwaitingHuman` and `RoundComplete`: seats still waiting were routed on the premise that the round would continue.
+- [x] 8.4 Accumulate and display the waiting duration for a paused round. The coordinator publishes the moment the pause began; the bar counts from there and ticks on its own, so the duration keeps moving without the backend republishing it.
+
+## 9. Turn Status Surface
+
+- [x] 9.1 Add the persistent turn-status bar showing the current holder, chain position against its limit, and waiting duration when paused.
+- [x] 9.2 Add the seats view to the session info panel showing each seat's role, Agent, family, and state, and let the user add or remove a seat there.
+- [x] 9.4 Add a service-boundary method for updating a running session's seats, implemented identically in both adapters, rejecting removal of the last seat and re-mirroring `agentId` onto the first remaining seat.
+- [x] 9.5 Give a seat added mid-session the preceding turns within its context budget, reusing the injection path from task 6.4, so it can act on work it did not witness. The coordinator builds every seat's prompt from the thread, attributed by speaker, so a seat that joins late reads the same history as one that was there from the start.
+- [x] 9.3 Confirm no control anywhere selects which seat speaks next.
+
+## 10. Workspace Tab Scoping
+
+- [x] 10.1 Add a scope declaration to each workspace tab.
+- [x] 10.2 Add the in-tab seat switcher to terminal transcript, Shell, and logs. (The component and `showsSeatSwitcher` shipped with the task but nothing rendered them; `SessionTabs` wires them in with task 11.5.)
+- [x] 10.3 Colour execution-trace entries by seat while keeping the tab session-scoped. Agent spans carry `vanehub.seat.index` and `vanehub.seat.mention`; the trace reads them and tints each span with the seat's role colour.
+- [x] 10.4 Hide seat switchers in single-seat sessions and confirm the tab count does not change with seats.
+
+## 11. Verification
+
+- [x] 11.1 Run `npm ci` first and confirm `node_modules/.pnpm` is absent, so build verification is trustworthy.
+- [x] 11.2 Run `npm run lint`, `npm run test`, and `npm run build`. — lint clean, 629/629, build clean.
+- [x] 11.3 Run `cargo test`, `cargo check`, and `cargo clippy --manifest-path src-tauri/Cargo.toml`. — 1312/1312, check clean, clippy clean.
+- [x] 11.4 Run `openspec validate add-multi-agent-group-chat-session --strict` and `openspec validate --specs --strict`. — both pass; specs 84/84.
+- [x] 11.5 Add E2E coverage for seat assignment and tab seat switching, run against a locally started dev server with `PLAYWRIGHT_PORT` pinned (4/4 pass). Handoff routing, the mention limits, and the three intents are deliberately **not** covered here: they are decided in the native turn coordinator, which the Web/mock adapter does not have, so an assertion would be testing the mock rather than the feature. Their coverage is `seat_turn_tests.rs` plus task 11.6.
+- [x] 11.6 Validate against real CLI Agents that they reliably emit line-leading mentions when given the roster; if they do not, revisit the roster wording before widening scope. **Partially verified — one vendor of three.**
+  - `codex-cli` ✅ — given `build_seat_briefing`'s output as `developer_instructions`, it put `@实现者` alone on its own line without being reminded. Its verbatim reply is now a regression fixture in `seat_turn.rs::routes_a_real_codex_cli_handoff`.
+  - `claude-code` ❌ blocked — the CLI returns `403 Request not allowed` on this machine, the same credential problem blocking `surface-cli-error-results` tasks 5.5/5.6.
+  - `gemini-cli` ❌ blocked — requires interactive browser authentication, which a headless run cannot complete.
+  - **The design.md risk is therefore reduced, not closed.** One vendor honouring the line-leading rule is evidence the briefing wording works; it is not evidence that all three do. Re-run this against `claude-code` and `gemini-cli` once their credentials work, before widening the feature's scope.

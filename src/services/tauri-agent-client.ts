@@ -53,11 +53,6 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
-  CoordinationRun,
-  StartCoordinationInput,
-  StartCoordinationResult,
-} from "../types/coordination";
-import type {
   ContinueLoopInput,
   LoopDefinition,
   LoopEvent,
@@ -117,6 +112,7 @@ import type { ProviderCredentialValidationResult } from "../types/provider-crede
 import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
+import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -300,20 +296,16 @@ export const tauriAgentClient: AgentService = {
     return invoke<CliConfigApplyResult>("apply_cli_config_profile", { input });
   },
 
-  startCoordination(input: StartCoordinationInput) {
-    return invoke<StartCoordinationResult>("start_coordination", { input });
+  listExpertRoles() {
+    return invoke<ExpertRole[]>("list_expert_roles");
   },
 
-  listCoordinationRuns() {
-    return invoke<CoordinationRun[]>("list_coordination_runs");
+  saveExpertRole(input: SaveExpertRoleInput) {
+    return invoke<ExpertRole>("save_expert_role", { input });
   },
 
-  getCoordinationRun(runId: string) {
-    return invoke<CoordinationRun>("get_coordination_run", { runId });
-  },
-
-  cancelCoordinationRun(runId: string) {
-    return invoke<CoordinationRun>("cancel_coordination_run", { runId });
+  deleteExpertRole(roleId: string) {
+    return invoke<void>("delete_expert_role", { roleId });
   },
 
   getAgentById(agentId) {

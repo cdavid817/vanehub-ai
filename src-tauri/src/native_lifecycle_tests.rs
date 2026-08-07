@@ -103,6 +103,7 @@ impl LifecycleHarness {
             .sessions
             .prepare_creation(NewSessionRequest {
                 agent_id: "codex-cli".to_string(),
+                seats: Vec::new(),
                 interaction_mode: "cli".to_string(),
                 title: Some("Lifecycle integration".to_string()),
                 workspace: NewSessionWorkspace {

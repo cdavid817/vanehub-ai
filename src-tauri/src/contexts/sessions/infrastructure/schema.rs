@@ -26,3 +26,37 @@ pub(crate) fn apply_loop_ownership_schema(
     )?;
     Ok(())
 }
+
+/// Seats are stored as a JSON list on the session rather than in a joined table: `SESSION_SELECT`
+/// is the hot path for list, search, and get, and a join there would cost every read for a feature
+/// most sessions do not use. Existing rows default to `[]`, which readers present as the one-seat
+/// case built from `agent_id`.
+/// Which seat spoke a message, so a thread can attribute its replies.
+///
+/// Nullable rather than defaulted: a user message has no seat, and neither do the messages of every
+/// session that predates seats. A default of 0 would attribute all of them to the first seat.
+pub(crate) fn apply_message_speaker_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    if !crate::platform::database::table_has_column(connection, "messages", "seat_index")? {
+        connection.execute("ALTER TABLE messages ADD COLUMN seat_index INTEGER", [])?;
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_session_seat_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    let mut statement = connection.prepare("PRAGMA table_info(sessions)")?;
+    let existing: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .collect();
+    if !existing.iter().any(|column| column == "seats") {
+        connection.execute(
+            "ALTER TABLE sessions ADD COLUMN seats TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )?;
+    }
+    Ok(())
+}

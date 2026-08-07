@@ -21,7 +21,6 @@ pub(crate) enum AgentRuntimeApplicationError {
     Process(String),
     Operation(String),
     Loop(String),
-    Coordination(String),
     VerificationPolicy(String),
     VerificationProcess(String),
     Logging(String),
@@ -68,9 +67,6 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Process(message) => write!(formatter, "agent process error: {message}"),
             Self::Operation(message) => write!(formatter, "agent operation error: {message}"),
             Self::Loop(message) => write!(formatter, "Loop runtime error: {message}"),
-            Self::Coordination(message) => {
-                write!(formatter, "Multi-Agent coordination error: {message}")
-            }
             Self::VerificationPolicy(message) => {
                 write!(
                     formatter,

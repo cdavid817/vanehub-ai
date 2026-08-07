@@ -7,23 +7,24 @@ use super::{
     AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
     AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView,
     ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot,
-    CompleteAgentMessage, DiscoverOnePieceProviderModelsInput, EffectivePrompt,
-    EffectivePromptGateway, EmbeddingEndpointView, GenerationLease, GenerationProcessEvent,
-    GenerationProcessRequest, LaunchWorkflowResult, LoopGenerationControlPort,
-    LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome, LoopRoleGenerationTerminal,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
+    EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView, GenerationLease,
+    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
+    MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
     PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartedAgentMessage,
-    StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent, ToolLifecyclePhase,
-    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchRequest,
-    WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
+    StartedAgentMessage, StopGenerationResult, StoredOnePieceProviderConfig,
+    StoredOnePieceProviderProfile, ToolApprovalDecision, ToolApprovalPort, ToolLifecycleEvent,
+    ToolLifecyclePhase, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
@@ -87,6 +88,9 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) execution_settings: Arc<dyn ExecutionSettingsPort>,
     pub(crate) telemetry: Arc<dyn ExecutionTelemetryPort>,
     pub(crate) loop_completions: Arc<dyn LoopRoleGenerationCompletionPort>,
+    pub(crate) seat_completions: Arc<dyn SeatTurnCompletionPort>,
+    pub(crate) expert_roles: Arc<dyn super::ExpertRolePort>,
+    pub(crate) history: Arc<dyn ConversationHistoryPort>,
     pub(crate) message_completions: Arc<dyn AgentMessageTerminalCompletionPort>,
     pub(crate) api_agents: Arc<dyn ApiAgentGateway>,
     pub(crate) api_credentials: Arc<dyn ApiCredentialPort>,
@@ -99,14 +103,20 @@ pub(crate) struct AgentRuntimeApplicationPorts {
 
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationService {
-    ports: AgentRuntimeApplicationPorts,
+    pub(super) ports: AgentRuntimeApplicationPorts,
 }
 
-struct MessageGenerationInput {
-    source: super::AgentMessageSource,
-    configuration: AgentChatConfiguration,
-    content: String,
-    file_references: Vec<super::AgentFileReference>,
+pub(super) struct MessageGenerationInput {
+    pub(super) source: super::AgentMessageSource,
+    pub(super) configuration: AgentChatConfiguration,
+    pub(super) content: String,
+    pub(super) file_references: Vec<super::AgentFileReference>,
+    /// A multi-seat session's role briefing, placed in the CLI's own system-prompt channel.
+    pub(super) role_briefing: Option<String>,
+    pub(super) seat_ownership: Option<super::SeatTurnOwnership>,
+    /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
+    /// would put words the human never typed into the thread under their name.
+    pub(super) record_user_message: bool,
 }
 
 struct GenerationFailure {
@@ -167,6 +177,13 @@ fn normalize_api_provider_config(
 impl AgentRuntimeApplicationService {
     pub(crate) fn new(ports: AgentRuntimeApplicationPorts) -> Self {
         Self { ports }
+    }
+
+    pub(crate) fn take_seat_turn_completion(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SeatTurnTerminal>, AgentRuntimeApplicationError> {
+        self.ports.seat_completions.take_for_session(session_id)
     }
 
     #[cfg(test)]
@@ -1416,6 +1433,9 @@ impl AgentRuntimeApplicationService {
                 configuration,
                 content,
                 file_references: request.file_references,
+                role_briefing: None,
+                seat_ownership: None,
+                record_user_message: true,
             },
             &lease,
         );
@@ -1428,7 +1448,7 @@ impl AgentRuntimeApplicationService {
         result.map(|message| (message, terminal))
     }
 
-    fn start_message_generation(
+    pub(super) fn start_message_generation(
         &self,
         session: &AgentSession,
         agent: &AgentDefinition,
@@ -1440,6 +1460,9 @@ impl AgentRuntimeApplicationService {
             configuration,
             content,
             file_references,
+            role_briefing,
+            seat_ownership,
+            record_user_message,
         } = input;
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
@@ -1557,25 +1580,33 @@ impl AgentRuntimeApplicationService {
             &self.ports.clock.now(),
             None,
         );
-        let user_message = match self.ports.sessions.create_message(NewAgentMessage {
-            session_id: session.id.clone(),
-            role: "user".to_string(),
-            status: "completed".to_string(),
-            content,
-            file_references,
-        }) {
-            Ok(message) => message,
-            Err(error) => {
-                self.finish_execution_root(
-                    &root_context,
-                    ExecutionStatus::Failed,
-                    Some("user_message_persistence_failed"),
-                );
-                return Err(error);
+        let user_message = if record_user_message {
+            match self.ports.sessions.create_message(NewAgentMessage {
+                session_id: session.id.clone(),
+                seat_index: None,
+                role: "user".to_string(),
+                status: "completed".to_string(),
+                content,
+                file_references,
+            }) {
+                Ok(message) => Some(message),
+                Err(error) => {
+                    self.finish_execution_root(
+                        &root_context,
+                        ExecutionStatus::Failed,
+                        Some("user_message_persistence_failed"),
+                    );
+                    return Err(error);
+                }
             }
+        } else {
+            None
         };
         let assistant = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
+            seat_index: seat_ownership
+                .as_ref()
+                .map(|ownership| ownership.seat_index),
             role: "assistant".to_string(),
             status: "streaming".to_string(),
             content: String::new(),
@@ -1611,7 +1642,7 @@ impl AgentRuntimeApplicationService {
                 );
             }
         };
-        run.user_message_id = Some(user_message.id);
+        run.user_message_id = user_message.map(|message| message.id);
         run.assistant_message_id = Some(assistant.id.clone());
         run.operation_id = Some(operation.id.clone());
         let _ = self.ports.telemetry.start_run(&run);
@@ -1866,6 +1897,18 @@ impl AgentRuntimeApplicationService {
                 SafeAttributeValue::String(model_id.clone()),
             ));
         }
+        // The trace stays session-scoped and shows a whole round including the handoffs between
+        // seats, so it has to say which seat each Agent span belongs to.
+        if let Some(ownership) = &seat_ownership {
+            agent_attributes.push((
+                "vanehub.seat.index".to_string(),
+                SafeAttributeValue::String(ownership.seat_index.to_string()),
+            ));
+            agent_attributes.push((
+                "vanehub.seat.mention".to_string(),
+                SafeAttributeValue::String(ownership.seat_mention.clone()),
+            ));
+        }
         let agent_span = ExecutionSpan {
             context: agent_context.clone(),
             parent_span_id: Some(root_context.span_id.clone()),
@@ -1890,6 +1933,8 @@ impl AgentRuntimeApplicationService {
                 operation_id: operation.id.clone(),
                 configuration: configuration.clone(),
                 effective_prompt: effective_prompt.content,
+                // Single-Agent sessions carry no briefing, so their invocation is unchanged.
+                role_briefing: role_briefing.clone(),
                 cli_profile: profile,
             }) {
             Ok(started) => started,
@@ -1969,6 +2014,7 @@ impl AgentRuntimeApplicationService {
                 root_context: root_context.clone(),
                 agent_context: agent_context.clone(),
                 loop_ownership: session.loop_ownership.clone(),
+                seat_ownership,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
                 is_cli_kind: agent.launch().kind_str() == "cli",
@@ -2226,7 +2272,7 @@ impl AgentRuntimeApplicationService {
         Ok(())
     }
 
-    fn require_agent(
+    pub(super) fn require_agent(
         &self,
         agent_id: &str,
     ) -> Result<AgentDefinition, AgentRuntimeApplicationError> {
@@ -2236,7 +2282,7 @@ impl AgentRuntimeApplicationService {
             .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))
     }
 
-    fn require_session(
+    pub(super) fn require_session(
         &self,
         session_id: &str,
     ) -> Result<AgentSession, AgentRuntimeApplicationError> {
@@ -2330,6 +2376,7 @@ struct GenerationEventHandler {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
     /// `add-cli-memory-support` — gates the post-completion memory-extraction attempt to
@@ -2352,6 +2399,7 @@ struct GenerationEventHandlerInput {
     root_context: ExecutionContext,
     agent_context: ExecutionContext,
     loop_ownership: Option<super::LoopRoleGenerationOwnership>,
+    seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
     is_cli_kind: bool,
@@ -2431,6 +2479,7 @@ impl GenerationEventHandler {
             root_context: input.root_context,
             agent_context: input.agent_context,
             loop_ownership: input.loop_ownership,
+            seat_ownership: input.seat_ownership,
             prompt_versions: input.prompt_versions,
             prompt_started_at: input.prompt_started_at,
             is_cli_kind: input.is_cli_kind,
@@ -2649,7 +2698,13 @@ impl GenerationEventHandler {
         let Some(response) = self.begin_terminal()? else {
             return Ok(());
         };
+        let reply = response.clone();
         let result = self.complete_claimed(response, usage);
+        if result.is_ok() {
+            // Delivered only after the reply is persisted: the coordinator reads the thread to build
+            // the next seat's context, and would otherwise race a message that is not there yet.
+            self.deliver_seat_turn(Some(reply));
+        }
         if result.is_err() {
             self.record_prompt_execution(PromptExecutionOutcome::Failed);
             self.finish_execution(
@@ -2854,6 +2909,9 @@ impl GenerationEventHandler {
             return Ok(());
         }
         self.record_log(AgentLogLevel::Error, diagnostic);
+        // A failed turn hands off nothing, but the coordinator still has to learn the round ended —
+        // otherwise a chain waits forever on a seat that already gave up.
+        self.deliver_seat_turn(None);
         self.ports
             .sessions
             .fail_message(&self.message_id, &self.session_id, safe_error)?;
@@ -2919,6 +2977,24 @@ impl GenerationEventHandler {
                 error,
             })?;
         Ok(())
+    }
+
+    /// Reports a finished seat turn so the coordinator can route the next one.
+    ///
+    /// Failures deliver `None`: a turn that did not produce a reply has nothing to hand off, so the
+    /// chain stops rather than routing on an empty string.
+    fn deliver_seat_turn(&self, reply: Option<String>) {
+        let Some(ownership) = &self.seat_ownership else {
+            return;
+        };
+        let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
+            session_id: self.session_id.clone(),
+            message_id: self.message_id.clone(),
+            seat_index: ownership.seat_index,
+            seat_mention: ownership.seat_mention.clone(),
+            depth: ownership.depth,
+            reply,
+        });
     }
 
     fn current_message(&self) -> Result<AgentMessage, AgentRuntimeApplicationError> {

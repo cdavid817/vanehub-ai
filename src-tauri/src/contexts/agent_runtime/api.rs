@@ -5,11 +5,10 @@
 //! terminals, loop engineering, and durable Multi-Agent runs.
 
 use super::application::{
-    AgentRuntimeApplicationService, AgentTerminalApplicationService,
-    CoordinationApplicationService, LoopApplicationService, LoopControlApplicationService,
-    LoopRecoveryApplicationService, StartCoordinationRequest, StartCoordinationResultView,
+    AgentRuntimeApplicationService, AgentTerminalApplicationService, ExpertRoleApplicationService,
+    LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
 };
-use super::infrastructure::{NativeCoordinationScheduler, NativeLoopScheduler};
+use super::infrastructure::{NativeLoopScheduler, NativeSeatTurnCoordinator};
 
 pub(crate) use super::application::{
     AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
@@ -28,11 +27,22 @@ pub(crate) use super::application::{
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, CoordinationAttempt, CoordinationAttemptStatus,
-    CoordinationCandidateRole, CoordinationFailureKind, CoordinationNodeInput, CoordinationNodeRun,
-    CoordinationNodeStatus, CoordinationOutput, CoordinationRun, CoordinationRunStatus,
-    InteractionMode, LoopLimits, LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits,
+    LoopVerificationCommand,
 };
+
+/// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
+/// positional argument list nobody can read.
+pub(crate) struct AgentRuntimeApiServices {
+    pub(crate) service: AgentRuntimeApplicationService,
+    pub(crate) terminal_service: AgentTerminalApplicationService,
+    pub(crate) loops: LoopApplicationService,
+    pub(crate) loop_controls: LoopControlApplicationService,
+    pub(crate) loop_recovery: LoopRecoveryApplicationService,
+    pub(crate) loop_scheduler: NativeLoopScheduler,
+    pub(crate) expert_roles: ExpertRoleApplicationService,
+    pub(crate) seat_turns: NativeSeatTurnCoordinator,
+}
 
 #[derive(Clone)]
 /// In-process Agent Runtime boundary assembled by bootstrap.
@@ -46,21 +56,22 @@ pub(crate) struct AgentRuntimeApi {
     loop_controls: LoopControlApplicationService,
     loop_recovery: LoopRecoveryApplicationService,
     loop_scheduler: NativeLoopScheduler,
-    coordination: CoordinationApplicationService,
-    coordination_scheduler: NativeCoordinationScheduler,
+    seat_turns: NativeSeatTurnCoordinator,
+    expert_roles: ExpertRoleApplicationService,
 }
 
 impl AgentRuntimeApi {
-    pub(crate) fn new(
-        service: AgentRuntimeApplicationService,
-        terminal_service: AgentTerminalApplicationService,
-        loops: LoopApplicationService,
-        loop_controls: LoopControlApplicationService,
-        loop_recovery: LoopRecoveryApplicationService,
-        loop_scheduler: NativeLoopScheduler,
-        coordination_runtime: (CoordinationApplicationService, NativeCoordinationScheduler),
-    ) -> Self {
-        let (coordination, coordination_scheduler) = coordination_runtime;
+    pub(crate) fn new(services: AgentRuntimeApiServices) -> Self {
+        let AgentRuntimeApiServices {
+            service,
+            terminal_service,
+            loops,
+            loop_controls,
+            loop_recovery,
+            loop_scheduler,
+            expert_roles,
+            seat_turns,
+        } = services;
         Self {
             service,
             terminal_service,
@@ -68,48 +79,30 @@ impl AgentRuntimeApi {
             loop_controls,
             loop_recovery,
             loop_scheduler,
-            coordination,
-            coordination_scheduler,
+            expert_roles,
+            seat_turns,
         }
     }
 
-    pub(crate) fn start_coordination(
+    pub(crate) fn list_expert_roles(
         &self,
-        request: StartCoordinationRequest,
-    ) -> Result<StartCoordinationResultView, AgentRuntimeApplicationError> {
-        let result = self.coordination.start(request)?;
-        self.coordination_scheduler.schedule(&result.run_id)?;
-        Ok(result)
+    ) -> Result<Vec<ExpertRole>, AgentRuntimeApplicationError> {
+        self.expert_roles.list()
     }
 
-    pub(crate) fn list_coordination_runs(
+    pub(crate) fn save_expert_role(
         &self,
-    ) -> Result<Vec<CoordinationRun>, AgentRuntimeApplicationError> {
-        self.coordination.list()
+        role_id: Option<String>,
+        input: ExpertRoleInput,
+    ) -> Result<ExpertRole, AgentRuntimeApplicationError> {
+        self.expert_roles.save(role_id, input)
     }
 
-    pub(crate) fn get_coordination_run(
+    pub(crate) fn delete_expert_role(
         &self,
-        run_id: &str,
-    ) -> Result<CoordinationRun, AgentRuntimeApplicationError> {
-        self.coordination.get(run_id)
-    }
-
-    pub(crate) fn cancel_coordination_run(
-        &self,
-        run_id: &str,
-    ) -> Result<CoordinationRun, AgentRuntimeApplicationError> {
-        self.coordination.cancel(run_id)
-    }
-
-    pub(crate) fn reconcile_coordination_startup(
-        &self,
-    ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
-        let recovered = self.coordination.recover_startup()?;
-        for run_id in &recovered {
-            self.coordination_scheduler.schedule(run_id)?;
-        }
-        Ok(recovered)
+        role_id: &str,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        self.expert_roles.delete(role_id)
     }
 
     pub(crate) fn list_loop_definitions(
@@ -440,7 +433,13 @@ impl AgentRuntimeApi {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message(request)
+        let session_id = request.session_id.clone();
+        let message = self.service.send_message(request)?;
+        // A single-seat session has nobody to hand off to, so it never pays for a coordinator.
+        if self.service.is_multi_seat_session(&session_id) {
+            self.seat_turns.schedule(&session_id)?;
+        }
+        Ok(message)
     }
 
     pub(crate) fn send_message_with_completion(

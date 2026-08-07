@@ -204,9 +204,6 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     } = super::assemble_retrieval(database.clone(), agent_runtime_api.clone());
     deferred_retrieval.bind(retrieval_api.clone());
     agent_runtime_api
-        .reconcile_coordination_startup()
-        .map_err(boxed_message)?;
-    agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
     session_runtime_adapter

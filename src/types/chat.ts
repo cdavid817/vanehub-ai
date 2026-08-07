@@ -1,3 +1,4 @@
+import type { TurnStatusEvent } from "../services/turn-status";
 import type { InteractionMode } from "./agent";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
@@ -210,6 +211,11 @@ export interface ChatMessage {
   id: string;
   sessionId: string;
   role: MessageRole;
+  /**
+   * Index of the seat that spoke this message. Absent for user messages, for messages that predate
+   * seats, and for single-seat sessions, which keep their original rendering.
+   */
+  seatIndex?: number;
   content: string;
   status: MessageStatus;
   toolUse?: ToolUseBlock[];
@@ -230,7 +236,8 @@ export type ChatStreamEvent =
   | { type: "rich_block"; sessionId: string; messageId: string; block: RichBlock }
   | { type: "completed"; sessionId: string; messageId: string; tokenUsage?: TokenUsage }
   | { type: "failed"; sessionId: string; messageId: string; error: string }
-  | { type: "cancelled"; sessionId: string; messageId: string };
+  | { type: "cancelled"; sessionId: string; messageId: string }
+  | { type: "turn_status"; sessionId: string; status: TurnStatusEvent };
 
 export interface SendMessageInput {
   sessionId: string;

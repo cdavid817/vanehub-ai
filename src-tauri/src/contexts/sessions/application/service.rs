@@ -17,7 +17,8 @@ use super::{
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
     FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
-    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat,
+    SessionTitle,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -99,6 +100,7 @@ impl SessionsApplicationService {
         let role = request.role;
         self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
+            seats: Vec::new(),
             interaction_mode: request.interaction_mode,
             title: Some(format!("Loop {}", role.as_str())),
             workspace: SessionWorkspace {
@@ -175,6 +177,7 @@ impl SessionsApplicationService {
         let workspace = self.prepare_new_session_workspace(&request.workspace)?;
         self.create_session_record(CreateSessionRequest {
             agent_id: request.agent_id,
+            seats: request.seats,
             interaction_mode: request.interaction_mode,
             title: request.title,
             workspace,
@@ -311,9 +314,18 @@ impl SessionsApplicationService {
             request.owner,
         );
         let now = self.ports.clock.now();
+        let seats = if request.seats.is_empty() {
+            vec![SessionSeat {
+                agent_id: request.agent_id.clone(),
+                role_id: None,
+            }]
+        } else {
+            request.seats
+        };
         let record = SessionRecord {
             aggregate,
             agent_id: request.agent_id,
+            seats,
             interaction_mode: request.interaction_mode,
             workspace: request.workspace,
             runtime_session_id: None,
@@ -557,6 +569,37 @@ impl SessionsApplicationService {
         Ok(configuration_from_preferences(&session, &preferences))
     }
 
+    /// Normalizes a chat configuration against the Agent it names rather than the session's.
+    ///
+    /// A seat runs its own Agent, so normalizing against the session's — which mirrors only the
+    /// first seat — would hand every other seat the wrong model defaults, silently.
+    pub(crate) fn validate_seat_chat_configuration(
+        &self,
+        configuration: SessionChatConfiguration,
+    ) -> Result<SessionChatConfiguration, SessionsApplicationError> {
+        let session = self.load_session(&configuration.session_id)?;
+        if !session
+            .seats
+            .iter()
+            .any(|seat| seat.agent_id == configuration.agent_id)
+        {
+            return Err(SessionsApplicationError::Validation(format!(
+                "Agent '{}' holds no seat in this session.",
+                configuration.agent_id
+            )));
+        }
+        let preferences = normalize_chat_preferences(
+            &configuration.agent_id,
+            configuration.values.as_domain_request(),
+        )?;
+        Ok(SessionChatConfiguration {
+            session_id: configuration.session_id,
+            agent_id: configuration.agent_id,
+            interaction_mode: configuration.interaction_mode,
+            values: super::ChatConfigurationValues::from_preferences(&preferences),
+        })
+    }
+
     pub(crate) fn find_session(
         &self,
         session_id: &str,
@@ -655,6 +698,7 @@ impl SessionsApplicationService {
         let now = self.ports.clock.now();
         self.ports.messages.insert(&MessageRecord {
             message,
+            seat_index: request.seat_index,
             content,
             thinking_content: None,
             tool_use: None,

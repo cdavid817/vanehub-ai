@@ -218,6 +218,7 @@ impl CommunicationsSessionBindingPort for CommunicationsSessionBindingAdapter {
             .sessions
             .prepare_creation(NewSessionRequest {
                 agent_id: routing.agent_id.clone(),
+                seats: Vec::new(),
                 interaction_mode: InteractionMode::Cli.as_str().to_string(),
                 title: Some(format!("{} IM", key.connector().as_str())),
                 workspace: NewSessionWorkspace {

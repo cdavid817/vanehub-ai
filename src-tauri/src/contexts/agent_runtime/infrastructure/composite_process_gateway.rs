@@ -9,7 +9,7 @@ const API_PROCESS_PREFIX: &str = "agent-api-process-";
 
 /// Routes `AgentProcessGateway` calls to the CLI subprocess adapter or the direct-API adapter
 /// based on the target agent's `launch_kind`. Both adapters implement this one port, so session
-/// creation, multi-agent coordination, and the application service need no per-launch-kind
+/// creation and the application service need no per-launch-kind
 /// branching of their own — this is the only place that knows two implementations exist.
 #[derive(Clone)]
 pub(crate) struct CompositeAgentProcessGateway {

@@ -235,6 +235,7 @@ fn persist_terminal_usage(
                 sessions
                     .create_message(NewAgentMessage {
                         session_id: session_id.to_string(),
+                        seat_index: None,
                         role: "assistant".to_string(),
                         status: "completed".to_string(),
                         content: String::new(),
@@ -616,6 +617,17 @@ mod tests {
             unimplemented!("not exercised by terminal usage ingestion tests")
         }
 
+        fn validate_seat_configuration(
+            &self,
+            _session: &crate::contexts::agent_runtime::application::AgentSession,
+            _configuration: crate::contexts::agent_runtime::application::AgentChatConfiguration,
+        ) -> Result<
+            crate::contexts::agent_runtime::application::AgentChatConfiguration,
+            AgentRuntimeApplicationError,
+        > {
+            unimplemented!("not exercised by terminal usage ingestion tests")
+        }
+
         fn compose_prompt(
             &self,
             _session_id: &str,
@@ -633,6 +645,7 @@ mod tests {
             Ok(AgentMessage {
                 id: "placeholder-message".to_string(),
                 session_id: message.session_id,
+                seat_index: None,
                 role: message.role,
                 content: message.content,
                 status: message.status,
@@ -710,6 +723,7 @@ mod tests {
             Ok(AgentMessage {
                 id: message.message_id,
                 session_id: message.session_id,
+                seat_index: None,
                 role: "assistant".to_string(),
                 content: message.content,
                 status: "completed".to_string(),

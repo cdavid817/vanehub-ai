@@ -1,6 +1,7 @@
 use crate::contexts::sessions::domain::{
     ChatConfigurationRequest, ChatPreferences, FileReferenceSet, LoopSessionRole,
     SessionActivation, SessionAggregate, SessionCategory, SessionMessage, SessionOwner,
+    SessionSeat,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -66,6 +67,9 @@ pub(crate) struct SessionRemoteWorkspace {
 pub(crate) struct SessionRecord {
     pub(crate) aggregate: SessionAggregate,
     pub(crate) agent_id: String,
+    /// Ordered participants. `agent_id` mirrors the first seat, which is what lets the readers
+    /// that predate seats keep working unchanged.
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) workspace: SessionWorkspace,
     pub(crate) runtime_session_id: Option<String>,
@@ -83,6 +87,7 @@ impl SessionRecord {
 pub(crate) struct RuntimeSessionSnapshot {
     pub(crate) id: String,
     pub(crate) agent_id: String,
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) lifecycle: String,
     pub(crate) folder: Option<String>,
@@ -96,6 +101,7 @@ impl RuntimeSessionSnapshot {
         Self {
             id: record.id().to_string(),
             agent_id: record.agent_id.clone(),
+            seats: record.seats.clone(),
             interaction_mode: record.interaction_mode.clone(),
             lifecycle: record.aggregate.lifecycle().as_str().to_string(),
             folder: record.workspace.folder.clone(),
@@ -109,6 +115,7 @@ impl RuntimeSessionSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CreateSessionRequest {
     pub(crate) agent_id: String,
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) title: Option<String>,
     pub(crate) workspace: SessionWorkspace,
@@ -119,6 +126,9 @@ pub(super) struct CreateSessionRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NewSessionRequest {
     pub(crate) agent_id: String,
+    /// Empty for a single-Agent session, which the record normalizes to one seat built from
+    /// `agent_id`.
+    pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: String,
     pub(crate) title: Option<String>,
     pub(crate) workspace: NewSessionWorkspace,
@@ -261,6 +271,7 @@ pub(crate) struct FileReferenceInput {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CreateMessageRequest {
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,
@@ -277,6 +288,8 @@ pub(crate) struct MessageTokenUsage {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MessageRecord {
     pub(crate) message: SessionMessage,
+    /// Which seat spoke this. `None` for a user message and for anything predating seats.
+    pub(crate) seat_index: Option<usize>,
     pub(crate) content: String,
     pub(crate) thinking_content: Option<String>,
     pub(crate) tool_use: Option<Vec<Value>>,
@@ -300,6 +313,7 @@ pub(crate) struct RuntimeFileReferenceSnapshot {
 pub(crate) struct RuntimeMessageSnapshot {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,
@@ -318,6 +332,7 @@ impl RuntimeMessageSnapshot {
         Self {
             id: record.message.id().as_str().to_string(),
             session_id: record.message.session_id().as_str().to_string(),
+            seat_index: record.seat_index,
             role: record.message.role().as_str().to_string(),
             status: record.message.status().as_str().to_string(),
             content: record.content.clone(),

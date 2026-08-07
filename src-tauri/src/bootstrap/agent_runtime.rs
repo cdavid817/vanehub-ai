@@ -1,9 +1,9 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
-use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
     AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
-    AgentTerminalApplicationPorts, AgentTerminalApplicationService, CoordinationApplicationPorts,
-    CoordinationApplicationService, LoopApplicationPorts, LoopApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, ExpertRoleApplicationPorts,
+    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
     LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
     LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
     LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
@@ -11,20 +11,20 @@ use crate::contexts::agent_runtime::application::{
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
-    AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
-    CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
+    builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
+    CompositeAgentProcessGateway, CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    NativeAgentCoreInstructionsAdapter, NativeCoordinationNodeExecutor,
-    NativeCoordinationScheduler, NativeLoopScheduler, OsApiCredentialAdapter,
-    PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
-    RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
-    RuntimeAgentMemoryExtractionAdapter, RuntimeAgentPersonalizationAdapter,
-    RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
-    SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository,
-    SqliteCoordinationRepository, SqliteLoopRepository, StructuredLoopVerificationProcess,
-    SystemAgentRuntimeClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UuidCoordinationIds, WorkspaceLoopProjectAdapter,
+    InMemorySeatTurnCompletions, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    NativeSeatTurnCoordinator, OsApiCredentialAdapter, PermissionsPortAdapter,
+    PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
+    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -216,6 +216,12 @@ pub(crate) fn assemble_agent_runtime_api(
         std::env::temp_dir().join("vanehub-agent-terminal-wrappers"),
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());
+    let seat_completions = Arc::new(InMemorySeatTurnCompletions::default());
+    // Shared with the expert role service below: the roster a seat is briefed with reads the same
+    // roles the settings page writes, so a role edited mid-session takes effect on the next turn.
+    let expert_role_repository = Arc::new(SqliteExpertRoleRepository::new(
+        dependencies.database.clone(),
+    ));
     let service = AgentRuntimeApplicationService::new(AgentRuntimeApplicationPorts {
         registry: registry.clone(),
         workflows: repository.clone(),
@@ -232,6 +238,9 @@ pub(crate) fn assemble_agent_runtime_api(
         execution_settings: timeline.clone(),
         telemetry: telemetry.clone(),
         loop_completions: loop_completions.clone(),
+        seat_completions: seat_completions.clone(),
+        expert_roles: expert_role_repository.clone(),
+        history: sessions.clone(),
         message_completions: Arc::new(InMemoryAgentMessageTerminalCompletions::default()),
         api_agents: repository.clone(),
         api_credentials: api_credentials.clone(),
@@ -251,25 +260,12 @@ pub(crate) fn assemble_agent_runtime_api(
         events: events.clone(),
         terminal_events: events,
     });
-    let coordination_repository = Arc::new(SqliteCoordinationRepository::new(
-        dependencies.database.clone(),
-    ));
-    let coordination = CoordinationApplicationService::new(CoordinationApplicationPorts {
-        repository: coordination_repository,
-        registry: registry.clone(),
-        executor: Arc::new(NativeCoordinationNodeExecutor::new(
-            registry.clone(),
-            cli_profiles.clone(),
-            processes,
-            execution_ids,
-            telemetry,
-        )),
-        ids: Arc::new(UuidCoordinationIds),
-        operations: operations.clone(),
-        logging: logging.clone(),
-        clock: clock.clone(),
+    let expert_roles = ExpertRoleApplicationService::new(ExpertRoleApplicationPorts {
+        repository: expert_role_repository,
+        clock: Arc::new(SystemExpertRoleClock),
+        ids: Arc::new(UuidExpertRoleIds),
+        builtins: builtin_expert_roles(),
     });
-    let coordination_scheduler = NativeCoordinationScheduler::new(coordination.clone());
     let loop_repository = Arc::new(SqliteLoopRepository::new(dependencies.database));
     let loop_projects = Arc::new(WorkspaceLoopProjectAdapter::new(dependencies.workspaces));
     let loop_execution = Arc::new(InMemoryLoopExecutionCoordinator::default());
@@ -331,16 +327,18 @@ pub(crate) fn assemble_agent_runtime_api(
         clock,
     });
     let loop_scheduler = NativeLoopScheduler::new((*loop_execution).clone(), loop_orchestrator);
+    let seat_turns = NativeSeatTurnCoordinator::new(service.clone());
     AgentRuntimeAssembly {
-        api: AgentRuntimeApi::new(
+        api: AgentRuntimeApi::new(AgentRuntimeApiServices {
             service,
             terminal_service,
             loops,
             loop_controls,
             loop_recovery,
             loop_scheduler,
-            (coordination, coordination_scheduler),
-        ),
+            expert_roles,
+            seat_turns,
+        }),
         telemetry_lifecycle,
     }
 }

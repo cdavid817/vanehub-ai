@@ -11,7 +11,7 @@ pub(crate) use super::application::{
     SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{
-    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner,
+    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner, SessionSeat,
 };
 use serde_json::Value;
 
@@ -169,6 +169,13 @@ impl SessionsApi {
         configuration: SessionChatConfiguration,
     ) -> Result<SessionChatConfiguration, SessionsError> {
         self.service.validate_chat_configuration(configuration)
+    }
+
+    pub(crate) fn validate_seat_chat_configuration(
+        &self,
+        configuration: SessionChatConfiguration,
+    ) -> Result<SessionChatConfiguration, SessionsError> {
+        self.service.validate_seat_chat_configuration(configuration)
     }
 
     pub(crate) fn runtime_session(

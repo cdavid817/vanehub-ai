@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { MessageSpeaker } from "../../services/message-speaker";
 import type { ChatMessage } from "../../types/chat";
 import { MessageItem } from "./MessageItem";
 import { ScrollControl } from "./ScrollControl";
@@ -14,11 +15,14 @@ export function MessageList({
   hasMore,
   messages,
   onLoadEarlier,
+  speakers,
 }: {
   hasActiveSession: boolean;
   hasMore: boolean;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
+  /** Empty for a single-Agent session, which renders exactly as it did before seats existed. */
+  speakers?: Map<number, MessageSpeaker>;
 }) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -51,7 +55,11 @@ export function MessageList({
           </button>
         ) : null}
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <MessageItem
+            key={message.id}
+            message={message}
+            speaker={message.seatIndex === undefined ? null : speakers?.get(message.seatIndex) ?? null}
+          />
         ))}
       </div>
       <ScrollControl

@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  canCreateSession,
-  defaultSessionAgent,
-  defaultSshConnectionDraft,
-  firstMode,
-  groupSessionAgents,
-  isSessionAgentSelectable,
-  selectSessionAgents,
-  sshConnectionSaveErrorKey,
-} from "./create-session-dialog-utils";
+import { canCreateSession, defaultSshConnectionDraft, firstMode, sshConnectionSaveErrorKey } from "./create-session-dialog-utils";
+import { defaultSessionAgent, groupSessionAgents, isSessionAgentSelectable, selectSessionAgents } from "./create-session-agents";
 import type { AgentRegistryEntry } from "../types/agent";
 
 const agent = {
@@ -25,6 +17,7 @@ const agent = {
 function canCreate(saveSshConnection: boolean, authMode: "key" | "password") {
   return canCreateSession({
     agentMode: "single",
+    multiSeats: [],
     projectPath: "",
     remoteHost: "host",
     remotePath: "/work",
@@ -117,6 +110,7 @@ describe("create-session agent discovery", () => {
       expect(isSessionAgentSelectable(cliAgent)).toBe(true);
       expect(canCreateSession({
         agentMode: "single",
+        multiSeats: [],
         projectPath: "D:/project",
         remoteHost: "",
         remotePath: "",
@@ -162,6 +156,7 @@ describe("create-session agent discovery", () => {
   it("allows OnePiece local folders and worktrees", () => {
     expect(canCreateSession({
       agentMode: "single",
+      multiSeats: [],
       projectPath: "D:/project",
       remoteHost: "",
       remotePath: "",
@@ -179,6 +174,7 @@ describe("create-session agent discovery", () => {
   it("rejects remote OnePiece submission", () => {
     expect(canCreateSession({
       agentMode: "single",
+      multiSeats: [],
       projectPath: "",
       remoteHost: "host",
       remotePath: "/work",
@@ -191,5 +187,52 @@ describe("create-session agent discovery", () => {
       worktreeEnabled: false,
       worktreeName: "",
     })).toBe(false);
+  });
+});
+
+describe("canCreateSession in multi-Agent mode", () => {
+  function canCreateMulti(multiSeats: { agentId: string; roleId: string | null }[]) {
+    return canCreateSession({
+      agentMode: "multi",
+      multiSeats,
+      projectPath: "D:/work",
+      remoteHost: "",
+      remotePath: "",
+      remotePort: "22",
+      remoteUser: "",
+      saveSshConnection: false,
+      selectedAgent: agent,
+      sshConnectionDraft: defaultSshConnectionDraft,
+      workspaceMode: "local",
+      worktreeEnabled: false,
+      worktreeName: "",
+    });
+  }
+
+  it("allows submitting once two seats are bound to Agents", () => {
+    expect(canCreateMulti([
+      { agentId: "claude-code", roleId: "builtin-architect" },
+      { agentId: "codex-cli", roleId: "builtin-reviewer" },
+    ])).toBe(true);
+  });
+
+  // One seat is a single-Agent session wearing the wrong mode, so it must not submit as multi.
+  it("blocks a single seat", () => {
+    expect(canCreateMulti([{ agentId: "claude-code", roleId: null }])).toBe(false);
+  });
+
+  it("blocks a seat with no Agent chosen", () => {
+    expect(canCreateMulti([
+      { agentId: "claude-code", roleId: null },
+      { agentId: "  ", roleId: null },
+    ])).toBe(false);
+  });
+
+  // Roles are optional: a seat may be a plain Agent with no role assigned.
+  it("does not require every seat to carry a role", () => {
+    expect(canCreateMulti([
+      { agentId: "claude-code", roleId: null },
+      { agentId: "codex-cli", roleId: null },
+    ])).toBe(true);
   });
 });

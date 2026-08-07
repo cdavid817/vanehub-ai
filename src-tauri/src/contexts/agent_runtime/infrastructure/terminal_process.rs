@@ -1565,6 +1565,7 @@ mod tests {
                 session: crate::contexts::agent_runtime::application::AgentSession {
                     id: "session-1".to_string(),
                     agent_id: "codex-cli".to_string(),
+                    seats: Vec::new(),
                     interaction_mode: InteractionMode::Cli,
                     lifecycle: AgentLifecycle::Idle,
                     folder: None,

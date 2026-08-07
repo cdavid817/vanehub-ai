@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, CheckCircle2, CircleStop, FileText, UserRound } fro
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
+import type { MessageSpeaker } from "../../services/message-speaker";
 import { RichMarkdown } from "./RichMarkdown";
 import { RichBlocks } from "./RichBlocks";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -26,15 +27,33 @@ function formatTime(value: string, language: string) {
 // Memoized because streaming appends a token at a time: applyChatEvent keeps stable
 // references for unchanged messages, so memo lets historical rows skip re-rendering
 // (and re-parsing markdown / mermaid) on every token — only the streaming row updates.
-export const MessageItem = memo(function MessageItem({ message }: { message: ChatMessage }) {
+export const MessageItem = memo(function MessageItem({
+  message,
+  speaker,
+}: {
+  message: ChatMessage;
+  /**
+   * Present only in a multi-seat session. When absent the message renders exactly as it did before
+   * seats existed, so single-Agent sessions are untouched.
+   */
+  speaker?: MessageSpeaker | null;
+}) {
   const { i18n, t } = useTranslation();
   const isUser = message.role === "user";
   const Icon = isUser ? UserRound : Bot;
+  const showSpeaker = !isUser && Boolean(speaker);
   return (
     <article className={cn("flex min-w-0 gap-3", isUser && "justify-end")}>
       {!isUser ? (
-        <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-primary">
-          <Icon className="h-4 w-4" aria-hidden="true" />
+        <span
+          className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-primary"
+          style={showSpeaker ? { borderColor: speaker?.color } : undefined}
+        >
+          {showSpeaker ? (
+            <span aria-hidden="true" className="text-base leading-none">{speaker?.avatar}</span>
+          ) : (
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          )}
         </span>
       ) : null}
       <div
@@ -46,7 +65,19 @@ export const MessageItem = memo(function MessageItem({ message }: { message: Cha
         )}
       >
         <div className={cn("mb-2 flex items-center gap-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
-          <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
+          {showSpeaker ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-medium" style={{ color: speaker?.color }}>
+                {speaker?.roleName ?? speaker?.agentName}
+              </span>
+              {speaker?.roleName ? <span>· {speaker.agentName}</span> : null}
+              {speaker?.crossFamilyReviewer ? (
+                <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{t("chat.crossFamily")}</span>
+              ) : null}
+            </span>
+          ) : (
+            <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
+          )}
           <span className="font-mono">{formatTime(message.updatedAt, i18n.language)}</span>
           <span className="ml-auto inline-flex items-center gap-1">
             {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}

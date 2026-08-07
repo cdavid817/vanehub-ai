@@ -2241,6 +2241,7 @@ mod tests {
             session: AgentSession {
                 id: "session-1".to_string(),
                 agent_id: "my-claude-agent".to_string(),
+                seats: Vec::new(),
                 interaction_mode: InteractionMode::Api,
                 lifecycle: AgentLifecycle::Running,
                 folder: None,
@@ -2280,6 +2281,7 @@ mod tests {
                 long_context: false,
             },
             effective_prompt: "hello".to_string(),
+            role_briefing: None,
             cli_profile: CliProfileSnapshot {
                 executable: String::new(),
                 selections: BTreeMap::new(),
@@ -5245,6 +5247,7 @@ mod tests {
         crate::contexts::agent_runtime::application::AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            seat_index: None,
             role: role.to_string(),
             content,
             status: "completed".to_string(),

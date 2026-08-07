@@ -81,22 +81,24 @@ type ActiveGeneration = (
     Option<PendingPromptExecution>,
 );
 
-struct FakeWorld {
+pub(super) struct FakeWorld {
     agents: Mutex<Vec<AgentDefinition>>,
+    expert_roles: Mutex<Vec<crate::contexts::agent_runtime::domain::ExpertRole>>,
     workflow: Mutex<AgentWorkflow>,
     details: Mutex<(String, BTreeMap<String, String>)>,
     sessions: Mutex<BTreeMap<String, AgentSession>>,
     messages: Mutex<BTreeMap<String, AgentMessage>>,
-    created_messages: Mutex<Vec<NewAgentMessage>>,
+    pub(super) created_messages: Mutex<Vec<NewAgentMessage>>,
     lifecycle_updates: Mutex<Vec<AgentLifecycle>>,
-    generation_requests: Mutex<Vec<GenerationProcessRequest>>,
+    pub(super) generation_requests: Mutex<Vec<GenerationProcessRequest>>,
     generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
     loop_terminals: Mutex<Vec<LoopRoleGenerationTerminal>>,
+    seat_terminals: Mutex<Vec<SeatTurnTerminal>>,
     stopped_processes: Mutex<Vec<String>>,
     launch_failure: AtomicBool,
     prompt_failure: AtomicBool,
     no_prompt_versions: AtomicBool,
-    events: Mutex<Vec<AgentEvent>>,
+    pub(super) events: Mutex<Vec<AgentEvent>>,
     logs: Mutex<Vec<AgentLog>>,
     operations: Mutex<Vec<OperationEvent>>,
     prompt_reports: Mutex<Vec<PromptExecutionReport>>,
@@ -145,10 +147,42 @@ struct FakeWorld {
 }
 
 impl FakeWorld {
+    /// Appends a completed message to the session thread, in call order.
+    pub(super) fn seed_message(&self, _speaker: &str, seat_index: Option<usize>, content: &str) {
+        let mut messages = self.messages.lock().expect("messages");
+        let ordinal = messages.len() + 1;
+        let id = format!("seeded-{ordinal}");
+        messages.insert(
+            id.clone(),
+            AgentMessage {
+                id,
+                session_id: "session-1".to_string(),
+                seat_index,
+                role: if seat_index.is_some() {
+                    "assistant".to_string()
+                } else {
+                    "user".to_string()
+                },
+                content: content.to_string(),
+                status: "completed".to_string(),
+                tool_use: Vec::new(),
+                thinking_content: None,
+                rich_blocks: Vec::new(),
+                token_usage: None,
+                file_references: Vec::new(),
+                error: None,
+                // Ordered so `recent_messages` returns them in the order they were seeded.
+                created_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
+                updated_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
+            },
+        );
+    }
+
     fn new(agents: Vec<AgentDefinition>) -> Self {
         let session = AgentSession {
             id: "session-1".to_string(),
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Cli,
             lifecycle: AgentLifecycle::Idle,
             folder: Some("C:/workspace".to_string()),
@@ -158,6 +192,7 @@ impl FakeWorld {
             loop_ownership: None,
         };
         Self {
+            expert_roles: Mutex::new(Vec::new()),
             agents: Mutex::new(agents),
             workflow: Mutex::new(AgentWorkflow::new("build")),
             details: Mutex::new(("none".to_string(), BTreeMap::new())),
@@ -168,6 +203,7 @@ impl FakeWorld {
             generation_requests: Mutex::new(Vec::new()),
             generation_sinks: Mutex::new(BTreeMap::new()),
             loop_terminals: Mutex::new(Vec::new()),
+            seat_terminals: Mutex::new(Vec::new()),
             stopped_processes: Mutex::new(Vec::new()),
             launch_failure: AtomicBool::new(false),
             prompt_failure: AtomicBool::new(false),
@@ -288,6 +324,14 @@ impl AgentSessionGateway for FakeWorld {
         Ok(configuration)
     }
 
+    fn validate_seat_configuration(
+        &self,
+        _session: &AgentSession,
+        configuration: AgentChatConfiguration,
+    ) -> Result<AgentChatConfiguration, AgentRuntimeApplicationError> {
+        Ok(configuration)
+    }
+
     fn compose_prompt(
         &self,
         _session_id: &str,
@@ -312,6 +356,7 @@ impl AgentSessionGateway for FakeWorld {
         let record = AgentMessage {
             id: id.clone(),
             session_id: message.session_id,
+            seat_index: message.seat_index,
             role: message.role,
             content: message.content,
             status: message.status,
@@ -1255,6 +1300,78 @@ fn chat_configuration() -> AgentChatConfiguration {
     }
 }
 
+impl crate::contexts::agent_runtime::application::ExpertRolePort for FakeWorld {
+    fn list(
+        &self,
+    ) -> Result<Vec<crate::contexts::agent_runtime::domain::ExpertRole>, AgentRuntimeApplicationError>
+    {
+        Ok(self.expert_roles.lock().expect("expert roles").clone())
+    }
+
+    fn upsert(
+        &self,
+        role: &crate::contexts::agent_runtime::domain::ExpertRole,
+    ) -> Result<(), AgentRuntimeApplicationError> {
+        let mut roles = self.expert_roles.lock().expect("expert roles");
+        roles.retain(|existing| existing.id != role.id);
+        roles.push(role.clone());
+        Ok(())
+    }
+
+    fn delete(&self, role_id: &str) -> Result<(), AgentRuntimeApplicationError> {
+        self.expert_roles
+            .lock()
+            .expect("expert roles")
+            .retain(|role| role.id != role_id);
+        Ok(())
+    }
+}
+
+impl crate::contexts::agent_runtime::application::ConversationHistoryPort for FakeWorld {
+    fn recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AgentMessage>, AgentRuntimeApplicationError> {
+        let messages = self.messages.lock().expect("messages");
+        let mut recent: Vec<AgentMessage> = messages
+            .values()
+            .filter(|message| message.session_id == session_id)
+            .cloned()
+            .collect();
+        recent.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        let skip = recent.len().saturating_sub(limit.max(0) as usize);
+        Ok(recent.split_off(skip))
+    }
+}
+
+impl SeatTurnCompletionPort for FakeWorld {
+    fn deliver(&self, terminal: SeatTurnTerminal) -> Result<bool, AgentRuntimeApplicationError> {
+        let mut terminals = self.seat_terminals.lock().expect("seat terminals");
+        if terminals.iter().any(|existing| {
+            existing.session_id == terminal.session_id && existing.message_id == terminal.message_id
+        }) {
+            return Ok(false);
+        }
+        terminals.push(terminal);
+        Ok(true)
+    }
+
+    fn take_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SeatTurnTerminal>, AgentRuntimeApplicationError> {
+        let mut terminals = self.seat_terminals.lock().expect("seat terminals");
+        let Some(index) = terminals
+            .iter()
+            .position(|terminal| terminal.session_id == session_id)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(terminals.remove(index)))
+    }
+}
+
 impl LoopRoleGenerationCompletionPort for FakeWorld {
     fn deliver(
         &self,
@@ -1315,11 +1432,80 @@ fn verifier_generation_forces_read_only_permission_mode() {
     assert_eq!(requests[0].configuration.permission_mode, "plan");
 }
 
-fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
+/// A four-seat session, which is enough to exercise the two-mention cap and self-mention
+/// filtering at the same time.
+pub(super) fn seat_turn_world() -> Arc<FakeWorld> {
+    use crate::contexts::agent_runtime::application::AgentSessionSeat;
+    use crate::contexts::agent_runtime::domain::{
+        ExpertRole, ExpertRoleInput, ExpertRoleReviewPolicy,
+    };
+
+    let seats = [
+        ("role-architect", "架构师", "claude-code", "Claude Code"),
+        ("role-reviewer", "代码审查", "codex-cli", "Codex CLI"),
+        ("role-implementer", "实现者", "gemini-cli", "Gemini CLI"),
+        ("role-tester", "测试", "opencode", "OpenCode"),
+    ];
+
+    let world = Arc::new(FakeWorld::new(
+        seats
+            .iter()
+            .map(|(_, _, agent_id, display_name)| {
+                agent(
+                    agent_id,
+                    display_name,
+                    vec![InteractionMode::Cli],
+                    vec!["coding"],
+                )
+            })
+            .collect(),
+    ));
+    {
+        let mut roles = world.expert_roles.lock().expect("expert roles");
+        for (role_id, role_name, _, _) in seats {
+            roles.push(
+                ExpertRole::new(
+                    role_id.to_string(),
+                    ExpertRoleInput {
+                        display_name: role_name.to_string(),
+                        avatar: "🧭".to_string(),
+                        color: "#336699".to_string(),
+                        responsibility: format!("{role_name}的职责"),
+                        instruction: format!("你是{role_name}。"),
+                        skill_ids: Vec::new(),
+                        review_policy: ExpertRoleReviewPolicy {
+                            peer_reviewer: false,
+                            require_different_family: false,
+                        },
+                        preferred_providers: Vec::new(),
+                    },
+                    "2026-08-07T00:00:00+00:00".to_string(),
+                    "2026-08-07T00:00:00+00:00".to_string(),
+                )
+                .expect("role"),
+            );
+        }
+    }
+    {
+        let mut sessions = world.sessions.lock().expect("sessions");
+        let session = sessions.get_mut("session-1").expect("session");
+        session.agent_id = "claude-code".to_string();
+        session.seats = seats
+            .iter()
+            .map(|(role_id, _, agent_id, _)| AgentSessionSeat {
+                agent_id: (*agent_id).to_string(),
+                role_id: Some((*role_id).to_string()),
+            })
+            .collect();
+    }
+    world
+}
+
+pub(super) fn service(world: Arc<FakeWorld>) -> AgentRuntimeApplicationService {
     service_with_telemetry(world).0
 }
 
-fn service_with_telemetry(
+pub(super) fn service_with_telemetry(
     world: Arc<FakeWorld>,
 ) -> (AgentRuntimeApplicationService, CapturingExecutionTelemetry) {
     let telemetry = CapturingExecutionTelemetry::default();
@@ -1339,6 +1525,9 @@ fn service_with_telemetry(
         execution_settings: world.clone(),
         telemetry: Arc::new(telemetry.clone()),
         loop_completions: world.clone(),
+        seat_completions: world.clone(),
+        expert_roles: world.clone(),
+        history: world.clone(),
         message_completions: Arc::new(FakeMessageTerminalCompletions::default()),
         api_agents: world.clone(),
         api_credentials: world.clone(),
@@ -1351,7 +1540,7 @@ fn service_with_telemetry(
     (service, telemetry)
 }
 
-fn test_world() -> Arc<FakeWorld> {
+pub(super) fn test_world() -> Arc<FakeWorld> {
     Arc::new(FakeWorld::new(vec![
         agent(
             "codex-cli",
@@ -2973,6 +3162,7 @@ fn loop_role_generation_for_an_api_agent_session_resolves_api_interaction_mode()
         AgentSession {
             id: "session-api-1".to_string(),
             agent_id: "trusted-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: Some("C:/workspace".to_string()),
@@ -3208,6 +3398,7 @@ fn send_message_skips_prompt_hook_assembly_for_non_cli_agents() {
         AgentSession {
             id: "api-session".to_string(),
             agent_id: "my-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: None,
@@ -3293,6 +3484,7 @@ fn send_message_prepends_custom_instructions_for_any_cli_kind_agent_not_just_one
         AgentSession {
             id: "research-session".to_string(),
             agent_id: "research-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Cli,
             lifecycle: AgentLifecycle::Idle,
             folder: None,
@@ -3431,6 +3623,7 @@ fn send_message_does_not_prepend_custom_instructions_for_non_cli_agents() {
         AgentSession {
             id: "api-session".to_string(),
             agent_id: "my-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: None,
@@ -3792,6 +3985,7 @@ fn generation_completed_does_not_trigger_memory_extraction_for_non_cli_agents() 
         AgentSession {
             id: "api-session".to_string(),
             agent_id: "my-api-agent".to_string(),
+            seats: Vec::new(),
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Idle,
             folder: None,

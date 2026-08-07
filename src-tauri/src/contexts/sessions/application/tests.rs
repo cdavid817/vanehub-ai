@@ -2,7 +2,7 @@ use super::*;
 use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
     MessageStatus, SessionActivation, SessionAggregate, SessionCategory, SessionId,
-    SessionLifecycle, SessionMessage, SessionOwner, SessionTitle,
+    SessionLifecycle, SessionMessage, SessionOwner, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -959,6 +959,7 @@ fn session_record(
             false,
         ),
         agent_id: agent_id.to_string(),
+        seats: Vec::new(),
         interaction_mode: "interactive".to_string(),
         workspace: SessionWorkspace {
             folder: Some("D:\\code\\fixture".to_string()),
@@ -985,6 +986,7 @@ fn message_record(
             status,
             FileReferenceSet::default(),
         ),
+        seat_index: None,
         content: String::new(),
         thinking_content: None,
         tool_use: None,
@@ -1093,6 +1095,7 @@ fn creation_management_and_category_use_cases_keep_atomic_boundaries() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
             title: Some("  New Session  ".to_string()),
             workspace: NewSessionWorkspace {
@@ -1191,6 +1194,7 @@ fn raw_creation_request_prepares_project_and_worktree_before_persistence() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "cli".to_string(),
             title: Some("Worktree Session".to_string()),
             workspace: NewSessionWorkspace {
@@ -1238,6 +1242,7 @@ fn ready_onepiece_creates_a_local_worktree_session_in_api_mode() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "onepiece".to_string(),
+            seats: Vec::new(),
             interaction_mode: "api".to_string(),
             title: Some("OnePiece Worktree".to_string()),
             workspace: NewSessionWorkspace {
@@ -1279,6 +1284,7 @@ fn remote_creation_binds_profile_without_changing_workspace_snapshot() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "cli".to_string(),
             title: Some("Remote".to_string()),
             workspace: NewSessionWorkspace {
@@ -1324,6 +1330,7 @@ fn onepiece_rejects_remote_creation_before_persistence() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "onepiece".to_string(),
+            seats: Vec::new(),
             interaction_mode: "api".to_string(),
             title: Some("Remote OnePiece".to_string()),
             workspace: NewSessionWorkspace {
@@ -1411,6 +1418,7 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
         .service
         .prepare_new_session_creation(NewSessionRequest {
             agent_id: "codex-cli".to_string(),
+            seats: Vec::new(),
             interaction_mode: "interactive".to_string(),
             title: None,
             workspace: NewSessionWorkspace::default(),
@@ -1495,6 +1503,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .service
         .create_message(CreateMessageRequest {
             session_id: session.id().to_string(),
+            seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
             content: "  explain this  ".to_string(),
@@ -1931,6 +1940,7 @@ fn category_and_message_domain_failures_stop_before_persistence() {
         .service
         .create_message(CreateMessageRequest {
             session_id: "session-fixture".to_string(),
+            seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
             content: "  ".to_string(),
@@ -1938,4 +1948,84 @@ fn category_and_message_domain_failures_stop_before_persistence() {
         })
         .is_err());
     assert!(fixture.store.messages.lock().expect("messages").is_empty());
+}
+
+/// A seat runs its own Agent. Normalizing against the session's — which mirrors only the first
+/// seat — would hand every other seat the wrong model defaults without saying so.
+#[test]
+fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-seated",
+        "gemini-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![
+        SessionSeat {
+            agent_id: "gemini-cli".to_string(),
+            role_id: Some("role-architect".to_string()),
+        },
+        SessionSeat {
+            agent_id: "codex-cli".to_string(),
+            role_id: Some("role-reviewer".to_string()),
+        },
+    ];
+    fixture.store.seed_session(session.clone());
+
+    let seated = fixture
+        .service
+        .validate_seat_chat_configuration(SessionChatConfiguration {
+            session_id: session.id().to_string(),
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: "cli".to_string(),
+            values: ChatConfigurationValues {
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+        })
+        .expect("validate seat configuration");
+    assert_eq!(seated.agent_id, "codex-cli");
+    assert_eq!(seated.interaction_mode, "cli");
+    assert_ne!(seated.values.provider_id.as_deref(), Some("google"));
+}
+
+/// Removing a seat has to stop its Agent being run, including by a turn already in flight.
+#[test]
+fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-seated",
+        "gemini-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![SessionSeat {
+        agent_id: "gemini-cli".to_string(),
+        role_id: None,
+    }];
+    fixture.store.seed_session(session.clone());
+
+    assert!(fixture
+        .service
+        .validate_seat_chat_configuration(SessionChatConfiguration {
+            session_id: session.id().to_string(),
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: "cli".to_string(),
+            values: ChatConfigurationValues {
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+        })
+        .is_err());
 }

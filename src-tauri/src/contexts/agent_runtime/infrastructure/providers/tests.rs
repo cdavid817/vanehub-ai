@@ -1,9 +1,9 @@
 use super::invocation::ProviderInvocationError;
 use super::{
     apply_configuration_overrides, apply_policy_template_overrides, build_interactive_invocation,
-    build_invocation, force_gemini_standard_approval_flag, output_parser_for, ProviderOutputEvent,
-    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
-    POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
+    build_invocation, build_invocation_with_role, force_gemini_standard_approval_flag,
+    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
+    ProviderToolEvent, ProviderToolPhase, POLICY_TEMPLATE_GOVERNED_AGENT_IDS,
 };
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
@@ -501,8 +501,11 @@ fn claude_code_completion_line_reports_usage() {
 
 #[test]
 fn claude_code_all_zero_usage_is_treated_as_absent() {
+    // The original payload here carried `is_error: true`, which now routes to a failure event.
+    // This test is about usage normalization, so it exercises the success path deliberately;
+    // the error path has its own tests below.
     let event = output_parser_for("claude-code").parse_line(
-        r#"{"type":"result","is_error":true,"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#,
+        r#"{"type":"result","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#,
     );
     assert_eq!(event, ProviderOutputEvent::Completed(None));
 }
@@ -660,4 +663,151 @@ fn assert_stable_agent_coverage<'a>(agent_ids: impl Iterator<Item = &'a str>) {
         agent_ids.collect::<BTreeSet<_>>(),
         STABLE_AGENT_IDS.into_iter().collect::<BTreeSet<_>>()
     );
+}
+
+/// claude-code reports failures through a `result` event carrying `is_error`, not through an
+/// `error` event, and writes nothing to stderr — so if the parser reads this as a completion the
+/// user is left with only an exit code. Fixture is a real captured payload.
+#[test]
+fn claude_error_result_becomes_a_failure_carrying_the_cli_diagnostic() {
+    let line = include_str!("fixtures/claude-code.error-result.jsonl");
+    let event = output_parser_for("claude-code").parse_line(line.trim());
+
+    match event {
+        ProviderOutputEvent::Failed(failure) => {
+            assert_eq!(
+                failure.diagnostic, "Failed to authenticate. API Error: 403 Request not allowed",
+                "the CLI's own text must reach the user"
+            );
+            assert_eq!(
+                failure.kind,
+                GenerationProcessFailureKind::NonRetryable,
+                "a 403 is an authentication problem; retrying cannot fix it"
+            );
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+#[test]
+fn claude_successful_result_still_completes_with_its_usage() {
+    let line = serde_json::json!({
+        "type": "result",
+        "subtype": "success",
+        "usage": {"input_tokens": 11, "output_tokens": 5},
+    })
+    .to_string();
+
+    match output_parser_for("claude-code").parse_line(&line) {
+        ProviderOutputEvent::Completed(usage) => {
+            let usage = usage.expect("successful results keep reporting usage");
+            assert_eq!(usage.input_tokens, 11);
+            assert_eq!(usage.output_tokens, 5);
+        }
+        other => panic!("expected a completed event, got {other:?}"),
+    }
+}
+
+#[test]
+fn claude_error_result_without_a_status_stays_retryable() {
+    let line = serde_json::json!({
+        "type": "result",
+        "is_error": true,
+        "result": "upstream timed out",
+    })
+    .to_string();
+
+    match output_parser_for("claude-code").parse_line(&line) {
+        ProviderOutputEvent::Failed(failure) => {
+            assert_eq!(failure.diagnostic, "upstream timed out");
+            assert_eq!(
+                failure.kind,
+                GenerationProcessFailureKind::Retryable,
+                "without a classifying code the existing retryable default must hold"
+            );
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+/// Role briefings must ride the CLI's own system-prompt mechanism, which survives context
+/// compaction. Passing them as ordinary prompt text would let a long session compact the role away
+/// and the Agent would quietly stop being the reviewer.
+#[test]
+fn claude_role_briefing_uses_the_native_system_prompt_flag() {
+    let spec = build_invocation_with_role(
+        "claude-code",
+        "claude".to_string(),
+        "hello",
+        None,
+        &[],
+        Some("你是架构师。"),
+    )
+    .expect("invocation");
+
+    let index = spec
+        .args
+        .iter()
+        .position(|argument| argument == "--append-system-prompt")
+        .expect("claude takes the briefing through --append-system-prompt");
+    assert_eq!(spec.args[index + 1], "你是架构师。");
+}
+
+#[test]
+fn codex_role_briefing_uses_developer_instructions() {
+    let spec = build_invocation_with_role(
+        "codex-cli",
+        "codex".to_string(),
+        "hello",
+        None,
+        &[],
+        Some("你是审查者。"),
+    )
+    .expect("invocation");
+
+    let index = spec
+        .args
+        .iter()
+        .position(|argument| argument == "-c")
+        .expect("codex takes the briefing through -c");
+    assert!(spec.args[index + 1].starts_with("developer_instructions="));
+    assert!(spec.args[index + 1].contains("你是审查者。"));
+}
+
+/// A single-Agent session passes no briefing, and its command line must be byte-identical to what
+/// it was before seats existed.
+#[test]
+fn no_role_briefing_leaves_the_invocation_untouched() {
+    for agent_id in ["claude-code", "codex-cli", "gemini-cli", "opencode"] {
+        let plain = build_invocation(agent_id, agent_id.to_string(), "hello", None, &[])
+            .expect("plain invocation");
+        let with_none =
+            build_invocation_with_role(agent_id, agent_id.to_string(), "hello", None, &[], None)
+                .expect("invocation without a briefing");
+        assert_eq!(
+            plain, with_none,
+            "{agent_id} must be unchanged without a briefing"
+        );
+    }
+}
+
+/// gemini-cli and opencode expose no native channel; the briefing must not be silently dropped, so
+/// the builder reports that it could not place it.
+#[test]
+fn agents_without_a_native_channel_report_that_the_briefing_was_not_placed() {
+    for agent_id in ["gemini-cli", "opencode"] {
+        let spec = build_invocation_with_role(
+            agent_id,
+            agent_id.to_string(),
+            "hello",
+            None,
+            &[],
+            Some("角色"),
+        )
+        .expect("invocation");
+        assert!(
+            !spec.args.iter().any(|argument| argument.contains("角色")),
+            "{agent_id} has no native channel, so the briefing must not be forced into args"
+        );
+    }
 }

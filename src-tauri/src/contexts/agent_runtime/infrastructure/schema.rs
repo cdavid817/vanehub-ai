@@ -94,6 +94,34 @@ pub(crate) fn apply_agent_origin_schema(
     Ok(())
 }
 
+pub(crate) fn apply_expert_role_schema(
+    conn: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS expert_roles (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            avatar TEXT NOT NULL,
+            color TEXT NOT NULL,
+            responsibility TEXT NOT NULL,
+            instruction TEXT NOT NULL,
+            skill_ids TEXT NOT NULL DEFAULT '[]',
+            peer_reviewer INTEGER NOT NULL DEFAULT 0,
+            require_different_family INTEGER NOT NULL DEFAULT 0,
+            preferred_providers TEXT NOT NULL DEFAULT '[]',
+            origin TEXT NOT NULL DEFAULT 'user' CHECK (origin IN ('builtin', 'user')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_expert_roles_updated
+            ON expert_roles(updated_at DESC);
+        "#,
+    )?;
+    Ok(())
+}
+
 pub(crate) fn apply_onepiece_provider_profiles_schema(
     conn: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {

@@ -110,6 +110,8 @@ pub(crate) struct AgentSessionDetails {
 pub(crate) struct AgentSession {
     pub(crate) id: String,
     pub(crate) agent_id: String,
+    /// Ordered participants. Always at least one; `agent_id` mirrors the first.
+    pub(crate) seats: Vec<AgentSessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) lifecycle: AgentLifecycle,
     pub(crate) folder: Option<String>,
@@ -117,6 +119,14 @@ pub(crate) struct AgentSession {
     pub(crate) archived: bool,
     pub(crate) read_only: bool,
     pub(crate) loop_ownership: Option<LoopRoleGenerationOwnership>,
+}
+
+/// One participant in a session: an Agent playing an expert role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentSessionSeat {
+    pub(crate) agent_id: String,
+    /// `None` for a plain single-Agent session, which has no role assigned.
+    pub(crate) role_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +141,29 @@ pub(crate) enum LoopRoleGenerationOutcome {
     Completed,
     Failed,
     Cancelled,
+}
+
+/// Marks a generation as one seat's turn in a multi-seat session, so the sink knows to report the
+/// completed reply for routing. Absent for single-Agent sessions, which have no turn loop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SeatTurnOwnership {
+    pub(crate) seat_index: usize,
+    /// The seat's own handle, so it can be filtered out of its own reply's mentions.
+    pub(crate) seat_mention: String,
+    /// How many handoffs deep this turn already is, for the chain bound.
+    pub(crate) depth: usize,
+}
+
+/// A completed seat turn, handed to the coordinator to decide what happens next.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SeatTurnTerminal {
+    pub(crate) session_id: String,
+    pub(crate) message_id: String,
+    pub(crate) seat_index: usize,
+    pub(crate) seat_mention: String,
+    pub(crate) depth: usize,
+    /// The full reply. `None` when the turn failed, in which case the chain simply stops.
+    pub(crate) reply: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -397,6 +430,7 @@ pub(crate) struct MessageTokenUsage {
 pub(crate) struct AgentMessage {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) content: String,
     pub(crate) status: String,
@@ -413,6 +447,8 @@ pub(crate) struct AgentMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NewAgentMessage {
     pub(crate) session_id: String,
+    /// Which seat is speaking. `None` for a user message and for single-Agent sessions.
+    pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
     pub(crate) content: String,
@@ -547,6 +583,12 @@ pub(crate) struct GenerationProcessRequest {
     pub(crate) operation_id: String,
     pub(crate) configuration: AgentChatConfiguration,
     pub(crate) effective_prompt: String,
+    /**
+     * A multi-seat session's role briefing, placed in the CLI's own system-prompt channel so it
+     * survives context compaction. `None` for single-Agent sessions, whose invocation must stay
+     * byte-identical to what it was before seats existed.
+     */
+    pub(crate) role_briefing: Option<String>,
     pub(crate) cli_profile: CliProfileSnapshot,
 }
 
@@ -731,6 +773,35 @@ pub(crate) enum AgentEvent {
     MessageCancelled {
         session_id: String,
         message_id: String,
+    },
+    TurnStatusChanged {
+        session_id: String,
+        status: SeatTurnStatus,
+    },
+}
+
+/// Who holds a multi-seat session's turn.
+///
+/// Only the paused case is emphasised downstream: an informational handoff must not look like an
+/// interruption, or Agents get blamed for using the channel that keeps the human informed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SeatTurnStatus {
+    Agent {
+        seat_index: usize,
+        mention: String,
+        depth: usize,
+        max_depth: usize,
+    },
+    WaitingHuman {
+        seat_index: usize,
+        mention: String,
+        /// When the wait began. The duration is counted from here rather than accumulated in the
+        /// native layer, so a reader watching the bar sees it tick without the backend polling.
+        since: String,
+    },
+    RoundComplete {
+        seat_index: usize,
+        mention: String,
     },
 }
 

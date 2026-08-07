@@ -1,3 +1,7 @@
+import { SessionSeatAssignment } from "./session-seat-assignment";
+import { withModelFamily } from "../services/agent-model-family";
+import type { SessionSeat } from "../types/agent";
+import type { ExpertRole } from "../types/expert-role";
 import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
@@ -25,6 +29,9 @@ import type {
 
 export function CreateSessionDialogContent({
   agentMode,
+  expertRoles,
+  multiSeats,
+  onSeatsChange,
   availableAgents,
   canSubmit,
   error,
@@ -70,6 +77,9 @@ export function CreateSessionDialogContent({
   worktreeName,
 }: {
   agentMode: SessionAgentMode;
+  expertRoles: ExpertRole[];
+  multiSeats: SessionSeat[];
+  onSeatsChange: (seats: SessionSeat[]) => void;
   availableAgents: AgentRegistryEntry[];
   canSubmit: boolean;
   error: string | null;
@@ -144,13 +154,21 @@ export function CreateSessionDialogContent({
               mode={agentMode}
               onModeChange={onAgentModeChange}
             />
-            <CreateSessionAgentSection
-              disabled={agentMode !== "single"}
-              agents={availableAgents}
-              onAgentSelect={onAgentSelect}
-              onConfigureOnePiece={onConfigureOnePiece}
-              selectedAgent={selectedAgent}
-            />
+            {agentMode === "multi" ? (
+              <SessionSeatAssignment
+                agents={withModelFamily(availableAgents)}
+                onSeatsChange={onSeatsChange}
+                roles={expertRoles}
+                seats={multiSeats}
+              />
+            ) : (
+              <CreateSessionAgentSection
+                agents={availableAgents}
+                onAgentSelect={onAgentSelect}
+                onConfigureOnePiece={onConfigureOnePiece}
+                selectedAgent={selectedAgent}
+              />
+            )}
             <WorkspaceModeSelector
               mode={workspaceMode}
               onModeChange={onWorkspaceModeChange}

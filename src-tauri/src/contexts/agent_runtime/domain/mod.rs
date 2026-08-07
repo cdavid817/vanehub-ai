@@ -1,10 +1,12 @@
 mod catalog;
-mod coordination;
 mod error;
+mod expert_role;
 mod generation;
 mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
+mod seat_roster;
+mod seat_turn;
 mod workflow;
 
 pub(crate) use catalog::{
@@ -12,13 +14,10 @@ pub(crate) use catalog::{
     AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
     ManagedSdkStatus,
 };
-pub(crate) use coordination::{
-    CoordinationAttempt, CoordinationAttemptStatus, CoordinationCandidateRole,
-    CoordinationFailureKind, CoordinationNodeInput, CoordinationNodeRun, CoordinationNodeStatus,
-    CoordinationOutput, CoordinationPlan, CoordinationPlanInput, CoordinationRun,
-    CoordinationRunStatus, COORDINATION_CONTEXT_LIMIT_BYTES, COORDINATION_OUTPUT_LIMIT_BYTES,
-};
 pub(crate) use error::AgentRuntimeDomainError;
+pub(crate) use expert_role::{
+    ExpertRole, ExpertRoleInput, ExpertRoleOrigin, ExpertRoleReviewPolicy,
+};
 pub(crate) use generation::GenerationAttempt;
 pub(crate) use loop_decision::{
     decide_loop_iteration, LoopDecision, LoopDecisionInput, LoopDecisionOutcome,
@@ -31,6 +30,14 @@ pub(crate) use loop_engineering::{
 pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
+};
+#[allow(unused_imports)]
+pub(crate) use seat_roster::{
+    build_seat_briefing, build_seat_context, derive_mentions, normalize_model_family, ModelFamily,
+    SeatBriefingEntry, SeatContext, SeatContextMode, SeatTurn,
+};
+pub(crate) use seat_turn::{
+    apply_human_handoff, next_turn_targets, parse_human_handoff, ChainEndReason,
 };
 pub(crate) use workflow::{AgentLifecycle, AgentReadiness, AgentWorkflow};
 

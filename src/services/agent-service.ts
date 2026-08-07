@@ -49,11 +49,6 @@ import type {
 import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
-  CoordinationRun,
-  StartCoordinationInput,
-  StartCoordinationResult,
-} from "../types/coordination";
-import type {
   ContinueLoopInput,
   LoopDefinition,
   LoopEvent,
@@ -123,6 +118,7 @@ import type {
   ValidateCliConfigCredentialInput,
 } from "../types/cli-agent-config";
 import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
+import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 
 export interface AgentService {
   openExternalUrl(url: string): Promise<void>;
@@ -193,10 +189,6 @@ export interface AgentService {
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;
-  startCoordination(input: StartCoordinationInput): Promise<StartCoordinationResult>;
-  listCoordinationRuns(): Promise<CoordinationRun[]>;
-  getCoordinationRun(runId: string): Promise<CoordinationRun>;
-  cancelCoordinationRun(runId: string): Promise<CoordinationRun>;
   listLoopDefinitions(): Promise<LoopDefinition[]>;
   createLoopDefinition(input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
   updateLoopDefinition(definitionId: string, input: SaveLoopDefinitionInput): Promise<LoopDefinition>;
@@ -264,6 +256,9 @@ export interface AgentService {
   killShell(shellId: string): Promise<void>;
   subscribeShellEvents(shellId: string, handler: (event: ShellEvent) => void): Promise<() => void>;
   subscribeSessionEvents(handler: (event: SessionStateEvent) => void): Promise<() => void>;
+  listExpertRoles(): Promise<ExpertRole[]>;
+  saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole>;
+  deleteExpertRole(roleId: string): Promise<void>;
   listSkills(input: SkillScopeInput): Promise<SkillListResult>;
   getSkillOverview(input: SkillScopeInput): Promise<SkillOverview>;
   listSkillMountPaths(): Promise<SkillAgentMountPath[]>;

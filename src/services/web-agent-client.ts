@@ -54,17 +54,6 @@ import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
 import type {
-  CoordinationRun,
-  StartCoordinationInput,
-  StartCoordinationResult,
-} from "../types/coordination";
-import {
-  createCoordinationRun,
-  executeCoordinationRun,
-  requestCoordinationCancellation,
-  validateCoordinationInput,
-} from "./coordination-runtime";
-import type {
   ContinueLoopInput,
   LoopDefinition,
   LoopEvent,
@@ -101,7 +90,10 @@ import {
   webPromptHookHistory,
   webPromptHookVariables,
 } from "./web-prompt-hook-versions";
-import { createWebMockOperation, settleWebOperation } from "./web-operation-client";
+import { createWebMockOperation } from "./web-operation-client";
+import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
+import { builtinExpertRoles } from "../config/builtin-expert-roles";
+import { validateExpertRoleInput } from "./expert-role-runtime";
 import type {
   Skill,
   SkillAgentMountPath,
@@ -322,10 +314,8 @@ let loopRuns: LoopRun[] = [];
 let nextLoopDefinitionId = 1;
 let nextLoopRunId = 1;
 let nextLoopEvidenceId = 1;
-let coordinationRuns: CoordinationRun[] = [];
-let nextCoordinationRunId = 1;
-const coordinationTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const coordinationAttempts = new Map<string, AbortController>();
+let webExpertRoles: ExpertRole[] = builtinExpertRoles.map((role) => structuredClone(role));
+let nextExpertRoleId = 1;
 const loopSubscribers = new Map<string, Set<(event: LoopEvent) => void>>();
 const loopTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const loopRoleSessionIds = new Set<string>();
@@ -782,26 +772,6 @@ const webCliTools: CliToolStatus[] = [
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function waitForSimulatedCoordinationAttempt(signal: AbortSignal) {
-  return new Promise<boolean>((resolve) => {
-    if (signal.aborted) {
-      resolve(false);
-      return;
-    }
-    const complete = () => {
-      signal.removeEventListener("abort", cancel);
-      resolve(true);
-    };
-    const timer = setTimeout(complete, 50);
-    const cancel = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", cancel);
-      resolve(false);
-    };
-    signal.addEventListener("abort", cancel, { once: true });
-  });
 }
 
 function daysAgoIso(days: number) {
@@ -1440,6 +1410,8 @@ function emitChatEvent(event: ChatStreamEvent) {
 }
 
 function applyStreamEvent(event: ChatStreamEvent) {
+  // The turn status belongs to the session, not to any message.
+  if (event.type === "turn_status") return;
   const messages = getSessionMessages(event.sessionId);
   const message = messages.find((candidate) => candidate.id === event.messageId);
   if (!message) return;
@@ -1669,21 +1641,15 @@ export function resetWebAgentMemoriesForTest() {
 export function resetWebLoopsForTest() {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
-  coordinationTimers.forEach((timer) => clearTimeout(timer));
-  coordinationTimers.clear();
-  coordinationAttempts.forEach((controller) => controller.abort());
-  coordinationAttempts.clear();
   loopSubscribers.clear();
   sessions = sessions.filter((session) => !loopRoleSessionIds.has(session.id));
   loopRoleSessionIds.forEach((sessionId) => messagesBySession.delete(sessionId));
   loopRoleSessionIds.clear();
   loopDefinitions = [];
   loopRuns = [];
-  coordinationRuns = [];
   nextLoopDefinitionId = 1;
   nextLoopRunId = 1;
   nextLoopEvidenceId = 1;
-  nextCoordinationRunId = 1;
 }
 
 export function resetWebRetrievalForTest() {
@@ -2461,79 +2427,43 @@ export const webAgentClient: AgentService = {
     };
   },
 
-  async startCoordination(input: StartCoordinationInput): Promise<StartCoordinationResult> {
-    const order = validateCoordinationInput(input, new Set(mockAgents.map((agent) => agent.id)));
+  async listExpertRoles(): Promise<ExpertRole[]> {
+    return structuredClone(webExpertRoles);
+  },
+
+  async saveExpertRole(input: SaveExpertRoleInput): Promise<ExpertRole> {
+    const errors = validateExpertRoleInput(input);
+    if (errors.length > 0) throw new Error(errors.join("; "));
     const timestamp = nowIso();
-    const runId = `web-coordination-${nextCoordinationRunId++}`;
-    const operationId = `web-coordination-operation-${runId}`;
-    const run = createCoordinationRun(input, runId, operationId, timestamp, true);
-    coordinationRuns = [run, ...coordinationRuns];
-    createWebMockOperation({
-      id: operationId,
-      relatedEntityId: runId,
-      message: `Simulating Multi-Agent coordination ${run.name}.`,
-      terminalStatus: "succeeded",
-      error: null,
-      result: { runId },
-    });
-    const timer = setTimeout(() => {
-      coordinationTimers.delete(runId);
-      const controller = new AbortController();
-      coordinationAttempts.set(runId, controller);
-      void executeCoordinationRun(run, order, async (request) => {
-        const completed = await waitForSimulatedCoordinationAttempt(controller.signal);
-        if (!completed) return { status: "cancelled", error: "Coordination was cancelled." };
-        const agent = mockAgents.find((candidate) => candidate.id === request.agentId);
-        if (!agent || agent.availabilityState === "unavailable" || agent.availabilityState === "needs-auth") {
-          return { status: "failed", kind: "retryable", error: `Agent unavailable: ${request.agentId}` };
-        }
-        const contextNote = request.prerequisiteContext
-          ? `\n\nReceived prerequisite context:\n${request.prerequisiteContext}`
-          : "";
-        return {
-          status: "succeeded",
-          content: `[Web mock ${request.agentId}] ${request.instruction}${contextNote}`,
-        };
-      }, nowIso).then(() => {
-        const error = run.status === "failed" ? "One or more coordination nodes failed." : null;
-        settleWebOperation(
-          operationId,
-          run.status === "succeeded" ? "succeeded" : run.status === "cancelled" ? "cancelled" : "failed",
-          error,
-          { runId },
-        );
-      }).finally(() => {
-        coordinationAttempts.delete(runId);
-      });
-    }, 100);
-    coordinationTimers.set(runId, timer);
-    return { runId, operationId };
+    const existing = input.id ? webExpertRoles.find((role) => role.id === input.id) : undefined;
+    if (input.id && !existing) throw new Error(`Expert role not found: ${input.id}`);
+    // Built-in roles are read-only; the UI copies them into a user role instead of editing.
+    if (existing?.origin === "builtin") throw new Error("Built-in expert roles cannot be edited.");
+    const role: ExpertRole = {
+      id: existing?.id ?? `web-expert-role-${nextExpertRoleId++}`,
+      displayName: input.displayName.trim(),
+      avatar: input.avatar,
+      color: input.color,
+      responsibility: input.responsibility.trim(),
+      instruction: input.instruction,
+      skillIds: [...input.skillIds],
+      reviewPolicy: { ...input.reviewPolicy },
+      preferredProviders: [...input.preferredProviders],
+      origin: "user",
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    webExpertRoles = existing
+      ? webExpertRoles.map((candidate) => (candidate.id === role.id ? role : candidate))
+      : [...webExpertRoles, role];
+    return structuredClone(role);
   },
 
-  async listCoordinationRuns() {
-    return structuredClone(coordinationRuns);
-  },
-
-  async getCoordinationRun(runId: string) {
-    const run = coordinationRuns.find((candidate) => candidate.id === runId);
-    if (!run) throw new Error(`Coordination run not found: ${runId}`);
-    return structuredClone(run);
-  },
-
-  async cancelCoordinationRun(runId: string) {
-    const run = coordinationRuns.find((candidate) => candidate.id === runId);
-    if (!run) throw new Error(`Coordination run not found: ${runId}`);
-    const timer = coordinationTimers.get(runId);
-    if (timer) {
-      clearTimeout(timer);
-      coordinationTimers.delete(runId);
-    }
-    requestCoordinationCancellation(run, nowIso());
-    coordinationAttempts.get(runId)?.abort();
-    if (run.status === "cancelled") {
-      settleWebOperation(run.operationId, "cancelled", "Coordination was cancelled.", { runId });
-    }
-    return structuredClone(run);
+  async deleteExpertRole(roleId: string): Promise<void> {
+    const role = webExpertRoles.find((candidate) => candidate.id === roleId);
+    if (!role) throw new Error(`Expert role not found: ${roleId}`);
+    if (role.origin === "builtin") throw new Error("Built-in expert roles cannot be deleted.");
+    webExpertRoles = webExpertRoles.filter((candidate) => candidate.id !== roleId);
   },
 
   async getAgentById(agentId) {
@@ -2980,6 +2910,8 @@ export const webAgentClient: AgentService = {
       id: `web-session-${nextSessionId}`,
       title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
       agentId: input.agentId,
+      // Mirrors the native normalization: no seats means one seat built from the Agent.
+      seats: input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }],
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
       folder: effectiveFolder,

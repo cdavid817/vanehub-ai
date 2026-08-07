@@ -136,6 +136,7 @@ fn run_one_task(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let prepared = sessions.prepare_creation(NewSessionRequest {
         agent_id: task.agent_id.clone(),
+        seats: Vec::new(),
         interaction_mode: "cli".to_string(),
         title: Some(task.name.clone()),
         workspace: NewSessionWorkspace::default(),

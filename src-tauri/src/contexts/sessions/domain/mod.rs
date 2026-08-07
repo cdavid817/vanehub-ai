@@ -4,6 +4,7 @@ mod error;
 mod identity;
 mod message;
 mod session;
+mod session_seat;
 
 pub(crate) use category::{CategoryName, SessionCategory};
 pub(crate) use chat_configuration::{
@@ -19,3 +20,4 @@ pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,
     SessionTitle,
 };
+pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat};

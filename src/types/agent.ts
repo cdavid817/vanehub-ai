@@ -211,10 +211,22 @@ export interface WorkflowState {
   intent: string;
 }
 
+/** One participant in a session: an Agent playing an expert role. */
+export interface SessionSeat {
+  agentId: string;
+  /** Null for a plain single-Agent session, which has no role assigned. */
+  roleId: string | null;
+}
+
 export interface Session {
   id: string;
   title: string;
   agentId: string;
+  /**
+   * Optional because sessions predate seats. When absent the session is a one-seat session whose
+   * seat is `agentId`; when present, `agentId` mirrors `seats[0].agentId`.
+   */
+  seats?: SessionSeat[];
   interactionMode: InteractionMode;
   lifecycleState: SessionLifecycleState;
   folder: string | null;
@@ -362,6 +374,11 @@ export interface KnownRemoteWorkspace extends RemoteWorkspace {
 
 export interface CreateSessionInput {
   agentId: string;
+  /**
+   * Omitted for a single-Agent session, which the native layer records as one seat built from
+   * `agentId`. When present, `agentId` must equal `seats[0].agentId`.
+   */
+  seats?: SessionSeat[];
   interactionMode: InteractionMode;
   title?: string;
   folder?: string | null;
