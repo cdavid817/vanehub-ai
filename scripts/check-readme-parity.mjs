@@ -10,11 +10,24 @@ const requiredFactIds = [
   "react-major",
   "node-minimum",
 ];
+// Shields.io renders a literal hyphen in a static badge only when it is escaped as `--`, so a
+// pre-release version reaches the badge URL encoded and must be decoded before being compared
+// against the manifest value it mirrors.
+function decodeShieldsSegment(value) {
+  return value.replaceAll("--", "-");
+}
+
 const visibleFactPatterns = new Map([
-  ["project-version", /badge\/version-([0-9]+\.[0-9]+\.[0-9]+)-/i],
-  ["tauri-major", /badge\/Tauri-([0-9]+\.x)-/i],
-  ["react-major", /badge\/React-([0-9]+\.x)-/i],
-  ["node-minimum", /Node\.js\s+([0-9]+\+)/i],
+  [
+    "project-version",
+    {
+      pattern: /badge\/version-([0-9]+\.[0-9]+\.[0-9]+(?:--[0-9A-Za-z.]+)*)-/i,
+      decode: decodeShieldsSegment,
+    },
+  ],
+  ["tauri-major", { pattern: /badge\/Tauri-([0-9]+\.x)-/i, decode: decodeShieldsSegment }],
+  ["react-major", { pattern: /badge\/React-([0-9]+\.x)-/i, decode: decodeShieldsSegment }],
+  ["node-minimum", { pattern: /Node\.js\s+([0-9]+\+)/i }],
 ]);
 
 function collect(pattern, content, transform = (match) => match[1]) {
@@ -101,8 +114,9 @@ function validateFacts(file, content, facts, errors, expectedManifestFacts) {
     if (!factMap.has(id)) errors.push(`${file}: missing stable documentation fact "${id}".`);
   }
 
-  for (const [id, pattern] of visibleFactPatterns) {
-    const visibleValue = content.match(pattern)?.[1];
+  for (const [id, { pattern, decode }] of visibleFactPatterns) {
+    const rendered = content.match(pattern)?.[1];
+    const visibleValue = rendered && decode ? decode(rendered) : rendered;
     if (!visibleValue) {
       errors.push(`${file}: visible value for stable documentation fact "${id}" is missing.`);
     } else if (factMap.get(id) !== visibleValue) {
