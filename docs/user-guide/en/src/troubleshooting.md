@@ -12,9 +12,9 @@ Complete authentication in the provider CLI itself. VaneHub AI does not store yo
 
 Check for the **Web/mock only** label. Browser preview uses deterministic simulations and does not prove that a native process, filesystem action, or SQLite write occurred.
 
-## I cannot select Multi Agent
+## A seat never gets the turn
 
-This is expected. Multi-Agent coordination has service/runtime support, but the creation UI remains a preview and is disabled.
+Check the handle. Handles come from the expert role name, whitespace becomes `-`, and a repeated role name is suffixed. Mentions inside fenced code blocks are ignored on purpose. If a chain stopped because it hit the mention or depth bound, the reason is shown in the session.
 
 ## A screenshot differs locally
 

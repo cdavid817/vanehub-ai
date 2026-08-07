@@ -13,4 +13,4 @@
 
 桌面端的项目路径对应真实目录，Agent 执行使用已安装的所选 CLI。Web/mock 中的相同流程使用合成状态和模拟终端，不会启动本地进程，也不会修改 SQLite 数据库。
 
-当前禁用的**多 Agent**选项不属于此已交付工作流。请阅读[多 Agent 预览](multi-agent-workflow.md)。
+若想让多个 Agent 在同一个会话里协作，可在同一对话框中分配席位，详见[多 Agent 群聊与 `@` 交接](multi-agent-workflow.md)。
