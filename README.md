@@ -107,6 +107,7 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 ## Documentation
 
 - [User Guides — English and 简体中文](docs/user-guide/README.md)
+- [Chinese documentation — features and architecture](docs/zh/src/README.md) (Simplified Chinese only)
 - [Developer Guide source](docs/developer-guide/src/index.md)
 - [Native architecture inventory](src-tauri/ARCHITECTURE.md)
 - [Contributing guide](CONTRIBUTING.md)

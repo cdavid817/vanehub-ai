@@ -107,6 +107,7 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 ## 文档
 
 - [用户指南——English 与简体中文](docs/user-guide/README.md)
+- [中文文档——功能介绍与架构实现](docs/zh/src/README.md)
 - [开发者指南源码](docs/developer-guide/src/index.md)
 - [Native 架构清单](src-tauri/ARCHITECTURE.md)
 - [贡献指南](CONTRIBUTING.md)

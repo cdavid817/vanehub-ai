@@ -107,6 +107,7 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 ## ドキュメント
 
 - [ユーザーガイド — English / 简体中文](docs/user-guide/README.md)
+- [中国語ドキュメント — 機能とアーキテクチャ](docs/zh/src/README.md)（简体中文のみ）
 - [開発者ガイドのソース](docs/developer-guide/src/index.md)
 - [Native architecture inventory](src-tauri/ARCHITECTURE.md)
 - [コントリビューションガイド](CONTRIBUTING.md)
