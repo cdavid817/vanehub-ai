@@ -31,6 +31,9 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  EmbeddingModelOption,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
@@ -181,16 +184,40 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_api_agent", { agentId });
   },
 
-  setAgentToolTrust(agentId: string, enabled: boolean) {
-    return invoke<AgentRegistryEntry>("set_agent_tool_trust", { agentId, enabled });
-  },
 
-  listAgentMemories(agentId: string) {
-    return invoke<AgentMemory[]>("list_agent_memories", { agentId });
+  listAllMemories() {
+    return invoke<AgentMemory[]>("list_agent_memories");
   },
 
   deleteAgentMemory(memoryId: string) {
     return invoke<void>("delete_agent_memory", { memoryId });
+  },
+
+  resetAllMemories() {
+    return invoke<void>("reset_agent_memories");
+  },
+
+  getRetrievalConfiguration() {
+    return invoke<RetrievalConfiguration>("get_retrieval_configuration");
+  },
+
+  saveRetrievalConfiguration(profileId: string, modelId: string) {
+    return invoke<void>("save_retrieval_configuration", { profileId, modelId });
+  },
+
+  listEmbeddingModels(profileId: string, transientCredential?: string) {
+    return invoke<EmbeddingModelOption[]>("list_embedding_models", {
+      profileId,
+      transientCredential: transientCredential ?? null,
+    });
+  },
+
+  getRetrievalIndexStatus() {
+    return invoke<RetrievalIndexStatus>("get_retrieval_index_status");
+  },
+
+  rebuildRetrievalIndex() {
+    return invoke<void>("rebuild_retrieval_index");
   },
 
   listCliTools() {
@@ -544,9 +571,6 @@ export const tauriAgentClient: AgentService = {
     await invoke<void>("stop_generation", { sessionId });
   },
 
-  resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
-    return invoke<boolean>("resolve_tool_approval", { input: { sessionId, callId, approved } });
-  },
 
   openAgentTerminal(sessionId: string, size: AgentTerminalSize) {
     return invoke<AgentTerminalSession>("open_agent_terminal", { sessionId, size });

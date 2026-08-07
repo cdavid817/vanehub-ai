@@ -1,14 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  canCreateSession,
-  defaultSessionAgent,
-  defaultSshConnectionDraft,
-  firstMode,
-  groupSessionAgents,
-  isSessionAgentSelectable,
-  selectSessionAgents,
-  sshConnectionSaveErrorKey,
-} from "./create-session-dialog-utils";
+import { canCreateSession, defaultSshConnectionDraft, firstMode, sshConnectionSaveErrorKey } from "./create-session-dialog-utils";
+import { defaultSessionAgent, groupSessionAgents, isSessionAgentSelectable, selectSessionAgents } from "./create-session-agents";
 import type { AgentRegistryEntry } from "../types/agent";
 
 const agent = {

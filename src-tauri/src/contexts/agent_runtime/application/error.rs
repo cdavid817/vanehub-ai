@@ -30,6 +30,8 @@ pub(crate) enum AgentRuntimeApplicationError {
     Skill(String),
     Memory(String),
     Mcp(String),
+    Permission(String),
+    Personalization(String),
 }
 
 impl fmt::Display for AgentRuntimeApplicationError {
@@ -81,6 +83,10 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Skill(message) => write!(formatter, "agent Skill error: {message}"),
             Self::Memory(message) => write!(formatter, "agent memory error: {message}"),
             Self::Mcp(message) => write!(formatter, "agent MCP tool error: {message}"),
+            Self::Permission(message) => write!(formatter, "agent permission error: {message}"),
+            Self::Personalization(message) => {
+                write!(formatter, "agent personalization error: {message}")
+            }
         }
     }
 }

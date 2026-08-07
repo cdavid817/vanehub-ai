@@ -25,22 +25,9 @@ Follow `AGENTS.md` and `openspec/project.md`. In particular, do not add TypeScri
 
 ## Required validation
 
-Run these commands before requesting review:
+Before requesting review, run **every** command in the「校验命令」(validation commands) section of [AGENTS.md](AGENTS.md), copying each command verbatim. The flags matter: `npm run lint:ci`, `cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings` are what CI enforces — their weaker variants pass locally while CI rejects them. This file intentionally does not duplicate the command list; AGENTS.md is the single source of truth.
 
-```powershell
-npm run lint
-npm run test
-npm run contracts:check
-npm run build
-npx playwright test
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo check --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
-openspec validate --specs --strict
-```
-
-Also run `openspec validate <change-name> --strict` for every active change you modify.
+When your change touches the corresponding area, also run the conditional commands listed below that section: `npx playwright test` for UI behavior changes, the coverage and contract checks, and `openspec validate <change-name> --strict` for every active change you modify.
 
 ## Commits and pull requests
 

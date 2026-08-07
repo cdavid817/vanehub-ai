@@ -1,6 +1,7 @@
 import type { AgentService, SessionStateEvent } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
+import { createWebPendingApproval, isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -23,10 +24,13 @@ import type {
   InteractionMode,
   KnownRemoteWorkspace,
   KnownProject,
+  EmbeddingModelOption,
   OnePieceProviderConfig,
   OnePieceProviderProfiles,
   ProjectInspection,
   RemoteWorkspace,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   RenameSessionCategoryInput,
   ScheduledTask,
   SetScheduledTaskEnabledInput,
@@ -43,6 +47,7 @@ import type {
 import { managedCliAgentIds } from "../types/agent";
 import { getOnePieceProviderPresets, resolveOnePieceProviderPreset } from "../config/onepiece-provider-presets";
 import { findWebSshConnection } from "./web-ssh-connection-client";
+import { readWebAppSettings } from "./web-settings-client";
 import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
@@ -319,10 +324,6 @@ let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
 const messagesBySession = new Map<string, ChatMessage[]>();
 const subscribersBySession = new Map<string, Set<(event: ChatStreamEvent) => void>>();
 const activeStreams = new Map<string, { messageId: string; timeoutIds: Array<ReturnType<typeof setTimeout>> }>();
-const pendingMockToolApprovals = new Map<
-  string,
-  { sessionId: string; messageId: string; toolName: string; input?: unknown; output?: unknown }
->();
 const terminalSubscribersBySession = new Map<string, Set<(event: AgentTerminalEvent) => void>>();
 const terminalsBySession = new Map<string, AgentTerminalSession>();
 const terminalTranscriptsBySession = new Map<string, string>();
@@ -553,10 +554,10 @@ function applyWebOnePieceActiveProfile(profileId: string | null) {
   }
 }
 
-/** Mock cross-session memories (`add-agent-cross-session-memory`) — starts empty, since real
- * memories only ever come from a `remember` tool call or extraction, both simulated in
- * `sendMessage` for `launch.kind === "api"` sessions; there is no fixed "api" agent id to
- * pre-seed against (API agents are registered at runtime with generated ids). */
+/** Mock cross-session memories (`add-agent-cross-session-memory`, extended to CLI-wrapped agents
+ * by `add-cli-memory-support`) — a single host-level pool shared by every agent kind, matching
+ * the real backend's shared-pool model. Starts empty; real memories only ever come from a
+ * `remember` tool call or extraction, both simulated in `sendMessage`. */
 let webAgentMemories: AgentMemory[] = [];
 let nextAgentMemoryId = 1;
 
@@ -573,6 +574,27 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
   webAgentMemories = [memory, ...webAgentMemories];
   return memory;
 }
+
+/** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
+ * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
+ * install (design doc §7.4). */
+let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+
+/** Mock retrieval index status — a single global aggregate, mirroring the real one across every
+ * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
+ * so a settings UI has something realistic to render before ever calling `rebuildRetrievalIndex`.
+ * `lastFailureCategory` is deliberately always `null`: the Web/mock runtime guarantees the same
+ * contract shape and observable behavior as the real one, not algorithmic equivalence with the
+ * Rust-side failure classification (design doc §7.5). */
+const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
+let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
+
+/** Static catalog, independent of the requested profile — listing embedding models never hits
+ * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
+const webEmbeddingModelOptions: EmbeddingModelOption[] = [
+  { id: "text-embedding-3-small", displayName: "text-embedding-3-small" },
+  { id: "text-embedding-3-large", displayName: "text-embedding-3-large" },
+];
 
 const promptHookStorageKey = "vanehub.prompt-hooks.v1";
 const promptHookTraceStorageKey = "vanehub.prompt-hook-traces.v1";
@@ -1429,6 +1451,32 @@ function publishChatEvent(event: ChatStreamEvent) {
   emitChatEvent(event);
 }
 
+/**
+ * Resolves a simulated tool call awaiting approval and publishes the resulting `tool_use` event
+ * — the same behavior `resolveToolApproval` used to provide directly on this client, extracted
+ * to a plain export so `web-permissions-client.ts` can call it (`permissions-approval`'s
+ * `resolvePendingApproval` is the new frontend entry point; this is its Web/mock backing).
+ */
+export function resolveWebMockToolApproval(sessionId: string, callId: string, approved: boolean): boolean {
+  findSession(sessionId);
+  const pending = webPendingApprovals.get(callId);
+  if (!pending || pending.sessionId !== sessionId) return false;
+  webPendingApprovals.delete(callId);
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: pending.messageId,
+    toolUse: {
+      id: callId,
+      name: pending.toolName,
+      input: pending.input ?? { command: "echo mock" },
+      output: approved ? pending.output ?? "mock\n" : "Denied by user.",
+      status: approved ? "completed" : "failed",
+    },
+  });
+  return true;
+}
+
 function emitTerminalEvent(event: AgentTerminalEvent, recordOutput = true) {
   if (recordOutput && event.type === "output") {
     terminalTranscriptsBySession.set(event.sessionId, appendTerminalTranscript(
@@ -1584,6 +1632,12 @@ function addLoopEvidence(
   emitLoopEvent(run, "evidence-added");
 }
 
+/** `add-cli-memory-support`: the shared memory pool is no longer isolated per agent id, so tests
+ * that seed memories can leak into later tests within the same file unless explicitly cleared. */
+export function resetWebAgentMemoriesForTest() {
+  webAgentMemories = [];
+}
+
 export function resetWebLoopsForTest() {
   loopTimers.forEach((timer) => clearTimeout(timer));
   loopTimers.clear();
@@ -1596,6 +1650,11 @@ export function resetWebLoopsForTest() {
   nextLoopDefinitionId = 1;
   nextLoopRunId = 1;
   nextLoopEvidenceId = 1;
+}
+
+export function resetWebRetrievalForTest() {
+  webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+  webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
 }
 
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
@@ -2088,22 +2147,48 @@ export const webAgentClient: AgentService = {
     webSkillMountPaths = webSkillMountPaths.filter((path) => path.agentId !== agentId);
   },
 
-  async setAgentToolTrust(agentId: string, enabled: boolean) {
-    const agent = mockAgents.find((candidate) => candidate.id === agentId);
-    const current = webApiAgentProviderConfigs.get(agentId);
-    if (!agent || !current) {
-      throw new Error(i18n.t("agents.updateApiAgent.errors.notFound"));
-    }
-    webApiAgentProviderConfigs.set(agentId, { ...current, autoApproveTools: enabled });
-    return agent;
-  },
-
-  async listAgentMemories(agentId: string) {
-    return webAgentMemories.filter((memory) => memory.agentId === agentId);
+  async listAllMemories() {
+    return webAgentMemories;
   },
 
   async deleteAgentMemory(memoryId: string) {
     webAgentMemories = webAgentMemories.filter((memory) => memory.id !== memoryId);
+  },
+
+  async resetAllMemories() {
+    webAgentMemories = [];
+  },
+
+  async getRetrievalConfiguration() {
+    return { ...webRetrievalConfiguration };
+  },
+
+  async saveRetrievalConfiguration(profileId: string, modelId: string) {
+    webRetrievalConfiguration = { sourceProfileId: profileId, embeddingModel: modelId };
+  },
+
+  async listEmbeddingModels(profileId: string, transientCredential?: string) {
+    const profile = webOnePieceProviderProfiles.profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) throw new Error("OnePiece provider profile was not found.");
+    if (profile.interfaceFormat !== "openai-compatible") {
+      throw new Error("Only openai-compatible OnePiece profiles support embedding model discovery.");
+    }
+    if (!transientCredential?.trim() && !profile.credentialPresent) {
+      throw new Error("API key is required to list embedding models for this OnePiece provider.");
+    }
+    return webEmbeddingModelOptions.map((option) => ({ ...option }));
+  },
+
+  async getRetrievalIndexStatus() {
+    return { ...webRetrievalIndexStatus };
+  },
+
+  async rebuildRetrievalIndex() {
+    const status = webRetrievalIndexStatus;
+    status.pending += status.indexed + status.failed;
+    status.indexed = 0;
+    status.failed = 0;
+    status.lastFailureCategory = null;
   },
 
   async listCliTools() {
@@ -2990,6 +3075,14 @@ export const webAgentClient: AgentService = {
 
     const responseText = `Mock ${session.agentId} response: I received "${userMessage.content}". This is a streaming preview in Web mode.`;
     const tokens = responseText.match(/.{1,6}/g) ?? [responseText];
+    // Memory simulation below is gated on these (`add-personalization-settings`) — unlike custom
+    // instructions, memory's on/off effect is structurally observable in mock mode via the
+    // `tool_use`/`rich_block` event stream, so the mock must respect the toggles rather than
+    // always firing. Every mock session already simulates a tool call (shell/remember/mcp) below,
+    // so it is "tool-assisted" under the real definition — the sub-toggle applies accordingly.
+    const personalizationSettings = readWebAppSettings();
+    const memoryEnabled = personalizationSettings.memoryEnabled;
+    const toolAssistedExtractionEnabled = personalizationSettings.memoryToolAssistedChatsEnabled;
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
     const startTimeoutId = setTimeout(() => {
       emitChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
@@ -3018,7 +3111,11 @@ export const webAgentClient: AgentService = {
       timeoutIds.push(compactionTimeoutId);
       // Extraction (`add-agent-cross-session-memory`) piggybacks on the same trigger as
       // compaction in the real runtime, so the mock fires it at the identical condition.
-      if (mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api") {
+      if (
+        memoryEnabled &&
+        toolAssistedExtractionEnabled &&
+        mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "api"
+      ) {
         const extractionTimeoutId = setTimeout(() => {
           const memory = createAgentMemory(
             session.agentId,
@@ -3043,10 +3140,39 @@ export const webAgentClient: AgentService = {
         timeoutIds.push(extractionTimeoutId);
       }
     }
-    const hadExistingMemoriesForScope = webAgentMemories.some(
-      (memory) => memory.agentId === session.agentId && memory.folder === session.folder,
-    );
-    if (hadExistingMemoriesForScope) {
+    // CLI-completion-triggered extraction (`add-cli-memory-support`): unlike the compaction-gated
+    // block above, the real backend's CLI extraction fires after every completed CLI turn with no
+    // length threshold (design.md D3 MVP) and is gated only by the memory master toggle, never the
+    // tool-assisted sub-toggle — that sub-toggle governs only OnePiece's own compaction-triggered
+    // extraction (see `personalization.memory.toolAssistedDesc`).
+    if (memoryEnabled && mockAgents.find((candidate) => candidate.id === session.agentId)?.launch.kind === "cli") {
+      const cliExtractionTimeoutId = setTimeout(() => {
+        const memory = createAgentMemory(
+          session.agentId,
+          session.folder,
+          `Extracted from a CLI session: "${userMessage.content.slice(0, 60)}"`,
+          "automatic",
+        );
+        publishChatEvent({
+          type: "rich_block",
+          sessionId: input.sessionId,
+          messageId: assistantMessage.id,
+          block: {
+            id: `web-memory-extracted-${assistantMessage.id}`,
+            kind: "card",
+            v: 1,
+            title: "Memory extracted",
+            bodyMarkdown: `Saved for future sessions: "${memory.content}"`,
+            tone: "info",
+          },
+        });
+      }, 150);
+      timeoutIds.push(cliExtractionTimeoutId);
+    }
+    // Shared pool (`add-cli-memory-support`): any memory from any agent counts, not just ones
+    // produced by this session's own agent/folder.
+    const hadExistingMemories = webAgentMemories.length > 0;
+    if (memoryEnabled && hadExistingMemories) {
       const memoryInjectionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -3137,7 +3263,7 @@ export const webAgentClient: AgentService = {
     if (agent?.launch.kind === "api") {
       // Trusted agents (`add-agent-tool-trust`) skip the simulated approval step for shell,
       // mirroring the real backend's `requires_approval` short-circuit exactly.
-      const isTrusted = webApiAgentProviderConfigs.get(session.agentId)?.autoApproveTools ?? false;
+      const isTrusted = isAgentAutoApproved(session.agentId);
       const callId = `web-tool-approval-${assistantMessage.id}`;
       const approvalTimeoutId = setTimeout(() => {
         if (isTrusted) {
@@ -3155,10 +3281,15 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        pendingMockToolApprovals.set(callId, {
+        createWebPendingApproval(callId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: "shell",
+          agentId: session.agentId,
+          action: "shell.exec",
+          resource: "workspace",
+          riskLevel: "L2",
+          createdAt: new Date().toISOString(),
         });
         publishChatEvent({
           type: "tool_use",
@@ -3173,34 +3304,56 @@ export const webAgentClient: AgentService = {
         });
       }, 230);
       timeoutIds.push(approvalTimeoutId);
-      // Explicit path (`add-agent-cross-session-memory`): simulates the model calling the
-      // `remember` tool, mirroring the deterministic `read_file`/`shell` tool_use events above.
-      const rememberTimeoutId = setTimeout(() => {
-        const memory = createAgentMemory(
-          session.agentId,
-          session.folder,
-          `User said: "${userMessage.content.slice(0, 60)}"`,
-          "explicit",
-        );
+      // Read-only search (`add-onepiece-search-and-edit-tools`): `grep` is classified
+      // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
+      // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
+      const grepTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "tool_use",
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolUse: {
-            id: `web-remember-${assistantMessage.id}`,
-            name: "remember",
-            input: { content: memory.content },
-            output: "Saved.",
+            id: `web-grep-${assistantMessage.id}`,
+            name: "grep",
+            input: { pattern: "export function", output_mode: "files_with_matches" },
+            output: "src/App.tsx\nsrc/main.tsx",
             status: "completed",
           },
         });
-      }, 235);
-      timeoutIds.push(rememberTimeoutId);
+      }, 233);
+      timeoutIds.push(grepTimeoutId);
+      // Explicit path (`add-agent-cross-session-memory`): simulates the model calling the
+      // `remember` tool, mirroring the deterministic `read_file`/`shell` tool_use events above.
+      // Gated on `memoryEnabled` only — the tool-assisted sub-toggle never affects explicit
+      // saves (`add-personalization-settings`).
+      if (memoryEnabled) {
+        const rememberTimeoutId = setTimeout(() => {
+          const memory = createAgentMemory(
+            session.agentId,
+            session.folder,
+            `User said: "${userMessage.content.slice(0, 60)}"`,
+            "explicit",
+          );
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-remember-${assistantMessage.id}`,
+              name: "remember",
+              input: { content: memory.content },
+              output: "Saved.",
+              status: "completed",
+            },
+          });
+        }, 235);
+        timeoutIds.push(rememberTimeoutId);
+      }
       // MCP-sourced tool call (`add-agent-mcp-tools`): simulates the model calling a tool
       // exposed by a configured MCP server. Always approval-gated, mirroring the same
-      // `pendingMockToolApprovals`/`resolveToolApproval` flow `shell` already uses above — the
-      // real backend classifies every MCP-sourced tool call `RequiresApproval` unconditionally,
-      // with no auto-approve path, unlike `remember`.
+      // `webPendingApprovals`/`resolvePendingApproval` flow `shell` already uses above — the
+      // real backend floors every MCP-sourced tool call at `Ask` unconditionally
+      // (`add-permissions-core` design.md D3), with no auto-approve path, unlike `remember`.
       const mcpCallId = `web-tool-approval-mcp-${assistantMessage.id}`;
       const mcpSimulation = createWebMcpToolSimulationPlan({
         callId: mcpCallId,
@@ -3225,12 +3378,17 @@ export const webAgentClient: AgentService = {
           });
           return;
         }
-        pendingMockToolApprovals.set(mcpCallId, {
+        createWebPendingApproval(mcpCallId, {
           sessionId: input.sessionId,
           messageId: assistantMessage.id,
           toolName: mcpSimulation.awaitingApproval.name,
           input: mcpSimulation.completed.input,
           output: mcpSimulation.completed.output,
+          agentId: session.agentId,
+          action: "mcp.tool",
+          resource: mcpSimulation.awaitingApproval.name,
+          riskLevel: "L2",
+          createdAt: new Date().toISOString(),
         });
         publishChatEvent({
           type: "tool_use",
@@ -3333,26 +3491,6 @@ export const webAgentClient: AgentService = {
     findSession(sessionId);
     if (!cancelActiveStream(sessionId)) return;
     updateSession(sessionId, { lifecycleState: "stopped" });
-  },
-
-  async resolveToolApproval(sessionId: string, callId: string, approved: boolean) {
-    findSession(sessionId);
-    const pending = pendingMockToolApprovals.get(callId);
-    if (!pending || pending.sessionId !== sessionId) return false;
-    pendingMockToolApprovals.delete(callId);
-    publishChatEvent({
-      type: "tool_use",
-      sessionId,
-      messageId: pending.messageId,
-      toolUse: {
-        id: callId,
-        name: pending.toolName,
-        input: pending.input ?? { command: "echo mock" },
-        output: approved ? pending.output ?? "mock\n" : "Denied by user.",
-        status: approved ? "completed" : "failed",
-      },
-    });
-    return true;
   },
 
   async openAgentTerminal(sessionId: string, size: AgentTerminalSize) {

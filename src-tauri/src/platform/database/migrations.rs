@@ -240,28 +240,59 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     )?;
     apply_migration(
         conn,
+        42,
+        "agent-memory-shared-pool",
+        crate::contexts::agent_runtime::infrastructure::apply_memory_shared_pool_schema,
+    )?;
+    // 43, not 42: `agent-memory-shared-pool` landed on main under 42 first and may already be in
+    // users' databases. `apply_migration` 是版本门控的——两条 42 号迁移里的第二条永远不会执行，
+    // 启动即 "no such table: retrieval_documents"。
+    apply_migration(
+        conn,
         43,
+        "retrieval-vector-index",
+        crate::contexts::retrieval::infrastructure::apply_retrieval_schema,
+    )?;
+    // 44, not 42: this worktree's own `permissions-core` migration originally claimed 42 too,
+    // independently of `agent-memory-shared-pool` above — same class of collision, same fix.
+    // Renumbered on merge rather than kept at 42, since 42/43 already shipped under those names.
+    apply_migration(conn, 44, "permissions-core", |connection| {
+        crate::contexts::permissions::infrastructure::schema::apply_permissions_core_schema(
+            connection,
+        )?;
+        crate::contexts::permissions::infrastructure::schema::backfill_principals_from_legacy_trust_flag(
+            connection,
+        )
+    })?;
+    // 45-48, not 43-46: `retrieval-vector-index` and `permissions-core` reached main under 43 and
+    // 44 while this branch was open, so these four move up behind them. `apply_migration` is
+    // version-gated — the second migration to claim a number never runs, and the table it was
+    // supposed to create is simply missing at startup.
+    apply_migration(
+        conn,
+        45,
         "remove-multi-agent-coordination",
         apply_remove_coordination_migration,
     )?;
     apply_migration(
         conn,
-        44,
+        46,
         "expert-role-management",
         crate::contexts::agent_runtime::infrastructure::apply_expert_role_schema,
     )?;
     apply_migration(
         conn,
-        45,
+        47,
         "session-seats",
         crate::contexts::sessions::infrastructure::apply_session_seat_schema,
     )?;
     apply_migration(
         conn,
-        46,
+        48,
         "message-speaker",
         crate::contexts::sessions::infrastructure::apply_message_speaker_schema,
     )?;
+
 
     Ok(())
 }
@@ -900,7 +931,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (44, 46));
+        assert_eq!(migration_state, (47, 48));
 
         migrate(&connection).expect("upgrade migration");
 

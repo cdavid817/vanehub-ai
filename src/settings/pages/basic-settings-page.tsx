@@ -8,6 +8,7 @@ import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
 import { appFontSizes, type AppFontSize } from "../../types/settings";
+import { policyTemplateNames, type PolicyTemplateName } from "../../types/permissions";
 import { NetworkProxySection } from "./network-proxy-section";
 import { SectionPanel, SettingsDisclosure, SettingsRow } from "./page-parts";
 import { FloatingAssistantSettingsSection } from "./floating-assistant-settings-section";
@@ -153,6 +154,18 @@ export function BasicSettingsPage() {
               onChange={(value) => void saveSetting("fontSize", value)}
               options={appFontSizes.map((fontSize) => ({ label: fontSize, value: fontSize }))}
               value={settings.fontSize}
+            />
+          </SettingsRow>
+          <SettingsRow description={t("basic.defaultPolicyTemplateDesc")} title={t("basic.defaultPolicyTemplate")}>
+            <SelectField<PolicyTemplateName>
+              disabled={busy}
+              label={t("basic.defaultPolicyTemplate")}
+              onChange={(value) => void saveSetting("defaultPolicyTemplate", value)}
+              options={policyTemplateNames.map((template) => ({
+                label: t(`settings.agentPolicies.template.${template}`),
+                value: template,
+              }))}
+              value={settings.defaultPolicyTemplate}
             />
           </SettingsRow>
         </SectionPanel>

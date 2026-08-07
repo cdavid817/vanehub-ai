@@ -11,6 +11,21 @@ coverage/
 .docs-target/
 .docs-screenshots/
 
+
+# subagent-driven-development scratch (progress ledger, task briefs, review packages)
+.superpowers/
+
+# environment files (never commit secrets)
+.env
+.env.*
+
+# AI assistant local/scratch files
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+.agents/
+
+# non-npm lockfiles are forbidden (npm-only repo)
 # npm is this project's package manager (AGENTS.md); package-lock.json is the committed lockfile.
 # Something on developer machines periodically runs pnpm here, and the stray lockfile has been
 # committed by accident. Detect contamination with `ls node_modules/.pnpm`, not by this file's

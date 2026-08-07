@@ -1,22 +1,23 @@
+use super::model_category::{is_chat_model, is_embedding_model};
 use super::{
-    SeatTurnCompletionPort, SeatTurnTerminal,
-    AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort, AgentEvent, AgentEventPort,
-    AgentGenerationPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentMessage,
-    AgentMessageTerminal, AgentMessageTerminalCompletionPort, AgentMessageTerminalOutcome,
-    AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
-    AgentRuntimeApplicationError, AgentSession, AgentSessionDetails, AgentSessionGateway,
-    AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot, CompleteAgentMessage,
-    ConversationHistoryPort,
-    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EffectivePromptGateway, GenerationLease,
+    format_memory_section, AgentChatConfiguration, AgentCliProfileGateway, AgentClockPort,
+    AgentEvent, AgentEventPort, AgentGenerationPort, AgentLog, AgentLoggingPort, AgentLogLevel,
+    AgentMessage, AgentMessageTerminal, AgentMessageTerminalCompletionPort,
+    AgentMessageTerminalOutcome, AgentProcessEventSink, AgentProcessGateway,
+    AgentRegistryRepository, AgentRuntimeApplicationError, AgentSession, AgentSessionDetails,
+    AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView,
+    ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot,
+    CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
+    EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView, GenerationLease,
     GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
-    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
     MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
+    SeatTurnCompletionPort, SeatTurnTerminal,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    PendingPromptExecution, PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
-    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
+    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SendMessageRequest, StartedAgentMessage,
@@ -70,24 +71,6 @@ fn push_model_option(
     }
 }
 
-fn is_chat_model(id: &str) -> bool {
-    let id = id.to_ascii_lowercase();
-    ![
-        "embedding",
-        "rerank",
-        "whisper",
-        "tts",
-        "audio",
-        "image",
-        "moderation",
-        "realtime",
-        "sora",
-        "stable-diffusion",
-    ]
-    .iter()
-    .any(|excluded| id.contains(excluded))
-}
-
 #[derive(Clone)]
 pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) registry: Arc<dyn AgentRegistryRepository>,
@@ -114,6 +97,8 @@ pub(crate) struct AgentRuntimeApplicationPorts {
     pub(crate) onepiece_model_discovery: Arc<dyn OnePieceModelDiscoveryPort>,
     pub(crate) tool_approvals: Arc<dyn ToolApprovalPort>,
     pub(crate) memories: Arc<dyn super::AgentMemoryPort>,
+    pub(crate) memory_extraction: Arc<dyn super::AgentMemoryExtractionPort>,
+    pub(crate) personalization: Arc<dyn super::AgentPersonalizationPort>,
 }
 
 #[derive(Clone)]
@@ -955,6 +940,133 @@ impl AgentRuntimeApplicationService {
         self.onepiece_provider_profiles()
     }
 
+    // 凭据只读出一次、原样放进返回值供进程内传递给 bootstrap 的 embedding 端点适配器——
+    // 不写日志、不拼进错误消息（见下方各分支，全部是不含凭据的静态字符串）。
+    pub(crate) fn resolve_embedding_endpoint(
+        &self,
+        profile_id: &str,
+    ) -> Result<EmbeddingEndpointView, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        if profile.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Only openai-compatible OnePiece profiles support embeddings.".to_string(),
+            ));
+        }
+        let base_url = profile.base_url.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile has no base URL configured.".to_string(),
+            )
+        })?;
+        let credential = self
+            .ports
+            .api_credentials
+            .fetch(&onepiece_profile_credential_key(&profile.id))?
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider Profile has no API key.".to_string(),
+                )
+            })?;
+        Ok(EmbeddingEndpointView {
+            base_url,
+            interface_format: profile.interface_format,
+            credential,
+        })
+    }
+
+    // 凭据只用于组装发往 HttpOnePieceModelDiscoveryAdapter 的请求，从不进入返回值或
+    // 错误消息——发现失败时直接把底层 Err 冒泡（该错误本身也不含凭据，见
+    // onepiece_model_discovery.rs 的 discovery_error），不像 discover_onepiece_provider_models
+    // 那样回退到目录：目录里没有任何 embedding 模型数据可回退。
+    pub(crate) fn list_embedding_models(
+        &self,
+        profile_id: &str,
+        transient_credential: Option<&str>,
+    ) -> Result<Vec<OnePieceProviderModelOption>, AgentRuntimeApplicationError> {
+        let profiles = self.ports.api_agents.list_onepiece_provider_profiles()?;
+        let profile = profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "OnePiece provider profile was not found.".to_string(),
+                )
+            })?;
+        if profile.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+            return Err(AgentRuntimeApplicationError::Validation(
+                "Only openai-compatible OnePiece profiles support embedding model discovery."
+                    .to_string(),
+            ));
+        }
+        let provider_id = profile.source_provider_id.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile is missing its source provider.".to_string(),
+            )
+        })?;
+        let endpoint_type = profile.source_endpoint_type.ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "The OnePiece profile is missing its source endpoint.".to_string(),
+            )
+        })?;
+        let preset = super::onepiece_provider_catalog::resolve(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The selected OnePiece provider endpoint was not found.".to_string(),
+                )
+            })?;
+        let transient = transient_credential
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let stored = self
+            .ports
+            .api_credentials
+            .fetch(&onepiece_profile_credential_key(&profile.id))?;
+        let credential = transient.or(stored).ok_or_else(|| {
+            AgentRuntimeApplicationError::Validation(
+                "API key is required to list embedding models for this OnePiece provider."
+                    .to_string(),
+            )
+        })?;
+        let url = super::onepiece_provider_catalog::discovery_url(&provider_id, &endpoint_type)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Validation(
+                    "The OnePiece provider has no model discovery endpoint.".to_string(),
+                )
+            })?;
+        let discovered =
+            self.ports
+                .onepiece_model_discovery
+                .list_models(OnePieceModelDiscoveryRequest {
+                    strategy: preset.model_discovery_strategy,
+                    url,
+                    api_key: credential,
+                })?;
+        let mut models = Vec::new();
+        let mut seen = BTreeSet::new();
+        for model in discovered
+            .into_iter()
+            .filter(|model| is_embedding_model(&model.id))
+            .take(1_000)
+        {
+            push_model_option(
+                &mut models,
+                &mut seen,
+                &model.id,
+                &model.display_name,
+                "api",
+            );
+        }
+        Ok(models)
+    }
+
     /// Edits an existing API agent's `display_name`/`model_id`/`base_url`, and optionally
     /// rotates its stored API key. `provider`/`interface_format` are immutable after
     /// registration (`add-agent-lifecycle-management` design.md Decision 1) — re-validates like
@@ -1017,25 +1129,6 @@ impl AgentRuntimeApplicationService {
         Ok(AgentView::from(&definition))
     }
 
-    /// Sets the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`) — grants
-    /// or revokes that agent's exemption from per-call approval for `shell` and file-`write`
-    /// tool calls. MCP calls and plan mode are both unaffected regardless of this setting.
-    pub(crate) fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<AgentView, AgentRuntimeApplicationError> {
-        self.ports
-            .api_agents
-            .set_auto_approve_tools(agent_id, enabled)?;
-        let definition = self
-            .ports
-            .registry
-            .find(agent_id)?
-            .ok_or_else(|| AgentRuntimeApplicationError::AgentNotFound(agent_id.to_string()))?;
-        Ok(AgentView::from(&definition))
-    }
-
     /// Deletes a registered API agent and its stored credential. The repository rejects (and
     /// changes nothing) if the agent is still referenced by other stored data
     /// (`add-agent-lifecycle-management` design.md Decision 2) — `credentials.remove` only runs
@@ -1087,11 +1180,10 @@ impl AgentRuntimeApplicationService {
             .resolve(&process_id, call_id, decision)
     }
 
-    pub(crate) fn list_agent_memories(
+    pub(crate) fn list_all_memories(
         &self,
-        agent_id: &str,
     ) -> Result<Vec<super::AgentMemory>, AgentRuntimeApplicationError> {
-        self.ports.memories.list_all_for_agent(agent_id)
+        self.ports.memories.list_all()
     }
 
     pub(crate) fn delete_agent_memory(
@@ -1099,6 +1191,10 @@ impl AgentRuntimeApplicationService {
         memory_id: &str,
     ) -> Result<(), AgentRuntimeApplicationError> {
         self.ports.memories.delete(memory_id)
+    }
+
+    pub(crate) fn reset_all_memories(&self) -> Result<(), AgentRuntimeApplicationError> {
+        self.ports.memories.delete_all()
     }
 
     fn unique_api_agent_id(
@@ -1597,21 +1693,78 @@ impl AgentRuntimeApplicationService {
         // fail to parse it and abort the whole send, so it's skipped in favor of the prompt
         // composed above, passed through unchanged.
         let effective_prompt = if agent.launch().kind_str() == "cli" {
-            match self
-                .ports
-                .prompts
-                .assemble(agent.id().as_str(), &session.id, &prompt)
-            {
-                Ok(prompt) => prompt,
+            let assembled =
+                match self
+                    .ports
+                    .prompts
+                    .assemble(agent.id().as_str(), &session.id, &prompt)
+                {
+                    Ok(prompt) => prompt,
+                    Err(error) => {
+                        return self.fail_prepared_message(
+                            &root_context,
+                            session,
+                            &assistant,
+                            lease,
+                            Some(&operation.id),
+                            generation_failure("Prompt Hook assembly failed", error.to_string()),
+                        );
+                    }
+                };
+            // Custom instructions (`add-cli-custom-instructions-injection`) and the shared memory
+            // pool (`add-cli-memory-support`) are combined here, after Prompt Hook assembly rather
+            // than before it, so hook templates' own `{{sample_input}}` rendering still reflects
+            // only the user's original message. A personalization-settings lookup failure
+            // degrades to safe defaults (mirroring `resolve_personalization_settings` on the
+            // OnePiece side) rather than blocking the message — this codebase's established
+            // philosophy of never letting an optional personalization lookup fail delivery.
+            let personalization_settings = match self.ports.personalization.settings() {
+                Ok(settings) => settings,
                 Err(error) => {
-                    return self.fail_prepared_message(
-                        &root_context,
-                        session,
-                        &assistant,
-                        lease,
-                        Some(&operation.id),
-                        generation_failure("Prompt Hook assembly failed", error.to_string()),
+                    self.record_log(
+                        AgentLogLevel::Warn,
+                        "session.runtime.personalization",
+                        format!(
+                            "Failed to resolve personalization settings; continuing with safe defaults: {error}"
+                        ),
+                        Some(agent.id().as_str()),
+                        Some(&session.id),
+                        None,
                     );
+                    PersonalizationSettings::safe_fallback()
+                }
+            };
+            let custom_instructions = personalization_settings.custom_instructions_block();
+            let memory_section = if personalization_settings.memory_enabled {
+                match self.ports.memories.list_all() {
+                    Ok(memories) => format_memory_section(&memories),
+                    Err(error) => {
+                        self.record_log(
+                            AgentLogLevel::Warn,
+                            "session.runtime.memory",
+                            format!(
+                                "Failed to resolve stored memories; continuing without them: {error}"
+                            ),
+                            Some(agent.id().as_str()),
+                            Some(&session.id),
+                            None,
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let leading_sections: Vec<String> = [custom_instructions, memory_section]
+                .into_iter()
+                .flatten()
+                .collect();
+            if leading_sections.is_empty() {
+                assembled
+            } else {
+                EffectivePrompt {
+                    content: format!("{}\n\n{}", leading_sections.join("\n\n"), assembled.content),
+                    trace: assembled.trace,
                 }
             }
         } else {
@@ -1715,6 +1868,7 @@ impl AgentRuntimeApplicationService {
                 executable: String::new(),
                 selections: std::collections::BTreeMap::new(),
                 managed_args: Vec::new(),
+                env: std::collections::BTreeMap::new(),
             }
         };
         let input_count = effective_prompt.content.chars().count();
@@ -1861,6 +2015,9 @@ impl AgentRuntimeApplicationService {
                 seat_ownership,
                 prompt_versions: prompt_versions.clone(),
                 prompt_started_at,
+                is_cli_kind: agent.launch().kind_str() == "cli",
+                folder: session.folder.clone(),
+                user_prompt: prompt.clone(),
             },
         ));
         if let Err(error) = self
@@ -2220,6 +2377,12 @@ struct GenerationEventHandler {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    /// `add-cli-memory-support` — gates the post-completion memory-extraction attempt to
+    /// CLI-wrapped agents only (`agent.launch().kind_str() == "cli"` at construction time),
+    /// mirroring the same gate the CLI send path already uses for injection.
+    is_cli_kind: bool,
+    folder: Option<String>,
+    user_prompt: String,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -2237,6 +2400,9 @@ struct GenerationEventHandlerInput {
     seat_ownership: Option<super::SeatTurnOwnership>,
     prompt_versions: Vec<PromptVersionReference>,
     prompt_started_at: Instant,
+    is_cli_kind: bool,
+    folder: Option<String>,
+    user_prompt: String,
 }
 
 // Streaming deltas are persisted for crash/live-reload durability only — the terminal
@@ -2314,6 +2480,9 @@ impl GenerationEventHandler {
             seat_ownership: input.seat_ownership,
             prompt_versions: input.prompt_versions,
             prompt_started_at: input.prompt_started_at,
+            is_cli_kind: input.is_cli_kind,
+            folder: input.folder,
+            user_prompt: input.user_prompt,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -2628,9 +2797,84 @@ impl GenerationEventHandler {
             message_id: self.message_id.clone(),
             token_usage: Some(token_usage),
         });
-        self.deliver_loop_terminal(LoopRoleGenerationOutcome::Completed, Some(response), None)?;
+        self.deliver_loop_terminal(
+            LoopRoleGenerationOutcome::Completed,
+            Some(response.clone()),
+            None,
+        )?;
         self.record_prompt_execution(PromptExecutionOutcome::Succeeded);
+        // `add-cli-memory-support`: runs after everything above has already committed and
+        // delivered the completed message — a slow or failing extraction call only extends this
+        // background monitoring thread's own lifetime, never the user-visible completion, which
+        // was already published by `message_completions.deliver`/`events.publish` earlier in this
+        // function (design.md D3/task 6.3).
+        if self.is_cli_kind {
+            self.extract_and_save_memory(&response);
+        }
         Ok(())
+    }
+
+    /// `add-cli-memory-support` D3/D4: best-effort, independent memory extraction for a
+    /// CLI-wrapped agent's just-completed turn. Every failure mode (personalization lookup,
+    /// missing OnePiece credential, the extraction call itself) logs and returns — this must
+    /// never propagate an error, since the CLI message it's attached to has already succeeded.
+    fn extract_and_save_memory(&self, response: &str) {
+        let memory_enabled = match self.ports.personalization.settings() {
+            Ok(settings) => settings.memory_enabled,
+            Err(error) => {
+                self.record_memory_extraction_log(format!(
+                    "Failed to resolve personalization settings for CLI memory extraction; skipping: {error}"
+                ));
+                return;
+            }
+        };
+        if !memory_enabled {
+            return;
+        }
+        let exchange = format!("User: {}\n\nAssistant: {response}", self.user_prompt);
+        match self.ports.memory_extraction.extract(&exchange) {
+            Ok(Some(content)) => {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        let _ = self.ports.memories.save(
+                            &self.agent_id,
+                            self.folder.as_deref(),
+                            line,
+                            MemorySource::Automatic,
+                        );
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(AgentRuntimeApplicationError::Credential(message)) => {
+                // Expected, common condition (OnePiece isn't configured) — distinct wording and
+                // log category from a genuine call failure below (task 6.2).
+                self.record_memory_extraction_log(format!(
+                    "Skipping CLI memory extraction; OnePiece has no usable credential: {message}"
+                ));
+            }
+            Err(error) => {
+                self.record_memory_extraction_log(format!(
+                    "CLI memory extraction call failed; continuing without it: {error}"
+                ));
+            }
+        }
+    }
+
+    fn record_memory_extraction_log(&self, message: String) {
+        let _ = self.ports.logging.record(AgentLog {
+            level: AgentLogLevel::Warn,
+            category: "session.runtime.memory-extraction".to_string(),
+            message,
+            agent_id: Some(self.agent_id.clone()),
+            session_id: Some(self.session_id.clone()),
+            operation_id: Some(self.operation_id.clone()),
+            run_id: Some(self.root_context.run_id.as_str().to_string()),
+            trace_id: Some(self.root_context.trace_id.as_str().to_string()),
+            span_id: Some(self.agent_context.span_id.as_str().to_string()),
+            occurred_at: self.ports.clock.now(),
+        });
     }
 
     fn failed(

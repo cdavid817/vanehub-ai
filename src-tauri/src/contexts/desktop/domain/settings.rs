@@ -1,6 +1,7 @@
 use super::DesktopSettingsDomainError;
 
 pub(crate) const DEFAULT_NETWORK_PROXY_BYPASS: &str = "localhost,127.0.0.1,::1";
+pub(crate) const CUSTOM_INSTRUCTIONS_FIELD_CHARACTER_LIMIT: usize = 3_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApplicationLanguage {
@@ -184,6 +185,12 @@ pub(crate) enum DesktopSettingKey {
     AutomaticArchivalEnabled,
     AutomaticArchivalInactiveDays,
     LaunchOnStartup,
+    DefaultPolicyTemplate,
+    CustomInstructionsAboutUser,
+    CustomInstructionsStyleRules,
+    CustomInstructionsEnabled,
+    MemoryEnabled,
+    MemoryToolAssistedChatsEnabled,
 }
 
 impl DesktopSettingKey {
@@ -199,6 +206,12 @@ impl DesktopSettingKey {
             "automaticArchivalEnabled" => Ok(Self::AutomaticArchivalEnabled),
             "automaticArchivalInactiveDays" => Ok(Self::AutomaticArchivalInactiveDays),
             "launchOnStartup" => Ok(Self::LaunchOnStartup),
+            "defaultPolicyTemplate" => Ok(Self::DefaultPolicyTemplate),
+            "customInstructionsAboutUser" => Ok(Self::CustomInstructionsAboutUser),
+            "customInstructionsStyleRules" => Ok(Self::CustomInstructionsStyleRules),
+            "customInstructionsEnabled" => Ok(Self::CustomInstructionsEnabled),
+            "memoryEnabled" => Ok(Self::MemoryEnabled),
+            "memoryToolAssistedChatsEnabled" => Ok(Self::MemoryToolAssistedChatsEnabled),
             _ => Err(DesktopSettingsDomainError::invalid(value)),
         }
     }
@@ -215,6 +228,12 @@ impl DesktopSettingKey {
             Self::AutomaticArchivalEnabled => "automaticArchivalEnabled",
             Self::AutomaticArchivalInactiveDays => "automaticArchivalInactiveDays",
             Self::LaunchOnStartup => "launchOnStartup",
+            Self::DefaultPolicyTemplate => "defaultPolicyTemplate",
+            Self::CustomInstructionsAboutUser => "customInstructionsAboutUser",
+            Self::CustomInstructionsStyleRules => "customInstructionsStyleRules",
+            Self::CustomInstructionsEnabled => "customInstructionsEnabled",
+            Self::MemoryEnabled => "memoryEnabled",
+            Self::MemoryToolAssistedChatsEnabled => "memoryToolAssistedChatsEnabled",
         }
     }
 }
@@ -231,6 +250,17 @@ pub(crate) enum DesktopSettingMutation {
     AutomaticArchivalEnabled(bool),
     AutomaticArchivalInactiveDays(i64),
     LaunchOnStartup(bool),
+    /// Which policy template a newly created `permissions` agent principal is assigned
+    /// (`permissions-core`'s "Newly created principals default to a configurable template").
+    /// Stored and validated here only as a non-empty opaque string — `desktop` does not know
+    /// what a policy template is; `permissions::infrastructure`'s `DesktopDefaultTemplateAdapter`
+    /// is solely responsible for interpreting it, falling back to `standard` if it can't.
+    DefaultPolicyTemplate(String),
+    CustomInstructionsAboutUser(String),
+    CustomInstructionsStyleRules(String),
+    CustomInstructionsEnabled(bool),
+    MemoryEnabled(bool),
+    MemoryToolAssistedChatsEnabled(bool),
 }
 
 impl DesktopSettingMutation {
@@ -275,7 +305,31 @@ impl DesktopSettingMutation {
             DesktopSettingKey::LaunchOnStartup => parse_bool(value)
                 .map(Self::LaunchOnStartup)
                 .ok_or_else(invalid),
-            DesktopSettingKey::LogDirectory => Err(invalid()),
+            DesktopSettingKey::DefaultPolicyTemplate if !value.trim().is_empty() => {
+                Ok(Self::DefaultPolicyTemplate(value.to_string()))
+            }
+            DesktopSettingKey::CustomInstructionsAboutUser => {
+                validate_custom_instructions_field(value)
+                    .map(Self::CustomInstructionsAboutUser)
+                    .ok_or_else(invalid)
+            }
+            DesktopSettingKey::CustomInstructionsStyleRules => {
+                validate_custom_instructions_field(value)
+                    .map(Self::CustomInstructionsStyleRules)
+                    .ok_or_else(invalid)
+            }
+            DesktopSettingKey::CustomInstructionsEnabled => parse_bool(value)
+                .map(Self::CustomInstructionsEnabled)
+                .ok_or_else(invalid),
+            DesktopSettingKey::MemoryEnabled => parse_bool(value)
+                .map(Self::MemoryEnabled)
+                .ok_or_else(invalid),
+            DesktopSettingKey::MemoryToolAssistedChatsEnabled => parse_bool(value)
+                .map(Self::MemoryToolAssistedChatsEnabled)
+                .ok_or_else(invalid),
+            DesktopSettingKey::LogDirectory | DesktopSettingKey::DefaultPolicyTemplate => {
+                Err(invalid())
+            }
         }
     }
 
@@ -293,6 +347,16 @@ impl DesktopSettingMutation {
                 DesktopSettingKey::AutomaticArchivalInactiveDays
             }
             Self::LaunchOnStartup(_) => DesktopSettingKey::LaunchOnStartup,
+            Self::DefaultPolicyTemplate(_) => DesktopSettingKey::DefaultPolicyTemplate,
+            Self::CustomInstructionsAboutUser(_) => DesktopSettingKey::CustomInstructionsAboutUser,
+            Self::CustomInstructionsStyleRules(_) => {
+                DesktopSettingKey::CustomInstructionsStyleRules
+            }
+            Self::CustomInstructionsEnabled(_) => DesktopSettingKey::CustomInstructionsEnabled,
+            Self::MemoryEnabled(_) => DesktopSettingKey::MemoryEnabled,
+            Self::MemoryToolAssistedChatsEnabled(_) => {
+                DesktopSettingKey::MemoryToolAssistedChatsEnabled
+            }
         }
     }
 
@@ -304,13 +368,22 @@ impl DesktopSettingMutation {
             Self::DefaultFolderPath(value)
             | Self::LogDirectory(value)
             | Self::NetworkProxyUrl(value)
-            | Self::NetworkProxyBypass(value) => value.clone(),
-            Self::AutomaticArchivalEnabled(value) | Self::LaunchOnStartup(value) => {
-                value.to_string()
-            }
+            | Self::NetworkProxyBypass(value)
+            | Self::DefaultPolicyTemplate(value)
+            | Self::CustomInstructionsAboutUser(value)
+            | Self::CustomInstructionsStyleRules(value) => value.clone(),
+            Self::AutomaticArchivalEnabled(value)
+            | Self::LaunchOnStartup(value)
+            | Self::CustomInstructionsEnabled(value)
+            | Self::MemoryEnabled(value)
+            | Self::MemoryToolAssistedChatsEnabled(value) => value.to_string(),
             Self::AutomaticArchivalInactiveDays(value) => value.to_string(),
         }
     }
+}
+
+fn validate_custom_instructions_field(value: &str) -> Option<String> {
+    (value.chars().count() <= CUSTOM_INSTRUCTIONS_FIELD_CHARACTER_LIMIT).then(|| value.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,6 +396,12 @@ pub(crate) struct DesktopSettings {
     network_proxy: NetworkProxyPreferences,
     automatic_archival: AutomaticArchivalSettings,
     startup: StartupPreference,
+    default_policy_template: String,
+    custom_instructions_about_user: String,
+    custom_instructions_style_rules: String,
+    custom_instructions_enabled: bool,
+    memory_enabled: bool,
+    memory_tool_assisted_chats_enabled: bool,
 }
 
 impl DesktopSettings {
@@ -339,6 +418,12 @@ impl DesktopSettings {
                 inactive_days: 10,
             },
             startup: StartupPreference::new(false),
+            default_policy_template: "standard".to_string(),
+            custom_instructions_about_user: String::new(),
+            custom_instructions_style_rules: String::new(),
+            custom_instructions_enabled: true,
+            memory_enabled: true,
+            memory_tool_assisted_chats_enabled: true,
         }
     }
 
@@ -363,6 +448,24 @@ impl DesktopSettings {
             }
             DesktopSettingMutation::LaunchOnStartup(value) => {
                 self.startup = StartupPreference::new(value);
+            }
+            DesktopSettingMutation::DefaultPolicyTemplate(value) => {
+                self.default_policy_template = value;
+            }
+            DesktopSettingMutation::CustomInstructionsAboutUser(value) => {
+                self.custom_instructions_about_user = value;
+            }
+            DesktopSettingMutation::CustomInstructionsStyleRules(value) => {
+                self.custom_instructions_style_rules = value;
+            }
+            DesktopSettingMutation::CustomInstructionsEnabled(value) => {
+                self.custom_instructions_enabled = value;
+            }
+            DesktopSettingMutation::MemoryEnabled(value) => {
+                self.memory_enabled = value;
+            }
+            DesktopSettingMutation::MemoryToolAssistedChatsEnabled(value) => {
+                self.memory_tool_assisted_chats_enabled = value;
             }
         }
     }
@@ -397,6 +500,30 @@ impl DesktopSettings {
 
     pub(crate) fn startup(&self) -> StartupPreference {
         self.startup
+    }
+
+    pub(crate) fn default_policy_template(&self) -> &str {
+        &self.default_policy_template
+    }
+
+    pub(crate) fn custom_instructions_about_user(&self) -> &str {
+        &self.custom_instructions_about_user
+    }
+
+    pub(crate) fn custom_instructions_style_rules(&self) -> &str {
+        &self.custom_instructions_style_rules
+    }
+
+    pub(crate) fn custom_instructions_enabled(&self) -> bool {
+        self.custom_instructions_enabled
+    }
+
+    pub(crate) fn memory_enabled(&self) -> bool {
+        self.memory_enabled
+    }
+
+    pub(crate) fn memory_tool_assisted_chats_enabled(&self) -> bool {
+        self.memory_tool_assisted_chats_enabled
     }
 }
 
@@ -458,6 +585,12 @@ mod tests {
             AutomaticArchivalSettings::new(true, 10).expect("archival defaults")
         );
         assert!(!settings.startup().enabled());
+        assert_eq!(settings.default_policy_template(), "standard");
+        assert_eq!(settings.custom_instructions_about_user(), "");
+        assert_eq!(settings.custom_instructions_style_rules(), "");
+        assert!(settings.custom_instructions_enabled());
+        assert!(settings.memory_enabled());
+        assert!(settings.memory_tool_assisted_chats_enabled());
     }
 
     #[test]
@@ -489,6 +622,12 @@ mod tests {
             ("automaticArchivalEnabled", "false"),
             ("automaticArchivalInactiveDays", "3650"),
             ("launchOnStartup", "true"),
+            ("defaultPolicyTemplate", "trusted"),
+            ("customInstructionsAboutUser", "Prefers concise answers."),
+            ("customInstructionsStyleRules", "Always answer in Chinese."),
+            ("customInstructionsEnabled", "false"),
+            ("memoryEnabled", "false"),
+            ("memoryToolAssistedChatsEnabled", "false"),
         ];
 
         for (key, value) in cases {
@@ -503,6 +642,21 @@ mod tests {
             "Invalid setting value for key 'fontSize'."
         );
         assert!(DesktopSettingMutation::parse("unknownSetting", "value").is_err());
+        assert!(DesktopSettingMutation::parse("defaultPolicyTemplate", "").is_err());
+    }
+
+    #[test]
+    fn custom_instructions_fields_enforce_the_character_limit() {
+        let at_limit = "x".repeat(CUSTOM_INSTRUCTIONS_FIELD_CHARACTER_LIMIT);
+        let over_limit = "x".repeat(CUSTOM_INSTRUCTIONS_FIELD_CHARACTER_LIMIT + 1);
+
+        assert!(DesktopSettingMutation::parse("customInstructionsAboutUser", &at_limit).is_ok());
+        assert!(DesktopSettingMutation::parse("customInstructionsAboutUser", &over_limit).is_err());
+        assert!(DesktopSettingMutation::parse("customInstructionsStyleRules", &at_limit).is_ok());
+        assert!(
+            DesktopSettingMutation::parse("customInstructionsStyleRules", &over_limit).is_err()
+        );
+        assert!(DesktopSettingMutation::parse("customInstructionsAboutUser", "").is_ok());
     }
 
     #[test]

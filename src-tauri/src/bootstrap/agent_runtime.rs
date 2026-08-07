@@ -1,12 +1,12 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
-    AgentTerminalApplicationService, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
-    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
-    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
-    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
-    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
+    AgentTerminalApplicationPorts, AgentTerminalApplicationService, ExpertRoleApplicationPorts,
+    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
+    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
+    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
+    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
@@ -14,18 +14,19 @@ use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter, CompositeAgentProcessGateway,
     CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
-    InMemoryLoopExecutionCoordinator, InMemorySeatTurnCompletions, InMemoryLoopRoleGenerationCompletions,
-    NativeAgentCoreInstructionsAdapter, NativeLoopScheduler, NativeSeatTurnCoordinator,
-    OsApiCredentialAdapter,
+    InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
+    InMemorySeatTurnCompletions, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    NativeSeatTurnCoordinator, OsApiCredentialAdapter, PermissionsPortAdapter,
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
-    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentProcessAdapter,
-    RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteExpertRoleRepository,
-    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UuidExpertRoleIds,
+    RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
+    RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
+    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
     WorkspaceLoopProjectAdapter,
 };
+use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
 use crate::contexts::execution_observability::infrastructure::{
     CompositeExecutionTelemetry, ExecutionTelemetryLifecycle, OpenTelemetryExecutionExporter,
@@ -36,6 +37,7 @@ use crate::contexts::operations::api::{
     OperationsApi,
 };
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
+use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::tooling::cli::api::CliApi;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
@@ -62,7 +64,14 @@ pub(crate) struct AgentRuntimeDependencies {
     pub(crate) mcp: McpApi,
     pub(crate) sessions: SessionsApi,
     pub(crate) workspaces: WorkspaceApi,
+    pub(crate) permissions: PermissionsApi,
     pub(crate) shared_registry: SharedAgentRegistry,
+    /// Consumed by `RuntimeAgentApiAdapter`'s `recall` tool (Task 13). A concrete
+    /// `Arc<retrieval::DeferredAgentRetrieval>`, coerced here — `assemble_retrieval` itself needs
+    /// this function's own output (`AgentRuntimeApi`), so the real `RetrievalApi` cannot exist
+    /// yet; `runtime.rs`'s `setup` binds it right after `assemble_retrieval` returns.
+    pub(crate) retrieval: Arc<dyn AgentRetrievalPort>,
+    pub(crate) desktop_settings: DesktopSettingsApi,
 }
 
 #[derive(Clone)]
@@ -155,6 +164,16 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.database.clone(),
     ));
     let agent_mcp_tools = Arc::new(RuntimeAgentMcpToolAdapter::new(dependencies.mcp));
+    let agent_permissions = Arc::new(PermissionsPortAdapter::new(
+        dependencies.permissions.clone(),
+    ));
+    let agent_personalization = Arc::new(RuntimeAgentPersonalizationAdapter::new(
+        dependencies.desktop_settings,
+    ));
+    let agent_memory_extraction = Arc::new(RuntimeAgentMemoryExtractionAdapter::new(
+        api_credentials.clone(),
+        repository.clone(),
+    ));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -165,6 +184,9 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(NativeAgentCoreInstructionsAdapter),
         agent_memories.clone(),
         agent_mcp_tools,
+        agent_permissions,
+        dependencies.retrieval,
+        agent_personalization.clone(),
     ));
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
@@ -175,6 +197,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let cli_profiles = Arc::new(RuntimeAgentCliProfileAdapter::new(
         dependencies.cli_parameters,
         dependencies.cli,
+        dependencies.permissions,
     ));
     let events = Arc::new(TauriAgentRuntimeEventAdapter::new(dependencies.app));
     let operations = Arc::new(AgentRuntimeOperationAdapter::new(dependencies.operations));
@@ -224,6 +247,8 @@ pub(crate) fn assemble_agent_runtime_api(
         onepiece_model_discovery: Arc::new(HttpOnePieceModelDiscoveryAdapter),
         tool_approvals: tool_approvals.clone(),
         memories: agent_memories,
+        memory_extraction: agent_memory_extraction,
+        personalization: agent_personalization,
     });
     let terminal_service = AgentTerminalApplicationService::new(AgentTerminalApplicationPorts {
         registry: registry.clone(),

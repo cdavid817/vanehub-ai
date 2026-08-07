@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../components/ui/button";
 import type { AgentWithModelFamily } from "../services/agent-model-family";
 import { recommendReviewerAgents } from "../services/reviewer-recommendation";
-import { isSessionAgentSelectable } from "./create-session-dialog-utils";
+import { isSessionAgentSelectable } from "./create-session-agents";
 import type { ExpertRole, SessionSeat } from "../types/agent-seats";
 
 /**

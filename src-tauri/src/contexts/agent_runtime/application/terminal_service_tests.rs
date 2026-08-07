@@ -227,6 +227,7 @@ impl AgentCliProfileGateway for TerminalWorld {
             executable: format!("C:/bin/{agent_id}.exe"),
             selections: BTreeMap::new(),
             managed_args: vec!["--strict-config".to_string()],
+            env: BTreeMap::new(),
         })
     }
 }

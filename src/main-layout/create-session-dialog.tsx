@@ -4,17 +4,8 @@ import { agentService } from "../services/runtime-agent-client";
 import { operationService } from "../services/runtime-operation-client";
 import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import { CreateSessionDialogContent } from "./create-session-dialog-content";
-import {
-  canCreateSession,
-  conciseError,
-  defaultSessionAgent,
-  defaultSshConnectionDraft,
-  firstMode,
-  previousSessionAgentStorageKey,
-  selectSessionAgents,
-  sessionResult,
-  submitCreateSession,
-} from "./create-session-dialog-utils";
+import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, sessionResult, submitCreateSession } from "./create-session-dialog-utils";
+import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
 import type { SessionSeat } from "../types/agent";

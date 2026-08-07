@@ -10,7 +10,9 @@ import {
   Plug,
   Settings,
   Settings2,
+  ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Terminal,
   UserRound,
   Workflow,
@@ -28,6 +30,8 @@ export type SettingsPageId =
   | "mcp"
   | "agent-configurations"
   | "expert-roles"
+  | "agent-policies"
+  | "personalization"
   | "skills"
   | "prompt-hooks"
   | "im"
@@ -71,6 +75,10 @@ const loadAgentConfigurationsPage: LazyFeatureLoader<SettingsPageContext> = () =
   .then((module) => ({ default: module.AgentConfigurationsPage }));
 const loadExpertRolesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/expert-roles-page")
   .then((module) => ({ default: module.ExpertRolesPage }));
+const loadAgentPoliciesPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/agent-policies-page")
+  .then((module) => ({ default: module.AgentPoliciesPage }));
+const loadPersonalizationPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/personalization-page")
+  .then((module) => ({ default: module.PersonalizationPage }));
 const loadSkillsPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/skills-page")
   .then((module) => ({ default: module.SkillsPage }));
 const loadPromptHooksPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pages/prompt-hooks-page")
@@ -136,6 +144,22 @@ export const settingsPages: SettingsPageDefinition[] = [
     icon: UserRound,
     searchPlaceholderKey: "settings.search.expertRoles",
     loader: loadExpertRolesPage,
+  },
+  {
+    id: "agent-policies",
+    labelKey: "settings.pages.agentPolicies",
+    crumbKey: "settings.pages.agentPolicies",
+    icon: ShieldCheck,
+    searchPlaceholderKey: "settings.search.agentPolicies",
+    loader: loadAgentPoliciesPage,
+  },
+  {
+    id: "personalization",
+    labelKey: "settings.pages.personalization",
+    crumbKey: "settings.pages.personalization",
+    icon: Sparkles,
+    searchPlaceholderKey: "settings.search.personalization",
+    loader: loadPersonalizationPage,
   },
   {
     id: "skills",

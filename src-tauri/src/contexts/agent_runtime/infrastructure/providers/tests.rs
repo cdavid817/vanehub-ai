@@ -1,19 +1,27 @@
 use super::invocation::ProviderInvocationError;
 use super::{
-    apply_configuration_overrides, build_interactive_invocation, build_invocation, build_invocation_with_role,
-    output_parser_for, ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage,
-    ProviderToolEvent, ProviderToolPhase,
+    apply_configuration_overrides, apply_policy_template_overrides, build_interactive_invocation,
+    build_invocation, build_invocation_with_role, force_gemini_standard_approval_flag,
+    output_parser_for, POLICY_TEMPLATE_GOVERNED_AGENT_IDS, ProviderOutputEvent,
+    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, GenerationProcessFailureKind,
 };
 use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::execution_observability::api::ExecutionFidelity;
+use crate::contexts::permissions::api::PolicyTemplateName;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 const STABLE_AGENT_IDS: [&str; 4] = ["claude-code", "codex-cli", "gemini-cli", "opencode"];
+const ALL_POLICY_TEMPLATES: [PolicyTemplateName; 4] = [
+    PolicyTemplateName::Readonly,
+    PolicyTemplateName::Standard,
+    PolicyTemplateName::Trusted,
+    PolicyTemplateName::Yolo,
+];
 
 fn running_tool(id: &str, name: &str, input: Value) -> ProviderOutputEvent {
     ProviderOutputEvent::ToolLifecycle(Box::new(ProviderToolEvent {
@@ -153,6 +161,128 @@ fn parameter_mapping_fixtures_cover_every_stable_provider() {
 
         assert_eq!(selections, fixture.expected, "{}", fixture.agent_id);
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PolicyTemplateFixture {
+    agent_id: String,
+    template: String,
+    base: BTreeMap<String, Value>,
+    expected: BTreeMap<String, Value>,
+}
+
+#[test]
+fn policy_template_override_fixtures_cover_every_combination() {
+    let fixtures: Vec<PolicyTemplateFixture> =
+        serde_json::from_str(include_str!("fixtures/policy-template-overrides.json"))
+            .expect("fixtures");
+    assert_eq!(
+        fixtures.len(),
+        POLICY_TEMPLATE_GOVERNED_AGENT_IDS.len() * ALL_POLICY_TEMPLATES.len(),
+        "expected every (agent, template) combination to be covered exactly once"
+    );
+    let mut seen = BTreeSet::new();
+    for fixture in &fixtures {
+        assert!(
+            POLICY_TEMPLATE_GOVERNED_AGENT_IDS.contains(&fixture.agent_id.as_str()),
+            "unexpected agent id in fixture: {}",
+            fixture.agent_id
+        );
+        seen.insert((fixture.agent_id.clone(), fixture.template.clone()));
+    }
+    assert_eq!(
+        seen.len(),
+        fixtures.len(),
+        "fixture file must not repeat an (agent, template) combination"
+    );
+
+    for fixture in fixtures {
+        let template =
+            PolicyTemplateName::from_str(&fixture.template).expect("known policy template");
+        let selections = apply_policy_template_overrides(&fixture.agent_id, fixture.base, template);
+        assert_eq!(
+            selections, fixture.expected,
+            "{} / {}",
+            fixture.agent_id, fixture.template
+        );
+    }
+}
+
+#[test]
+fn policy_template_overrides_never_introduce_a_dangerous_flag() {
+    for agent_id in POLICY_TEMPLATE_GOVERNED_AGENT_IDS {
+        for template in ALL_POLICY_TEMPLATES {
+            let selections = apply_policy_template_overrides(agent_id, BTreeMap::new(), template);
+            for (key, value) in &selections {
+                assert!(
+                    !key.to_lowercase().contains("dangerously"),
+                    "{agent_id} / {template:?} introduced a dangerous key: {key}"
+                );
+                if let Some(text) = value.as_str() {
+                    assert!(
+                        !text.to_lowercase().contains("dangerously"),
+                        "{agent_id} / {template:?} introduced a dangerous value: {text}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gemini_standard_force_emits_approval_mode_default() {
+    let appended = force_gemini_standard_approval_flag(
+        "gemini-cli",
+        PolicyTemplateName::Standard,
+        vec!["--sandbox".to_string()],
+    );
+    assert_eq!(
+        appended,
+        vec![
+            "--sandbox".to_string(),
+            "--approval-mode".to_string(),
+            "default".to_string(),
+        ]
+    );
+
+    let replaced = force_gemini_standard_approval_flag(
+        "gemini-cli",
+        PolicyTemplateName::Standard,
+        vec![
+            "--approval-mode".to_string(),
+            "yolo".to_string(),
+            "--sandbox".to_string(),
+        ],
+    );
+    assert_eq!(
+        replaced,
+        vec![
+            "--sandbox".to_string(),
+            "--approval-mode".to_string(),
+            "default".to_string(),
+        ]
+    );
+
+    let untouched_other_template = force_gemini_standard_approval_flag(
+        "gemini-cli",
+        PolicyTemplateName::Trusted,
+        vec!["--approval-mode".to_string(), "yolo".to_string()],
+    );
+    assert_eq!(
+        untouched_other_template,
+        vec!["--approval-mode".to_string(), "yolo".to_string()]
+    );
+
+    let untouched_other_agent = force_gemini_standard_approval_flag(
+        "codex-cli",
+        PolicyTemplateName::Standard,
+        vec!["--sandbox".to_string(), "workspace-write".to_string()],
+    );
+    assert_eq!(
+        untouched_other_agent,
+        vec!["--sandbox".to_string(), "workspace-write".to_string()]
+    );
 }
 
 #[test]

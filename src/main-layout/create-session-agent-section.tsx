@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { cn } from "../lib/utils";
-import { groupSessionAgents, isSessionAgentSelectable } from "./create-session-dialog-utils";
+import { groupSessionAgents, isSessionAgentSelectable } from "./create-session-agents";
 import type { AgentRegistryEntry } from "../types/agent";
 
 export function CreateSessionAgentSection({

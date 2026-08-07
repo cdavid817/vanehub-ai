@@ -33,6 +33,7 @@ pub(crate) struct AppSettings {
     pub(crate) automatic_archival_enabled: bool,
     pub(crate) automatic_archival_inactive_days: i64,
     pub(crate) launch_on_startup: bool,
+    pub(crate) default_policy_template: String,
     pub(crate) logging_policy: LoggingPolicy,
 }
 

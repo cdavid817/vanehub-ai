@@ -1,12 +1,18 @@
 use super::application::{
     CliConfigCredentialPort, CliConfigRepository, CliGlobalConfigPort, ProjectionOutcome,
 };
+
+/// Re-exported for `permissions` (`add-claude-code-permission-callback` design.md D7) — the
+/// first, and so far only, cross-context consumer of `cli_config`. Everything else in this file
+/// stays `cli_config`-internal.
+pub(crate) use super::application::ClaudeCodeHookProjectionPort;
+pub(crate) use super::domain::CliConfigError;
 use super::domain::{
     validate_profile_input, validate_supported_agent, AppliedStateRecord,
     ApplyCliConfigProfileInput, CliConfigAppliedState, CliConfigApplyResult,
     CliConfigDiscoveryCandidate, CliConfigDiscoveryResult, CliConfigDiscoveryState,
-    CliConfigDriftResolution, CliConfigDriftState, CliConfigError, CliConfigPayload,
-    CliConfigProfile, CliConfigStartupSyncResult, CliConfigStartupSyncState, CliConfigStatus,
+    CliConfigDriftResolution, CliConfigDriftState, CliConfigPayload, CliConfigProfile,
+    CliConfigStartupSyncResult, CliConfigStartupSyncState, CliConfigStatus,
     CliConfigValidationState, DeleteCliConfigProfileInput, ImportCliConfigProfileInput,
     ImportDiscoveredCliConfigInput, ImportDiscoveredCliConfigResult, ProfileRecord,
     SaveCliConfigProfileInput, SkippedCliConfigDiscoveryCandidate,

@@ -28,6 +28,9 @@ import type {
   ProjectInspection,
   ReadinessStatus,
   RegisterApiAgentInput,
+  EmbeddingModelOption,
+  RetrievalConfiguration,
+  RetrievalIndexStatus,
   SaveOnePieceProviderConfigInput,
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
@@ -134,9 +137,18 @@ export interface AgentService {
   deleteOnePieceProviderProfile(profileId: string): Promise<OnePieceProviderProfiles>;
   updateApiAgent(agentId: string, input: UpdateApiAgentInput): Promise<AgentRegistryEntry>;
   deleteApiAgent(agentId: string): Promise<void>;
-  setAgentToolTrust(agentId: string, enabled: boolean): Promise<AgentRegistryEntry>;
-  listAgentMemories(agentId: string): Promise<AgentMemory[]>;
+  /** `add-cli-memory-support`: memories are a single host-level pool shared by every agent — no
+   * `agentId` scoping on read or bulk-reset, `AgentMemory.agentId` remains as provenance only. */
+  listAllMemories(): Promise<AgentMemory[]>;
   deleteAgentMemory(memoryId: string): Promise<void>;
+  resetAllMemories(): Promise<void>;
+  // Configuration, index status and rebuild are all global: retrieval applies to every agent,
+  // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
+  getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
+  saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
+  listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
+  getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
+  rebuildRetrievalIndex(): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
@@ -212,7 +224,6 @@ export interface AgentService {
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   stopGeneration(sessionId: string): Promise<void>;
-  resolveToolApproval(sessionId: string, callId: string, approved: boolean): Promise<boolean>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;
   resizeAgentTerminal(terminalId: string, size: AgentTerminalSize): Promise<void>;
