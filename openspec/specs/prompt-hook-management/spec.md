@@ -9,7 +9,7 @@ The system SHALL expose a Prompt Hook registry with backend-owned built-in hooks
 #### Scenario: List registered Prompt Hooks
 - **WHEN** the frontend requests Prompt Hooks
 - **THEN** the service SHALL return built-in and user-created hooks with stable id, name, category, stage, order, version, source, enabled state, disableable flag, CLI bindings, governance metadata, and localized description keys or user-provided descriptions
-- **AND** built-in hooks SHALL come from VaneHub-defined catalog data rather than Clowder-AI content
+- **AND** built-in hooks SHALL come from VaneHub-defined catalog data rather than third-party content
 
 #### Scenario: Validate hook categories
 - **WHEN** a Prompt Hook is loaded or saved

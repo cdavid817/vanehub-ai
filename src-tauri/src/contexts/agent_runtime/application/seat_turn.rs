@@ -22,9 +22,9 @@ use crate::contexts::agent_runtime::domain::{
     SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
 };
 
-/// Borrowed from `clowder-ai`, which runs the same two limits. Whether they transfer is unknown
-/// until measured, so they live here as one obvious place to change rather than being threaded
-/// through configuration nobody has asked for yet.
+/// Inherited defaults that have not been measured against this runtime, so they live here as
+/// one obvious place to change rather than being threaded through configuration nobody has
+/// asked for yet.
 const MAX_CHAIN_DEPTH: usize = 15;
 const MAX_MENTIONS_PER_REPLY: usize = 2;
 
