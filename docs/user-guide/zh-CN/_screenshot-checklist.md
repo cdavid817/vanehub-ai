@@ -44,6 +44,13 @@
 | `cli-zh-CN.png` | `tooling.md` | CLI 管理页，四个 CLI 卡片 | `/settings?section=providers` | 红框标注「本地 CLI 检测仅在桌面运行时可用」提示 |
 | `usage-zh-CN.png` | `automation.md` | 使用统计页，Token 卡片与趋势 | `/settings?section=usage` | 箭头指向「真实数据覆盖率」 |
 | `loop-center-zh-CN.png` | `loop-engineering.md` | 循环工程中心三栏布局（空态） | 活动栏「循环工程」 | 标注左栏「定义」与右栏「检查器」 |
+| `skills-zh-CN.png` | `skill-management.md` | Skill 管理页，按 Agent 分组与 6 个内置 Skill | `/settings?section=skills` | 红框标注左侧「按 Agent 管理」 |
+| `prompt-hooks-zh-CN.png` | `tooling.md` | Prompt Hook 页 | `/settings?section=prompt-hooks` | 无 |
+| `im-zh-CN.png` | `remote-and-im.md` | IM 能力页，默认路由与五个连接器 | `/settings?section=im` | 红框标注「默认路由」，箭头指向「个人微信 · 实验性」 |
+| `ssh-zh-CN.png` | `remote-and-im.md` | SSH 连接页 | `/settings?section=ssh-connections` | 无 |
+| `extensions-zh-CN.png` | `tooling.md` | 扩展能力页，PaddleOCR 与 faster-whisper | `/settings?section=extensions` | 箭头指向「预计磁盘占用」 |
+| `observability-zh-CN.png` | `observability.md` | 执行可观测性页，本地时间线与 OTLP | `/settings?section=observability` | 红框标注「保留天数」与「外部采样比例」 |
+| `scheduled-tasks-zh-CN.png` | `automation.md` | 定时任务对话框，任务列表与新建表单 | 活动栏「定时任务」 | 箭头指向底部补跑说明 |
 
 ## 待补充
 

@@ -141,6 +141,37 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   "settings-usage": (page, locale) =>
     openSettings(page, "usage", text(locale, "使用统计", "Usage")),
 
+  "settings-skills": (page, locale) =>
+    openSettings(page, "skills", text(locale, "Skill 管理", "Skills")),
+
+  "settings-prompt-hooks": (page, locale) =>
+    openSettings(page, "prompt-hooks", text(locale, "Prompt Hook", "Prompt Hooks")),
+
+  "settings-im": (page, locale) =>
+    openSettings(page, "im", text(locale, "IM 能力", "Instant messaging")),
+
+  "settings-ssh": (page, locale) =>
+    openSettings(page, "ssh-connections", text(locale, "SSH 连接", "SSH connections")),
+
+  "settings-extensions": (page, locale) =>
+    openSettings(page, "extensions", text(locale, "扩展能力", "Extensions")),
+
+  "settings-observability": (page, locale) =>
+    openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
+
+  "scheduled-tasks": async (page, locale) => {
+    await visit(page, "/");
+    await page
+      .getByRole("button", { name: text(locale, "定时任务", "Scheduled tasks"), exact: true })
+      .first()
+      .click();
+    const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
+    await expect(
+      dialog.getByRole("heading", { name: text(locale, "定时任务", "Scheduled tasks") }),
+    ).toBeVisible();
+    return dialog;
+  },
+
   "loop-center": async (page, locale) => {
     await visit(page, "/");
     await page

@@ -79,6 +79,62 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/loop-center-zh-CN.png"
+    },
+    {
+      "id": "skills-zh-CN",
+      "scenario": "settings-skills",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/skills-zh-CN.png"
+    },
+    {
+      "id": "prompt-hooks-zh-CN",
+      "scenario": "settings-prompt-hooks",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/prompt-hooks-zh-CN.png"
+    },
+    {
+      "id": "im-zh-CN",
+      "scenario": "settings-im",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/im-zh-CN.png"
+    },
+    {
+      "id": "ssh-zh-CN",
+      "scenario": "settings-ssh",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/ssh-zh-CN.png"
+    },
+    {
+      "id": "extensions-zh-CN",
+      "scenario": "settings-extensions",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/extensions-zh-CN.png"
+    },
+    {
+      "id": "observability-zh-CN",
+      "scenario": "settings-observability",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/observability-zh-CN.png"
+    },
+    {
+      "id": "scheduled-tasks-zh-CN",
+      "scenario": "scheduled-tasks",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/scheduled-tasks-zh-CN.png"
     }
   ]
 }
