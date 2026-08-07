@@ -23,6 +23,7 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::AgentLifecycle;
 use crate::contexts::execution_observability::api::ExecutionStatus;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
+use crate::platform::text::take_decodable_utf8;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -1100,24 +1101,6 @@ fn agent_terminal_session(terminal: &ManagedAgentTerminal) -> AgentTerminalSessi
 /// trailing multi-byte sequence in place for the next read to complete. A genuinely
 /// invalid byte (not just a truncated tail) is decoded lossily so the reader never
 /// wedges on malformed output.
-fn take_decodable_utf8(pending: &mut Vec<u8>) -> String {
-    let valid_up_to = match std::str::from_utf8(pending) {
-        Ok(_) => pending.len(),
-        // `error_len() == None` means the bytes after `valid_up_to` are an incomplete
-        // sequence at the end of the buffer — keep them for the next read.
-        Err(error) if error.error_len().is_none() => error.valid_up_to(),
-        Err(_) => {
-            let content = String::from_utf8_lossy(pending).to_string();
-            pending.clear();
-            return content;
-        }
-    };
-    let tail = pending.split_off(valid_up_to);
-    let head = std::mem::replace(pending, tail);
-    // `head` is guaranteed valid UTF-8 by the check above; fall back rather than panic.
-    String::from_utf8(head).unwrap_or_default()
-}
-
 /// Invokes `on_line` for each complete `\n`-terminated line in `line_buffer` (trailing
 /// CR/LF stripped), leaving any unterminated remainder for the next read to finish.
 /// An oversized newline-less remainder is discarded to keep the buffer bounded.
@@ -1415,32 +1398,6 @@ mod tests {
                 && session_id == "session-1"
                 && runtime_session_id == "runtime-2"
         ));
-    }
-
-    #[test]
-    fn split_multibyte_utf8_is_buffered_until_the_sequence_completes() {
-        // "好" is E5 A5 BD; a read that ends after E5 A5 must not emit a replacement char.
-        let bytes = "已好".as_bytes().to_vec();
-        let split = bytes.len() - 1;
-        let mut pending = bytes[..split].to_vec();
-
-        let first = take_decodable_utf8(&mut pending);
-        assert_eq!(first, "已");
-        assert!(!first.contains('\u{FFFD}'));
-        assert!(!pending.is_empty(), "incomplete tail is retained");
-
-        pending.extend_from_slice(&bytes[split..]);
-        let second = take_decodable_utf8(&mut pending);
-        assert_eq!(second, "好");
-        assert!(pending.is_empty());
-    }
-
-    #[test]
-    fn complete_utf8_is_returned_whole_and_drains_pending() {
-        let mut pending = "ready ✅".as_bytes().to_vec();
-
-        assert_eq!(take_decodable_utf8(&mut pending), "ready ✅");
-        assert!(pending.is_empty());
     }
 
     #[test]
