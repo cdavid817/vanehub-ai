@@ -1755,6 +1755,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-07",
+                         "changeName":  "bound-short-query-message-search",
+                         "path":  "openspec/changes/archive/2026-08-07-bound-short-query-message-search/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "session-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-07",
                          "changeName":  "contain-timed-out-process-trees",
                          "path":  "openspec/changes/archive/2026-08-07-contain-timed-out-process-trees/",
                          "artifacts":  [
