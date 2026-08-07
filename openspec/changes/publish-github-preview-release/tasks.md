@@ -49,6 +49,7 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 - [x] 6.1 In the `publish` job of `.github/workflows/package.yml`, derive pre-release status from whether the tag name contains a hyphen
 - [x] 6.2 Pass `--prerelease` and `--latest=false` when the tag carries a pre-release identifier, and neither when it does not
 - [x] 6.3 Pass `.github/PREVIEW_RELEASE_NOTES.md` via `--notes-file` alongside `--generate-notes`
+- [x] 6.5 Add a `macos-x64` matrix entry on the `macos-15-intel` runner so Intel Macs have a download, and list it in the release notes download table
 - [ ] 6.4 Confirm during rehearsal that generated notes are appended rather than replaced; if replaced, switch to fetching notes via `gh api .../releases/generate-notes` and concatenating before publishing, as recorded in `design.md`
 
 ## 7. Update release documentation
@@ -73,7 +74,7 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 
 ## 9. Rehearse and release
 
-- [ ] 9.1 Run `workflow_dispatch` on `main` after all groups have merged, and confirm every matrix job uploads artifacts
+- [ ] 9.1 Run `workflow_dispatch` against the change branch before merging, and confirm every matrix job uploads artifacts
 - [ ] 9.2 Download the Windows, macOS, and Linux artifacts and install each on a real machine, following the published guidance verbatim
 - [ ] 9.3 Confirm the macOS `xattr` step actually resolves the quarantine prompt on a clean machine
 - [ ] 9.4 Create and push the annotated tag `v0.1.0-preview.1`

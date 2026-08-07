@@ -11,7 +11,8 @@
 | Platform | Asset | Notes |
 | --- | --- | --- |
 | Windows x64 | `.exe` installer (NSIS) | Installs per-user; no administrator rights required |
-| macOS Apple Silicon | `.dmg` | Intel Macs are not covered by this build |
+| macOS Apple Silicon | `aarch64` `.dmg` | |
+| macOS Intel | `x64` `.dmg` | |
 | Linux x64 | `.deb` and AppImage | AppImage runs without installation |
 
 No `.msi` is published: the Windows Installer format cannot represent a pre-release version number. No `.rpm` is published: the RPM version field cannot contain the hyphen a pre-release version requires. Use the `.exe` installer and the AppImage respectively.

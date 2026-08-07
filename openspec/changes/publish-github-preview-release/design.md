@@ -113,8 +113,13 @@ The notes file stays version-independent so it does not need editing per preview
 
 Rollback: delete the tag and the GitHub Release. Because no updater is configured, no installed client polls for or auto-applies a release, so a withdrawn preview cannot propagate to users who already installed it — they simply keep the build they have.
 
+### Cover Intel Macs in the preview matrix
+
+`macos-x64` joins the build matrix on the `macos-15-intel` runner. `package:macos:x64` already existed in `package.json` and only the matrix entry was missing, so an Intel Mac user would otherwise have had no download at all — the worst outcome for a public preview, worse than the unsigned warning.
+
+The runner label matters here: `macos-13` has been retired, so `macos-15-intel` is the available Intel image. The alternative was cross-compiling `x86_64-apple-darwin` on an arm64 runner, which avoids depending on an Intel runner label but ships a binary that no job ever executed on its target architecture. For a preview whose purpose is to collect real installation feedback, a natively built package is worth the extra job.
+
 ## Open Questions
 
-- Should `macos-x64` join the build matrix? `package:macos:x64` already exists in `package.json` and the matrix omits it, leaving Intel Mac users with no download. Adding it is a four-line matrix entry; the cost is build minutes.
 - Which minimum Linux distribution should preview builds support? This decides whether the Linux job pins an older runner image or whether the release notes state a minimum glibc.
 - Does the preview program need a feedback channel beyond the existing issue templates — for example a discussion category, which `gh release create --discussion-category` could attach automatically?
