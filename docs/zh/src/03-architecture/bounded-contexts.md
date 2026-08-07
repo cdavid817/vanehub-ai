@@ -146,7 +146,7 @@ flowchart LR
 
 ## 命令层约定
 
-```
+```text
 commands/<context>/<command_name>.rs   # 一个命令一个文件
 commands/<context>/dto.rs              # 跨边界数据结构
 commands/<context>/mapper.rs           # 领域 ↔ DTO 映射
@@ -172,7 +172,7 @@ commands/error.rs                      # 统一错误转换
 
 **`bootstrap/` 有 22 个模块**，粒度比上下文更细——`tooling` 的每个子域都有自己的装配模块：
 
-```
+```text
 agent_runtime  cli           cli_config    cli_parameters
 communications desktop       execution_observability
 extensions     managed_mcp_relay           mcp

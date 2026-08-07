@@ -107,7 +107,7 @@ flowchart TB
 
 **只有两个 Agent 启用受管中继**（`src-tauri/src/bootstrap/managed_mcp_relay.rs:110`）：
 
-```rust
+```rust,ignore
 if !matches!(agent_id, "claude-code" | "codex-cli") {
     return Ok(PreparedMcpRelay {
         invocation_args: Vec::new(),

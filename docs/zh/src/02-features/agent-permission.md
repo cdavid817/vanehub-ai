@@ -40,7 +40,7 @@
 
 **冲突消解规则是"显式 Deny 优先"**（`effect.rs:11-12`）：
 
-```
+```text
 显式 Deny  >  显式 Allow  >  默认 Ask
 ```
 

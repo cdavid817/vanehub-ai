@@ -132,7 +132,7 @@ flowchart TB
 
 **第一级：按键名分类**（`infrastructure/privacy.rs:31-51` 的 `is_sensitive_key`），键名小写化后**包含**以下任一片段即视为敏感：
 
-```
+```text
 prompt   output   content   payload   body      header
 authorization    credential  secret   token
 environment      env.       path      argument

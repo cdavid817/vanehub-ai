@@ -27,7 +27,7 @@
 
 ## 四层结构
 
-```
+```text
 contexts/<name>/
 ├── api.rs              # 对外门面，唯一被其他上下文引用的入口
 ├── application/
@@ -108,7 +108,7 @@ flowchart TB
 
 **这是避免循环依赖的关键。**`sessions` 需要校验 Agent 是否可用，但不直接调用 `agent_runtime`：
 
-```
+```text
 sessions/application/ports.rs:237
     trait SessionAgentEligibilityPort   ← sessions 自己定义所需的接口
 

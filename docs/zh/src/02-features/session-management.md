@@ -150,7 +150,7 @@ stateDiagram-v2
 
 **超限时是下钳而非报错**（`:202-206` 的 `clamp_reasoning_for_model`）：
 
-```rust
+```rust,ignore
 Some(requested.min(maximum).as_str().to_string())
 ```
 

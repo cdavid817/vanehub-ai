@@ -179,7 +179,7 @@ flowchart TB
 
 **只要满足任意一条就算有进展**（`loop_progress.rs:94-122` 的 `assess_revision_progress`）：
 
-```rust
+```rust,ignore
 progressed: !repeated_diff
     || !repeated_required_check_failures
     || has_new_passing_required_evidence

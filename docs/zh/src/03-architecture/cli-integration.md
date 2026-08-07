@@ -148,7 +148,7 @@ flowchart LR
 
 **只对两个 Agent 启用**（`src-tauri/src/bootstrap/managed_mcp_relay.rs:110`）：
 
-```rust
+```rust,ignore
 if !matches!(agent_id, "claude-code" | "codex-cli") {
     // 返回空 invocation_args，不启用中继
 }

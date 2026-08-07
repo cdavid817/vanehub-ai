@@ -58,7 +58,7 @@ flowchart TB
 
 **当多条规则同时命中时，按显式 Deny 优先**（`domain/effect.rs:11-12`）：
 
-```
+```text
 显式 Deny  >  显式 Allow  >  默认 Ask
 ```
 

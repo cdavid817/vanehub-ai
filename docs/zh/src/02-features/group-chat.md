@@ -34,7 +34,7 @@
 
 **一个席位 = 一个 Agent + 一个可选的专家角色**（`src-tauri/src/contexts/sessions/domain/session_seat.rs:7-12`）：
 
-```rust
+```rust,ignore
 pub(crate) struct SessionSeat {
     pub(crate) agent_id: String,
     /// `None` for a plain single-Agent session, which has no role assigned.
