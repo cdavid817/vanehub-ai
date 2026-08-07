@@ -253,6 +253,17 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "retrieval-vector-index",
         crate::contexts::retrieval::infrastructure::apply_retrieval_schema,
     )?;
+    // 44, not 42: this worktree's own `permissions-core` migration originally claimed 42 too,
+    // independently of `agent-memory-shared-pool` above — same class of collision, same fix.
+    // Renumbered on merge rather than kept at 42, since 42/43 already shipped under those names.
+    apply_migration(conn, 44, "permissions-core", |connection| {
+        crate::contexts::permissions::infrastructure::schema::apply_permissions_core_schema(
+            connection,
+        )?;
+        crate::contexts::permissions::infrastructure::schema::backfill_principals_from_legacy_trust_flag(
+            connection,
+        )
+    })?;
 
     Ok(())
 }
@@ -873,7 +884,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (42, 43));
+        assert_eq!(migration_state, (43, 44));
 
         migrate(&connection).expect("upgrade migration");
 

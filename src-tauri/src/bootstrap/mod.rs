@@ -11,6 +11,7 @@ mod extensions;
 mod managed_mcp_relay;
 mod mcp;
 mod operations;
+mod permissions;
 mod plugin_integrations;
 mod prompt_hooks;
 mod retrieval;
@@ -41,6 +42,7 @@ pub(crate) use execution_observability::{
 pub(crate) use extensions::assemble_extension_api;
 pub(crate) use mcp::assemble_mcp_api;
 pub(crate) use operations::assemble_operations_api;
+pub(crate) use permissions::{assemble_permissions_api, start_permission_timeout_sweep_job};
 pub(crate) use plugin_integrations::assemble_plugin_integration_api;
 pub(crate) use prompt_hooks::assemble_prompt_hook_api;
 pub(crate) use retrieval::{

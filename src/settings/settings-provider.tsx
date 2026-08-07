@@ -155,6 +155,7 @@ export function SettingsProvider({ children, activateLanguage = activateAppLangu
       "networkProxyUrl",
       "networkProxyBypass",
       "launchOnStartup",
+      "defaultPolicyTemplate",
     ];
     for (const key of resettableKeys) {
       if (key === "launchOnStartup") await settingsService.setLaunchOnStartup(defaultAppSettings.launchOnStartup);

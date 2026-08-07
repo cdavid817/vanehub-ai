@@ -1,6 +1,6 @@
 use super::super::application::{
-    CliGlobalConfigPort, DiscoveredLiveConfig, ImportedLiveConfig, LiveConfigDiscovery,
-    LiveInspection, ProjectionOutcome,
+    ClaudeCodeHookProjectionPort, CliGlobalConfigPort, DiscoveredLiveConfig, ImportedLiveConfig,
+    LiveConfigDiscovery, LiveInspection, ProjectionOutcome,
 };
 use super::super::domain::{
     AppliedStateRecord, ClaudeAuthMode, CliConfigDriftState, CliConfigError, CliConfigPayload,
@@ -308,6 +308,99 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             Err(CliConfigError::RollbackIncomplete)
         }
     }
+}
+
+/// The substring every VaneHub-owned `PreToolUse` hook entry's `hooks[].command` field contains
+/// — used to identify and remove only VaneHub's own entries from the array without touching
+/// anything a user or another tool added, since Claude Code's hook JSON has no "owner" concept
+/// to check instead. Must match the wrapper binary's own name
+/// (`src/bin/vanehub-permission-hook.rs`).
+const PERMISSION_HOOK_MARKER: &str = "vanehub-permission-hook";
+
+impl ClaudeCodeHookProjectionPort for NativeCliGlobalConfigAdapter {
+    fn set_permission_hook_entries(&self, entries: &[Value]) -> Result<(), CliConfigError> {
+        let lock = self.lock_for("claude-code")?;
+        let _guard = lock.lock().map_err(|_| CliConfigError::Repository)?;
+        let path = self.primary_path("claude-code")?;
+
+        let current_bytes = if path.exists() {
+            read_file(&path)?
+        } else {
+            Vec::new()
+        };
+        let new_bytes = project_permission_hook(&path, &current_bytes, entries)?;
+
+        // Re-read immediately before writing rather than trusting the bytes read above: this is
+        // a separate, narrower drift check than `apply()`'s (no `AppliedStateRecord` to compare
+        // against here — this operation has no notion of a previously-recorded expected state,
+        // only "don't clobber a concurrent external edit"), matching
+        // `cli-agent-config-management`'s "Live file changes during projection" scenario.
+        let recheck_bytes = if path.exists() {
+            read_file(&path)?
+        } else {
+            Vec::new()
+        };
+        ensure_no_concurrent_edit(&current_bytes, &recheck_bytes)?;
+
+        let file_snapshot = snapshot(&path)?;
+        if atomic_replace(&path, &new_bytes).is_err() {
+            rollback(&[file_snapshot], std::slice::from_ref(&path));
+            return Err(CliConfigError::Filesystem {
+                path: path.display().to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+fn project_permission_hook(
+    path: &Path,
+    bytes: &[u8],
+    entries: &[Value],
+) -> Result<Vec<u8>, CliConfigError> {
+    let mut document = parse_json_or_empty_at(bytes, path)?;
+    let root = document
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "root must be a JSON object"))?;
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "hooks must be a JSON object"))?;
+    let pre_tool_use = hooks
+        .entry("PreToolUse")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| parse_error(path, "hooks.PreToolUse must be a JSON array"))?;
+
+    pre_tool_use.retain(|entry| !is_vanehub_owned(entry));
+    pre_tool_use.extend(entries.iter().cloned());
+
+    serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
+}
+
+/// Isolated from `set_permission_hook_entries` specifically so the drift-conflict rule itself —
+/// "bytes read immediately before writing must match what was read at the start" — can be
+/// tested as a pure comparison, without needing to fabricate a real filesystem race.
+fn ensure_no_concurrent_edit(initial: &[u8], recheck: &[u8]) -> Result<(), CliConfigError> {
+    if initial == recheck {
+        Ok(())
+    } else {
+        Err(CliConfigError::DriftConflict)
+    }
+}
+
+fn is_vanehub_owned(entry: &Value) -> bool {
+    entry
+        .get("hooks")
+        .and_then(Value::as_array)
+        .is_some_and(|hooks| {
+            hooks.iter().any(|hook| {
+                hook.get("command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| command.contains(PERMISSION_HOOK_MARKER))
+            })
+        })
 }
 
 fn managed_fragment(
@@ -1186,6 +1279,189 @@ mod tests {
         assert_eq!(written["env"]["UNRELATED"], "kept");
         assert!(written["env"].get("OLD_MANAGED").is_none());
         assert_eq!(written["env"]["ANTHROPIC_AUTH_TOKEN"], "top-secret");
+    }
+
+    #[test]
+    fn installing_the_permission_hook_preserves_unrelated_hooks_and_top_level_fields() {
+        let directory = TempDirectory::new("cli-config-hook-install");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("claude-code").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            br#"{"env":{"UNRELATED":"kept"},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-other-tool"}]}],"PostToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"unrelated"}]}]}}"#,
+        )
+        .expect("fixture");
+
+        let entry = json!({
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": "/opt/vanehub/bin/vanehub-permission-hook"}]
+        });
+        adapter
+            .set_permission_hook_entries(&[entry])
+            .expect("install");
+
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(written["env"]["UNRELATED"], "kept");
+        assert_eq!(written["hooks"]["PostToolUse"][0]["matcher"], "*");
+        let pre_tool_use = written["hooks"]["PreToolUse"].as_array().expect("array");
+        assert_eq!(pre_tool_use.len(), 2, "the other tool's entry must survive");
+        assert!(pre_tool_use
+            .iter()
+            .any(|entry| entry["hooks"][0]["command"] == "my-other-tool"));
+        assert!(pre_tool_use.iter().any(|entry| entry["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("vanehub-permission-hook")));
+    }
+
+    #[test]
+    fn reinstalling_the_permission_hook_replaces_rather_than_duplicates() {
+        let directory = TempDirectory::new("cli-config-hook-reinstall");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let entry = json!({
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": "/opt/vanehub/bin/vanehub-permission-hook"}]
+        });
+
+        adapter
+            .set_permission_hook_entries(std::slice::from_ref(&entry))
+            .expect("first install");
+        adapter
+            .set_permission_hook_entries(&[entry])
+            .expect("second install");
+
+        let path = adapter.primary_path("claude-code").expect("path");
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(
+            written["hooks"]["PreToolUse"]
+                .as_array()
+                .expect("array")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn removing_the_permission_hook_only_removes_vanehubs_own_entry() {
+        let directory = TempDirectory::new("cli-config-hook-remove");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("claude-code").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            br#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"my-other-tool"}]}]}}"#,
+        )
+        .expect("fixture");
+        adapter
+            .set_permission_hook_entries(&[json!({
+                "matcher": "Bash",
+                "hooks": [{"type": "command", "command": "/opt/vanehub/bin/vanehub-permission-hook"}]
+            })])
+            .expect("install");
+
+        adapter.set_permission_hook_entries(&[]).expect("remove");
+
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        let pre_tool_use = written["hooks"]["PreToolUse"].as_array().expect("array");
+        assert_eq!(pre_tool_use.len(), 1);
+        assert_eq!(pre_tool_use[0]["hooks"][0]["command"], "my-other-tool");
+    }
+
+    #[test]
+    fn permission_hook_projection_rejects_a_malformed_file_without_modifying_it() {
+        let directory = TempDirectory::new("cli-config-hook-malformed");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("claude-code").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(&path, b"{not valid json").expect("fixture");
+
+        let result = adapter.set_permission_hook_entries(&[json!({"matcher": "Bash"})]);
+
+        assert!(matches!(result, Err(CliConfigError::Parse { .. })));
+        assert_eq!(fs::read(&path).expect("unchanged"), b"{not valid json");
+    }
+
+    #[test]
+    fn concurrent_edit_between_the_initial_read_and_the_pre_write_recheck_is_rejected() {
+        let original = br#"{"env":{"ORIGINAL":"value"}}"#;
+        let edited_externally = br#"{"env":{"EXTERNALLY_EDITED":"value"}}"#;
+
+        assert!(matches!(
+            ensure_no_concurrent_edit(original, edited_externally),
+            Err(CliConfigError::DriftConflict)
+        ));
+    }
+
+    #[test]
+    fn no_concurrent_edit_is_accepted() {
+        let bytes = br#"{"env":{"ORIGINAL":"value"}}"#;
+        assert!(ensure_no_concurrent_edit(bytes, bytes).is_ok());
+    }
+
+    #[test]
+    fn applying_a_profile_and_projecting_the_permission_hook_do_not_touch_each_others_fields() {
+        // cli-agent-config-management's "Hook projection is independent of profile application"
+        // — the two operations only ever touch disjoint top-level fields (`env` vs. `hooks`) by
+        // construction, but that was previously only a code-review claim, not something a test
+        // demonstrated directly in either direction.
+        let directory = TempDirectory::new("cli-config-hook-profile-independence");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("claude-code").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            br#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/opt/vanehub/bin/vanehub-permission-hook"}]}]}}"#,
+        )
+        .expect("fixture");
+
+        let current = profile(
+            "claude-code",
+            CliConfigPayload::ClaudeCode {
+                base_url: "https://api.example.com".into(),
+                auth_mode: ClaudeAuthMode::None,
+                model: "model".into(),
+                haiku_model: "haiku".into(),
+                sonnet_model: "sonnet".into(),
+                opus_model: "opus".into(),
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let before = fs::read(&path).expect("read");
+        let expected =
+            fingerprint(&managed_fragment("claude-code", &before, None).expect("fragment"));
+        adapter
+            .apply(&current, None, None, false, &expected)
+            .expect("apply");
+
+        let after_apply: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(
+            after_apply["env"]["ANTHROPIC_BASE_URL"], "https://api.example.com",
+            "sanity check: the profile was actually applied"
+        );
+        assert_eq!(
+            after_apply["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "/opt/vanehub/bin/vanehub-permission-hook",
+            "applying a profile must not touch the existing permission hook entry"
+        );
+
+        adapter
+            .set_permission_hook_entries(&[json!({
+                "matcher": "Bash|Edit|Write|Read|Glob|Grep",
+                "hooks": [{"type": "command", "command": "/opt/vanehub/bin/vanehub-permission-hook"}]
+            })])
+            .expect("install");
+
+        let after_hook: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(
+            after_hook["env"]["ANTHROPIC_BASE_URL"], "https://api.example.com",
+            "installing the permission hook must not touch the profile's managed env fields"
+        );
     }
 
     #[test]

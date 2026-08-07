@@ -378,14 +378,6 @@ impl AgentRuntimeApi {
         self.service.delete_api_agent(agent_id)
     }
 
-    pub(crate) fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<AgentView, AgentRuntimeApplicationError> {
-        self.service.set_auto_approve_tools(agent_id, enabled)
-    }
-
     pub(crate) fn resolve_tool_approval(
         &self,
         session_id: &str,

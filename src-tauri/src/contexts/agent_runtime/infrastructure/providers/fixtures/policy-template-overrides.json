@@ -1,0 +1,74 @@
+[
+  {
+    "agentId": "codex-cli",
+    "template": "readonly",
+    "base": {"sandbox": "workspace-write", "approvalPolicy": "untrusted", "model": "gpt-5.5"},
+    "expected": {"sandbox": "read-only", "approvalPolicy": "never", "model": "gpt-5.5"}
+  },
+  {
+    "agentId": "codex-cli",
+    "template": "standard",
+    "base": {"sandbox": "read-only", "approvalPolicy": "never", "model": "gpt-5.5"},
+    "expected": {"sandbox": "workspace-write", "approvalPolicy": "on-request", "model": "gpt-5.5"}
+  },
+  {
+    "agentId": "codex-cli",
+    "template": "trusted",
+    "base": {"sandbox": "read-only", "approvalPolicy": "on-request", "model": "gpt-5.5"},
+    "expected": {"sandbox": "workspace-write", "approvalPolicy": "never", "model": "gpt-5.5"}
+  },
+  {
+    "agentId": "codex-cli",
+    "template": "yolo",
+    "base": {"sandbox": "read-only", "approvalPolicy": "untrusted", "model": "gpt-5.5"},
+    "expected": {"sandbox": "workspace-write", "approvalPolicy": "never", "model": "gpt-5.5"}
+  },
+  {
+    "agentId": "gemini-cli",
+    "template": "readonly",
+    "base": {"approvalMode": "yolo", "model": "gemini-2.5-pro"},
+    "expected": {"approvalMode": "plan", "model": "gemini-2.5-pro"}
+  },
+  {
+    "agentId": "gemini-cli",
+    "template": "standard",
+    "base": {"approvalMode": "yolo", "model": "gemini-2.5-pro"},
+    "expected": {"approvalMode": "default", "model": "gemini-2.5-pro"}
+  },
+  {
+    "agentId": "gemini-cli",
+    "template": "trusted",
+    "base": {"approvalMode": "plan", "model": "gemini-2.5-pro"},
+    "expected": {"approvalMode": "yolo", "model": "gemini-2.5-pro"}
+  },
+  {
+    "agentId": "gemini-cli",
+    "template": "yolo",
+    "base": {"approvalMode": "default", "model": "gemini-2.5-pro"},
+    "expected": {"approvalMode": "yolo", "model": "gemini-2.5-pro"}
+  },
+  {
+    "agentId": "opencode",
+    "template": "readonly",
+    "base": {"agent": "build", "thinking": true},
+    "expected": {"agent": "plan", "thinking": true}
+  },
+  {
+    "agentId": "opencode",
+    "template": "standard",
+    "base": {"agent": "build", "thinking": true},
+    "expected": {"agent": "build", "thinking": true}
+  },
+  {
+    "agentId": "opencode",
+    "template": "trusted",
+    "base": {"agent": "plan", "autoApprove": false},
+    "expected": {"agent": "plan", "autoApprove": true}
+  },
+  {
+    "agentId": "opencode",
+    "template": "yolo",
+    "base": {"agent": "default", "autoApprove": false},
+    "expected": {"agent": "default", "autoApprove": true}
+  }
+]

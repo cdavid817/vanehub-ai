@@ -1,5 +1,6 @@
 import { isSupportedAppLanguage } from "../i18n/supported-locales";
 import { appFontSizes, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { policyTemplateNames, type PolicyTemplateName } from "../types/permissions";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
 export interface SettingsService {
@@ -38,6 +39,7 @@ export const defaultAppSettings: AppSettings = {
   networkProxyUrl: "",
   networkProxyBypass: "localhost,127.0.0.1,::1",
   launchOnStartup: false,
+  defaultPolicyTemplate: "standard",
   loggingPolicy: defaultLoggingPolicy,
   customInstructionsAboutUser: "",
   customInstructionsStyleRules: "",
@@ -52,6 +54,10 @@ export function isAppLanguage(value: unknown): value is AppLanguage {
 
 export function isAppFontSize(value: unknown): value is AppFontSize {
   return typeof value === "string" && appFontSizes.includes(value as AppFontSize);
+}
+
+export function isPolicyTemplateName(value: unknown): value is PolicyTemplateName {
+  return typeof value === "string" && policyTemplateNames.includes(value as PolicyTemplateName);
 }
 
 function normalizeLoggingPolicy(input: unknown): LoggingPolicy {
@@ -121,6 +127,9 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
     networkProxyBypass,
     launchOnStartup:
       typeof input.launchOnStartup === "boolean" ? input.launchOnStartup : defaultAppSettings.launchOnStartup,
+    defaultPolicyTemplate: isPolicyTemplateName(input.defaultPolicyTemplate)
+      ? input.defaultPolicyTemplate
+      : defaultAppSettings.defaultPolicyTemplate,
     loggingPolicy: normalizeLoggingPolicy(input.loggingPolicy),
     customInstructionsAboutUser: isValidCustomInstructionsField(input.customInstructionsAboutUser)
       ? input.customInstructionsAboutUser

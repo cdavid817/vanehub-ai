@@ -111,7 +111,11 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-04 | harden-im-runtime-reliability | frontend-runtime-architecture, im-connector-management, native-runtime-architecture, session-runtime-management, settings-im-management-ui | `openspec/changes/archive/2026-08-04-harden-im-runtime-reliability/` |
 | 2026-08-04 | maximize-main-window-on-startup | desktop-background-lifecycle | `openspec/changes/archive/2026-08-04-maximize-main-window-on-startup/` |
 | 2026-08-04 | remove-agent-management-page | agent-switching, cli-agent-config-management, settings-center-ui | `openspec/changes/archive/2026-08-04-remove-agent-management-page/` |
+| 2026-08-05 | add-permissions-core | agent-tool-execution, agent-tool-trust, permissions-approval, permissions-core | `openspec/changes/archive/2026-08-05-add-permissions-core/` |
+| 2026-08-05 | add-permissions-settings-ui | permissions-approval, permissions-core | `openspec/changes/archive/2026-08-05-add-permissions-settings-ui/` |
 | 2026-08-05 | polish-workspace-visual-consistency | agent-terminal-runtime, main-layout-ui, notification-system, visual-design-system | `openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/` |
+| 2026-08-06 | add-claude-code-permission-callback | claude-code-permission-hook, cli-agent-config-management, permissions-approval, permissions-core | `openspec/changes/archive/2026-08-06-add-claude-code-permission-callback/` |
+| 2026-08-06 | add-cli-agent-permission-launch-flags | agent-terminal-runtime, cli-agent-permission-launch-flags, cli-parameter-management, permissions-approval | `openspec/changes/archive/2026-08-06-add-cli-agent-permission-launch-flags/` |
 | 2026-08-06 | add-cli-custom-instructions-injection | custom-instructions, native-runtime-architecture | `openspec/changes/archive/2026-08-06-add-cli-custom-instructions-injection/` |
 | 2026-08-06 | add-cli-memory-support | agent-cross-session-memory, native-runtime-architecture | `openspec/changes/archive/2026-08-06-add-cli-memory-support/` |
 | 2026-08-06 | add-onepiece-search-and-edit-tools | agent-chat-configuration, agent-context-compaction, agent-tool-execution, agent-tool-trust, onepiece-native-agent | `openspec/changes/archive/2026-08-06-add-onepiece-search-and-edit-tools/` |

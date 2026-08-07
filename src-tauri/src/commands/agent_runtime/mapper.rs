@@ -13,7 +13,7 @@ use crate::contexts::agent_runtime::api::{
     CoordinationRunStatus as ApiCoordinationRunStatus, InteractionMode, LaunchWorkflowResult,
     OnePieceProviderConfig, OpenAgentTerminalRequest, ReadinessView, RegisterApiAgentInput,
     ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SendMessageRequest,
-    StopAgentTerminalRequest, ToolApprovalDecision, UpdateApiAgentInput, WorkflowView,
+    StopAgentTerminalRequest, UpdateApiAgentInput, WorkflowView,
 };
 use crate::contexts::agent_runtime::application::{
     AgentTerminalCapability as ApiAgentTerminalCapability,
@@ -72,14 +72,6 @@ pub(super) fn update_api_agent_request(input: dto::UpdateApiAgentInput) -> Updat
         model_id: input.model_id,
         base_url: input.base_url,
         new_api_key: input.new_api_key,
-    }
-}
-
-pub(super) fn tool_approval_decision(approved: bool) -> ToolApprovalDecision {
-    if approved {
-        ToolApprovalDecision::Approved
-    } else {
-        ToolApprovalDecision::Denied
     }
 }
 

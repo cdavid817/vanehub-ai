@@ -137,14 +137,6 @@ mod tests {
         fn delete(&self, _agent_id: &str) -> Result<(), AgentRuntimeApplicationError> {
             unreachable!("not exercised by this test")
         }
-
-        fn set_auto_approve_tools(
-            &self,
-            _agent_id: &str,
-            _enabled: bool,
-        ) -> Result<(), AgentRuntimeApplicationError> {
-            unreachable!("not exercised by this test")
-        }
     }
 
     fn adapter(

@@ -80,14 +80,6 @@ pub(crate) struct UpdateApiAgentInput {
     pub(crate) new_api_key: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ResolveToolApprovalInput {
-    pub(crate) session_id: String,
-    pub(crate) call_id: String,
-    pub(crate) approved: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentRegistryEntry {

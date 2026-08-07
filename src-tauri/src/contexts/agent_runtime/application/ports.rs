@@ -547,6 +547,37 @@ pub(crate) trait AgentClockPort: Send + Sync {
     fn now(&self) -> String;
 }
 
+/// The native tool-use loop's boundary to the `permissions` context's Policy Decision Point
+/// (`add-permissions-core`). `Action`/`Effect`/`Resource` are `permissions::domain`'s own types,
+/// referenced directly here as a deliberately published cross-context contract rather than
+/// duplicated locally — replacing `risk_tier_for`/`requires_approval` as the approval authority.
+pub(crate) trait AgentPermissionPort: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate(
+        &self,
+        agent_id: &str,
+        action: crate::contexts::permissions::api::Action,
+        resource: crate::contexts::permissions::api::Resource,
+        session_id: &str,
+        generation_id: &str,
+        project_key: &str,
+    ) -> crate::contexts::permissions::api::Effect;
+
+    /// Registers a pending approval after `evaluate` resolves `Ask`, before the caller blocks on
+    /// `await_approval`. `call_id` correlates back to that same wait.
+    #[allow(clippy::too_many_arguments)]
+    fn create_pending_approval(
+        &self,
+        agent_id: &str,
+        action: crate::contexts::permissions::api::Action,
+        resource: crate::contexts::permissions::api::Resource,
+        session_id: &str,
+        generation_id: &str,
+        call_id: &str,
+        project_key: &str,
+    ) -> Result<(), AgentRuntimeApplicationError>;
+}
+
 pub(crate) trait AgentEventPort: Send + Sync {
     fn publish(&self, event: AgentEvent) -> Result<(), AgentRuntimeApplicationError>;
 }
@@ -668,15 +699,6 @@ pub(crate) trait ApiAgentGateway: Send + Sync {
     /// naming what still references it — never partially applied (`add-agent-lifecycle-management`
     /// design.md Decision 2).
     fn delete(&self, agent_id: &str) -> Result<(), AgentRuntimeApplicationError>;
-
-    /// Sets the persistent, per-agent tool-approval trust flag (`add-agent-tool-trust`). Fails
-    /// with `AgentNotFound` for a nonexistent id or one that isn't `launch_kind = 'api'`, mirroring
-    /// `update`/`delete`'s existing "0 rows changed" convention.
-    fn set_auto_approve_tools(
-        &self,
-        agent_id: &str,
-        enabled: bool,
-    ) -> Result<(), AgentRuntimeApplicationError>;
 
     fn onepiece_provider_config(
         &self,
