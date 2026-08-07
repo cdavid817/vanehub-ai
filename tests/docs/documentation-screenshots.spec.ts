@@ -71,9 +71,13 @@ async function openSettings(page: Page, section: string, heading: string): Promi
   return shell;
 }
 
-/** Opens the create-session dialog with the project and title fields already filled. */
-async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
-  await visit(page, "/");
+/**
+ * Fills the create-session dialog without navigating.
+ *
+ * Web/mock state such as a saved OnePiece provider lives in module memory, so any
+ * scenario that configures something first must stay on the same document.
+ */
+async function fillCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
   await page.getByRole("button", { name: /^(新建|New)$/ }).click();
   const dialog = page.locator(".fixed.inset-0").locator(".ucd-panel");
   await expect(
@@ -86,14 +90,29 @@ async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Loca
   return dialog;
 }
 
+/** Loads the workspace and opens the create-session dialog. */
+async function openCreateSessionDialog(page: Page, locale: Locale): Promise<Locator> {
+  await visit(page, "/");
+  return fillCreateSessionDialog(page, locale);
+}
+
 /**
  * Creates a session through the dialog and returns the workspace screen.
  *
  * The tab bar is already mounted behind the modal, so waiting for the dialog to
  * close is what separates a real workspace capture from one of the dialog itself.
  */
-async function createSession(page: Page, locale: Locale): Promise<Locator> {
-  const dialog = await openCreateSessionDialog(page, locale);
+async function createSession(
+  page: Page,
+  locale: Locale,
+  options: { agent?: string; navigate?: boolean } = {},
+): Promise<Locator> {
+  const dialog = options.navigate === false
+    ? await fillCreateSessionDialog(page, locale)
+    : await openCreateSessionDialog(page, locale);
+  if (options.agent) {
+    await dialog.getByRole("button", { name: new RegExp(`^${options.agent}`) }).first().click();
+  }
   await dialog
     .getByRole("button", { name: text(locale, "创建", "Create"), exact: true })
     .click();
@@ -104,14 +123,20 @@ async function createSession(page: Page, locale: Locale): Promise<Locator> {
   await expect(
     shell.getByRole("tablist", { name: text(locale, "会话工作区", "Session workspace") }),
   ).toBeVisible();
-  // The success toast auto-dismisses on a timer, so a slower run would capture it
-  // half-faded or gone. Dismissing it pins the frame.
+  await dismissToasts(page, locale);
+  return shell;
+}
+
+/**
+ * Toasts auto-dismiss on a timer, so a slower run would capture one half-faded or
+ * already gone. Closing them pins the frame.
+ */
+async function dismissToasts(page: Page, locale: Locale) {
   const toast = page.getByRole("button", {
     name: text(locale, "关闭通知", "Dismiss notification"),
   });
   for (const button of await toast.all()) await button.click();
   await expect(toast).toHaveCount(0, { timeout: 5_000 });
-  return shell;
 }
 
 /** Switches the open session workspace to a tab and waits for its lazily loaded panel. */
@@ -197,6 +222,61 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
 
   "settings-observability": (page, locale) =>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
+
+  /**
+   * Tool approval. In Web/mock the simulated approval only fires for an API agent,
+   * so OnePiece has to be configured first — the dialog is otherwise unreachable.
+   */
+  "tool-approval": async (page, locale) => {
+    await visit(page, "/settings?section=agent-configurations");
+    const shell = page.locator("main").first();
+    await waitForFeature(shell);
+    // The page opens on the first CLI tab, so the OnePiece panel has to be selected
+    // explicitly before its "add" button is the one in reach.
+    await shell.getByRole("tab", { name: "OnePiece" }).click();
+    const panel = shell.getByRole("tabpanel", { name: "OnePiece" });
+    await panel.getByRole("button", { name: /新增|Add/ }).first().click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /^Anthropic/ }).first().click();
+    await dialog.getByLabel(text(locale, "API 密钥", "API key")).fill("web-mock-key");
+    await dialog
+      .getByRole("button", { name: text(locale, "保存 OnePiece", "Save OnePiece") })
+      .click();
+    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+
+    // Client-side navigation only: a reload would drop the provider we just saved.
+    await shell.getByRole("button", { name: text(locale, "返回", "Back") }).click();
+    const workspace = await createSession(page, locale, {
+      agent: "OnePiece",
+      navigate: false,
+    });
+    // OnePiece renders the chat composer, not the CLI terminal input.
+    await workspace
+      .getByPlaceholder(/输入指令|Send a message/)
+      .fill(text(locale, "请执行一次演示命令。", "Run a demo command."));
+    await workspace
+      .getByRole("button", { name: text(locale, "发送", "Send") })
+      .first()
+      .click();
+    // The approval card sits inside a collapsed <details>, so it has to be expanded
+    // before it is on screen at all. This is also how a real user reaches it.
+    const pendingTool = workspace
+      .locator("details")
+      .filter({ has: page.getByText("awaiting_approval") })
+      .first();
+    await expect(pendingTool).toBeVisible({ timeout: 15_000 });
+    await pendingTool.locator("summary").click();
+    await expect(
+      pendingTool.getByText(
+        text(locale, "该工具调用需要你的确认才能执行", "needs your approval"),
+      ),
+    ).toBeVisible();
+    await dismissToasts(page, locale);
+    // Capture the approval block alone. The surrounding message is still streaming and
+    // its sibling tool blocks land on timers, so a full-workspace frame is not stable.
+    return pendingTool;
+  },
 
   "session-workspace": async (page, locale) => {
     const shell = await createSession(page, locale);

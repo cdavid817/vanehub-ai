@@ -54,6 +54,7 @@
 | `session-workspace-zh-CN.png` | `quick-start.md` | 会话工作区，9 个标签页 + 信息面板 | 新建 → 创建 → 关闭成功提示 | 逐个标注标签名 |
 | `session-traces-zh-CN.png` | `observability.md` | 链路标签，执行时间线与链路拓扑 | 同上 → 点「链路」 | 箭头指向「不可见」徽标与「观测缺口」提示 |
 | `session-logs-zh-CN.png` | `observability.md` | 日志标签，搜索与时间定位 | 同上 → 点「日志」 | 红框标注搜索框与定位控件 |
+| `tool-approval-zh-CN.png` | `permissions.md` | 展开的工具调用块，审批区与作用域 | 配置 OnePiece → 用它建会话 → 发消息 → 展开 `awaiting_approval` 块 | 红框标注「记住我的选择」，箭头指向「高风险」徽标 |
 
 ## 待补充
 

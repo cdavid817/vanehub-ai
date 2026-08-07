@@ -159,6 +159,14 @@
       "runtime": "web-mock",
       "featureState": "delivered",
       "path": "assets/screenshots/session-logs-zh-CN.png"
+    },
+    {
+      "id": "tool-approval-zh-CN",
+      "scenario": "tool-approval",
+      "locale": "zh-CN",
+      "runtime": "web-mock",
+      "featureState": "delivered",
+      "path": "assets/screenshots/tool-approval-zh-CN.png"
     }
   ]
 }
