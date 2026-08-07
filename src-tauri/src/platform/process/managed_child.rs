@@ -65,6 +65,7 @@ impl ManagedChild {
         })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn id(&self) -> Option<u32> {
         self.child.as_ref().map(|child| child.id())
     }
@@ -210,6 +211,7 @@ impl ManagedTokioChild {
         })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn id(&self) -> Option<u32> {
         self.child.as_ref().and_then(|child| child.id())
     }
