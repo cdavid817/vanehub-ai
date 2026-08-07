@@ -1,8 +1,15 @@
-//! The native tool-use loop's fixed, provider-agnostic tool catalog and risk classification.
+//! The native tool-use loop's fixed, provider-agnostic tool catalog.
 //! Pure data and pure functions — no I/O, unit-testable without a live provider or process.
+//!
+//! Risk/approval classification used to live here too (`risk_tier_for`/`requires_approval`,
+//! `ToolRiskTier`) but is fully retired as of `add-permissions-core`: the approval-gate call site
+//! now calls `permissions::api::evaluate` instead (via `AgentPermissionPort`,
+//! `api_process_adapter.rs`'s `permission_action_and_resource` does the equivalent name/operation
+//! classification `risk_tier_for` used to). Nothing in production code called either function
+//! anymore once that cutover landed, so they were deleted rather than left as dead code.
 
-use super::{ToolDefinition, ToolRiskTier};
-use serde_json::{json, Value};
+use super::ToolDefinition;
+use serde_json::json;
 
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
@@ -254,55 +261,6 @@ fn edit_tool_definition() -> ToolDefinition {
     }
 }
 
-/// Classifies a tool call's risk tier by tool name and, for the file tool, its `operation`
-/// field — a structural distinction (which operation was requested), not a content-safety
-/// judgment about a specific command or path. Unknown tool names and file calls with a missing
-/// or unrecognized `operation` fail closed to `RequiresApproval`.
-pub(crate) fn risk_tier_for(tool_name: &str, input: &Value) -> ToolRiskTier {
-    match tool_name {
-        FILE_TOOL_NAME => match input.get("operation").and_then(Value::as_str) {
-            Some("read") => ToolRiskTier::AutoApprove,
-            _ => ToolRiskTier::RequiresApproval,
-        },
-        // Only ever writes to this app's own internal storage — never the user's filesystem,
-        // shell, or anything else external — so a wrong or low-value memory is no worse than a
-        // mistake the user can delete via the memory management view (`add-agent-cross-session-memory`).
-        REMEMBER_TOOL_NAME => ToolRiskTier::AutoApprove,
-        // Only ever reads this app's own internal storage — never the user's filesystem, shell,
-        // or anything else external. The one new outbound surface is the query text going to the
-        // embedding provider, which is not a new exposure: the memory content it searches over
-        // was already sent to that same provider at index time.
-        RECALL_TOOL_NAME => ToolRiskTier::AutoApprove,
-        // Both are read-only and bounded by the workspace boundary and .gitignore. Making them
-        // auto-approve is the entire point of this capability — prompting on every search would
-        // push the model back toward guessing via shell instead, which is more dangerous, not less.
-        GREP_TOOL_NAME | GLOB_TOOL_NAME => ToolRiskTier::AutoApprove,
-        // Falls into the default `_` arm below anyway, but listed explicitly so this contract is
-        // locked by its own test (`edit_always_requires_approval`) rather than being an accident
-        // of the default branch that a future change to that branch could silently widen.
-        EDIT_TOOL_NAME => ToolRiskTier::RequiresApproval,
-        _ => ToolRiskTier::RequiresApproval,
-    }
-}
-
-/// Whether a tool call must pause for human approval, composing `risk_tier_for`'s static
-/// classification with a per-agent trust grant (`add-agent-tool-trust`). `risk_tier_for` itself
-/// stays agent-trust-unaware — this function is the only place the two are combined, kept
-/// separate so `risk_tier_for`'s existing pure "classify by name+input" contract and test suite
-/// need no changes. `auto_approve_tools` can only ever skip approval for `shell`, `file`, and
-/// `edit` calls — MCP-sourced calls always fall through to `risk_tier_for`'s own unconditional
-/// `RequiresApproval` for any name it doesn't explicitly recognize, with no carve-out here.
-pub(crate) fn requires_approval(tool_name: &str, input: &Value, auto_approve_tools: bool) -> bool {
-    if auto_approve_tools
-        && (tool_name == SHELL_TOOL_NAME
-            || tool_name == FILE_TOOL_NAME
-            || tool_name == EDIT_TOOL_NAME)
-    {
-        return false;
-    }
-    risk_tier_for(tool_name, input) == ToolRiskTier::RequiresApproval
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,189 +434,6 @@ mod tests {
     }
 
     #[test]
-    fn shell_always_requires_approval() {
-        assert_eq!(
-            risk_tier_for(SHELL_TOOL_NAME, &json!({"command": "ls"})),
-            ToolRiskTier::RequiresApproval
-        );
-        assert_eq!(
-            risk_tier_for(SHELL_TOOL_NAME, &json!({"command": "rm -rf /"})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn file_read_auto_approves() {
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "read", "path": "a.txt"})
-            ),
-            ToolRiskTier::AutoApprove
-        );
-    }
-
-    #[test]
-    fn file_write_requires_approval() {
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "write", "path": "a.txt", "content": "x"})
-            ),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn file_call_with_missing_or_unknown_operation_fails_closed() {
-        assert_eq!(
-            risk_tier_for(FILE_TOOL_NAME, &json!({"path": "a.txt"})),
-            ToolRiskTier::RequiresApproval
-        );
-        assert_eq!(
-            risk_tier_for(
-                FILE_TOOL_NAME,
-                &json!({"operation": "delete", "path": "a.txt"})
-            ),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn unknown_tool_name_fails_closed() {
-        assert_eq!(
-            risk_tier_for("unknown", &json!({})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    /// Locks in design.md Decision 7 (`add-agent-mcp-tools`): MCP tool names always fall through
-    /// to the existing catch-all above since they never literally equal `FILE_TOOL_NAME` or
-    /// `REMEMBER_TOOL_NAME` (guaranteed by the mandatory `mcp__` prefix) — no production code
-    /// change is needed for MCP calls to require approval unconditionally, but that behavior
-    /// deserves its own test rather than being an accident of the existing match arms.
-    #[test]
-    fn mcp_sourced_tool_names_always_require_approval() {
-        assert_eq!(
-            risk_tier_for("mcp__filesystem-tools__search", &json!({"query": "x"})),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn remember_always_auto_approves() {
-        assert_eq!(
-            risk_tier_for(REMEMBER_TOOL_NAME, &json!({"content": "Uses pnpm."})),
-            ToolRiskTier::AutoApprove
-        );
-    }
-
-    #[test]
-    fn trusted_agent_skips_approval_for_shell() {
-        assert!(!requires_approval(
-            SHELL_TOOL_NAME,
-            &json!({"command": "rm -rf /"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn trusted_agent_skips_approval_for_file_write() {
-        assert!(!requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn untrusted_agent_still_requires_approval_for_shell_and_file_write() {
-        assert!(requires_approval(
-            SHELL_TOOL_NAME,
-            &json!({"command": "ls"}),
-            false
-        ));
-        assert!(requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "write", "path": "a.txt", "content": "x"}),
-            false
-        ));
-    }
-
-    #[test]
-    fn trusted_agent_still_requires_approval_for_mcp_calls() {
-        assert!(requires_approval(
-            "mcp__filesystem-tools__search",
-            &json!({"query": "x"}),
-            true
-        ));
-    }
-
-    #[test]
-    fn trust_flag_never_affects_already_auto_approved_tools() {
-        assert!(!requires_approval(
-            REMEMBER_TOOL_NAME,
-            &json!({"content": "Uses pnpm."}),
-            false
-        ));
-        assert!(!requires_approval(
-            FILE_TOOL_NAME,
-            &json!({"operation": "read", "path": "a.txt"}),
-            false
-        ));
-        // `grep`/`glob` are AutoApprove unconditionally and are not part of `requires_approval`'s
-        // trust allowlist at all -- unlike `shell`/`file`/`edit`, nothing here should depend on
-        // the trust flag either way. Exercises `requires_approval` itself (the actual production
-        // entry point composing `risk_tier_for` with the trust flag), not just `risk_tier_for` in
-        // isolation, with the flag both on and off: a future change that narrows
-        // `requires_approval`'s carve-out logic and accidentally starts gating search tools on
-        // trust would fail here even though `search_tools_do_not_require_approval` alone
-        // (asserting on `risk_tier_for`) would still pass.
-        for trusted in [false, true] {
-            assert!(!requires_approval(
-                GREP_TOOL_NAME,
-                &json!({"pattern": "needle"}),
-                trusted
-            ));
-            assert!(!requires_approval(
-                GLOB_TOOL_NAME,
-                &json!({"pattern": "**/*.rs"}),
-                trusted
-            ));
-        }
-    }
-
-    #[test]
-    fn search_tools_do_not_require_approval() {
-        assert_eq!(
-            risk_tier_for(GREP_TOOL_NAME, &json!({"pattern": "needle"})),
-            ToolRiskTier::AutoApprove
-        );
-        assert_eq!(
-            risk_tier_for(GLOB_TOOL_NAME, &json!({"pattern": "**/*.rs"})),
-            ToolRiskTier::AutoApprove
-        );
-    }
-
-    #[test]
-    fn edit_always_requires_approval() {
-        assert_eq!(
-            risk_tier_for(
-                EDIT_TOOL_NAME,
-                &json!({"path": "a.rs", "old_string": "a", "new_string": "b"})
-            ),
-            ToolRiskTier::RequiresApproval
-        );
-    }
-
-    #[test]
-    fn a_trusted_agent_skips_approval_for_edit() {
-        let input = json!({"path": "a.rs", "old_string": "a", "new_string": "b"});
-        assert!(requires_approval(EDIT_TOOL_NAME, &input, false));
-        assert!(!requires_approval(EDIT_TOOL_NAME, &input, true));
-    }
-
-    #[test]
     fn the_recall_tool_never_exposes_scope_to_the_model() {
         // 这条断言从前的理由是安全边界（防模型自行放宽 scope）。`agent-memory-shared-pool`
         // 之后理由变了：记忆是一个主机级共享池，所有 Agent 本来就都看得到，压根没有"别的
@@ -678,14 +453,6 @@ mod tests {
             );
         }
         assert_eq!(definition.input_schema["required"], json!(["query"]));
-    }
-
-    #[test]
-    fn recall_auto_approves_for_the_same_reason_remember_does() {
-        assert_eq!(
-            risk_tier_for(RECALL_TOOL_NAME, &json!({"query": "npm"})),
-            ToolRiskTier::AutoApprove
-        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use super::domain::{
     AppliedStateRecord, CliConfigDriftState, CliConfigError, CliConfigPayload, ProfileRecord,
 };
+use serde_json::Value;
 use std::path::PathBuf;
 use zeroize::Zeroizing;
 
@@ -97,4 +98,16 @@ pub(crate) trait CliGlobalConfigPort: Send + Sync {
         expected_live_fingerprint: &str,
     ) -> Result<ProjectionOutcome, CliConfigError>;
     fn restore(&self, outcome: &ProjectionOutcome) -> Result<(), CliConfigError>;
+}
+
+/// Installs or removes VaneHub's own `hooks.PreToolUse` entries in Claude Code's global
+/// `settings.json`, atomically, preserving every other hook entry and all unrelated top-level
+/// fields — decoupled entirely from profile/provider application
+/// (`cli-agent-config-management`'s "Claude Code permission-hook projection";
+/// `add-claude-code-permission-callback` design.md D7). `entries` are opaque, caller-constructed
+/// JSON values (the hook's exact shape is a Claude Code/permissions concern, not something
+/// `cli_config` needs to understand) — an empty slice removes VaneHub's entries instead of
+/// installing any.
+pub(crate) trait ClaudeCodeHookProjectionPort: Send + Sync {
+    fn set_permission_hook_entries(&self, entries: &[Value]) -> Result<(), CliConfigError>;
 }

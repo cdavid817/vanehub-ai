@@ -168,6 +168,11 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_agent_registry.registry.clone(),
         fallback_log_directory.clone(),
     );
+    let permissions_api = super::assemble_permissions_api(
+        database.clone(),
+        desktop_settings_api.clone(),
+        app.handle().clone(),
+    );
     // `assemble_retrieval` below needs `agent_runtime_api` (the output of this very call), so a
     // real `RetrievalApi` cannot exist yet when `RuntimeAgentApiAdapter`'s `recall` tool is wired
     // up — this cell starts empty and is bound once the real one is ready, a few lines down.
@@ -186,10 +191,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         mcp: mcp_api.clone(),
         sessions: sessions_api.clone(),
         workspaces: workspace_api.clone(),
+        permissions: permissions_api.clone(),
         shared_registry: shared_agent_registry,
         retrieval: deferred_retrieval.clone(),
         desktop_settings: desktop_settings_api.clone(),
     });
+    super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let super::RetrievalAssembly {
         api: retrieval_api,
@@ -242,6 +249,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(workspace_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
+    app.manage(permissions_api.clone());
     app.manage(retrieval_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);

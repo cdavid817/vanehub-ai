@@ -80,31 +80,32 @@ pub(crate) use models::{
     ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
     SendMessageRequest, StartedAgentMessage, StartedGenerationProcess, StopAgentTerminalRequest,
     StopGenerationResult, StoredOnePieceProviderConfig, StoredOnePieceProviderProfile,
-    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolRiskTier,
-    ToolUseBlock, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
+    ToolApprovalDecision, ToolDefinition, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
+    UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, WorkflowView, INTERFACE_FORMAT_ANTHROPIC,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCoreInstructionsPort,
     AgentEventPort, AgentGenerationPort, AgentLoggingPort, AgentMcpToolPort,
     AgentMemoryExtractionPort, AgentMemoryPort, AgentMessageTerminalCompletionPort,
-    AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
-    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort, AgentSessionGateway,
-    AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
-    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort,
-    EffectivePromptGateway, LoopExecutionControlPort, LoopExecutionLeasePort,
-    LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
-    LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
-    LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, ToolApprovalPort,
+    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentRegistryRepository, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentSessionGateway, AgentSkillPort, AgentTaskPort, AgentTerminalEventPort,
+    AgentTerminalGateway, AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort,
+    ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
+    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
+    LoopRoleSessionPort, LoopVerificationProcessPort, LoopVerifierContextPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
+    ToolApprovalPort,
 };
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    plan_mode_tool_catalog, recall_tool_definition, requires_approval, tool_catalog,
-    EDIT_TOOL_NAME, FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
-    RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, recall_tool_definition, tool_catalog, EDIT_TOOL_NAME, FILE_TOOL_NAME,
+    GLOB_TOOL_NAME, GREP_TOOL_NAME, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SHELL_TOOL_NAME,
 };
 
 #[cfg(test)]

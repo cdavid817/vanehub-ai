@@ -1567,6 +1567,36 @@
                      },
                      {
                          "archivedOn":  "2026-08-05",
+                         "changeName":  "add-permissions-core",
+                         "path":  "openspec/changes/archive/2026-08-05-add-permissions-core/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "agent-tool-trust",
+                                              "permissions-approval",
+                                              "permissions-core"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-05",
+                         "changeName":  "add-permissions-settings-ui",
+                         "path":  "openspec/changes/archive/2026-08-05-add-permissions-settings-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "permissions-approval",
+                                              "permissions-core"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-05",
                          "changeName":  "polish-workspace-visual-consistency",
                          "path":  "openspec/changes/archive/2026-08-05-polish-workspace-visual-consistency/",
                          "artifacts":  [
@@ -1579,6 +1609,38 @@
                                               "main-layout-ui",
                                               "notification-system",
                                               "visual-design-system"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-claude-code-permission-callback",
+                         "path":  "openspec/changes/archive/2026-08-06-add-claude-code-permission-callback/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "claude-code-permission-hook",
+                                              "cli-agent-config-management",
+                                              "permissions-approval",
+                                              "permissions-core"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-06",
+                         "changeName":  "add-cli-agent-permission-launch-flags",
+                         "path":  "openspec/changes/archive/2026-08-06-add-cli-agent-permission-launch-flags/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "cli-agent-permission-launch-flags",
+                                              "cli-parameter-management",
+                                              "permissions-approval"
                                           ]
                      },
                      {

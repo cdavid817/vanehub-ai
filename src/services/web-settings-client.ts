@@ -2,6 +2,7 @@ import type { SettingsService, SettingsStateEvent } from "./settings-service";
 import { defaultAppSettings, normalizeAppSettings, validateSettingValue } from "./settings-service";
 import { i18n } from "../i18n";
 import type { AppSettings, DataManagementInfo, NodeInfo } from "../types/settings";
+import { setWebDefaultPolicyTemplate } from "./web-permissions-mock-state";
 
 const storageKey = "vanehub.appSettings";
 const settingsSubscribers = new Set<(event: SettingsStateEvent) => void>();
@@ -34,6 +35,9 @@ export const webSettingsClient: SettingsService = {
     validateSettingValue(input.key, input.value);
     const nextSettings = { ...readWebAppSettings(), [input.key]: input.value };
     writeStoredSettings(nextSettings);
+    if (input.key === "defaultPolicyTemplate") {
+      setWebDefaultPolicyTemplate(nextSettings.defaultPolicyTemplate);
+    }
     settingsSubscribers.forEach((handler) => handler({ kind: "settings-changed", key: input.key }));
     return nextSettings;
   },

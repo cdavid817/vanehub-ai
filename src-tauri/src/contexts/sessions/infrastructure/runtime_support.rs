@@ -292,6 +292,7 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         | AgentRuntimeApplicationError::Skill(message)
         | AgentRuntimeApplicationError::Memory(message)
         | AgentRuntimeApplicationError::Mcp(message)
+        | AgentRuntimeApplicationError::Permission(message)
         | AgentRuntimeApplicationError::Personalization(message) => {
             SessionsApplicationError::Runtime(message)
         }
