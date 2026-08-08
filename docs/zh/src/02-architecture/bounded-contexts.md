@@ -162,6 +162,52 @@ commands/error.rs                      # 统一错误转换
 
 **错误必须在边界处转换**：跨 Tauri command 边界的错误要转成 `Result<T, String>` 或自定义 error enum（`AGENTS.md`），`unwrap()` / `expect()` 仅限测试代码。
 
+### 一个命令长什么样
+
+`commands/permissions/apply_policy_template.rs` 全文只有二十行，很能代表这一层的形态：
+
+```rust,ignore
+#[tauri::command]
+pub(crate) fn apply_policy_template(
+    permissions: State<'_, PermissionsApi>,
+    input: ApplyPolicyTemplateInput,
+) -> Result<PrincipalEntry, CommandError> {
+    let template = parse_template(&input.template).ok_or_else(|| {
+        CommandError::validation(format!("unknown policy template: {}", input.template))
+    })?;
+    let principal = permissions
+        .assign_template(&input.agent_id, template)
+        .map_err(map_command_error)?;
+    Ok(principal_to_dto((principal, true)))
+}
+```
+
+**它只做三件事**：把 DTO 里的字符串解析成领域类型、调 api 门面、把结果映回 DTO。业务逻辑一行都没有。
+
+**`State<'_, PermissionsApi>` 是上下文注入点**——命令拿到的是 `bootstrap` 装配好的门面，而不是自己去 new 服务。
+
+**这个文件的注释还记了一件容易踩坑的事**：
+
+> Confirm-to-increase-trust is a frontend concern (the caller only invokes this after the user has confirmed…) — this command applies the change unconditionally once called.
+
+也就是说，**提权前的确认是纯前端行为**。`PolicyTemplateName::requires_confirmation_to_assign` 只是给界面看的信号，原生命令一旦被调用就无条件执行。绕过界面直接 invoke 这个命令，不会被拦。
+
+### 加一个命令要动哪些文件
+
+**按 `permissions` 的现状数，一共五处**：
+
+| 文件 | 改什么 |
+|---|---|
+| `commands/<context>/<name>.rs` | 新建，一个命令一个文件 |
+| `commands/<context>/mod.rs` | 加 `pub(crate) mod <name>;`（`dto`/`mapper` 是私有 `mod`） |
+| `commands/<context>/dto.rs` | 输入输出结构（若复用已有的则不改） |
+| `commands/<context>/mapper.rs` | 领域 ↔ DTO 映射（同上） |
+| `commands/registry.rs` | 在对应上下文分组下登记 |
+
+**漏掉最后一条会被测试拦下**，见下。
+
+前端侧还要改服务边界层的两个实现，见[前端架构](frontend.md)。
+
 ### 注册的完整性由测试强制
 
 **`contract_tests.rs:91` 的 `every_tauri_command_is_registered_exactly_once`** 用 `syn` 遍历所有 Rust 源文件，找出 `#[tauri::command]` 标注，验证每个在注册表中**恰好出现一次**。

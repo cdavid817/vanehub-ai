@@ -122,6 +122,12 @@ flowchart TB
 
 **判定依据是"该模板是否自动放行 `shell.exec` / `file.write`"**——这是一条从**后果**而非从**名字**出发的规则。将来若新增模板，只要它自动放行这两个动作，就该返回 `true`。
 
+**但这个信号只对界面生效。**`apply_policy_template` 命令的文件头注释说得很明确（`commands/permissions/apply_policy_template.rs:11-14`）：
+
+> Confirm-to-increase-trust is a frontend concern (the caller only invokes this after the user has confirmed…) — this command applies the change unconditionally once called.
+
+**原生层不校验确认是否发生过**。绕过界面直接 invoke 该命令即可把任意 Agent 提到 `Yolo`。这与「PEP 覆盖靠调用点自觉」是同一类问题：判定逻辑集中了，但触发判定的责任在调用方。
+
 ## Principal 的生命周期
 
 **惰性创建**（`evaluation_service.rs:116-121`）：首次见到的 Agent 按可配置默认模板创建 principal。

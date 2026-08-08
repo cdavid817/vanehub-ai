@@ -67,6 +67,130 @@ flowchart TB
 
 **箭头方向就是依赖方向**：`infrastructure` 依赖 `application`（实现它的 trait），而不是反过来。这就是依赖倒置。
 
+## 一个完整的例子：创建 worktree
+
+**结构说明看十遍不如跟一次调用**。下面这条链路很短，但四层都经过了。
+
+### 领域层：值对象在构造时就把非法输入挡掉
+
+`WorktreeName::parse`（`workspaces/domain/worktree.rs:34-47`）：
+
+```rust,ignore
+let trimmed = value.trim();
+if trimmed.is_empty()
+    || trimmed.contains('/')
+    || trimmed.contains('\\')
+    || trimmed.contains("..")
+    || trimmed.chars().any(char::is_control)
+{
+    Err(WorkspaceDomainError::InvalidWorktreeName)
+} else {
+    Ok(Self(trimmed.to_string()))
+}
+```
+
+**这里没有 IO，纯函数**。四条拒绝规则各有理由：路径分隔符与 `..` 会让名字变成路径穿越，控制字符会污染后续拼出来的分支名。
+
+**分支名也由领域派生**（`:53-55`），而不是在调用处拼字符串：
+
+```rust,ignore
+pub(crate) fn branch_name(&self) -> String {
+    format!("vanehub/{}", self.0)
+}
+```
+
+**为什么这重要**：`vanehub/` 前缀是一条领域规则——它保证 VaneHub 建的分支不与用户自己的分支混淆。规则写在领域层，所有调用方自动一致；写在调用处，则每个调用方都可能拼错。
+
+### 不是所有领域规则都住在值对象里
+
+**跨两个概念的规则放成自由函数**（`workspaces/domain/worktree.rs:58-67`）：
+
+```rust,ignore
+pub(crate) fn ensure_worktree_compatible(
+    remote_workspace_selected: bool,
+    worktree_enabled: bool,
+) -> Result<(), WorkspaceDomainError> {
+    if remote_workspace_selected && worktree_enabled {
+        Err(WorkspaceDomainError::RemoteWorktreeUnsupported)
+    } else {
+        Ok(())
+    }
+}
+```
+
+**这条规则不属于 `WorktreeName`，也不属于 `RemoteWorkspace`**——它约束的是两者的组合。放进任何一方都会让那一方知道它本不该知道的事。
+
+**它也是用户能感知的边界**：远程工作区用不了 Loop，因为 Loop 需要独立 worktree。这不是「还没做」，而是这行代码表达的领域约束。
+
+### 应用层：编排，但不做具体的事
+
+`WorkspaceApplicationService::create_worktree`（`application/service.rs:80-98`）：
+
+```rust,ignore
+let project = ProjectPath::parse(project_path.to_string())?;
+let name = WorktreeName::parse(name.to_string())?;
+let target = self
+    .filesystem
+    .sibling_worktree_target(project.as_str(), &name)?;
+let branch = name.branch_name();
+self.git
+    .create_worktree(project.as_str(), &target, &branch)?;
+```
+
+**六行里没有一行碰真实世界**：两次领域解析、两次端口调用、一次领域派生。`self.filesystem` 与 `self.git` 都是 trait 对象，服务不知道背后是真实文件系统还是测试替身。
+
+**注意顺序**：先解析、再算目标路径、最后才建 worktree。**校验全部前置**，失败时不会留下半成品。
+
+### 端口层：只声明需要什么
+
+`application/ports.rs:29-38`：
+
+```rust,ignore
+pub(crate) trait WorkspaceFilesystemPort: Send + Sync {
+    fn canonicalize_project(&self, path: &ProjectPath)
+        -> Result<String, WorkspaceApplicationError>;
+
+    fn sibling_worktree_target(
+        &self,
+        project_path: &str,
+        name: &WorktreeName,
+    ) -> Result<String, WorkspaceApplicationError>;
+}
+```
+
+**两个细节值得注意**：
+
+- **参数用领域类型**（`&ProjectPath`、`&WorktreeName`），不是 `&str`——端口边界上就要求「已经过校验的值」，杜绝把裸字符串传进来。
+- **错误统一成 `WorkspaceApplicationError`**——实现方的 `io::Error`、`git2::Error` 不会泄漏到应用层。
+
+### 基础设施层与装配
+
+`bootstrap/workspaces.rs:18-32` 是唯一同时知道 trait 与实现的地方：
+
+```rust,ignore
+pub(crate) fn assemble_workspace_api(
+    database: NativeDatabase,
+    app: AppHandle,
+    fallback_log_directory: PathBuf,
+) -> WorkspaceApi {
+```
+
+它 `new` 出 `WorkspaceFilesystemAdapter`、`WorkspaceGitAdapter`、`SqliteWorkspaceHistoryRepository`、`PortablePtyShellRuntime`、`SystemWorkspaceClock` 等具体实现，包成 `Arc` 注入服务。
+
+**换实现只需改这一处**：服务、领域、端口都不用动。
+
+### 这条链路证明了什么
+
+| 层 | 知道什么 | 不知道什么 |
+|---|---|---|
+| `domain` | 名字的合法性规则、分支命名规则 | 文件系统、Git、数据库存不存在 |
+| `application` | 步骤顺序、需要哪些能力 | 这些能力由谁实现 |
+| `ports` | 能力的签名 | 实现 |
+| `infrastructure` | 怎么真的建一个 worktree | 谁会调用它 |
+| `bootstrap` | 全部 | —— |
+
+**依赖箭头全部朝内**，只有 `bootstrap` 站在外面把它们接起来。
+
 ## 端口的粒度
 
 **端口按职责切得很细，而不是一个大接口打天下。**`sessions` 一个上下文就定义了 15 个端口（`src-tauri/src/contexts/sessions/application/ports.rs`）：
