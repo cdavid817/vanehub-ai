@@ -228,4 +228,4 @@ flowchart TB
 - [权限架构](permissions-architecture.md) —— 模板与判定
 - [MCP 集成](mcp-integration.md) —— 受管中继
 - [限界上下文](bounded-contexts.md) —— `agent_runtime` 的规模问题
-- [多 Agent 群聊](../02-features/group-chat.md) —— 模型族与角色简报的使用方
+- [多 Agent 群聊](group-chat.md) —— 模型族与角色简报的使用方

@@ -197,7 +197,7 @@ flowchart LR
 
 **`Gap` 是一个诚实性设计**（`workspaces/domain/output_chunk.rs:4-8` 的 `TerminalOutputSource`）：输出因队列溢出而丢失时，不是静默跳过，而是插入一个 `Gap` chunk 明确标记"这里丢了东西"。
 
-**容量常量集中在** `workspaces/domain/remote_terminal_limits.rs:7-12`，完整表见 [项目与工作区](../02-features/workspaces.md#容量与超时常量)。
+**容量常量集中在** `workspaces/domain/remote_terminal_limits.rs:7-12`，完整表见 [项目与工作区](workspaces.md#容量与超时常量)。
 
 ## 已知取舍
 
@@ -211,6 +211,6 @@ flowchart LR
 ## 相关文档
 
 - [CLI 集成](cli-integration.md) —— 启动参数如何决定
-- [项目与工作区](../02-features/workspaces.md) —— 输出捕获与检索的用户视角
-- [远程与 IM](../02-features/remote-and-im.md) —— 远程终端的连接池与超时
+- [项目与工作区](workspaces.md) —— 输出捕获与检索的用户视角
+- [远程与 IM](remote-and-im.md) —— 远程终端的连接池与超时
 - [可观测性架构](observability-architecture.md) —— 进程执行 Span

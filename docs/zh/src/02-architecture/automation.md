@@ -2,19 +2,11 @@
 
 > **把重复的事交给调度器，把长跑的事变得可见，把花掉的 token 变成可查的账**。
 
-## 功能定位
+## 这一层解决什么问题
 
 **这一组能力围绕"不用盯着"展开**：定时任务按周期自动触发，长时操作有排队与状态，完成后通知你，事后能查用量。
 
-## 使用场景
-
-1. **每日体检** —— 每天早上自动跑一轮 lint 与测试，结果通过通知或 IM 推给你。
-2. **定期同步** —— 每小时检查依赖更新。
-3. **长跑可见** —— 安装 SDK、连接 MCP、扩展安装这类耗时操作有明确的排队与进度。
-4. **成本核查** —— 按 Agent 查看 token 消耗趋势，判断哪个 CLI 更划算。
-5. **缓存效果评估** —— 单独看缓存读取与缓存创建的 token，判断提示词缓存是否生效。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -76,7 +68,7 @@
 
 **用本地时区算下一次、用 UTC 判到期**——两者各自用对了时间类型。
 
-由定时任务触发的执行在追踪中标记为 `ExecutionSource::Scheduled { task_id }`，见 [可观测性](observability.md#执行来源)。
+由定时任务触发的执行在追踪中标记为 `ExecutionSource::Scheduled { task_id }`，见 [可观测性](observability-architecture.md#执行身份与关联)。
 
 ## 长时操作跟踪
 
@@ -94,7 +86,7 @@
 
 **日志逐行记录**（`operation.rs:26-30` 的 `OperationLogEntry`）：每条带 `operation_id`、`line`、`timestamp`。
 
-**这满足统一日志规范的一条要求**——SDK/CLI/任务类操作的输出必须**同时**保留页面内展示与统一日志目录写入，见 [可观测性](observability.md#规范约束)。
+**这满足统一日志规范的一条要求**——SDK/CLI/任务类操作的输出必须**同时**保留页面内展示与统一日志目录写入，见 [可观测性](observability-architecture.md#写日志时必须遵守的四条)。
 
 **序列化为 camelCase**（`operation.rs:24-25`），前端服务在 `src/services/operation-service.ts`，契约在 `src/contracts/operation.ts`。
 
@@ -209,7 +201,7 @@
 
 托盘由 Tauri 的 `tray-icon` feature 提供（`src-tauri/Cargo.toml`）。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 创建定时任务
 
@@ -234,7 +226,7 @@
 
 ## 相关文档
 
-- [可观测性](observability.md) —— 执行来源与统一日志
+- [可观测性](observability-architecture.md) —— 执行来源与统一日志
 - [工具生态](tooling.md) —— SDK / MCP / 扩展操作的来源
-- [会话管理](session-management.md) —— 定时任务创建的会话
-- [限界上下文](../03-architecture/bounded-contexts.md) —— `operations` 与 `desktop` 的职责
+- [会话管理](sessions.md) —— 定时任务创建的会话
+- [限界上下文](bounded-contexts.md) —— `operations` 与 `desktop` 的职责

@@ -2,19 +2,11 @@
 
 > **个性化解决的是"每开一个会话都要重新交代一遍"的问题**：把关于你的信息、风格偏好、跨会话积累的项目知识和角色化人设统一存起来，在 Agent 执行前自动注入。
 
-## 功能定位
+## 这一层解决什么问题
 
 **三层各管一段**：手工填写的 **Custom Instructions**（关于你 + 风格规则）、自动积累的 **Agent 记忆**（主机级共享池）、可切换的**专家角色**（人设 + 职责 + 技能 + 评审策略）。三者都在调用 Agent 前进入上下文。
 
-## 使用场景
-
-1. **固定技术偏好** —— 一次写明"用 TypeScript strict、不要引入新依赖、注释写为什么"，所有会话都遵守。
-2. **积累项目知识** —— Agent 在会话中发现的项目约定被自动记下，下次开新会话直接可用。
-3. **角色化分工** —— 架构、实现、评审三个角色各有职责与技能绑定，在群聊中按角色协作。
-4. **跨模型评审** —— 让评审角色优先由不同模型族的席位承担，避免同源盲区。
-5. **控制隐私** —— 处理敏感项目时整体关掉记忆。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -87,7 +79,7 @@
 
 ### 权限管辖
 
-记忆写入受权限系统的 `memory.write` 动作管辖，见 [权限审批](agent-permission.md#受管动作)。
+记忆写入受权限系统的 `memory.write` 动作管辖，见 [权限审批](permissions-architecture.md#受管动作)。
 
 ## 专家角色
 
@@ -176,7 +168,7 @@ flowchart TB
   style X fill:#ffebee
 ```
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 填写 Custom Instructions
 
@@ -208,6 +200,6 @@ flowchart TB
 
 - [多 Agent 群聊](group-chat.md) —— 角色如何进入席位简报与评审推荐
 - [原生 API Agent](native-agent.md) —— OnePiece 配置与核心指令
-- [权限审批](agent-permission.md) —— `memory.write` 管辖
+- [权限审批](permissions-architecture.md) —— `memory.write` 管辖
 - [工具生态](tooling.md) —— 角色绑定的 Skill
-- [数据层](../03-architecture/data-layer.md) —— 记忆表与索引替换迁移
+- [数据层](data-layer.md) —— 记忆表与索引替换迁移

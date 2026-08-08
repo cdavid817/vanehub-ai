@@ -66,6 +66,37 @@ flowchart TB
 
 `Effect` 只有三种（`effect.rs:5-9`）：`Allow`、`Deny`、`Ask`。
 
+## 受管动作
+
+**内置五个动作标识**（`domain/action.rs:10-14`）：
+
+| Action | 含义 | 谁管它 |
+|---|---|---|
+| `shell.exec` | 执行 shell 命令 | 模板规则 |
+| `file.write` | 写入文件 | 模板规则 |
+| `file.read` | 读取文件 | 恒为 `Allow` |
+| `memory.write` | 写入 Agent 记忆 | 恒为 `Allow` |
+| `mcp.tool` | 调用 MCP 工具 | 第 1 步的 MCP 下限 |
+
+### 为什么 Action 不是封闭枚举
+
+**`Action` 被有意设计成开放的 `String` newtype**（`action.rs:1-6`），文件头注释给出了理由：
+
+> 后续要接入的各 CLI 各有本地概念——**Codex 的 sandbox escalation、OpenCode 的 `external_directory` / `doom_loop`、Gemini 的工具级模型**——封闭枚举会在需要新变体时造成破坏性变更。
+
+**代价是拼写错误不会被编译器拦下**：一个写错的动作名不会命中任何规则，于是落到第 4 步默认 `Ask`——失败关闭在这里第二次救了场。
+
+### 决策作用域
+
+**审批结果按四种作用域记忆**（`domain/scope.rs:4-9`）：
+
+| Scope | 记住范围 | 界面文案 |
+|---|---|---|
+| `Once` | 不记忆 | 仅此一次 |
+| `Session` | 当前会话内 | 本次会话 |
+| `Project` | 当前项目内 | —— |
+| `Global` | 全局 | 始终 |
+
 ## 模板规则的实际内容
 
 **模板只区分两个动作**（`domain/template.rs:58-74` 的 `policies_for_template`）：
@@ -254,7 +285,6 @@ sequenceDiagram
 
 ## 相关文档
 
-- [权限审批功能说明](../02-features/agent-permission.md) —— 面向使用者的视角
 - [CLI 集成](cli-integration.md) —— 模板如何变成各 CLI 的启动参数
 - [端口与适配器](ports-and-adapters.md) —— 端口设计模式
 - [数据层](data-layer.md) —— `agent_principals` / `permission_grants` / `approval_audit`

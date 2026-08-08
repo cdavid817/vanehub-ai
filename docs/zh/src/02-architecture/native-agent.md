@@ -2,21 +2,13 @@
 
 > **不依赖任何外部 CLI 的内置 Agent**：OnePiece 直接通过 HTTP 调用模型 provider，自带版本化核心指令、两层记忆与对记忆池的混合检索，是 VaneHub AI 里唯一 `launch.kind = "api"` 的 Agent。
 
-## 功能定位
+## 这一层解决什么问题
 
 **它填补的是"没装 CLI 也要能用"以及"需要更细粒度控制"的场景。**外部 CLI Agent 是黑盒——VaneHub AI 只能管进程之外的部分；OnePiece 则完全在本进程内，工具调用、上下文构造、记忆写入都可被直接观测和控制。
 
 **它还承担一项幕后职责**：为 CLI 包装的 Agent 代做记忆提取，见 [个性化](personalization.md#提取时机与执行者)。
 
-## 使用场景
-
-1. **零 CLI 起步** —— 一台没装任何 AI CLI 的机器，配好 API Key 即可开始使用。
-2. **接国内 provider** —— DeepSeek、Zhipu GLM、Kimi、通义等 23 家在目录里开箱可选。
-3. **让记忆可被检索** —— 对积累的记忆池做混合检索，回答有据可依。
-4. **精细可观测** —— 工具调用与进程执行是原生保真度（`Native`），不像外部 CLI 那样只能看到不透明边界。
-5. **启用 CLI Agent 的记忆** —— 即便主力用 Claude Code，也需要配好 OnePiece 才能有记忆提取。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -78,7 +70,7 @@
 
 > `claude-code` 被有意排除，因为它的策略模板已经通过 `claude-code-permission-hook` 的逐调用钩子动态强制执行，而不是靠启动参数。
 
-详见 [CLI 集成](../03-architecture/cli-integration.md#差异吸收点一启动参数)。
+详见 [CLI 集成](cli-integration.md#差异吸收点一启动参数)。
 
 ## 核心指令
 
@@ -212,7 +204,7 @@ flowchart LR
   C -->|失败| B
 ```
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 配置 provider
 
@@ -247,6 +239,6 @@ flowchart LR
 
 - [个性化](personalization.md) —— 核心指令、记忆、专家角色与 OnePiece 的代提取职责
 - [工具生态](tooling.md) —— MCP 工具接入
-- [可观测性](observability.md) —— 原生保真度的 Span
-- [权限审批](agent-permission.md) —— `memory.write` 与 `mcp.tool` 管辖
-- [数据层](../03-architecture/data-layer.md) —— 记忆表与迁移 42
+- [可观测性](observability-architecture.md) —— 原生保真度的 Span
+- [权限审批](permissions-architecture.md) —— `memory.write` 与 `mcp.tool` 管辖
+- [数据层](data-layer.md) —— 记忆表与迁移 42

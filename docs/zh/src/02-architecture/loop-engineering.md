@@ -2,21 +2,13 @@
 
 > **给定目标和验收命令，让 Agent 自己迭代到达成为止**：Loop 是"行动 → 验证 → 判定"的自动循环，带迭代上限、超时预算、无进展检测、崩溃恢复和强制的人工验收。
 
-## 功能定位
+## 这一层解决什么问题
 
 **Loop 解决的是"改完要跑测试，测试挂了要再改"这种反复循环的手工成本。**你定义目标与必过检查（例如 `npm run lint` 和 `npm test`），Loop 驱动 Worker 席位执行、Verifier 席位评估，按判定结果决定继续迭代还是收尾。
 
 与 [多 Agent 群聊](group-chat.md) 的区别：群聊是会话内的发言权流转，由 Agent 自己 `@` 决定下一位；Loop 是**目标驱动的自动循环**，由运行时按阶段推进并强制执行各项限额。
 
-## 使用场景
-
-1. **修到测试全绿** —— 目标"让 CI 校验全部通过"，必过检查填入 lint、test、build，Loop 反复迭代直到通过或触顶。
-2. **受控重构** —— 目标"拆分超过 300 行的文件"，用 ESLint 的 `max-lines` 作为必过检查。
-3. **带验收的自动化** —— 迭代结束后进入待验收状态，由你人工确认再收尾。
-4. **防失控执行** —— 依靠迭代上限、超时和无进展检测，避免 Agent 在死胡同里空转。
-5. **隔离作业** —— Loop 在独立 worktree 中执行，不污染主工作区。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -237,7 +229,7 @@ progressed: !repeated_diff
 
 **几乎每个应用层文件都配有同名 `_tests.rs`**——`loop_orchestrator_tests`、`loop_control_tests`、`loop_progress_tests`、`loop_recovery_tests`、`loop_service_tests`、`loop_verification_tests`、`loop_verifier_tests`、`loop_worker_tests`。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 定义 Loop
 
@@ -277,7 +269,7 @@ Loop 中心（`src/loop-center/loop-center.tsx`）新建定义，在定义对话
 
 ## 相关文档
 
-- [会话管理](session-management.md) —— Worker / Verifier 会话角色
+- [会话管理](sessions.md) —— Worker / Verifier 会话角色
 - [项目与工作区](workspaces.md) —— Loop 专用 worktree
-- [可观测性](observability.md) —— Loop 执行的 Span 追踪
+- [可观测性](observability-architecture.md) —— Loop 执行的 Span 追踪
 - [多 Agent 群聊](group-chat.md) —— 另一套协作机制

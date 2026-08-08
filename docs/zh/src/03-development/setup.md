@@ -209,5 +209,5 @@ CI 在 `npm run docs:build` 之后跑 `git diff --exit-code`（`ci.yml:165-166`�
 
 - [五层约束体系](constraints.md) —— 各层校验的触发时机
 - [OpenSpec 工作流](openspec-workflow.md) —— 起提案与归档
-- [数据层](../03-architecture/data-layer.md) —— 迁移机制细节
-- [技术栈](../03-architecture/tech-stack.md) —— 各依赖的版本与理由
+- [数据层](../02-architecture/data-layer.md) —— 迁移机制细节
+- [技术栈](../02-architecture/tech-stack.md) —— 各依赖的版本与理由

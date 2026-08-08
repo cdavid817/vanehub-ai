@@ -221,7 +221,7 @@ MCP 暴露的工具进入统一的工具注册表（capability `agent-tool-regis
 
 ## 相关文档
 
-- [工具生态功能说明](../02-features/tooling.md) —— 面向使用者的视角
+- [工具生态](tooling.md) —— MCP 之外的七个 `tooling` 子域
 - [CLI 集成](cli-integration.md) —— 按 Agent 分派的其他差异点
 - [可观测性架构](observability-architecture.md) —— traceparent 传播链路
 - [权限架构](permissions-architecture.md) —— MCP 下限

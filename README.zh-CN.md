@@ -106,13 +106,14 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 
 ## 文档
 
-- [用户指南——English 与简体中文](docs/user-guide/README.md)
-- [中文文档——功能介绍与架构实现](docs/zh/src/README.md)
-- [开发者指南源码](docs/developer-guide/src/index.md)
-- [Native 架构清单](src-tauri/ARCHITECTURE.md)
-- [贡献指南](CONTRIBUTING.md)
-- [原生构建性能指南](docs/build-performance.md)
-- [发布签名指南](docs/release-signing.md)
+|  | 怎么用 | 怎么实现 |
+| --- | --- | --- |
+| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
+| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
+
+中文架构文档暂无英文版，英文开发者指南也暂无中文版。
+
+参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
 
 构建 mdBook 指南与 Rustdoc Reference：
 

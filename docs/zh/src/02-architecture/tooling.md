@@ -2,7 +2,7 @@
 
 > **集中配一次，按 Agent 下发**：MCP server、Skill、Prompt Hook、本地扩展与 SDK 依赖都在设置中心统一注册，再绑定到具体 Agent，而不是在每个 CLI 里各配一遍。
 
-## 功能定位
+## 这一层解决什么问题
 
 **`tooling` 是一个"元上下文"**——它下辖八个各自独立的子域（`src-tauri/src/contexts/tooling/`），每个都遵循同一套 `api.rs` + `application/` + `domain/` + `infrastructure/` 四层结构：
 
@@ -17,16 +17,7 @@
 | `cli` | CLI 安装检测、版本、冲突与生命周期 | 大 |
 | `cli_config` / `cli_parameters.rs` | CLI 配置档案与启动参数 | 中 |
 
-**八个子域合计 82 个命令文件**，是全仓命令面最大的上下文，详见 [限界上下文](../03-architecture/bounded-contexts.md#tooling-是元上下文)。
-
-## 使用场景
-
-1. **一次接入，处处可用** —— 注册一个 MCP server，绑定给多个 Agent，不必逐个 CLI 改配置文件。
-2. **能力按项目隔离** —— Skill 分全局与工作区两种作用域，项目专属能力不污染全局。
-3. **发现配置漂移** —— Skill 源文件被手工改动或删除时，漂移检测报出具体问题类型。
-4. **本地多模态** —— 装 OCR / 语音识别 / 语音合成扩展，不依赖云服务。
-5. **统一 CLI 运维** —— 集中查看四个 CLI 的安装来源、版本状态与冲突。
-6. **控制启动参数** —— 用带风险标注的参数控件配置各 CLI 的启动开关。
+**八个子域合计 82 个命令文件**，是全仓命令面最大的上下文，详见 [限界上下文](bounded-contexts.md#tooling-是元上下文)。
 
 ## MCP 客户端管理
 
@@ -67,7 +58,7 @@
 
 **受管中继当前只对两个 Agent 启用**：`claude-code` 与 `codex-cli`（`src-tauri/src/bootstrap/managed_mcp_relay.rs:110`），且两者的接入形态不同：前者写配置文件传 `--mcp-config`，后者传命令行覆盖项。
 
-**中继链路传播 W3C `traceparent`**，因此 MCP 调用能并入同一条执行 trace。完整说明见 [MCP 集成](../03-architecture/mcp-integration.md)。
+**中继链路传播 W3C `traceparent`**，因此 MCP 调用能并入同一条执行 trace。完整说明见 [MCP 集成](mcp-integration.md)。
 
 底层依赖 `rmcp 3.0.1`。
 
@@ -236,9 +227,9 @@
 
 **同一个 CLI 在两种场景下需要的参数并不相同**，因此参数必须带这个维度。
 
-**权限模板会压过用户保存的参数选择**——见 [CLI 集成](../03-architecture/cli-integration.md#差异吸收点一启动参数)。
+**权限模板会压过用户保存的参数选择**——见 [CLI 集成](cli-integration.md#差异吸收点一启动参数)。
 
-## 使用方式
+## 界面入口与前端服务
 
 | 要做的事 | 入口 |
 |---|---|
@@ -269,8 +260,8 @@
 
 ## 相关文档
 
-- [MCP 集成](../03-architecture/mcp-integration.md) —— 中继架构与私有目录
-- [CLI 集成](../03-architecture/cli-integration.md) —— 参数与权限模板的合成
-- [权限审批](agent-permission.md) —— `mcp.tool` 动作的管辖
-- [可观测性](observability.md) —— MCP 调用的 trace 传播
+- [MCP 集成](mcp-integration.md) —— 中继架构与私有目录
+- [CLI 集成](cli-integration.md) —— 参数与权限模板的合成
+- [权限审批](permissions-architecture.md) —— `mcp.tool` 动作的管辖
+- [可观测性](observability-architecture.md) —— MCP 调用的 trace 传播
 - [个性化](personalization.md) —— 专家角色绑定的 Skill

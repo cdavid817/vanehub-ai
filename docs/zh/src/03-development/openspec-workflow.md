@@ -181,11 +181,19 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 最典型的例子：`AgentAdapter` 与 `ContextInjector` 只存在于 `2026-08-06-add-personalization-settings` 与 `2026-08-06-add-cli-custom-instructions-injection` 两份设计稿中，**代码里没有对应 trait**。
 
-**读归档理解架构时应以代码为准**，详见 [CLI 集成](../03-architecture/cli-integration.md#先澄清一个常见误解)。
+**读归档理解架构时应以代码为准**，详见 [CLI 集成](../02-architecture/cli-integration.md#先澄清一个常见误解)。
 
 ### 规范可能落后于代码
 
-根 `README.md` 的 Feature status 一节就出现过三处滞后——其中一处描述的甚至是**一个做过又被撤掉的能力**（依赖图协调运行时）。详见 [功能总览](../02-features/README.md#已修正的文档陈述过时点)。
+**撰写本文档集时，根 `README.md` 的 Feature status 一节有三处已落后于代码**，均已随文档一并修正：
+
+| 原先的说法 | 实际情况 | 依据 |
+|---|---|---|
+| "Planned: The normal create-session UI still disables Multi Agent mode" | 多 Agent 群聊已合入 `main`，创建会话对话框已挂载席位分配组件 | commit `d104027`；`src/main-layout/create-session-dialog-content.tsx:158` |
+| "Planned: Japanese runtime UI resources... not for the application UI" | **日语 UI 已完整支持** | `ja` 已注册进 `supportedLocales`（`src/i18n/supported-locales.ts:32`）；五种语言资源**键数完全一致（各 2197 条）** |
+| "Preview: Multi-Agent coordination has native and Web/mock service contracts..." | **该运行时已被移除**，由群聊取代 | 迁移 45 `remove-multi-agent-coordination` 执行 `DROP TABLE coordination_runs`；`src/services`、`src/contracts`、`src-tauri/src/contexts` 中已无任何 coordination 引用 |
+
+**第三处最值得留意**：它描述的不是"尚未做完"，而是**一个做过又被撤掉的能力**。归档区仍保留 `multi-agent-coordination` 的两条变更记录，但那是历史，不是现状。
 
 **归档是不可变的历史记录，主 specs 才是当前真源**——但主 specs 也可能落后于最新合并的代码。**代码 > 主 specs > 归档 > README。**
 
@@ -197,5 +205,5 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 - [五层约束体系](constraints.md) —— OpenSpec 在其中的位置
 - [开发环境搭建](setup.md) —— 本地跑通校验命令
-- [架构总览](../03-architecture/README.md) —— 架构如何被这些变更塑造
-- [CLI 集成](../03-architecture/cli-integration.md) —— 设计稿与实现不一致的实例
+- [架构总览](../02-architecture/README.md) —— 架构如何被这些变更塑造
+- [CLI 集成](../02-architecture/cli-integration.md) —— 设计稿与实现不一致的实例

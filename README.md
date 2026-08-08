@@ -106,13 +106,14 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 ## Documentation
 
-- [User Guides — English and 简体中文](docs/user-guide/README.md)
-- [Chinese documentation — features and architecture](docs/zh/src/README.md) (Simplified Chinese only)
-- [Developer Guide source](docs/developer-guide/src/index.md)
-- [Native architecture inventory](src-tauri/ARCHITECTURE.md)
-- [Contributing guide](CONTRIBUTING.md)
-- [Native build performance guide](docs/build-performance.md)
-- [Release signing guide](docs/release-signing.md)
+|  | Use it | Understand it |
+| --- | --- | --- |
+| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
+| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
+
+The Chinese architecture set has no English counterpart yet; the English Developer Guide has no Chinese counterpart.
+
+Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 
 Build the mdBook guides and Rustdoc reference:
 

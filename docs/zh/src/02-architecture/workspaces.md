@@ -2,20 +2,11 @@
 
 > **每个会话绑定一个工作区**：本地项目目录、Git worktree 或远端 SSH 路径。工作区决定 Agent 能看到哪些文件、命令在哪里执行，也决定了文件访问的安全边界。
 
-## 功能定位
+## 这一层解决什么问题
 
 **工作区是会话与文件系统之间的边界。**`workspaces` 上下文负责项目目录选择、Git 集成、worktree 管理、命令模板、shell 终端、输出捕获与检索、外部打开器——把"在哪儿干活"以及"干活留下什么痕迹"统一管起来。
 
-## 使用场景
-
-1. **多分支并行** —— 为同一仓库的不同分支各建一个 worktree，各自开会话互不干扰。
-2. **快速切项目** —— 从历史工作区列表直接切换，不必每次翻目录。
-3. **命令复用** —— 把常用命令存成模板，按全局 / 连接 / 工作区三级作用域复用。
-4. **回溯终端输出** —— 在几十万行历史输出里检索某条报错。
-5. **外部工具接力** —— 用 VS Code 或文件管理器打开当前工作区继续手工处理。
-6. **Loop 隔离执行** —— Loop 运行时在独立 worktree 中作业，不污染主工作区。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -223,7 +214,7 @@ flowchart LR
 
 **应用层分三个服务**：`service.rs`（写操作）、`query_service.rs`（读操作）、`shell_service.rs`（终端）。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 选择工作区
 
@@ -250,14 +241,14 @@ flowchart LR
 - **远端不支持 worktree** —— `RemoteWorktreeUnsupported` 是明确的领域约束，SSH 远程工作区只能指向已存在的路径。
 - **worktree 依赖本地 Git 可用** —— Git 不可用时报 `GitWorktreeUnavailable`。
 - **隐藏文件不可通过工作区路径访问** —— 任何以 `.` 开头的路径段都会被 `HiddenWorkspacePath` 拒绝，这意味着 `.env`、`.git/` 内部文件无法经此通道读取。
-- **终端输出会丢** —— 队列满时插入 `Gap` 而非阻塞；超过 30 天或 512 MiB 会被清理。需要长期留存应依赖 [统一日志](observability.md#统一日志)。
+- **终端输出会丢** —— 队列满时插入 `Gap` 而非阻塞；超过 30 天或 512 MiB 会被清理。需要长期留存应依赖 [统一日志](observability-architecture.md#日志与追踪的边界)。
 - **命令快照不可变** —— 修改模板不改变已发生运行的记录，这是设计意图。
 - **远程终端并发上限 8** —— 超出时需等待连接释放（空闲 5 分钟自动回收）。
 
 ## 相关文档
 
-- [会话管理](session-management.md) —— 会话与工作区的绑定
+- [会话管理](sessions.md) —— 会话与工作区的绑定
 - [远程与 IM](remote-and-im.md) —— SSH 连接配置与远程终端
 - [Loop 工程化](loop-engineering.md) —— Loop 专用 worktree
-- [进程管理与 PTY](../03-architecture/process-and-pty.md) —— PTY 与输出解码
-- [限界上下文](../03-architecture/bounded-contexts.md) —— `workspaces` 的职责边界
+- [进程管理与 PTY](process-and-pty.md) —— PTY 与输出解码
+- [限界上下文](bounded-contexts.md) —— `workspaces` 的职责边界

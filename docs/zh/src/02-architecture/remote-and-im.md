@@ -2,18 +2,11 @@
 
 > **把工作台延伸到本机之外**：SSH 连接让会话在远端主机上执行，IM 连接器让你从飞书、钉钉、企业微信、微信或 Telegram 直接驱动 Agent。
 
-## 功能定位
+## 这一层解决什么问题
 
 **这两组能力共同解决"人不在电脑前"的问题。**SSH 把执行环境搬到远端；IM 把控制入口搬到手机。两者由独立的限界上下文承载——`ssh_connections` 与 `communications`——但共用同一套凭据安全存储抽象。
 
-## 使用场景
-
-1. **远端开发机** —— 代码和依赖都在远程服务器上，本地只做界面操作。
-2. **移动端触发** —— 在飞书里发一条消息让 Agent 跑一轮检查，结果回到同一个群。
-3. **团队协作** —— 把 Agent 接进团队群，多人可见同一次执行的结果。
-4. **跨设备接力** —— 桌面发起、手机跟进。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -85,7 +78,7 @@
 
 **`ExitStatus` 与 `ExitSignal` 是分开的**——被 `SIGKILL` 杀掉和返回非零退出码是两回事，混作一谈会让诊断失真。
 
-**输出是 `Vec<u8>` 而非 `String`**，因为字节边界可能切断多字节字符，解码统一交给 [流式 UTF-8 解码器](../03-architecture/process-and-pty.md#流式-utf-8-解码)。
+**输出是 `Vec<u8>` 而非 `String`**，因为字节边界可能切断多字节字符，解码统一交给 [流式 UTF-8 解码器](process-and-pty.md#流式-utf-8-解码)。
 
 ### 连接池与超时
 
@@ -195,7 +188,7 @@ stateDiagram-v2
 
 **由连接器创建的会话带来源标记**（`sessions/domain/session.rs:94-97` 的 `SessionOwner::Connector { connector_id }`），与桌面手工创建的会话区分开。
 
-执行追踪同样记录来源（`ExecutionSource::InstantMessage { connector_id }`），详见 [可观测性](observability.md#执行来源)。
+执行追踪同样记录来源（`ExecutionSource::InstantMessage { connector_id }`），详见 [可观测性](observability-architecture.md#执行身份与关联)。
 
 ## 接入流程
 
@@ -212,7 +205,7 @@ flowchart LR
   L -.状态更新.-> UI["设置界面"]
 ```
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 配置 SSH 连接
 
@@ -245,6 +238,6 @@ flowchart LR
 ## 相关文档
 
 - [项目与工作区](workspaces.md) —— 远程工作区约束与终端容量常量
-- [会话管理](session-management.md) —— 会话归属模型
-- [可观测性](observability.md) —— 执行来源标记
-- [进程管理与 PTY](../03-architecture/process-and-pty.md) —— 输出解码
+- [会话管理](sessions.md) —— 会话归属模型
+- [可观测性](observability-architecture.md) —— 执行来源标记
+- [进程管理与 PTY](process-and-pty.md) —— 输出解码

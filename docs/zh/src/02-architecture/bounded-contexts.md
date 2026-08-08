@@ -197,4 +197,4 @@ workspaces
 - [端口与适配器](ports-and-adapters.md) —— 四层结构的实现方式
 - [数据层](data-layer.md) —— 各上下文的表归属
 - [架构总览](README.md) —— 装配与架构测试
-- [功能与上下文对照](../02-features/README.md#功能与限界上下文的对应) —— 从功能反查上下文
+- [功能与上下文对照](README.md#功能与限界上下文的对应) —— 从功能反查上下文

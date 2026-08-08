@@ -67,6 +67,12 @@ function resolveAuthoredTarget(file, target) {
   if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../developer/index.html") {
     return resolve(repositoryRoot, "docs", "developer-guide", "src", "index.md");
   }
+  if (
+    file.includes(`${sep}docs${sep}user-guide${sep}zh-CN${sep}`) &&
+    target.startsWith("../../zh/")
+  ) {
+    return resolve(repositoryRoot, "docs", "zh", "src", "README.md");
+  }
   return resolve(dirname(file), target);
 }
 

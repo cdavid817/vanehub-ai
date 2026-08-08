@@ -106,13 +106,14 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 ## ドキュメント
 
-- [ユーザーガイド — English / 简体中文](docs/user-guide/README.md)
-- [中国語ドキュメント — 機能とアーキテクチャ](docs/zh/src/README.md)（简体中文のみ）
-- [開発者ガイドのソース](docs/developer-guide/src/index.md)
-- [Native architecture inventory](src-tauri/ARCHITECTURE.md)
-- [コントリビューションガイド](CONTRIBUTING.md)
-- [ネイティブビルド性能ガイド](docs/build-performance.md)
-- [リリース署名ガイド](docs/release-signing.md)
+|  | 使い方 | 仕組み |
+| --- | --- | --- |
+| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
+| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
+
+中国語のアーキテクチャ文書に英語版はまだなく、英語の開発者ガイドに中国語版もありません。
+
+リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 
 mdBook ガイドと Rustdoc reference をビルドします。
 

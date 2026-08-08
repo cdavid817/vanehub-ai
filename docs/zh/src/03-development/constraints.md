@@ -188,7 +188,7 @@ flowchart TB
 | `src-tauri/src/contract_tests.rs` | 用 `syn` 解析自身源码，断言**每个 Tauri command 恰好注册一次**、命令名与前端 `invoke` 一致、DTO 形态稳定 |
 | `src/contracts/contract-conformance.test.ts` | 前端契约一致性，由 `contracts` job 单独跑 |
 
-详见 [架构总览](../03-architecture/README.md#架构约束的机器强制)。
+详见 [架构总览](../02-architecture/README.md#架构约束的机器强制)。
 
 ## 禁止绕过
 
@@ -228,5 +228,5 @@ flowchart TB
 
 - [OpenSpec 工作流](openspec-workflow.md) —— 第二层的具体流程
 - [开发环境搭建](setup.md) —— 本地跑通这些校验
-- [架构总览](../03-architecture/README.md) —— 约束如何塑造了架构
-- [前端架构](../03-architecture/frontend.md) —— 300 行规则带来的文件拆分
+- [架构总览](../02-architecture/README.md) —— 约束如何塑造了架构
+- [前端架构](../02-architecture/frontend.md) —— 300 行规则带来的文件拆分

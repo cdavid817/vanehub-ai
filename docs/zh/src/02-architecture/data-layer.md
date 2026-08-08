@@ -143,7 +143,7 @@ flowchart LR
 
 `ssh_connections`、**`ssh_host_trust`**
 
-**`ssh_host_trust` 就是 TOFU 主机密钥库**——记录首次接受的主机密钥指纹，后续连接据此判定 `FirstSeen` 还是 `Changed`，见 [远程与 IM](../02-features/remote-and-im.md#主机密钥校验)。
+**`ssh_host_trust` 就是 TOFU 主机密钥库**——记录首次接受的主机密钥指纹，后续连接据此判定 `FirstSeen` 还是 `Changed`，见 [远程与 IM](remote-and-im.md#主机密钥校验)。
 
 ### communications
 
@@ -151,7 +151,7 @@ flowchart LR
 
 **`im_inbound_dedup` 解决 IM 平台的重复投递问题**——长连接与轮询都可能重复推送同一条消息，去重表保证不会重复触发 Agent。
 
-**`im_credential_refs` 存的是引用而非凭据本身**——真实凭据在系统密钥链里，见 [远程与 IM](../02-features/remote-and-im.md#字段级密级)。
+**`im_credential_refs` 存的是引用而非凭据本身**——真实凭据在系统密钥链里，见 [远程与 IM](remote-and-im.md#字段级密级)。
 
 ### retrieval / desktop / 核心
 
@@ -208,5 +208,5 @@ flowchart LR
 
 - [限界上下文](bounded-contexts.md) —— 各上下文与表的归属
 - [端口与适配器](ports-and-adapters.md) —— `*Repository` 端口
-- [开发环境搭建](../04-development/setup.md) —— 迁移冲突的排查方法
+- [开发环境搭建](../03-development/setup.md) —— 迁移冲突的排查方法
 - [可观测性架构](observability-architecture.md) —— Span 存储与保留

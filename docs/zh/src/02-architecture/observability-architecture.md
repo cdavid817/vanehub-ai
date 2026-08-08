@@ -214,6 +214,21 @@ flowchart LR
 
 **前端错误经 `ErrorBoundary` 通道上报**（`logging.rs:52`），原生接收端是 `DesktopClientLoggingPort`（`desktop/application/ports.rs:76`）。
 
+**目录可切换**：`default_log_dir(app_data_dir)`（`logging.rs:67`）确定默认位置，`set_active_log_dir(path)`（`:71`）在运行期改写。
+
+### 写日志时必须遵守的四条
+
+（`openspec/specs/unified-log-management/spec.md`，同时被 `AGENTS.md` 复述）
+
+| 约束 | 含义 |
+|---|---|
+| 统一入口 | Rust/native 日志一律走统一日志服务，**禁止新增 feature-local 日志文件**或绕过脱敏直接落盘 |
+| 前端不落盘 | React 组件**不得直接写本地日志文件**，需持久化的错误必须经 service boundary 上报 |
+| 双写 | SDK/CLI/任务类操作的输出必须**同时**保留页面内展示与统一日志目录写入 |
+| 先脱敏后落盘 | 敏感信息在写入前完成 token 级脱敏 |
+
+**第三条最容易漏**：只写文件会让用户在界面上失去反馈，只显示在界面上则事后无从追溯，两者缺一都不合规。
+
 ## 已知取舍
 
 - **本地存储会增长** —— 靠保留策略定期清理；需要长期留存必须自行导出。
@@ -227,7 +242,6 @@ flowchart LR
 
 ## 相关文档
 
-- [可观测性功能说明](../02-features/observability.md) —— 面向使用者的视角
 - [MCP 集成](mcp-integration.md) —— 中继的 traceparent 传播
 - [数据层](data-layer.md) —— Span 表与保留
 - [技术栈](tech-stack.md) —— OTel 版本固定策略
