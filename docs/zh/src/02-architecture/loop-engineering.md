@@ -167,6 +167,29 @@ flowchart TB
 
 `BTreeSet` 而非 `HashSet` 也是为了顺序确定——同样的输入必须给出同样的指纹。
 
+#### 失败集的编码带长度前缀
+
+**每个字段按 `长度:内容;` 拼接**（`loop_progress.rs:124-129` 的 `append_field`）：
+
+```rust,ignore
+fn append_field(output: &mut String, value: &str) {
+    output.push_str(&value.len().to_string());
+    output.push(':');
+    output.push_str(value);
+    output.push(';');
+}
+```
+
+**这不是为了好看，是为了避免歧义**。直接用分隔符拼接的话，`("lint", "failed")` 与 `("lint:failed", "")` 可能拼出同一个串，两种不同的失败状态会得到相同指纹。带长度前缀后，任何内容都无法伪装成分隔结构。
+
+**失败观测每项写三个字段**：`command_id`、`outcome`、`exit_code`（无退出码时写字面量 `none`）。**`exit_code` 参与指纹**意味着同一个命令以不同退出码失败会被视为状态变化。
+
+#### 只有失败项进指纹，通过项进集合
+
+**注意两者的处理方式不同**：失败的检查被哈希成一个串，通过的检查以 id 集合原样保留。
+
+**因为它们回答的问题不同**：失败集只需判断「是不是同一批失败」，集合形态无所谓；通过集需要做**差集**运算来找出「这轮新过了哪个」，必须保留元素。
+
 ### 进展判定是"三选一"
 
 **只要满足任意一条就算有进展**（`loop_progress.rs:94-122` 的 `assess_revision_progress`）：
@@ -190,6 +213,28 @@ progressed: !repeated_diff
 **测试名直说了边界**（`loop_progress.rs:180`）：`only_repeated_objective_state_without_new_pass_is_no_progress`——只有当三个维度全都没变化时才算原地打转。
 
 **连续达到 `max_consecutive_no_progress` 次才以 `NoProgress` 终止**，单轮无进展不触发。
+
+#### 重启后的第一轮比对必然判为有进展
+
+**`rehydrate` 只恢复两个哈希，通过集合置空**（`loop_progress.rs:40-47`）：
+
+```rust,ignore
+pub(crate) fn rehydrate(diff: String, required_check_failures: String) -> Self {
+    Self {
+        diff,
+        required_check_failures,
+        passing_required_checks: BTreeSet::new(),
+    }
+}
+```
+
+**因为只有两个哈希被持久化**，通过集合无法从存储重建。
+
+**直接后果**：重启后与前序指纹比对时，`previous.passing_required_checks` 是空集，于是**当前任何一项通过的检查都会被算作「新通过」**，`has_new_passing_required_evidence` 为真，整轮判为有进展。
+
+**方向是安全的**——宁可多跑一轮，也不因为重启这个与目标无关的事件误判为原地打转。但它意味着**崩溃恢复会重置无进展计数的一次机会**：本该是第 N 次连续无进展的那一轮，重启后会被记成有进展。
+
+**只有当所有必过检查都失败时这个偏差才不存在**（通过集为空，差集也为空）。
 
 ## Worker、Verifier 与隔离
 

@@ -77,9 +77,58 @@
 
 **反斜杠先被统一成正斜杠**（`path.rs:10`），因此 `..\..\etc` 这类 Windows 风格的逃逸同样会被 `ParentDir` 分支拦下。**`.` 当前目录组件被允许**（`Component::CurDir => {}`），它不构成逃逸。
 
-**第二层：`CanonicalPathBoundary`**（`path.rs:55-72`）——以规范化后的根路径为界，`ensure_inside(candidate)` 确认候选路径确实落在边界内，`relative(candidate)` 反解相对路径。
+**第二层：`CanonicalPathBoundary`**（`path.rs:55-79`）——纯前缀比较，**不做任何 IO**：
 
-**两层是互补的**：第一层拦语法上的逃逸，第二层拦符号链接这类语法合法但实际指向外部的情况。
+```rust,ignore
+pub(crate) fn ensure_inside(&self, candidate: &Path) -> Result<(), WorkspaceDomainError> {
+    if candidate.starts_with(&self.root) {
+        Ok(())
+    } else {
+        Err(WorkspaceDomainError::WorkspacePathOutsideRoot)
+    }
+}
+```
+
+**名字容易误读**：它是「**对已规范化路径**成立的边界」，不是「**会做规范化**的边界」。`new()` 原样存下 root，`starts_with` 按路径组件比较。它住在 `domain/` 里，按分层约定就不能碰文件系统。
+
+**因此它本身拦不住符号链接**——传进一个未规范化的路径，它只能做字面判断。
+
+### 真正做规范化的是 `BoundedFilesystem`
+
+**符号链接防护在 platform 层**（`platform/filesystem/mod.rs:50-67`）：
+
+```rust,ignore
+pub(crate) fn new(root: &Path) -> Result<Self, BoundaryError> {
+    let canonical = root.canonicalize()?;
+    if !canonical.is_dir() {
+        return Err(BoundaryError::NotDirectory);
+    }
+    Ok(Self { root: canonical })
+}
+
+pub(crate) fn resolve_existing(&self, relative: &str) -> Result<PathBuf, BoundaryError> {
+    let relative = self.validate_relative(relative)?;
+    let canonical = self.root.join(relative).canonicalize()?;
+    self.ensure_inside(&canonical)?;
+    Ok(canonical)
+}
+```
+
+**顺序是关键**：先语法校验、再拼接、**再 `canonicalize()` 解开符号链接、最后才判断是否越界**。符号链接在这一步被解析成真实目标，指向工作区外的链接因此会被 `ensure_inside` 拒绝。
+
+**根路径也在构造时规范化一次**，否则根本身若含符号链接，前缀比较会永远失败。
+
+### 三者的分工
+
+| 类型 | 位置 | 做什么 | 碰 IO |
+|---|---|---|---|
+| `WorkspaceRelativePath::parse` | `workspaces/domain/path.rs` | 语法校验：绝对路径、盘符、`..`、隐藏段 | 否 |
+| `CanonicalPathBoundary` | `workspaces/domain/path.rs` | **已规范化路径**的前缀判定与反解 | 否 |
+| `BoundedFilesystem` | `platform/filesystem/` | 规范化 root 与候选路径，解符号链接后判越界 | **是** |
+
+**用哪个取决于路径从哪来**：`session_queries.rs:184` 的 `normalized_relative` 用 `CanonicalPathBoundary`，因为传进来的路径已经是 Git 给出的规范路径；`resolve_git_path`（`:174-181`）走 `BoundedFilesystem`，因为那是用户/Agent 提供的相对路径。
+
+**`resolve_with_existing_parent`（`filesystem/mod.rs:69`）处理的是「文件还不存在」的场景**——写入新文件时无法 `canonicalize` 目标本身，只能规范化其父目录再判断。
 
 ### shell 终端
 
