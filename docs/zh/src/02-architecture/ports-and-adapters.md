@@ -23,7 +23,7 @@
 - `openspec/changes/archive/2026-08-06-add-personalization-settings/design.md`
 - `openspec/changes/archive/2026-08-06-add-cli-custom-instructions-injection/design.md`
 
-**实际做法是每个上下文定义自己的一组细粒度端口。**任何以"实现了 AgentAdapter trait"为前提的理解都是错的，详见 [CLI 集成](cli-integration.md#先澄清一个常见误解)。
+**实际做法是每个上下文定义自己的一组细粒度端口**。任何以"实现了 AgentAdapter trait"为前提的理解都是错的，详见 [CLI 集成](cli-integration.md#先澄清一个常见误解)。
 
 ## 四层结构
 
@@ -91,7 +91,7 @@ flowchart TB
 
 ### 时钟与 id 也是端口
 
-**这是可重复测试的前提。**同一模式在多个上下文重复出现：
+**这是可重复测试的前提**。同一模式在多个上下文重复出现：
 
 | 上下文 | 时钟端口 | id 端口 |
 |---|---|---|

@@ -4,7 +4,7 @@
 
 ## 设计目标与约束
 
-**目标是让每个领域可以被独立理解和修改。**具体约束：
+**目标是让每个领域可以被独立理解和修改**。具体约束：
 
 | 约束 | 说明 |
 |---|---|
@@ -142,7 +142,7 @@ flowchart LR
 | `*_adapter.rs` | 外部系统或其他上下文的适配 |
 | `*_repository.rs` | 持久化实现 |
 
-**看到 `agent_runtime/infrastructure/` 下的 `sessions_gateway.rs`、`skill_gateway.rs`、`mcp_tool_gateway.rs`、`prompt_gateway.rs`、`personalization_gateway.rs`、`memory_extraction_gateway.rs`，就知道 `agent_runtime` 向外伸了六只手。**这也是它偏大的一个侧面证据。
+**看到 `agent_runtime/infrastructure/` 下的 `sessions_gateway.rs`、`skill_gateway.rs`、`mcp_tool_gateway.rs`、`prompt_gateway.rs`、`personalization_gateway.rs`、`memory_extraction_gateway.rs`，就知道 `agent_runtime` 向外伸了六只手**。这也是它偏大的一个侧面证据。
 
 ## 命令层约定
 

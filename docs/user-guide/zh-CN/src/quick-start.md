@@ -70,4 +70,4 @@ claude
 ## 注意事项
 
 - **Provider 凭据始终保存在各 CLI 自己的存储中**，VaneHub AI 不会要求你输入 Provider 密码。
-- **浏览器预览（Web/mock）不会执行任何本地命令。**界面看起来能操作，但不会启动进程、不写数据库。判断依据见 [Runtime 与功能状态标签](runtime-labels.md)。
+- **浏览器预览（Web/mock）不会执行任何本地命令**。界面看起来能操作，但不会启动进程、不写数据库。判断依据见 [Runtime 与功能状态标签](runtime-labels.md)。

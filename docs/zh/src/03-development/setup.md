@@ -149,7 +149,7 @@ openspec validate --specs --strict
 
 `scripts/validate-docs.mjs` 的 `markdownRoots`（`:6-11`）包含 `README.md`、`README.zh-CN.md`、`README.ja.md` 与**整个 `docs/` 目录**。
 
-**新增文档里的相对链接指向不存在的文件会直接让 CI 的 documentation job 失败。**跨阶段撰写文档时，前向引用要么最后补齐，要么先建占位文件。
+**新增文档里的相对链接指向不存在的文件会直接让 CI 的 documentation job 失败**。跨阶段撰写文档时，前向引用要么最后补齐，要么先建占位文件。
 
 ### 文档构建必须是只读的
 

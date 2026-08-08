@@ -60,9 +60,9 @@ docs/user-guide/
 
 | 任务书条目 | 实际情况 | 依据 |
 |---|---|---|
-| `02-多Agent编排.md` — **DAG 工作流、拓扑可行性** | **不存在。**依赖图协调运行时已被**移除** | 迁移 45 `remove-multi-agent-coordination` 执行 `DROP TABLE coordination_runs`；`src/services`、`src/contracts`、`src-tauri/src/contexts` 中已无任何 coordination 引用。`agent_runtime/domain/workflow.rs` 只有单 Agent 的 `AgentLifecycle`/`AgentReadiness`，无依赖图或拓扑排序 |
-| `07-检查点与会话迁移.md` — **检查点（Checkpoint）** | **不存在该用户功能。**代码中唯一的 "checkpoint" 是 Telegram 连接器的轮询游标（`communications/infrastructure/transports/telegram.rs`），属实现细节 | 全仓 `checkpoint` 检索仅命中 `communications` 上下文 |
-| `07-检查点与会话迁移.md` — **Context Handoff / 会话迁移** | **不在 `main` 上。**仅存在于未合并分支 `feature/cross-cli-session-portability`；`openspec/specs/` 与归档中均无对应能力 | 分支列表 + specs/archive 检索 |
+| `02-多Agent编排.md` — **DAG 工作流、拓扑可行性** | **不存在**。依赖图协调运行时已被**移除** | 迁移 45 `remove-multi-agent-coordination` 执行 `DROP TABLE coordination_runs`；`src/services`、`src/contracts`、`src-tauri/src/contexts` 中已无任何 coordination 引用。`agent_runtime/domain/workflow.rs` 只有单 Agent 的 `AgentLifecycle`/`AgentReadiness`，无依赖图或拓扑排序 |
+| `07-检查点与会话迁移.md` — **检查点（Checkpoint）** | **不存在该用户功能**。代码中唯一的 "checkpoint" 是 Telegram 连接器的轮询游标（`communications/infrastructure/transports/telegram.rs`），属实现细节 | 全仓 `checkpoint` 检索仅命中 `communications` 上下文 |
+| `07-检查点与会话迁移.md` — **Context Handoff / 会话迁移** | **不在 `main` 上**。仅存在于未合并分支 `feature/cross-cli-session-portability`；`openspec/specs/` 与归档中均无对应能力 | 分支列表 + specs/archive 检索 |
 
 **连带影响**：建议使用案例中的第 2 条（DAG 流水线）与第 4 条（Context Handoff 迁移）无法编写。
 

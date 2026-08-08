@@ -147,7 +147,7 @@ flowchart TB
 
 `use-active-session-chat.ts`、`use-session-speakers.ts`、`use-loop-queries.ts`、`loop-query.ts`、`use-debounced-value.ts`、`use-media-query.ts`
 
-**约定是：能不依赖 React 就不依赖。**这类文件几乎都配有同名 `.test.ts`。
+**约定是：能不依赖 React 就不依赖**。这类文件几乎都配有同名 `.test.ts`。
 
 ## 多语言
 
@@ -184,7 +184,7 @@ flowchart TB
 
 ## 日志与错误上报
 
-**组件不写本地日志文件。**前端错误经 `react-error-boundary` 捕获后，通过服务边界上报到原生日志服务：
+**组件不写本地日志文件**。前端错误经 `react-error-boundary` 捕获后，通过服务边界上报到原生日志服务：
 
 ```mermaid
 flowchart LR

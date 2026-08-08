@@ -1,15 +1,15 @@
 # CLI 集成：四个 CLI 的差异如何被吸收
 
-> **没有统一的 `AgentAdapter` trait。**四个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
+> **没有统一的 `AgentAdapter` trait**。四个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
 
 ## 先澄清一个常见误解
 
-**`AgentAdapter` 与 `ContextInjector` 这两个 trait 在代码中不存在。**它们只出现在两份归档设计稿里：
+**`AgentAdapter` 与 `ContextInjector` 这两个 trait 在代码中不存在**。它们只出现在两份归档设计稿里：
 
 - `openspec/changes/archive/2026-08-06-add-personalization-settings/design.md`
 - `openspec/changes/archive/2026-08-06-add-cli-custom-instructions-injection/design.md`
 
-**设计稿的命名没有原样落地。**实际实现散在 `agent_runtime/infrastructure/` 的若干具体文件里，且不构成单一抽象。
+**设计稿的命名没有原样落地**。实际实现散在 `agent_runtime/infrastructure/` 的若干具体文件里，且不构成单一抽象。
 
 **为什么值得单独说明**：读归档设计稿理解架构是很自然的做法，但在这个项目里会被误导。**以代码为准。**
 
@@ -140,7 +140,7 @@ flowchart LR
 
 **Claude 的用量按项目目录组织**，另有 `claude_project_dir_name(cwd)` 做目录名推导（`:292`）；`load_terminal_usage_message_id`（`:199`）恢复已有关联。
 
-**这里刻意没有抽象。**四个函数各自处理各自的格式。抽象一个"通用用量解析器"会把四种互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条。**
+**这里刻意没有抽象**。四个函数各自处理各自的格式。抽象一个"通用用量解析器"会把四种互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条。**
 
 **共同的输出结构是 `TerminalUsageTotals`**（`:18-23`）：`input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_creation_tokens`——**统一的是结果形状，不是解析过程。**
 
@@ -200,7 +200,7 @@ flowchart TB
 | 9. 中继（可选） | `bootstrap/managed_mcp_relay.rs` | 代码 |
 | 10. Prompt Hook 绑定（可选） | `prompt_hooks/domain/binding.rs` 的 `ManagedCliAgentId` | 代码 |
 
-**十处中七处是代码。**没有一个"注册一个新 Agent"的单一入口。
+**十处中七处是代码**。没有一个"注册一个新 Agent"的单一入口。
 
 ## 各 CLI 的特例汇总
 
