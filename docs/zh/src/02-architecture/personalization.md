@@ -40,6 +40,54 @@
 
 设置由 `infrastructure/personalization_gateway.rs:11-22` 的 `RuntimeAgentPersonalizationAdapter` 从 `desktop` 设置上下文读取，构成 `agent_runtime` → `desktop` 的一条明确跨上下文依赖。
 
+### 拼成什么样子
+
+**`custom_instructions_block()`（`models.rs:1168-1186`）是唯一的格式化点**：
+
+```rust,ignore
+if !style_rules.is_empty() {
+    parts.push(format!("### Response style\n{style_rules}"));
+}
+if !about_user.is_empty() {
+    parts.push(format!("### About the user\n{about_user}"));
+}
+...
+Some(format!("## Custom Instructions\n{}", parts.join("\n\n")))
+```
+
+产出形如：
+
+```text
+## Custom Instructions
+
+### Response style
+<风格规则>
+
+### About the user
+<关于你>
+```
+
+### 风格排在「关于你」前面，这是刻意的
+
+**界面上「关于你」在上、「回复风格」在下，注入时顺序却相反**。理由写在函数注释里（`models.rs:1161-1163`，引 `add-personalization-settings` design.md D3）：
+
+> style is a cross-cutting constraint on every response, about-you is background fact, so style gets the higher-priority earlier position.
+
+**风格是对每一次回复的横切约束，「关于你」是背景事实**——前者更该占据靠前的高优先级位置。
+
+**两个字段各自可省**：只填一个时另一个的三级标题整个不出现，两个都空（或总开关关闭）则返回 `None`，连 `## Custom Instructions` 这一节都不会有。**不会出现空标题**。
+
+### 一套格式，两种投递
+
+**同一个 `custom_instructions_block()` 同时服务两条完全不同的路径**（注释末句）：
+
+| 消费方 | 投递方式 | 依据 |
+|---|---|---|
+| OnePiece | 作为 system prompt 的一节 | `add-personalization-settings` |
+| CLI 包装的 Agent | 作为前置的 prompt 块 | `add-cli-custom-instructions-injection` |
+
+**「one formatting rule, two delivery mechanisms」**——格式规则只有一份，避免两条路径的指令长得不一样。这也是为什么这个方法住在 `application/models.rs` 而不是任何一个适配器里。
+
 ## Agent 记忆
 
 ### 表结构
@@ -63,9 +111,22 @@
 
 **索引也随之替换**（`memory_schema.rs:28-32`）：原先按 `(agent_id, folder, created_at DESC)` 的复合索引不再匹配查询模式。替换动作被写成**独立的版本化迁移**（`apply_memory_shared_pool_schema`），而不是回头修改 `apply_memory_schema`——因为后者已经在存量数据库上执行过，直接改它对那些安装不会生效。
 
+### 记忆有两种来源
+
+**`MemorySource` 只有两个变体**（`models.rs:1192-1197`），落库时分别存 `"explicit"` 与 `"automatic"`：
+
+| 变体 | 怎么产生 |
+|---|---|
+| `Explicit` | **模型主动调用 `remember` 工具**保存 |
+| `Automatic` | 上下文压缩触发时**尽力而为**地提取 |
+
+**两条路径的可靠性完全不同**。`Explicit` 是模型判断「这条值得记住」后的显式动作；`Automatic` 依附于压缩，压缩没触发就不会发生，而且注释明写是 best-effort——**失败不会中断主流程，也不会重试**。
+
+**这解释了一个常见困惑**：短会话往往不产生任何记忆，因为没触及压缩阈值，而模型也未必会主动调 `remember`。
+
 ### 提取时机与执行者
 
-**提取依附于上下文压缩**（`models.rs:1195`）：压缩触发时以尽力而为的方式提取记忆。
+**自动提取依附于上下文压缩**（`models.rs:1196`）：压缩触发时以尽力而为的方式提取记忆。
 
 **CLI Agent 的记忆由 OnePiece 代为提取**——这是一条不显然但影响很大的设计（`infrastructure/memory_extraction_gateway.rs:12-19`）：
 

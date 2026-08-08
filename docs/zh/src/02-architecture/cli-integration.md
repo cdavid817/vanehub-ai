@@ -68,6 +68,63 @@ flowchart LR
 
 **这四条测试把四个 CLI 的差异说清楚了**：同一个权限模板，在 Claude Code 上表现为钩子回调、在 OpenCode 上表现为环境变量、在 Codex 上表现为命令行选择项。
 
+### 同一个 `Standard` 模板的四种落地形态
+
+**这是「差异吸收」最具体的样子**：
+
+| Agent | `Standard` 表现为 | 实现 |
+|---|---|---|
+| `claude-code` | **不表达**——权限由逐调用钩子动态判定 | 不进查表（`cli_profile.rs:296` 的测试） |
+| `opencode` | 环境变量 `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"}` | `invocation.rs:447-456` |
+| `gemini-cli` | 命令行 `--approval-mode default` | `invocation.rs:423-440` |
+| `codex-cli` | 参数目录中的选择项被覆写 | `apply_policy_template_overrides` |
+
+**三种完全不同的机制表达同一个概念**——环境变量、命令行标志、配置项覆写。这就是为什么没有统一的 `AgentAdapter` trait：它们的注入点不在同一个位置，抽象成一个方法只会变成一堆 `match agent_id`。
+
+### Gemini 的处理是「先删后加」
+
+```rust,ignore
+if let Some(position) = args
+    .iter()
+    .position(|argument| argument == "--approval-mode")
+{
+    let end = (position + 2).min(args.len());
+    args.drain(position..end);
+}
+args.extend(["--approval-mode".to_string(), "default".to_string()]);
+```
+
+**先移除用户可能已经配置的 `--approval-mode` 及其值，再追加模板要求的那个。**
+
+**`(position + 2).min(args.len())` 这个钳制是必要的**：如果 `--approval-mode` 恰好是最后一个参数（用户配错、值缺失），`position + 2` 会越界，`min` 把它收回到合法范围。**参数列表是用户可编辑的数据，不能假设格式一定正确。**
+
+**为什么不直接改而要删了再加**：同一个标志可能出现多次，或者位置不确定；删除后统一追加到末尾，结果确定且与原有顺序无关。
+
+### 权限模板只在三个 Agent 上参与计算
+
+`interactive_selections_and_args`（`cli_profile.rs:110-153`）的流程：
+
+```text
+1. load_selections(agent_id)          用户保存的参数选择
+2. normalize_selections(...)          归一化
+3. 若 agent_id ∈ 受治理的三个：
+     find_principal(agent_id) → template
+     apply_policy_template_overrides(...)   ← 模板压过用户选择
+   否则 template = None
+4. preview_args(..., Interactive)     生成参数
+5. 若有 template：
+     force_gemini_standard_approval_flag(...)
+     opencode_standard_permission_env_var(...)  → 写入 env
+```
+
+**第 3 步是「模板赢」的落点**：覆写发生在生成参数**之前**，所以用户的宽松选择根本不会进入参数列表，而不是生成后再被过滤掉。
+
+**这个函数被从 `load_interactive` 里单独抽出来是有原因的**（`cli_profile.rs:103-108`）：
+
+> executable resolution has its own, unrelated dependency graph — pulling it in here would make policy-template-override tests fragile for reasons that have nothing to do with the logic being tested.
+
+**可执行文件解析有一整套自己的依赖**，混在一起会让模板覆写的测试因为无关原因而脆弱。抽出来后，那四条测试可以对着真实的 `CliParametersApi` / `PermissionsApi` 跑，而不必装配整个 `CliApi`。
+
 ### 受模板治理的只有三个
 
 **`POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 3]`**（`infrastructure/providers/invocation.rs:7-12`），注释写明：
