@@ -2,6 +2,8 @@
 
 **状态：已交付——桌面端与 Web/mock 界面。** 桌面端会执行本地持久化、CLI Skill 挂载和 API Agent 提示词绑定；Web/mock 只模拟相同界面和状态变化，不会修改本机文件或运行时配置。
 
+![设置中的 Skill 管理页面，左侧按 Agent 分组，右侧 Skill 列表](../assets/screenshots/skills-zh-CN.png)
+
 ## 理解列表与状态
 
 “是否启用”和“分配给哪个 Agent”是两个相互独立的维度。
