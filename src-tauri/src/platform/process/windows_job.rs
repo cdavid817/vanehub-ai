@@ -41,7 +41,9 @@ impl KillOnCloseJobObject {
 
 impl CommandWrapper for KillOnCloseJobObject {
     fn pre_spawn(&mut self, command: &mut Command, _core: &CommandWrap) -> Result<()> {
-        command.creation_flags(CREATE_SUSPENDED.0);
+        // `creation_flags` replaces the flag word rather than merging into it, so this call runs
+        // after the constructor and would otherwise discard its console suppression.
+        command.creation_flags(CREATE_SUSPENDED.0 | super::CREATE_NO_WINDOW);
         Ok(())
     }
 
@@ -163,7 +165,9 @@ impl TerminateTreeJobObject {
 
 impl CommandWrapper for TerminateTreeJobObject {
     fn pre_spawn(&mut self, command: &mut Command, _core: &CommandWrap) -> Result<()> {
-        command.creation_flags(CREATE_SUSPENDED.0);
+        // Same replacement hazard as `KillOnCloseJobObject::pre_spawn`: this wrapper contains every
+        // bounded execution, which is the path each startup capability probe takes.
+        command.creation_flags(CREATE_SUSPENDED.0 | super::CREATE_NO_WINDOW);
         Ok(())
     }
 

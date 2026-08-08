@@ -231,10 +231,40 @@ pub(crate) fn validate_executable(executable: &str) -> Result<(), ProcessError> 
     Ok(())
 }
 
+/// Windows allocates a console for a console-subsystem child unless this flag is set, and every
+/// capability probe the app runs (`where`, `reg`, `node --version`) is one. The app itself is a GUI
+/// subsystem process with no console to inherit, so each probe would otherwise flash its own window.
+#[cfg(windows)]
+pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// The std and tokio builders both expose `creation_flags` on Windows, but through unrelated types.
+/// One trait keeps a single name at both call sites and gives the non-Windows no-op one home.
+trait SuppressConsoleWindow {
+    fn suppress_console_window(&mut self);
+}
+
+impl SuppressConsoleWindow for Command {
+    fn suppress_console_window(&mut self) {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            self.creation_flags(CREATE_NO_WINDOW);
+        }
+    }
+}
+
+impl SuppressConsoleWindow for tokio::process::Command {
+    fn suppress_console_window(&mut self) {
+        #[cfg(windows)]
+        self.creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
 pub(crate) fn std_command(executable: &str) -> Result<Command, ProcessError> {
     validate_executable(executable)?;
     let mut command = Command::new(OsStr::new(executable));
     network::apply_to_std_command(&mut command);
+    command.suppress_console_window();
     Ok(command)
 }
 
@@ -242,6 +272,7 @@ pub(crate) fn tokio_command(executable: &str) -> Result<tokio::process::Command,
     validate_executable(executable)?;
     let mut command = tokio::process::Command::new(OsStr::new(executable));
     network::apply_to_tokio_command(&mut command);
+    command.suppress_console_window();
     Ok(command)
 }
 
