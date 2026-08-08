@@ -26,7 +26,49 @@
 | 兼容范围 | `^1.2.3` / `"2"` | 多数依赖 |
 | 主版本 | `"1"` | 稳定的基础库 |
 
-**用 `=` 精确固定的有**：全部 OpenTelemetry / tracing 系（7 个）、`russh`、`webview2-com`。这三类的共同点是**次版本升级也可能改变可观察行为**。
+**`[dependencies]` 中用 `=` 精确固定的共 10 处**（`src-tauri/Cargo.toml`）：
+
+| 依赖 | 版本 | 行 | 固定的理由 |
+|---|---|---|---|
+| `opentelemetry` | `=0.32.0` | `:35` | 整个 OTel 生态跨 crate 类型互通，版本错配是编译期类型不匹配 |
+| `opentelemetry-appender-tracing` | `=0.32.0` | `:36` | 同上 |
+| `opentelemetry-otlp` | `=0.32.0` | `:37` | 同上 |
+| `opentelemetry-semantic-conventions` | `=0.32.1` | `:38` | 语义约定的键名变动会直接改变导出数据的形状 |
+| `opentelemetry_sdk` | `=0.32.1` | `:39` | 同上 |
+| `tracing` | `=0.1.44` | `:62` | 与 `tracing-opentelemetry` 的桥接对版本敏感 |
+| `tracing-opentelemetry` | `=0.33.0` | `:63` | 它同时钉住 `tracing` 与 OTel 两侧的版本 |
+| `tracing-subscriber` | `=0.3.23` | `:64` | 同上 |
+| `russh` | `=0.62.5` | `:42` | SSH 协议实现，行为变动影响主机密钥校验与连接语义 |
+| `webview2-com` | `=0.38.2` | `:71` | 必须与 Tauri 所用的 WebView2 绑定版本一致 |
+
+**注意 `opentelemetry_sdk` 在 `[dev-dependencies]` 里又出现一次**（`:79`），版本相同但多带 `testing` feature。**两处必须同步升级**，否则测试与生产用的是两份 SDK。
+
+**前 8 个是同一个决定的八个面**：这套生态跨 crate 传递类型，浮动版本极易导致「A 期望 0.32 的 `Tracer`，B 提供 0.33 的」这类编译失败。它们要么一起升，要么都不升。
+
+### 依赖普遍关掉默认 feature
+
+**`default-features = false` 出现 10 次**，多数固定版本的依赖同时显式列出所需 feature，例如：
+
+```toml
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["registry", "std"] }
+russh = { version = "=0.62.5", default-features = false, features = ["ring"] }
+```
+
+**这既是编译时间也是攻击面的考虑**——`russh` 只启用 `ring` 一种加密后端，而不是把所有后端都编进去。
+
+### release profile
+
+（`Cargo.toml:84-88`）
+
+| 设置 | 值 | 作用 |
+|---|---|---|
+| `opt-level` | 3 | 最高优化 |
+| `lto` | `"thin"` | 跨 crate 优化，比 `"fat"` 编译快得多且效果接近 |
+| `codegen-units` | 1 | 单代码生成单元，优化空间最大，代价是不能并行 |
+| `strip` | `"debuginfo"` | 去调试信息，保留符号名 |
+
+**`codegen-units = 1` 与 `lto` 叠加会显著拉长 release 构建时间**，实测数据见仓库根的 `docs/build-performance.md`（未接入文档站，需在仓库中直接阅读）。
 
 ## 前端
 
