@@ -68,6 +68,46 @@
 
 **用本地时区算下一次、用 UTC 判到期**——两者各自用对了时间类型。
 
+**但存储只有一种**（`scheduled_tasks.rs:241`）：
+
+```rust,ignore
+Ok(next.with_timezone(&Utc).to_rfc3339())
+```
+
+`compute_next_run` 收 `DateTime<Local>`、算完立刻转成 UTC 的 RFC3339 字符串再落库。**本地时区只存在于计算过程中，不进数据库**——这样换时区或跨夏令时都不会让已排期的任务错位。
+
+### 频率校验在计算入口
+
+（`scheduled_tasks.rs:203-241`）
+
+| 频率 | 校验 |
+|---|---|
+| `Minutes { interval }` | `interval > 0` |
+| `Hours { interval }` | `interval > 0` |
+| `Daily { time_of_day }` | 时间可解析 |
+| `Weekly { weekday, .. }` | `weekday ∈ 0..=6` |
+| `Monthly { day_of_month, .. }` | `day_of_month ∈ 1..=31` |
+
+**非法值直接返回错误而不是钳制**——`interval = 0` 会导致下次运行时间等于当前时间，任务会疯跑。
+
+### 「只补最近一次」的根源是一个列
+
+**到期扫描非常简单**（`scheduled_tasks.rs:245-268`）：
+
+```sql
+SELECT ... FROM scheduled_tasks
+WHERE enabled = 1 AND next_run_at <= ?1
+ORDER BY next_run_at ASC
+```
+
+**每个任务在表里只有一个 `next_run_at`**。应用关闭三天、任务是每天一次，重启后这一行仍然只有一个过期的 `next_run_at` 值——**扫描出一条，跑一次，然后重算下一次**。
+
+**中间错过的两次没有任何地方记录，因此无法补**。这不是取舍后放弃，而是这个数据模型的直接后果：要补齐全部错过的运行，得存一个待办队列而不是一个时间戳。
+
+测试名把这件事说明白了：`due_scan_returns_one_backfill_candidate_for_missed_task`（`scheduled_tasks.rs:491`）——**one** candidate。
+
+**用户侧的表述**是「重启后补上错过的运行，且只补最近一次」，对应的就是这里。
+
 由定时任务触发的执行在追踪中标记为 `ExecutionSource::Scheduled { task_id }`，见 [可观测性](observability-architecture.md#执行身份与关联)。
 
 ## 长时操作跟踪
