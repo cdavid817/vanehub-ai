@@ -1791,6 +1791,25 @@
                          "capabilities":  [
                                               "session-runtime-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-08",
+                         "changeName":  "add-plan-execution-foundation",
+                         "path":  "openspec/changes/archive/2026-08-08-add-plan-execution-foundation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "frontend-runtime-architecture",
+                                              "onepiece-native-agent",
+                                              "plan-execution-runtime",
+                                              "plan-management",
+                                              "project-worktree-management"
+                                          ]
                      }
                  ]
 }

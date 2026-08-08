@@ -44,6 +44,12 @@ pub(crate) trait WorkspaceGitPort: Send + Sync {
         project_path: &str,
     ) -> Result<Option<String>, WorkspaceApplicationError>;
 
+    fn resolve_commit_oid(
+        &self,
+        project_path: &str,
+        reference: &str,
+    ) -> Result<String, WorkspaceApplicationError>;
+
     fn create_worktree(
         &self,
         project_path: &str,

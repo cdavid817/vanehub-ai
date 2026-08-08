@@ -306,6 +306,7 @@ impl AgentRuntimeApplicationService {
                     depth: assignment.depth,
                 }),
                 record_user_message: false,
+                orchestration_profile: None,
             },
             &lease,
         );

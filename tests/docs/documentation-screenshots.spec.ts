@@ -261,6 +261,13 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
       shell.getByText(text(locale, "已连接", "Connected")).filter(visible).first(),
     ).toBeVisible({ timeout: 15_000 });
     await dismissToasts(page, locale);
+    const activeSettingsPage = shell.locator("div.h-full.overflow-y-auto").filter(visible);
+    await expect(activeSettingsPage).toHaveCount(1);
+    await activeSettingsPage.evaluate((element) => {
+      element.scrollTop = 0;
+      element.scrollLeft = 0;
+    });
+    await expect.poll(() => activeSettingsPage.evaluate((element) => element.scrollTop)).toBe(0);
     return shell;
   },
 

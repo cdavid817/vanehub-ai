@@ -149,7 +149,9 @@ async function probeStdio() {
   const secret = startStdio("stderr-limit-plus-one");
   try {
     await withTimeout((async () => {
-      while (secret.stderrChunks.length === 0) await delay(10);
+      while (secret.stderrChunks.reduce((total, chunk) => total + chunk.length, 0) <= LIMITS.stderrBytes) {
+        await delay(10);
+      }
     })(), 2000, "stderr fixture output");
     const stderr = Buffer.concat(secret.stderrChunks).toString("utf8");
     assert.match(stderr, /fixture-stderr-secret/);
