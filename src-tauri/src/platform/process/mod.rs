@@ -235,7 +235,7 @@ pub(crate) fn validate_executable(executable: &str) -> Result<(), ProcessError> 
 /// capability probe the app runs (`where`, `reg`, `node --version`) is one. The app itself is a GUI
 /// subsystem process with no console to inherit, so each probe would otherwise flash its own window.
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The std and tokio builders both expose `creation_flags` on Windows, but through unrelated types.
 /// One trait keeps a single name at both call sites and gives the non-Windows no-op one home.

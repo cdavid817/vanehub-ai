@@ -1091,3 +1091,51 @@ fn console_suppression_flag_matches_the_windows_constant() {
         "CREATE_NO_WINDOW (0x08000000) must be the flag applied by suppress_console_window"
     );
 }
+
+/// `CommandExt::creation_flags` replaces the flag word rather than merging into it, so a wrapper
+/// that sets flags before spawning silently discards console suppression applied earlier. That is
+/// how `CREATE_NO_WINDOW` set in `std_command` stopped reaching every job-contained probe.
+///
+/// Every call must therefore carry its own suppression, except one that requests
+/// `DETACHED_PROCESS` (`0x0000_0008`) — Windows ignores `CREATE_NO_WINDOW` alongside it.
+#[test]
+fn every_creation_flags_call_keeps_the_child_console_hidden() {
+    let process_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("platform")
+        .join("process");
+
+    let mut violations = Vec::new();
+    let mut inspected = 0usize;
+    for path in rust_files(&process_root).expect("enumerate process adapter sources") {
+        let source = fs::read_to_string(&path).expect("read process adapter source");
+        let relative = path
+            .strip_prefix(&process_root)
+            .expect("relative source path")
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/");
+
+        for (index, line) in source.lines().enumerate() {
+            if !line.contains(".creation_flags(") {
+                continue;
+            }
+            inspected += 1;
+            let detached = line.contains("0x0000_0008") || line.contains("DETACHED_PROCESS");
+            let suppressed = line.contains("CREATE_NO_WINDOW");
+            if !detached && !suppressed {
+                violations.push(format!("{relative}:{}: {}", index + 1, line.trim()));
+            }
+        }
+    }
+
+    assert!(
+        inspected > 0,
+        "no creation_flags call was found, so this guard is asserting nothing"
+    );
+    assert!(
+        violations.is_empty(),
+        "these creation_flags calls overwrite console suppression, so their children flash a \
+         window:\n{}",
+        violations.join("\n")
+    );
+}
