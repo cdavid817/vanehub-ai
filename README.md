@@ -106,12 +106,14 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 ## Documentation
 
+<!-- docs-locale-guides -->
+
 Pick by what you are doing:
 
-- Using VaneHub AI → [Getting started](docs/user-guide/en/src/getting-started.md), with the full chapter list in the [User Guide](docs/user-guide/en/src/index.md)
-- Working on it → [Developer Guide](docs/developer-guide/src/index.md) for boundaries, persistence, testing, and release
+- **Using VaneHub AI** → [Install and authenticate a CLI](docs/user-guide/en/src/getting-started.md), then the rest of the [User Guide](docs/user-guide/en/src/index.md).
+- **Working on it** → [Developer Guide](docs/developer-guide/src/index.md) for repository layout, runtime boundaries, bounded contexts, persistence, testing, and release.
 
-简体中文: [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [用户指南](docs/user-guide/zh-CN/src/index.md) · [架构与实现](docs/zh/src/README.md). The Chinese guides are the more complete set — thirteen user chapters and the entire twenty-five-page architecture set have no English counterpart.
+<!-- /docs-locale-guides -->
 
 Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 

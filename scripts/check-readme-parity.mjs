@@ -40,7 +40,16 @@ function normalizeRelativeLink(target) {
   return withoutAnchor;
 }
 
+// Each README points at the guides written in its own language, and those sets genuinely
+// differ — the Chinese guides have chapters with no English counterpart, and no Japanese
+// guide exists yet. Links inside this block are exempt from the identical-set rule; the
+// block itself is not, so a translation cannot quietly drop its documentation section.
+const localeGuidesBlock =
+  /<!--\s*docs-locale-guides\s*-->([\s\S]*?)<!--\s*\/docs-locale-guides\s*-->/g;
+
 export function analyzeReadme(content) {
+  const localeGuides = collect(localeGuidesBlock, content, () => "docs-locale-guides");
+  const shared = content.replace(localeGuidesBlock, "\n");
   const sections = collect(
     /<!--\s*docs-section:([a-z0-9-]+)\s*-->/g,
     content,
@@ -52,7 +61,7 @@ export function analyzeReadme(content) {
   );
   const links = collect(
     /!?\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
-    content,
+    shared,
   )
     .filter((target) => !/^(?:https?:|mailto:|#)/i.test(target))
     .map(normalizeRelativeLink)
@@ -67,7 +76,7 @@ export function analyzeReadme(content) {
     content,
     (match) => `${match[1]}:${match[2]}`,
   );
-  return { sections, commands, links, facts, featureStates };
+  return { sections, commands, links, facts, featureStates, localeGuides };
 }
 
 function compareArray(label, canonicalName, canonical, candidateName, candidate, errors) {
@@ -154,6 +163,9 @@ export function checkReadmeParity(files = defaultFiles, root = repositoryRoot) {
   if (canonical.analysis.featureStates.length === 0) {
     errors.push(`${canonical.file}: no feature status markers found.`);
   }
+  if (canonical.analysis.localeGuides.length !== 1) {
+    errors.push(`${canonical.file}: expected exactly one docs-locale-guides block.`);
+  }
   validateFacts(
     canonical.file,
     canonical.content,
@@ -166,7 +178,14 @@ export function checkReadmeParity(files = defaultFiles, root = repositoryRoot) {
   }
 
   for (const translation of translations) {
-    for (const key of ["sections", "commands", "links", "facts", "featureStates"]) {
+    for (const key of [
+      "sections",
+      "commands",
+      "links",
+      "facts",
+      "featureStates",
+      "localeGuides",
+    ]) {
       compareArray(
         key,
         canonical.file,

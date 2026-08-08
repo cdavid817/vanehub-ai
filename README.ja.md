@@ -106,12 +106,11 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 ## ドキュメント
 
-目的別に選んでください。
+<!-- docs-locale-guides -->
 
-- 使う → [Getting started](docs/user-guide/en/src/getting-started.md)、全章の一覧は [User Guide](docs/user-guide/en/src/index.md)
-- 開発する → [Developer Guide](docs/developer-guide/src/index.md)（境界、永続化、テスト、リリース）
+日本語のユーザーガイドと開発者ガイドは、今後の変更で追加します。現時点で日本語なのはこの README と、アプリケーション UI のみです。
 
-简体中文：[快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [用户指南](docs/user-guide/zh-CN/src/index.md) · [架构与实现](docs/zh/src/README.md)。中国語版が最も充実しており、ユーザーガイド 13 章とアーキテクチャ 25 篇には英語版がありません。日本語のユーザーガイドは今後の変更で対応予定です。
+<!-- /docs-locale-guides -->
 
 リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 
