@@ -106,12 +106,12 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 ## Documentation
 
-|  | Use it | Understand it |
-| --- | --- | --- |
-| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
-| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
+Pick by what you are doing:
 
-The Chinese architecture set has no English counterpart yet; the English Developer Guide has no Chinese counterpart.
+- Using VaneHub AI → [Getting started](docs/user-guide/en/src/getting-started.md), with the full chapter list in the [User Guide](docs/user-guide/en/src/index.md)
+- Working on it → [Developer Guide](docs/developer-guide/src/index.md) for boundaries, persistence, testing, and release
+
+简体中文: [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [用户指南](docs/user-guide/zh-CN/src/index.md) · [架构与实现](docs/zh/src/README.md). The Chinese guides are the more complete set — thirteen user chapters and the entire twenty-five-page architecture set have no English counterpart.
 
 Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 

@@ -106,12 +106,12 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 ## ドキュメント
 
-|  | 使い方 | 仕組み |
-| --- | --- | --- |
-| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
-| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
+目的別に選んでください。
 
-中国語のアーキテクチャ文書に英語版はまだなく、英語の開発者ガイドに中国語版もありません。
+- 使う → [Getting started](docs/user-guide/en/src/getting-started.md)、全章の一覧は [User Guide](docs/user-guide/en/src/index.md)
+- 開発する → [Developer Guide](docs/developer-guide/src/index.md)（境界、永続化、テスト、リリース）
+
+简体中文：[快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [用户指南](docs/user-guide/zh-CN/src/index.md) · [架构与实现](docs/zh/src/README.md)。中国語版が最も充実しており、ユーザーガイド 13 章とアーキテクチャ 25 篇には英語版がありません。日本語のユーザーガイドは今後の変更で対応予定です。
 
 リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 

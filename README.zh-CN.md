@@ -106,12 +106,12 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 
 ## 文档
 
-|  | 怎么用 | 怎么实现 |
-| --- | --- | --- |
-| **简体中文** | [快速开始](docs/user-guide/zh-CN/src/quick-start.md) · [全部章节](docs/user-guide/zh-CN/src/index.md) | [架构与实现](docs/zh/src/README.md) |
-| **English** | [Getting started](docs/user-guide/en/src/getting-started.md) · [all chapters](docs/user-guide/en/src/index.md) | [Developer Guide](docs/developer-guide/src/index.md) |
+**中文阅读路径**——两套中文文档，按你要做的事二选一：
 
-中文架构文档暂无英文版，英文开发者指南也暂无中文版。
+- 想用起来 → [快速开始](docs/user-guide/zh-CN/src/quick-start.md)（装好、跑起来、发第一条消息），完整的 20 章目录在[用户指南](docs/user-guide/zh-CN/src/index.md)
+- 想改代码 → [架构与实现](docs/zh/src/README.md)（分层、11 个限界上下文、四个 CLI 的差异吸收，共 25 篇）
+
+英文：[Getting started](docs/user-guide/en/src/getting-started.md) · [User Guide](docs/user-guide/en/src/index.md) · [Developer Guide](docs/developer-guide/src/index.md)。中文架构文档暂无英文版，英文开发者指南也暂无中文版。
 
 参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
 
