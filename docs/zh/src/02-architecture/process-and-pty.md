@@ -171,6 +171,52 @@ flowchart TB
 
 > 取走 `pending` 中所有构成完整 UTF-8 的字节，**把不完整的尾部序列留给下一次读取补齐**。
 
+### 三个分支，区别全在 `error_len()`
+
+```rust,ignore
+let valid_up_to = match std::str::from_utf8(pending) {
+    Ok(_) => pending.len(),
+    // `error_len() == None` means the bytes after `valid_up_to` are an incomplete
+    // sequence at the end of the buffer — keep them for the next read.
+    Err(error) if error.error_len().is_none() => error.valid_up_to(),
+    Err(_) => {
+        let content = String::from_utf8_lossy(pending).to_string();
+        pending.clear();
+        return content;
+    }
+};
+let tail = pending.split_off(valid_up_to);
+let head = std::mem::replace(pending, tail);
+String::from_utf8(head).unwrap_or_default()
+```
+
+**`Utf8Error::error_len()` 是整段逻辑的支点**，它区分了两种看起来一样、处理方式相反的失败：
+
+| `error_len()` | 含义 | 处理 |
+|---|---|---|
+| `None` | 缓冲**末尾**是个截断的合法序列 | 留下等下一次读取补齐 |
+| `Some(n)` | 遇到了**真正非法**的字节 | 有损转换，清空，别再等了 |
+
+**如果不区分这两种**，就只能二选一：要么把所有解码失败都当作「等下次」，遇到真正的乱码时缓冲会一直涨；要么全部有损转换，中文被切开时就在输出中间吐出 `�`。
+
+**分割用的是 `split_off` + `mem::replace`**，不是复制——`4cb55c4` 那次优化改的就是这里，把克隆去掉了。
+
+### 测试直接构造被切断的中文
+
+（`text.rs:32-39`）
+
+```rust,ignore
+// "好" is E5 A5 BD; a read that ends after E5 A5 must not emit a replacement char.
+let bytes = "已好".as_bytes().to_vec();
+let split = bytes.len() - 1;
+let mut pending = bytes[..split].to_vec();
+
+let first = take_decodable_utf8(&mut pending);
+assert_eq!(first, "已");
+```
+
+**故意在「好」的第三个字节前切开**，断言第一次只吐出「已」而不是「已�」。这个测试如果不写成具体字节，很难说明白它在防什么。
+
 **它的演进路径记录在三个提交里**：
 
 | 提交 | 内容 |
@@ -197,7 +243,7 @@ flowchart LR
 
 **`Gap` 是一个诚实性设计**（`workspaces/domain/output_chunk.rs:4-8` 的 `TerminalOutputSource`）：输出因队列溢出而丢失时，不是静默跳过，而是插入一个 `Gap` chunk 明确标记"这里丢了东西"。
 
-**容量常量集中在** `workspaces/domain/remote_terminal_limits.rs:7-12`，完整表见 [项目与工作区](../02-features/workspaces.md#容量与超时常量)。
+**容量常量集中在** `workspaces/domain/remote_terminal_limits.rs:7-12`，完整表见 [项目与工作区](workspaces.md#容量与超时常量)。
 
 ## 已知取舍
 
@@ -211,6 +257,6 @@ flowchart LR
 ## 相关文档
 
 - [CLI 集成](cli-integration.md) —— 启动参数如何决定
-- [项目与工作区](../02-features/workspaces.md) —— 输出捕获与检索的用户视角
-- [远程与 IM](../02-features/remote-and-im.md) —— 远程终端的连接池与超时
+- [项目与工作区](workspaces.md) —— 输出捕获与检索的用户视角
+- [远程与 IM](remote-and-im.md) —— 远程终端的连接池与超时
 - [可观测性架构](observability-architecture.md) —— 进程执行 Span

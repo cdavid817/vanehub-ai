@@ -4,7 +4,7 @@
 
 ## 设计目标与约束
 
-**目标是让每个领域可以被独立理解和修改。**具体约束：
+**目标是让每个领域可以被独立理解和修改**。具体约束：
 
 | 约束 | 说明 |
 |---|---|
@@ -142,7 +142,7 @@ flowchart LR
 | `*_adapter.rs` | 外部系统或其他上下文的适配 |
 | `*_repository.rs` | 持久化实现 |
 
-**看到 `agent_runtime/infrastructure/` 下的 `sessions_gateway.rs`、`skill_gateway.rs`、`mcp_tool_gateway.rs`、`prompt_gateway.rs`、`personalization_gateway.rs`、`memory_extraction_gateway.rs`，就知道 `agent_runtime` 向外伸了六只手。**这也是它偏大的一个侧面证据。
+**看到 `agent_runtime/infrastructure/` 下的 `sessions_gateway.rs`、`skill_gateway.rs`、`mcp_tool_gateway.rs`、`prompt_gateway.rs`、`personalization_gateway.rs`、`memory_extraction_gateway.rs`，就知道 `agent_runtime` 向外伸了六只手**。这也是它偏大的一个侧面证据。
 
 ## 命令层约定
 
@@ -161,6 +161,52 @@ commands/error.rs                      # 统一错误转换
 所有命令在 `tauri::generate_handler!` 中按上下文分组列出，新增命令必须在此登记，**不存在隐式暴露**。
 
 **错误必须在边界处转换**：跨 Tauri command 边界的错误要转成 `Result<T, String>` 或自定义 error enum（`AGENTS.md`），`unwrap()` / `expect()` 仅限测试代码。
+
+### 一个命令长什么样
+
+`commands/permissions/apply_policy_template.rs` 全文只有二十行，很能代表这一层的形态：
+
+```rust,ignore
+#[tauri::command]
+pub(crate) fn apply_policy_template(
+    permissions: State<'_, PermissionsApi>,
+    input: ApplyPolicyTemplateInput,
+) -> Result<PrincipalEntry, CommandError> {
+    let template = parse_template(&input.template).ok_or_else(|| {
+        CommandError::validation(format!("unknown policy template: {}", input.template))
+    })?;
+    let principal = permissions
+        .assign_template(&input.agent_id, template)
+        .map_err(map_command_error)?;
+    Ok(principal_to_dto((principal, true)))
+}
+```
+
+**它只做三件事**：把 DTO 里的字符串解析成领域类型、调 api 门面、把结果映回 DTO。业务逻辑一行都没有。
+
+**`State<'_, PermissionsApi>` 是上下文注入点**——命令拿到的是 `bootstrap` 装配好的门面，而不是自己去 new 服务。
+
+**这个文件的注释还记了一件容易踩坑的事**：
+
+> Confirm-to-increase-trust is a frontend concern (the caller only invokes this after the user has confirmed…) — this command applies the change unconditionally once called.
+
+也就是说，**提权前的确认是纯前端行为**。`PolicyTemplateName::requires_confirmation_to_assign` 只是给界面看的信号，原生命令一旦被调用就无条件执行。绕过界面直接 invoke 这个命令，不会被拦。
+
+### 加一个命令要动哪些文件
+
+**按 `permissions` 的现状数，一共五处**：
+
+| 文件 | 改什么 |
+|---|---|
+| `commands/<context>/<name>.rs` | 新建，一个命令一个文件 |
+| `commands/<context>/mod.rs` | 加 `pub(crate) mod <name>;`（`dto`/`mapper` 是私有 `mod`） |
+| `commands/<context>/dto.rs` | 输入输出结构（若复用已有的则不改） |
+| `commands/<context>/mapper.rs` | 领域 ↔ DTO 映射（同上） |
+| `commands/registry.rs` | 在对应上下文分组下登记 |
+
+**漏掉最后一条会被测试拦下**，见下。
+
+前端侧还要改服务边界层的两个实现，见[前端架构](frontend.md)。
 
 ### 注册的完整性由测试强制
 
@@ -197,4 +243,4 @@ workspaces
 - [端口与适配器](ports-and-adapters.md) —— 四层结构的实现方式
 - [数据层](data-layer.md) —— 各上下文的表归属
 - [架构总览](README.md) —— 装配与架构测试
-- [功能与上下文对照](../02-features/README.md#功能与限界上下文的对应) —— 从功能反查上下文
+- [功能与上下文对照](README.md#功能与限界上下文的对应) —— 从功能反查上下文

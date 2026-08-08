@@ -103,6 +103,73 @@ flowchart TB
 
 **相关类型**：`RelayConfiguration`（`:54`）、`RelayObservation`（`:45`）、`write_configuration`（`:62`）。
 
+### 判定只看第二个参数
+
+```rust,ignore
+let mut args = args.into_iter();
+let _ = args.next();
+if args.next().as_deref() != Some(std::ffi::OsStr::new(RELAY_FLAG)) {
+    return Ok(false);
+}
+```
+
+**跳过 argv[0]，只检查第二个参数是否为中继标志**——不是遍历查找。位置固定意味着这条分支的判定成本是常数，且不会被后续参数意外触发。
+
+**出错时直接 `std::process::exit(2)`**（`relay.rs:84-89`），不返回错误。**中继进程配置读不出来时无事可做**，继续跑下去只会让上游 CLI 拿到一个不响应 MCP 协议的进程。
+
+### 配置文件打开后立刻删除
+
+```rust,ignore
+let file = fs::File::open(path).map_err(|error| error.to_string())?;
+fs::remove_file(path).map_err(|error| error.to_string())?;
+```
+
+**先 `open` 再 `remove`，然后才读内容**。文件描述符仍然有效，但路径已经消失。
+
+**这么做的意义**：中继配置里带着目标 server 的地址、超时、以及可能的请求头，**它不应该在磁盘上留存**。删除紧跟打开，中间没有任何可能失败并提前返回的操作，因此不存在「读失败导致文件留下」的路径。
+
+**代价是配置文件是一次性的**——中继进程崩溃重启后无法重读，必须由主程序重新写一份。
+
+### 读取时故意多读一个字节
+
+```rust,ignore
+file.take((McpLimits::DEFAULT.configuration_serialized_bytes + 1) as u64)
+    .read_to_end(&mut bytes)?;
+McpLimits::DEFAULT.validate_bytes(
+    "MCP relay configuration",
+    bytes.len(),
+    McpLimits::DEFAULT.configuration_serialized_bytes,
+)?;
+```
+
+**`take(limit + 1)` 而不是 `take(limit)`**：读满上限时无法区分「正好这么大」和「还有更多」，多读一个字节就能判断。**上限是 256 KiB**，超限时只多读了 1 字节就报错，不会把超大文件全读进内存。
+
+### 十五个容量上限
+
+**`McpLimits::DEFAULT`（`tooling/mcp/application/runtime.rs:68-83`）集中定义了 15 个上限**，MCP 是全仓限额最密集的子域：
+
+| 上限 | 值 | 管的是 |
+|---|---|---|
+| `import_document_bytes` | 1 MiB | 导入文档 |
+| `import_server_entries` | 128 | 一次导入的 server 数 |
+| `configuration_collection_entries` | 128 | 配置集合条目 |
+| `configuration_serialized_bytes` | 256 KiB | 中继配置 |
+| `protocol_message_bytes` | 2 MiB | 单条协议消息 |
+| `tools_per_server` | 128 | 每个 server 的工具数 |
+| `catalog_serialized_bytes` | 2 MiB | 工具目录 |
+| `provider_tools` | 256 | 单个 provider 的工具总数 |
+| `tool_name_bytes` | 256 | 工具名 |
+| `tool_description_bytes` | 8 KiB | 工具描述 |
+| `schema_bytes` | 128 KiB | 工具 schema |
+| `json_depth` | 32 | JSON 嵌套深度 |
+| `tool_arguments_bytes` | 256 KiB | 调用参数 |
+| `tool_result_bytes` | 1 MiB | 调用结果 |
+| `stderr_bytes` | 64 KiB | 子进程 stderr |
+
+**`json_depth: 32` 值得单独一提**——它防的是深层嵌套 JSON 导致的栈溢出，这类输入来自外部 server，属于不可信数据。其余各项防的是内存耗尽。
+
+**上限集中成一个常量而不是散在各处**，意味着调整策略时只有一个地方要改，而且能一眼看出各项之间的相对宽严。
+
 ### 按 Agent 分派的配置形态
 
 **只有两个 Agent 启用受管中继**（`src-tauri/src/bootstrap/managed_mcp_relay.rs:110`）：
@@ -221,7 +288,7 @@ MCP 暴露的工具进入统一的工具注册表（capability `agent-tool-regis
 
 ## 相关文档
 
-- [工具生态功能说明](../02-features/tooling.md) —— 面向使用者的视角
+- [工具生态](tooling.md) —— MCP 之外的七个 `tooling` 子域
 - [CLI 集成](cli-integration.md) —— 按 Agent 分派的其他差异点
 - [可观测性架构](observability-architecture.md) —— traceparent 传播链路
 - [权限架构](permissions-architecture.md) —— MCP 下限

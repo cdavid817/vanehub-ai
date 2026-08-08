@@ -106,12 +106,16 @@ Web/mock is a deterministic browser simulation. It does not claim local CLI exec
 
 ## Documentation
 
-- [User Guides — English and 简体中文](docs/user-guide/README.md)
-- [Developer Guide source](docs/developer-guide/src/index.md)
-- [Native architecture inventory](src-tauri/ARCHITECTURE.md)
-- [Contributing guide](CONTRIBUTING.md)
-- [Native build performance guide](docs/build-performance.md)
-- [Release signing guide](docs/release-signing.md)
+<!-- docs-locale-guides -->
+
+Pick by what you are doing:
+
+- **Using VaneHub AI** → [Install and authenticate a CLI](docs/user-guide/en/src/getting-started.md), then the rest of the [User Guide](docs/user-guide/en/src/index.md).
+- **Working on it** → [Developer Guide](docs/developer-guide/src/index.md) for repository layout, runtime boundaries, bounded contexts, persistence, testing, and release.
+
+<!-- /docs-locale-guides -->
+
+Reference: [native architecture inventory](src-tauri/ARCHITECTURE.md) · [contributing](CONTRIBUTING.md) · [native build performance](docs/build-performance.md) · [release signing](docs/release-signing.md)
 
 Build the mdBook guides and Rustdoc reference:
 

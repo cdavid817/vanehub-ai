@@ -4,7 +4,7 @@
 
 ## 为什么是规范先行
 
-**问题在于"代码写完了才发现理解偏了"。**OpenSpec 把"要做什么"与"怎么做"分成可独立评审的阶段，并且让规范本身成为**可校验的产物**——不是写完就放着的文档，而是 CI 会逐条检查的对象。
+**问题在于"代码写完了才发现理解偏了"**。OpenSpec 把"要做什么"与"怎么做"分成可独立评审的阶段，并且让规范本身成为**可校验的产物**——不是写完就放着的文档，而是 CI 会逐条检查的对象。
 
 **这套流程在本仓库不是摆设**：归档区有 116 条完整记录，时间跨度是 `2026-07-13` 到 `2026-08-07`——**不到一个月**。平均每天 4 条以上。这个密度说明流程本身没有成为瓶颈。
 
@@ -53,7 +53,7 @@ flowchart LR
 | 仅 `proposal` | 1 | — |
 | `proposal` + `tasks` | 1 | — |
 
-**结论很清楚：三件套是常态。**只有约一成的变更额外产出了 `verification` 工件——通常是涉及关键路径、需要留下实现验证记录的那些。
+**结论很清楚：三件套是常态**。只有约一成的变更额外产出了 `verification` 工件——通常是涉及关键路径、需要留下实现验证记录的那些。
 
 **delta spec 放在 `changes/<change-id>/specs/<capability>/spec.md`**，描述该变更对某个能力规范的增改。归档后这些 delta 会被合并进主 specs。
 
@@ -129,7 +129,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 ### 冷归档
 
-**每 6 个月审查一次在线归档。**迁往冷归档前必须：
+**每 6 个月审查一次在线归档**。迁往冷归档前必须：
 
 1. 验证目标 Git 仓库、不可变分支或 tag
 2. 在 `openspec/archive-cold-migrations.md` 记录**可验证引用**
@@ -181,11 +181,19 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 最典型的例子：`AgentAdapter` 与 `ContextInjector` 只存在于 `2026-08-06-add-personalization-settings` 与 `2026-08-06-add-cli-custom-instructions-injection` 两份设计稿中，**代码里没有对应 trait**。
 
-**读归档理解架构时应以代码为准**，详见 [CLI 集成](../03-architecture/cli-integration.md#先澄清一个常见误解)。
+**读归档理解架构时应以代码为准**，详见 [CLI 集成](../02-architecture/cli-integration.md#先澄清一个常见误解)。
 
 ### 规范可能落后于代码
 
-根 `README.md` 的 Feature status 一节就出现过三处滞后——其中一处描述的甚至是**一个做过又被撤掉的能力**（依赖图协调运行时）。详见 [功能总览](../02-features/README.md#已修正的文档陈述过时点)。
+**撰写本文档集时，根 `README.md` 的 Feature status 一节有三处已落后于代码**，均已随文档一并修正：
+
+| 原先的说法 | 实际情况 | 依据 |
+|---|---|---|
+| "Planned: The normal create-session UI still disables Multi Agent mode" | 多 Agent 群聊已合入 `main`，创建会话对话框已挂载席位分配组件 | commit `d104027`；`src/main-layout/create-session-dialog-content.tsx:158` |
+| "Planned: Japanese runtime UI resources... not for the application UI" | **日语 UI 已完整支持** | `ja` 已注册进 `supportedLocales`（`src/i18n/supported-locales.ts:32`）；五种语言资源**键数完全一致（各 2197 条）** |
+| "Preview: Multi-Agent coordination has native and Web/mock service contracts..." | **该运行时已被移除**，由群聊取代 | 迁移 45 `remove-multi-agent-coordination` 执行 `DROP TABLE coordination_runs`；`src/services`、`src/contracts`、`src-tauri/src/contexts` 中已无任何 coordination 引用 |
+
+**第三处最值得留意**：它描述的不是"尚未做完"，而是**一个做过又被撤掉的能力**。归档区仍保留 `multi-agent-coordination` 的两条变更记录，但那是历史，不是现状。
 
 **归档是不可变的历史记录，主 specs 才是当前真源**——但主 specs 也可能落后于最新合并的代码。**代码 > 主 specs > 归档 > README。**
 
@@ -197,5 +205,5 @@ powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1
 
 - [五层约束体系](constraints.md) —— OpenSpec 在其中的位置
 - [开发环境搭建](setup.md) —— 本地跑通校验命令
-- [架构总览](../03-architecture/README.md) —— 架构如何被这些变更塑造
-- [CLI 集成](../03-architecture/cli-integration.md) —— 设计稿与实现不一致的实例
+- [架构总览](../02-architecture/README.md) —— 架构如何被这些变更塑造
+- [CLI 集成](../02-architecture/cli-integration.md) —— 设计稿与实现不一致的实例

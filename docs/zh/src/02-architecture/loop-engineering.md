@@ -2,21 +2,13 @@
 
 > **给定目标和验收命令，让 Agent 自己迭代到达成为止**：Loop 是"行动 → 验证 → 判定"的自动循环，带迭代上限、超时预算、无进展检测、崩溃恢复和强制的人工验收。
 
-## 功能定位
+## 这一层解决什么问题
 
-**Loop 解决的是"改完要跑测试，测试挂了要再改"这种反复循环的手工成本。**你定义目标与必过检查（例如 `npm run lint` 和 `npm test`），Loop 驱动 Worker 席位执行、Verifier 席位评估，按判定结果决定继续迭代还是收尾。
+**Loop 解决的是"改完要跑测试，测试挂了要再改"这种反复循环的手工成本**。你定义目标与必过检查（例如 `npm run lint` 和 `npm test`），Loop 驱动 Worker 席位执行、Verifier 席位评估，按判定结果决定继续迭代还是收尾。
 
 与 [多 Agent 群聊](group-chat.md) 的区别：群聊是会话内的发言权流转，由 Agent 自己 `@` 决定下一位；Loop 是**目标驱动的自动循环**，由运行时按阶段推进并强制执行各项限额。
 
-## 使用场景
-
-1. **修到测试全绿** —— 目标"让 CI 校验全部通过"，必过检查填入 lint、test、build，Loop 反复迭代直到通过或触顶。
-2. **受控重构** —— 目标"拆分超过 300 行的文件"，用 ESLint 的 `max-lines` 作为必过检查。
-3. **带验收的自动化** —— 迭代结束后进入待验收状态，由你人工确认再收尾。
-4. **防失控执行** —— 依靠迭代上限、超时和无进展检测，避免 Agent 在死胡同里空转。
-5. **隔离作业** —— Loop 在独立 worktree 中执行，不污染主工作区。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -175,6 +167,29 @@ flowchart TB
 
 `BTreeSet` 而非 `HashSet` 也是为了顺序确定——同样的输入必须给出同样的指纹。
 
+#### 失败集的编码带长度前缀
+
+**每个字段按 `长度:内容;` 拼接**（`loop_progress.rs:124-129` 的 `append_field`）：
+
+```rust,ignore
+fn append_field(output: &mut String, value: &str) {
+    output.push_str(&value.len().to_string());
+    output.push(':');
+    output.push_str(value);
+    output.push(';');
+}
+```
+
+**这不是为了好看，是为了避免歧义**。直接用分隔符拼接的话，`("lint", "failed")` 与 `("lint:failed", "")` 可能拼出同一个串，两种不同的失败状态会得到相同指纹。带长度前缀后，任何内容都无法伪装成分隔结构。
+
+**失败观测每项写三个字段**：`command_id`、`outcome`、`exit_code`（无退出码时写字面量 `none`）。**`exit_code` 参与指纹**意味着同一个命令以不同退出码失败会被视为状态变化。
+
+#### 只有失败项进指纹，通过项进集合
+
+**注意两者的处理方式不同**：失败的检查被哈希成一个串，通过的检查以 id 集合原样保留。
+
+**因为它们回答的问题不同**：失败集只需判断「是不是同一批失败」，集合形态无所谓；通过集需要做**差集**运算来找出「这轮新过了哪个」，必须保留元素。
+
 ### 进展判定是"三选一"
 
 **只要满足任意一条就算有进展**（`loop_progress.rs:94-122` 的 `assess_revision_progress`）：
@@ -198,6 +213,28 @@ progressed: !repeated_diff
 **测试名直说了边界**（`loop_progress.rs:180`）：`only_repeated_objective_state_without_new_pass_is_no_progress`——只有当三个维度全都没变化时才算原地打转。
 
 **连续达到 `max_consecutive_no_progress` 次才以 `NoProgress` 终止**，单轮无进展不触发。
+
+#### 重启后的第一轮比对必然判为有进展
+
+**`rehydrate` 只恢复两个哈希，通过集合置空**（`loop_progress.rs:40-47`）：
+
+```rust,ignore
+pub(crate) fn rehydrate(diff: String, required_check_failures: String) -> Self {
+    Self {
+        diff,
+        required_check_failures,
+        passing_required_checks: BTreeSet::new(),
+    }
+}
+```
+
+**因为只有两个哈希被持久化**，通过集合无法从存储重建。
+
+**直接后果**：重启后与前序指纹比对时，`previous.passing_required_checks` 是空集，于是**当前任何一项通过的检查都会被算作「新通过」**，`has_new_passing_required_evidence` 为真，整轮判为有进展。
+
+**方向是安全的**——宁可多跑一轮，也不因为重启这个与目标无关的事件误判为原地打转。但它意味着**崩溃恢复会重置无进展计数的一次机会**：本该是第 N 次连续无进展的那一轮，重启后会被记成有进展。
+
+**只有当所有必过检查都失败时这个偏差才不存在**（通过集为空，差集也为空）。
 
 ## Worker、Verifier 与隔离
 
@@ -237,7 +274,7 @@ progressed: !repeated_diff
 
 **几乎每个应用层文件都配有同名 `_tests.rs`**——`loop_orchestrator_tests`、`loop_control_tests`、`loop_progress_tests`、`loop_recovery_tests`、`loop_service_tests`、`loop_verification_tests`、`loop_verifier_tests`、`loop_worker_tests`。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 定义 Loop
 
@@ -277,7 +314,7 @@ Loop 中心（`src/loop-center/loop-center.tsx`）新建定义，在定义对话
 
 ## 相关文档
 
-- [会话管理](session-management.md) —— Worker / Verifier 会话角色
+- [会话管理](sessions.md) —— Worker / Verifier 会话角色
 - [项目与工作区](workspaces.md) —— Loop 专用 worktree
-- [可观测性](observability.md) —— Loop 执行的 Span 追踪
+- [可观测性](observability-architecture.md) —— Loop 执行的 Span 追踪
 - [多 Agent 群聊](group-chat.md) —— 另一套协作机制

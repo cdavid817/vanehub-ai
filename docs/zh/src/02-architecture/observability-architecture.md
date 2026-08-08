@@ -155,6 +155,45 @@ environment      env.       path      argument
 
 **`Bearer` 保留而令牌被脱掉**——日志仍能看出用的是 Bearer 认证，这是可诊断性与隐私之间的平衡点。
 
+#### 三处需要留意的后果
+
+**一、空白被归一化。**`redact_text` 先 `split_whitespace()` 再用单空格重组（`logging.rs:276`）：制表符、连续空格、换行**全部变成单个空格**。脱敏后的文本不保留原有排版——多行输出会被压成一行。
+
+**二、敏感键的分隔符会被吸收。**（`logging.rs:312-323`）
+
+```rust,ignore
+if let Some(separator) = tokens.get(index + 1).filter(|v| matches!(**v, "=" | ":")) {
+    redacted.push(format!("{}{separator}[REDACTED]", tokens[index]));
+    index += 3;
+} else {
+    redacted.push(format!("{}=[REDACTED]", tokens[index]));
+    index += 2;
+}
+```
+
+`token = value` 会变成 `token=[REDACTED]`——**分隔符与值一起被消费掉**，且没有分隔符时会**补一个 `=`**。所以 `password foo` 会变成 `password=[REDACTED]`，原文里本没有等号。**这是有意的**：统一成 `键=[REDACTED]` 的形状便于后续检索，代价是脱敏后的文本不再逐字对应原文。
+
+**三、`Bearer` 跟在敏感键后面时消费三个 token。**（`:299-306`）内联敏感 token 的下一个若是 `bearer`，`index += 3` 而不是 2——这样 `authorization: Bearer abc` 三个 token 一并处理，不会漏掉后面的实际令牌。
+
+#### 只有字符串值过脱敏
+
+```rust,ignore
+let value = match value {
+    SafeAttributeValue::String(value) => SafeAttributeValue::String(redact_text(value)),
+    value => value.clone(),
+};
+```
+
+**非字符串属性原样保留**（`privacy.rs:21-24`）。数值、布尔值不经 `redact_text`——它们本身不承载文本秘密，但这意味着**把敏感信息编码成数字仍能通过**（例如把 id 存成整数）。第一级的键名分类是这类情况唯一的防线。
+
+#### 构造失败时退回空属性集
+
+```rust,ignore
+SafeAttributes::try_from_entries(entries).unwrap_or_default()
+```
+
+**`unwrap_or_default()` 意味着构造失败时得到的是空属性集，而不是未脱敏的原始属性**（`privacy.rs:28`）。这是一次显式的失败关闭：宁可丢掉全部属性，也不让未处理的内容漏出去。
+
 ## 存储
 
 ```mermaid
@@ -214,6 +253,21 @@ flowchart LR
 
 **前端错误经 `ErrorBoundary` 通道上报**（`logging.rs:52`），原生接收端是 `DesktopClientLoggingPort`（`desktop/application/ports.rs:76`）。
 
+**目录可切换**：`default_log_dir(app_data_dir)`（`logging.rs:67`）确定默认位置，`set_active_log_dir(path)`（`:71`）在运行期改写。
+
+### 写日志时必须遵守的四条
+
+（`openspec/specs/unified-log-management/spec.md`，同时被 `AGENTS.md` 复述）
+
+| 约束 | 含义 |
+|---|---|
+| 统一入口 | Rust/native 日志一律走统一日志服务，**禁止新增 feature-local 日志文件**或绕过脱敏直接落盘 |
+| 前端不落盘 | React 组件**不得直接写本地日志文件**，需持久化的错误必须经 service boundary 上报 |
+| 双写 | SDK/CLI/任务类操作的输出必须**同时**保留页面内展示与统一日志目录写入 |
+| 先脱敏后落盘 | 敏感信息在写入前完成 token 级脱敏 |
+
+**第三条最容易漏**：只写文件会让用户在界面上失去反馈，只显示在界面上则事后无从追溯，两者缺一都不合规。
+
 ## 已知取舍
 
 - **本地存储会增长** —— 靠保留策略定期清理；需要长期留存必须自行导出。
@@ -227,7 +281,6 @@ flowchart LR
 
 ## 相关文档
 
-- [可观测性功能说明](../02-features/observability.md) —— 面向使用者的视角
 - [MCP 集成](mcp-integration.md) —— 中继的 traceparent 传播
 - [数据层](data-layer.md) —— Span 表与保留
 - [技术栈](tech-stack.md) —— OTel 版本固定策略

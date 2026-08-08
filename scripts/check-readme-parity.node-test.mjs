@@ -8,7 +8,10 @@ import { checkReadmeParity } from "./check-readme-parity.mjs";
 const base = `<!-- docs-section:overview -->
 # Title
 [Language](README.zh-CN.md)
-[Guide](docs/user-guide/README.md)
+[Reference](docs/build-performance.md)
+<!-- docs-locale-guides -->
+[Guide](docs/user-guide/en/src/index.md)
+<!-- /docs-locale-guides -->
 <!-- docs-fact:project-version value:0.1.0 -->
 <!-- docs-fact:tauri-major value:2.x -->
 <!-- docs-fact:react-major value:19.x -->
@@ -69,9 +72,26 @@ test("reports the translated file and mismatched feature state without rewriting
 test("reports command and link drift", () => {
   const changed = base
     .replace("npm run dev", "npm run preview")
-    .replace("docs/user-guide/README.md", "docs/missing.md");
+    .replace("docs/build-performance.md", "docs/missing.md");
   const { root, files } = fixture([base, changed, base]);
   assert.throws(() => checkReadmeParity(files, root), /commands differ[\s\S]*links differ/);
+});
+
+test("accepts guide links that differ inside the locale block", () => {
+  const translated = base.replace(
+    "[Guide](docs/user-guide/en/src/index.md)",
+    "[用户指南](docs/user-guide/zh-CN/src/index.md)\n[架构与实现](docs/zh/src/README.md)",
+  );
+  const { root, files } = fixture([base, translated, base]);
+  assert.doesNotThrow(() => checkReadmeParity(files, root));
+});
+
+test("reports a translation that drops its locale block", () => {
+  const changed = base
+    .replace("<!-- docs-locale-guides -->\n", "")
+    .replace("<!-- /docs-locale-guides -->\n", "");
+  const { root, files } = fixture([base, changed, base]);
+  assert.throws(() => checkReadmeParity(files, root), /localeGuides differ/);
 });
 
 test("reports a visible badge that drifts from its stable fact marker", () => {

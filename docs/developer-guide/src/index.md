@@ -9,7 +9,19 @@ Use this guide when you need to answer:
 - Which bounded context owns data, processes, and logs?
 - How are changes specified, verified, packaged, and released?
 
-The [native API reference](native-api-reference.md) is generated from Rust `//!` and `///` documentation. It is intentionally separate from this narrative guide.
+## Chapters
+
+| Chapter | What it covers |
+| --- | --- |
+| [Repository orientation](repository-orientation.md) | Where frontend, native, and specification work lives |
+| [Runtime and service boundaries](runtime-boundaries.md) | The service layer, and which behavior is real on desktop |
+| [Native bounded contexts](native-contexts.md) | What each Rust context owns |
+| [Persistence and unified logging](persistence-and-logging.md) | SQLite, migrations, and the redaction rules |
+| [Testing, packaging, and release](testing-and-release.md) | Gates, coverage thresholds, and packaging targets |
+| [OpenSpec workflow](openspec-workflow.md) | Proposing, applying, and archiving a change |
+| [Native API reference](native-api-reference.md) | Generated from Rust `//!` and `///` documentation |
+
+The reference chapter is generated, and is intentionally separate from this narrative guide.
 
 ## Documentation status
 

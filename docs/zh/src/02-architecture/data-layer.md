@@ -34,6 +34,52 @@
 
 **启动时一次性完成三件事**，由测试守住（`mod.rs:105` 的 `connection_applies_all_migrations_foreign_keys_and_seeds`）：应用全部迁移、开启外键约束、播种内置数据。
 
+### 池的四个常量
+
+（`platform/database/mod.rs:14-26`）
+
+| 常量 | 值 | 作用 |
+|---|---|---|
+| `MAX_POOL_SIZE` | 12 | 池上限 |
+| `BUSY_TIMEOUT` | 5 秒 | 遇到锁时等待而非立即失败 |
+| `CONNECTION_TIMEOUT` | 5 秒 | 从池中取连接的等待上限 |
+| `DATABASE_FILE_NAME` | `vanehub.sqlite` | 文件名 |
+
+**`min_idle` 设为 1**（`:68`）——始终保留一条空闲连接，避免完全空池后首次请求付出建连成本。
+
+### PRAGMA 在建连时设一次，不在每次取出时设
+
+**这个细节写在注释里**（`mod.rs:56-58`）：
+
+> Every physical connection is configured once here instead of on every checkout: WAL lets readers proceed without blocking the writer, and the busy-timeout makes contended access wait rather than fail immediately.
+
+```rust,ignore
+let manager = SqliteConnectionManager::file(&db_path).with_init(|connection| {
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+    connection.query_row("PRAGMA journal_mode=WAL", [], |_row| Ok(()))?;
+    connection.pragma_update(None, "foreign_keys", "ON")?;
+    Ok(())
+});
+```
+
+**三条设置各有目的**：
+
+| 设置 | 解决什么 |
+|---|---|
+| `busy_timeout` | 争用时等待，而不是立刻报 `SQLITE_BUSY` |
+| `journal_mode=WAL` | 读不阻塞写，写不阻塞读 |
+| `foreign_keys=ON` | SQLite **默认关闭**外键约束，必须显式打开 |
+
+**第三条特别容易忘**：SQLite 的外键默认不生效，而且是**每连接**的设置，不是每数据库。放在 `with_init` 里意味着池中每条物理连接都带上它；写在别处则会漏掉后续新建的连接。
+
+### 迁移与播种在池共享之前完成
+
+**注释说明了为什么这样安全**（`mod.rs:71-72`）：
+
+> Migration and seeding are one-time work. `new` runs once during bootstrap, before the pool is shared, so this happens exactly once for the database.
+
+`new()` 从池里取一条连接跑完迁移和播种后 `drop` 掉，此时 `NativeDatabase` 尚未交给任何上下文，**不存在并发跑迁移的可能**。
+
 **另两条测试守住关键性质**：
 
 | 测试 | 行号 | 断言 |
@@ -66,7 +112,39 @@ flowchart LR
   style C fill:#ffebee
 ```
 
+**门控逻辑本身很短**（`migrations.rs:629-647`）：
+
+```rust,ignore
+let applied = conn
+    .query_row(
+        "SELECT 1 FROM schema_migrations WHERE version = ?1",
+        params![version],
+        |_| Ok(()),
+    )
+    .optional()?
+    .is_some();
+if applied {
+    return Ok(());
+}
+
+migration(conn)?;
+conn.execute(
+    "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+    params![version, name],
+)?;
+```
+
+**关键在 `WHERE version = ?1`——只看版本号，不看 `name`**。这就是下一节那个陷阱的全部成因：号码占了，内容是谁的无所谓。
+
 **当前最高版本为 48**，`migrations.rs` 中约 46 处 `apply_migration` 调用。
+
+### 还有一个事务型变体
+
+**`apply_transactional_migration`（`migrations.rs:649`）把迁移函数与版本登记包在同一个事务里**，当前有 4 处使用。
+
+**普通版本不带事务**：迁移函数执行成功后才写 `schema_migrations`，但两步之间若进程崩溃，迁移已生效而版本未登记——下次启动会重跑。**这要求普通迁移必须写成幂等的**（`CREATE TABLE IF NOT EXISTS`、`ALTER TABLE` 前先查列）。
+
+**需要多步且中途状态不可接受的迁移才用事务版本**，代价是长事务期间持有写锁。
 
 ## 迁移版本号的冲突风险
 
@@ -143,7 +221,7 @@ flowchart LR
 
 `ssh_connections`、**`ssh_host_trust`**
 
-**`ssh_host_trust` 就是 TOFU 主机密钥库**——记录首次接受的主机密钥指纹，后续连接据此判定 `FirstSeen` 还是 `Changed`，见 [远程与 IM](../02-features/remote-and-im.md#主机密钥校验)。
+**`ssh_host_trust` 就是 TOFU 主机密钥库**——记录首次接受的主机密钥指纹，后续连接据此判定 `FirstSeen` 还是 `Changed`，见 [远程与 IM](remote-and-im.md#主机密钥校验)。
 
 ### communications
 
@@ -151,7 +229,7 @@ flowchart LR
 
 **`im_inbound_dedup` 解决 IM 平台的重复投递问题**——长连接与轮询都可能重复推送同一条消息，去重表保证不会重复触发 Agent。
 
-**`im_credential_refs` 存的是引用而非凭据本身**——真实凭据在系统密钥链里，见 [远程与 IM](../02-features/remote-and-im.md#字段级密级)。
+**`im_credential_refs` 存的是引用而非凭据本身**——真实凭据在系统密钥链里，见 [远程与 IM](remote-and-im.md#字段级密级)。
 
 ### retrieval / desktop / 核心
 
@@ -208,5 +286,5 @@ flowchart LR
 
 - [限界上下文](bounded-contexts.md) —— 各上下文与表的归属
 - [端口与适配器](ports-and-adapters.md) —— `*Repository` 端口
-- [开发环境搭建](../04-development/setup.md) —— 迁移冲突的排查方法
+- [开发环境搭建](../03-development/setup.md) —— 迁移冲突的排查方法
 - [可观测性架构](observability-architecture.md) —— Span 存储与保留

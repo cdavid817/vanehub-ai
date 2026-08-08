@@ -1,15 +1,15 @@
 # CLI 集成：四个 CLI 的差异如何被吸收
 
-> **没有统一的 `AgentAdapter` trait。**四个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
+> **没有统一的 `AgentAdapter` trait**。四个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
 
 ## 先澄清一个常见误解
 
-**`AgentAdapter` 与 `ContextInjector` 这两个 trait 在代码中不存在。**它们只出现在两份归档设计稿里：
+**`AgentAdapter` 与 `ContextInjector` 这两个 trait 在代码中不存在**。它们只出现在两份归档设计稿里：
 
 - `openspec/changes/archive/2026-08-06-add-personalization-settings/design.md`
 - `openspec/changes/archive/2026-08-06-add-cli-custom-instructions-injection/design.md`
 
-**设计稿的命名没有原样落地。**实际实现散在 `agent_runtime/infrastructure/` 的若干具体文件里，且不构成单一抽象。
+**设计稿的命名没有原样落地**。实际实现散在 `agent_runtime/infrastructure/` 的若干具体文件里，且不构成单一抽象。
 
 **为什么值得单独说明**：读归档设计稿理解架构是很自然的做法，但在这个项目里会被误导。**以代码为准。**
 
@@ -67,6 +67,63 @@ flowchart LR
 **第一条是安全优先于便利的体现**：用户在参数页勾了某个宽松选项，但当前 Agent 是 `Readonly` 模板，模板赢。
 
 **这四条测试把四个 CLI 的差异说清楚了**：同一个权限模板，在 Claude Code 上表现为钩子回调、在 OpenCode 上表现为环境变量、在 Codex 上表现为命令行选择项。
+
+### 同一个 `Standard` 模板的四种落地形态
+
+**这是「差异吸收」最具体的样子**：
+
+| Agent | `Standard` 表现为 | 实现 |
+|---|---|---|
+| `claude-code` | **不表达**——权限由逐调用钩子动态判定 | 不进查表（`cli_profile.rs:296` 的测试） |
+| `opencode` | 环境变量 `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"}` | `invocation.rs:447-456` |
+| `gemini-cli` | 命令行 `--approval-mode default` | `invocation.rs:423-440` |
+| `codex-cli` | 参数目录中的选择项被覆写 | `apply_policy_template_overrides` |
+
+**三种完全不同的机制表达同一个概念**——环境变量、命令行标志、配置项覆写。这就是为什么没有统一的 `AgentAdapter` trait：它们的注入点不在同一个位置，抽象成一个方法只会变成一堆 `match agent_id`。
+
+### Gemini 的处理是「先删后加」
+
+```rust,ignore
+if let Some(position) = args
+    .iter()
+    .position(|argument| argument == "--approval-mode")
+{
+    let end = (position + 2).min(args.len());
+    args.drain(position..end);
+}
+args.extend(["--approval-mode".to_string(), "default".to_string()]);
+```
+
+**先移除用户可能已经配置的 `--approval-mode` 及其值，再追加模板要求的那个。**
+
+**`(position + 2).min(args.len())` 这个钳制是必要的**：如果 `--approval-mode` 恰好是最后一个参数（用户配错、值缺失），`position + 2` 会越界，`min` 把它收回到合法范围。**参数列表是用户可编辑的数据，不能假设格式一定正确。**
+
+**为什么不直接改而要删了再加**：同一个标志可能出现多次，或者位置不确定；删除后统一追加到末尾，结果确定且与原有顺序无关。
+
+### 权限模板只在三个 Agent 上参与计算
+
+`interactive_selections_and_args`（`cli_profile.rs:110-153`）的流程：
+
+```text
+1. load_selections(agent_id)          用户保存的参数选择
+2. normalize_selections(...)          归一化
+3. 若 agent_id ∈ 受治理的三个：
+     find_principal(agent_id) → template
+     apply_policy_template_overrides(...)   ← 模板压过用户选择
+   否则 template = None
+4. preview_args(..., Interactive)     生成参数
+5. 若有 template：
+     force_gemini_standard_approval_flag(...)
+     opencode_standard_permission_env_var(...)  → 写入 env
+```
+
+**第 3 步是「模板赢」的落点**：覆写发生在生成参数**之前**，所以用户的宽松选择根本不会进入参数列表，而不是生成后再被过滤掉。
+
+**这个函数被从 `load_interactive` 里单独抽出来是有原因的**（`cli_profile.rs:103-108`）：
+
+> executable resolution has its own, unrelated dependency graph — pulling it in here would make policy-template-override tests fragile for reasons that have nothing to do with the logic being tested.
+
+**可执行文件解析有一整套自己的依赖**，混在一起会让模板覆写的测试因为无关原因而脆弱。抽出来后，那四条测试可以对着真实的 `CliParametersApi` / `PermissionsApi` 跑，而不必装配整个 `CliApi`。
 
 ### 受模板治理的只有三个
 
@@ -140,7 +197,7 @@ flowchart LR
 
 **Claude 的用量按项目目录组织**，另有 `claude_project_dir_name(cwd)` 做目录名推导（`:292`）；`load_terminal_usage_message_id`（`:199`）恢复已有关联。
 
-**这里刻意没有抽象。**四个函数各自处理各自的格式。抽象一个"通用用量解析器"会把四种互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条。**
+**这里刻意没有抽象**。四个函数各自处理各自的格式。抽象一个"通用用量解析器"会把四种互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条。**
 
 **共同的输出结构是 `TerminalUsageTotals`**（`:18-23`）：`input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_creation_tokens`——**统一的是结果形状，不是解析过程。**
 
@@ -200,7 +257,7 @@ flowchart TB
 | 9. 中继（可选） | `bootstrap/managed_mcp_relay.rs` | 代码 |
 | 10. Prompt Hook 绑定（可选） | `prompt_hooks/domain/binding.rs` 的 `ManagedCliAgentId` | 代码 |
 
-**十处中七处是代码。**没有一个"注册一个新 Agent"的单一入口。
+**十处中七处是代码**。没有一个"注册一个新 Agent"的单一入口。
 
 ## 各 CLI 的特例汇总
 
@@ -228,4 +285,4 @@ flowchart TB
 - [权限架构](permissions-architecture.md) —— 模板与判定
 - [MCP 集成](mcp-integration.md) —— 受管中继
 - [限界上下文](bounded-contexts.md) —— `agent_runtime` 的规模问题
-- [多 Agent 群聊](../02-features/group-chat.md) —— 模型族与角色简报的使用方
+- [多 Agent 群聊](group-chat.md) —— 模型族与角色简报的使用方

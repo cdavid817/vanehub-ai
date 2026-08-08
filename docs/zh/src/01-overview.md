@@ -4,7 +4,7 @@
 
 ## 一句话定位
 
-**VaneHub AI 解决的是"多个 AI 编程 CLI 各自为政"的问题。**它不替代这些 CLI，而是在它们之上提供统一的会话模型、权限审批、工具接入与执行追踪，让你在一个窗口里完成原本要在多个终端之间来回切换的工作。
+**VaneHub AI 解决的是"多个 AI 编程 CLI 各自为政"的问题**。它不替代这些 CLI，而是在它们之上提供统一的会话模型、权限审批、工具接入与执行追踪，让你在一个窗口里完成原本要在多个终端之间来回切换的工作。
 
 应用标识与版本（`src-tauri/tauri.conf.json:3-5`）：
 
@@ -16,7 +16,7 @@
 
 ## 它解决什么问题
 
-**痛点在于工具是割裂的，而工作是连续的。**直接使用各家 CLI 时会遇到这些具体问题：
+**痛点在于工具是割裂的，而工作是连续的**。直接使用各家 CLI 时会遇到这些具体问题：
 
 | 问题 | 直接使用各 CLI 的现状 | VaneHub AI 的处理 |
 |---|---|---|
@@ -73,9 +73,9 @@
 
 **交互模式共四种**（`src-tauri/src/contexts/agent_runtime/domain/catalog.rs:18-45` 的 `InteractionMode`）：`browser`、`native-desktop`、`cli`、`api`。
 
-**各 Agent 的接入方式差异不小**——权限如何表达、是否走 MCP 中继、模型族如何判定，每个都不一样。完整对照见 [CLI 集成](03-architecture/cli-integration.md#各-cli-的特例汇总)。
+**各 Agent 的接入方式差异不小**——权限如何表达、是否走 MCP 中继、模型族如何判定，每个都不一样。完整对照见 [CLI 集成](02-architecture/cli-integration.md#各-cli-的特例汇总)。
 
-**`onepiece` 是原生 API Agent**——不依赖外部 CLI 进程，直接通过 provider 接口调用模型，可选 25 家 provider。它还为其他 CLI Agent 代做记忆提取，详见 [原生 API Agent](02-features/native-agent.md)。
+**`onepiece` 是原生 API Agent**——不依赖外部 CLI 进程，直接通过 provider 接口调用模型，可选 25 家 provider。它还为其他 CLI Agent 代做记忆提取，详见 [原生 API Agent](02-architecture/native-agent.md)。
 
 ## 整体形态
 
@@ -109,7 +109,7 @@ flowchart TB
   CTX --> EXT
 ```
 
-**关键约束**：React 组件禁止直接调用 Tauri `invoke()`，必须经服务边界层；`tauri-*-client` 与 `web-*-client` 必须保持接口一致。详见 [前端架构](03-architecture/frontend.md) 与 [限界上下文](03-architecture/bounded-contexts.md)。
+**关键约束**：React 组件禁止直接调用 Tauri `invoke()`，必须经服务边界层；`tauri-*-client` 与 `web-*-client` 必须保持接口一致。详见 [前端架构](02-architecture/frontend.md) 与 [限界上下文](02-architecture/bounded-contexts.md)。
 
 ## 支持的平台与语言
 
@@ -131,7 +131,7 @@ CI 的原生检查矩阵覆盖 `windows-latest` 与 `macos-latest`（`.github/wo
 
 （`src/i18n/supported-locales.ts:14-38`）：`zh-CN`、`en`、`zh-TW`、`ja`、`ko`。
 
-**五个语言资源文件键数完全一致（各 2197 条）**，无缺漏；有专门的守卫测试防止漏译与硬编码文本，详见 [前端架构](03-architecture/frontend.md#多语言)。
+**五个语言资源文件键数完全一致（各 2197 条）**，无缺漏；有专门的守卫测试防止漏译与硬编码文本，详见 [前端架构](02-architecture/frontend.md#多语言)。
 
 > **注意**：根 `README.md` 称日语 UI 资源为「Planned」，该说法已过时。
 
@@ -141,7 +141,7 @@ CI 的原生检查矩阵覆盖 `windows-latest` 与 `macos-latest`（`.github/wo
 
 ## 技术栈速览
 
-完整的选型理由见 [技术栈与选型](03-architecture/tech-stack.md)，此处仅列实际版本：
+完整的选型理由见 [技术栈与选型](02-architecture/tech-stack.md)，此处仅列实际版本：
 
 | 层 | 选型 | 版本 |
 |---|---|---|
@@ -173,7 +173,7 @@ CI 的原生检查矩阵覆盖 `windows-latest` 与 `macos-latest`（`.github/wo
 | OnePiece provider 目录 | **25** |
 | 界面语言 | **5** |
 
-各功能的成熟度与依据请以 [功能总览与能力矩阵](02-features/README.md) 为准，那里逐项标注了状态与对应的 capability 依据，并列出了几处**从功能名称上看不出来的实际约束**。
+上表所列能力全部已交付。**功能与限界上下文的对应关系**——也就是"改这个功能该进哪个上下文"——见 [架构总览](02-architecture/README.md#功能与限界上下文的对应)，同页还列出了几处**从命名上看不出来的实际约束**。
 
 ## 演进方向
 
@@ -194,9 +194,9 @@ CI 的原生检查矩阵覆盖 `windows-latest` 与 `macos-latest`（`.github/wo
 
 | 你想了解 | 去这里 |
 |---|---|
-| 有哪些功能、各自怎么用 | [功能总览](02-features/README.md) |
-| 架构怎么切分、为什么这么选 | [架构总览](03-architecture/README.md) |
-| 四个 CLI 的差异如何被吸收 | [CLI 集成](03-architecture/cli-integration.md) |
-| 怎么搭环境、怎么参与开发 | [开发环境搭建](04-development/setup.md) |
-| 哪些规则会被机器拦下来 | [五层约束体系](04-development/constraints.md) |
-| 文档整体导航 | [docs/zh/README.md](README.md) |
+| 架构怎么切分、为什么这么选 | [架构总览](02-architecture/README.md) |
+| 改某个功能该进哪个上下文 | [功能与限界上下文的对应](02-architecture/README.md#功能与限界上下文的对应) |
+| 四个 CLI 的差异如何被吸收 | [CLI 集成](02-architecture/cli-integration.md) |
+| 怎么搭环境、怎么参与开发 | [开发环境搭建](03-development/setup.md) |
+| 哪些规则会被机器拦下来 | [五层约束体系](03-development/constraints.md) |
+| **怎么用这个产品**（而非怎么实现） | [用户指南（简体中文）](../user/zh-CN/index.html) |

@@ -2,20 +2,11 @@
 
 > **每个会话绑定一个工作区**：本地项目目录、Git worktree 或远端 SSH 路径。工作区决定 Agent 能看到哪些文件、命令在哪里执行，也决定了文件访问的安全边界。
 
-## 功能定位
+## 这一层解决什么问题
 
 **工作区是会话与文件系统之间的边界。**`workspaces` 上下文负责项目目录选择、Git 集成、worktree 管理、命令模板、shell 终端、输出捕获与检索、外部打开器——把"在哪儿干活"以及"干活留下什么痕迹"统一管起来。
 
-## 使用场景
-
-1. **多分支并行** —— 为同一仓库的不同分支各建一个 worktree，各自开会话互不干扰。
-2. **快速切项目** —— 从历史工作区列表直接切换，不必每次翻目录。
-3. **命令复用** —— 把常用命令存成模板，按全局 / 连接 / 工作区三级作用域复用。
-4. **回溯终端输出** —— 在几十万行历史输出里检索某条报错。
-5. **外部工具接力** —— 用 VS Code 或文件管理器打开当前工作区继续手工处理。
-6. **Loop 隔离执行** —— Loop 运行时在独立 worktree 中作业，不污染主工作区。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -86,9 +77,58 @@
 
 **反斜杠先被统一成正斜杠**（`path.rs:10`），因此 `..\..\etc` 这类 Windows 风格的逃逸同样会被 `ParentDir` 分支拦下。**`.` 当前目录组件被允许**（`Component::CurDir => {}`），它不构成逃逸。
 
-**第二层：`CanonicalPathBoundary`**（`path.rs:55-72`）——以规范化后的根路径为界，`ensure_inside(candidate)` 确认候选路径确实落在边界内，`relative(candidate)` 反解相对路径。
+**第二层：`CanonicalPathBoundary`**（`path.rs:55-79`）——纯前缀比较，**不做任何 IO**：
 
-**两层是互补的**：第一层拦语法上的逃逸，第二层拦符号链接这类语法合法但实际指向外部的情况。
+```rust,ignore
+pub(crate) fn ensure_inside(&self, candidate: &Path) -> Result<(), WorkspaceDomainError> {
+    if candidate.starts_with(&self.root) {
+        Ok(())
+    } else {
+        Err(WorkspaceDomainError::WorkspacePathOutsideRoot)
+    }
+}
+```
+
+**名字容易误读**：它是「**对已规范化路径**成立的边界」，不是「**会做规范化**的边界」。`new()` 原样存下 root，`starts_with` 按路径组件比较。它住在 `domain/` 里，按分层约定就不能碰文件系统。
+
+**因此它本身拦不住符号链接**——传进一个未规范化的路径，它只能做字面判断。
+
+### 真正做规范化的是 `BoundedFilesystem`
+
+**符号链接防护在 platform 层**（`platform/filesystem/mod.rs:50-67`）：
+
+```rust,ignore
+pub(crate) fn new(root: &Path) -> Result<Self, BoundaryError> {
+    let canonical = root.canonicalize()?;
+    if !canonical.is_dir() {
+        return Err(BoundaryError::NotDirectory);
+    }
+    Ok(Self { root: canonical })
+}
+
+pub(crate) fn resolve_existing(&self, relative: &str) -> Result<PathBuf, BoundaryError> {
+    let relative = self.validate_relative(relative)?;
+    let canonical = self.root.join(relative).canonicalize()?;
+    self.ensure_inside(&canonical)?;
+    Ok(canonical)
+}
+```
+
+**顺序是关键**：先语法校验、再拼接、**再 `canonicalize()` 解开符号链接、最后才判断是否越界**。符号链接在这一步被解析成真实目标，指向工作区外的链接因此会被 `ensure_inside` 拒绝。
+
+**根路径也在构造时规范化一次**，否则根本身若含符号链接，前缀比较会永远失败。
+
+### 三者的分工
+
+| 类型 | 位置 | 做什么 | 碰 IO |
+|---|---|---|---|
+| `WorkspaceRelativePath::parse` | `workspaces/domain/path.rs` | 语法校验：绝对路径、盘符、`..`、隐藏段 | 否 |
+| `CanonicalPathBoundary` | `workspaces/domain/path.rs` | **已规范化路径**的前缀判定与反解 | 否 |
+| `BoundedFilesystem` | `platform/filesystem/` | 规范化 root 与候选路径，解符号链接后判越界 | **是** |
+
+**用哪个取决于路径从哪来**：`session_queries.rs:184` 的 `normalized_relative` 用 `CanonicalPathBoundary`，因为传进来的路径已经是 Git 给出的规范路径；`resolve_git_path`（`:174-181`）走 `BoundedFilesystem`，因为那是用户/Agent 提供的相对路径。
+
+**`resolve_with_existing_parent`（`filesystem/mod.rs:69`）处理的是「文件还不存在」的场景**——写入新文件时无法 `canonicalize` 目标本身，只能规范化其父目录再判断。
 
 ### shell 终端
 
@@ -223,7 +263,7 @@ flowchart LR
 
 **应用层分三个服务**：`service.rs`（写操作）、`query_service.rs`（读操作）、`shell_service.rs`（终端）。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 选择工作区
 
@@ -250,14 +290,14 @@ flowchart LR
 - **远端不支持 worktree** —— `RemoteWorktreeUnsupported` 是明确的领域约束，SSH 远程工作区只能指向已存在的路径。
 - **worktree 依赖本地 Git 可用** —— Git 不可用时报 `GitWorktreeUnavailable`。
 - **隐藏文件不可通过工作区路径访问** —— 任何以 `.` 开头的路径段都会被 `HiddenWorkspacePath` 拒绝，这意味着 `.env`、`.git/` 内部文件无法经此通道读取。
-- **终端输出会丢** —— 队列满时插入 `Gap` 而非阻塞；超过 30 天或 512 MiB 会被清理。需要长期留存应依赖 [统一日志](observability.md#统一日志)。
+- **终端输出会丢** —— 队列满时插入 `Gap` 而非阻塞；超过 30 天或 512 MiB 会被清理。需要长期留存应依赖 [统一日志](observability-architecture.md#日志与追踪的边界)。
 - **命令快照不可变** —— 修改模板不改变已发生运行的记录，这是设计意图。
 - **远程终端并发上限 8** —— 超出时需等待连接释放（空闲 5 分钟自动回收）。
 
 ## 相关文档
 
-- [会话管理](session-management.md) —— 会话与工作区的绑定
+- [会话管理](sessions.md) —— 会话与工作区的绑定
 - [远程与 IM](remote-and-im.md) —— SSH 连接配置与远程终端
 - [Loop 工程化](loop-engineering.md) —— Loop 专用 worktree
-- [进程管理与 PTY](../03-architecture/process-and-pty.md) —— PTY 与输出解码
-- [限界上下文](../03-architecture/bounded-contexts.md) —— `workspaces` 的职责边界
+- [进程管理与 PTY](process-and-pty.md) —— PTY 与输出解码
+- [限界上下文](bounded-contexts.md) —— `workspaces` 的职责边界

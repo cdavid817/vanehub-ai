@@ -42,19 +42,19 @@ VaneHub AI 把 Claude Code、OpenCode、Codex CLI 和 Gemini CLI 汇集到统一
 
 <!-- feature:core-workspace status:delivered -->
 
-- **已交付：**CLI 管理、单 Agent 会话、交互式 Agent 终端、会话组织、项目/worktree 与 SSH 工作区工具、设置、MCP/SDK/Skills/Prompt Hooks/Extensions、IM Connector、定时任务、通知、用量统计、统一脱敏日志和跨平台打包。
+- **已交付**：CLI 管理、单 Agent 会话、交互式 Agent 终端、会话组织、项目/worktree 与 SSH 工作区工具、设置、MCP/SDK/Skills/Prompt Hooks/Extensions、IM Connector、定时任务、通知、用量统计、统一脱敏日志和跨平台打包。
 
 <!-- feature:multi-agent-runtime status:delivered -->
 
-- **已交付：**多 Agent 群聊运行时。一个会话可容纳多个 Agent 席位，回复通过 `@` 提及交接发言权，提及数量与交接链深度均有上限。它取代了此前基于依赖图的协调运行时，后者已被移除。
+- **已交付**：多 Agent 群聊运行时。一个会话可容纳多个 Agent 席位，回复通过 `@` 提及交接发言权，提及数量与交接链深度均有上限。它取代了此前基于依赖图的协调运行时，后者已被移除。
 
 <!-- feature:multi-agent-ui status:delivered -->
 
-- **已交付：**正常创建会话对话框中的席位分配，以及会话工作区内的席位切换、发言人标注与轮次状态。
+- **已交付**：正常创建会话对话框中的席位分配，以及会话工作区内的席位切换、发言人标注与轮次状态。
 
 <!-- feature:japanese-ui status:delivered -->
 
-- **已交付：**日文应用 UI 资源，与其余支持的语言——English、简体中文、繁體中文、한국어——保持键级一致。
+- **已交付**：日文应用 UI 资源，与其余支持的语言——English、简体中文、繁體中文、한국어——保持键级一致。
 
 <!-- docs-section:architecture -->
 
@@ -106,12 +106,16 @@ Web/mock 是确定性的浏览器模拟，不代表真实发生了本地 CLI 执
 
 ## 文档
 
-- [用户指南——English 与简体中文](docs/user-guide/README.md)
-- [开发者指南源码](docs/developer-guide/src/index.md)
-- [Native 架构清单](src-tauri/ARCHITECTURE.md)
-- [贡献指南](CONTRIBUTING.md)
-- [原生构建性能指南](docs/build-performance.md)
-- [发布签名指南](docs/release-signing.md)
+<!-- docs-locale-guides -->
+
+两套中文文档，按你要做的事二选一：
+
+- **想用起来** → [快速开始](docs/user-guide/zh-CN/src/quick-start.md)：五步走完，从装 CLI 到在工作区里干活。之后按需回 [用户指南](docs/user-guide/zh-CN/src/index.md) 查其余 19 章。
+- **想改代码** → [架构与实现](docs/zh/src/README.md)：分层怎么切、11 个限界上下文各管什么、四个 CLI 的差异在哪吸收，共 25 篇。
+
+<!-- /docs-locale-guides -->
+
+参考：[Native 架构清单](src-tauri/ARCHITECTURE.md) · [贡献指南](CONTRIBUTING.md) · [原生构建性能](docs/build-performance.md) · [发布签名](docs/release-signing.md)
 
 构建 mdBook 指南与 Rustdoc Reference：
 

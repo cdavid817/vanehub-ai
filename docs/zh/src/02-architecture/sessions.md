@@ -2,20 +2,11 @@
 
 > **会话是 VaneHub AI 的核心工作单元**：绑定一个项目工作区和一个或多个 Agent 席位，承载对话、终端、文件变更与执行追踪，并持久化到本地 SQLite。
 
-## 功能定位
+## 这一层解决什么问题
 
-**它把各家 CLI 各自为政的会话历史，收敛成一套统一的、可检索可归档的会话模型。**你不再需要记住某次重构是在哪个终端窗口、用哪个 CLI 做的——所有会话都在同一个侧边栏里，带分类、置顶和归档。
+**它把各家 CLI 各自为政的会话历史，收敛成一套统一的、可检索可归档的会话模型**。你不再需要记住某次重构是在哪个终端窗口、用哪个 CLI 做的——所有会话都在同一个侧边栏里，带分类、置顶和归档。
 
-## 使用场景
-
-1. **并行推进多个任务** —— 给同一个仓库开三个会话：一个修 bug、一个补测试、一个写文档，各自独立保留上下文。
-2. **对比不同 Agent** —— 同一个需求分别开 Claude Code 会话和 Codex CLI 会话，比较产出。
-3. **调整思考深度** —— 复杂问题拉到 `max` 推理深度，日常问答降到 `low` 控制成本。
-4. **按项目归档** —— 项目收尾后把相关会话整体归档，需要时再翻出来。
-5. **交接与留证** —— 把会话导出，作为变更依据交给同事或存档。
-6. **远程执行** —— 会话工作区指向 SSH 远端主机，在本地界面里操作远程仓库。
-
-## 能力清单
+## 能力与运行时边界
 
 | 能力 | 说明 | 运行时 |
 |---|---|---|
@@ -133,7 +124,7 @@ stateDiagram-v2
 
 **四种**（`chat_configuration.rs:50-55` 的 `PermissionMode`）：`default`、`plan`、`agent`、`auto`。
 
-**这是会话级的模式**，与 [权限审批](agent-permission.md) 的授权模板（`Readonly` / `Standard` / `Trusted` / `Yolo`）是两套不同的东西：前者控制本次对话的交互形态，后者控制动作级的放行策略。
+**这是会话级的模式**，与 [权限审批](permissions-architecture.md) 的授权模板（`Readonly` / `Standard` / `Trusted` / `Yolo`）是两套不同的东西：前者控制本次对话的交互形态，后者控制动作级的放行策略。
 
 ### 推理深度与模型钳制
 
@@ -146,21 +137,52 @@ stateDiagram-v2
 | `Max` | `claude-opus-4-8`、`claude-sonnet-5`、`gpt-5-5`、`gpt-5-1-codex-max` |
 | `High` | `claude-sonnet-4-6`、`gpt-5-4`、`gpt-5-2-codex`、`gemini-2-5-pro` |
 | `Medium` | `gemini-2-5-flash` |
-| 无限制条目 | 其余模型返回 `None` |
+| **不在表中** | 返回 `None` |
 
-**超限时是下钳而非报错**（`:202-206` 的 `clamp_reasoning_for_model`）：
+**超限时是下钳而非报错**（`:202-207` 的 `clamp_reasoning_for_model`）：
 
 ```rust,ignore
-Some(requested.min(maximum).as_str().to_string())
+pub(crate) fn clamp_reasoning_for_model(model_id: &str, value: Option<&str>) -> Option<String> {
+    let requested = value.and_then(|value| ReasoningDepth::parse(value).ok())?;
+    let maximum = max_reasoning_for_model(model_id)?;
+    Some(requested.min(maximum).as_str().to_string())
+}
 ```
 
 **这个选择很务实**：用户把深度设成 `max` 后换到一个只支持 `medium` 的模型，会话应该继续能用，而不是弹一个错误框要求先改设置。
+
+#### 不在表中的模型会丢掉推理深度
+
+**注意第二行的 `?`。**`max_reasoning_for_model` 对表外模型返回 `None`，`?` 直接把整个函数短路成 `None`——**请求的推理深度不是"不受限制地保留"，而是被丢弃**。
+
+**这是一条容易读反的分支**：表里只有 9 个模型 id，其余任何模型（包括 OnePiece 接的 25 家 provider 下的绝大多数）配了推理深度也不会生效。
+
+**方向仍然是保守的**：不确定某个模型支持到哪一档时，不传比乱传安全——传一个模型不认识的推理参数可能导致请求直接失败。
+
+**代价是这个丢弃没有任何提示**，用户在界面上选了深度，实际请求里没有。
 
 ### 一致性校验
 
 **provider 与 agent 必须匹配**（`ProviderMismatch { provider_id, agent_id }`）；**模型必须被支持**（`UnsupportedModel { model_id, ... }`）。
 
-**从 CLI 侧回读模型也有映射**（`chat_configuration.rs:167` 的 `model_id_from_cli`）——CLI 报告的模型名与内部 id 不一定一致。
+**从 CLI 侧回读模型也有映射**（`chat_configuration.rs:167-181` 的 `model_id_from_cli`）——CLI 报告的模型名与内部 id 不一定一致：
+
+| Agent | CLI 报告 | 内部 id |
+|---|---|---|
+| `claude-code` | `opus` / `sonnet` / `haiku` | `claude-opus-4-8` / `claude-sonnet-5` / `claude-haiku-4-5` |
+| `codex-cli` | `gpt-5.5`、`gpt-5.4`、`gpt-5.2-codex`、`gpt-5.1-codex-max` | 点号换成连字符 |
+| `gemini-cli` | `gemini-2.5-pro` / `gemini-2.5-flash` | 同上 |
+
+**两条兜底分支**（`:178-179`）：
+
+```rust,ignore
+(_, "") | (_, "default") => None,
+_ => Some(model.to_string()),
+```
+
+**空串与 `default` 映射成 `None`**——CLI 没明确报告模型时不臆造一个 id。**其余原样透传**，因此 CLI 升级带来的新模型名不会被这层拦掉，只是拿不到上面的钳制上限（见上一节）。
+
+**Claude 的别名映射是必要的**：CLI 只报 `opus` / `sonnet` / `haiku` 这类家族名，不带版本；映射表把它钉到具体版本 id，否则推理深度上限查表会全部落空。
 
 **快照可校验、可恢复**（`:246` 的 `is_valid_chat_snapshot`、`:262` 的 `restore_chat_preferences`）：会话重开时先验快照有效性，无效则回落到默认，而不是带着坏配置启动。
 
@@ -226,9 +248,9 @@ Some(requested.min(maximum).as_str().to_string())
 | `SessionLoggingPort` | `:285` | 日志 |
 | `SessionChatProfilePort` | `:289` | 聊天档案 |
 
-详见 [端口与适配器](../03-architecture/ports-and-adapters.md#端口的粒度)。
+详见 [端口与适配器](ports-and-adapters.md#端口的粒度)。
 
-## 使用方式
+## 界面入口与前端服务
 
 ### 创建会话
 
@@ -274,13 +296,13 @@ Some(requested.min(maximum).as_str().to_string())
 - **聊天 Agent 是封闭枚举** —— 只支持五种；新增 CLI 需要同时改 `ChatAgent`。
 - **推理深度上限表是硬编码的** —— 新模型需要在 `max_reasoning_for_model` 中登记，否则视为无上限。
 - **交互模式受 Agent 限制** —— 例如 `opencode` 仅支持 `cli`；见 [项目概览](../01-overview.md#内置-agent)。
-- **多个 worktree 共享同一个数据库** —— 跨分支的迁移版本冲突可能导致启动异常，见 [开发环境搭建](../04-development/setup.md#迁移版本号冲突)。
+- **多个 worktree 共享同一个数据库** —— 跨分支的迁移版本冲突可能导致启动异常，见 [开发环境搭建](../03-development/setup.md#迁移版本号冲突)。
 - **会话不跨 CLI 迁移** —— 会话与创建时选定的 Agent 绑定；相关工作仅存在于未合并分支，见 [演进方向](../01-overview.md#演进方向)。
 
 ## 相关文档
 
 - [多 Agent 群聊](group-chat.md) —— 席位与 `@` 交接
 - [Loop 工程化](loop-engineering.md) —— worker / verifier 会话角色
-- [可观测性](observability.md) —— `traces` 标签页背后的 Span 模型
+- [可观测性](observability-architecture.md) —— `traces` 标签页背后的 Span 模型
 - [项目与工作区](workspaces.md) —— 工作区、worktree 与文件浏览
-- [端口与适配器](../03-architecture/ports-and-adapters.md) —— `sessions` 的端口设计
+- [端口与适配器](ports-and-adapters.md) —— `sessions` 的端口设计

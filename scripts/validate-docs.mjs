@@ -67,6 +67,12 @@ function resolveAuthoredTarget(file, target) {
   if (file.includes(`${sep}docs${sep}zh${sep}`) && target === "../developer/index.html") {
     return resolve(repositoryRoot, "docs", "developer-guide", "src", "index.md");
   }
+  if (
+    file.includes(`${sep}docs${sep}user-guide${sep}zh-CN${sep}`) &&
+    target.startsWith("../../zh/")
+  ) {
+    return resolve(repositoryRoot, "docs", "zh", "src", "README.md");
+  }
   return resolve(dirname(file), target);
 }
 
@@ -87,6 +93,79 @@ function validateMarkdown(errors) {
         errors.push(`${display}: missing relative target "${rawTarget}".`);
       }
     }
+  }
+}
+
+// CommonMark 0.30 punctuation: the ASCII set plus every Unicode P category.
+const ASCII_PUNCTUATION = new Set([..."!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"]);
+
+function characterClass(character) {
+  // Start and end of line behave like whitespace for flanking purposes.
+  if (character === undefined) return "whitespace";
+  if (/\s/u.test(character)) return "whitespace";
+  if (ASCII_PUNCTUATION.has(character) || /\p{P}/u.test(character)) return "punctuation";
+  return "other";
+}
+
+function codeSpanRanges(line) {
+  return [...line.matchAll(/(`+)[^`]*\1/g)].map((match) => [
+    match.index,
+    match.index + match[0].length,
+  ]);
+}
+
+/**
+ * A `**` run can only close strong emphasis when it is right-flanking: the character
+ * before it is not whitespace, and either that character is not punctuation or the
+ * character after it is whitespace or punctuation.
+ *
+ * Chinese prose breaks this constantly, because the sentence-final `。` or `：` sits
+ * inside the bold span and the next sentence starts with a letter. GitHub then either
+ * prints the asterisks literally or re-pairs the delimiters around the wrong words, and
+ * neither failure is visible in the source.
+ */
+export function unclosableEmphasis(line) {
+  const spans = codeSpanRanges(line);
+  const inCodeSpan = (index) => spans.some(([from, to]) => index >= from && index < to);
+  let open = false;
+
+  for (const match of line.matchAll(/\*+/g)) {
+    // Only plain `**` runs; `*` and `***` carry other meanings and stay out of scope.
+    if (match[0].length !== 2 || inCodeSpan(match.index)) continue;
+    const before = characterClass(line[match.index - 1]);
+    const after = characterClass(line[match.index + 2]);
+    const canOpen = after !== "whitespace" && (after !== "punctuation" || before !== "other");
+    const canClose =
+      before !== "whitespace" && (before !== "punctuation" || after !== "other");
+
+    if (!open) {
+      open = canOpen;
+    } else if (canClose) {
+      open = false;
+    } else {
+      return line.slice(Math.max(0, match.index - 12), match.index + 14);
+    }
+  }
+  return null;
+}
+
+function validateEmphasis(errors) {
+  for (const file of markdownRoots.flatMap(markdownFiles)) {
+    const display = relative(repositoryRoot, file);
+    let fenced = false;
+    readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .forEach((line, index) => {
+        if (/^\s*(?:```|~~~)/.test(line)) fenced = !fenced;
+        if (fenced || !line.includes("**")) return;
+        const excerpt = unclosableEmphasis(line);
+        if (excerpt) {
+          errors.push(
+            `${display}:${index + 1}: bold cannot close after punctuation in "${excerpt}". ` +
+              "Move the punctuation outside the ** span.",
+          );
+        }
+      });
   }
 }
 
@@ -191,6 +270,7 @@ function validateAssembled(errors) {
 export function validateDocs({ assembled = false } = {}) {
   const errors = [];
   validateMarkdown(errors);
+  validateEmphasis(errors);
   validateScreenshotInventory(errors);
   validateNativeBoundaries(errors);
   if (assembled) validateAssembled(errors);

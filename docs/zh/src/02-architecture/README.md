@@ -122,7 +122,7 @@ flowchart TB
 
 **环境变量 `VANEHUB_APP_DATA_DIR` 可自定义数据目录**（`runtime.rs:345-350`），但**必须是绝对路径**——相对路径直接报错，空值退回默认。
 
-**这为并行开发提供了隔离手段**：不同 worktree 指向不同数据目录，可以规避共享 SQLite 带来的迁移版本冲突，见 [开发环境搭建](../04-development/setup.md#迁移版本号冲突)。
+**这为并行开发提供了隔离手段**：不同 worktree 指向不同数据目录，可以规避共享 SQLite 带来的迁移版本冲突，见 [开发环境搭建](../03-development/setup.md#迁移版本号冲突)。
 
 ### 启动阶段的日志
 
@@ -147,20 +147,119 @@ flowchart TB
 
 **根 crate 还有另外三组测试**（`lib.rs:13-19`）：`migration_fixture_tests`（迁移夹具）、`native_lifecycle_tests`（原生生命周期）、`remote_terminal_migration_tests`（远程终端迁移）。
 
+## 一次发消息经过什么
+
+**上面的分层图是静态的**。下面是一条真实路径——你在对话框里敲下一句话、按回车之后发生的事，每一跳都标了负责的篇章。
+
+```mermaid
+sequenceDiagram
+  participant U as 组件
+  participant S as services/
+  participant C as Tauri command
+  participant A as api.rs
+  participant AP as application/
+  participant P as permissions
+  participant PR as 进程 / provider
+  participant DB as SQLite
+
+  U->>S: sendMessage(...)
+  Note over S: runtime-*-client 按运行时选实现
+  S->>C: invoke("...")
+  Note over C: DTO → 领域类型，仅此而已
+  C->>A: api 门面
+  A->>AP: 服务编排
+  AP->>DB: 落库用户消息
+  AP->>AP: 注入 Custom Instructions + 记忆
+  AP->>PR: 启动 / 复用进程，或调 provider
+  PR-->>AP: 输出（字节流）
+  AP->>P: 动作需要判定时 evaluate()
+  P-->>AP: Allow / Deny / Ask
+  AP->>DB: 落库助手消息 + Span
+  AP-->>U: 事件流回推
+```
+
+| 跳 | 关键决策 | 详见 |
+|---|---|---|
+| 组件 → services | 组件禁止 `invoke()`；按运行时分派 | [前端架构](frontend.md) |
+| services → command | 参数包在 `input` 里；命令名由契约测试钉住 | [限界上下文](bounded-contexts.md#一个命令长什么样) |
+| command → api | 只做 DTO 映射与错误转换 | [限界上下文](bounded-contexts.md#命令层约定) |
+| api → application | 编排步骤，只依赖端口 trait | [端口与适配器](ports-and-adapters.md#一个完整的例子创建-worktree) |
+| 注入上下文 | 风格规则排在「关于你」之前 | [个性化](personalization.md#拼成什么样子) |
+| 启动进程 | 权限模板落成参数 / 环境变量 / 钩子 | [CLI 集成](cli-integration.md#同一个-standard-模板的四种落地形态) |
+| 读输出 | 流式 UTF-8 解码，保留不完整尾部 | [进程与 PTY](process-and-pty.md#三个分支区别全在-error_len) |
+| 权限判定 | 四步顺序，失败关闭到 `Ask` | [权限架构](permissions-architecture.md#判定顺序) |
+| 落库 | 连接池 + WAL + 外键，迁移版本门控 | [数据层](data-layer.md#池的四个常量) |
+| 记录 Span | 属性两级脱敏后写入 | [可观测性架构](observability-architecture.md#两级脱敏) |
+
+**这条链路横跨 10 篇文档**——这也是为什么单看任何一篇都不足以理解整体，而看完分层图又填不上细节。
+
+## 功能与限界上下文的对应
+
+**从"我要改哪个功能"反查"该进哪个上下文"**（`src-tauri/src/contexts/mod.rs:3-13`）：
+
+| 限界上下文 | 承载的功能 | 实现详解 |
+|---|---|---|
+| `sessions` | 会话、分类、消息、聊天配置、工作区标签页、导出、**定时任务** | [会话](sessions.md)、[自动化与洞察](automation.md) |
+| `agent_runtime` | Agent 目录、CLI 进程、终端、群聊席位、Loop、记忆、个性化、专家角色、原生 API Agent | [群聊](group-chat.md)、[Loop](loop-engineering.md)、[个性化](personalization.md)、[原生 API Agent](native-agent.md) |
+| `permissions` | 权限审批、授权模板、审计、Claude Code 钩子桥接 | [权限架构](permissions-architecture.md) |
+| `tooling` | MCP、Skills、扩展、插件、Prompt Hooks、SDK、CLI 配置与参数（8 个子域） | [工具生态](tooling.md)、[MCP 集成](mcp-integration.md) |
+| `workspaces` | 项目、worktree、路径边界、shell 与输出捕获、命令模板、文件夹打开器 | [项目与工作区](workspaces.md) |
+| `ssh_connections` | SSH 连接与远程终端运行时 | [远程与 IM](remote-and-im.md) |
+| `communications` | 五个 IM 连接器 | [远程与 IM](remote-and-im.md) |
+| `operations` | 长时操作的排队、状态与日志 | [自动化与洞察](automation.md) |
+| `execution_observability` | 执行追踪、Span 存储、采集策略、保留清理 | [可观测性架构](observability-architecture.md) |
+| `retrieval` | 记忆池的混合检索（服务于原生 API Agent） | [原生 API Agent](native-agent.md) |
+| `desktop` | 设置、悬浮助手、托盘、启动项、网络代理、前端日志上报 | [自动化与洞察](automation.md) |
+
 ## 各篇导航
+
+**基础**——先读这三篇，其余各篇都建立在它们之上：
 
 | 文档 | 讲什么 |
 |---|---|
 | [技术栈与选型](tech-stack.md) | 每项技术为什么选它，实际版本 |
 | [限界上下文](bounded-contexts.md) | 11 个上下文的职责与边界 |
 | [端口与适配器](ports-and-adapters.md) | 四层结构与依赖倒置的落地方式 |
+
+**横切机制**——跨多个上下文的公共设施：
+
+| 文档 | 讲什么 |
+|---|---|
 | [CLI 集成](cli-integration.md) | 四个 CLI 的差异如何被吸收 |
 | [进程与 PTY](process-and-pty.md) | 子进程管理、Job Object、PTY、UTF-8 解码 |
 | [权限架构](permissions-architecture.md) | PDP/PEP 分层与四步判定 |
-| [可观测性架构](observability-architecture.md) | 四级 Span 与 traceparent 传播 |
+| [可观测性架构](observability-architecture.md) | 四级 Span、traceparent 传播与统一日志 |
 | [数据层](data-layer.md) | SQLite、连接池与迁移 |
 | [前端架构](frontend.md) | React 结构与 services 层约定 |
 | [MCP 集成](mcp-integration.md) | rmcp、中继与私有目录 |
+
+**功能域实现**——单个能力从领域模型到落库的完整链路：
+
+| 文档 | 讲什么 |
+|---|---|
+| [会话](sessions.md) | 会话模型、标识校验、聊天配置与推理深度钳制、归档保护、9 个标签页 |
+| [多 Agent 群聊](group-chat.md) | 席位、句柄派生、**交接解析的五条防御**、三种交回意图、模型族判定 |
+| [Loop 工程化运行时](loop-engineering.md) | 七态五阶段、判定优先级、十二种终止原因、**三维指纹无进展检测**、启动恢复 |
+| [个性化](personalization.md) | Custom Instructions、共享记忆池、**OnePiece 代做提取**、专家角色与评审策略 |
+| [原生 API Agent](native-agent.md) | 25 家 provider、调用构造、两层记忆、**记忆池混合检索与 RRF 融合** |
+| [工具生态](tooling.md) | MCP、Skills 漂移检测、Prompt Hooks、**OCR/ASR/TTS 扩展**、两个受管 SDK、CLI 冲突 |
+| [项目与工作区](workspaces.md) | 项目探测、worktree、**两层路径防逃逸**、shell、输出捕获与容量常量 |
+| [远程与 IM](remote-and-im.md) | SSH 与 **TOFU 主机密钥**、连接池、五个 IM 连接器、七态生命周期、字段级密级 |
+| [自动化与洞察](automation.md) | 定时任务与时区分工、长时操作、通知作用域、**四维 token 与幂等采集**、桌面集成 |
+
+## 几处容易误解的地方
+
+**这些是读代码时确认过、但从命名上看不出来的事实**——每一条都曾让人绕过弯路：
+
+| 常见理解 | 实际情况 |
+|---|---|
+| 「向量检索」= 对项目代码建索引 | **只索引 `agent_memories`**——`SourceKind` 当前唯一变体是 `AgentMemory`（`retrieval/domain/document.rs:4-8`） |
+| 记忆按 Agent 隔离 | **主机级共享池**，迁移 42 之后读取不再按 `agent_id`/`folder` 过滤 |
+| CLI Agent 自己提取记忆 | **由 OnePiece 代劳**；未配置 OnePiece provider 则不产生记忆（`memory_extraction_gateway.rs:12-19`） |
+| 「本地扩展」= 通用插件 | **是 OCR / ASR / TTS 三类本地 AI 框架**（PaddleOCR、faster-whisper、sherpa-onnx） |
+| 定时任务属于 `operations` 上下文 | **实现在 `sessions`**，因为它的产物是会话 |
+| `Trusted` 比 `Yolo` 更严格 | **两者策略规则完全相同**，只在赋予时的确认强度上有别（`template.rs:51-57`） |
+| `Readonly` 模板禁止一切 | **`file.read` 与 `memory.write` 恒为放行**，模板只区分 `shell.exec` 与 `file.write` |
 
 ## 已知取舍
 

@@ -106,12 +106,13 @@ Web/mock は決定的なブラウザシミュレーションです。ローカ�
 
 ## ドキュメント
 
-- [ユーザーガイド — English / 简体中文](docs/user-guide/README.md)
-- [開発者ガイドのソース](docs/developer-guide/src/index.md)
-- [Native architecture inventory](src-tauri/ARCHITECTURE.md)
-- [コントリビューションガイド](CONTRIBUTING.md)
-- [ネイティブビルド性能ガイド](docs/build-performance.md)
-- [リリース署名ガイド](docs/release-signing.md)
+<!-- docs-locale-guides -->
+
+日本語のユーザーガイドと開発者ガイドは、今後の変更で追加します。現時点で日本語なのはこの README と、アプリケーション UI のみです。
+
+<!-- /docs-locale-guides -->
+
+リファレンス：[native architecture inventory](src-tauri/ARCHITECTURE.md) · [コントリビューション](CONTRIBUTING.md) · [ネイティブビルド性能](docs/build-performance.md) · [リリース署名](docs/release-signing.md)
 
 mdBook ガイドと Rustdoc reference をビルドします。
 
