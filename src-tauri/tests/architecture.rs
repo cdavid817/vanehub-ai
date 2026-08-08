@@ -1002,3 +1002,92 @@ fn raw_error_display_conversions(source: &str) -> Result<Vec<usize>, String> {
     visitor.visit_file(&syntax);
     Ok(visitor.lines)
 }
+
+/// Every console-subsystem probe the app runs (`where`, `reg`, `node --version`) is spawned from a
+/// GUI-subsystem process. Without `CREATE_NO_WINDOW` Windows allocates a console for each one, so
+/// startup detection flashes a burst of console windows across the user's desktop.
+///
+/// `spawn_detached` is deliberately excluded: it passes `DETACHED_PROCESS`, and Windows ignores
+/// `CREATE_NO_WINDOW` when that flag is present.
+#[test]
+fn windows_command_constructors_suppress_console_windows() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("platform")
+        .join("process")
+        .join("mod.rs");
+    let source = fs::read_to_string(&path).expect("read platform process adapter");
+    let syntax = syn::parse_file(&source).expect("parse platform process adapter");
+
+    let mut missing = Vec::new();
+    for expected in ["std_command", "tokio_command"] {
+        let function = syntax
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Fn(function) if function.sig.ident == expected => Some(function),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{expected} is declared in platform/process/mod.rs"));
+
+        let mut visitor = ConsoleSuppressionVisitor { found: false };
+        visitor.visit_item_fn(function);
+        if !visitor.found {
+            missing.push(expected);
+        }
+    }
+
+    assert!(
+        missing.is_empty(),
+        "these command constructors never suppress the child console window, so every console \
+         subsystem child flashes a window: {}",
+        missing.join(", ")
+    );
+}
+
+#[derive(Default)]
+struct ConsoleSuppressionVisitor {
+    found: bool,
+}
+
+impl<'ast> Visit<'ast> for ConsoleSuppressionVisitor {
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let Expr::Path(callee) = node.func.as_ref() {
+            if callee
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "suppress_console_window")
+            {
+                self.found = true;
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
+    }
+
+    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
+        if node.method == "suppress_console_window" {
+            self.found = true;
+        }
+        syn::visit::visit_expr_method_call(self, node);
+    }
+}
+
+/// Guards the flag value itself: a typo here would silently reintroduce the visible console.
+#[test]
+#[cfg(windows)]
+fn console_suppression_flag_matches_the_windows_constant() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("platform")
+            .join("process")
+            .join("mod.rs"),
+    )
+    .expect("read platform process adapter");
+
+    assert!(
+        source.contains("0x0800_0000"),
+        "CREATE_NO_WINDOW (0x08000000) must be the flag applied by suppress_console_window"
+    );
+}
