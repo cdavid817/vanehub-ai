@@ -126,5 +126,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-07 | bound-short-query-message-search | session-management | `openspec/changes/archive/2026-08-07-bound-short-query-message-search/` |
 | 2026-08-07 | contain-timed-out-process-trees | native-runtime-architecture | `openspec/changes/archive/2026-08-07-contain-timed-out-process-trees/` |
 | 2026-08-07 | surface-cli-error-results | session-runtime-management | `openspec/changes/archive/2026-08-07-surface-cli-error-results/` |
+| 2026-08-08 | workspace-code-indexing-foundation | retrieval-vector-search, workspace-code-indexing | `openspec/changes/archive/2026-08-08-workspace-code-indexing-foundation/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

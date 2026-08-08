@@ -119,6 +119,13 @@ import type {
 } from "../types/cli-agent-config";
 import type { ProviderCredentialValidationResult } from "../types/provider-credential-validation";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
+import type {
+  CodeEmbeddingConfirmation,
+  CodeIndexAuditEntry,
+  CodeIndexConfigurationInput,
+  CodeIndexStatus,
+  CodeIndexWorkspace,
+} from "../types/code-index";
 
 export interface AgentService {
   openExternalUrl(url: string): Promise<void>;
@@ -149,6 +156,25 @@ export interface AgentService {
   listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
   getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
   rebuildRetrievalIndex(): Promise<void>;
+  listCodeIndexWorkspaces(): Promise<CodeIndexWorkspace[]>;
+  getCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
+  registerCodeIndexWorkspace(root: string, displayName: string): Promise<CodeIndexWorkspace>;
+  saveCodeIndexConfiguration(
+    workspaceId: string,
+    configuration: CodeIndexConfigurationInput,
+  ): Promise<CodeIndexWorkspace>;
+  refreshCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexStatus>;
+  confirmCodeIndexEmbedding(
+    workspaceId: string,
+    profileId: string,
+    model: string,
+    generation: number,
+  ): Promise<CodeEmbeddingConfirmation>;
+  getCodeIndexStatus(workspaceId: string): Promise<CodeIndexStatus>;
+  listCodeIndexAudit(workspaceId: string, limit?: number): Promise<CodeIndexAuditEntry[]>;
+  rebuildCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
+  disableCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
+  deleteCodeIndexWorkspace(workspaceId: string): Promise<void>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;

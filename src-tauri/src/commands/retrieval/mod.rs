@@ -1,3 +1,4 @@
+pub(crate) mod code_index;
 pub(crate) mod get_retrieval_configuration;
 pub(crate) mod get_retrieval_index_status;
 pub(crate) mod list_embedding_models;

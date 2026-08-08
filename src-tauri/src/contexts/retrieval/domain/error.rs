@@ -4,6 +4,8 @@ pub(crate) enum RetrievalError {
     Storage(String),
     Embedding(String),
     NotConfigured,
+    InvalidScope,
+    Validation(String),
     /// 两路召回都失败。与"两路都可用但没命中"必须是不同的结果：把"搜不了"报告成
     /// "没有"，会让模型据此断定用户从没提过某事。
     Unavailable,
@@ -18,6 +20,8 @@ impl RetrievalError {
             Self::Storage(_) => "storage",
             Self::Embedding(_) => "embedding",
             Self::NotConfigured => "not_configured",
+            Self::InvalidScope => "invalid_scope",
+            Self::Validation(_) => "validation",
             Self::Unavailable => "unavailable",
         }
     }
@@ -29,6 +33,8 @@ impl std::fmt::Display for RetrievalError {
             Self::Storage(message) => write!(formatter, "retrieval storage error: {message}"),
             Self::Embedding(message) => write!(formatter, "embedding error: {message}"),
             Self::NotConfigured => write!(formatter, "retrieval is not configured"),
+            Self::InvalidScope => write!(formatter, "retrieval source and scope are incompatible"),
+            Self::Validation(message) => write!(formatter, "retrieval validation error: {message}"),
             Self::Unavailable => write!(formatter, "retrieval is temporarily unavailable"),
         }
     }
@@ -61,6 +67,11 @@ mod tests {
             "embedding"
         );
         assert_eq!(RetrievalError::NotConfigured.category(), "not_configured");
+        assert_eq!(RetrievalError::InvalidScope.category(), "invalid_scope");
+        assert_eq!(
+            RetrievalError::Validation("SENSITIVE-SENTINEL".to_string()).category(),
+            "validation"
+        );
         assert_eq!(RetrievalError::Unavailable.category(), "unavailable");
     }
 }

@@ -5,18 +5,18 @@ use super::tools::{
 };
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    plan_mode_tool_catalog, recall_tool_definition, tool_catalog, AgentChatConfiguration,
-    AgentClockPort, AgentCoreInstructionsPort, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentPermissionPort,
-    AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
-    AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    PersonalizationSettings, ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision,
-    ToolApprovalPort, ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    EDIT_TOOL_NAME, FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
-    SHELL_TOOL_NAME,
+    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
+    AgentChatConfiguration, AgentClockPort, AgentCodeRetrievalOutcome, AgentCoreInstructionsPort,
+    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
+    AgentMessage, AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink,
+    AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError,
+    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
+    ConversationHistoryPort, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, PersonalizationSettings, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::platform::network::blocking_http_client;
@@ -512,7 +512,25 @@ fn execute(
     // call unconditionally on every generation's catalog resolution, matching how `plan_mode`
     // itself is derived just above.
     let retrieval_available = retrieval.is_configured();
-    let tools = resolve_tool_catalog(request, mcp, logging, clock, plan_mode, retrieval_available);
+    let code_search_available = request
+        .session
+        .folder
+        .as_deref()
+        .and_then(|folder| {
+            retrieval
+                .code_retrieval()
+                .map(|code| code.is_available(folder))
+        })
+        .unwrap_or(false);
+    let tools = resolve_tool_catalog(
+        request,
+        mcp,
+        logging,
+        clock,
+        plan_mode,
+        retrieval_available,
+        code_search_available,
+    );
     let generation_options = generation_options_from_configuration(&request.configuration);
     let mut turns = (wire_format.history_to_turns)(&recent);
     if let Some(failure) = maybe_compact(
@@ -840,11 +858,15 @@ fn resolve_tool_catalog(
     clock: &dyn AgentClockPort,
     plan_mode: bool,
     retrieval_available: bool,
+    code_search_available: bool,
 ) -> Vec<ToolDefinition> {
     if plan_mode {
         let mut tools = plan_mode_tool_catalog();
         if retrieval_available {
             tools.push(recall_tool_definition());
+        }
+        if code_search_available {
+            tools.push(search_code_tool_definition());
         }
         return tools;
     }
@@ -871,6 +893,9 @@ fn resolve_tool_catalog(
     }
     if retrieval_available {
         tools.push(recall_tool_definition());
+    }
+    if code_search_available {
+        tools.push(search_code_tool_definition());
     }
     tools
 }
@@ -1472,6 +1497,22 @@ fn execute_tool_call(
     if name == RECALL_TOOL_NAME {
         return execute_recall(input, retrieval);
     }
+    if name == SEARCH_CODE_TOOL_NAME {
+        let Some(folder) = workspace_folder else {
+            return ToolExecutionOutcome {
+                output: "Code search is unavailable because this session has no workspace folder."
+                    .to_string(),
+                is_error: true,
+            };
+        };
+        let Some(code_retrieval) = retrieval.code_retrieval() else {
+            return ToolExecutionOutcome {
+                output: "Code search is not enabled for this workspace.".to_string(),
+                is_error: true,
+            };
+        };
+        return execute_search_code(input, folder, code_retrieval);
+    }
     // Plan mode (`add-agent-chat-configuration`) excludes MCP-sourced tools and `shell` from the
     // catalog entirely, and narrows `file` to `read` — but the catalog only shapes what the model
     // is *told* it can do. This is the actual enforcement boundary: nothing stops a model from
@@ -1696,6 +1737,64 @@ fn recall_payload(outcome: &AgentRetrievalOutcome) -> Value {
     }
 }
 
+fn execute_search_code(
+    input: &Value,
+    workspace_folder: &str,
+    retrieval: &dyn crate::contexts::agent_runtime::application::AgentCodeRetrievalPort,
+) -> ToolExecutionOutcome {
+    let query = input
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if query.is_empty() {
+        return ToolExecutionOutcome {
+            output: "No query was provided to search_code.".to_string(),
+            is_error: true,
+        };
+    }
+    let limit = input
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(5)
+        .clamp(1, 20) as usize;
+    match retrieval.search_code(workspace_folder, query, limit) {
+        Ok(outcome) => ToolExecutionOutcome {
+            output: serde_json::to_string(&code_search_payload(&outcome))
+                .unwrap_or_else(|_| "{\"results\":[]}".to_string()),
+            is_error: false,
+        },
+        Err(_) => ToolExecutionOutcome {
+            output: "Code search is temporarily unavailable. Continue without it.".to_string(),
+            is_error: false,
+        },
+    }
+}
+
+fn code_search_payload(outcome: &AgentCodeRetrievalOutcome) -> Value {
+    let hits = outcome
+        .hits
+        .iter()
+        .map(|hit| {
+            json!({
+                "file_path": hit.file_path,
+                "start_line": hit.start_line,
+                "end_line": hit.end_line,
+                "language": hit.language,
+                "symbol_name": hit.symbol_name,
+                "symbol_kind": hit.symbol_kind,
+                "snippet": hit.snippet,
+                "matched_via": hit.matched_via,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut payload = json!({ "results": hits });
+    if let Some(degraded) = &outcome.degraded {
+        payload["degraded"] = Value::String(degraded.clone());
+    }
+    payload
+}
+
 fn failed_non_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::non_retryable(message.to_string()))
 }
@@ -1718,8 +1817,9 @@ fn failed_retryable(message: &str) -> GenerationProcessEvent {
 mod tests {
     use super::*;
     use crate::contexts::agent_runtime::application::{
-        AgentLaunchView, AgentRetrievalHit, AgentSession, AgentView, CliProfileSnapshot,
-        GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
+        AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
+        AgentSession, AgentView, CliProfileSnapshot, GenerationProcessFailureKind,
+        INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -2098,6 +2198,51 @@ mod tests {
 
         fn notify_source_changed(&self) {
             self.wake_calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct FakeCodeRetrieval {
+        outcome: Result<AgentCodeRetrievalOutcome, String>,
+        calls: Mutex<Vec<(String, String, usize)>>,
+    }
+
+    impl AgentCodeRetrievalPort for FakeCodeRetrieval {
+        fn is_available(&self, _workspace_folder: &str) -> bool {
+            true
+        }
+
+        fn search_code(
+            &self,
+            workspace_folder: &str,
+            query: &str,
+            limit: usize,
+        ) -> Result<AgentCodeRetrievalOutcome, String> {
+            self.calls.lock().expect("calls").push((
+                workspace_folder.to_string(),
+                query.to_string(),
+                limit,
+            ));
+            self.outcome.clone()
+        }
+    }
+
+    struct CodeOnlyRetrieval {
+        code: FakeCodeRetrieval,
+    }
+
+    impl AgentRetrievalPort for CodeOnlyRetrieval {
+        fn is_configured(&self) -> bool {
+            false
+        }
+
+        fn search(&self, _query: &str, _limit: usize) -> Result<AgentRetrievalOutcome, String> {
+            Err("memory retrieval is unused".to_string())
+        }
+
+        fn notify_source_changed(&self) {}
+
+        fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
+            Some(&self.code)
         }
     }
 
@@ -3885,7 +4030,8 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false);
+        let tools =
+            resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
         assert_eq!(tools.len(), 7);
         assert!(tools.contains(&mcp_tool));
@@ -3915,6 +4061,7 @@ mod tests {
             &mcp,
             &RecordingLogging::default(),
             &FixedClock,
+            false,
             false,
             false,
         );
@@ -3957,6 +4104,7 @@ mod tests {
             &FixedClock,
             false,
             true,
+            false,
         );
 
         assert_eq!(tools.len(), 263);
@@ -3975,7 +4123,8 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false);
+        let tools =
+            resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
         assert_eq!(
             tools.len(),
@@ -4011,7 +4160,7 @@ mod tests {
         );
         let logging = RecordingLogging::default();
 
-        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true, false);
+        let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true, false, false);
 
         assert_eq!(tools, plan_mode_tool_catalog());
         assert_eq!(
@@ -4026,8 +4175,15 @@ mod tests {
     fn resolve_tool_catalog_omits_recall_when_retrieval_is_not_configured() {
         let request = sample_request("api");
 
-        let tools =
-            resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, false, false);
+        let tools = resolve_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            false,
+            false,
+        );
 
         assert!(tools.iter().all(|tool| tool.name != RECALL_TOOL_NAME));
     }
@@ -4036,8 +4192,15 @@ mod tests {
     fn resolve_tool_catalog_offers_recall_when_retrieval_is_configured() {
         let request = sample_request("api");
 
-        let tools =
-            resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, false, true);
+        let tools = resolve_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            true,
+            false,
+        );
 
         assert_eq!(tools.len(), 7);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
@@ -4047,11 +4210,118 @@ mod tests {
     fn plan_mode_offers_recall_when_configured_because_planning_needs_history_most() {
         let request = sample_request("api");
 
-        let tools = resolve_tool_catalog(&request, &NoopMcp, &NoopLogging, &FixedClock, true, true);
+        let tools = resolve_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            true,
+            true,
+            false,
+        );
 
         let mut expected = plan_mode_tool_catalog();
         expected.push(recall_tool_definition());
         assert_eq!(tools, expected);
+    }
+
+    #[test]
+    fn resolve_tool_catalog_offers_search_code_only_for_an_available_workspace() {
+        let request = sample_request("api");
+        let tools = resolve_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            false,
+            true,
+        );
+        assert_eq!(tools.last().expect("last tool").name, SEARCH_CODE_TOOL_NAME);
+
+        let unavailable = resolve_tool_catalog(
+            &request,
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            false,
+            false,
+        );
+        assert!(unavailable
+            .iter()
+            .all(|tool| tool.name != SEARCH_CODE_TOOL_NAME));
+    }
+
+    #[test]
+    fn search_code_uses_the_session_workspace_and_returns_read_file_coordinates() {
+        let directory = crate::test_support::TempDirectory::new("search-code-tool");
+        directory.write("src/auth.rs", "one\ntwo\nfn handle_login() {}\nfour\n");
+        let folder = directory.path().to_string_lossy().to_string();
+        let retrieval = CodeOnlyRetrieval {
+            code: FakeCodeRetrieval {
+                outcome: Ok(AgentCodeRetrievalOutcome {
+                    hits: vec![AgentCodeRetrievalHit {
+                        file_path: "src/auth.rs".to_string(),
+                        start_line: 3,
+                        end_line: 3,
+                        language: "rust".to_string(),
+                        symbol_name: Some("handle_login".to_string()),
+                        symbol_kind: Some("function".to_string()),
+                        snippet: "fn handle_login() {}".to_string(),
+                        matched_via: "keyword".to_string(),
+                    }],
+                    degraded: Some("keyword_only".to_string()),
+                }),
+                calls: Mutex::new(Vec::new()),
+            },
+        };
+        let outcome = execute_tool_call(
+            SEARCH_CODE_TOOL_NAME,
+            &json!({
+                "query": "handle_login",
+                "limit": 1,
+                "workspace_id": "attacker-selected-workspace",
+                "folder": "C:\\other"
+            }),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+            false,
+        );
+        assert!(!outcome.is_error);
+        assert_eq!(
+            retrieval.code.calls.lock().expect("calls").as_slice(),
+            &[(folder.clone(), "handle_login".to_string(), 1)]
+        );
+        let payload: Value = serde_json::from_str(&outcome.output).expect("payload");
+        let hit = &payload["results"][0];
+        assert_eq!(hit["file_path"], "src/auth.rs");
+        assert_eq!(hit["start_line"], 3);
+        assert_eq!(payload["degraded"], "keyword_only");
+        assert!(!hit.as_object().expect("hit").contains_key("score"));
+
+        let read = execute_tool_call(
+            FILE_TOOL_NAME,
+            &json!({
+                "operation": "read",
+                "path": hit["file_path"],
+                "offset": hit["start_line"].as_u64().expect("line") - 1,
+                "limit": 1
+            }),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &retrieval,
+            false,
+        );
+        assert!(!read.is_error);
+        assert!(read.output.contains("fn handle_login() {}"));
     }
 
     #[test]

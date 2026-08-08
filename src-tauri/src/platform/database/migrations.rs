@@ -292,6 +292,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "message-speaker",
         crate::contexts::sessions::infrastructure::apply_message_speaker_schema,
     )?;
+    apply_migration(
+        conn,
+        49,
+        "workspace-code-index-foundation",
+        crate::contexts::retrieval::infrastructure::apply_code_index_schema,
+    )?;
 
     Ok(())
 }
@@ -930,7 +936,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (47, 48));
+        assert_eq!(migration_state, (48, 49));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -1,3 +1,5 @@
+pub(crate) mod code_embedding;
+pub(crate) mod code_search_service;
 pub(crate) mod indexing_service;
 pub(crate) mod ports;
 pub(crate) mod search_service;
@@ -7,7 +9,7 @@ pub(crate) mod search_service;
 // 消费（兜底轮询周期与重试退避表），另外三个可调常量只在 indexing_service.rs 内部使用，
 // 不需要经本路径导出。
 pub(crate) use indexing_service::{
-    BatchOutcome, IndexSourcePort, IndexSourceRecord, IndexingService,
+    BatchOutcome, IndexSourcePort, IndexSourceRecord, IndexingService, EMBEDDING_BATCH_SIZE,
     RECONCILE_POLL_INTERVAL_SECONDS, RETRY_BACKOFF_SECONDS,
 };
 // EmbeddingEndpointPort/EmbeddingFailure/EmbeddingPort 经这条 `application::` 路径被 Task 10 的
@@ -15,9 +17,9 @@ pub(crate) use indexing_service::{
 // 同一惯例（sqlite_repository.rs 的导入方式）。ResolvedEmbeddingEndpoint 由 bootstrap 的端点
 // 适配器具名构造，因此也在此列。
 pub(crate) use ports::{
-    EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort, ResolvedEmbeddingEndpoint,
-    RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
-    RetrievalIndexStatus,
+    CodeIndexRepository, CodeRetrievalPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
+    ResolvedEmbeddingEndpoint, RetrievalConfiguration, RetrievalConfigurationRepository,
+    RetrievalDocumentRepository, RetrievalIndexStatus,
 };
 // SearchService 由 bootstrap 装配并持有；SearchOutcome 经 api.rs 的 search() 返回给 Task 13 的
 // recall 工具（读取 hits/degraded 拼装工具结果）。

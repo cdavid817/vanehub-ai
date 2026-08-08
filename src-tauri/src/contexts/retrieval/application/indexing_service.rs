@@ -1,6 +1,6 @@
 use crate::contexts::retrieval::domain::{
     content_hash, document_id, FailureCategory, IndexState, RetrievalDocument, RetrievalError,
-    SourceKind,
+    RetrievalScope, SourceKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,6 +38,18 @@ pub(crate) trait IndexSourcePort: Send + Sync {
     fn fetch(&self, source_ids: &[String]) -> Result<Vec<IndexSourceRecord>, RetrievalError>;
 }
 
+pub(crate) trait IndexGenerationGuard: Send + Sync {
+    fn is_current(&self, scope: &RetrievalScope) -> Result<bool, RetrievalError>;
+}
+
+struct AlwaysCurrentGeneration;
+
+impl IndexGenerationGuard for AlwaysCurrentGeneration {
+    fn is_current(&self, _scope: &RetrievalScope) -> Result<bool, RetrievalError> {
+        Ok(true)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IndexSourceRecord {
     pub(crate) source_id: String,
@@ -53,6 +65,9 @@ pub(crate) struct IndexingService {
     repository: Arc<dyn RetrievalDocumentRepository>,
     source: Arc<dyn IndexSourcePort>,
     embeddings: Arc<dyn EmbeddingPort>,
+    source_kind: SourceKind,
+    scope: RetrievalScope,
+    generation_guard: Arc<dyn IndexGenerationGuard>,
 }
 
 impl IndexingService {
@@ -61,11 +76,50 @@ impl IndexingService {
         source: Arc<dyn IndexSourcePort>,
         embeddings: Arc<dyn EmbeddingPort>,
     ) -> Self {
-        Self {
+        Self::new_scoped(
             repository,
             source,
             embeddings,
-        }
+            SourceKind::AgentMemory,
+            RetrievalScope::GlobalMemory,
+        )
+        .expect("agent memory always uses the global memory scope")
+    }
+
+    pub(crate) fn new_scoped(
+        repository: Arc<dyn RetrievalDocumentRepository>,
+        source: Arc<dyn IndexSourcePort>,
+        embeddings: Arc<dyn EmbeddingPort>,
+        source_kind: SourceKind,
+        scope: RetrievalScope,
+    ) -> Result<Self, RetrievalError> {
+        Self::new_scoped_with_guard(
+            repository,
+            source,
+            embeddings,
+            source_kind,
+            scope,
+            Arc::new(AlwaysCurrentGeneration),
+        )
+    }
+
+    pub(crate) fn new_scoped_with_guard(
+        repository: Arc<dyn RetrievalDocumentRepository>,
+        source: Arc<dyn IndexSourcePort>,
+        embeddings: Arc<dyn EmbeddingPort>,
+        source_kind: SourceKind,
+        scope: RetrievalScope,
+        generation_guard: Arc<dyn IndexGenerationGuard>,
+    ) -> Result<Self, RetrievalError> {
+        scope.validate_for(source_kind)?;
+        Ok(Self {
+            repository,
+            source,
+            embeddings,
+            source_kind,
+            scope,
+            generation_guard,
+        })
     }
 
     /// 索引的真源是这一次差集协调，而**不是**保存路径上的双写。
@@ -77,7 +131,7 @@ impl IndexingService {
         let records = self.source.snapshot()?;
         let existing: HashMap<String, String> = self
             .repository
-            .list_indexed_source_ids(SourceKind::AgentMemory)?
+            .list_indexed_source_ids_scoped(self.source_kind, &self.scope)?
             .into_iter()
             .collect();
 
@@ -91,25 +145,31 @@ impl IndexingService {
                 Some(_) => outcome.invalidated += 1,
                 None => outcome.added += 1,
             }
-            self.repository.upsert_pending(&RetrievalDocument {
-                id: document_id(SourceKind::AgentMemory, &record.source_id),
-                source_kind: SourceKind::AgentMemory,
-                source_id: record.source_id.clone(),
-                scope_agent_id: record.agent_id.clone(),
-                scope_folder: record.folder.clone(),
-                content: record.content.clone(),
-                content_hash: hash,
-                index_state: IndexState::Pending,
-                attempt_count: 0,
-                embedding_model: None,
-            })?;
+            self.repository.upsert_pending_scoped(
+                &RetrievalDocument {
+                    id: document_id(self.source_kind, &record.source_id),
+                    source_kind: self.source_kind,
+                    source_id: record.source_id.clone(),
+                    scope_agent_id: record.agent_id.clone(),
+                    scope_folder: record.folder.clone(),
+                    content: record.content.clone(),
+                    content_hash: hash,
+                    index_state: IndexState::Pending,
+                    attempt_count: 0,
+                    embedding_model: None,
+                },
+                &self.scope,
+            )?;
         }
 
         // 孤儿清理是 §5.3 显式撤销失败时的兜底。少了它，一次失败的撤销调用会让索引行永久残留。
         for source_id in existing.keys() {
             if !live.contains(source_id.as_str()) {
-                self.repository
-                    .delete_by_source(SourceKind::AgentMemory, source_id)?;
+                self.repository.delete_by_source_scoped(
+                    self.source_kind,
+                    &self.scope,
+                    source_id,
+                )?;
                 outcome.orphans_removed += 1;
             }
         }
@@ -123,9 +183,22 @@ impl IndexingService {
         &self,
         model: &str,
     ) -> Result<BatchOutcome, RetrievalError> {
-        let batch = self
-            .repository
-            .claim_pending_batch(SourceKind::AgentMemory, EMBEDDING_BATCH_SIZE)?;
+        self.process_pending_batch_with_identity(model, model)
+    }
+
+    pub(crate) fn process_pending_batch_with_identity(
+        &self,
+        request_model: &str,
+        embedding_identity: &str,
+    ) -> Result<BatchOutcome, RetrievalError> {
+        if !self.generation_guard.is_current(&self.scope)? {
+            return Ok(BatchOutcome::default());
+        }
+        let batch = self.repository.claim_pending_batch_scoped(
+            self.source_kind,
+            &self.scope,
+            EMBEDDING_BATCH_SIZE,
+        )?;
         if batch.is_empty() {
             return Ok(BatchOutcome::default());
         }
@@ -134,7 +207,11 @@ impl IndexingService {
             .map(|document| truncate_for_embedding(&document.content))
             .collect();
 
-        match self.embeddings.embed(model, &inputs) {
+        let embedding_result = self.embeddings.embed(request_model, &inputs);
+        if !self.generation_guard.is_current(&self.scope)? {
+            return Ok(BatchOutcome::default());
+        }
+        match embedding_result {
             // 数量对不上说明 provider 的响应与请求不成对，不能靠位置把向量配给文档——
             // 错配的向量比没有向量更糟：它会安静地污染检索结果。
             Ok(vectors) if vectors.len() != batch.len() => {
@@ -149,17 +226,19 @@ impl IndexingService {
                     succeeded: 0,
                     failed: batch.len(),
                     last_failure_category: Some(FailureCategory::InvalidRequest),
+                    retry_after: None,
                 })
             }
             Ok(vectors) => {
                 for (document, vector) in batch.iter().zip(vectors.iter()) {
                     self.repository
-                        .store_embedding(&document.id, model, vector)?;
+                        .store_embedding(&document.id, embedding_identity, vector)?;
                 }
                 Ok(BatchOutcome {
                     succeeded: batch.len(),
                     failed: 0,
                     last_failure_category: None,
+                    retry_after: None,
                 })
             }
             Err(failure) => {
@@ -173,6 +252,7 @@ impl IndexingService {
                     succeeded: 0,
                     failed: batch.len(),
                     last_failure_category: Some(failure.category),
+                    retry_after: failure.retry_after,
                 })
             }
         }
@@ -201,11 +281,13 @@ pub(crate) struct BatchOutcome {
     /// 只给类别，不带原始错误文本——设计文档 §8.2 只允许索引失败日志落盘错误类别，不允许
     /// provider 响应体或凭据经这条路径渗出。`None` 表示本批没有失败（全部成功，或本来就是空批）。
     pub(crate) last_failure_category: Option<FailureCategory>,
+    pub(crate) retry_after: Option<std::time::Duration>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     struct FakeSource {
@@ -260,6 +342,7 @@ mod tests {
                 EmbedBehavior::Succeed(vectors) => Ok(vectors.clone()),
                 EmbedBehavior::Fail(category) => Err(EmbeddingFailure {
                     category: *category,
+                    retry_after: None,
                     message: "fake embedding failure".to_string(),
                 }),
             }
@@ -443,6 +526,46 @@ mod tests {
         (service, repository, embedder)
     }
 
+    struct FirstCheckOnlyGuard {
+        checks: AtomicUsize,
+    }
+
+    impl IndexGenerationGuard for FirstCheckOnlyGuard {
+        fn is_current(&self, _scope: &RetrievalScope) -> Result<bool, RetrievalError> {
+            Ok(self.checks.fetch_add(1, Ordering::SeqCst) == 0)
+        }
+    }
+
+    #[test]
+    fn stale_generation_discards_an_in_flight_embedding_response() {
+        let repository = Arc::new(FakeRepository {
+            pending: vec![pending_document("d1", "code", 0)],
+            ..FakeRepository::default()
+        });
+        let embedder = Arc::new(FakeEmbedder::succeeding(vec![vec![1.0, 2.0]]));
+        let service = IndexingService::new_scoped_with_guard(
+            repository.clone(),
+            Arc::new(FakeSource {
+                records: Vec::new(),
+            }),
+            embedder.clone(),
+            SourceKind::AgentMemory,
+            RetrievalScope::GlobalMemory,
+            Arc::new(FirstCheckOnlyGuard {
+                checks: AtomicUsize::new(0),
+            }),
+        )
+        .expect("guarded service");
+
+        assert_eq!(
+            service.process_pending_batch(MODEL).expect("batch"),
+            BatchOutcome::default()
+        );
+        assert_eq!(embedder.calls.lock().expect("calls").len(), 1);
+        assert!(repository.stored.lock().expect("stored").is_empty());
+        assert!(repository.failures.lock().expect("failures").is_empty());
+    }
+
     #[test]
     fn a_source_record_with_no_index_row_is_added() {
         let (service, repository) = service(vec![record("m1", "uses npm")], Vec::new());
@@ -571,7 +694,8 @@ mod tests {
             BatchOutcome {
                 succeeded: 0,
                 failed: 1,
-                last_failure_category: Some(FailureCategory::Auth)
+                last_failure_category: Some(FailureCategory::Auth),
+                ..BatchOutcome::default()
             }
         );
         assert_eq!(
@@ -598,7 +722,8 @@ mod tests {
             BatchOutcome {
                 succeeded: 0,
                 failed: 1,
-                last_failure_category: Some(FailureCategory::InvalidRequest)
+                last_failure_category: Some(FailureCategory::InvalidRequest),
+                ..BatchOutcome::default()
             }
         );
         assert_eq!(
@@ -624,7 +749,8 @@ mod tests {
             BatchOutcome {
                 succeeded: 0,
                 failed: 1,
-                last_failure_category: Some(FailureCategory::Network)
+                last_failure_category: Some(FailureCategory::Network),
+                ..BatchOutcome::default()
             }
         );
         assert_eq!(
@@ -654,7 +780,8 @@ mod tests {
             BatchOutcome {
                 succeeded: 0,
                 failed: 1,
-                last_failure_category: Some(FailureCategory::Network)
+                last_failure_category: Some(FailureCategory::Network),
+                ..BatchOutcome::default()
             }
         );
         assert_eq!(
@@ -726,7 +853,8 @@ mod tests {
             BatchOutcome {
                 succeeded: 0,
                 failed: 3,
-                last_failure_category: Some(FailureCategory::InvalidRequest)
+                last_failure_category: Some(FailureCategory::InvalidRequest),
+                ..BatchOutcome::default()
             }
         );
         assert!(repository.stored.lock().expect("lock").is_empty());

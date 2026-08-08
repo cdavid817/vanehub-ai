@@ -1791,6 +1791,20 @@
                          "capabilities":  [
                                               "session-runtime-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-08",
+                         "changeName":  "workspace-code-indexing-foundation",
+                         "path":  "openspec/changes/archive/2026-08-08-workspace-code-indexing-foundation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "retrieval-vector-search",
+                                              "workspace-code-indexing"
+                                          ]
                      }
                  ]
 }

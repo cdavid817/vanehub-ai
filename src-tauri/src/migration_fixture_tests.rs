@@ -7,10 +7,9 @@ const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
 /// Contiguous again: the 42 this branch left open was taken by `agent-memory-shared-pool` on
-/// main, and this branch's own four moved up to 45-48 behind `retrieval-vector-index` and
-/// `permissions-core`.
+/// main, and the later migrations remain dense through workspace code indexing at 49.
 fn expected_versions() -> Vec<i64> {
-    (1..=48).collect()
+    (1..=49).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

@@ -949,6 +949,34 @@ pub(crate) struct AgentRetrievalOutcome {
     pub(crate) degraded: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentCodeRetrievalHit {
+    pub(crate) file_path: String,
+    pub(crate) start_line: u32,
+    pub(crate) end_line: u32,
+    pub(crate) language: String,
+    pub(crate) symbol_name: Option<String>,
+    pub(crate) symbol_kind: Option<String>,
+    pub(crate) snippet: String,
+    pub(crate) matched_via: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AgentCodeRetrievalOutcome {
+    pub(crate) hits: Vec<AgentCodeRetrievalHit>,
+    pub(crate) degraded: Option<String>,
+}
+
+pub(crate) trait AgentCodeRetrievalPort: Send + Sync {
+    fn is_available(&self, workspace_folder: &str) -> bool;
+    fn search_code(
+        &self,
+        workspace_folder: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentCodeRetrievalOutcome, String>;
+}
+
 /// Outbound port to the `retrieval` context's hybrid memory search, consumed by the `recall` tool
 /// (`add-onepiece-vector-search` Task 13). Implemented in `bootstrap` over
 /// `retrieval::api::RetrievalApi` — mirrors `AgentSkillPort`/`AgentMcpToolPort`'s existing pattern
@@ -969,4 +997,8 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     /// called by `execute_remember` after a successful save (Task 14): no write, no wait, and
     /// failure is harmless — mirrors `RetrievalApi::wake_worker`'s own contract.
     fn notify_source_changed(&self);
+
+    fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
+        None
+    }
 }

@@ -41,13 +41,14 @@ function overview(profiles: OnePieceProviderProfile[], activeProfileId: string |
 }
 
 // The panel unconditionally mounts OnePieceRetrievalSection (onepiece-configuration-panel.tsx),
-// which fires these two queries on every render. Centralized here so every double in this file
+// which fires these queries on every render. Centralized here so every double in this file
 // gets harmless defaults without repeating them per test; a future third retrieval method needs
 // one edit here, not one per `it` block. Individual tests still override either key when the
 // scenario under test needs to observe or control that call.
 const retrievalDoubleDefaults: Partial<AgentService> = {
   getRetrievalConfiguration: async () => ({ sourceProfileId: null, embeddingModel: null }),
   getRetrievalIndexStatus: async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }),
+  listCodeIndexWorkspaces: async () => [],
 };
 
 function createPanelServiceDouble(overrides: Partial<AgentService>): AgentService {

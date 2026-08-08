@@ -12,6 +12,7 @@ import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../..
 import { OnePieceProfileActionDialog, type OnePieceProfileAction } from "./onepiece-profile-action-dialog";
 import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
 import { OnePieceRetrievalSection } from "./onepiece-retrieval-section";
+import { CodeIndexManagementSection } from "./code-index-management-section";
 
 const queryKey = ["agents", "onepiece-provider-profiles"] as const;
 
@@ -126,6 +127,7 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
       </section>
 
       <OnePieceRetrievalSection profiles={overview.profiles} service={service} />
+      <CodeIndexManagementSection service={service} />
 
       {operationError ? <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{operationError instanceof Error ? operationError.message : String(operationError)}</p> : null}
       {notice ? <p className="rounded-md border p-3 text-sm ucd-status-success" role="status">{notice}</p> : null}

@@ -4,10 +4,15 @@
 //! （设计文档 §4.1）。
 
 use super::application::{
-    RetrievalConfiguration, RetrievalConfigurationRepository, RetrievalDocumentRepository,
-    RetrievalIndexStatus, SearchOutcome, SearchService,
+    CodeIndexRepository, RetrievalConfiguration, RetrievalConfigurationRepository,
+    RetrievalDocumentRepository, RetrievalIndexStatus, SearchOutcome, SearchService,
 };
-use super::domain::{RetrievalError, RetrievalQuery, SourceKind};
+use super::domain::{
+    CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexAuditEvent,
+    CodeIndexConfigurationUpdate, CodeIndexStatus, CodeWorkspace, RetrievalError, RetrievalQuery,
+    RetrievalScope, SourceKind,
+};
+use std::path::Path;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
@@ -75,7 +80,11 @@ impl RetrievalApi {
         source_kind: SourceKind,
         source_id: &str,
     ) -> Result<(), RetrievalError> {
-        self.documents.delete_by_source(source_kind, source_id)
+        self.documents.delete_by_source_scoped(
+            source_kind,
+            &RetrievalScope::GlobalMemory,
+            source_id,
+        )
     }
 
     /// 每次生成的工具集解析路径上都会调用（Task 13），所以只做一次单行配置读取，且**永不**
@@ -103,7 +112,11 @@ impl RetrievalApi {
         model: &str,
     ) -> Result<(), RetrievalError> {
         self.configuration.save(profile_id, model)?;
-        self.documents.requeue_stale_model(model)?;
+        self.documents.requeue_stale_model_scoped(
+            SourceKind::AgentMemory,
+            &RetrievalScope::GlobalMemory,
+            model,
+        )?;
         self.worker.notify();
         Ok(())
     }
@@ -111,13 +124,15 @@ impl RetrievalApi {
     /// 与配置一样是全局的：检索能力对所有 agent 生效，`is_configured()` 也不分 agent，按
     /// 单个 agent 汇报状态只会让别的 agent 的索引行无处可见。
     pub(crate) fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
-        self.documents.index_status()
+        self.documents
+            .index_status_scoped(SourceKind::AgentMemory, &RetrievalScope::GlobalMemory)
     }
 
     /// 重建只把行打回 `pending` 并叫醒 worker，不在命令线程里同步跑 embedding——重建全部
     /// 记忆可能是几十次网络往返，阻塞在 command 上会让设置页整个卡住。
     pub(crate) fn rebuild(&self) -> Result<(), RetrievalError> {
-        self.documents.requeue_all()?;
+        self.documents
+            .requeue_all_scoped(SourceKind::AgentMemory, &RetrievalScope::GlobalMemory)?;
         self.worker.notify();
         Ok(())
     }
@@ -126,6 +141,123 @@ impl RetrievalApi {
     /// 失败而改变自己的结果。
     pub(crate) fn wake_worker(&self) {
         self.worker.notify();
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CodeIndexApi {
+    repository: Arc<dyn CodeIndexRepository>,
+    retrieval: RetrievalApi,
+}
+
+impl CodeIndexApi {
+    pub(crate) fn new(repository: Arc<dyn CodeIndexRepository>, retrieval: RetrievalApi) -> Self {
+        Self {
+            repository,
+            retrieval,
+        }
+    }
+
+    pub(crate) fn register_workspace(
+        &self,
+        root: &Path,
+        display_name: &str,
+    ) -> Result<CodeWorkspace, RetrievalError> {
+        self.repository.register_workspace(root, display_name)
+    }
+
+    pub(crate) fn list_workspaces(&self) -> Result<Vec<CodeWorkspace>, RetrievalError> {
+        self.repository.list_workspaces()
+    }
+
+    pub(crate) fn workspace(&self, workspace_id: &str) -> Result<CodeWorkspace, RetrievalError> {
+        self.repository
+            .load_workspace(workspace_id)?
+            .ok_or(RetrievalError::InvalidScope)
+    }
+
+    pub(crate) fn save_configuration(
+        &self,
+        workspace_id: &str,
+        update: CodeIndexConfigurationUpdate,
+    ) -> Result<CodeWorkspace, RetrievalError> {
+        let workspace = self
+            .repository
+            .save_workspace_configuration(workspace_id, update)?;
+        self.retrieval.wake_worker();
+        Ok(workspace)
+    }
+
+    pub(crate) fn refresh(&self, workspace_id: &str) -> Result<CodeIndexStatus, RetrievalError> {
+        let workspace = self.workspace(workspace_id)?;
+        super::infrastructure::code_reconciler::reconcile_workspace(
+            self.repository.as_ref(),
+            &workspace,
+        )?;
+        self.retrieval.wake_worker();
+        self.workspace_status(workspace_id)
+    }
+
+    pub(crate) fn confirm_embedding(
+        &self,
+        workspace_id: &str,
+        profile_id: &str,
+        model: &str,
+        generation: u64,
+    ) -> Result<CodeEmbeddingConfirmation, RetrievalError> {
+        let configuration = self.retrieval.configuration()?;
+        let Some((effective_profile, effective_model)) = configuration.resolved_model() else {
+            return Err(RetrievalError::NotConfigured);
+        };
+        if effective_profile != profile_id || effective_model != model {
+            return Err(RetrievalError::Validation(
+                "embedding confirmation does not match the effective provider and model"
+                    .to_string(),
+            ));
+        }
+        let confirmation = super::application::code_embedding::confirm_code_embedding(
+            self.repository.as_ref(),
+            workspace_id,
+            profile_id,
+            model,
+            generation,
+        )?;
+        self.retrieval.wake_worker();
+        Ok(confirmation)
+    }
+
+    pub(crate) fn workspace_status(
+        &self,
+        workspace_id: &str,
+    ) -> Result<CodeIndexStatus, RetrievalError> {
+        self.repository.workspace_status(workspace_id)
+    }
+
+    pub(crate) fn audit(
+        &self,
+        workspace_id: &str,
+        limit: usize,
+    ) -> Result<Vec<CodeIndexAuditEntry>, RetrievalError> {
+        self.repository.list_audit(workspace_id, limit)
+    }
+
+    pub(crate) fn rebuild(&self, workspace_id: &str) -> Result<CodeWorkspace, RetrievalError> {
+        let workspace = self.repository.rebuild_workspace(workspace_id)?;
+        self.repository
+            .record_audit(workspace_id, None, CodeIndexAuditEvent::Rebuilt, None, 1)?;
+        self.retrieval.wake_worker();
+        Ok(workspace)
+    }
+
+    pub(crate) fn disable(&self, workspace_id: &str) -> Result<CodeWorkspace, RetrievalError> {
+        let workspace = self.workspace(workspace_id)?;
+        let mut update = workspace.configuration()?;
+        update.enabled = false;
+        self.save_configuration(workspace_id, update)
+    }
+
+    pub(crate) fn delete(&self, workspace_id: &str) -> Result<(), RetrievalError> {
+        self.repository.delete_workspace(workspace_id)
     }
 }
 
@@ -138,8 +270,11 @@ mod tests {
         RetrievalIndexStatus, SearchService,
     };
     use crate::contexts::retrieval::domain::{
-        FailureCategory, RetrievalDocument, RetrievalError, SourceKind,
+        CodeIndexAuditReason, FailureCategory, RetrievalDocument, RetrievalError, SourceKind,
     };
+    use crate::contexts::retrieval::infrastructure::code_index_repository::SqliteCodeIndexRepository;
+    use crate::platform::database::NativeDatabase;
+    use crate::test_support::TempDirectory;
     use std::sync::{Arc, Mutex};
 
     /// 三种可编排行为：已配置 / 未配置 / 读配置本身失败。第三种是 `is_configured()` 的关键
@@ -384,5 +519,52 @@ mod tests {
 
         drop(wakeups);
         api.wake_worker();
+    }
+
+    #[test]
+    fn code_index_audit_api_is_bounded_to_the_requested_workspace() {
+        let database_directory = TempDirectory::new("code-index-api-database");
+        let first_root = TempDirectory::new("code-index-api-first");
+        let second_root = TempDirectory::new("code-index-api-second");
+        let database =
+            NativeDatabase::new(database_directory.path().to_path_buf()).expect("database");
+        let repository = Arc::new(SqliteCodeIndexRepository::new(database));
+        let first = repository
+            .register_workspace(first_root.path(), "first")
+            .expect("first workspace");
+        let second = repository
+            .register_workspace(second_root.path(), "second")
+            .expect("second workspace");
+        repository
+            .record_audit(
+                &first.workspace_id,
+                Some("src/first.rs"),
+                CodeIndexAuditEvent::Admitted,
+                None,
+                1,
+            )
+            .expect("first audit");
+        repository
+            .record_audit(
+                &second.workspace_id,
+                Some("src/second.rs"),
+                CodeIndexAuditEvent::Skipped,
+                Some(CodeIndexAuditReason::UserExcluded),
+                1,
+            )
+            .expect("second audit");
+        let (retrieval, _documents, _wakeups) = api(FakeConfigurationRepository::Configured);
+        let code_api = CodeIndexApi::new(repository, retrieval);
+
+        let entries = code_api
+            .audit(&first.workspace_id, usize::MAX)
+            .expect("audit");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].workspace_id, first.workspace_id);
+        assert_eq!(entries[0].relative_path.as_deref(), Some("src/first.rs"));
+        assert_eq!(
+            code_api.audit("unknown-workspace", 10),
+            Err(RetrievalError::InvalidScope)
+        );
     }
 }

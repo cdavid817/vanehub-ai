@@ -254,6 +254,17 @@ pub(crate) fn invoke_handler(
         crate::commands::retrieval::save_retrieval_configuration::save_retrieval_configuration,
         crate::commands::retrieval::list_embedding_models::list_embedding_models,
         crate::commands::retrieval::get_retrieval_index_status::get_retrieval_index_status,
-        crate::commands::retrieval::rebuild_retrieval_index::rebuild_retrieval_index
+        crate::commands::retrieval::rebuild_retrieval_index::rebuild_retrieval_index,
+        crate::commands::retrieval::code_index::list_code_index_workspaces::list_code_index_workspaces,
+        crate::commands::retrieval::code_index::get_code_index_workspace::get_code_index_workspace,
+        crate::commands::retrieval::code_index::register_code_index_workspace::register_code_index_workspace,
+        crate::commands::retrieval::code_index::save_code_index_configuration::save_code_index_configuration,
+        crate::commands::retrieval::code_index::refresh_code_index_workspace::refresh_code_index_workspace,
+        crate::commands::retrieval::code_index::confirm_code_index_embedding::confirm_code_index_embedding,
+        crate::commands::retrieval::code_index::get_code_index_status::get_code_index_status,
+        crate::commands::retrieval::code_index::list_code_index_audit::list_code_index_audit,
+        crate::commands::retrieval::code_index::rebuild_code_index_workspace::rebuild_code_index_workspace,
+        crate::commands::retrieval::code_index::disable_code_index_workspace::disable_code_index_workspace,
+        crate::commands::retrieval::code_index::delete_code_index_workspace::delete_code_index_workspace
     ]
 }

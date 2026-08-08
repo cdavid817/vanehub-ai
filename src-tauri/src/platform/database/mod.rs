@@ -142,14 +142,22 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("Skill reliability migration");
+        let code_index_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 49",
+                [],
+                |row| row.get(0),
+            )
+            .expect("code index migration");
 
-        assert_eq!(migration_count, 48);
+        assert_eq!(migration_count, 49);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 5);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
         assert_eq!(skill_reliability_migration, "skill-management-reliability");
+        assert_eq!(code_index_migration, "workspace-code-index-foundation");
     }
 
     #[test]
@@ -181,7 +189,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 48);
+        assert_eq!(migration_count, 49);
     }
 
     #[test]
