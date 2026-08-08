@@ -687,6 +687,13 @@ pub(crate) trait AgentGenerationPort: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Option<String>, AgentRuntimeApplicationError>;
+
+    fn active_correlation(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<super::ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
+        Ok(None)
+    }
 }
 
 /// Read boundary for recent conversation turns, used by API-based generation to assemble
@@ -807,6 +814,13 @@ pub(crate) trait OnePieceModelDiscoveryPort: Send + Sync {
         &self,
         request: super::ProviderCredentialProbeRequest,
     ) -> Result<super::ProviderCredentialValidationResult, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait OnePiecePlanningPort: Send + Sync {
+    fn generate(
+        &self,
+        request: &super::OnePiecePlanningRequest,
+    ) -> Result<super::OnePiecePlanningResult, AgentRuntimeApplicationError>;
 }
 
 /// Resolution boundary for a native-agent tool call paused awaiting user approval. Only

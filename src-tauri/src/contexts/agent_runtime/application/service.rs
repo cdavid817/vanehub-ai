@@ -15,8 +15,9 @@ use super::{
     MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
-    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    OrchestrationExecutionProfile, PendingPromptExecution, PersonalizationSettings,
+    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
+    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
@@ -117,6 +118,7 @@ pub(super) struct MessageGenerationInput {
     /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
     /// would put words the human never typed into the thread under their name.
     pub(super) record_user_message: bool,
+    pub(super) orchestration_profile: Option<OrchestrationExecutionProfile>,
 }
 
 struct GenerationFailure {
@@ -131,6 +133,73 @@ fn generation_failure(
     GenerationFailure {
         safe_error: safe_error.into(),
         diagnostic: diagnostic.into(),
+    }
+}
+
+fn orchestration_attributes(
+    profile: Option<&OrchestrationExecutionProfile>,
+) -> Vec<(String, SafeAttributeValue)> {
+    let Some(profile) = profile else {
+        return Vec::new();
+    };
+    [
+        (
+            "vanehub.plan.run.id",
+            profile.correlation.plan_run_id.as_ref(),
+        ),
+        (
+            "vanehub.plan.subtask_run.id",
+            profile.correlation.subtask_run_id.as_ref(),
+        ),
+        (
+            "vanehub.plan.attempt.id",
+            profile.correlation.attempt_id.as_ref(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        value.map(|value| (key.to_string(), SafeAttributeValue::String(value.clone())))
+    })
+    .collect()
+}
+
+#[cfg(test)]
+mod orchestration_attribute_tests {
+    use super::*;
+
+    #[test]
+    fn correlation_attributes_include_only_safe_plan_identities() {
+        let profile = OrchestrationExecutionProfile {
+            bounded_root: Some("C:/secret/worktree".into()),
+            tool_mode: super::super::ExecutionToolMode::Standard,
+            permitted_tools: vec!["shell".into()],
+            tool_call_limit: Some(10),
+            token_budget: Some(2_000),
+            timeout_seconds: Some(300),
+            correlation: super::super::OrchestrationCorrelation {
+                plan_run_id: Some("run-1".into()),
+                subtask_run_id: Some("task-1".into()),
+                attempt_id: Some("attempt-1".into()),
+            },
+        };
+
+        assert_eq!(
+            orchestration_attributes(Some(&profile)),
+            vec![
+                (
+                    "vanehub.plan.run.id".into(),
+                    SafeAttributeValue::String("run-1".into()),
+                ),
+                (
+                    "vanehub.plan.subtask_run.id".into(),
+                    SafeAttributeValue::String("task-1".into()),
+                ),
+                (
+                    "vanehub.plan.attempt.id".into(),
+                    SafeAttributeValue::String("attempt-1".into()),
+                ),
+            ]
+        );
     }
 }
 
@@ -1371,7 +1440,7 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.send_message_internal(request, false)
+        self.send_message_internal(request, false, None)
             .map(|(message, _)| message)
     }
 
@@ -1379,7 +1448,7 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true)?;
+        let (message, terminal) = self.send_message_internal(request, true, None)?;
         let terminal = terminal.ok_or_else(|| {
             AgentRuntimeApplicationError::Generation(
                 "message completion registration was not created".to_string(),
@@ -1388,10 +1457,32 @@ impl AgentRuntimeApplicationService {
         Ok(StartedAgentMessage { message, terminal })
     }
 
+    pub(crate) fn send_message_with_execution_profile(
+        &self,
+        request: SendMessageRequest,
+        profile: OrchestrationExecutionProfile,
+    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
+        let (message, terminal) = self.send_message_internal(request, true, Some(profile))?;
+        let terminal = terminal.ok_or_else(|| {
+            AgentRuntimeApplicationError::Generation(
+                "orchestration completion registration was not created".to_string(),
+            )
+        })?;
+        Ok(StartedAgentMessage { message, terminal })
+    }
+
+    pub(crate) fn active_generation_correlation(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<super::ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
+        self.ports.generations.active_correlation(session_id)
+    }
+
     fn send_message_internal(
         &self,
         request: SendMessageRequest,
         register_completion: bool,
+        orchestration_profile: Option<OrchestrationExecutionProfile>,
     ) -> Result<
         (AgentMessage, Option<super::AgentMessageTerminalReceiver>),
         AgentRuntimeApplicationError,
@@ -1403,6 +1494,11 @@ impl AgentRuntimeApplicationService {
             ));
         }
         let session = self.require_session(&request.session_id)?;
+        if let Some(profile) = &orchestration_profile {
+            profile
+                .validate_for_session(&session)
+                .map_err(|message| AgentRuntimeApplicationError::Validation(message.to_string()))?;
+        }
         if session.archived {
             return Err(AgentRuntimeApplicationError::Validation(
                 "Archived sessions cannot accept messages.".to_string(),
@@ -1436,6 +1532,7 @@ impl AgentRuntimeApplicationService {
                 role_briefing: None,
                 seat_ownership: None,
                 record_user_message: true,
+                orchestration_profile,
             },
             &lease,
         );
@@ -1463,6 +1560,7 @@ impl AgentRuntimeApplicationService {
             role_briefing,
             seat_ownership,
             record_user_message,
+            orchestration_profile,
         } = input;
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
@@ -1475,6 +1573,17 @@ impl AgentRuntimeApplicationService {
             settings.mcp_relay_enabled,
         );
         let started_at = self.ports.clock.now();
+        let mut root_attributes = vec![
+            (
+                "vanehub.stage".to_string(),
+                SafeAttributeValue::String("task_execution".to_string()),
+            ),
+            (
+                "vanehub.agent.id".to_string(),
+                SafeAttributeValue::String(agent.id().as_str().to_string()),
+            ),
+        ];
+        root_attributes.extend(orchestration_attributes(orchestration_profile.as_ref()));
         let mut run = ExecutionRun {
             context: root_context.clone(),
             source: execution_source(source),
@@ -1488,16 +1597,7 @@ impl AgentRuntimeApplicationService {
             operation_id: None,
             agent_id: Some(agent.id().as_str().to_string()),
             provider_session_id: session.runtime_session_id.clone(),
-            attributes: safe_attributes([
-                (
-                    "vanehub.stage".to_string(),
-                    SafeAttributeValue::String("task_execution".to_string()),
-                ),
-                (
-                    "vanehub.agent.id".to_string(),
-                    SafeAttributeValue::String(agent.id().as_str().to_string()),
-                ),
-            ]),
+            attributes: safe_attributes(root_attributes.clone()),
             links: Vec::new(),
         };
         let root_span = ExecutionSpan {
@@ -1509,16 +1609,7 @@ impl AgentRuntimeApplicationService {
             started_at: started_at.clone(),
             ended_at: None,
             error_classification: None,
-            attributes: safe_attributes([
-                (
-                    "vanehub.stage".to_string(),
-                    SafeAttributeValue::String("task_execution".to_string()),
-                ),
-                (
-                    "vanehub.agent.id".to_string(),
-                    SafeAttributeValue::String(agent.id().as_str().to_string()),
-                ),
-            ]),
+            attributes: safe_attributes(root_attributes),
             links: Vec::new(),
         };
         let _ = self.ports.telemetry.start_run(&run);
@@ -1909,6 +2000,7 @@ impl AgentRuntimeApplicationService {
                 SafeAttributeValue::String(ownership.seat_mention.clone()),
             ));
         }
+        agent_attributes.extend(orchestration_attributes(orchestration_profile.as_ref()));
         let agent_span = ExecutionSpan {
             context: agent_context.clone(),
             parent_span_id: Some(root_context.span_id.clone()),
@@ -1936,6 +2028,7 @@ impl AgentRuntimeApplicationService {
                 // Single-Agent sessions carry no briefing, so their invocation is unchanged.
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,
+                orchestration_profile,
             }) {
             Ok(started) => started,
             Err(error) => {

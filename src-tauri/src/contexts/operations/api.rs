@@ -13,7 +13,9 @@ pub(crate) use crate::contexts::operations::application::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
     OperationLogPort,
 };
-pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
+pub(crate) use crate::contexts::operations::domain::{
+    OperationKind, OperationStatus, OperationTask,
+};
 
 #[derive(Clone)]
 /// Application facade for operation lifecycle and correlation.

@@ -26,6 +26,7 @@ mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
 mod onepiece_model_discovery;
+mod onepiece_planning;
 mod openai_compatible_provider;
 mod permission_adapter;
 mod personalization_gateway;
@@ -70,6 +71,7 @@ pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_schema};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
 pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
+pub(crate) use onepiece_planning::RuntimeOnePiecePlanningAdapter;
 pub(crate) use permission_adapter::PermissionsPortAdapter;
 pub(crate) use personalization_gateway::RuntimeAgentPersonalizationAdapter;
 pub(crate) use process_adapter::{

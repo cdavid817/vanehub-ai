@@ -575,6 +575,56 @@ pub(crate) struct WorkflowLaunchOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ExecutionToolMode {
+    Standard,
+    // Dedicated planning bypasses session execution, but this remains part of the validated
+    // orchestration profile contract for callers that explicitly need a session without tools.
+    #[allow(dead_code)]
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OrchestrationCorrelation {
+    pub(crate) plan_run_id: Option<String>,
+    pub(crate) subtask_run_id: Option<String>,
+    pub(crate) attempt_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OrchestrationExecutionProfile {
+    pub(crate) bounded_root: Option<String>,
+    pub(crate) tool_mode: ExecutionToolMode,
+    pub(crate) permitted_tools: Vec<String>,
+    pub(crate) tool_call_limit: Option<u32>,
+    pub(crate) token_budget: Option<u32>,
+    pub(crate) timeout_seconds: Option<u64>,
+    pub(crate) correlation: OrchestrationCorrelation,
+}
+
+impl OrchestrationExecutionProfile {
+    pub(crate) fn validate_for_session(&self, session: &AgentSession) -> Result<(), &'static str> {
+        if self.tool_call_limit == Some(0)
+            || self.token_budget == Some(0)
+            || self.timeout_seconds == Some(0)
+        {
+            return Err("orchestration execution limits must be positive");
+        }
+        if self
+            .bounded_root
+            .as_deref()
+            .is_some_and(|root| session.folder.as_deref() != Some(root))
+        {
+            return Err("orchestration bounded root does not match the session root");
+        }
+        if matches!(self.tool_mode, ExecutionToolMode::Disabled) && !self.permitted_tools.is_empty()
+        {
+            return Err("a tool-less orchestration request cannot permit tools");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GenerationProcessRequest {
     pub(crate) execution_context: ExecutionContext,
     pub(crate) session: AgentSession,
@@ -590,6 +640,7 @@ pub(crate) struct GenerationProcessRequest {
      */
     pub(crate) role_briefing: Option<String>,
     pub(crate) cli_profile: CliProfileSnapshot,
+    pub(crate) orchestration_profile: Option<OrchestrationExecutionProfile>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -702,6 +753,12 @@ pub(crate) struct GenerationCancellation {
     pub(crate) operation_id: Option<String>,
     pub(crate) execution_context: Option<ExecutionContext>,
     pub(crate) prompt_execution: Option<PendingPromptExecution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveGenerationCorrelation {
+    pub(crate) operation_id: Option<String>,
+    pub(crate) execution_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1082,6 +1139,19 @@ pub(crate) struct OnePieceProviderProfiles {
     pub(crate) active_profile_id: Option<String>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningRequest {
+    pub(crate) instruction_version: u32,
+    pub(crate) prompt: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningResult {
+    pub(crate) content: String,
+    pub(crate) profile_id: String,
+    pub(crate) model_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SaveOnePieceProviderProfileInput {
     pub(crate) id: Option<String>,
@@ -1268,5 +1338,83 @@ pub(crate) fn format_memory_section(memories: &[AgentMemory]) -> Option<String> 
             "## Memory\n{MEMORY_BLOCK_PREAMBLE}\n<memory>\n{}\n</memory>",
             lines.join("\n")
         ))
+    }
+}
+
+#[cfg(test)]
+mod orchestration_profile_tests {
+    use super::*;
+
+    fn session(folder: Option<&str>) -> AgentSession {
+        AgentSession {
+            id: "session-1".into(),
+            agent_id: "onepiece".into(),
+            seats: vec![AgentSessionSeat {
+                agent_id: "onepiece".into(),
+                role_id: None,
+            }],
+            interaction_mode: InteractionMode::Api,
+            lifecycle: AgentLifecycle::Running,
+            folder: folder.map(str::to_string),
+            runtime_session_id: None,
+            archived: false,
+            read_only: false,
+            loop_ownership: None,
+        }
+    }
+
+    fn profile() -> OrchestrationExecutionProfile {
+        OrchestrationExecutionProfile {
+            bounded_root: Some("C:/plan-worktree".into()),
+            tool_mode: ExecutionToolMode::Standard,
+            permitted_tools: vec!["file".into()],
+            tool_call_limit: Some(10),
+            token_budget: Some(2_000),
+            timeout_seconds: Some(300),
+            correlation: OrchestrationCorrelation {
+                plan_run_id: Some("run-1".into()),
+                subtask_run_id: Some("task-1".into()),
+                attempt_id: Some("attempt-1".into()),
+            },
+        }
+    }
+
+    #[test]
+    fn execution_profile_requires_matching_bounded_root_and_positive_limits() {
+        assert_eq!(
+            profile().validate_for_session(&session(Some("C:/plan-worktree"))),
+            Ok(())
+        );
+        assert_eq!(
+            profile().validate_for_session(&session(Some("C:/other"))),
+            Err("orchestration bounded root does not match the session root")
+        );
+        for clear_limit in ["tools", "tokens", "timeout"] {
+            let mut invalid = profile();
+            match clear_limit {
+                "tools" => invalid.tool_call_limit = Some(0),
+                "tokens" => invalid.token_budget = Some(0),
+                _ => invalid.timeout_seconds = Some(0),
+            }
+            assert_eq!(
+                invalid.validate_for_session(&session(Some("C:/plan-worktree"))),
+                Err("orchestration execution limits must be positive")
+            );
+        }
+    }
+
+    #[test]
+    fn tool_less_profile_cannot_smuggle_a_permitted_tool_list() {
+        let mut invalid = profile();
+        invalid.tool_mode = ExecutionToolMode::Disabled;
+        assert_eq!(
+            invalid.validate_for_session(&session(Some("C:/plan-worktree"))),
+            Err("a tool-less orchestration request cannot permit tools")
+        );
+        invalid.permitted_tools.clear();
+        assert_eq!(
+            invalid.validate_for_session(&session(Some("C:/plan-worktree"))),
+            Ok(())
+        );
     }
 }
