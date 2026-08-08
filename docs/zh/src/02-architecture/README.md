@@ -147,6 +147,52 @@ flowchart TB
 
 **根 crate 还有另外三组测试**（`lib.rs:13-19`）：`migration_fixture_tests`（迁移夹具）、`native_lifecycle_tests`（原生生命周期）、`remote_terminal_migration_tests`（远程终端迁移）。
 
+## 一次发消息经过什么
+
+**上面的分层图是静态的**。下面是一条真实路径——你在对话框里敲下一句话、按回车之后发生的事，每一跳都标了负责的篇章。
+
+```mermaid
+sequenceDiagram
+  participant U as 组件
+  participant S as services/
+  participant C as Tauri command
+  participant A as api.rs
+  participant AP as application/
+  participant P as permissions
+  participant PR as 进程 / provider
+  participant DB as SQLite
+
+  U->>S: sendMessage(...)
+  Note over S: runtime-*-client 按运行时选实现
+  S->>C: invoke("...")
+  Note over C: DTO → 领域类型，仅此而已
+  C->>A: api 门面
+  A->>AP: 服务编排
+  AP->>DB: 落库用户消息
+  AP->>AP: 注入 Custom Instructions + 记忆
+  AP->>PR: 启动 / 复用进程，或调 provider
+  PR-->>AP: 输出（字节流）
+  AP->>P: 动作需要判定时 evaluate()
+  P-->>AP: Allow / Deny / Ask
+  AP->>DB: 落库助手消息 + Span
+  AP-->>U: 事件流回推
+```
+
+| 跳 | 关键决策 | 详见 |
+|---|---|---|
+| 组件 → services | 组件禁止 `invoke()`；按运行时分派 | [前端架构](frontend.md) |
+| services → command | 参数包在 `input` 里；命令名由契约测试钉住 | [限界上下文](bounded-contexts.md#一个命令长什么样) |
+| command → api | 只做 DTO 映射与错误转换 | [限界上下文](bounded-contexts.md#命令层约定) |
+| api → application | 编排步骤，只依赖端口 trait | [端口与适配器](ports-and-adapters.md#一个完整的例子创建-worktree) |
+| 注入上下文 | 风格规则排在「关于你」之前 | [个性化](personalization.md#拼成什么样子) |
+| 启动进程 | 权限模板落成参数 / 环境变量 / 钩子 | [CLI 集成](cli-integration.md#同一个-standard-模板的四种落地形态) |
+| 读输出 | 流式 UTF-8 解码，保留不完整尾部 | [进程与 PTY](process-and-pty.md#三个分支区别全在-error_len) |
+| 权限判定 | 四步顺序，失败关闭到 `Ask` | [权限架构](permissions-architecture.md#判定顺序) |
+| 落库 | 连接池 + WAL + 外键，迁移版本门控 | [数据层](data-layer.md#池的四个常量) |
+| 记录 Span | 属性两级脱敏后写入 | [可观测性架构](observability-architecture.md#两级脱敏) |
+
+**这条链路横跨 10 篇文档**——这也是为什么单看任何一篇都不足以理解整体，而看完分层图又填不上细节。
+
 ## 功能与限界上下文的对应
 
 **从"我要改哪个功能"反查"该进哪个上下文"**（`src-tauri/src/contexts/mod.rs:3-13`）：

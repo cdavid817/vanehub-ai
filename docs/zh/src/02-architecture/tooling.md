@@ -83,6 +83,57 @@
 | `Conflict` | 冲突 |
 | `DeletedBuiltin` | 内置 Skill 被删除 |
 
+**每条问题携带的信息**（`drift.rs:56-63` 的 `SkillDriftIssue`）：`skill_id`、`issue_type`、可选的 `agent_id` 与 `path`、以及一条 `&'static str` 消息。
+
+**消息是静态字符串而非格式化文本**——六种问题各对应一句固定说明：
+
+| 问题 | 消息 |
+|---|---|
+| `MissingSource` | `SKILL.md is missing` |
+| `MetadataChanged` | `SKILL.md differs from the registry snapshot` |
+| `MissingMount` | `Agent mount is missing` |
+| `Conflict` | `Agent mount path is occupied by unmanaged content` |
+| `UnregisteredSource` | `Skill source exists without a registry record` |
+| `DeletedBuiltin` | `Built-in Skill is deleted and can be restored` |
+
+#### 四条检测规则
+
+**`detect_drift`（`drift.rs:65-136`）是一个纯函数**，输入是一次巡检快照，输出是问题列表——不碰文件系统，因此可以完全用构造的数据测试。
+
+**规则一：源缺失时短路。**（`:69-78`）源文件不存在就 `continue`，**不再检查挂载**——源都没了，挂载状态没有诊断价值，报一堆下游问题只会淹没根因。
+
+**规则二：哈希不等即元数据变更。**（`:79-89`）比对的是 `content_hash` 与注册时的 `expected_content_hash`。
+
+**规则三：只有启用的 Skill 才查挂载。**（`:93`）
+
+```rust,ignore
+if skill.enabled {
+    for binding in &skill.bindings { ... }
+}
+```
+
+**停用的 Skill 本来就不该有挂载**，去检查它必然报一堆 `MissingMount`。测试名把这条与下一条一起钉住了：`disabled_skills_skip_mount_drift_and_deleted_builtins_are_global_only`（`drift.rs:242`）。
+
+**规则四：`DeletedBuiltin` 只在全局作用域报。**（`:125`）
+
+```rust,ignore
+if inspection.location.scope == SkillScope::Global {
+```
+
+**内置 Skill 是全局概念**，在项目作用域下巡检时报「某个内置 Skill 被删了」没有意义——那不是这个项目能管的事。
+
+#### 挂载观测有三态
+
+（`drift.rs:13-18` 的 `SkillMountObservation`）
+
+| 观测 | 处理 |
+|---|---|
+| `Managed` | 正常，`continue` |
+| `Missing` | 报 `MissingMount` |
+| `Conflict` | 报 `Conflict` |
+
+**`Conflict` 与 `Missing` 分开是必要的**：路径空着和路径被**非受管内容**占着，处置完全不同——前者重新挂载即可，后者贸然覆盖会删掉用户自己的文件。
+
 **挂载观测三种**（`drift.rs:14-18` 的 `SkillMountObservation`）：`Managed`、`Missing`、`Conflict`。
 
 **源检查带内容哈希**（`drift.rs:28-31` 的 `SkillSourceInspection`）：`Present` 变体携带 `content_hash`，据此判断内容是否被改动，而不只是看文件在不在。

@@ -137,21 +137,52 @@ stateDiagram-v2
 | `Max` | `claude-opus-4-8`、`claude-sonnet-5`、`gpt-5-5`、`gpt-5-1-codex-max` |
 | `High` | `claude-sonnet-4-6`、`gpt-5-4`、`gpt-5-2-codex`、`gemini-2-5-pro` |
 | `Medium` | `gemini-2-5-flash` |
-| 无限制条目 | 其余模型返回 `None` |
+| **不在表中** | 返回 `None` |
 
-**超限时是下钳而非报错**（`:202-206` 的 `clamp_reasoning_for_model`）：
+**超限时是下钳而非报错**（`:202-207` 的 `clamp_reasoning_for_model`）：
 
 ```rust,ignore
-Some(requested.min(maximum).as_str().to_string())
+pub(crate) fn clamp_reasoning_for_model(model_id: &str, value: Option<&str>) -> Option<String> {
+    let requested = value.and_then(|value| ReasoningDepth::parse(value).ok())?;
+    let maximum = max_reasoning_for_model(model_id)?;
+    Some(requested.min(maximum).as_str().to_string())
+}
 ```
 
 **这个选择很务实**：用户把深度设成 `max` 后换到一个只支持 `medium` 的模型，会话应该继续能用，而不是弹一个错误框要求先改设置。
+
+#### 不在表中的模型会丢掉推理深度
+
+**注意第二行的 `?`。**`max_reasoning_for_model` 对表外模型返回 `None`，`?` 直接把整个函数短路成 `None`——**请求的推理深度不是"不受限制地保留"，而是被丢弃**。
+
+**这是一条容易读反的分支**：表里只有 9 个模型 id，其余任何模型（包括 OnePiece 接的 25 家 provider 下的绝大多数）配了推理深度也不会生效。
+
+**方向仍然是保守的**：不确定某个模型支持到哪一档时，不传比乱传安全——传一个模型不认识的推理参数可能导致请求直接失败。
+
+**代价是这个丢弃没有任何提示**，用户在界面上选了深度，实际请求里没有。
 
 ### 一致性校验
 
 **provider 与 agent 必须匹配**（`ProviderMismatch { provider_id, agent_id }`）；**模型必须被支持**（`UnsupportedModel { model_id, ... }`）。
 
-**从 CLI 侧回读模型也有映射**（`chat_configuration.rs:167` 的 `model_id_from_cli`）——CLI 报告的模型名与内部 id 不一定一致。
+**从 CLI 侧回读模型也有映射**（`chat_configuration.rs:167-181` 的 `model_id_from_cli`）——CLI 报告的模型名与内部 id 不一定一致：
+
+| Agent | CLI 报告 | 内部 id |
+|---|---|---|
+| `claude-code` | `opus` / `sonnet` / `haiku` | `claude-opus-4-8` / `claude-sonnet-5` / `claude-haiku-4-5` |
+| `codex-cli` | `gpt-5.5`、`gpt-5.4`、`gpt-5.2-codex`、`gpt-5.1-codex-max` | 点号换成连字符 |
+| `gemini-cli` | `gemini-2.5-pro` / `gemini-2.5-flash` | 同上 |
+
+**两条兜底分支**（`:178-179`）：
+
+```rust,ignore
+(_, "") | (_, "default") => None,
+_ => Some(model.to_string()),
+```
+
+**空串与 `default` 映射成 `None`**——CLI 没明确报告模型时不臆造一个 id。**其余原样透传**，因此 CLI 升级带来的新模型名不会被这层拦掉，只是拿不到上面的钳制上限（见上一节）。
+
+**Claude 的别名映射是必要的**：CLI 只报 `opus` / `sonnet` / `haiku` 这类家族名，不带版本；映射表把它钉到具体版本 id，否则推理深度上限查表会全部落空。
 
 **快照可校验、可恢复**（`:246` 的 `is_valid_chat_snapshot`、`:262` 的 `restore_chat_preferences`）：会话重开时先验快照有效性，无效则回落到默认，而不是带着坏配置启动。
 
