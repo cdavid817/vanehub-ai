@@ -93,12 +93,21 @@ flowchart TB
 
 > 深度限制存在是因为 Agent 之间是自主提及的；没有它，两个 Agent 可以无限乒乓下去。**当它触发时，原因会被显式暴露而不是让链路悄悄停下**，这样用户不会疑惑为什么没人回应。
 
+**两个上限的实际取值**（`application/seat_turn.rs:28-29`）：
+
+| 常量 | 值 | 管的是 |
+|---|---|---|
+| `MAX_CHAIN_DEPTH` | **15** | 一条交接链最多传几手 |
+| `MAX_MENTIONS_PER_REPLY` | **2** | 单次回复最多提及几个席位 |
+
+**每回复 2 个提及是很紧的限制**——它把「广播式点名」直接排除掉了。会话界面上的 `交接 1/15` 显示的就是链深计数。
+
 **两种强制终止原因**（`seat_turn.rs:11-14` 的 `ChainEndReason`）：
 
 | 原因 | 触发 |
 |---|---|
-| `TooManyMentions` | 一次回复中提及数超过 `max_mentions` |
-| `MaxDepth` | 交接链路深度达到 `max_depth` |
+| `TooManyMentions` | 一次回复中提及数超过 `MAX_MENTIONS_PER_REPLY` |
+| `MaxDepth` | 交接链路深度达到 `MAX_CHAIN_DEPTH` |
 
 **正常结束不是失败**（`seat_turn.rs:18-23` 的 `NextTurn`）：`ended_reason` 为 `None` 表示链路自然耗尽了提及。注释直言——把两者混为一谈会让每一次正常结束都看起来像出错。
 
@@ -137,6 +146,28 @@ flowchart TB
 **`Fyi` 三个都是 `false`**——发言权不转移、本轮不结束、不进入等待，流程完全不受影响。这就是"轻量"的具体含义。
 
 **`Handoff` 与 `Done` 的差别在于本轮是否结束**：前者把球交给你但对话继续，后者宣告收工。
+
+### `@用户` 是硬编码的中文字面量，不随界面语言变
+
+```rust,ignore
+const USER_MENTION: &str = "@用户";
+```
+
+**这个常量没有本地化**（`domain/seat_turn.rs:42`），前端也是同一个字面量（`src/services/human-handoff.ts:10` 的 `const userMention = "@用户"`）。
+
+**后果**：界面语言切到 English / 日本語 / 한국어 时，交回人类**仍然要写 `@用户`**——`@user` 不会被识别。
+
+**而意图关键词又是英文的**：`remainder.trim().to_ascii_lowercase()` 之后匹配 `handoff` 与 `done`（`:219-226`）。所以完整写法是中英混合的 `@用户 handoff`。
+
+**这也是又一处前后端镜像实现**——两侧各写一份同样的字面量，靠约定保持一致，没有共享真源。改动时两处都要动，见 [前端架构的镜像实现](frontend.md#又一处镜像实现)。
+
+### 只认行首
+
+`parse_human_handoff` 逐行 `strip_line_prefix` 后用 **`strip_prefix(USER_MENTION)`**（`:216`），即 `@用户` **必须出现在行首**（剥掉引用与列表标记之后）。
+
+**句中提到 `@用户` 不会触发**——「稍后我会请 @用户 确认」这样的叙述不会被当成交接意图。这与席位提及的解析规则不同：席位 `@` 在行内任意位置都算。
+
+**找到第一个匹配行就返回**，不继续扫后面的行。一次回复里写两个 `@用户`，只有第一个生效。
 
 ## 席位简报
 
