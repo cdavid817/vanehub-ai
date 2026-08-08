@@ -43,6 +43,68 @@
 
 **密钥证据只记两项**（`runtime.rs:30-33` 的 `HostKeyEvidence`）：`algorithm` 与 `fingerprint`。
 
+#### 放行要求四项全等
+
+`SshHostTrustService::verify`（`application/host_trust.rs:176-196`）：
+
+```rust,ignore
+let trusted = profile.host_trust.as_ref().is_some_and(|trust| {
+    trust.host == profile.host
+        && trust.port == profile.port
+        && trust.algorithm == evidence.algorithm
+        && trust.fingerprint == evidence.fingerprint
+});
+```
+
+**不只是比指纹**：主机、端口、算法、指纹四项都要与已记录的一致，任何一项不同都会转入挑战流程。
+
+**把 `algorithm` 也纳入比较是必要的**——同一台主机可以同时提供 Ed25519 与 RSA 主机密钥。只比指纹的话，攻击者提供一个不同算法的密钥就绕过了「指纹变了」的判断。
+
+**把 `port` 纳入比较**则区分了同一主机上的不同 SSH 服务，例如容器映射出来的另一个端口。
+
+#### 挑战类型只看有没有历史记录
+
+```rust,ignore
+let (kind, previous_fingerprint) = match &profile.host_trust {
+    Some(trust) => (HostKeyChallengeKind::Changed, Some(trust.fingerprint.clone())),
+    None => (HostKeyChallengeKind::FirstSeen, None),
+};
+```
+
+**有信任记录就是 `Changed`，没有就是 `FirstSeen`**——因为能走到这里，说明四项比较已经失败过了。
+
+**`Changed` 会连同 `previous_fingerprint` 一起呈现**，用户能对比新旧两个指纹，而不是只被告知「变了」。
+
+#### 待确认挑战存在内存里，且会被新证据覆盖
+
+```rust,ignore
+let entry = pending
+    .entry(challenge.connection_key.clone())
+    .or_insert_with(|| challenge.clone());
+if entry.evidence != challenge.evidence {
+    *entry = challenge;
+}
+```
+
+**同一连接重复挑战时，若证据变了就替换旧的**。这防的是一种具体情况：用户还没决定，服务器那边又换了一次密钥——此时该确认的应该是最新那个，而不是一个已经过时的挑战。
+
+**待确认列表不落库**（`Mutex` 保护的内存 map）。应用重启后未决挑战消失，下次连接会重新发起——**这是对的**，一个跨重启保留的「待确认危险密钥」没有意义。
+
+#### 两个日志事件，级别不同
+
+| 事件名 | 级别 | 时机 |
+|---|---|---|
+| `remote-terminal.host-key.challenge` | **Warn** | 需要确认时 |
+| `remote-terminal.host-key.confirmed` | Info | 用户确认后 |
+
+**挑战记 `Warn` 而非 `Info`**：主机密钥需要确认是一个值得在日志里显眼的事件，尤其 `Changed` 那种。
+
+#### 确认时还要校验档案没过期
+
+`ensure_current_profile`（`host_trust.rs:199-211`）在写入信任前比对 `revision`、`host`、`port`，不一致则报 `StaleProfile`。
+
+**防的是这个时序**：挑战弹出后用户去改了连接配置（换了主机），然后才点「接受」——如果不校验，就会把新主机的信任记成旧证据。
+
 ### 输入校验
 
 **所有有界字段共用一套校验**（`runtime.rs` 的 `validate_bounded`），三条规则同时生效：
