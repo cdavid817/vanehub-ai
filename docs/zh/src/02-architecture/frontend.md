@@ -61,6 +61,58 @@ export const agentService = createAgentService();
 
 **同一模式覆盖十余个域**：`runtime-mcp-client`、`runtime-permissions-client`、`runtime-settings-client`、`runtime-im-client`、`runtime-sdk-client`、`runtime-workspace-client`、`runtime-extension-client`、`runtime-operation-client`、`runtime-ssh-connection-client`、`runtime-execution-observability-client`、`runtime-plugin-integration-client`、`runtime-floating-assistant-client`。
 
+### 一组三件套的实际长度
+
+**`permissions` 域最小，适合看全貌**：
+
+| 文件 | 行数 |
+|---|---|
+| `permissions.ts`（接口） | 10 |
+| `runtime-permissions-client.ts`（装配） | 13 |
+| `tauri-permissions-client.ts`（桌面） | 26 |
+| `web-permissions-client.ts`（Web/mock） | 63 |
+
+**Web 实现最长**——因为它要自己造出桌面端由原生侧提供的状态。这个比例在各域普遍成立。
+
+**桌面实现几乎没有逻辑**（`tauri-permissions-client.ts:11-13`）：
+
+```ts
+resolvePendingApproval(requestId: string, approved: boolean, scope: ApprovalScope) {
+  return invoke<boolean>("resolve_pending_approval", { input: { requestId, approved, scope } });
+}
+```
+
+**注意参数被包在 `input` 里**——这是与 Rust 侧命令签名对应的约定，`contract_tests.rs` 会验证命令名一致，但**不验证这个包装形状**。
+
+### 两侧行为可以不一致，而且确实不一致
+
+**这是「接口一致性靠人工维持」最具体的证据**。同一个 `resolvePendingApproval`，Web 实现里写着（`web-permissions-client.ts:30-33`）：
+
+```ts
+// Scope-based remembered grants are not simulated in Web/mock mode (a UI-development aid,
+// not a security boundary) — every resolution behaves like `Once` here, regardless of the
+// requested scope.
+void scope;
+```
+
+**参数收下了，然后丢弃**。在桌面端选「本次会话」会让同类动作在该会话内不再询问；在浏览器预览里选同样的选项，下次还是会问。
+
+**TypeScript 一个字都查不出来**——两边签名完全相同。这类差异只能靠注释声明和人工 review 发现，这正是这套设计的软肋。
+
+**好在这条注释把理由写清楚了**：Web/mock 是界面开发辅助，不是安全边界。模拟授权记忆没有价值，还会让人误以为浏览器里的权限是真的。
+
+### 又一处镜像实现
+
+`web-permissions-client.ts:11-13` 自己实现了一遍提权确认规则：
+
+```ts
+function requiresConfirmationToAssign(template: PolicyTemplateName): boolean {
+  return template === "trusted" || template === "yolo";
+}
+```
+
+**这条规则在仓库里至少存在三份**：Rust 的 `PolicyTemplateName::requires_confirmation_to_assign`（`template.rs:45-49`）、界面调用处、以及这里。Rust 侧那份还特意注明判据是「该模板是否自动放行 `shell.exec` / `file.write`」——**而这份 TS 实现是按名字硬编码的**。将来若新增一个自动放行的模板，Rust 会自动返回 `true`，这里不会。
+
 ## 运行时选择
 
 ```mermaid
@@ -205,7 +257,7 @@ flowchart LR
 - **`web-http` 覆盖不完整** —— 可选字段意味着部分能力在该运行时下不可用。
 - **300 行硬规则带来文件碎片** —— 创建会话对话框被拆成 `create-session-dialog.tsx`、`-content.tsx`、`-utils.ts`、`-agents.ts`、`-workspace-sections.tsx`、`-remote-workspace-section.tsx`、`-agent-section.tsx` 等多个文件。
 - **mock 数据需与原生种子同步** —— `mock-agent-data.ts` 与 `schema.rs:17` 的 `AGENTS` 是两份需手工保持一致的数据。
-- **前后端有多处镜像实现** —— `model-family.ts` ↔ Rust `ModelFamily`、`bounded-text-buffer.ts` ↔ Rust `BoundedTextBuffer`、`builtin-expert-roles.ts` ↔ Rust `builtin_expert_roles.rs`、专家角色校验两侧各一份。**一致性靠约定与测试，不靠代码生成。**
+- **前后端有多处镜像实现** —— `model-family.ts` ↔ Rust `ModelFamily`、`bounded-text-buffer.ts` ↔ Rust `BoundedTextBuffer`、`builtin-expert-roles.ts` ↔ Rust `builtin_expert_roles.rs`、`web-permissions-client.ts:11` 的 `requiresConfirmationToAssign` ↔ Rust `requires_confirmation_to_assign`、专家角色校验两侧各一份。**一致性靠约定与测试，不靠代码生成**，且镜像的实现方式未必相同——权限模板那一对，Rust 按行为判定，TS 按名字硬编码。
 - **`@tanstack/react-query` 与"不引入状态管理库"的边界** —— 它管异步数据缓存而非应用状态，这条边界靠约定维持。
 
 ## 相关文档
