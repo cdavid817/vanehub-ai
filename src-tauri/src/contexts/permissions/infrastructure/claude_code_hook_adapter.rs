@@ -53,6 +53,20 @@ impl ClaudeCodeHookAdapter {
 
 impl ClaudeCodeHookPort for ClaudeCodeHookAdapter {
     fn install(&self) -> Result<(), PermissionsApplicationError> {
+        // These entries land in Claude Code's *global* settings, where they outlive this process
+        // and run on every tool call. Pointing one at a binary that is not on disk would make each
+        // of those calls invoke a command that cannot start, in a file VaneHub does not own.
+        // Refusing leaves that file untouched and reports why.
+        if !self.wrapper_path.is_file() {
+            return Err(PermissionsApplicationError::infrastructure(
+                "cli_config",
+                format!(
+                    "the permission hook binary is missing at {}, so Claude Code hook management \
+                     cannot be enabled",
+                    self.wrapper_path.display()
+                ),
+            ));
+        }
         self.projection
             .set_permission_hook_entries(&self.entries())
             .map_err(|error| {
@@ -89,6 +103,7 @@ fn hook_entries(command: &str) -> Vec<Value> {
 mod tests {
     use super::*;
     use crate::contexts::tooling::cli_config::api::CliConfigError;
+    use crate::test_support::TempDirectory;
     use std::sync::Mutex;
 
     #[derive(Default)]
@@ -109,11 +124,10 @@ mod tests {
 
     #[test]
     fn install_sends_one_entry_per_matcher_pointing_at_the_wrapper_path() {
+        let directory = TempDirectory::new("claude-code-hook-install");
+        let wrapper = directory.write("vanehub-permission-hook", "");
         let projection = Arc::new(FakeProjection::default());
-        let adapter = ClaudeCodeHookAdapter::new(
-            projection.clone(),
-            PathBuf::from("/opt/vanehub/bin/vanehub-permission-hook"),
-        );
+        let adapter = ClaudeCodeHookAdapter::new(projection.clone(), wrapper.clone());
 
         adapter.install().expect("install should succeed");
 
@@ -124,13 +138,50 @@ mod tests {
         assert_eq!(entries[0]["matcher"], "Bash|Edit|Write|Read|Glob|Grep");
         assert_eq!(entries[1]["matcher"], "mcp__.*");
         for entry in entries {
-            assert_eq!(
-                entry["hooks"][0]["command"],
-                "/opt/vanehub/bin/vanehub-permission-hook"
-            );
+            assert_eq!(entry["hooks"][0]["command"], wrapper.display().to_string());
             assert_eq!(entry["hooks"][0]["type"], "command");
             assert_eq!(entry["hooks"][0]["timeout"], 330);
         }
+    }
+
+    #[test]
+    fn install_refuses_when_the_wrapper_binary_is_absent_and_writes_nothing() {
+        let directory = TempDirectory::new("claude-code-hook-absent");
+        let projection = Arc::new(FakeProjection::default());
+        let adapter = ClaudeCodeHookAdapter::new(
+            projection.clone(),
+            directory.path().join("vanehub-permission-hook"),
+        );
+
+        let result = adapter.install();
+
+        assert!(matches!(
+            result,
+            Err(PermissionsApplicationError::Infrastructure {
+                category: "cli_config",
+                ..
+            })
+        ));
+        assert!(
+            projection.calls.lock().unwrap().is_empty(),
+            "the user's global Claude Code settings must be left untouched"
+        );
+    }
+
+    #[test]
+    fn remove_still_works_when_the_wrapper_binary_is_absent() {
+        let directory = TempDirectory::new("claude-code-hook-cleanup");
+        let projection = Arc::new(FakeProjection::default());
+        let adapter = ClaudeCodeHookAdapter::new(
+            projection.clone(),
+            directory.path().join("vanehub-permission-hook"),
+        );
+
+        adapter
+            .remove()
+            .expect("a previously installed hook must stay removable");
+
+        assert_eq!(projection.calls.lock().unwrap().len(), 1);
     }
 
     #[test]
@@ -148,9 +199,11 @@ mod tests {
 
     #[test]
     fn projection_failure_surfaces_as_an_infrastructure_error() {
+        let directory = TempDirectory::new("claude-code-hook-projection-failure");
+        let wrapper = directory.write("vanehub-permission-hook", "");
         let projection = Arc::new(FakeProjection::default());
         *projection.fail_next.lock().unwrap() = true;
-        let adapter = ClaudeCodeHookAdapter::new(projection, PathBuf::from("/opt/vanehub-hook"));
+        let adapter = ClaudeCodeHookAdapter::new(projection, wrapper);
 
         let result = adapter.install();
 
