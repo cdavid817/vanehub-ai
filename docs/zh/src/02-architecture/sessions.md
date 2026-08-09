@@ -116,7 +116,7 @@ stateDiagram-v2
 
 ### 支持的聊天 Agent
 
-**五种**（`chat_configuration.rs:4-10` 的 `ChatAgent`）：`Claude`、`Codex`、`Gemini`、`OpenCode`、`OnePiece`，分别由 `claude-code` / `codex-cli` / `gemini-cli` / `opencode` / `onepiece` 解析而来（`:13-20`）。
+**六种**（`chat_configuration.rs` 的 `ChatAgent`）：`Claude`、`Codex`、`Gemini`、`OpenCode`、`Antigravity`、`OnePiece`，分别由 `claude-code` / `codex-cli` / `gemini-cli` / `opencode` / `antigravity-cli` / `onepiece` 解析而来。
 
 **未知 agent 报 `UnsupportedChatAgent`**——聊天配置这一层是封闭枚举，与开放的 `AgentId` 不同。
 
@@ -172,6 +172,7 @@ pub(crate) fn clamp_reasoning_for_model(model_id: &str, value: Option<&str>) -> 
 | `claude-code` | `opus` / `sonnet` / `haiku` | `claude-opus-4-8` / `claude-sonnet-5` / `claude-haiku-4-5` |
 | `codex-cli` | `gpt-5.5`、`gpt-5.4`、`gpt-5.2-codex`、`gpt-5.1-codex-max` | 点号换成连字符 |
 | `gemini-cli` | `gemini-2.5-pro` / `gemini-2.5-flash` | 同上 |
+| `antigravity-cli` | 待实测（`agy models` 需登录） | 暂用 `antigravity-default` 兜底 |
 
 **两条兜底分支**（`:178-179`）：
 

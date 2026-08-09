@@ -6,6 +6,9 @@ const agentDefaults: Record<string, { providerId: string; modelId: string; reaso
   "codex-cli": { providerId: "openai", modelId: "gpt-5-5", reasoning: "high" },
   "gemini-cli": { providerId: "google", modelId: "gemini-2-5-pro", reasoning: "high" },
   opencode: { providerId: "opencode", modelId: "opencode-default", reasoning: undefined },
+  // The real slug list needs an authenticated `agy models` run; until then this falls back to
+  // whatever the CLI itself has configured rather than naming a guess.
+  "antigravity-cli": { providerId: "google", modelId: "antigravity-default", reasoning: "high" },
   onepiece: { providerId: "onepiece", modelId: "onepiece-active", reasoning: undefined },
 };
 

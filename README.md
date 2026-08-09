@@ -26,7 +26,7 @@ Desktop-first workspace for managing AI coding agents through one React interfac
 
 ## Overview
 
-VaneHub AI brings Claude Code, OpenCode, Codex CLI, and Gemini CLI into a shared desktop workspace. It manages CLI availability, sessions, terminal execution, projects and worktrees, settings, tools, observability, and desktop integrations without letting React components depend directly on native APIs.
+VaneHub AI brings Claude Code, OpenCode, Codex CLI, Gemini CLI, and Antigravity CLI into a shared desktop workspace. It manages CLI availability, sessions, terminal execution, projects and worktrees, settings, tools, observability, and desktop integrations without letting React components depend directly on native APIs.
 
 <!-- docs-section:download -->
 

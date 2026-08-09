@@ -297,7 +297,8 @@ export interface CliToolStatus {
   displayName: string;
   provider: string;
   executableName: string;
-  packageName: string;
+  /** Null for CLIs distributed only by installer script, which have no npm package. */
+  packageName: string | null;
   installed: boolean | null;
   currentVersion: string | null;
   latestVersion: string | null;
@@ -326,6 +327,7 @@ export const managedCliAgentIds = [
   "codex-cli",
   "gemini-cli",
   "opencode",
+  "antigravity-cli",
 ] as const;
 export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
 export type CliParameterControl = "enum" | "boolean" | "multi-enum" | "custom-text";

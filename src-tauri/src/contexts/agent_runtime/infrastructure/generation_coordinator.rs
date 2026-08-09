@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
-    AgentGenerationPort, AgentRuntimeApplicationError, GenerationCancellation, GenerationLease,
-    PendingPromptExecution,
+    ActiveGenerationCorrelation, AgentGenerationPort, AgentRuntimeApplicationError,
+    GenerationCancellation, GenerationLease, PendingPromptExecution,
 };
 use crate::contexts::agent_runtime::domain::GenerationAttempt;
 use crate::contexts::execution_observability::api::ExecutionContext;
@@ -130,6 +130,22 @@ impl AgentGenerationPort for InMemoryGenerationCoordinator {
             .get(session_id)
             .and_then(|generation| generation.process_id.clone()))
     }
+
+    fn active_correlation(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
+        let active = self.active()?;
+        Ok(active
+            .get(session_id)
+            .map(|generation| ActiveGenerationCorrelation {
+                operation_id: generation.operation_id.clone(),
+                execution_run_id: generation
+                    .execution_context
+                    .as_ref()
+                    .map(|context| context.run_id.as_str().to_string()),
+            }))
+    }
 }
 
 impl InMemoryGenerationCoordinator {
@@ -187,6 +203,9 @@ fn require_lease<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::execution_observability::api::{
+        CapturePolicy, ExecutionRunId, SpanId, TraceId,
+    };
 
     #[test]
     fn reservation_is_exclusive_and_release_allows_retry() {
@@ -220,6 +239,40 @@ mod tests {
         assert_eq!(cancellation.process_id.as_deref(), Some("process-1"));
         assert_eq!(cancellation.operation_id.as_deref(), Some("operation-1"));
         assert_eq!(coordinator.cancel("session-1").expect("again"), None);
+    }
+
+    #[test]
+    fn active_correlation_exposes_operation_and_execution_run_without_content() {
+        let coordinator = InMemoryGenerationCoordinator::default();
+        let lease = coordinator.reserve("session-1").expect("reserve");
+        coordinator
+            .correlate(
+                &lease,
+                &ExecutionContext {
+                    run_id: ExecutionRunId::parse("6ba7b810-9dad-41d1-80b4-00c04fd430c8")
+                        .expect("run id"),
+                    trace_id: TraceId::parse("4bf92f3577b34da6a3ce929d0e0e4736").expect("trace id"),
+                    span_id: SpanId::parse("00f067aa0ba902b7").expect("span id"),
+                    capture_policy: CapturePolicy::MetadataOnly,
+                    sampling_per_million: 1_000_000,
+                    mcp_relay_enabled: false,
+                },
+            )
+            .expect("execution correlation");
+        coordinator
+            .attach(&lease, "message-1", "process-1", "operation-1")
+            .expect("attach");
+
+        let correlation = coordinator
+            .active_correlation("session-1")
+            .expect("lookup")
+            .expect("active correlation");
+
+        assert_eq!(correlation.operation_id.as_deref(), Some("operation-1"));
+        assert_eq!(
+            correlation.execution_run_id.as_deref(),
+            Some("6ba7b810-9dad-41d1-80b4-00c04fd430c8")
+        );
     }
 
     #[test]

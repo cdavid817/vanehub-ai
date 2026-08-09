@@ -23,6 +23,7 @@ V1 uses provider-specific headless command builders:
 - `codex-cli`: `codex exec --json -- -`
 - `gemini-cli`: `gemini -p <prompt> -o stream-json -y`
 - `opencode`: `opencode run --format json <prompt>`
+- `antigravity-cli`: `agy -p <prompt> --output-format stream-json` (resume: `--conversation <id>`)
 
 When a provider runtime session id is available, the runtime passes it through the provider's resume path:
 

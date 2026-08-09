@@ -31,12 +31,17 @@ impl SkillMountPath {
     }
 }
 
+/// Antigravity uses the agent-agnostic `.agents/skills` root rather than a tool-named one. Read
+/// out of the installed `agy` binary, which carries the literal template
+/// `{workspace}/.agents/skills/{skill_name}/SKILL.md` — the published documentation does not
+/// state it.
 pub(crate) fn default_mount_path(agent_id: &str) -> &'static str {
     match agent_id {
         "claude-code" => ".claude/skills",
         "codex-cli" => ".codex/skills",
         "gemini-cli" => ".gemini/skills",
         "opencode" => ".opencode/skills",
+        "antigravity-cli" => ".agents/skills",
         _ => ".skills",
     }
 }
@@ -52,6 +57,7 @@ mod tests {
             ("codex-cli", ".codex/skills"),
             ("gemini-cli", ".gemini/skills"),
             ("opencode", ".opencode/skills"),
+            ("antigravity-cli", ".agents/skills"),
             ("custom", ".skills"),
         ] {
             assert_eq!(default_mount_path(agent), path);

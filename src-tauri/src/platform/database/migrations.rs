@@ -295,11 +295,24 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
     apply_migration(
         conn,
         49,
-        "workspace-code-index-foundation",
-        crate::contexts::retrieval::infrastructure::apply_code_index_schema,
+        "plan-execution-foundation",
+        crate::contexts::task_orchestration::infrastructure::apply_schema,
+    )?;
+    apply_migration(
+        conn,
+        50,
+        "plan-and-code-index-reconciliation",
+        apply_plan_and_code_index_reconciliation,
     )?;
 
     Ok(())
+}
+
+// Migration 49 existed as either Plan execution on main or workspace code indexing in a
+// concurrent worktree. Reapply both idempotent schemas so databases from either history converge.
+fn apply_plan_and_code_index_reconciliation(conn: &Connection) -> Result<(), DatabaseError> {
+    crate::contexts::task_orchestration::infrastructure::apply_schema(conn)?;
+    crate::contexts::retrieval::infrastructure::apply_code_index_schema(conn)
 }
 
 /// Version 27 created the multi-Agent coordination table. The capability is retired, so the slot

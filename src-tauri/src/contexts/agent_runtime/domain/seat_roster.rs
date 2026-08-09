@@ -93,6 +93,9 @@ fn family_by_agent_id(agent_id: &str) -> Option<ModelFamily> {
         "claude-code" => Some(ModelFamily::Anthropic),
         "codex-cli" => Some(ModelFamily::OpenAi),
         "gemini-cli" => Some(ModelFamily::Google),
+        // Antigravity speaks Google's own CodeAssist surface and serves Google models, so its
+        // family is fixed the way Gemini's is rather than user-configurable like OpenCode's.
+        "antigravity-cli" => Some(ModelFamily::Google),
         // OpenCode drives whichever model the user configured, so it has no fixed family. Claiming
         // one would make a cross-family reviewer check act on a false premise.
         "opencode" => Some(ModelFamily::Unknown),

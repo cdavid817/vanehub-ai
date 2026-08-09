@@ -45,6 +45,7 @@ export function SettingsShell({
           {settingsPages.map((page) => {
             if (!visitedPages.has(page.id)) return null;
             const pageProps = {
+              isActive: page.id === activePageId,
               navigationTarget: page.id === activePageId ? navigationTarget : null,
               onNavigate: handleSelectPage,
               searchTerm: page.id === activePageId ? searchTerm : "",

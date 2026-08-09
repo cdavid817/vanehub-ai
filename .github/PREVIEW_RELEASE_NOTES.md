@@ -49,11 +49,13 @@ Binaries are built on the current Ubuntu runner image and link against its glibc
 
 ## Verifying your download
 
-Every asset is listed in `SHA256SUMS`, published alongside them. Download it and check the file you retrieved:
+Every asset is listed in `SHA256SUMS` under the name GitHub serves it as. Download it into the same directory as the file you retrieved, then:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS
 ```
+
+A mismatch on a large asset is far more often a truncated download than a tampered file — check the size against the release page and re-download before drawing conclusions.
 
 An SPDX SBOM and GitHub build-provenance attestations are also attached. You can verify provenance with:
 

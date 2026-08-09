@@ -17,6 +17,9 @@ const familyByAgentId: Record<string, ModelFamily> = {
   "claude-code": "anthropic",
   "codex-cli": "openai",
   "gemini-cli": "google",
+  // Antigravity speaks Google's own CodeAssist surface and serves Google models, so its family is
+  // fixed the way Gemini's is rather than user-configurable like OpenCode's.
+  "antigravity-cli": "google",
   // OpenCode drives whichever model the user configured, so it has no fixed family. Claiming one
   // would make a cross-family reviewer check act on a false premise.
   opencode: "unknown",

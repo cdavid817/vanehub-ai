@@ -196,6 +196,15 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         retrieval: deferred_retrieval.clone(),
         desktop_settings: desktop_settings_api.clone(),
     });
+    let task_orchestration_api = super::assemble_task_orchestration_api(
+        database.clone(),
+        sessions_api.clone(),
+        agent_runtime_api.clone(),
+        workspace_api.clone(),
+        operations_api.clone(),
+        fallback_log_directory.clone(),
+    )
+    .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let super::RetrievalAssembly {
@@ -252,6 +261,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(prompt_hook_api);
     app.manage(ssh_connections_api);
     app.manage(workspace_api);
+    app.manage(task_orchestration_api);
     app.manage(sessions_api.clone());
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());

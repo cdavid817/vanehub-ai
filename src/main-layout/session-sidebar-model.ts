@@ -1,7 +1,7 @@
 import { folderNameFromPath, normalizeDisplayPath } from "../lib/session-path";
 import type { Session, SessionSearchResult } from "../types/agent";
 
-export type SessionAgentFilter = "all" | "claude-code" | "opencode" | "codex-cli" | "gemini-cli";
+export type SessionAgentFilter = "all" | "claude-code" | "opencode" | "codex-cli" | "gemini-cli" | "antigravity-cli";
 export type SessionPresentationMode = "list" | "category" | "project";
 export type SessionSourceMode = "active" | "archived";
 
@@ -14,7 +14,7 @@ export interface SessionProjectGroup {
 
 const ungroupedProjectKey = "project:none";
 
-export const sessionAgentFilters: SessionAgentFilter[] = ["all", "claude-code", "opencode", "codex-cli", "gemini-cli"];
+export const sessionAgentFilters: SessionAgentFilter[] = ["all", "claude-code", "opencode", "codex-cli", "gemini-cli", "antigravity-cli"];
 
 export function filterSessionsByAgent(sessions: Session[], agentFilter: SessionAgentFilter): Session[] {
   if (agentFilter === "all") return sessions;

@@ -411,7 +411,7 @@ The session card context menu SHALL provide an export action.
 The workspace shell SHALL render CLI-specific visual identity for sessions based on each session's stable agent id.
 
 #### Scenario: Render session card CLI icon
-- **WHEN** a session card renders for `claude-code`, `codex-cli`, `gemini-cli`, or `opencode`
+- **WHEN** a session card renders for `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, or `antigravity-cli`
 - **THEN** the card SHALL show the corresponding CLI icon or semantic icon treatment for that stable agent id
 - **AND** the icon SHALL remain visually distinct from the other managed CLI tools
 

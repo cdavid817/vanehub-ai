@@ -34,5 +34,14 @@
     "thinking": true,
     "base": {},
     "expected": {"agent": "build", "thinking": true}
+  },
+  {
+    "agentId": "antigravity-cli",
+    "modelId": null,
+    "reasoningDepth": "max",
+    "permissionMode": "plan",
+    "thinking": false,
+    "base": {},
+    "expected": {"effort": "high", "mode": "plan"}
   }
 ]

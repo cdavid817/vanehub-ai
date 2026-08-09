@@ -6,7 +6,7 @@ import type { AgentRegistryEntry } from "../types/agent";
  * Split out of `create-session-dialog-utils` when that file outgrew the 300-line limit; these four
  * answer one question — who can hold a seat — and `session-seat-assignment` needs the same answer.
  */
-const defaultCliOrder = ["codex-cli", "claude-code", "gemini-cli", "opencode"];
+const defaultCliOrder = ["codex-cli", "claude-code", "gemini-cli", "antigravity-cli", "opencode"];
 export const previousSessionAgentStorageKey = "vanehub.create-session.agent.v1";
 
 export function isSessionAgentSelectable(agent: AgentRegistryEntry): boolean {

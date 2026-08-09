@@ -195,6 +195,7 @@ const USER_MENTION: &str = "@用户";
 | `claude-code` | `Anthropic` |
 | `codex-cli` | `OpenAi` |
 | `gemini-cli` | `Google` |
+| `antigravity-cli` | `Google` |
 | **`opencode`** | **`Unknown`** |
 
 **`opencode` 被显式判为 `Unknown` 而非猜一个**，注释写明：

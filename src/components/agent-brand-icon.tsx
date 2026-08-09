@@ -19,9 +19,24 @@ export function AgentBrandIcon({ agentId, className = "h-4 w-4", title }: AgentB
       return <GeminiIcon {...props} title={title ?? "Gemini CLI"} />;
     case "opencode":
       return <OpenCodeIcon {...props} title={title ?? "OpenCode"} />;
+    case "antigravity-cli":
+      // Raster rather than inline SVG because antigravity.google publishes no vector mark — its
+      // favicon.ico carries 16/32/48px bitmap frames only. The 48px frame is the source here,
+      // which still oversamples the 16-20px sizes this component renders at, including on HiDPI.
+      return <AntigravityIcon className={className} title={title} />;
     default:
       return <Bot className={className} aria-hidden="true" />;
   }
+}
+
+function AntigravityIcon({ className, title }: { className?: string; title?: string }) {
+  return <img
+    alt={title ?? ""}
+    aria-hidden={title ? undefined : true}
+    className={className}
+    decoding="async"
+    src="/antigravity-logo.png"
+  />;
 }
 
 function ClaudeIcon({ title, ...props }: SVGProps<SVGSVGElement> & { title?: string }) {

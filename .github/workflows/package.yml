@@ -194,10 +194,27 @@ jobs:
       - name: Generate SHA-256 checksums
         shell: bash
         run: |
-          find release-assets -type f ! -name SHA256SUMS -print0 \
-            | sort -z \
-            | xargs -0 sha256sum \
-            > release-assets/SHA256SUMS
+          # Name each entry the way GitHub will serve it, not the way it sits on this runner.
+          # `sha256sum` writes the path it was given, so the workspace-relative paths this used
+          # to emit matched nothing a downloader had on disk, and the documented
+          # `sha256sum --check --ignore-missing SHA256SUMS` verified zero files while exiting
+          # non-zero. Release assets are served under their basename with spaces replaced by
+          # dots, which is what the release notes tell people to check.
+          : > release-assets/SHA256SUMS
+          while IFS= read -r -d '' file; do
+            digest="$(sha256sum "${file}" | cut -d' ' -f1)"
+            asset="$(basename "${file}" | tr ' ' '.')"
+            printf '%s  %s\n' "${digest}" "${asset}" >> release-assets/SHA256SUMS
+          done < <(find release-assets -type f ! -name SHA256SUMS -print0 | sort -z)
+
+          echo "Published checksum manifest:"
+          cat release-assets/SHA256SUMS
+
+          # A duplicate basename would make one entry unverifiable and silently shadow another.
+          if [ "$(cut -c 67- release-assets/SHA256SUMS | sort | uniq -d | wc -l)" -ne 0 ]; then
+            echo "::error::two release assets share a name after GitHub's substitution" >&2
+            exit 1
+          fi
 
       - name: Attest package provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1

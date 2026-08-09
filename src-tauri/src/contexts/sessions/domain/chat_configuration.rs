@@ -6,6 +6,7 @@ enum ChatAgent {
     Codex,
     Gemini,
     OpenCode,
+    Antigravity,
     OnePiece,
 }
 
@@ -16,6 +17,7 @@ impl ChatAgent {
             "codex-cli" => Ok(Self::Codex),
             "gemini-cli" => Ok(Self::Gemini),
             "opencode" => Ok(Self::OpenCode),
+            "antigravity-cli" => Ok(Self::Antigravity),
             "onepiece" => Ok(Self::OnePiece),
             value => Err(SessionsDomainError::UnsupportedChatAgent(value.to_string())),
         }
@@ -27,6 +29,7 @@ impl ChatAgent {
             Self::Codex => "openai",
             Self::Gemini => "google",
             Self::OpenCode => "opencode",
+            Self::Antigravity => "google",
             Self::OnePiece => "onepiece",
         }
     }
@@ -37,6 +40,9 @@ impl ChatAgent {
             Self::Codex => "gpt-5-5",
             Self::Gemini => "gemini-2-5-pro",
             Self::OpenCode => "opencode-default",
+            // The real slug list needs an authenticated `agy models` run; until then the session
+            // falls back to whatever the CLI itself has configured rather than naming a guess.
+            Self::Antigravity => "antigravity-default",
             Self::OnePiece => "onepiece-active",
         }
     }

@@ -1,15 +1,15 @@
 use crate::platform::database::{migrate, table_has_column};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 const EMPTY_FIXTURE: &str = include_str!("../tests/fixtures/database/empty.sql");
 const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-v1.sql");
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous again: the 42 this branch left open was taken by `agent-memory-shared-pool` on
-/// main, and the later migrations remain dense through workspace code indexing at 49.
+/// Contiguous through 50. Migration 50 reconciles databases that may already identify version 49
+/// as either Plan execution from main or workspace code indexing from the concurrent worktree.
 fn expected_versions() -> Vec<i64> {
-    (1..=49).collect()
+    (1..=50).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -19,6 +19,46 @@ fn applied_versions(conn: &Connection) -> Vec<i64> {
         .expect("query versions")
         .collect::<Result<Vec<_>, _>>()
         .expect("collect versions")
+}
+
+#[test]
+fn migration_49_collision_histories_converge_at_version_50() {
+    for migration_49_name in [
+        "plan-execution-foundation",
+        "workspace-code-index-foundation",
+    ] {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
+            );",
+        )
+        .expect("create migration history");
+        conn.execute(
+            "INSERT INTO schema_migrations (version, name) VALUES (49, ?1)",
+            params![migration_49_name],
+        )
+        .expect("seed migration 49 history");
+
+        migrate(&conn).expect("reconcile migration collision");
+
+        assert_eq!(applied_versions(&conn), expected_versions());
+        for table in ["plans", "code_index_workspaces"] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .expect("query reconciled table");
+            assert_eq!(
+                exists, 1,
+                "{table} missing for version 49 history {migration_49_name}"
+            );
+        }
+    }
 }
 
 #[test]

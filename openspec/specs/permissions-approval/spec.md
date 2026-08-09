@@ -89,7 +89,7 @@ The Web/mock runtime SHALL simulate the pending-approval queue, event-and-pull r
 - **THEN** the Web adapter SHALL simulate a pending approval, its scoped resolution, and (when applicable) a confirmation step through the same event and service contracts the desktop runtime uses
 
 ### Requirement: Agent policy list surfaces every eligible agent's current template
-The system SHALL provide a settings surface listing every custom API agent, the built-in OnePiece agent, and the four stable managed CLI principals (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`), each showing its currently assigned policy template, without requiring the user to inspect storage directly.
+The system SHALL provide a settings surface listing every custom API agent, the built-in OnePiece agent, and the five stable managed CLI principals (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`, `antigravity-cli`), each showing its currently assigned policy template, without requiring the user to inspect storage directly.
 
 #### Scenario: Custom agents and OnePiece appear in the list
 - **WHEN** a user opens the agent policy settings surface
@@ -106,6 +106,10 @@ The system SHALL provide a settings surface listing every custom API agent, the 
 #### Scenario: The codex-cli, gemini-cli, and opencode CLI principals appear in the list
 - **WHEN** a user opens the agent policy settings surface
 - **THEN** the system SHALL display the `codex-cli`, `gemini-cli`, and `opencode` principals alongside `claude-code`, custom agents, and OnePiece, each with its current policy template or effective default
+
+#### Scenario: The antigravity-cli principal appears in the list
+- **WHEN** a user opens the agent policy settings surface
+- **THEN** the system SHALL display the `antigravity-cli` principal alongside the other managed CLI principals, custom agents, and OnePiece, with its current policy template or effective default
 
 ### Requirement: Enabling Claude Code hook management requires a distinct first-use confirmation
 The system SHALL, before the first policy template assignment to the `claude-code` principal takes effect, present a confirmation identifying that the action installs a permission hook into the user's global Claude Code configuration and affects Claude Code usage outside VaneHub, and SHALL NOT install that hook or apply the template until the user confirms. This confirmation is independent of, and in addition to, the existing trusted/yolo confirmation.

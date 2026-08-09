@@ -8,8 +8,8 @@ use std::fmt::{Display, Formatter};
 /// governs — `claude-code` is deliberately excluded, since its policy template is already
 /// enforced dynamically through `claude-code-permission-hook`'s per-call hook, not a launch flag
 /// (`add-cli-agent-permission-launch-flags` design.md).
-pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 3] =
-    ["codex-cli", "gemini-cli", "opencode"];
+pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 4] =
+    ["codex-cli", "gemini-cli", "opencode", "antigravity-cli"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProviderPromptDelivery {
@@ -151,6 +151,19 @@ pub(crate) fn build_invocation(
             ]);
             ProviderPromptDelivery::Argument
         }
+        // `-p` takes the prompt as its value, so the prompt travels as an argument the way it does
+        // for gemini-cli rather than through stdin. Flags verified against `agy --help` (v1.1.11).
+        "antigravity-cli" => {
+            args.extend_from_slice(managed_args);
+            push_resume_args(&mut args, runtime_session_id, "--conversation");
+            args.extend([
+                "-p".to_string(),
+                prompt.to_string(),
+                "--output-format".to_string(),
+                "stream-json".to_string(),
+            ]);
+            ProviderPromptDelivery::Argument
+        }
         other => return Err(ProviderInvocationError::UnsupportedAgent(other.to_string())),
     };
 
@@ -201,6 +214,15 @@ pub(crate) fn build_interactive_invocation(
             args.extend_from_slice(managed_args);
             if let Some(session_id) = existing_session_id {
                 push_session_arg(&mut args, "--session", session_id);
+            }
+        }
+        // No id can be assigned up front: `agy` has `--conversation <id>` to resume an existing
+        // conversation but no documented flag to name a new one, so a fresh interactive launch
+        // lets the CLI mint its own id and picks it up from the `init` event.
+        "antigravity-cli" => {
+            args.extend_from_slice(managed_args);
+            if let Some(session_id) = existing_session_id {
+                push_session_arg(&mut args, "--conversation", session_id);
             }
         }
         other => return Err(ProviderInvocationError::UnsupportedAgent(other.to_string())),
@@ -255,6 +277,16 @@ pub(crate) fn apply_configuration_overrides(
                     "reasoningEffort".to_string(),
                     Value::String(effort.to_string()),
                 );
+            }
+            // `agy --effort` accepts only low|medium|high, so anything above high clamps rather
+            // than being passed through and rejected by the CLI.
+            "antigravity-cli" => {
+                let effort = if matches!(reasoning_depth, "max" | "xhigh") {
+                    "high"
+                } else {
+                    reasoning_depth
+                };
+                selections.insert("effort".to_string(), Value::String(effort.to_string()));
             }
             _ => {}
         }
@@ -313,6 +345,15 @@ pub(crate) fn apply_configuration_overrides(
         }
         ("opencode", "auto") => {
             selections.insert("autoApprove".to_string(), Value::Bool(true));
+        }
+        ("antigravity-cli", "plan") => {
+            selections.insert("mode".to_string(), Value::String("plan".to_string()));
+        }
+        ("antigravity-cli", "agent" | "auto") => {
+            selections.insert(
+                "mode".to_string(),
+                Value::String("accept-edits".to_string()),
+            );
         }
         _ => {}
     }
@@ -408,6 +449,25 @@ pub(crate) fn apply_policy_template_overrides(
         ("opencode", PolicyTemplateName::Standard) => {}
         ("opencode", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
             selections.insert("autoApprove".to_string(), Value::Bool(true));
+        }
+        // `--mode` is Antigravity's own graduated execution mode, so the projection uses it
+        // rather than the `--dangerously-skip-permissions` bypass flag the non-bypass rule forbids.
+        ("antigravity-cli", PolicyTemplateName::Readonly) => {
+            selections.insert("mode".to_string(), Value::String("plan".to_string()));
+            selections.insert("sandbox".to_string(), Value::Bool(true));
+        }
+        ("antigravity-cli", PolicyTemplateName::Standard) => {
+            // No mode override: the CLI's own `request-review` default is exactly the
+            // ask-before-acting posture `standard` means.
+            selections.insert("mode".to_string(), Value::String("default".to_string()));
+            selections.insert("sandbox".to_string(), Value::Bool(false));
+        }
+        ("antigravity-cli", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            selections.insert(
+                "mode".to_string(),
+                Value::String("accept-edits".to_string()),
+            );
+            selections.insert("sandbox".to_string(), Value::Bool(false));
         }
         _ => {}
     }

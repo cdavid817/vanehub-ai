@@ -142,22 +142,33 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("Skill reliability migration");
-        let code_index_migration: String = connection
+        let plan_migration: String = connection
             .query_row(
                 "SELECT name FROM schema_migrations WHERE version = 49",
                 [],
                 |row| row.get(0),
             )
-            .expect("code index migration");
+            .expect("plan migration");
+        let reconciliation_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 50",
+                [],
+                |row| row.get(0),
+            )
+            .expect("plan and code index reconciliation migration");
 
-        assert_eq!(migration_count, 49);
+        assert_eq!(migration_count, 50);
         assert_eq!(foreign_keys, 1);
-        assert_eq!(agent_count, 5);
+        assert_eq!(agent_count, 6);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
         assert_eq!(skill_reliability_migration, "skill-management-reliability");
-        assert_eq!(code_index_migration, "workspace-code-index-foundation");
+        assert_eq!(plan_migration, "plan-execution-foundation");
+        assert_eq!(
+            reconciliation_migration,
+            "plan-and-code-index-reconciliation"
+        );
     }
 
     #[test]
@@ -189,7 +200,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 49);
+        assert_eq!(migration_count, 50);
     }
 
     #[test]
@@ -241,7 +252,7 @@ mod tests {
 
         assert_eq!(written, workers as i64, "every concurrent writer committed");
         assert_eq!(
-            agents, 5,
+            agents, 6,
             "registry seeding ran exactly once, not per connection"
         );
     }

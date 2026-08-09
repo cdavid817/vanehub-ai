@@ -346,7 +346,10 @@ fn unknown_status(definition: ToolDefinition) -> CliToolStatus {
     CliToolStatus::unavailable(
         definition,
         EnvironmentType::Linux,
-        format!("npm install -g {}@latest", definition.package_name),
+        format!(
+            "npm install -g {}@latest",
+            definition.package_name.unwrap_or_default()
+        ),
     )
 }
 
@@ -384,7 +387,13 @@ fn list_uses_catalog_order_and_cached_startup_state() {
             .iter()
             .map(|status| status.agent_id.as_str())
             .collect::<Vec<_>>(),
-        ["claude-code", "codex-cli", "gemini-cli", "opencode"]
+        [
+            "claude-code",
+            "codex-cli",
+            "gemini-cli",
+            "opencode",
+            "antigravity-cli"
+        ]
     );
     assert!(fixture
         .service
@@ -609,6 +618,7 @@ fn bulk_upgrade_skips_busy_agents_and_releases_only_acquired_claims() {
                 "claude-code".to_string(),
                 "gemini-cli".to_string(),
                 "opencode".to_string(),
+                "antigravity-cli".to_string(),
             ],
             failed: Vec::new(),
         })

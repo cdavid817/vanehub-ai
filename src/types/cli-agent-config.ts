@@ -1,4 +1,9 @@
-export const cliConfigAgentIds = ["claude-code", "opencode", "codex-cli"] as const;
+export const cliConfigAgentIds = [
+  "claude-code",
+  "opencode",
+  "codex-cli",
+  "antigravity-cli",
+] as const;
 
 export type CliConfigAgentId = (typeof cliConfigAgentIds)[number];
 export function isCliConfigAgentId(value: string): value is CliConfigAgentId {
@@ -48,10 +53,60 @@ export interface OpenCodeConfigPayload {
   defaultModel: string;
 }
 
+export type AntigravityToolPermission =
+  | "request-review"
+  | "proceed-in-sandbox"
+  | "always-proceed"
+  | "strict";
+
+/**
+ * Antigravity CLI authenticates through the OS keyring with Google Sign-In and speaks a
+ * Google-proprietary protocol, so this payload carries neither a credential nor an endpoint:
+ * it manages the settings the CLI actually honors.
+ */
+export interface AntigravityConfigPayload {
+  kind: "antigravity";
+  toolPermission: AntigravityToolPermission;
+  enableTerminalSandbox: boolean;
+  verbosity: string;
+  model: string;
+  advancedSettings: Record<string, string | number | boolean>;
+}
+
 export type CliConfigPayload =
   | ClaudeCodeConfigPayload
   | CodexCliConfigPayload
-  | OpenCodeConfigPayload;
+  | OpenCodeConfigPayload
+  | AntigravityConfigPayload;
+
+/**
+ * Capability declarations, so credential fields, validation actions, and the `needs-credential`
+ * state derive from the payload kind rather than from scattered Agent-id conditionals.
+ */
+export function payloadSupportsCredential(payload: CliConfigPayload): boolean {
+  return payload.kind !== "antigravity";
+}
+
+/** Payload kinds that can point their CLI at a user-chosen provider endpoint. */
+export type EndpointCapableConfigPayload = Exclude<CliConfigPayload, AntigravityConfigPayload>;
+
+/**
+ * A type predicate rather than a plain boolean, so the declaration narrows the union too — a
+ * caller cannot reach for `baseUrl` on a kind that has none without the compiler objecting.
+ */
+export function payloadSupportsEndpointOverride(
+  payload: CliConfigPayload,
+): payload is EndpointCapableConfigPayload {
+  return payload.kind !== "antigravity";
+}
+
+/**
+ * What a kind without a provider endpoint shows in place of one: the local document its profile
+ * manages. Kept beside the capability declaration so the two cannot drift apart.
+ */
+export function managedSettingsPath(payload: CliConfigPayload): string {
+  return payload.kind === "antigravity" ? "~/.gemini/antigravity-cli/settings.json" : "";
+}
 
 export interface CliConfigPreset {
   id: string;

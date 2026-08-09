@@ -109,33 +109,40 @@ impl CliDetectionPort for CliDetectionAdapter {
             });
         }
 
-        let latest_version = match self.npm_view(definition, &["version"]) {
-            Ok(version) => Some(version),
-            Err((reason, output)) => {
-                events.extend(detection_failure_events(
-                    definition,
-                    operation_id,
-                    "npm-view-version",
-                    &reason,
-                    output.as_ref(),
-                ));
-                warnings.push(reason);
-                None
-            }
-        };
-        let available_versions = match self.npm_view(definition, &["versions", "--json"]) {
-            Ok(raw) => stable_versions_from_npm_json(&raw, AVAILABLE_VERSION_LIMIT),
-            Err((reason, output)) => {
-                events.extend(detection_failure_events(
-                    definition,
-                    operation_id,
-                    "npm-view-versions",
-                    &reason,
-                    output.as_ref(),
-                ));
-                warnings.push(reason);
-                Vec::new()
-            }
+        // A CLI with no npm package has no registry to query; skipping is the expected outcome,
+        // not a detection failure, so it must not raise a warning the page would show as attention.
+        let (latest_version, available_versions) = if definition.package_name.is_none() {
+            (None, Vec::new())
+        } else {
+            let latest_version = match self.npm_view(definition, &["version"]) {
+                Ok(version) => Some(version),
+                Err((reason, output)) => {
+                    events.extend(detection_failure_events(
+                        definition,
+                        operation_id,
+                        "npm-view-version",
+                        &reason,
+                        output.as_ref(),
+                    ));
+                    warnings.push(reason);
+                    None
+                }
+            };
+            let available_versions = match self.npm_view(definition, &["versions", "--json"]) {
+                Ok(raw) => stable_versions_from_npm_json(&raw, AVAILABLE_VERSION_LIMIT),
+                Err((reason, output)) => {
+                    events.extend(detection_failure_events(
+                        definition,
+                        operation_id,
+                        "npm-view-versions",
+                        &reason,
+                        output.as_ref(),
+                    ));
+                    warnings.push(reason);
+                    Vec::new()
+                }
+            };
+            (latest_version, available_versions)
         };
 
         let installed = !installations.is_empty();
@@ -148,7 +155,7 @@ impl CliDetectionPort for CliDetectionAdapter {
             display_name: definition.display_name.to_string(),
             provider: definition.provider.to_string(),
             executable_name: definition.executable_name.to_string(),
-            package_name: definition.package_name.to_string(),
+            package_name: definition.package_name.map(str::to_string),
             installed: Some(installed),
             current_version: active.and_then(|installation| installation.version.clone()),
             latest_version,
@@ -183,7 +190,13 @@ impl CliDetectionAdapter {
         definition: ToolDefinition,
         view_args: &[&str],
     ) -> Result<String, (String, Option<CliProcessOutput>)> {
-        let mut args = vec!["view".to_string(), definition.package_name.to_string()];
+        let package = definition.package_name.ok_or_else(|| {
+            (
+                "the CLI is not distributed as an npm package".to_string(),
+                None,
+            )
+        })?;
+        let mut args = vec!["view".to_string(), package.to_string()];
         args.extend(view_args.iter().map(|arg| (*arg).to_string()));
         match self.process.execute(CliProcessRequest {
             executable: npm_executable().to_string(),
@@ -281,7 +294,7 @@ fn definition_context(definition: ToolDefinition, operation_id: &str) -> BTreeMa
         ),
         (
             "packageName".to_string(),
-            definition.package_name.to_string(),
+            definition.package_name.unwrap_or_default().to_string(),
         ),
     ])
 }

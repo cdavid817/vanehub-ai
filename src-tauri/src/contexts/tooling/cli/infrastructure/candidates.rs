@@ -92,6 +92,13 @@ fn known_candidate_paths(definition: ToolDefinition) -> Vec<PathBuf> {
                     .join("Links")
                     .join(format!("{}.exe", definition.executable_name)),
             );
+            // Antigravity's Windows installer drops the binary in a directory named after the
+            // executable, not after the product.
+            candidates.push(
+                base.join(definition.executable_name)
+                    .join("bin")
+                    .join(format!("{}.exe", definition.executable_name)),
+            );
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -180,6 +187,31 @@ mod tests {
         assert_eq!(
             selected[23],
             PathBuf::from(format!("/fixture/bin/tool-23{suffix}"))
+        );
+    }
+
+    /// Pins the layout Antigravity's own Windows installer produces — verified against a real
+    /// install at `%LOCALAPPDATA%\agy\bin\agy.exe`. Without this arm the CLI is only discoverable
+    /// once its installer's PATH edit reaches a freshly started shell, which it does not for an
+    /// already-running desktop process.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_candidates_cover_the_executable_named_install_directory() {
+        let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") else {
+            return;
+        };
+        let definition =
+            crate::contexts::tooling::cli::domain::definition("antigravity-cli").expect("catalog");
+
+        let candidates = known_candidate_paths(definition);
+
+        let expected = PathBuf::from(local_app_data)
+            .join("agy")
+            .join("bin")
+            .join("agy.exe");
+        assert!(
+            candidates.contains(&expected),
+            "expected {expected:?} among {candidates:?}"
         );
     }
 }

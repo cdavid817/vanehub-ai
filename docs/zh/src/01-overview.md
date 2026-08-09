@@ -1,6 +1,6 @@
 # 项目定位与用途
 
-> VaneHub AI 是一个**桌面端多 AI 编程助手管理终端**：把 Claude Code、OpenCode、Codex CLI、Gemini CLI 以及一个原生 API Agent 收进同一个工作台，用一套 React 界面统一管理它们的可用性、会话、终端、权限、工具与可观测性。
+> VaneHub AI 是一个**桌面端多 AI 编程助手管理终端**：把 Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI 以及一个原生 API Agent 收进同一个工作台，用一套 React 界面统一管理它们的可用性、会话、终端、权限、工具与可观测性。
 
 ## 一句话定位
 
@@ -69,6 +69,7 @@
 | `opencode` | OpenCode | OpenCode | CLI (`opencode`) | `cli` | — |
 | `codex-cli` | Codex CLI | OpenAI | CLI (`codex`) | `cli`、`native-desktop` | `codex-sdk` |
 | `gemini-cli` | Gemini CLI | Google | CLI (`gemini`) | `cli`、`browser` | — |
+| `antigravity-cli` | Antigravity CLI | Google | CLI (`agy`) | `cli` | — |
 | `onepiece` | OnePiece | VaneHub | API | `api` | — |
 
 **交互模式共四种**（`src-tauri/src/contexts/agent_runtime/domain/catalog.rs:18-45` 的 `InteractionMode`）：`browser`、`native-desktop`、`cli`、`api`。

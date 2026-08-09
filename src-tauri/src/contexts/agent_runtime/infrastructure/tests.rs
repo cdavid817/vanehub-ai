@@ -53,6 +53,7 @@ fn seeded_registry_rows_map_to_stable_domain_catalog_values() {
             .map(|agent| agent.id().as_str())
             .collect::<Vec<_>>(),
         vec![
+            "antigravity-cli",
             "claude-code",
             "codex-cli",
             "gemini-cli",
@@ -60,6 +61,14 @@ fn seeded_registry_rows_map_to_stable_domain_catalog_values() {
             "opencode"
         ]
     );
+    let antigravity = agents
+        .iter()
+        .find(|agent| agent.id().as_str() == "antigravity-cli")
+        .expect("antigravity");
+    assert_eq!(antigravity.display_name(), "Antigravity CLI");
+    assert_eq!(antigravity.provider(), "Google");
+    assert_eq!(antigravity.managed_sdk_dependency_id(), None);
+    assert_eq!(antigravity.launch().executable_name(), Some("agy"));
     let codex = agents
         .iter()
         .find(|agent| agent.id().as_str() == "codex-cli")
@@ -225,6 +234,7 @@ fn api_agent_registration_round_trips_and_reports_available() {
     assert_eq!(
         ids,
         vec![
+            "antigravity-cli",
             "claude-code",
             "codex-cli",
             "gemini-cli",

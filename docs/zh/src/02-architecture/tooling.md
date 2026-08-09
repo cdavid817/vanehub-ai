@@ -300,12 +300,12 @@ if inspection.location.scope == SkillScope::Global {
 ## 边界与限制
 
 - **仅桌面可用** —— 所有子域都涉及进程启动、文件系统或 SQLite，Web/mock 模式下为模拟数据。
-- **受管 MCP 中继只覆盖两个 Agent** —— 仅 `claude-code` 与 `codex-cli`；OpenCode 与 Gemini CLI 需各自配置。
+- **受管 MCP 中继只覆盖两个 Agent** —— 仅 `claude-code` 与 `codex-cli`；OpenCode、Gemini CLI 与 Antigravity CLI 需各自配置。
 - **Prompt Hook 不作用于 OnePiece** —— 只能绑定四个受管 CLI Agent。
 - **漂移只报告不自动修复** —— 检测到问题时需人工确认处理方式。
 - **CLI 生命周期管理受来源限制** —— `Manual` 或 `Unavailable` 的安装无法由 VaneHub AI 代为升级。
 - **扩展需要下载模型文件** —— 占用磁盘且首次安装耗时。
-- **受管 SDK 只有两个** —— OpenCode 与 Gemini CLI 没有对应的受管 SDK。
+- **受管 SDK 只有两个** —— OpenCode、Gemini CLI 与 Antigravity CLI 没有对应的受管 SDK。
 - **SDK 依赖门控与执行链路的关系需注意** —— 部分 Agent 的可用性判定与受管 SDK 安装相关，但实际执行不一定经过该包。
 - **不改写 CLI 自身配置文件** —— 工具绑定通过启动参数与中继实现。
 

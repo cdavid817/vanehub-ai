@@ -1,6 +1,6 @@
-# CLI 集成：四个 CLI 的差异如何被吸收
+# CLI 集成：五个 CLI 的差异如何被吸收
 
-> **没有统一的 `AgentAdapter` trait**。四个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
+> **没有统一的 `AgentAdapter` trait**。五个 CLI 的差异不是靠一个多态接口消化的，而是靠"数据驱动的目录 + 若干处按 agent_id 分派的显式特例"。理解这一点是理解本项目 CLI 集成的关键。
 
 ## 先澄清一个常见误解
 
@@ -78,6 +78,7 @@ flowchart LR
 | `opencode` | 环境变量 `OPENCODE_PERMISSION={"edit":"ask","bash":"ask"}` | `invocation.rs:447-456` |
 | `gemini-cli` | 命令行 `--approval-mode default` | `invocation.rs:423-440` |
 | `codex-cli` | 参数目录中的选择项被覆写 | `apply_policy_template_overrides` |
+| `antigravity-cli` | 不覆写执行模式，交给 CLI 自身的 `request-review` 默认 | `apply_policy_template_overrides` |
 
 **三种完全不同的机制表达同一个概念**——环境变量、命令行标志、配置项覆写。这就是为什么没有统一的 `AgentAdapter` trait：它们的注入点不在同一个位置，抽象成一个方法只会变成一堆 `match agent_id`。
 
@@ -186,7 +187,7 @@ args.extend(["--approval-mode".to_string(), "default".to_string()]);
 
 ## 差异吸收点五：用量摄取
 
-**四个 CLI 报告用量的方式完全不同，因此有四条独立路径**（`terminal_usage_ingestion.rs`）：
+**各 CLI 报告用量的方式完全不同，因此每个都有独立路径**（`terminal_usage_ingestion.rs`）：
 
 | 函数 | 行号 |
 |---|---|
@@ -194,10 +195,11 @@ args.extend(["--approval-mode".to_string(), "default".to_string()]);
 | `ingest_opencode_terminal_usage` | `:66` |
 | `ingest_codex_terminal_usage` | `:116` |
 | `ingest_gemini_terminal_usage` | `:164` |
+| `antigravity-cli` | **尚未接入**——它的交互式会话记录位置未公开，托管管线的用量在 `result` 事件上，需要一次已认证的实跑才能钉住 |
 
 **Claude 的用量按项目目录组织**，另有 `claude_project_dir_name(cwd)` 做目录名推导（`:292`）；`load_terminal_usage_message_id`（`:199`）恢复已有关联。
 
-**这里刻意没有抽象**。四个函数各自处理各自的格式。抽象一个"通用用量解析器"会把四种互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条。**
+**这里刻意没有抽象**。每个函数各自处理各自的格式。抽象一个"通用用量解析器"会把互不相干的格式硬塞进一个形状。**代价是新增 CLI 必须新增一条**——`antigravity-cli` 正是欠着这一条。
 
 **共同的输出结构是 `TerminalUsageTotals`**（`:18-23`）：`input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_creation_tokens`——**统一的是结果形状，不是解析过程。**
 
@@ -267,6 +269,7 @@ flowchart TB
 | `codex-cli` | 启用受管中继但用命令行覆盖项；受模板治理 |
 | `opencode` | 权限走环境变量；**模型族判为 `Unknown`**（用户自配模型，声称某一族会让跨族评审建立在错误前提上，见 `seat_roster.rs:96-98`） |
 | `gemini-cli` | 支持 `browser` 交互模式；受模板治理 |
+| `antigravity-cli` | **无 npm 包**（仅安装脚本，Windows 用 PowerShell 版）；**无凭据**（Google 登录 + 系统钥匙串，配置档不含密钥）；配置档管理本地设置而非服务商端点；受模板治理，投影到 `--mode`；Skill 挂载在中立的 `.agents/skills` |
 | `onepiece` | 非 CLI；不接 Prompt Hook；带核心指令；为其余 Agent 代做记忆提取 |
 
 **`claude-code` 是特例最多的一个**——它有独立二进制、跳过参数查表、单独的中继配置形态、单独的用量组织方式。

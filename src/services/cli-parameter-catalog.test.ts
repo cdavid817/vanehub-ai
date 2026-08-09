@@ -17,6 +17,7 @@ const expectedParameterIds = {
   "codex-cli": ["model", "reasoningEffort", "sandbox", "approvalPolicy", "ephemeral", "strictConfig"],
   "gemini-cli": ["model", "approvalMode", "sandbox"],
   opencode: ["agent", "thinking", "autoApprove"],
+  "antigravity-cli": ["model", "effort", "mode", "agent", "sandbox"],
 } as const;
 
 describe("CLI parameter catalog", () => {
@@ -33,6 +34,8 @@ describe("CLI parameter catalog", () => {
         expect(definition.launchScopes.length).toBeGreaterThan(0);
         expect(["normal", "warning"]).toContain(definition.risk);
         expect(reservedFlags.has(definition.flag)).toBe(false);
+        expect(definition.flag).not.toContain("dangerously");
+        expect(definition.flag).not.toBe("--conversation");
         if (definition.control === "enum" || definition.control === "custom-text") {
           expect(definition.options.some((entry) => entry.value === definition.defaultValue)).toBe(true);
         }
@@ -56,6 +59,24 @@ describe("CLI parameter catalog", () => {
     });
     expect(preview).toEqual(["--model", "sonnet", "--effort", "high", "--permission-mode", "plan"]);
     expect(preview.join(" ")).not.toMatch(/prompt|resume|session|token|secret/i);
+  });
+
+  it("names every managed CLI in each Agent-keyed copy namespace", () => {
+    // Several surfaces build a translation key from an Agent id, each in its own namespace, and
+    // each renders the raw key when an entry is missing. Adding an Agent with parameter copy but
+    // no entry in these namespaces is invisible to the per-parameter checks below, so they are
+    // enumerated here rather than discovered one bug report at a time.
+    const resources: Array<Record<string, string>> = [en, zhCN];
+    const namespaces = [
+      (agentId: string) => `cliParameters.agents.${agentId}`,
+      (agentId: string) => `layout.agentFilter.${agentId}`,
+    ];
+    for (const agentId of managedCliAgentIds) {
+      for (const build of namespaces) {
+        const key = build(agentId);
+        expect(resources.every((resource) => Boolean(resource[key])), key).toBe(true);
+      }
+    }
   });
 
   it("provides bilingual copy for every parameter and value", () => {

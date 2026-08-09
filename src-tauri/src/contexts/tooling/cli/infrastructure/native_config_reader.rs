@@ -60,6 +60,7 @@ impl NativeConfigPort for NativeConfigReader {
             "claude-code" => discover_claude_model(&home, self, workspace_path),
             "codex-cli" => discover_codex_model(&home, self, workspace_path),
             "gemini-cli" => discover_gemini_model(&home, self),
+            "antigravity-cli" => discover_antigravity_model(&home, self),
             "opencode" => discover_opencode_model(&home, self, workspace_path),
             _ => None,
         };
@@ -217,6 +218,29 @@ fn discover_gemini_model(home: &Path, _reader: &NativeConfigReader) -> Option<St
         }
     }
     None
+}
+
+/// Antigravity shares the `~/.gemini` home but keeps its own settings document, whose `model` key
+/// records the active selection directly. A malformed document is reported and skipped rather than
+/// repaired: this reader never writes.
+fn discover_antigravity_model(home: &Path, reader: &NativeConfigReader) -> Option<String> {
+    let path = home
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("settings.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let document: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(document) => document,
+        Err(error) => {
+            reader.warn(
+                "cli.native-config",
+                format!("Antigravity settings.json is not valid JSON: {error}"),
+            );
+            return None;
+        }
+    };
+    let model = document.get("model")?.as_str()?.trim();
+    (!model.is_empty()).then(|| model.to_string())
 }
 
 fn discover_opencode_model(

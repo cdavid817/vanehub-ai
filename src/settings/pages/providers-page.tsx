@@ -138,7 +138,7 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   const filteredTools = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return tools;
-    return tools.filter((tool) => [tool.displayName, tool.provider, tool.executableName, tool.packageName].some((value) => value.toLowerCase().includes(query)));
+    return tools.filter((tool) => [tool.displayName, tool.provider, tool.executableName, tool.packageName].some((value) => value?.toLowerCase().includes(query)));
   }, [searchTerm, tools]);
   const installedCount = tools.filter((tool) => tool.installed === true).length;
   const missingCount = tools.filter((tool) => tool.installed === false).length;

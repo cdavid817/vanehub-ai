@@ -1,0 +1,772 @@
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub(crate) enum PlanDomainError {
+    #[error("{0} is required")]
+    Required(&'static str),
+    #[error("invalid Plan state transition from {from} to {to}")]
+    InvalidPlanTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("invalid PlanRun state transition from {from} to {to}")]
+    InvalidRunTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("invalid SubTaskRun state transition from {from} to {to}")]
+    InvalidTaskTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[error("invalid SubTaskAttempt state transition from {from} to {to}")]
+    InvalidAttemptTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[error("invalid control request state transition from {from} to {to}")]
+    InvalidControlTransition {
+        from: &'static str,
+        to: &'static str,
+    },
+    #[error("invalid resource limit: {0}")]
+    InvalidLimit(&'static str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlanStatus {
+    Draft,
+    Approved,
+    Archived,
+}
+
+impl PlanStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Approved => "approved",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub(crate) fn approve(self) -> Result<Self, PlanDomainError> {
+        match self {
+            Self::Draft => Ok(Self::Approved),
+            state => Err(PlanDomainError::InvalidPlanTransition {
+                from: state.as_str(),
+                to: Self::Approved.as_str(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlanRunStatus {
+    Queued,
+    Preparing,
+    Running,
+    PauseRequested,
+    Paused,
+    CancelRequested,
+    AwaitingAcceptance,
+    RecoveryRequired,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl PlanRunStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Preparing => "preparing",
+            Self::Running => "running",
+            Self::PauseRequested => "pause_requested",
+            Self::Paused => "paused",
+            Self::CancelRequested => "cancel_requested",
+            Self::AwaitingAcceptance => "awaiting_acceptance",
+            Self::RecoveryRequired => "recovery_required",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "queued" => Self::Queued,
+            "preparing" => Self::Preparing,
+            "running" => Self::Running,
+            "pause_requested" => Self::PauseRequested,
+            "paused" => Self::Paused,
+            "cancel_requested" => Self::CancelRequested,
+            "awaiting_acceptance" => Self::AwaitingAcceptance,
+            "recovery_required" => Self::RecoveryRequired,
+            "completed" => Self::Completed,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn can_transition_to(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (Self::Queued, Self::Preparing)
+                | (
+                    Self::Preparing,
+                    Self::Running | Self::Failed | Self::RecoveryRequired
+                )
+                | (Self::Running, Self::PauseRequested | Self::CancelRequested)
+                | (
+                    Self::Running,
+                    Self::AwaitingAcceptance | Self::Failed | Self::RecoveryRequired
+                )
+                | (Self::PauseRequested, Self::Paused | Self::CancelRequested)
+                | (Self::Paused, Self::Running | Self::CancelRequested)
+                | (Self::CancelRequested, Self::Cancelled)
+                | (Self::AwaitingAcceptance, Self::Completed | Self::Failed)
+                | (
+                    Self::RecoveryRequired,
+                    Self::Running | Self::Paused | Self::CancelRequested
+                )
+                | (Self::Failed, Self::Running)
+        )
+    }
+
+    pub(crate) fn transition(self, next: Self) -> Result<Self, PlanDomainError> {
+        self.can_transition_to(next)
+            .then_some(next)
+            .ok_or(PlanDomainError::InvalidRunTransition {
+                from: self.as_str(),
+                to: next.as_str(),
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SubTaskRunStatus {
+    Pending,
+    Ready,
+    Dispatching,
+    Running,
+    Verifying,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Interrupted,
+    Blocked,
+    Skipped,
+}
+
+impl SubTaskRunStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Ready => "ready",
+            Self::Dispatching => "dispatching",
+            Self::Running => "running",
+            Self::Verifying => "verifying",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+            Self::Blocked => "blocked",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "pending" => Self::Pending,
+            "ready" => Self::Ready,
+            "dispatching" => Self::Dispatching,
+            "running" => Self::Running,
+            "verifying" => Self::Verifying,
+            "succeeded" => Self::Succeeded,
+            "failed" => Self::Failed,
+            "cancelled" => Self::Cancelled,
+            "interrupted" => Self::Interrupted,
+            "blocked" => Self::Blocked,
+            "skipped" => Self::Skipped,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn can_transition_to(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (
+                Self::Pending,
+                Self::Ready | Self::Blocked | Self::Skipped | Self::Cancelled
+            ) | (Self::Ready, Self::Dispatching | Self::Cancelled)
+                | (
+                    Self::Dispatching,
+                    Self::Running | Self::Failed | Self::Cancelled | Self::Interrupted
+                )
+                | (
+                    Self::Running,
+                    Self::Verifying | Self::Failed | Self::Cancelled | Self::Interrupted
+                )
+                | (
+                    Self::Verifying,
+                    Self::Succeeded | Self::Failed | Self::Cancelled | Self::Interrupted
+                )
+                | (Self::Failed | Self::Interrupted, Self::Ready)
+        )
+    }
+
+    pub(crate) fn transition(self, next: Self) -> Result<Self, PlanDomainError> {
+        self.can_transition_to(next)
+            .then_some(next)
+            .ok_or(PlanDomainError::InvalidTaskTransition {
+                from: self.as_str(),
+                to: next.as_str(),
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResourceLimits {
+    pub(crate) token_budget: Option<u32>,
+    pub(crate) tool_call_limit: Option<u32>,
+    pub(crate) timeout_seconds: Option<u64>,
+}
+
+impl ResourceLimits {
+    pub(crate) fn validate(&self) -> Result<(), PlanDomainError> {
+        if self.token_budget == Some(0) {
+            return Err(PlanDomainError::InvalidLimit("token budget"));
+        }
+        if self.tool_call_limit == Some(0) {
+            return Err(PlanDomainError::InvalidLimit("tool call limit"));
+        }
+        if self.timeout_seconds == Some(0) {
+            return Err(PlanDomainError::InvalidLimit("timeout"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VerificationCommand {
+    pub(crate) id: String,
+    pub(crate) program: String,
+    pub(crate) args: Vec<String>,
+    pub(crate) working_directory: Option<String>,
+    pub(crate) timeout_seconds: u64,
+    pub(crate) required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SubTaskSpec {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) description: String,
+    pub(crate) acceptance_criteria: Vec<String>,
+    pub(crate) ordinal: u16,
+    pub(crate) assigned_role: String,
+    pub(crate) limits: ResourceLimits,
+    pub(crate) validation_commands: Vec<VerificationCommand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DependencyEdge {
+    pub(crate) predecessor_id: String,
+    pub(crate) successor_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlanVersion {
+    pub(crate) id: String,
+    pub(crate) version_id: String,
+    pub(crate) version: u32,
+    pub(crate) goal: String,
+    pub(crate) project_path: String,
+    pub(crate) base_ref: String,
+    pub(crate) planner_profile_id: Option<String>,
+    pub(crate) subtasks: Vec<SubTaskSpec>,
+    pub(crate) dependencies: Vec<DependencyEdge>,
+}
+
+pub(crate) type PlanDraft = PlanVersion;
+
+impl PlanVersion {
+    pub(crate) fn validate_required_fields(&self) -> Result<(), PlanDomainError> {
+        for (value, field) in [
+            (self.id.as_str(), "Plan id"),
+            (self.version_id.as_str(), "Plan version id"),
+            (self.goal.as_str(), "goal"),
+            (self.project_path.as_str(), "project path"),
+            (self.base_ref.as_str(), "base ref"),
+        ] {
+            if value.trim().is_empty() {
+                return Err(PlanDomainError::Required(field));
+            }
+        }
+        if self.version == 0 {
+            return Err(PlanDomainError::InvalidLimit("version"));
+        }
+        for subtask in &self.subtasks {
+            if subtask.id.trim().is_empty()
+                || subtask.title.trim().is_empty()
+                || subtask.description.trim().is_empty()
+                || subtask.assigned_role.trim().is_empty()
+            {
+                return Err(PlanDomainError::Required("SubTask field"));
+            }
+            subtask.limits.validate()?;
+        }
+        Ok(())
+    }
+}
+
+// Aggregate-shaped contracts live beside the row-oriented MVP repository so later repository
+// refactors cannot invent different lifecycle rules while the serial engine remains SQL-driven.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct Plan {
+    pub(crate) id: String,
+    pub(crate) status: PlanStatus,
+    pub(crate) current_version: u32,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl Plan {
+    pub(crate) fn new(id: String, current_version: u32) -> Result<Self, PlanDomainError> {
+        if id.trim().is_empty() {
+            return Err(PlanDomainError::Required("Plan id"));
+        }
+        if current_version == 0 {
+            return Err(PlanDomainError::InvalidLimit("version"));
+        }
+        Ok(Self {
+            id,
+            status: PlanStatus::Draft,
+            current_version,
+        })
+    }
+
+    pub(crate) fn approve(&mut self) -> Result<(), PlanDomainError> {
+        self.status = self.status.approve()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct ApprovedPlanSnapshot {
+    version: PlanVersion,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl ApprovedPlanSnapshot {
+    pub(crate) fn capture(version: &PlanVersion) -> Result<Self, PlanDomainError> {
+        version.validate_required_fields()?;
+        Ok(Self {
+            version: version.clone(),
+        })
+    }
+
+    pub(crate) fn version(&self) -> &PlanVersion {
+        &self.version
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct PlanRun {
+    pub(crate) id: String,
+    pub(crate) plan_id: String,
+    pub(crate) status: PlanRunStatus,
+    pub(crate) snapshot: ApprovedPlanSnapshot,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl PlanRun {
+    pub(crate) fn transition(&mut self, next: PlanRunStatus) -> Result<(), PlanDomainError> {
+        self.status = self.status.transition(next)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct SubTaskRun {
+    pub(crate) id: String,
+    pub(crate) plan_run_id: String,
+    pub(crate) subtask_id: String,
+    pub(crate) ordinal: u16,
+    pub(crate) topological_rank: u16,
+    pub(crate) status: SubTaskRunStatus,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl SubTaskRun {
+    pub(crate) fn transition(&mut self, next: SubTaskRunStatus) -> Result<(), PlanDomainError> {
+        self.status = self.status.transition(next)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum SubTaskAttemptStatus {
+    Dispatching,
+    Running,
+    Verifying,
+    Succeeded,
+    Failed,
+    Cancelled,
+    Interrupted,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl SubTaskAttemptStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Dispatching => "dispatching",
+            Self::Running => "running",
+            Self::Verifying => "verifying",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
+        }
+    }
+
+    pub(crate) fn transition(self, next: Self) -> Result<Self, PlanDomainError> {
+        let valid = matches!(
+            (self, next),
+            (
+                Self::Dispatching,
+                Self::Running | Self::Failed | Self::Cancelled | Self::Interrupted
+            ) | (
+                Self::Running,
+                Self::Verifying | Self::Failed | Self::Cancelled | Self::Interrupted
+            ) | (
+                Self::Verifying,
+                Self::Succeeded | Self::Failed | Self::Cancelled | Self::Interrupted
+            )
+        );
+        valid
+            .then_some(next)
+            .ok_or(PlanDomainError::InvalidAttemptTransition {
+                from: self.as_str(),
+                to: next.as_str(),
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct SubTaskAttempt {
+    pub(crate) id: String,
+    pub(crate) subtask_run_id: String,
+    pub(crate) sequence: u32,
+    pub(crate) status: SubTaskAttemptStatus,
+    pub(crate) session_id: Option<String>,
+    pub(crate) operation_id: Option<String>,
+    pub(crate) execution_run_id: Option<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl SubTaskAttempt {
+    pub(crate) fn transition(&mut self, next: SubTaskAttemptStatus) -> Result<(), PlanDomainError> {
+        self.status = self.status.transition(next)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct VerificationEvidence {
+    pub(crate) id: String,
+    pub(crate) attempt_id: String,
+    pub(crate) command_id: String,
+    pub(crate) status: String,
+    pub(crate) exit_code: Option<i32>,
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) output_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum PlanControlKind {
+    Pause,
+    Resume,
+    Cancel,
+    Retry,
+    Recover,
+    Accept,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum PlanControlStatus {
+    Pending,
+    Applied,
+    Rejected,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl PlanControlStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Applied => "applied",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    pub(crate) fn resolve(self, next: Self) -> Result<Self, PlanDomainError> {
+        matches!(
+            (self, next),
+            (Self::Pending, Self::Applied | Self::Rejected)
+        )
+        .then_some(next)
+        .ok_or(PlanDomainError::InvalidControlTransition {
+            from: self.as_str(),
+            to: next.as_str(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct PlanControlRequest {
+    pub(crate) id: String,
+    pub(crate) plan_run_id: String,
+    pub(crate) kind: PlanControlKind,
+    pub(crate) status: PlanControlStatus,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl PlanControlRequest {
+    pub(crate) fn resolve(&mut self, next: PlanControlStatus) -> Result<(), PlanDomainError> {
+        self.status = self.status.resolve(next)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_machines_reject_unsafe_transitions() {
+        assert!(PlanStatus::Draft.approve().is_ok());
+        assert!(PlanStatus::Approved.approve().is_err());
+        assert!(PlanRunStatus::Queued.can_transition_to(PlanRunStatus::Preparing));
+        assert!(!PlanRunStatus::Queued.can_transition_to(PlanRunStatus::Completed));
+        assert!(PlanRunStatus::Queued
+            .transition(PlanRunStatus::Preparing)
+            .is_ok());
+        assert!(PlanRunStatus::Queued
+            .transition(PlanRunStatus::Completed)
+            .is_err());
+        assert!(SubTaskRunStatus::Verifying.can_transition_to(SubTaskRunStatus::Succeeded));
+        assert!(!SubTaskRunStatus::Pending.can_transition_to(SubTaskRunStatus::Succeeded));
+        assert!(SubTaskRunStatus::Pending
+            .transition(SubTaskRunStatus::Succeeded)
+            .is_err());
+    }
+
+    #[test]
+    fn limits_must_be_positive_when_present() {
+        let limits = ResourceLimits {
+            token_budget: Some(0),
+            tool_call_limit: Some(1),
+            timeout_seconds: Some(1),
+        };
+        assert_eq!(
+            limits.validate(),
+            Err(PlanDomainError::InvalidLimit("token budget"))
+        );
+    }
+
+    fn version() -> PlanVersion {
+        PlanVersion {
+            id: "plan-1".into(),
+            version_id: "plan-version-1".into(),
+            version: 1,
+            goal: "Ship safely".into(),
+            project_path: "C:\\code\\app".into(),
+            base_ref: "main".into(),
+            planner_profile_id: Some("profile-1".into()),
+            subtasks: vec![
+                SubTaskSpec {
+                    id: "task-a".into(),
+                    title: "Analyze".into(),
+                    description: "Analyze the change".into(),
+                    acceptance_criteria: vec!["Analysis is reviewed".into()],
+                    ordinal: 0,
+                    assigned_role: "worker".into(),
+                    limits: ResourceLimits {
+                        token_budget: Some(1_000),
+                        tool_call_limit: Some(10),
+                        timeout_seconds: Some(60),
+                    },
+                    validation_commands: Vec::new(),
+                },
+                SubTaskSpec {
+                    id: "task-b".into(),
+                    title: "Build".into(),
+                    description: "Build the change".into(),
+                    acceptance_criteria: vec!["Tests pass".into()],
+                    ordinal: 1,
+                    assigned_role: "worker".into(),
+                    limits: ResourceLimits {
+                        token_budget: None,
+                        tool_call_limit: None,
+                        timeout_seconds: None,
+                    },
+                    validation_commands: Vec::new(),
+                },
+            ],
+            dependencies: vec![DependencyEdge {
+                predecessor_id: "task-a".into(),
+                successor_id: "task-b".into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn plan_identity_version_order_and_approved_snapshot_are_isolated() {
+        let mut plan = Plan::new("plan-1".into(), 1).expect("plan");
+        let mut editable = version();
+        let snapshot = ApprovedPlanSnapshot::capture(&editable).expect("snapshot");
+        editable.goal = "A later edit".into();
+        editable.subtasks.swap(0, 1);
+
+        assert_eq!(plan.id, "plan-1");
+        assert_eq!(plan.current_version, 1);
+        assert_eq!(snapshot.version().goal, "Ship safely");
+        assert_eq!(
+            snapshot
+                .version()
+                .subtasks
+                .iter()
+                .map(|task| (task.id.as_str(), task.ordinal))
+                .collect::<Vec<_>>(),
+            vec![("task-a", 0), ("task-b", 1)]
+        );
+        plan.approve().expect("approve");
+        assert_eq!(plan.status, PlanStatus::Approved);
+        assert!(plan.approve().is_err());
+    }
+
+    #[test]
+    fn run_task_attempt_and_control_transitions_are_explicit() {
+        let snapshot = ApprovedPlanSnapshot::capture(&version()).expect("snapshot");
+        let mut run = PlanRun {
+            id: "run-1".into(),
+            plan_id: "plan-1".into(),
+            status: PlanRunStatus::Queued,
+            snapshot,
+        };
+        run.transition(PlanRunStatus::Preparing).expect("prepare");
+        assert_eq!(run.id, "run-1");
+        assert_eq!(run.plan_id, "plan-1");
+        assert_eq!(run.snapshot.version().version_id, "plan-version-1");
+        assert!(run.transition(PlanRunStatus::Completed).is_err());
+
+        let mut task_run = SubTaskRun {
+            id: "subtask-run-1".into(),
+            plan_run_id: run.id.clone(),
+            subtask_id: "task-a".into(),
+            ordinal: 0,
+            topological_rank: 0,
+            status: SubTaskRunStatus::Pending,
+        };
+        task_run.transition(SubTaskRunStatus::Ready).expect("ready");
+        assert_eq!(task_run.plan_run_id, "run-1");
+        assert_eq!(task_run.subtask_id, "task-a");
+        assert_eq!((task_run.ordinal, task_run.topological_rank), (0, 0));
+        assert!(task_run.transition(SubTaskRunStatus::Succeeded).is_err());
+
+        let mut attempt = SubTaskAttempt {
+            id: "attempt-1".into(),
+            subtask_run_id: task_run.id.clone(),
+            sequence: 1,
+            status: SubTaskAttemptStatus::Dispatching,
+            session_id: Some("session-1".into()),
+            operation_id: Some("operation-1".into()),
+            execution_run_id: Some("execution-1".into()),
+        };
+        attempt
+            .transition(SubTaskAttemptStatus::Running)
+            .expect("running");
+        attempt
+            .transition(SubTaskAttemptStatus::Verifying)
+            .expect("verifying");
+        attempt
+            .transition(SubTaskAttemptStatus::Succeeded)
+            .expect("succeeded");
+        assert_eq!(attempt.sequence, 1);
+        assert_eq!(attempt.subtask_run_id, "subtask-run-1");
+        assert_eq!(attempt.session_id.as_deref(), Some("session-1"));
+        assert_eq!(attempt.operation_id.as_deref(), Some("operation-1"));
+        assert_eq!(attempt.execution_run_id.as_deref(), Some("execution-1"));
+        assert!(attempt.transition(SubTaskAttemptStatus::Failed).is_err());
+
+        let mut control = PlanControlRequest {
+            id: "control-1".into(),
+            plan_run_id: run.id,
+            kind: PlanControlKind::Pause,
+            status: PlanControlStatus::Pending,
+        };
+        control
+            .resolve(PlanControlStatus::Applied)
+            .expect("applied");
+        assert_eq!(control.id, "control-1");
+        assert_eq!(control.plan_run_id, "run-1");
+        assert_eq!(control.kind, PlanControlKind::Pause);
+        assert!(control.resolve(PlanControlStatus::Rejected).is_err());
+
+        let evidence = VerificationEvidence {
+            id: "evidence-1".into(),
+            attempt_id: attempt.id,
+            command_id: "tests".into(),
+            status: "passed".into(),
+            exit_code: Some(0),
+            duration_ms: Some(25),
+            output_summary: Some("bounded summary".into()),
+        };
+        assert_eq!(evidence.attempt_id, "attempt-1");
+        assert_eq!(evidence.id, "evidence-1");
+        assert_eq!(evidence.command_id, "tests");
+        assert_eq!(evidence.status, "passed");
+        assert_eq!(evidence.exit_code, Some(0));
+        assert_eq!(evidence.duration_ms, Some(25));
+        assert_eq!(evidence.output_summary.as_deref(), Some("bounded summary"));
+
+        for kind in [
+            PlanControlKind::Resume,
+            PlanControlKind::Cancel,
+            PlanControlKind::Retry,
+            PlanControlKind::Recover,
+            PlanControlKind::Accept,
+        ] {
+            assert_ne!(kind, PlanControlKind::Pause);
+        }
+        for terminal in [
+            SubTaskAttemptStatus::Failed,
+            SubTaskAttemptStatus::Cancelled,
+            SubTaskAttemptStatus::Interrupted,
+        ] {
+            assert_ne!(terminal, SubTaskAttemptStatus::Succeeded);
+        }
+    }
+}

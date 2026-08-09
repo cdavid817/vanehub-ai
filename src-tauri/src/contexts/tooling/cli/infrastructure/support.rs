@@ -1,5 +1,5 @@
 use crate::contexts::tooling::cli::domain::{
-    classify_install_source, EnvironmentType, InstallSource, ToolDefinition,
+    classify_install_source, EnvironmentType, InstallSource, ScriptInstaller, ToolDefinition,
 };
 use std::path::Path;
 
@@ -16,12 +16,29 @@ pub(super) fn current_environment_type() -> EnvironmentType {
 }
 
 pub(super) fn install_command_for(definition: ToolDefinition) -> String {
-    match definition.script_install_url {
-        Some(url) => format!(
-            "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" {url} && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status' || npm install -g {}@latest",
-            definition.package_name
+    let npm_fallback = definition
+        .package_name
+        .map(|package| format!("npm install -g {package}@latest"));
+    match (definition.platform_installer(), npm_fallback) {
+        (Some(installer), Some(fallback)) => {
+            format!("{} || {fallback}", script_install_command(installer))
+        }
+        (Some(installer), None) => script_install_command(installer),
+        (None, Some(fallback)) => fallback,
+        // Nothing automated is reachable here; the page renders manual guidance instead, and this
+        // string is only ever displayed.
+        (None, None) => format!("Install {} manually", definition.display_name),
+    }
+}
+
+fn script_install_command(installer: ScriptInstaller) -> String {
+    match installer {
+        ScriptInstaller::Shell(url) => format!(
+            "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" {url} && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status'"
         ),
-        None => format!("npm install -g {}@latest", definition.package_name),
+        ScriptInstaller::PowerShell(url) => {
+            format!("powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm {url} | iex\"")
+        }
     }
 }
 

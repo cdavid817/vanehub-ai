@@ -14,7 +14,7 @@ type SeedAgent = (
     &'static str,
 );
 
-const AGENTS: [SeedAgent; 5] = [
+const AGENTS: [SeedAgent; 6] = [
     (
         "claude-code",
         "Claude Code",
@@ -65,6 +65,19 @@ const AGENTS: [SeedAgent; 5] = [
         None,
         &["cli", "browser"],
         &["coding", "cli", "browser"],
+        "builtin",
+    ),
+    (
+        "antigravity-cli",
+        "Antigravity CLI",
+        "Google",
+        "cli",
+        Some("agy"),
+        None,
+        Some("agy"),
+        None,
+        &["cli"],
+        &["coding", "cli", "agent"],
         "builtin",
     ),
     (
@@ -367,8 +380,14 @@ mod tests {
         let agent_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
             .expect("agent count");
-        assert_eq!(agent_count, 5);
-        for cli_id in ["claude-code", "opencode", "codex-cli", "gemini-cli"] {
+        assert_eq!(agent_count, 6);
+        for cli_id in [
+            "claude-code",
+            "opencode",
+            "codex-cli",
+            "gemini-cli",
+            "antigravity-cli",
+        ] {
             let origin: String = connection
                 .query_row(
                     "SELECT agent_origin FROM agents WHERE id = ?1",
@@ -378,6 +397,48 @@ mod tests {
                 .expect("CLI origin");
             assert_eq!(origin, "builtin");
         }
+    }
+
+    /// Seeding runs on every bootstrap, not only on a fresh database, so a database created before
+    /// Antigravity existed gains the row without a dedicated migration — and re-seeding must not
+    /// disturb it.
+    #[test]
+    fn back_fills_antigravity_into_a_database_seeded_before_it_existed() {
+        let connection = migrated_connection();
+        connection
+            .execute("DELETE FROM agents WHERE id = 'antigravity-cli'", [])
+            .expect("simulate pre-Antigravity database");
+
+        seed_registry(&connection).expect("back-fill seed");
+        seed_registry(&connection).expect("repeat seed");
+
+        let seeded: (String, String, String, Option<String>, Option<String>, String) = connection
+            .query_row(
+                "SELECT display_name, provider, launch_kind, launch_command, executable_name, agent_origin FROM agents WHERE id = 'antigravity-cli'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .expect("Antigravity seed");
+        assert_eq!(
+            seeded,
+            (
+                "Antigravity CLI".to_string(),
+                "Google".to_string(),
+                "cli".to_string(),
+                Some("agy".to_string()),
+                Some("agy".to_string()),
+                "builtin".to_string(),
+            )
+        );
+
+        let modes: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM agent_modes WHERE agent_id = 'antigravity-cli'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("mode count");
+        assert_eq!(modes, 1);
     }
 
     #[test]
