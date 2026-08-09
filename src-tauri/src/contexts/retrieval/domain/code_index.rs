@@ -1,5 +1,5 @@
 use globset::Glob;
-use std::path::{Component, Path};
+use std::path::Path;
 use uuid::Uuid;
 
 use super::error::RetrievalError;
@@ -208,21 +208,27 @@ fn normalized_config_root(value: String) -> Result<String, RetrievalError> {
     if value.is_empty() || value == "." {
         return Ok(String::new());
     }
-    let path = Path::new(&value);
-    if path.is_absolute() {
-        return Err(validation("selected root must be workspace relative"));
+    normalized_workspace_relative_path(&value)
+        .ok_or_else(|| validation("selected root must stay within the workspace"))
+}
+
+pub(crate) fn normalized_workspace_relative_path(value: &str) -> Option<String> {
+    let normalized = value.replace('\\', "/");
+    if normalized.trim().is_empty()
+        || normalized.starts_with('/')
+        || normalized.as_bytes().get(1) == Some(&b':')
+    {
+        return None;
     }
     let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::CurDir => {}
-            _ => return Err(validation("selected root escapes the workspace")),
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => return None,
+            _ => parts.push(part),
         }
     }
-    (!parts.is_empty())
-        .then(|| parts.join("/"))
-        .ok_or_else(|| validation("selected root is empty"))
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 fn validation(message: &str) -> RetrievalError {

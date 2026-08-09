@@ -1,5 +1,7 @@
 use crate::contexts::retrieval::application::{CodeIndexRepository, EMBEDDING_BATCH_SIZE};
-use crate::contexts::retrieval::domain::code_index::CODE_INDEX_VERSION;
+use crate::contexts::retrieval::domain::code_index::{
+    normalized_workspace_relative_path, CODE_INDEX_VERSION,
+};
 use crate::contexts::retrieval::domain::{
     code_embedding_identity, content_hash, document_id, redact_code, CodeChunk,
     CodeEmbeddingConfirmation, CodeFileManifest, CodeIndexAuditEntry, CodeIndexAuditEvent,
@@ -11,7 +13,7 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::path::{Component, Path};
+use std::path::Path;
 
 const MAX_AUDIT_ROWS_PER_WORKSPACE: usize = 200;
 const MAX_AUDIT_QUERY_ROWS: usize = 100;
@@ -1064,21 +1066,7 @@ fn read_workspace(row: &rusqlite::Row<'_>) -> Result<CodeWorkspace, rusqlite::Er
 }
 
 fn normalized_relative_path(value: &str) -> Result<String, RetrievalError> {
-    let path = Path::new(value);
-    if value.trim().is_empty() || path.is_absolute() {
-        return Err(RetrievalError::InvalidScope);
-    }
-    let mut parts = Vec::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            Component::CurDir => {}
-            _ => return Err(RetrievalError::InvalidScope),
-        }
-    }
-    (!parts.is_empty())
-        .then(|| parts.join("/"))
-        .ok_or(RetrievalError::InvalidScope)
+    normalized_workspace_relative_path(value).ok_or(RetrievalError::InvalidScope)
 }
 
 fn json(values: &[String]) -> Result<String, RetrievalError> {
