@@ -7,7 +7,7 @@ pub(crate) struct CliToolStatus {
     pub(crate) display_name: String,
     pub(crate) provider: String,
     pub(crate) executable_name: String,
-    pub(crate) package_name: String,
+    pub(crate) package_name: Option<String>,
     pub(crate) installed: Option<bool>,
     pub(crate) current_version: Option<String>,
     pub(crate) latest_version: Option<String>,

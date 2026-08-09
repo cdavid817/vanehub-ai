@@ -43,6 +43,7 @@ Availability checks must continue to use non-interactive `--version` and
 | Codex CLI | 0.145.0 | JSONL events expose stable item/tool identities; committed fixtures must prove start, completion, and failure mappings | Yes, `-c key=value` can override `mcp_servers` for one invocation | Tool events inferred; managed relay proxied when enabled |
 | Gemini CLI | 0.51.0 | `--output-format stream-json` is available; committed fixtures must prove lifecycle boundaries | No safe invocation-scoped server-definition option is advertised; allow-list flags do not define a server | Tool events inferred; MCP is opaque unless traffic is VaneHub-native |
 | OpenCode | 1.18.4 | `run --format json` is available; committed fixtures must prove lifecycle boundaries | No safe invocation-scoped server-definition option is advertised | Tool events inferred; MCP is opaque unless traffic is VaneHub-native |
+| Antigravity CLI | 1.1.11 | `--output-format stream-json` emits `init` / `step_update` / `result` under an `{"event":"<kind>","<kind>":{...}}` envelope; only the `result` shape is captured from a real run so far | No invocation-scoped option is advertised; MCP servers are managed through the CLI's own `/mcp` surface | Not yet observed end to end — the parser is pending a live authenticated capture |
 
 Provider output is evidence, not authority to invent missing boundaries. A
 start-only call remains incomplete when the Agent exits. Duplicate and

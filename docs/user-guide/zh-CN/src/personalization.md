@@ -34,7 +34,7 @@ Agent 在会话中发现的项目约定会被自动记下，下次开新会话�
 | **启用记忆** | 总开关。**关闭后也会停止使用已保存的记忆**，不只是停止新增 |
 | **从工具辅助的会话中记忆** | 控制 OnePiece 在用过 shell、文件或 MCP 工具的会话中是否自动提取。你主动要求记住的内容不受影响 |
 
-> **第二个开关不影响 CLI Agent**。界面上的说明写得很明确：Claude Code、Codex CLI、Gemini CLI、OpenCode 的记忆提取不受这个开关影响。
+> **第二个开关不影响 CLI Agent**。界面上的说明写得很明确：Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 的记忆提取不受这个开关影响。
 
 已保存的记忆在同页的**已保存的记忆**区查看与管理。
 
@@ -46,7 +46,7 @@ Agent 在会话中发现的项目约定会被自动记下，下次开新会话�
 
 这是界面上完全看不出来、但会实际影响你的约束：
 
-> **未配置 OnePiece 的 provider 时，Claude Code、Codex CLI、Gemini CLI、OpenCode 都不会产生记忆提取。**
+> **未配置 OnePiece 的 provider 时，Claude Code、Codex CLI、Gemini CLI、OpenCode、Antigravity CLI 都不会产生记忆提取。**
 
 原因是这些 CLI 没有可复用的模型凭据，提取动作需要借助 OnePiece 的 provider 完成。
 

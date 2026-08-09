@@ -15,7 +15,13 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-const STABLE_AGENT_IDS: [&str; 4] = ["claude-code", "codex-cli", "gemini-cli", "opencode"];
+const STABLE_AGENT_IDS: [&str; 5] = [
+    "claude-code",
+    "codex-cli",
+    "gemini-cli",
+    "opencode",
+    "antigravity-cli",
+];
 const ALL_POLICY_TEMPLATES: [PolicyTemplateName; 4] = [
     PolicyTemplateName::Readonly,
     PolicyTemplateName::Standard,
@@ -324,6 +330,15 @@ fn interactive_invocations_cover_fresh_and_resume_for_every_stable_provider() {
                 "runtime-1".to_string(),
             ],
         ),
+        (
+            "antigravity-cli",
+            vec!["--sandbox".to_string()],
+            vec![
+                "--sandbox".to_string(),
+                "--conversation".to_string(),
+                "runtime-1".to_string(),
+            ],
+        ),
     ];
     assert_stable_agent_coverage(fixtures.iter().map(|(agent_id, _, _)| *agent_id));
 
@@ -468,6 +483,23 @@ fn output_fixtures_cover_every_stable_provider() {
                 ProviderOutputEvent::SessionId("opencode-current-session".to_string()),
                 ProviderOutputEvent::Token("hello from current opencode".to_string()),
                 ProviderOutputEvent::Completed(None),
+            ],
+        ),
+        (
+            // Only the `result` line here is a verbatim capture. `init` carries the documented
+            // `conversation_id`, and `step_update` stands in for "an event whose payload has not
+            // been observed" — the parser must consume it without emitting invented increments.
+            "antigravity-cli",
+            include_str!("fixtures/antigravity-cli.output.jsonl"),
+            vec![
+                ProviderOutputEvent::SessionId("antigravity-conversation".to_string()),
+                ProviderOutputEvent::Empty,
+                ProviderOutputEvent::Completed(Some(ProviderReportedUsage {
+                    input_tokens: 12,
+                    output_tokens: 8,
+                    cache_read_tokens: 2,
+                    cache_creation_tokens: 0,
+                })),
             ],
         ),
     ];
@@ -683,6 +715,79 @@ fn claude_error_result_becomes_a_failure_carrying_the_cli_diagnostic() {
                 failure.kind,
                 GenerationProcessFailureKind::NonRetryable,
                 "a 403 is an authentication problem; retrying cannot fix it"
+            );
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+/// Captured verbatim from a real `agy -p ... --output-format stream-json` run (v1.1.11). The
+/// envelope is `{"event":"<kind>","<kind>":{...}}`, not the flat `{"type":...}` the other CLIs
+/// use, so this pins the shape a guess would have gotten wrong.
+#[test]
+fn antigravity_result_event_maps_status_and_diagnostic() {
+    let line = include_str!("fixtures/antigravity-cli.auth-error-result.jsonl");
+    let event = output_parser_for("antigravity-cli").parse_line(line.trim());
+
+    match event {
+        ProviderOutputEvent::Failed(failure) => {
+            assert_eq!(failure.diagnostic, "authentication failed or timed out");
+            assert_eq!(failure.kind, GenerationProcessFailureKind::NonRetryable);
+        }
+        other => panic!("expected a failure event, got {other:?}"),
+    }
+}
+
+#[test]
+fn antigravity_success_folds_thinking_tokens_into_output() {
+    let line = r#"{"event":"result","result":{"conversation_id":"c-1","status":"SUCCESS","response":"hi","error":"","usage":{"input_tokens":10,"output_tokens":4,"thinking_tokens":6,"cache_read_tokens":3,"total_tokens":23}}}"#;
+
+    match output_parser_for("antigravity-cli").parse_line(line) {
+        ProviderOutputEvent::Completed(Some(usage)) => {
+            assert_eq!(usage.input_tokens, 10);
+            assert_eq!(usage.output_tokens, 10, "thinking tokens fold into output");
+            assert_eq!(usage.cache_read_tokens, 3);
+        }
+        other => panic!("expected a completion carrying usage, got {other:?}"),
+    }
+}
+
+#[test]
+fn antigravity_init_yields_the_conversation_id_and_unknown_events_are_ignored() {
+    let parser = output_parser_for("antigravity-cli");
+
+    assert_eq!(
+        parser.parse_line(r#"{"event":"init","init":{"conversation_id":"conv-7"}}"#),
+        ProviderOutputEvent::SessionId("conv-7".to_string())
+    );
+    // `step_update` is consumed without emitting increments until its payload is captured from a
+    // live authenticated run; an unrecognized event must never fail the turn.
+    assert_eq!(
+        parser.parse_line(r#"{"event":"step_update","step_update":{"unobserved":true}}"#),
+        ProviderOutputEvent::Empty
+    );
+    assert_eq!(
+        parser.parse_line(r#"{"event":"something_new","something_new":{}}"#),
+        ProviderOutputEvent::Empty
+    );
+    assert_eq!(
+        parser.parse_line("not json at all"),
+        ProviderOutputEvent::Empty
+    );
+}
+
+/// A non-terminal status on a terminal event means the contract moved; reporting it as success
+/// would hand the user an empty reply and call the turn done.
+#[test]
+fn antigravity_non_terminal_result_status_fails_loudly() {
+    let line = r#"{"event":"result","result":{"status":"RUNNING","error":""}}"#;
+
+    match output_parser_for("antigravity-cli").parse_line(line) {
+        ProviderOutputEvent::Failed(failure) => {
+            assert!(
+                failure.diagnostic.contains("non-terminal"),
+                "{}",
+                failure.diagnostic
             );
         }
         other => panic!("expected a failure event, got {other:?}"),

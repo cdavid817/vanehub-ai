@@ -4,7 +4,7 @@
 TBD - created by archiving change add-agent-cross-session-memory. Update Purpose after archive.
 ## Requirements
 ### Requirement: Memory scoping
-The system SHALL treat stored memories as a single host-level pool shared by every agent — OnePiece and all CLI-wrapped agents (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`) alike — rather than scoping them to the agent or workspace folder that produced them. The system SHALL record which agent and, when available, which workspace folder produced each memory as provenance metadata on the stored record, without using either as a filter for injection, listing, or management.
+The system SHALL treat stored memories as a single host-level pool shared by every agent — OnePiece and all CLI-wrapped agents (`claude-code`, `codex-cli`, `gemini-cli`, `opencode`, `antigravity-cli`) alike — rather than scoping them to the agent or workspace folder that produced them. The system SHALL record which agent and, when available, which workspace folder produced each memory as provenance metadata on the stored record, without using either as a filter for injection, listing, or management.
 
 #### Scenario: Memory scoped to agent and folder
 - **WHEN** a memory is saved during a session with a workspace folder, whether by OnePiece's explicit tool, OnePiece's automatic extraction, or a CLI-wrapped agent's automatic extraction

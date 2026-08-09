@@ -86,7 +86,8 @@ export function CliEnvironmentCard(props: CliEnvironmentCardProps) {
           </span>
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{tool.displayName}</h3>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{tool.packageName}</p>
+            {/* Script-only CLIs have no package to name, so the executable identifies them instead. */}
+            <p className="mt-1 truncate text-xs text-muted-foreground">{tool.packageName ?? tool.executableName}</p>
           </div>
         </div>
         <Button

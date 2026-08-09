@@ -18,7 +18,7 @@ npm install -g @anthropic-ai/claude-code
 claude
 ```
 
-其余 CLI（Codex CLI、Gemini CLI、OpenCode）按各自官方说明安装。详见[安装并认证 CLI](getting-started.md)。
+其余 CLI（Codex CLI、Gemini CLI、OpenCode、Antigravity CLI）按各自官方说明安装。详见[安装并认证 CLI](getting-started.md)。
 
 ## 2. 确认 VaneHub AI 检测到它
 

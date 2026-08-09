@@ -1,4 +1,6 @@
 import type {
+  AntigravityConfigPayload,
+  AntigravityToolPermission,
   ClaudeCodeConfigPayload,
   CliConfigPayload,
   CodexCliConfigPayload,
@@ -139,5 +141,53 @@ export function CliConfigPayloadFields({
 }) {
   if (payload.kind === "claude-code") return <ClaudeFields payload={payload} onChange={onChange} />;
   if (payload.kind === "codex-cli") return <CodexFields payload={payload} onChange={onChange} />;
+  if (payload.kind === "antigravity") return <AntigravityFields payload={payload} onChange={onChange} />;
   return <OpenCodeFields payload={payload} onChange={onChange} />;
+}
+
+const toolPermissions: AntigravityToolPermission[] = [
+  "request-review",
+  "proceed-in-sandbox",
+  "always-proceed",
+  "strict",
+];
+
+/**
+ * No base URL and no credential field: Antigravity authenticates through the system keyring and
+ * accepts no custom endpoint, so this form edits the settings it does honor.
+ */
+function AntigravityFields({
+  payload,
+  onChange,
+}: {
+  payload: AntigravityConfigPayload;
+  onChange: (payload: AntigravityConfigPayload) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <TextField label={t("agents.globalConfig.field.model")} value={payload.model} onChange={(model) => onChange({ ...payload, model })} />
+      <label className="flex flex-col gap-1 text-sm">
+        {t("agents.globalConfig.field.toolPermission")}
+        <select
+          className={inputClass}
+          onChange={(event) => onChange({ ...payload, toolPermission: event.target.value as AntigravityToolPermission })}
+          value={payload.toolPermission}
+        >
+          {toolPermissions.map((value) => (
+            <option key={value} value={value}>{t(`agents.globalConfig.antigravity.toolPermission.${value}`)}</option>
+          ))}
+        </select>
+      </label>
+      <TextField label={t("agents.globalConfig.field.verbosity")} value={payload.verbosity} onChange={(verbosity) => onChange({ ...payload, verbosity })} />
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          checked={payload.enableTerminalSandbox}
+          onChange={(event) => onChange({ ...payload, enableTerminalSandbox: event.target.checked })}
+          type="checkbox"
+        />
+        {t("agents.globalConfig.field.terminalSandbox")}
+      </label>
+    </div>
+  );
 }

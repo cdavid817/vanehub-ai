@@ -7,19 +7,45 @@ pub(crate) struct ToolDefinition {
     pub(crate) display_name: &'static str,
     pub(crate) provider: &'static str,
     pub(crate) executable_name: &'static str,
-    pub(crate) package_name: &'static str,
+    /// `None` for CLIs distributed only by installer script, which have no npm package to
+    /// install, query for versions, or name in guidance.
+    pub(crate) package_name: Option<&'static str>,
     pub(crate) script_install_url: Option<&'static str>,
+    pub(crate) powershell_install_url: Option<&'static str>,
     pub(crate) winget_package_id: Option<&'static str>,
 }
 
-pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 4] = [
+/// Which interpreter an installer URL must be fed to. The URL alone does not say: a `.sh`
+/// installer piped into PowerShell would execute as nonsense, so the interpreter travels with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptInstaller {
+    Shell(&'static str),
+    PowerShell(&'static str),
+}
+
+impl ToolDefinition {
+    /// Windows has no POSIX shell to run a `.sh` installer through, so a CLI that ships only a
+    /// shell installer relies on its npm or winget package there. Publishing a PowerShell
+    /// installer is what makes script installation reachable on Windows.
+    pub(crate) fn platform_installer(self) -> Option<ScriptInstaller> {
+        if cfg!(target_os = "windows") {
+            if let Some(url) = self.powershell_install_url {
+                return Some(ScriptInstaller::PowerShell(url));
+            }
+        }
+        self.script_install_url.map(ScriptInstaller::Shell)
+    }
+}
+
+pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 5] = [
     ToolDefinition {
         agent_id: "claude-code",
         display_name: "Anthropic Claude Code CLI",
         provider: "Anthropic",
         executable_name: "claude",
-        package_name: "@anthropic-ai/claude-code",
+        package_name: Some("@anthropic-ai/claude-code"),
         script_install_url: Some("https://claude.ai/install.sh"),
+        powershell_install_url: None,
         winget_package_id: Some("Anthropic.ClaudeCode"),
     },
     ToolDefinition {
@@ -27,8 +53,9 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 4] = [
         display_name: "OpenAI Codex CLI",
         provider: "OpenAI",
         executable_name: "codex",
-        package_name: "@openai/codex",
+        package_name: Some("@openai/codex"),
         script_install_url: None,
+        powershell_install_url: None,
         winget_package_id: None,
     },
     ToolDefinition {
@@ -36,8 +63,9 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 4] = [
         display_name: "Google Gemini CLI",
         provider: "Google",
         executable_name: "gemini",
-        package_name: "@google/gemini-cli",
+        package_name: Some("@google/gemini-cli"),
         script_install_url: None,
+        powershell_install_url: None,
         winget_package_id: None,
     },
     ToolDefinition {
@@ -45,8 +73,19 @@ pub(crate) const CLI_TOOL_DEFINITIONS: [ToolDefinition; 4] = [
         display_name: "OpenCode CLI",
         provider: "OpenCode",
         executable_name: "opencode",
-        package_name: "opencode-ai",
+        package_name: Some("opencode-ai"),
         script_install_url: Some("https://opencode.ai/install"),
+        powershell_install_url: None,
+        winget_package_id: None,
+    },
+    ToolDefinition {
+        agent_id: "antigravity-cli",
+        display_name: "Google Antigravity CLI",
+        provider: "Google",
+        executable_name: "agy",
+        package_name: None,
+        script_install_url: Some("https://antigravity.google/cli/install.sh"),
+        powershell_install_url: Some("https://antigravity.google/cli/install.ps1"),
         winget_package_id: None,
     },
 ];
@@ -145,22 +184,26 @@ pub(crate) fn derive_lifecycle_eligibility(
     active: Option<&Installation>,
 ) -> LifecycleEligibility {
     if !installed {
-        return if definition.script_install_url.is_some() {
+        return if definition.platform_installer().is_some() {
             LifecycleEligibility::Wget
-        } else {
+        } else if definition.package_name.is_some() {
             LifecycleEligibility::Npm
+        } else {
+            LifecycleEligibility::Manual
         };
     }
     match active {
         Some(installation)
-            if installation.runnable && installation.source == InstallSource::Npm =>
+            if installation.runnable
+                && installation.source == InstallSource::Npm
+                && definition.package_name.is_some() =>
         {
             LifecycleEligibility::Npm
         }
         Some(installation)
             if installation.runnable
                 && installation.source == InstallSource::Vendor
-                && definition.script_install_url.is_some() =>
+                && definition.platform_installer().is_some() =>
         {
             LifecycleEligibility::Wget
         }
@@ -308,7 +351,13 @@ mod tests {
                 .iter()
                 .map(|definition| definition.agent_id)
                 .collect::<Vec<_>>(),
-            vec!["claude-code", "codex-cli", "gemini-cli", "opencode"]
+            vec![
+                "claude-code",
+                "codex-cli",
+                "gemini-cli",
+                "opencode",
+                "antigravity-cli"
+            ]
         );
         assert_eq!(
             definition("claude-code").and_then(|definition| definition.winget_package_id),
@@ -319,6 +368,57 @@ mod tests {
             Some("https://opencode.ai/install")
         );
         assert!(definition("unknown").is_none());
+    }
+
+    #[test]
+    fn adding_a_script_only_cli_leaves_the_package_managed_ones_intact() {
+        for agent_id in ["claude-code", "codex-cli", "gemini-cli", "opencode"] {
+            let definition = definition(agent_id).expect("definition");
+            assert!(
+                definition.package_name.is_some(),
+                "{agent_id} must keep its npm package"
+            );
+            assert_eq!(
+                definition.powershell_install_url, None,
+                "{agent_id} must not gain a PowerShell installer"
+            );
+        }
+    }
+
+    #[test]
+    fn antigravity_is_script_only_on_both_installer_families() {
+        let antigravity = definition("antigravity-cli").expect("antigravity");
+        assert_eq!(antigravity.executable_name, "agy");
+        assert_eq!(antigravity.package_name, None);
+        assert_eq!(antigravity.winget_package_id, None);
+        assert_eq!(
+            antigravity.script_install_url,
+            Some("https://antigravity.google/cli/install.sh")
+        );
+        assert_eq!(
+            antigravity.powershell_install_url,
+            Some("https://antigravity.google/cli/install.ps1")
+        );
+        // Whichever platform the suite runs on, one of the two installers must be reachable.
+        assert!(antigravity.platform_installer().is_some());
+    }
+
+    #[test]
+    fn platform_installer_pairs_each_url_with_its_own_interpreter() {
+        let antigravity = definition("antigravity-cli").expect("antigravity");
+        let expected = if cfg!(target_os = "windows") {
+            ScriptInstaller::PowerShell("https://antigravity.google/cli/install.ps1")
+        } else {
+            ScriptInstaller::Shell("https://antigravity.google/cli/install.sh")
+        };
+        assert_eq!(antigravity.platform_installer(), Some(expected));
+
+        // A CLI with only a shell installer never gets fed to PowerShell, even on Windows.
+        let claude = definition("claude-code").expect("claude");
+        assert_eq!(
+            claude.platform_installer(),
+            Some(ScriptInstaller::Shell("https://claude.ai/install.sh"))
+        );
     }
 
     #[test]
@@ -371,6 +471,52 @@ mod tests {
         assert_eq!(
             derive_lifecycle_eligibility(codex, true, None),
             LifecycleEligibility::Unavailable
+        );
+    }
+
+    #[test]
+    fn script_only_cli_is_installer_eligible_and_never_npm_eligible() {
+        let antigravity = definition("antigravity-cli").expect("antigravity");
+        assert_eq!(
+            derive_lifecycle_eligibility(antigravity, false, None),
+            LifecycleEligibility::Wget
+        );
+
+        // Even if a path somehow classifies as npm-managed, there is no package to mutate, so the
+        // page must fall through to source-native guidance instead of offering an npm upgrade.
+        let npm = installation(r"\npm\agy", Some("1.0.0"), true, InstallSource::Npm);
+        assert_eq!(
+            derive_lifecycle_eligibility(antigravity, true, Some(&npm)),
+            LifecycleEligibility::Manual
+        );
+
+        let vendor = installation(
+            r"\home\.local\bin\agy",
+            Some("1.0.0"),
+            true,
+            InstallSource::Vendor,
+        );
+        assert_eq!(
+            derive_lifecycle_eligibility(antigravity, true, Some(&vendor)),
+            LifecycleEligibility::Wget
+        );
+    }
+
+    #[test]
+    fn a_cli_with_no_package_and_no_installer_falls_back_to_manual() {
+        let orphan = ToolDefinition {
+            agent_id: "fixture-cli",
+            display_name: "Fixture CLI",
+            provider: "Fixture",
+            executable_name: "fixture",
+            package_name: None,
+            script_install_url: None,
+            powershell_install_url: None,
+            winget_package_id: None,
+        };
+        assert_eq!(
+            derive_lifecycle_eligibility(orphan, false, None),
+            LifecycleEligibility::Manual
         );
     }
 

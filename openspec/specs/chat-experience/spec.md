@@ -205,7 +205,7 @@ The desktop runtime SHALL stream assistant output from provider-specific Agent C
 - **AND** token events SHALL be emitted as output becomes available rather than only after process exit
 
 #### Scenario: Use provider-specific command path
-- **WHEN** the active session references `claude-code`, `codex-cli`, `gemini-cli`, or `opencode`
+- **WHEN** the active session references `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, or `antigravity-cli`
 - **THEN** the desktop runtime SHALL build the CLI invocation using that provider's supported headless command contract
 - **AND** it SHALL NOT rely on a single generic `executable prompt` command shape for all providers
 

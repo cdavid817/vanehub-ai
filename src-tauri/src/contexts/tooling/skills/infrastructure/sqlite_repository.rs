@@ -1221,7 +1221,7 @@ mod tests {
                 .agent_mount_configurations()
                 .expect("mount configurations")
                 .len(),
-            4
+            5
         );
     }
 

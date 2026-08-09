@@ -20,7 +20,7 @@ npm install -g @anthropic-ai/claude-code
 npm install -g @openai/codex
 ```
 
-Gemini CLI and OpenCode can be installed with their official instructions.
+Gemini CLI, OpenCode, and Antigravity CLI can be installed with their official instructions. Antigravity CLI ships no npm package — its installer script is the only channel.
 
 Run the chosen command once in a regular terminal and complete its authentication:
 

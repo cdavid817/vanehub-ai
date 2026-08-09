@@ -101,7 +101,13 @@ describe("session workspace components", () => {
     const themeSource = readFileSync(new URL("./terminal-theme.ts", import.meta.url), "utf8");
     const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
-    expect(managedCliAgentIds).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+    expect(managedCliAgentIds).toEqual([
+      "claude-code",
+      "codex-cli",
+      "gemini-cli",
+      "opencode",
+      "antigravity-cli",
+    ]);
     expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
     expect(source).toContain("requestAnimationFrame");
     expect(source).toContain("fitRef.current?.fit()");

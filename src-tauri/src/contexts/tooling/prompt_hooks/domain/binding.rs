@@ -7,14 +7,16 @@ pub(crate) enum ManagedCliAgentId {
     CodexCli,
     GeminiCli,
     OpenCode,
+    AntigravityCli,
 }
 
 impl ManagedCliAgentId {
-    pub(crate) const ALL: [Self; 4] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::ClaudeCode,
         Self::CodexCli,
         Self::GeminiCli,
         Self::OpenCode,
+        Self::AntigravityCli,
     ];
 
     pub(crate) fn parse(value: &str) -> Result<Self, PromptHookDomainError> {
@@ -30,6 +32,7 @@ impl ManagedCliAgentId {
             Self::CodexCli => "codex-cli",
             Self::GeminiCli => "gemini-cli",
             Self::OpenCode => "opencode",
+            Self::AntigravityCli => "antigravity-cli",
         }
     }
 
@@ -39,6 +42,7 @@ impl ManagedCliAgentId {
             Self::CodexCli => "Codex CLI",
             Self::GeminiCli => "Gemini CLI",
             Self::OpenCode => "OpenCode",
+            Self::AntigravityCli => "Antigravity CLI",
         }
     }
 }
@@ -96,10 +100,16 @@ mod tests {
     }
 
     #[test]
-    fn builtin_binding_set_contains_exactly_the_four_managed_clis() {
+    fn builtin_binding_set_contains_exactly_the_managed_clis() {
         assert_eq!(
             PromptHookBindings::all().to_strings(),
-            ["claude-code", "codex-cli", "gemini-cli", "opencode"]
+            [
+                "claude-code",
+                "codex-cli",
+                "gemini-cli",
+                "opencode",
+                "antigravity-cli"
+            ]
         );
     }
 }

@@ -5,6 +5,7 @@ use super::super::application::{
 use super::super::domain::{
     AppliedStateRecord, ClaudeAuthMode, CliConfigDriftState, CliConfigError, CliConfigPayload,
     CodexAuthStrategy, CodexWireApi, OpenCodeModelDefinition, ProfileRecord,
+    ANTIGRAVITY_MANAGED_KEYS, SUPPORTED_AGENT_IDS,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -43,7 +44,9 @@ impl NativeCliGlobalConfigAdapter {
     }
 
     pub(crate) fn with_home(home_dir: PathBuf) -> Self {
-        let locks = ["claude-code", "opencode", "codex-cli"]
+        // Derived from the supported-id constant rather than restated: a hand-maintained copy
+        // silently drops write locking for any newly supported Agent.
+        let locks = SUPPORTED_AGENT_IDS
             .into_iter()
             .map(|agent_id| (agent_id.to_string(), Arc::new(Mutex::new(()))))
             .collect();
@@ -62,6 +65,12 @@ impl NativeCliGlobalConfigAdapter {
                 .join(".config")
                 .join("opencode")
                 .join("opencode.json")),
+            // Antigravity reuses the shared `~/.gemini` home with its own subdirectory.
+            "antigravity-cli" => Ok(self
+                .home_dir
+                .join(".gemini")
+                .join("antigravity-cli")
+                .join("settings.json")),
             _ => Err(CliConfigError::Validation(format!(
                 "unsupported CLI agent id: {agent_id}"
             ))),
@@ -247,6 +256,10 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
                 primary.clone(),
                 project_opencode(&primary, &current_bytes, profile, credential)?,
             )],
+            CliConfigPayload::Antigravity { .. } => vec![(
+                primary.clone(),
+                project_antigravity(&primary, &current_bytes, profile)?,
+            )],
         };
 
         let snapshots = writes
@@ -412,10 +425,39 @@ fn managed_fragment(
         "claude-code" => claude_fragment(bytes, profile),
         "codex-cli" => codex_fragment(bytes, profile),
         "opencode" => opencode_fragment(bytes, profile),
+        "antigravity-cli" => antigravity_fragment(bytes, profile),
         _ => Err(CliConfigError::Validation(format!(
             "unsupported CLI agent id: {agent_id}"
         ))),
     }
+}
+
+/// Antigravity's settings live at the document root rather than under an `env` table, so the
+/// fragment is a straight projection of the managed keys.
+fn antigravity_fragment(
+    bytes: &[u8],
+    profile: Option<&ProfileRecord>,
+) -> Result<Vec<u8>, CliConfigError> {
+    let document = parse_json_or_empty(bytes, "Antigravity settings.json")?;
+    let root = document.as_object();
+    let mut keys = ANTIGRAVITY_MANAGED_KEYS
+        .iter()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    if let Some(profile) = profile {
+        keys.extend(profile.managed_keys.iter().cloned());
+    }
+    keys.sort();
+    keys.dedup();
+    let fragment = keys
+        .into_iter()
+        .filter_map(|key| {
+            root.and_then(|values| values.get(&key))
+                .cloned()
+                .map(|value| (key, value))
+        })
+        .collect::<BTreeMap<_, _>>();
+    serde_json::to_vec(&fragment).map_err(|_| CliConfigError::Repository)
 }
 
 fn claude_fragment(
@@ -681,6 +723,45 @@ fn project_opencode(
     serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
 }
 
+/// Writes only the managed keys, leaving every other setting in the document — colour scheme,
+/// keybindings-adjacent preferences, the `permissions` block — exactly as the user left it.
+fn project_antigravity(
+    path: &Path,
+    bytes: &[u8],
+    profile: &ProfileRecord,
+) -> Result<Vec<u8>, CliConfigError> {
+    let mut document = parse_json_or_empty_at(bytes, path)?;
+    let root = document
+        .as_object_mut()
+        .ok_or_else(|| parse_error(path, "root must be a JSON object"))?;
+    let CliConfigPayload::Antigravity {
+        tool_permission,
+        enable_terminal_sandbox,
+        verbosity,
+        model,
+        advanced_settings,
+    } = &profile.payload
+    else {
+        return Err(CliConfigError::Validation(
+            "invalid Antigravity payload".into(),
+        ));
+    };
+    root.insert(
+        "toolPermission".into(),
+        serde_json::to_value(tool_permission).map_err(|_| CliConfigError::Repository)?,
+    );
+    root.insert(
+        "enableTerminalSandbox".into(),
+        json!(*enable_terminal_sandbox),
+    );
+    root.insert("verbosity".into(), json!(verbosity));
+    root.insert("model".into(), json!(model));
+    for (key, value) in advanced_settings {
+        root.insert(key.clone(), value.clone());
+    }
+    serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
+}
+
 fn import_claude(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
     let document = parse_json_or_empty_at(bytes, path)?;
     let env = document
@@ -882,6 +963,11 @@ fn discover_exclusive(imported: ImportedLiveConfig, is_default: bool) -> Discove
             model.clone(),
         ),
         CliConfigPayload::Opencode { .. } => unreachable!("exclusive discovery is not OpenCode"),
+        // Antigravity's settings document declares no endpoint, so exclusive discovery — which
+        // exists to surface a provider endpoint and model pair — never routes here.
+        CliConfigPayload::Antigravity { .. } => {
+            unreachable!("exclusive discovery is not Antigravity")
+        }
     };
     DiscoveredLiveConfig {
         candidate_key: "current".to_string(),
@@ -1206,7 +1292,9 @@ fn parse_error(path: &Path, message: &str) -> CliConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::tooling::cli_config::domain::PAYLOAD_VERSION;
+    use crate::contexts::tooling::cli_config::domain::{
+        AntigravityToolPermission, PAYLOAD_VERSION,
+    };
     use crate::test_support::TempDirectory;
 
     fn profile(agent_id: &str, payload: CliConfigPayload) -> ProfileRecord {
@@ -1279,6 +1367,90 @@ mod tests {
         assert_eq!(written["env"]["UNRELATED"], "kept");
         assert!(written["env"].get("OLD_MANAGED").is_none());
         assert_eq!(written["env"]["ANTHROPIC_AUTH_TOKEN"], "top-secret");
+    }
+
+    fn antigravity_profile(model: &str, sandbox: bool) -> ProfileRecord {
+        profile(
+            "antigravity-cli",
+            CliConfigPayload::Antigravity {
+                tool_permission: AntigravityToolPermission::ProceedInSandbox,
+                enable_terminal_sandbox: sandbox,
+                verbosity: "high".into(),
+                model: model.into(),
+                advanced_settings: BTreeMap::new(),
+            },
+        )
+    }
+
+    #[test]
+    fn antigravity_projection_writes_managed_keys_and_preserves_everything_else() {
+        let directory = TempDirectory::new("cli-config-antigravity");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("antigravity-cli").expect("path");
+        assert!(
+            path.ends_with("antigravity-cli/settings.json")
+                || path.ends_with(r"antigravity-cli\settings.json")
+        );
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(
+            &path,
+            br#"{"colorScheme":"tokyo night","permissions":{"allow":["Read"]},"model":"old-model","toolPermission":"strict"}"#,
+        )
+        .expect("fixture");
+
+        let previous = antigravity_profile("old-model", false);
+        let current = antigravity_profile("gemini-3-pro", true);
+        let before = fs::read(&path).expect("read");
+        let expected = fingerprint(
+            &managed_fragment("antigravity-cli", &before, Some(&previous)).expect("fragment"),
+        );
+
+        adapter
+            .apply(&current, Some(&previous), None, false, &expected)
+            .expect("apply");
+
+        let written: Value =
+            serde_json::from_slice(&fs::read(&path).expect("written")).expect("json");
+        assert_eq!(written["model"], "gemini-3-pro");
+        assert_eq!(written["toolPermission"], "proceed-in-sandbox");
+        assert_eq!(written["enableTerminalSandbox"], true);
+        assert_eq!(written["verbosity"], "high");
+        // Untouched user settings survive the switch.
+        assert_eq!(written["colorScheme"], "tokyo night");
+        assert_eq!(written["permissions"]["allow"][0], "Read");
+    }
+
+    #[test]
+    fn antigravity_advanced_settings_round_trip_and_reject_managed_or_secret_keys() {
+        let mut advanced = BTreeMap::new();
+        advanced.insert("notifications".to_string(), json!(true));
+        let payload = CliConfigPayload::Antigravity {
+            tool_permission: AntigravityToolPermission::RequestReview,
+            enable_terminal_sandbox: false,
+            verbosity: "high".into(),
+            model: "gemini-3-pro".into(),
+            advanced_settings: advanced,
+        };
+        payload.validate().expect("pass-through key is allowed");
+        assert!(payload
+            .managed_keys()
+            .contains(&"notifications".to_string()));
+
+        for rejected in ["model", "toolPermission", "permissions", "api_token"] {
+            let mut advanced = BTreeMap::new();
+            advanced.insert(rejected.to_string(), json!("x"));
+            let payload = CliConfigPayload::Antigravity {
+                tool_permission: AntigravityToolPermission::RequestReview,
+                enable_terminal_sandbox: false,
+                verbosity: "high".into(),
+                model: "gemini-3-pro".into(),
+                advanced_settings: advanced,
+            };
+            assert!(
+                payload.validate().is_err(),
+                "{rejected} must not be settable through advanced settings"
+            );
+        }
     }
 
     #[test]
@@ -1593,6 +1765,11 @@ mod tests {
                 "opencode",
                 ".config/opencode/opencode.json",
                 "{provider: broken",
+            ),
+            (
+                "antigravity-cli",
+                ".gemini/antigravity-cli/settings.json",
+                "{broken",
             ),
         ] {
             let directory = TempDirectory::new(&format!("cli-config-malformed-{agent_id}"));

@@ -2,6 +2,31 @@ import { getOnePieceProviderPresets } from "./onepiece-provider-presets";
 import type { OnePieceProviderEndpoint, OnePieceProviderPreset } from "../types/agent";
 import type { CliConfigAgentId, CliConfigPayload, CliConfigPreset } from "../types/cli-agent-config";
 
+/**
+ * Antigravity accepts no third-party endpoint, so it gets one official settings preset rather than
+ * a row per provider in the shared endpoint directory.
+ */
+const antigravityPreset: CliConfigPreset = {
+  id: "antigravity-cli-google-official",
+  catalogVersion: 1,
+  displayName: "Google Antigravity",
+  description: "Google Antigravity · Antigravity CLI",
+  category: "official",
+  agentId: "antigravity-cli",
+  deprecated: false,
+  providerId: "google-antigravity",
+  endpointType: "openai-chat-completions",
+  iconKey: "google",
+  payload: {
+    kind: "antigravity",
+    toolPermission: "request-review",
+    enableTerminalSandbox: false,
+    verbosity: "high",
+    model: "",
+    advancedSettings: {},
+  },
+};
+
 function basePreset(provider: OnePieceProviderPreset, endpoint: OnePieceProviderEndpoint, agentId: CliConfigAgentId) {
   const agentLabel = agentId === "claude-code" ? "Claude Code" : agentId === "codex-cli" ? "Codex" : "OpenCode";
   return {
@@ -39,7 +64,7 @@ function buildPresets(): CliConfigPreset[] {
       models: provider.fallbackModels.map((id) => ({ id, name: id })), defaultModel: provider.defaultModelId,
     }};
     return [codex, opencode];
-  }));
+  })).concat(antigravityPreset);
 }
 
 export const cliAgentProviderPresets: readonly CliConfigPreset[] = buildPresets();
@@ -52,5 +77,6 @@ export function getCliConfigPresets(agentId: CliConfigAgentId): CliConfigPreset[
 export function createCustomCliConfigPayload(agentId: CliConfigAgentId): CliConfigPayload {
   if (agentId === "claude-code") return { kind: "claude-code", baseUrl: "https://", authMode: "auth-token", model: "", haikuModel: "", sonnetModel: "", opusModel: "", advancedEnv: {} };
   if (agentId === "codex-cli") return { kind: "codex-cli", providerId: "custom", baseUrl: "https://", model: "", wireApi: "responses", reasoningEffort: "medium", authStrategy: "bearer-token", advancedToml: {} };
+  if (agentId === "antigravity-cli") return { kind: "antigravity", toolPermission: "request-review", enableTerminalSandbox: false, verbosity: "high", model: "", advancedSettings: {} };
   return { kind: "opencode", providerId: "custom", providerName: "Custom provider", npm: "@ai-sdk/openai-compatible", baseUrl: "https://", headers: {}, models: [], defaultModel: "" };
 }

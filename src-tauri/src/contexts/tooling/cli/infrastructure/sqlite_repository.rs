@@ -210,7 +210,7 @@ fn status_from_row(
         display_name: definition.display_name.to_string(),
         provider: definition.provider.to_string(),
         executable_name: definition.executable_name.to_string(),
-        package_name: definition.package_name.to_string(),
+        package_name: definition.package_name.map(str::to_string),
         installed: row.installed.map(|value| value != 0),
         current_version: row.current_version,
         latest_version: row.latest_version,

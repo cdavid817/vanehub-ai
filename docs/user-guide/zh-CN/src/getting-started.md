@@ -11,7 +11,7 @@ VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Pro
 - Node.js 22+ 与 npm
 - 至少一个受支持的 CLI，以及对应的订阅或 API 凭据
 
-## 四个 CLI
+## 五个 CLI
 
 | Agent | 命令 | npm 包 | 其他安装方式 |
 | --- | --- | --- | --- |
@@ -19,8 +19,11 @@ VaneHub AI **驱动你已经装好的 CLI**，不替你装模型、不代管 Pro
 | Codex CLI | `codex` | `@openai/codex` | —— |
 | Gemini CLI | `gemini` | `@google/gemini-cli` | —— |
 | OpenCode | `opencode` | `opencode-ai` | 安装脚本 |
+| Antigravity CLI | `agy` | 无 | 仅安装脚本（Unix `install.sh`、Windows `install.ps1`） |
 
-装一个就能开始，不必四个都装。
+装一个就能开始，不必五个都装。
+
+> **Antigravity CLI 没有 npm 包**，只能通过官方安装脚本安装，因此 CLI 管理页对它不提供 npm 升级/降级操作。
 
 ```powershell
 npm install -g @anthropic-ai/claude-code

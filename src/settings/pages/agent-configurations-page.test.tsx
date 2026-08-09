@@ -20,15 +20,24 @@ describe("AgentConfigurationsPage", () => {
       getCliConfigStatus: getStatus,
       selectAgent,
     });
-    const { user } = renderWithAppProviders(<AgentConfigurationsPage navigationTarget={{ cliConfigAgentId: "codex-cli" }} onNavigate={vi.fn()} searchTerm="" service={service} />);
+    const { user } = renderWithAppProviders(<AgentConfigurationsPage isActive navigationTarget={{ cliConfigAgentId: "codex-cli" }} onNavigate={vi.fn()} searchTerm="" service={service} />);
 
     await waitFor(() => expect(getStatus).toHaveBeenCalledWith("codex-cli"));
     expect(within(screen.getByRole("tablist")).getAllByRole("tab")).toEqual([
       screen.getByRole("tab", { name: "Claude Code" }),
       screen.getByRole("tab", { name: "OpenCode" }),
       screen.getByRole("tab", { name: "Codex CLI" }),
+      screen.getByRole("tab", { name: "Antigravity CLI" }),
       screen.getByRole("tab", { name: "OnePiece" }),
     ]);
+    // The tab strip must not hard-code a desktop column count. A fixed `sm:grid-cols-4` matched the
+    // Agent list exactly until a fifth Agent was added, at which point the last tab (OnePiece)
+    // wrapped onto a second row and read as missing. Every DOM-presence assertion above still
+    // passed through that regression, so the guard has to be on the layout itself.
+    const tabStripClasses = screen.getByRole("tablist").className;
+    expect(tabStripClasses).toMatch(/sm:grid-flow-col/);
+    expect(tabStripClasses).not.toMatch(/sm:grid-cols-\d/);
+
     expect(screen.getByRole("tab", { name: "Codex CLI" }).getAttribute("aria-selected")).toBe("true");
     await user.click(screen.getByRole("tab", { name: "OpenCode" }));
     await waitFor(() => expect(getStatus).toHaveBeenCalledWith("opencode"));
@@ -45,6 +54,7 @@ describe("AgentConfigurationsPage", () => {
 
     const { user } = renderWithAppProviders(
       <AgentConfigurationsPage
+        isActive
         navigationTarget={{ agentConfigAgentId: "onepiece" }}
         onNavigate={vi.fn()}
         searchTerm=""
