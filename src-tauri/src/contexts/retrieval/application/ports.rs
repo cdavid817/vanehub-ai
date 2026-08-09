@@ -18,25 +18,29 @@ pub(crate) struct RetrievalIndexStatus {
 
 pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn upsert_pending(&self, document: &RetrievalDocument) -> Result<(), RetrievalError>;
-
-    fn upsert_pending_scoped(
-        &self,
-        document: &RetrievalDocument,
-        scope: &RetrievalScope,
-    ) -> Result<(), RetrievalError> {
-        scope.validate_for(document.source_kind)?;
-        if scope
-            .workspace_id()
-            .is_some_and(|workspace| workspace != document.scope_folder)
-        {
-            return Err(RetrievalError::InvalidScope);
-        }
-        self.upsert_pending(document)
-    }
     fn list_indexed_source_ids(
         &self,
         source_kind: SourceKind,
     ) -> Result<Vec<(String, String)>, RetrievalError>;
+
+    /// Apply a reconcile diff — upsert every changed/new document and delete every orphan —
+    /// in a single transaction. The default implementation falls back to one call per item;
+    /// concrete repositories should override this to wrap the batch in one transaction so a
+    /// full reconcile doesn't pay one fsync per row.
+    fn reconcile_apply(
+        &self,
+        upserts: &[RetrievalDocument],
+        orphan_source_ids: &[String],
+        source_kind: SourceKind,
+    ) -> Result<(), RetrievalError> {
+        for document in upserts {
+            self.upsert_pending(document)?;
+        }
+        for source_id in orphan_source_ids {
+            self.delete_by_source(source_kind, source_id)?;
+        }
+        Ok(())
+    }
     fn delete_by_source(
         &self,
         source_kind: SourceKind,
