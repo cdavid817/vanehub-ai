@@ -84,6 +84,11 @@ struct ManagedApiGeneration {
     request: GenerationProcessRequest,
     cancelled: Arc<AtomicBool>,
     pending_approvals: PendingApprovals,
+    /// Guards against a second `monitor_generation` spawning a duplicate
+    /// `run_generation` thread for the same process — the CLI adapter mirrors this
+    /// with its own `monitoring` flag. Without it, double-monitoring races two
+    /// threads through the same generation and both remove the map entry.
+    monitoring: bool,
 }
 
 impl RuntimeAgentApiAdapter {
@@ -156,6 +161,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 request,
                 cancelled: Arc::new(AtomicBool::new(false)),
                 pending_approvals: Arc::new(Mutex::new(HashMap::new())),
+                monitoring: false,
             },
         );
         Ok(StartedGenerationProcess { process_id })
@@ -167,15 +173,21 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         sink: Arc<dyn AgentProcessEventSink>,
     ) -> Result<(), AgentRuntimeApplicationError> {
         let (request, cancelled, pending_approvals) = {
-            let generations = self
+            let mut generations = self
                 .generations
                 .lock()
                 .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-            let managed = generations.get(process_id).ok_or_else(|| {
+            let managed = generations.get_mut(process_id).ok_or_else(|| {
                 AgentRuntimeApplicationError::Process(format!(
                     "Agent process {process_id} is not active."
                 ))
             })?;
+            if managed.monitoring {
+                return Err(AgentRuntimeApplicationError::Process(format!(
+                    "Agent process {process_id} is already monitored."
+                )));
+            }
+            managed.monitoring = true;
             (
                 managed.request.clone(),
                 managed.cancelled.clone(),
