@@ -130,6 +130,16 @@ import type {
 import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
+import type {
+  CodeIndexAuditEntry,
+  CodeIndexAutomaticMode,
+  CodeIndexConfigurationInput,
+  CodeIndexPhase,
+  CodeIndexStatus,
+  CodeIndexWorkspace,
+} from "../types/code-index";
+import { codeIndexLanguages } from "../types/code-index";
+import { normalizeCodeIndexConfiguration } from "./code-index-contract";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -578,7 +588,11 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
 /** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
  * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
  * install (design doc §7.4). */
-let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+let webRetrievalConfiguration: RetrievalConfiguration = {
+  sourceProfileId: null,
+  embeddingModel: null,
+  automaticCodeIndexMode: "disabled",
+};
 
 /** Mock retrieval index status — a single global aggregate, mirroring the real one across every
  * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
@@ -588,6 +602,110 @@ let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null,
  * Rust-side failure classification (design doc §7.5). */
 const seededWebRetrievalIndexStatus = (): RetrievalIndexStatus => ({ indexed: 12, pending: 3, failed: 2, lastFailureCategory: null });
 let webRetrievalIndexStatus: RetrievalIndexStatus = seededWebRetrievalIndexStatus();
+
+let nextWebCodeIndexId = 1;
+let nextWebCodeAuditId = 1;
+const webCodeIndexes = new Map<string, CodeIndexWorkspace>();
+let webCodeIndexAudit: CodeIndexAuditEntry[] = [];
+
+function emptyCodeIndexStatus(phase: CodeIndexPhase): CodeIndexStatus {
+  return {
+    phase,
+    totalFiles: 0,
+    processedFiles: 0,
+    failedFiles: 0,
+    totalChunks: 0,
+    processedChunks: 0,
+    pendingChunks: 0,
+    indexedChunks: 0,
+    failedChunks: 0,
+    redactionCount: 0,
+    estimatedEmbeddingRequests: 0,
+    lastFailureCategory: null,
+    updatedAt: nowIso(),
+  };
+}
+
+function cloneCodeIndex(workspace: CodeIndexWorkspace): CodeIndexWorkspace {
+  return structuredClone(workspace);
+}
+
+function requireWebCodeIndex(workspaceId: string): CodeIndexWorkspace {
+  const workspace = webCodeIndexes.get(workspaceId);
+  if (!workspace) throw new Error("Code index workspace was not found.");
+  return workspace;
+}
+
+function updateWebCodeIndexPhase(workspace: CodeIndexWorkspace, phase: CodeIndexPhase) {
+  const status = workspace.status;
+  if (phase === "parsing") {
+    Object.assign(status, {
+      totalFiles: 18, processedFiles: 6, failedFiles: 0,
+      totalChunks: 24, processedChunks: 0, pendingChunks: 24,
+      indexedChunks: 0, failedChunks: 0, redactionCount: 2,
+      estimatedEmbeddingRequests: 1,
+    });
+  } else if (phase === "awaiting_embedding_confirmation") {
+    Object.assign(status, {
+      totalFiles: 18, processedFiles: 18, failedFiles: 0,
+      totalChunks: 54, processedChunks: 0, pendingChunks: 54,
+      indexedChunks: 0, failedChunks: 0, redactionCount: 4,
+      estimatedEmbeddingRequests: 2,
+    });
+  } else if (phase === "ready") {
+    status.processedChunks = status.totalChunks;
+    status.pendingChunks = 0;
+    status.indexedChunks = status.totalChunks;
+    status.failedChunks = 0;
+  }
+  status.phase = phase;
+  status.updatedAt = nowIso();
+}
+
+function recordWebCodeIndexAudit(workspaceId: string, event: CodeIndexAuditEntry["event"]) {
+  webCodeIndexAudit = [{
+    auditId: nextWebCodeAuditId,
+    workspaceId,
+    relativePath: null,
+    event,
+    reason: null,
+    itemCount: 1,
+    createdAt: nowIso(),
+  }, ...webCodeIndexAudit].slice(0, 200);
+  nextWebCodeAuditId += 1;
+}
+
+function discoverWebSessionCodeIndex(session: Session) {
+  const mode = webRetrievalConfiguration.automaticCodeIndexMode;
+  const root = session.worktreePath ?? session.folder ?? session.projectPath;
+  if (session.agentId !== "onepiece" || session.remoteWorkspace || !root || mode === "disabled") {
+    return;
+  }
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase();
+  const existing = [...webCodeIndexes.values()].find((workspace) => (
+    workspace.canonicalRoot.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase()
+      === normalizedRoot
+  ));
+  if (existing) return;
+  const displayName = root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
+  const workspace: CodeIndexWorkspace = {
+    workspaceId: `web-code-index-${nextWebCodeIndexId}`,
+    canonicalRoot: root,
+    displayName,
+    origin: "automatic",
+    enabled: true,
+    mode,
+    selectedRoots: [""],
+    languages: [...codeIndexLanguages],
+    exclusionPatterns: [],
+    maxFileBytes: 100 * 1024,
+    indexVersion: "1",
+    generation: 1,
+    status: emptyCodeIndexStatus("scanning"),
+  };
+  nextWebCodeIndexId += 1;
+  webCodeIndexes.set(workspace.workspaceId, workspace);
+}
 
 /** Static catalog, independent of the requested profile — listing embedding models never hits
  * the network in the Web/mock runtime (design doc §7.5), so there is nothing live to discover. */
@@ -1676,8 +1794,36 @@ export function resetWebLoopsForTest() {
 }
 
 export function resetWebRetrievalForTest() {
-  webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+  webRetrievalConfiguration = {
+    sourceProfileId: null,
+    embeddingModel: null,
+    automaticCodeIndexMode: "disabled",
+  };
   webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
+  nextWebCodeIndexId = 1;
+  nextWebCodeAuditId = 1;
+  webCodeIndexes.clear();
+  webCodeIndexAudit = [];
+}
+
+export function searchWebCodeIndex(workspaceId: string, query: string) {
+  const workspace = requireWebCodeIndex(workspaceId);
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const includesSourceRoot = workspace.selectedRoots.some((root) => root === "" || root === "src");
+  const sourceExcluded = workspace.exclusionPatterns.some((pattern) => pattern === "src/**" || pattern === "**/*.ts");
+  if (workspace.status.phase !== "ready" || !workspace.languages.includes("typescript")
+    || !includesSourceRoot || sourceExcluded || normalizedQuery !== "handle_login") return [];
+  if (workspace.canonicalRoot.toLocaleLowerCase().includes("second")) return [];
+  return [{
+    filePath: "src/auth.ts",
+    startLine: 12,
+    endLine: 20,
+    language: "typescript",
+    symbolName: "handle_login",
+    symbolKind: "function",
+    snippet: "export async function handle_login(request: Request) { /* redacted */ }",
+    matchedVia: workspace.mode === "local" ? "keyword" : "hybrid",
+  }];
 }
 
 export function simulateWebLoopRestartForTest(runId: string): LoopRun {
@@ -2187,7 +2333,15 @@ export const webAgentClient: AgentService = {
   },
 
   async saveRetrievalConfiguration(profileId: string, modelId: string) {
-    webRetrievalConfiguration = { sourceProfileId: profileId, embeddingModel: modelId };
+    webRetrievalConfiguration = {
+      ...webRetrievalConfiguration,
+      sourceProfileId: profileId,
+      embeddingModel: modelId,
+    };
+  },
+
+  async saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode) {
+    webRetrievalConfiguration = { ...webRetrievalConfiguration, automaticCodeIndexMode: mode };
   },
 
   async listEmbeddingModels(profileId: string, transientCredential?: string) {
@@ -2212,6 +2366,124 @@ export const webAgentClient: AgentService = {
     status.indexed = 0;
     status.failed = 0;
     status.lastFailureCategory = null;
+  },
+
+  async listCodeIndexWorkspaces() {
+    return [...webCodeIndexes.values()].map(cloneCodeIndex);
+  },
+
+  async getCodeIndexWorkspace(workspaceId: string) {
+    return cloneCodeIndex(requireWebCodeIndex(workspaceId));
+  },
+
+  async registerCodeIndexWorkspace(root: string, displayName: string) {
+    const canonicalRoot = root.trim();
+    const name = displayName.trim();
+    if (!canonicalRoot || !name) throw new Error("Workspace root and display name are required.");
+    const existing = [...webCodeIndexes.values()].find((workspace) => workspace.canonicalRoot === canonicalRoot);
+    if (existing) return cloneCodeIndex(existing);
+    const workspace: CodeIndexWorkspace = {
+      workspaceId: `web-code-index-${nextWebCodeIndexId}`,
+      canonicalRoot,
+      displayName: name,
+      origin: "manual",
+      enabled: false,
+      mode: "local",
+      selectedRoots: [""],
+      languages: [...codeIndexLanguages],
+      exclusionPatterns: [],
+      maxFileBytes: 100 * 1024,
+      indexVersion: "1",
+      generation: 0,
+      status: emptyCodeIndexStatus("disabled"),
+    };
+    nextWebCodeIndexId += 1;
+    webCodeIndexes.set(workspace.workspaceId, workspace);
+    return cloneCodeIndex(workspace);
+  },
+
+  async saveCodeIndexConfiguration(workspaceId: string, configuration: CodeIndexConfigurationInput) {
+    const workspace = requireWebCodeIndex(workspaceId);
+    const normalized = normalizeCodeIndexConfiguration(configuration);
+    Object.assign(workspace, normalized);
+    workspace.generation += 1;
+    workspace.status = emptyCodeIndexStatus(normalized.enabled ? "scanning" : "disabled");
+    return cloneCodeIndex(workspace);
+  },
+
+  async refreshCodeIndexWorkspace(workspaceId: string) {
+    const workspace = requireWebCodeIndex(workspaceId);
+    if (workspace.mode === "local" && workspace.status.phase === "parsing") {
+      Object.assign(workspace.status, {
+        totalFiles: 18,
+        processedFiles: 18,
+        failedFiles: 0,
+        totalChunks: 54,
+        processedChunks: 0,
+        pendingChunks: 54,
+        indexedChunks: 0,
+        failedChunks: 0,
+        redactionCount: 4,
+        estimatedEmbeddingRequests: 0,
+      });
+      updateWebCodeIndexPhase(workspace, "ready");
+      return structuredClone(workspace.status);
+    }
+    const nextPhase: Partial<Record<CodeIndexPhase, CodeIndexPhase>> = {
+      scanning: "parsing",
+      parsing: "awaiting_embedding_confirmation",
+      embedding: "ready",
+      degraded: "scanning",
+      cancelling: "disabled",
+    };
+    updateWebCodeIndexPhase(workspace, nextPhase[workspace.status.phase] ?? workspace.status.phase);
+    return structuredClone(workspace.status);
+  },
+
+  async confirmCodeIndexEmbedding(workspaceId: string, profileId: string, model: string, generation: number) {
+    const workspace = requireWebCodeIndex(workspaceId);
+    if (workspace.mode !== "semantic") {
+      throw new Error("Local code indexes do not use embedding confirmation.");
+    }
+    if (!workspace.enabled || generation !== workspace.generation
+      || webRetrievalConfiguration.sourceProfileId !== profileId
+      || webRetrievalConfiguration.embeddingModel !== model) {
+      throw new Error("Embedding confirmation is stale or does not match the active model.");
+    }
+    updateWebCodeIndexPhase(workspace, "embedding");
+    return { profileId, model, generation };
+  },
+
+  async getCodeIndexStatus(workspaceId: string) {
+    return structuredClone(requireWebCodeIndex(workspaceId).status);
+  },
+
+  async listCodeIndexAudit(workspaceId: string, limit = 50) {
+    requireWebCodeIndex(workspaceId);
+    const boundedLimit = Math.max(0, Math.min(100, Math.trunc(limit)));
+    return structuredClone(webCodeIndexAudit.filter((entry) => entry.workspaceId === workspaceId).slice(0, boundedLimit));
+  },
+
+  async rebuildCodeIndexWorkspace(workspaceId: string) {
+    const workspace = requireWebCodeIndex(workspaceId);
+    workspace.generation += 1;
+    workspace.status = emptyCodeIndexStatus(workspace.enabled ? "scanning" : "disabled");
+    recordWebCodeIndexAudit(workspaceId, "rebuilt");
+    return cloneCodeIndex(workspace);
+  },
+
+  async disableCodeIndexWorkspace(workspaceId: string) {
+    const workspace = requireWebCodeIndex(workspaceId);
+    workspace.enabled = false;
+    workspace.generation += 1;
+    workspace.status = emptyCodeIndexStatus("disabled");
+    return cloneCodeIndex(workspace);
+  },
+
+  async deleteCodeIndexWorkspace(workspaceId: string) {
+    requireWebCodeIndex(workspaceId);
+    webCodeIndexes.delete(workspaceId);
+    webCodeIndexAudit = webCodeIndexAudit.filter((entry) => entry.workspaceId !== workspaceId);
   },
 
   async listCliTools() {
@@ -2955,6 +3227,7 @@ export const webAgentClient: AgentService = {
     nextSessionId += 1;
     sessions = [session, ...sessions];
     activeSessionId = session.id;
+    discoverWebSessionCodeIndex(session);
     emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
     workflowState = {
       ...workflowState,

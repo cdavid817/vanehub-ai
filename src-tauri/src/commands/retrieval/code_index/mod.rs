@@ -1,0 +1,12 @@
+pub(crate) mod confirm_code_index_embedding;
+pub(crate) mod delete_code_index_workspace;
+pub(crate) mod disable_code_index_workspace;
+pub(crate) mod dto;
+pub(crate) mod get_code_index_status;
+pub(crate) mod get_code_index_workspace;
+pub(crate) mod list_code_index_audit;
+pub(crate) mod list_code_index_workspaces;
+pub(crate) mod rebuild_code_index_workspace;
+pub(crate) mod refresh_code_index_workspace;
+pub(crate) mod register_code_index_workspace;
+pub(crate) mod save_code_index_configuration;

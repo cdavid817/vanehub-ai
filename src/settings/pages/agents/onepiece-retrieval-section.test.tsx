@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentServiceDouble, renderWithAppProviders } from "../../../test/render";
-import type { OnePieceProviderProfile, RetrievalIndexStatus } from "../../../types/agent";
+import type { OnePieceProviderProfile } from "../../../types/agent";
 import { OnePieceRetrievalSection } from "./onepiece-retrieval-section";
 
 const anthropicProfile: OnePieceProviderProfile = {
@@ -35,16 +35,33 @@ const openAiProfile: OnePieceProviderProfile = {
   credentialPresent: true,
 };
 
-const unconfigured = { sourceProfileId: null, embeddingModel: null };
-const emptyStatus: RetrievalIndexStatus = { indexed: 0, pending: 0, failed: 0, lastFailureCategory: null };
+const unconfigured = { sourceProfileId: null, embeddingModel: null, automaticCodeIndexMode: "semantic" as const };
 
 describe("OnePieceRetrievalSection", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("saves local automatic indexing without requiring an embedding model", async () => {
+    const saveCodeIndexAutomaticMode = vi.fn(async () => undefined);
+    const service = createAgentServiceDouble({
+      getRetrievalConfiguration: async () => ({
+        sourceProfileId: null,
+        embeddingModel: null,
+        automaticCodeIndexMode: "disabled",
+      }),
+      saveCodeIndexAutomaticMode,
+    });
+    const { user } = renderWithAppProviders(
+      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "自动项目代码索引" }), "local");
+    await waitFor(() => expect(saveCodeIndexAutomaticMode).toHaveBeenCalledWith("local"));
+    expect(screen.queryByRole("combobox", { name: "Embedding 来源" })).toBeNull();
+  });
+
   it("lists only openai-compatible profiles as embedding sources", async () => {
     const service = createAgentServiceDouble({
       getRetrievalConfiguration: async () => unconfigured,
-      getRetrievalIndexStatus: async () => emptyStatus,
     });
     renderWithAppProviders(
       <OnePieceRetrievalSection profiles={[anthropicProfile, openAiProfile]} service={service} />,
@@ -58,7 +75,6 @@ describe("OnePieceRetrievalSection", () => {
   it("stays visible but not configurable when no openai-compatible profile exists", async () => {
     const service = createAgentServiceDouble({
       getRetrievalConfiguration: async () => unconfigured,
-      getRetrievalIndexStatus: async () => emptyStatus,
     });
     renderWithAppProviders(
       <OnePieceRetrievalSection profiles={[anthropicProfile]} service={service} />,
@@ -69,63 +85,24 @@ describe("OnePieceRetrievalSection", () => {
     expect(screen.getByText("检索索引配置")).toBeTruthy();
   });
 
-  it("renders indexed, pending, and failed counts", async () => {
+  it("keeps index status and rebuild controls out of parameter management", async () => {
     const service = createAgentServiceDouble({
       getRetrievalConfiguration: async () => unconfigured,
-      getRetrievalIndexStatus: async () => ({ indexed: 5, pending: 3, failed: 2, lastFailureCategory: null }),
     });
     renderWithAppProviders(
       <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
     );
 
-    expect(await screen.findByText("5")).toBeTruthy();
-    expect(screen.getByText("3")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
-  });
-
-  it("shows only the failure category, never raw error text", async () => {
-    const service = createAgentServiceDouble({
-      getRetrievalConfiguration: async () => unconfigured,
-      getRetrievalIndexStatus: async () => ({ indexed: 5, pending: 0, failed: 2, lastFailureCategory: "auth" }),
-    });
-    renderWithAppProviders(
-      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
-    );
-
-    expect(await screen.findByText(/鉴权失败/)).toBeTruthy();
-    expect(screen.queryByText("auth")).toBeNull();
-  });
-
-  it("requeues everything when rebuild is confirmed", async () => {
-    const getRetrievalIndexStatus = vi.fn()
-      .mockResolvedValueOnce({ indexed: 5, pending: 0, failed: 3, lastFailureCategory: "network" })
-      .mockResolvedValue({ indexed: 0, pending: 8, failed: 0, lastFailureCategory: null });
-    const rebuildRetrievalIndex = vi.fn(async () => undefined);
-    const service = createAgentServiceDouble({
-      getRetrievalConfiguration: async () => ({ sourceProfileId: openAiProfile.id, embeddingModel: "text-embedding-3-small" }),
-      getRetrievalIndexStatus,
-      rebuildRetrievalIndex,
-      listEmbeddingModels: async () => [],
-    });
-    const { user } = renderWithAppProviders(
-      <OnePieceRetrievalSection profiles={[openAiProfile]} service={service} />,
-    );
-
-    await screen.findByText("3");
-    await user.click(screen.getByRole("button", { name: "重建索引" }));
-    const dialog = await screen.findByRole("dialog", { name: "重建检索索引" });
-    await user.click(within(dialog).getByRole("button", { name: "确认重建" }));
-
-    await waitFor(() => expect(rebuildRetrievalIndex).toHaveBeenCalledWith());
-    await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("8")).toBeTruthy();
+    await screen.findByText("检索索引配置");
+    expect(screen.queryByText("索引状态")).toBeNull();
+    expect(screen.queryByRole("button", { name: "重建索引" })).toBeNull();
+    expect(screen.getAllByRole("combobox")[0].className).toContain("min-h-9");
   });
 
   it("loads embedding models through the service boundary, never invoke()", async () => {
     const listEmbeddingModels = vi.fn(async () => [{ id: "text-embedding-3-small", displayName: "text-embedding-3-small" }]);
     const service = createAgentServiceDouble({
-      getRetrievalConfiguration: async () => ({ sourceProfileId: openAiProfile.id, embeddingModel: null }),
-      getRetrievalIndexStatus: async () => emptyStatus,
+      getRetrievalConfiguration: async () => ({ sourceProfileId: openAiProfile.id, embeddingModel: null, automaticCodeIndexMode: "semantic" }),
       listEmbeddingModels,
     });
     renderWithAppProviders(

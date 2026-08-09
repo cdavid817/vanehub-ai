@@ -1,14 +1,14 @@
 use super::providers::{
-    add_codex_output_capture_args, build_invocation_with_role, output_parser_for,
-    ProviderOutputEvent, ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent,
-    ProviderToolPhase,
+    add_codex_output_capture_args, output_parser_for_format, ProviderOutputEvent,
+    ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
     AgentProcessGateway, AgentRuntimeApplicationError, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, ReportedUsageTotals,
-    StartedGenerationProcess, ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    GenerationProcessFailure, GenerationProcessRequest, ProviderGenerationInvocationRequest,
+    ProviderOutputFormat, ProviderRegistry, ReportedUsageTotals, StartedGenerationProcess,
+    ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{AgentAvailability, InteractionMode};
 use crate::contexts::execution_observability::api::{
@@ -37,6 +37,7 @@ pub(crate) struct RuntimeAgentProcessAdapter {
     execution_ids: Arc<dyn ExecutionIdentityPort>,
     telemetry: Arc<dyn ExecutionTelemetryPort>,
     mcp_relay: Arc<dyn ManagedMcpRelayPort>,
+    providers: Arc<ProviderRegistry>,
     event_sequence: Arc<AtomicU64>,
 }
 
@@ -66,6 +67,7 @@ struct ManagedProcess {
     final_output_path: Option<PathBuf>,
     relay_guard: Option<PreparedMcpRelayGuard>,
     execution_context: ExecutionContext,
+    output_format: ProviderOutputFormat,
 }
 
 struct ProcessMonitor {
@@ -83,6 +85,7 @@ struct ProcessMonitor {
     execution_context: ExecutionContext,
     telemetry: Arc<dyn ExecutionTelemetryPort>,
     event_sequence: Arc<AtomicU64>,
+    output_format: ProviderOutputFormat,
 }
 
 impl RuntimeAgentProcessAdapter {
@@ -92,6 +95,7 @@ impl RuntimeAgentProcessAdapter {
         execution_ids: Arc<dyn ExecutionIdentityPort>,
         telemetry: Arc<dyn ExecutionTelemetryPort>,
         mcp_relay: Arc<dyn ManagedMcpRelayPort>,
+        providers: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
@@ -101,6 +105,7 @@ impl RuntimeAgentProcessAdapter {
             execution_ids,
             telemetry,
             mcp_relay,
+            providers,
             event_sequence: Arc::new(AtomicU64::new(0)),
         }
     }
@@ -117,15 +122,26 @@ impl RuntimeAgentProcessAdapter {
         }
         let executable =
             normalize_generation_executable(&request.agent.id, &request.cli_profile.executable);
-        let mut spec = build_invocation_with_role(
+        let provider = self.providers.get(&request.agent.id)?;
+        if !provider.capabilities().structured_output() {
+            return Err(crate::contexts::agent_runtime::application::AgentProviderError::UnsupportedCapability {
+                provider_id: request.agent.id.clone(),
+                capability: "structured output".to_string(),
+            }
+            .into());
+        }
+        let provider_session = self.providers.resolve_session(
             &request.agent.id,
-            executable,
-            &request.effective_prompt,
             request.session.runtime_session_id.as_deref(),
-            &request.cli_profile.managed_args,
-            request.role_briefing.as_deref(),
-        )
-        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        )?;
+        let output_format = provider.output_format();
+        let mut spec = provider.prepare_generation(ProviderGenerationInvocationRequest {
+            executable,
+            prompt: &request.effective_prompt,
+            provider_session: provider_session.as_ref(),
+            managed_args: &request.cli_profile.managed_args,
+            role_briefing: request.role_briefing.as_deref(),
+        })?;
         let mut relay_guard = None;
         if request.execution_context.mcp_relay_enabled {
             match self.mcp_relay.prepare(
@@ -313,6 +329,7 @@ impl RuntimeAgentProcessAdapter {
             final_output_path,
             relay_guard,
             execution_context: process_context,
+            output_format,
         };
         processes.insert(process_id.clone(), managed);
         Ok(StartedGenerationProcess { process_id })
@@ -438,6 +455,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             final_output_path,
             relay_guard,
             execution_context,
+            output_format,
         ) = {
             let mut processes = self
                 .processes
@@ -468,6 +486,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 managed.final_output_path.clone(),
                 managed.relay_guard.clone(),
                 managed.execution_context.clone(),
+                managed.output_format,
             )
         };
         let processes = self.processes.clone();
@@ -492,6 +511,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 execution_context,
                 telemetry,
                 event_sequence,
+                output_format,
             }
             .run();
             if let Ok(mut processes) = processes.lock() {
@@ -599,9 +619,10 @@ impl ProcessMonitor {
             execution_context,
             telemetry,
             event_sequence,
+            output_format,
         } = self;
         let stderr_handle = thread::spawn(move || read_stderr(stderr));
-        let parser = output_parser_for(&agent_id);
+        let parser = output_parser_for_format(output_format);
         let mut terminal_error = None;
         let mut emitted_content = false;
         let mut first_visible_output = false;

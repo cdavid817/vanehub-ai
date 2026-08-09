@@ -127,7 +127,16 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-07 | contain-timed-out-process-trees | native-runtime-architecture | `openspec/changes/archive/2026-08-07-contain-timed-out-process-trees/` |
 | 2026-08-07 | surface-cli-error-results | session-runtime-management | `openspec/changes/archive/2026-08-07-surface-cli-error-results/` |
 | 2026-08-08 | add-plan-execution-foundation | agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management, project-worktree-management | `openspec/changes/archive/2026-08-08-add-plan-execution-foundation/` |
+| 2026-08-08 | workspace-code-indexing-foundation | retrieval-vector-search, workspace-code-indexing | `openspec/changes/archive/2026-08-08-workspace-code-indexing-foundation/` |
 | 2026-08-09 | add-antigravity-cli | agent-cross-session-memory, agent-terminal-runtime, chat-experience, cli-agent-config-management, cli-agent-permission-launch-flags, cli-parameter-management, main-layout-ui, native-model-discovery, native-runtime-architecture, permissions-approval, prompt-hook-management, settings-cli-management-ui, skill-management, usage-statistics | `openspec/changes/archive/2026-08-09-add-antigravity-cli/` |
+| 2026-08-09 | add-gemini-cli-terminal-usage-tracking | usage-statistics | `openspec/changes/archive/2026-08-09-add-gemini-cli-terminal-usage-tracking/` |
+| 2026-08-09 | add-local-code-index-mode | workspace-code-indexing | `openspec/changes/archive/2026-08-09-add-local-code-index-mode/` |
+| 2026-08-09 | deduplicate-skill-spec-requirements | - | `openspec/changes/archive/2026-08-09-deduplicate-skill-spec-requirements/` |
+| 2026-08-09 | introduce-agent-provider-contract | agent-provider-runtime | `openspec/changes/archive/2026-08-09-introduce-agent-provider-contract/` |
+| 2026-08-09 | publish-github-preview-release | desktop-release-delivery, multilingual-readme, native-app-packaging | `openspec/changes/archive/2026-08-09-publish-github-preview-release/` |
 | 2026-08-09 | reconcile-builtin-skill-seeding | skill-management | `openspec/changes/archive/2026-08-09-reconcile-builtin-skill-seeding/` |
+| 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
+| 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
+| 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

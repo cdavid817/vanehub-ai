@@ -3,6 +3,8 @@ dist/
 .vanehub/
 .idea/
 src-tauri/target/
+src-tauri/binaries/
+.cargo-target-code-index/
 *.log
 test-results/
 playwright-report/

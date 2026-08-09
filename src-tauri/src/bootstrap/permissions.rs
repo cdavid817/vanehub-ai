@@ -102,26 +102,35 @@ impl ClaudeCodeHookPort for UnavailableClaudeCodeHook {
     }
 }
 
-/// Where the hook wrapper binary is expected to live: Tauri's resource directory (populated by a
-/// `tauri.conf.json` `bundle.resources` entry — deliberately out of scope for this pass, needs a
-/// real `tauri build` on each platform to get right; see tasks.md Group 6 note), falling back to
-/// alongside the running executable if resource-dir resolution itself fails.
+/// Tauri external binaries are installed beside the main executable. The resource-directory
+/// fallback keeps development and older custom packages diagnosable through the adapter's
+/// existing-file guard.
 fn wrapper_binary_path(app: &AppHandle) -> PathBuf {
-    let file_name = if cfg!(windows) {
+    wrapper_binary_path_from(
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
+        app.path().resource_dir().ok(),
+    )
+}
+
+fn wrapper_binary_path_from(
+    executable_directory: Option<PathBuf>,
+    resource_directory: Option<PathBuf>,
+) -> PathBuf {
+    let file_name = wrapper_binary_file_name();
+    executable_directory
+        .or(resource_directory)
+        .unwrap_or_default()
+        .join(file_name)
+}
+
+fn wrapper_binary_file_name() -> &'static str {
+    if cfg!(windows) {
         "vanehub-permission-hook.exe"
     } else {
         "vanehub-permission-hook"
-    };
-    app.path()
-        .resource_dir()
-        .ok()
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
-        })
-        .unwrap_or_default()
-        .join(file_name)
+    }
 }
 
 /// Periodically sweeps expired pending approvals and delivers their fail-closed denial back to
@@ -151,4 +160,31 @@ pub(crate) fn start_permission_timeout_sweep_job(
             sleep(Duration::from_secs(TIMEOUT_SWEEP_INTERVAL_SECONDS)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{wrapper_binary_file_name, wrapper_binary_path_from};
+    use std::path::PathBuf;
+
+    #[test]
+    fn permission_hook_prefers_the_external_binary_beside_the_application() {
+        let executable_directory = PathBuf::from("app/bin");
+        let resource_directory = PathBuf::from("app/resources");
+
+        assert_eq!(
+            wrapper_binary_path_from(Some(executable_directory.clone()), Some(resource_directory)),
+            executable_directory.join(wrapper_binary_file_name())
+        );
+    }
+
+    #[test]
+    fn permission_hook_retains_the_resource_directory_fallback() {
+        let resource_directory = PathBuf::from("app/resources");
+
+        assert_eq!(
+            wrapper_binary_path_from(None, Some(resource_directory.clone())),
+            resource_directory.join(wrapper_binary_file_name())
+        );
+    }
 }

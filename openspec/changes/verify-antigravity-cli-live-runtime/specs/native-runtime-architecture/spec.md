@@ -25,7 +25,7 @@ The native runtime SHALL parse `antigravity-cli` stdout as newline-delimited JSO
 - **WHEN** stdout contains a JSON line whose event kind the runtime does not recognize
 - **THEN** the runtime SHALL ignore that line and continue processing subsequent events
 
-#### Scenario: Incremental step events reach the user as they arrive
-- **WHEN** stdout contains a `step_update` event carrying assistant output
-- **THEN** the runtime SHALL emit it as incremental output rather than withholding it until the turn completes
+#### Scenario: Incremental step events are consumed without inventing a payload shape
+- **WHEN** a live authenticated capture has established the `step_update` payload shape and stdout contains a supported incremental event
+- **THEN** the runtime SHALL map the observed payload to incremental output rather than withholding it until the turn completes
 - **AND** the completed turn SHALL NOT duplicate content already emitted incrementally

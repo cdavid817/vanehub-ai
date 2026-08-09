@@ -46,14 +46,14 @@ The system SHALL document and display that usage statistics cover VaneHub-manage
 - **AND** it SHALL state that external-terminal history, billing reconciliation, monetary cost estimation, request-detail logs, and provider/model filtering are not included in this version
 
 ### Requirement: Normalized response usage records
-The system SHALL persist at most one normalized usage record per VaneHub assistant response or interactive terminal usage subject without storing prompt, response, or terminal content in that record.
+The system SHALL persist at most one normalized usage record per VaneHub assistant response without storing prompt or response content in that record.
 
 #### Scenario: Persist reported tokens
 - **WHEN** a supported CLI reports valid, non-zero usage for an assistant response
 - **THEN** the system SHALL persist non-negative normalized token categories with accounting kind `reported`, unit `tokens`, stable Agent id, source, and occurrence time
 
 #### Scenario: Persist reported tokens for an interactive terminal session
-- **WHEN** a supported CLI runs as an interactive embedded-terminal session rather than through VaneHub's managed invocation pipeline
+- **WHEN** any of the four supported CLIs (claude-code, opencode, codex-cli, or gemini-cli) runs as an interactive embedded-terminal session rather than through VaneHub's managed invocation pipeline
 - **THEN** the system SHALL read that CLI's own persisted session log or database to obtain reported usage
 - **AND** it SHALL bind provider-native data to the exact provider runtime session when that identity is available
 - **AND** repeated polling or reopening the same VaneHub session SHALL update one stable terminal usage record instead of adding prior cumulative usage again

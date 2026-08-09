@@ -145,7 +145,21 @@ describe("SessionInfoPanel", () => {
 
     expect(html).toContain("No reported tokens yet");
     expect(html).toContain("Estimated Responses");
+    expect(html).not.toContain("Code Index");
     expect(html).toContain("2,000");
+  });
+
+  it("adds a session-scoped code-index tab for a local OnePiece session", () => {
+    const html = renderPanel({
+      sessionId: "session-info-fixture",
+      reported: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 },
+      estimated: { inputCharacters: 0, outputCharacters: 0, totalCharacters: 0 },
+      coverage: { reportedResponses: 0, estimatedResponses: 0, totalResponses: 0, reportedPercent: 0 },
+      responseCount: 0,
+      generatedAt: "2026-07-20T00:00:00.000Z",
+    }, { agentId: "onepiece", interactionMode: "api" });
+
+    expect(html).toContain("Code Index");
   });
 
   it("normalizes Windows extended-length workspace paths for display", () => {

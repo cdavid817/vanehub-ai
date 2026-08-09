@@ -59,6 +59,62 @@ fn release_debug_information_is_disabled(debug: Option<&toml::Value>) -> bool {
 }
 
 #[test]
+fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let roots = [
+        source_root.join("contexts/sessions/domain"),
+        source_root.join("contexts/sessions/application"),
+        source_root.join("contexts/agent_runtime/application"),
+    ];
+    let provider_ids = [
+        "claude-code",
+        "codex-cli",
+        "gemini-cli",
+        "opencode",
+        "antigravity-cli",
+    ];
+    let mut violations = Vec::new();
+
+    for root in roots {
+        for path in rust_files(&root).expect("enumerate provider-neutral sources") {
+            let relative = path
+                .strip_prefix(&source_root)
+                .expect("relative source path")
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if relative.ends_with("tests.rs") {
+                continue;
+            }
+            let source = fs::read_to_string(&path).expect("read provider-neutral source");
+            let production = source.split("#[cfg(test)]").next().unwrap_or(&source);
+            if production.contains("infrastructure::providers") {
+                violations.push(format!(
+                    "{relative}: imports concrete provider infrastructure"
+                ));
+            }
+            // This legacy Session preference mapper is an explicit migration seam. It remains
+            // until model/policy preferences move behind a later provider capability contract.
+            if relative == "contexts/sessions/domain/chat_configuration.rs" {
+                continue;
+            }
+            for provider_id in provider_ids {
+                if production.contains(&format!("\"{provider_id}\"")) {
+                    violations.push(format!(
+                        "{relative}: branches on built-in provider id {provider_id}"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "provider-neutral layers must resolve behavior through contracts:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn release_profile_guard_rejects_every_enabled_debug_information_form() {
     let enabled_debug_values = [
         toml::Value::Boolean(true),

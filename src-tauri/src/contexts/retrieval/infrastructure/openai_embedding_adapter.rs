@@ -3,10 +3,11 @@ use crate::contexts::retrieval::application::{
 };
 use crate::contexts::retrieval::domain::FailureCategory;
 use crate::platform::network::blocking_no_redirect_http_client;
-use reqwest::header::ACCEPT;
+use reqwest::header::{HeaderMap, ACCEPT, RETRY_AFTER};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 /// 与 model discovery（onepiece_model_discovery.rs:19）同量级——都是"读一个 JSON API 响应"，
@@ -15,6 +16,7 @@ const MAX_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
 /// 一批最多 `EMBEDDING_BATCH_SIZE`（32）条、每条截到 `EMBEDDING_CONTENT_LIMIT`（8000 字符）后
 /// 一起送去 embedding，比单次模型列表查询重得多，超时给宽一些。
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 
 /// openai-compatible `/embeddings` 端点的 HTTP 适配器。`credential` 只经
 /// `resolved.credential` → `bearer_auth` 流入 Authorization 头，从不写日志、从不进
@@ -22,13 +24,16 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(crate) struct HttpEmbeddingAdapter {
     endpoint: Arc<dyn EmbeddingEndpointPort>,
     profile_id: String,
+    request_gate: Arc<Mutex<()>>,
 }
 
 impl HttpEmbeddingAdapter {
     pub(crate) fn new(endpoint: Arc<dyn EmbeddingEndpointPort>, profile_id: String) -> Self {
+        let request_gate = request_gate_for_profile(&profile_id);
         Self {
             endpoint,
             profile_id,
+            request_gate,
         }
     }
 }
@@ -43,6 +48,7 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
                 // InvalidRequest 是确定性失败，重试只会烧配额"）。分类成 InvalidRequest 能让这一行
                 // 立刻标记 failed、在设置页露出失败计数，用户靠修正配置、点击重建来恢复。
                 category: FailureCategory::InvalidRequest,
+                retry_after: None,
                 // 插值安全性已随 bootstrap 的真实 EmbeddingEndpointPort 实现复核过一次：那个
                 // 适配器把 agent_runtime 的任何失败折叠成一句不含参数的字面量
                 // （RetrievalError::Embedding），所以这里的 {error} 不可能带出凭据或 provider
@@ -51,10 +57,16 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
             }
         })?;
         ensure_https_endpoint(&resolved.base_url)?;
+        let _request_permit = self.request_gate.lock().map_err(|_| EmbeddingFailure {
+            category: FailureCategory::Network,
+            retry_after: None,
+            message: "embedding request gate is unavailable".to_string(),
+        })?;
 
         let client = blocking_no_redirect_http_client(REQUEST_TIMEOUT).map_err(|error| {
             EmbeddingFailure {
                 category: FailureCategory::Network,
+                retry_after: None,
                 message: format!("failed to build HTTP client: {error}"),
             }
         })?;
@@ -71,6 +83,7 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
             .send()
             .map_err(|error| EmbeddingFailure {
                 category: FailureCategory::Network,
+                retry_after: None,
                 message: format!("embedding request failed: {error}"),
             })?;
 
@@ -80,6 +93,9 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
             // EmbeddingFailure::message。
             return Err(EmbeddingFailure {
                 category: category_for_status(status.as_u16()),
+                retry_after: (status.as_u16() == 429)
+                    .then(|| bounded_retry_after(response.headers()))
+                    .flatten(),
                 message: format!("provider returned HTTP {}", status.as_u16()),
             });
         }
@@ -89,6 +105,7 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
         {
             return Err(EmbeddingFailure {
                 category: FailureCategory::InvalidRequest,
+                retry_after: None,
                 message: "embedding response is too large".to_string(),
             });
         }
@@ -99,17 +116,20 @@ impl EmbeddingPort for HttpEmbeddingAdapter {
             .read_to_end(&mut body)
             .map_err(|error| EmbeddingFailure {
                 category: FailureCategory::Network,
+                retry_after: None,
                 message: format!("failed to read embedding response: {error}"),
             })?;
         if body.len() as u64 > MAX_RESPONSE_BYTES {
             return Err(EmbeddingFailure {
                 category: FailureCategory::InvalidRequest,
+                retry_after: None,
                 message: "embedding response is too large".to_string(),
             });
         }
 
         let text = String::from_utf8(body).map_err(|_| EmbeddingFailure {
             category: FailureCategory::InvalidRequest,
+            retry_after: None,
             message: "embedding response is not valid UTF-8".to_string(),
         })?;
         parse_embedding_response(&text)
@@ -131,6 +151,7 @@ fn ensure_https_endpoint(base_url: &str) -> Result<(), EmbeddingFailure> {
     }
     Err(EmbeddingFailure {
         category: FailureCategory::InvalidRequest,
+        retry_after: None,
         message: "embedding endpoint must use HTTPS".to_string(),
     })
 }
@@ -144,12 +165,39 @@ fn category_for_status(status: u16) -> FailureCategory {
     }
 }
 
+fn bounded_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let seconds = headers
+        .get(RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER))
+}
+
+fn request_gate_for_profile(profile_id: &str) -> Arc<Mutex<()>> {
+    static GATES: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
+    let gates = GATES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut gates = gates
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing) = gates.get(profile_id).and_then(Weak::upgrade) {
+        return existing;
+    }
+    gates.retain(|_, gate| gate.strong_count() > 0);
+    let gate = Arc::new(Mutex::new(()));
+    gates.insert(profile_id.to_string(), Arc::downgrade(&gate));
+    gate
+}
+
 /// provider 不保证 `data` 按请求顺序返回，必须按每项自带的 `index` 重排——
 /// 否则向量会被错配到别的文档上，安静地污染检索结果。
 fn parse_embedding_response(body: &str) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
     let envelope: EmbeddingEnvelope = serde_json::from_str(body).map_err(|error| {
         EmbeddingFailure {
             category: FailureCategory::InvalidRequest,
+            retry_after: None,
             // 只带行列位置，**不带 `{error}`**：serde_json 的 Display 会把出错处的原值回显出来
             // （例如 `invalid type: string "oops"`），那等于把 provider 响应体的片段塞进诊断信息。
             message: format!(
@@ -190,6 +238,28 @@ mod tests {
         assert_eq!(category_for_status(429), FailureCategory::RateLimit);
         assert_eq!(category_for_status(500), FailureCategory::Network);
         assert_eq!(category_for_status(503), FailureCategory::Network);
+    }
+
+    #[test]
+    fn retry_after_seconds_are_bounded_and_invalid_values_are_ignored() {
+        let mut headers = HeaderMap::new();
+        headers.insert(RETRY_AFTER, "120".parse().expect("header"));
+        assert_eq!(bounded_retry_after(&headers), Some(MAX_RETRY_AFTER));
+        headers.insert(RETRY_AFTER, "invalid".parse().expect("header"));
+        assert_eq!(bounded_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn adapters_for_the_same_profile_share_one_request_gate() {
+        let first = request_gate_for_profile("shared-profile-test");
+        let second = request_gate_for_profile("shared-profile-test");
+        let other = request_gate_for_profile("other-profile-test");
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&first, &other));
+        let permit = first.lock().expect("permit");
+        assert!(second.try_lock().is_err());
+        drop(permit);
+        assert!(second.try_lock().is_ok());
     }
 
     #[test]

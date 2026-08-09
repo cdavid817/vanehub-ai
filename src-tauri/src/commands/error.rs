@@ -161,6 +161,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
     fn from(error: AgentRuntimeApplicationError) -> Self {
         match error {
             AgentRuntimeApplicationError::Domain(error) => Self::validation(error.to_string()),
+            AgentRuntimeApplicationError::Provider(error) => Self::validation(error.to_string()),
             AgentRuntimeApplicationError::Validation(message) => Self::validation(message),
             AgentRuntimeApplicationError::AgentNotFound(agent_id) => Self {
                 category: CommandErrorCategory::NotFound,

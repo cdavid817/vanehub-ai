@@ -1,6 +1,6 @@
 use crate::contexts::retrieval::domain::{
     cosine_similarity, escape_fts_query, fuse_with_rrf, Degradation, MatchedVia, RetrievalError,
-    RetrievalQuery, ScoredHit, SourceKind,
+    RetrievalQuery, RetrievalScope, ScoredHit, SourceKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -22,6 +22,8 @@ pub(crate) struct SearchService {
     repository: Arc<dyn RetrievalDocumentRepository>,
     source: Arc<dyn IndexSourcePort>,
     embeddings: Arc<dyn EmbeddingPort>,
+    source_kind: SourceKind,
+    scope: RetrievalScope,
 }
 
 impl SearchService {
@@ -31,12 +33,34 @@ impl SearchService {
         source: Arc<dyn IndexSourcePort>,
         embeddings: Arc<dyn EmbeddingPort>,
     ) -> Self {
-        Self {
+        Self::new_scoped(
             configuration,
             repository,
             source,
             embeddings,
-        }
+            SourceKind::AgentMemory,
+            RetrievalScope::GlobalMemory,
+        )
+        .expect("agent memory always uses the global memory scope")
+    }
+
+    pub(crate) fn new_scoped(
+        configuration: Arc<dyn RetrievalConfigurationRepository>,
+        repository: Arc<dyn RetrievalDocumentRepository>,
+        source: Arc<dyn IndexSourcePort>,
+        embeddings: Arc<dyn EmbeddingPort>,
+        source_kind: SourceKind,
+        scope: RetrievalScope,
+    ) -> Result<Self, RetrievalError> {
+        scope.validate_for(source_kind)?;
+        Ok(Self {
+            configuration,
+            repository,
+            source,
+            embeddings,
+            source_kind,
+            scope,
+        })
     }
 
     /// 双路召回 → RRF 融合 → 回查源表。
@@ -58,8 +82,9 @@ impl SearchService {
         let vector_ranking = self.vector_ranking(&text, model, over_fetch);
         let keyword_ranking = self
             .repository
-            .keyword_candidates(
-                SourceKind::AgentMemory,
+            .keyword_candidates_scoped(
+                self.source_kind,
+                &self.scope,
                 &escape_fts_query(&text),
                 over_fetch,
             )
@@ -132,7 +157,7 @@ impl SearchService {
         let query_vector = embedded.into_iter().next()?;
         let candidates = self
             .repository
-            .vector_candidates(SourceKind::AgentMemory, model)
+            .vector_candidates_scoped(self.source_kind, &self.scope, model)
             .ok()?;
         let mut scored: Vec<(String, f32)> = candidates
             .into_iter()
@@ -179,6 +204,7 @@ mod tests {
                 Self::Succeeds(vector) => Ok(vec![vector.clone()]),
                 Self::Fails => Err(EmbeddingFailure {
                     category: FailureCategory::Network,
+                    retry_after: None,
                     message: "fake embedding failure".to_string(),
                 }),
                 Self::Recording(vector, received) => {
@@ -199,6 +225,7 @@ mod tests {
                 configuration: RetrievalConfiguration {
                     source_profile_id: Some(profile.to_string()),
                     embedding_model: Some(model.to_string()),
+                    automatic_code_index_mode: Default::default(),
                 },
             }
         }
@@ -216,6 +243,13 @@ mod tests {
         }
 
         fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+
+        fn save_automatic_code_index_mode(
+            &self,
+            _mode: crate::contexts::retrieval::domain::CodeIndexAutomaticMode,
+        ) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by search_service tests")
         }
     }

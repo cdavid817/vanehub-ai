@@ -5,6 +5,7 @@ mod generation;
 mod loop_decision;
 mod loop_engineering;
 mod loop_progress;
+mod provider;
 mod seat_roster;
 mod seat_turn;
 mod workflow;
@@ -30,6 +31,10 @@ pub(crate) use loop_engineering::{
 pub(crate) use loop_progress::{
     assess_revision_progress, fingerprint_objective_state, LoopCheckOutcome,
     LoopObjectiveFingerprints, LoopRequiredCheckObservation, LoopRevisionProgress,
+};
+pub(crate) use provider::{
+    AgentProviderId, ProviderCapabilities, ProviderCapabilityInput, ProviderFamily,
+    ProviderMetadata, ProviderReadinessPrerequisites, ProviderSessionRef, ProviderUsageCapability,
 };
 #[allow(unused_imports)]
 pub(crate) use seat_roster::{

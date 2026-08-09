@@ -15,6 +15,7 @@ pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
+pub(crate) const SEARCH_CODE_TOOL_NAME: &str = "search_code";
 pub(crate) const GREP_TOOL_NAME: &str = "grep";
 pub(crate) const GLOB_TOOL_NAME: &str = "glob";
 pub(crate) const EDIT_TOOL_NAME: &str = "edit";
@@ -160,6 +161,28 @@ pub(crate) fn recall_tool_definition() -> ToolDefinition {
                 }
             },
             "required": ["query"]
+        }),
+    }
+}
+
+pub(crate) fn search_code_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SEARCH_CODE_TOOL_NAME.to_string(),
+        description: "Search indexed code in the current session workspace and return precise file and line locations.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The code behavior, symbol, or implementation to find."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "How many code locations to return. Defaults to 5, capped at 20."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
         }),
     }
 }
@@ -456,6 +479,20 @@ mod tests {
     }
 
     #[test]
+    fn the_search_code_tool_exposes_only_query_and_limit() {
+        let definition = search_code_tool_definition();
+        let properties = definition.input_schema["properties"]
+            .as_object()
+            .expect("properties");
+        assert_eq!(
+            properties.keys().cloned().collect::<Vec<_>>(),
+            vec!["limit".to_string(), "query".to_string()]
+        );
+        assert_eq!(definition.input_schema["required"], json!(["query"]));
+        assert_eq!(definition.input_schema["additionalProperties"], false);
+    }
+
+    #[test]
     fn the_fixed_catalog_stays_unconditional_and_excludes_recall() {
         // tool_catalog()/plan_mode_tool_catalog() 保持纯函数、不感知配置；
         // 条件性只存在于 resolve_tool_catalog()。
@@ -465,5 +502,8 @@ mod tests {
         assert!(plan_mode_tool_catalog()
             .iter()
             .all(|tool| tool.name != RECALL_TOOL_NAME));
+        assert!(tool_catalog()
+            .iter()
+            .all(|tool| tool.name != SEARCH_CODE_TOOL_NAME));
     }
 }
