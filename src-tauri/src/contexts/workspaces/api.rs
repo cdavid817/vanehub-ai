@@ -137,6 +137,18 @@ impl WorkspaceApi {
         self.queries.git_status(session_id)
     }
 
+    /// Async wrapper that runs `git status` on the blocking pool, since it can hit the
+    /// process timeout on slow repositories and must not freeze the async executor.
+    pub(crate) async fn get_session_git_status_blocking(
+        &self,
+        session_id: String,
+    ) -> Result<GitStatusResult, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.get_session_git_status(&session_id))
+            .await
+            .map_err(|_| WorkspaceError::Storage("git status task failed".to_string()))?
+    }
+
     pub(crate) fn get_session_git_diff(
         &self,
         session_id: &str,
@@ -146,6 +158,21 @@ impl WorkspaceApi {
         self.queries.git_diff(session_id, path, source)
     }
 
+    /// Async wrapper for `git diff`, which can spawn git twice on slow repositories.
+    pub(crate) async fn get_session_git_diff_blocking(
+        &self,
+        session_id: String,
+        path: String,
+        source: GitDiffSource,
+    ) -> Result<GitDiffResult, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            api.get_session_git_diff(&session_id, &path, source)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("git diff task failed".to_string()))?
+    }
+
     pub(crate) fn list_session_logs(
         &self,
         query: &SessionLogQuery,
@@ -153,11 +180,45 @@ impl WorkspaceApi {
         self.queries.list_logs(query)
     }
 
+    /// Async wrapper for log listing, which reads and filters whole log files.
+    pub(crate) async fn list_session_logs_blocking(
+        &self,
+        query: SessionLogQuery,
+    ) -> Result<SessionLogPage, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.list_session_logs(&query))
+            .await
+            .map_err(|_| WorkspaceError::Storage("session logs task failed".to_string()))?
+    }
+
     pub(crate) fn export_session_logs(
         &self,
         query: &SessionLogQuery,
     ) -> Result<SessionLogExportResult, WorkspaceError> {
         self.queries.export_logs(query)
+    }
+
+    /// Async wrapper for log export, which writes a file and may surface a save dialog.
+    pub(crate) async fn export_session_logs_blocking(
+        &self,
+        query: SessionLogQuery,
+    ) -> Result<SessionLogExportResult, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.export_session_logs(&query))
+            .await
+            .map_err(|_| WorkspaceError::Storage("session log export task failed".to_string()))?
+    }
+
+    /// Async wrapper for directory listing, which walks the filesystem synchronously.
+    pub(crate) async fn list_session_directory_blocking(
+        &self,
+        session_id: String,
+        path: String,
+    ) -> Result<DirectoryListing, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || api.list_session_directory(&session_id, &path))
+            .await
+            .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
     }
 
     pub(crate) fn create_shell(
