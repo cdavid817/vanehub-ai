@@ -845,11 +845,25 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
         };
         let candidates = statement
             .query_map(params.as_slice(), |row| {
+                let start_line = row.get::<_, i64>(2)?;
+                let end_line = row.get::<_, i64>(3)?;
                 Ok(CodeSearchCandidate {
                     source_id: row.get(0)?,
                     file_path: row.get(1)?,
-                    start_line: row.get::<_, i64>(2)? as u32,
-                    end_line: row.get::<_, i64>(3)? as u32,
+                    start_line: u32::try_from(start_line).map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Integer,
+                            format!("start_line {start_line} out of u32 range").into(),
+                        )
+                    })?,
+                    end_line: u32::try_from(end_line).map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Integer,
+                            format!("end_line {end_line} out of u32 range").into(),
+                        )
+                    })?,
                     language: row.get(4)?,
                     symbol_name: row.get(5)?,
                     symbol_kind: row.get(6)?,
