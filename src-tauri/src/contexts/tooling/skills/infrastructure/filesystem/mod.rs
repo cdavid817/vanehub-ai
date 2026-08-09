@@ -7,7 +7,7 @@ use self::transaction::{path_exists, FileTransactions};
 use crate::contexts::tooling::skills::application::{
     AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
     SkillBackupEntry, SkillDocument, SkillFilesystemPort, SkillFilesystemTransaction,
-    SkillImportedSource, SkillMountRepair, SkillRecord, SkillSourceRefresh,
+    SkillImportedSource, SkillMountRepair, SkillRecord, SkillSourceProbe, SkillSourceRefresh,
 };
 use crate::contexts::tooling::skills::domain::{
     SkillBindingInspection, SkillBindingPlan, SkillDriftInspection, SkillDriftIssue, SkillId,
@@ -30,10 +30,40 @@ impl ManagedSkillFilesystem {
     }
 
     #[cfg(test)]
-    fn with_home_root(home_root: PathBuf) -> Self {
+    pub(super) fn with_home_root(home_root: PathBuf) -> Self {
         Self {
             paths: SkillPathResolver::with_home_root(home_root),
             transactions: Arc::new(FileTransactions::default()),
+        }
+    }
+
+    /// Reads what is already at a Skill's source path. Deliberately read-only: seeding uses it to
+    /// decide between creating and adopting, and adopting must leave a user's file untouched.
+    fn probe_document(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+    ) -> Result<SkillSourceProbe, SkillApplicationError> {
+        let (directory, skill_file) = self.paths.source_paths(location, id)?;
+        if !path_exists(&directory) {
+            return Ok(SkillSourceProbe::Absent);
+        }
+        let content = match std::fs::read_to_string(&skill_file) {
+            Ok(content) => content,
+            Err(error) => {
+                return Ok(SkillSourceProbe::Unusable(format!(
+                    "source directory exists but its SKILL.md could not be read: {error}"
+                )))
+            }
+        };
+        match document::parse(&content) {
+            Ok(metadata) => Ok(SkillSourceProbe::Present(SkillImportedSource {
+                metadata,
+                source: managed_source(directory, skill_file, &content),
+            })),
+            Err(error) => Ok(SkillSourceProbe::Unusable(format!(
+                "source directory exists but its SKILL.md could not be parsed: {error}"
+            ))),
         }
     }
 
@@ -247,6 +277,14 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
 
     fn rollback_mutation(&self, transaction: SkillFilesystemTransaction) {
         self.transactions.rollback(transaction);
+    }
+
+    fn probe_source(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+    ) -> Result<SkillSourceProbe, SkillApplicationError> {
+        self.probe_document(location, id)
     }
 
     fn create_source(
