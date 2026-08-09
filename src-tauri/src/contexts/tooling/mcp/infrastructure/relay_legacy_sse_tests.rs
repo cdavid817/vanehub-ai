@@ -45,8 +45,9 @@ fn open_event_stream(stream: &mut TcpStream, endpoint: &str) {
 
 fn accepted(stream: &mut TcpStream) {
     stream
-        .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
+        .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         .expect("accepted");
+    stream.flush().expect("accepted flush");
 }
 
 fn status_response(stream: &mut TcpStream, status: &str, body: &[u8]) {
