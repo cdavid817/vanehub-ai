@@ -7,22 +7,27 @@
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, ExpertRoleApplicationService,
     LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
+    LoopVerificationCancellation, LoopVerificationCommandView, LoopVerificationProcessPort,
+    LoopVerificationProcessRequest, LoopVerificationProcessStatus, OnePiecePlanningPort,
 };
 use super::infrastructure::{NativeLoopScheduler, NativeSeatTurnCoordinator};
+use std::sync::Arc;
 
 pub(crate) use super::application::{
-    AgentChatConfiguration, AgentFileReference, AgentMemory, AgentMessage,
-    AgentMessageTerminalOutcome, AgentRuntimeApplicationError, AgentSessionDetails,
-    AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize, AgentView,
-    ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
-    EmbeddingEndpointView, LaunchWorkflowResult, LoopDefinitionView, LoopRunView,
-    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
-    ProviderCredentialValidationResult, ReadinessView, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
-    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowView,
+    ActiveGenerationCorrelation, AgentChatConfiguration, AgentFileReference, AgentMemory,
+    AgentMessage, AgentMessageSource, AgentMessageTerminalOutcome, AgentRuntimeApplicationError,
+    AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
+    AgentView, ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
+    EmbeddingEndpointView, ExecutionToolMode, LaunchWorkflowResult, LoopDefinitionView,
+    LoopRunView, OnePiecePlanningRequest, OnePiecePlanningResult, OnePieceProviderConfig,
+    OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption, OnePieceProviderPreset,
+    OnePieceProviderProfiles, OpenAgentTerminalRequest, OrchestrationCorrelation,
+    OrchestrationExecutionProfile, ProviderCredentialValidationResult, ReadinessView,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowView,
 };
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
@@ -30,6 +35,58 @@ pub(crate) use super::domain::{
     AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits,
     LoopVerificationCommand,
 };
+
+const GUARDED_VALIDATION_OUTPUT_LIMIT: usize = 4_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GuardedValidationRequest {
+    pub(crate) worktree_root: String,
+    pub(crate) command: LoopVerificationCommand,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GuardedValidationCancellation {
+    inner: LoopVerificationCancellation,
+}
+
+impl GuardedValidationCancellation {
+    pub(crate) fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GuardedValidationStatus {
+    Passed,
+    Failed,
+    TimedOut,
+    Cancelled,
+}
+
+impl GuardedValidationStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::TimedOut => "timed_out",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GuardedValidationResult {
+    pub(crate) status: GuardedValidationStatus,
+    pub(crate) exit_code: Option<i32>,
+    pub(crate) duration_ms: u64,
+    pub(crate) output_summary: Option<String>,
+    pub(crate) output_truncated: bool,
+}
 
 /// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
 /// positional argument list nobody can read.
@@ -42,6 +99,8 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) loop_scheduler: NativeLoopScheduler,
     pub(crate) expert_roles: ExpertRoleApplicationService,
     pub(crate) seat_turns: NativeSeatTurnCoordinator,
+    pub(crate) guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    pub(crate) onepiece_planning: Arc<dyn OnePiecePlanningPort>,
 }
 
 #[derive(Clone)]
@@ -58,6 +117,8 @@ pub(crate) struct AgentRuntimeApi {
     loop_scheduler: NativeLoopScheduler,
     seat_turns: NativeSeatTurnCoordinator,
     expert_roles: ExpertRoleApplicationService,
+    guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    onepiece_planning: Arc<dyn OnePiecePlanningPort>,
 }
 
 impl AgentRuntimeApi {
@@ -71,6 +132,8 @@ impl AgentRuntimeApi {
             loop_scheduler,
             expert_roles,
             seat_turns,
+            guarded_validation,
+            onepiece_planning,
         } = services;
         Self {
             service,
@@ -81,7 +144,44 @@ impl AgentRuntimeApi {
             loop_scheduler,
             expert_roles,
             seat_turns,
+            guarded_validation,
+            onepiece_planning,
         }
+    }
+
+    pub(crate) fn generate_onepiece_plan(
+        &self,
+        request: &OnePiecePlanningRequest,
+    ) -> Result<OnePiecePlanningResult, AgentRuntimeApplicationError> {
+        self.onepiece_planning.generate(request)
+    }
+
+    pub(crate) fn run_guarded_validation_cancellable(
+        &self,
+        request: GuardedValidationRequest,
+        cancellation: GuardedValidationCancellation,
+    ) -> Result<GuardedValidationResult, AgentRuntimeApplicationError> {
+        let result = self
+            .guarded_validation
+            .execute(LoopVerificationProcessRequest {
+                worktree_root: request.worktree_root,
+                command: LoopVerificationCommandView::from(&request.command),
+                cancellation: cancellation.inner,
+            })?;
+        let (output_summary, bounded_truncated) =
+            bounded_validation_output(&result.stdout, &result.stderr);
+        Ok(GuardedValidationResult {
+            status: match result.status {
+                LoopVerificationProcessStatus::Passed => GuardedValidationStatus::Passed,
+                LoopVerificationProcessStatus::Failed => GuardedValidationStatus::Failed,
+                LoopVerificationProcessStatus::TimedOut => GuardedValidationStatus::TimedOut,
+                LoopVerificationProcessStatus::Cancelled => GuardedValidationStatus::Cancelled,
+            },
+            exit_code: result.exit_code,
+            duration_ms: result.duration_ms,
+            output_summary,
+            output_truncated: result.output_truncated || bounded_truncated,
+        })
     }
 
     pub(crate) fn list_expert_roles(
@@ -449,6 +549,22 @@ impl AgentRuntimeApi {
         self.service.send_message_with_completion(request)
     }
 
+    pub(crate) fn send_orchestration_message_with_completion(
+        &self,
+        request: SendMessageRequest,
+        profile: OrchestrationExecutionProfile,
+    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
+        self.service
+            .send_message_with_execution_profile(request, profile)
+    }
+
+    pub(crate) fn active_generation_correlation(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
+        self.service.active_generation_correlation(session_id)
+    }
+
     pub(crate) fn stop_generation(
         &self,
         session_id: &str,
@@ -498,6 +614,25 @@ impl AgentRuntimeApi {
     }
 }
 
+fn bounded_validation_output(stdout: &str, stderr: &str) -> (Option<String>, bool) {
+    let combined = match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => return (None, false),
+        (false, true) => format!("stdout:\n{stdout}"),
+        (true, false) => format!("stderr:\n{stderr}"),
+        (false, false) => format!("stdout:\n{stdout}\nstderr:\n{stderr}"),
+    };
+    let truncated = combined.chars().count() > GUARDED_VALIDATION_OUTPUT_LIMIT;
+    (
+        Some(
+            combined
+                .chars()
+                .take(GUARDED_VALIDATION_OUTPUT_LIMIT)
+                .collect(),
+        ),
+        truncated,
+    )
+}
+
 /// Boundary `commands::agent_runtime::delete_agent_memory` needs from this facade to delete one
 /// stored memory (`add-onepiece-vector-search` Task 14). A trait — rather than that command
 /// calling the inherent `delete_agent_memory` method directly — so the command's own tests can
@@ -513,5 +648,18 @@ impl AgentMemoryDeletionGateway for AgentRuntimeApi {
         // prefers an inherent impl over a trait impl for the same receiver type, so this cannot
         // recurse.
         self.delete_agent_memory(memory_id)
+    }
+}
+
+#[cfg(test)]
+mod guarded_validation_output_tests {
+    use super::*;
+
+    #[test]
+    fn validation_output_is_bounded_and_marks_truncation() {
+        let (summary, truncated) = bounded_validation_output(&"x".repeat(5_000), "error");
+        assert!(truncated);
+        assert_eq!(summary.expect("summary").chars().count(), 4_000);
+        assert_eq!(bounded_validation_output("", ""), (None, false));
     }
 }

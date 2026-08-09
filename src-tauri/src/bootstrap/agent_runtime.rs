@@ -20,11 +20,11 @@ use crate::contexts::agent_runtime::infrastructure::{
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
     RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    RuntimeEffectivePromptAdapter, RuntimeOnePiecePlanningAdapter, SessionsAgentRuntimeAdapter,
+    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteExpertRoleRepository,
+    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -174,6 +174,10 @@ pub(crate) fn assemble_agent_runtime_api(
         api_credentials.clone(),
         repository.clone(),
     ));
+    let onepiece_planning = Arc::new(RuntimeOnePiecePlanningAdapter::new(
+        api_credentials.clone(),
+        repository.clone(),
+    ));
     let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
         api_credentials.clone(),
         repository.clone(),
@@ -298,10 +302,11 @@ pub(crate) fn assemble_agent_runtime_api(
         generations: generations.clone(),
         clock: clock.clone(),
     });
+    let guarded_validation = Arc::new(StructuredLoopVerificationProcess::default());
     let loop_verification =
         LoopVerificationApplicationService::new(LoopVerificationApplicationPorts {
             iterations: loop_repository.clone(),
-            processes: Arc::new(StructuredLoopVerificationProcess::default()),
+            processes: guarded_validation.clone(),
             observer: loop_observer.clone(),
             clock: clock.clone(),
         });
@@ -338,6 +343,8 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_scheduler,
             expert_roles,
             seat_turns,
+            guarded_validation,
+            onepiece_planning,
         }),
         telemetry_lifecycle,
     }

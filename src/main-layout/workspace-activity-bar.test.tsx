@@ -9,6 +9,7 @@ const labels: WorkspaceActivityBarLabels = {
   expandSessions: "Expand sessions",
   collapseSessions: "Collapse sessions",
   loops: "Loops",
+  plans: "Plans",
   scheduledTasks: "Scheduled tasks",
   settings: "Settings",
   help: "Help",
@@ -26,7 +27,7 @@ function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex
 describe("WorkspaceActivityBar", () => {
   it("renders icon-only primary and utility groups with accessible state", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onLoops={vi.fn()} onOpenSettings={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} sessionSidebarExpanded />,
+      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onLoops={vi.fn()} onOpenSettings={vi.fn()} onPlans={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} sessionSidebarExpanded />,
     );
 
     expect(html).toContain('aria-label="Workspace navigation"');
@@ -42,19 +43,22 @@ describe("WorkspaceActivityBar", () => {
   it("exposes the collapsed action and forwards activity callbacks", () => {
     const onSessions = vi.fn();
     const onLoops = vi.fn();
+    const onPlans = vi.fn();
     const onScheduledTasks = vi.fn();
     const onOpenSettings = vi.fn();
-    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onLoops, onOpenSettings, onScheduledTasks, onSessions, sessionSidebarExpanded: false });
+    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onLoops, onOpenSettings, onPlans, onScheduledTasks, onSessions, sessionSidebarExpanded: false });
     const primaryButtons = groupButtons(element, 0);
     const utilityButtons = groupButtons(element, 1);
 
     primaryButtons[0].props.onClick?.({} as never);
     primaryButtons[1].props.onClick?.({} as never);
     primaryButtons[2].props.onClick?.({} as never);
+    primaryButtons[3].props.onClick?.({} as never);
     utilityButtons[0].props.onClick?.({} as never);
 
     expect(onSessions).toHaveBeenCalledOnce();
     expect(onLoops).toHaveBeenCalledOnce();
+    expect(onPlans).toHaveBeenCalledOnce();
     expect(onScheduledTasks).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledWith();
     expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');

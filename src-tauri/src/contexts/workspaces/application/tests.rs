@@ -100,6 +100,9 @@ impl WorkspaceFilesystemPort for FakeFilesystem {
 #[derive(Clone)]
 struct FakeGit {
     root: Option<String>,
+    base_oid: String,
+    validation_error: Option<String>,
+    creation_error: Option<String>,
     calls: Arc<Mutex<Vec<String>>>,
 }
 
@@ -113,6 +116,18 @@ impl WorkspaceGitPort for FakeGit {
             .expect("calls")
             .push(format!("git:inspect:{project_path}"));
         Ok(self.root.clone())
+    }
+
+    fn resolve_commit_oid(
+        &self,
+        project_path: &str,
+        reference: &str,
+    ) -> Result<String, WorkspaceApplicationError> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("git:resolve:{project_path}:{reference}"));
+        Ok(self.base_oid.clone())
     }
 
     fn create_worktree(
@@ -138,7 +153,9 @@ impl WorkspaceGitPort for FakeGit {
         self.calls.lock().expect("calls").push(format!(
             "git:validate-loop:{project_path}:{target_path}:{branch}:{base_branch}"
         ));
-        Ok(())
+        self.validation_error.as_ref().map_or(Ok(()), |message| {
+            Err(WorkspaceApplicationError::Validation(message.clone()))
+        })
     }
 
     fn create_loop_worktree(
@@ -151,7 +168,9 @@ impl WorkspaceGitPort for FakeGit {
         self.calls.lock().expect("calls").push(format!(
             "git:create-loop:{project_path}:{target_path}:{branch}:{base_branch}"
         ));
-        Ok(())
+        self.creation_error.as_ref().map_or(Ok(()), |message| {
+            Err(WorkspaceApplicationError::Validation(message.clone()))
+        })
     }
 }
 
@@ -325,6 +344,14 @@ impl WorkspaceSessionQueryPort for FakeSessionQueries {
 }
 
 fn service(calls: Arc<Mutex<Vec<String>>>) -> (WorkspaceApplicationService, FakeHistory) {
+    service_with_git_errors(calls, None, None)
+}
+
+fn service_with_git_errors(
+    calls: Arc<Mutex<Vec<String>>>,
+    validation_error: Option<String>,
+    creation_error: Option<String>,
+) -> (WorkspaceApplicationService, FakeHistory) {
     let history = FakeHistory {
         calls: calls.clone(),
         ..FakeHistory::default()
@@ -336,6 +363,9 @@ fn service(calls: Arc<Mutex<Vec<String>>>) -> (WorkspaceApplicationService, Fake
     };
     let git = FakeGit {
         root: Some("C:\\code\\app".to_string()),
+        base_oid: "0123456789abcdef".to_string(),
+        validation_error,
+        creation_error,
         calls: calls.clone(),
     };
     let selection = FakeSelection {
@@ -477,6 +507,89 @@ fn loop_worktree_is_canonicalized_and_guarded_before_creation() {
             "git:validate-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/loop-42:origin/main",
             "git:create-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/loop-42:origin/main",
         ]
+    );
+}
+
+#[test]
+fn plan_worktree_records_base_oid_and_retains_a_bounded_target() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service(calls.clone());
+
+    let prepared = service
+        .create_guarded_plan_worktree(" C:\\code\\app ", "plan-run-42", "origin/main")
+        .expect("Plan worktree");
+
+    assert_eq!(prepared.project_path, "C:\\code\\app");
+    assert_eq!(prepared.path, "C:\\code\\app-feature-a");
+    assert_eq!(prepared.name, "plan-run-42");
+    assert_eq!(prepared.branch, "vanehub/plan-run-42");
+    assert_eq!(prepared.base_oid, "0123456789abcdef");
+    assert_eq!(
+        *calls.lock().expect("calls"),
+        vec![
+            "filesystem:canonicalize:C:\\code\\app",
+            "git:inspect:C:\\code\\app",
+            "git:resolve:C:\\code\\app:origin/main",
+            "filesystem:target:C:\\code\\app:plan-run-42",
+            "git:validate-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/plan-run-42:origin/main",
+            "git:create-loop:C:\\code\\app:C:\\code\\app-feature-a:vanehub/plan-run-42:origin/main",
+        ]
+    );
+}
+
+#[test]
+fn plan_worktree_rejects_unbounded_inputs_before_git_side_effects() {
+    for (name, base_ref) in [("../escape", "main"), ("plan-run", "-option")] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (service, _) = service(calls.clone());
+        assert!(service
+            .create_guarded_plan_worktree("C:\\code\\app", name, base_ref)
+            .is_err());
+        assert!(calls.lock().expect("calls").is_empty());
+    }
+}
+
+#[test]
+fn plan_worktree_collision_guard_prevents_creation() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service_with_git_errors(
+        calls.clone(),
+        Some("Plan branch or worktree target already exists".to_string()),
+        None,
+    );
+
+    assert!(service
+        .create_guarded_plan_worktree("C:\\code\\app", "plan-run-42", "main")
+        .is_err());
+    let calls = calls.lock().expect("calls");
+    assert!(calls
+        .iter()
+        .any(|call| call.starts_with("git:validate-loop:")));
+    assert!(!calls
+        .iter()
+        .any(|call| call.starts_with("git:create-loop:")));
+}
+
+#[test]
+fn plan_worktree_creation_failure_is_propagated_without_retry() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (service, _) = service_with_git_errors(
+        calls.clone(),
+        None,
+        Some("guarded Git operation failed".to_string()),
+    );
+
+    assert!(service
+        .create_guarded_plan_worktree("C:\\code\\app", "plan-run-42", "main")
+        .is_err());
+    assert_eq!(
+        calls
+            .lock()
+            .expect("calls")
+            .iter()
+            .filter(|call| call.starts_with("git:create-loop:"))
+            .count(),
+        1
     );
 }
 
