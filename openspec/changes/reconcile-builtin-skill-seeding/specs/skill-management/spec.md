@@ -23,13 +23,13 @@ The system SHALL provide six built-in Skills: `tdd-discipline`, `code-review`, `
 
 #### Scenario: Adopted content that diverges from the shipped definition is reported, not overwritten
 - **WHEN** an adopted source's content differs from the shipped built-in definition
-- **THEN** the system SHALL surface that difference through Skill drift reporting
+- **THEN** the system SHALL report that difference, naming the affected Skills, as part of the initialization diagnostic
 - **AND** it SHALL NOT silently replace the user's file
 
 #### Scenario: One unusable built-in does not block the rest
 - **WHEN** initialization cannot register one built-in Skill
 - **THEN** the system SHALL still register every other built-in Skill it can
-- **AND** it SHALL report which Skills succeeded and which failed, with a reason for each failure
+- **AND** it SHALL name which Skills succeeded and which failed, with a reason for each failure
 
 #### Scenario: An already-present built-in is not an error
 - **WHEN** initialization encounters a built-in Skill whose source is already present

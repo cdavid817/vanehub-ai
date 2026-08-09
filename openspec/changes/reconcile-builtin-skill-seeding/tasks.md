@@ -22,8 +22,10 @@
 - [x] 3.1 For a built-in with no record, branch on disk state: create when absent, adopt when a
       readable source is present, report a per-Skill failure when the source is unusable
 - [x] 3.2 Register the adopted content as it exists on disk; do not rewrite the file
-- [x] 3.3 Confirm the resulting record's content hash reflects disk, so `MetadataChanged` drift
-      reports a divergence from the shipped definition rather than the record claiming to be pristine
+- [x] 3.3 Confirm the resulting record's content hash reflects disk rather than claiming to be
+      pristine, and report a divergence from the shipped definition where it is actually
+      observable — drift compares a record against its own source, so an adopted record has nothing
+      to report and seeding must name the difference itself
 - [x] 3.4 Keep intentional deletions winning: a tombstoned built-in stays unregistered even with a
       source present
 - [x] 3.5 Reconcile and report each built-in independently so one failure cannot discard the others

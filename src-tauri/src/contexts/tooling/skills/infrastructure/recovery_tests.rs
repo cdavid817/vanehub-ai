@@ -168,6 +168,24 @@ fn recovery_keeps_a_users_edits_to_a_builtin_source() {
         modified,
         "adoption must not overwrite a file the user edited"
     );
+    // Drift compares the record against disk, and an adopted record already describes disk, so it
+    // has nothing to report. Divergence from the shipped definition is a different comparison and
+    // is reported by seeding itself.
+    let drift = stack
+        .service
+        .detect_skill_drift(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("drift detection");
+    assert!(
+        !drift
+            .issues
+            .iter()
+            .any(|issue| issue.skill_id == "code-review"),
+        "an adopted record must not be reported as drifted against its own source: {:?}",
+        drift.issues
+    );
+
     let record = stack
         .repository_records()
         .into_iter()
@@ -177,6 +195,61 @@ fn recovery_keeps_a_users_edits_to_a_builtin_source() {
         record.metadata.description.starts_with("EDITED"),
         "the record must describe the file, not the shipped definition: {}",
         record.metadata.description
+    );
+
+    // Nothing downstream compares an adopted built-in against what shipped, so seeding has to say
+    // it — otherwise the divergence is invisible everywhere.
+    let events = stack.logging.events.lock().expect("log events");
+    assert!(
+        events.iter().any(|event| event
+            .message
+            .contains("differs from the shipped definition")
+            && event.message.contains("code-review")),
+        "the divergence must be reported: {:?}",
+        events
+            .iter()
+            .map(|event| &event.message)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Adoption has to produce an ordinary registry record, not a second-class one — a Skill nobody
+/// can bind is no better than a Skill that is missing.
+#[test]
+fn an_adopted_builtin_can_be_bound_and_mounted_like_any_other() {
+    let stack = Stack::new("skill-recovery-binding");
+    stack.diverge();
+
+    let listed = stack
+        .service
+        .list_skills(SkillScopeQuery {
+            location: stack.global(),
+        })
+        .expect("listing");
+    assert_eq!(listed.skills.len(), builtin_definitions().len());
+
+    let key = listed
+        .skills
+        .iter()
+        .find(|skill| skill.key.id.as_str() == "code-review")
+        .expect("adopted built-in")
+        .key
+        .clone();
+    let bound = stack
+        .service
+        .bind_skill_to_cli_agent(key, "claude-code".to_string())
+        .expect("an adopted Skill must be bindable");
+
+    let binding = bound
+        .bindings
+        .iter()
+        .find(|binding| binding.agent_id == "claude-code")
+        .expect("the binding must be recorded");
+    assert!(binding.mounted, "the Skill must actually mount");
+    assert!(
+        std::path::Path::new(&binding.mounted_path).exists(),
+        "the mount must exist on disk: {}",
+        binding.mounted_path
     );
 }
 

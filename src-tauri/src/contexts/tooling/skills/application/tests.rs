@@ -427,11 +427,16 @@ impl SkillFilesystemPort for FakeFilesystem {
             )));
         }
         // The metadata comes from the file, not from whatever the caller expected to find there,
-        // so a test can tell an adopted record apart from a freshly created one.
+        // so a test can tell an adopted record apart from a freshly created one. The hash differs
+        // from `content_hash_for`, modelling a source that no longer matches what shipped.
         Ok(SkillSourceProbe::Present(SkillImportedSource {
             metadata: metadata(id.as_str()),
             source: Self::source(location, id, &format!("on-disk-hash-{}", id.as_str())),
         }))
+    }
+
+    fn content_hash_for(&self, document: &SkillDocument) -> String {
+        format!("shipped-hash-{}", document.metadata.id.as_str())
     }
 
     fn create_source(

@@ -287,6 +287,10 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         self.probe_document(location, id)
     }
 
+    fn content_hash_for(&self, document: &SkillDocument) -> String {
+        document::content_hash(&document::compose(document))
+    }
+
     fn create_source(
         &self,
         transaction: &SkillFilesystemTransaction,

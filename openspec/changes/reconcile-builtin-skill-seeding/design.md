@@ -74,15 +74,21 @@ built-in that has no record, it distinguishes:
 *Alternative considered:* have seeding delete and recreate the directory. Rejected — it discards
 whatever the user has there, to fix a problem the user did not cause.
 
-### D2. Adoption registers what is on disk and lets drift speak
+### D2. Adoption registers what is on disk and says when that is not what shipped
 
-The adopted record describes the file as it exists. When that content differs from the shipped
-definition, the existing `MetadataChanged` drift reports it.
+The adopted record describes the file as it exists — its metadata and its content hash both come
+from disk, so the registry never claims content the file does not have.
 
-This is chosen over restoring the shipped content because the two failure modes are not
+That closes off drift as the reporting channel. Drift compares a record against its own source, and
+an adopted record matches its source by construction, so it has nothing to report. Storing the
+shipped definition's hash instead would manufacture a drift entry, but at the cost of a record that
+lies about disk and an issue whose only repair is to refresh it back to disk — a one-shot
+notification dressed up as a defect. Seeding is the one place that holds both the definition and
+the file, so seeding reports the difference, naming the affected Skills.
+
+Adoption is chosen over restoring the shipped content because the two failure modes are not
 symmetrical: adopting a modified file and reporting the difference is recoverable and visible,
-while overwriting a modified file destroys work silently. The repository already models
-"registered content differs from expected" — using it costs no new vocabulary.
+while overwriting a modified file destroys work silently.
 
 *Alternative considered:* overwrite on adoption so built-ins always match the shipped definition.
 Rejected for the asymmetry above. A user who wants the shipped content can delete and restore the
@@ -117,9 +123,9 @@ the wrong file.
 
 ## Risks / Trade-offs
 
-- **Adoption registers content the shipped definition did not author** → The record reflects disk,
-  and `MetadataChanged` drift makes the divergence visible rather than pretending the built-in is
-  pristine.
+- **Adoption registers content the shipped definition did not author** → The record reflects disk
+  rather than pretending the built-in is pristine, and initialization names the Skills whose
+  adopted content is not what shipped.
 - **A directory that is not a Skill at all sits at a built-in's path** → Adoption requires a
   readable, parseable `SKILL.md`; anything else is reported as a per-Skill failure instead of being
   force-registered.

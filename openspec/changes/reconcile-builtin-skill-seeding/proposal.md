@@ -41,9 +41,8 @@ not by accident.
   already exists but no record does, `ensure_builtins` SHALL adopt the existing source — register
   it and continue — rather than failing the whole transaction.
 - **Adoption preserves what is on disk.** The existing `SKILL.md` is registered as-is. Content that
-  no longer matches the shipped built-in definition is reported through the existing
-  `MetadataChanged` drift, not silently overwritten, so a user's edits survive and a genuine
-  divergence stays visible.
+  no longer matches the shipped built-in definition is named in the initialization diagnostic, not
+  silently overwritten, so a user's edits survive and a genuine divergence stays visible.
 - **One failing Skill no longer blocks the others.** Seeding six Skills in a single all-or-nothing
   transaction means an unrelated problem with one leaves the other five unregistered. Per-Skill
   outcomes SHALL be reported so a partial success is possible.

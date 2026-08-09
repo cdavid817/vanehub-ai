@@ -19,7 +19,10 @@ use crate::contexts::tooling::skills::domain::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BuiltinSeedOutcome {
     Created,
-    Adopted,
+    Adopted {
+        /// Whether the adopted file is still what the shipped definition would have written.
+        matches_definition: bool,
+    },
 }
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -422,16 +425,22 @@ impl SkillApplicationService {
         // built-in, which is how an installation ends up with zero rows instead of five.
         let mut created = Vec::new();
         let mut adopted = Vec::new();
+        let mut diverged = Vec::new();
         let mut failed = Vec::new();
         for (definition, metadata) in &missing {
             let id = metadata.id.as_str().to_string();
             match self.reconcile_builtin(&location, *definition, metadata) {
                 Ok(BuiltinSeedOutcome::Created) => created.push(id),
-                Ok(BuiltinSeedOutcome::Adopted) => adopted.push(id),
+                Ok(BuiltinSeedOutcome::Adopted { matches_definition }) => {
+                    if !matches_definition {
+                        diverged.push(id.clone());
+                    }
+                    adopted.push(id);
+                }
                 Err(error) => failed.push((id, error)),
             }
         }
-        self.report_builtin_seeding(&created, &adopted, &failed);
+        self.report_builtin_seeding(&created, &adopted, &diverged, &failed);
         Ok(())
     }
 
@@ -443,6 +452,7 @@ impl SkillApplicationService {
         &self,
         created: &[String],
         adopted: &[String],
+        diverged: &[String],
         failed: &[(String, SkillApplicationError)],
     ) {
         for (id, error) in failed {
@@ -453,11 +463,24 @@ impl SkillApplicationService {
             );
         }
 
-        let mut summary = format!("seeded {} built-in Skills", created.len());
+        let mut summary = if created.is_empty() {
+            "seeded no built-in Skills".to_string()
+        } else {
+            format!("created built-in Skills {}", created.join(", "))
+        };
         if !adopted.is_empty() {
             summary.push_str(&format!(
                 ", adopted existing sources for {}",
                 adopted.join(", ")
+            ));
+        }
+        // Drift compares a record against its own source, and an adopted record already matches
+        // its source — so nothing downstream would ever mention that the adopted content is not
+        // what shipped. Seeding is the only place that knows both, so it is the place that says so.
+        if !diverged.is_empty() {
+            summary.push_str(&format!(
+                ", adopted content differs from the shipped definition for {}",
+                diverged.join(", ")
             ));
         }
         if !failed.is_empty() {
@@ -496,13 +519,22 @@ impl SkillApplicationService {
             return Err(SkillApplicationError::Filesystem(reason));
         }
 
+        let shipped = SkillDocument {
+            metadata: metadata.clone(),
+            body: definition.body.to_string(),
+        };
         self.transact(|transaction| {
             let (adopted, outcome) = match &probe {
                 // Adoption registers the file as it stands. Overwriting would silently destroy a
                 // user's edits to fix a problem they did not cause, so the record describes disk
-                // and any divergence from the shipped definition stays visible through drift.
+                // and the difference from the shipped definition is reported instead.
                 SkillSourceProbe::Present(adopted) => {
-                    (adopted.clone(), BuiltinSeedOutcome::Adopted)
+                    let matches_definition =
+                        adopted.source.content_hash == self.filesystem.content_hash_for(&shipped);
+                    (
+                        adopted.clone(),
+                        BuiltinSeedOutcome::Adopted { matches_definition },
+                    )
                 }
                 SkillSourceProbe::Absent => (
                     SkillImportedSource {
@@ -510,10 +542,7 @@ impl SkillApplicationService {
                             transaction,
                             location,
                             &metadata.id,
-                            &SkillDocument {
-                                metadata: metadata.clone(),
-                                body: definition.body.to_string(),
-                            },
+                            &shipped,
                         )?,
                         metadata: metadata.clone(),
                     },

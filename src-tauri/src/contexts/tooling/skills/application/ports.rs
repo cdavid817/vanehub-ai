@@ -80,6 +80,12 @@ pub(crate) trait SkillFilesystemPort: Send + Sync {
         id: &SkillId,
     ) -> Result<SkillSourceProbe, SkillApplicationError>;
 
+    /// The content hash a document would have if it were written to disk.
+    ///
+    /// Lets a caller compare an adopted source against the definition that was supposed to be
+    /// there, without duplicating the filesystem's rules for serializing and hashing a document.
+    fn content_hash_for(&self, document: &SkillDocument) -> String;
+
     fn create_source(
         &self,
         transaction: &SkillFilesystemTransaction,
