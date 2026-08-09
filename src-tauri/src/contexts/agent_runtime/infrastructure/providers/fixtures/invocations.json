@@ -34,5 +34,14 @@
     "managedArgs": ["--agent", "build"],
     "expectedArgs": ["run", "--agent", "build", "--session", "opencode-session", "--format", "json", "fixture prompt for opencode"],
     "promptDelivery": "argument"
+  },
+  {
+    "agentId": "antigravity-cli",
+    "executable": "agy",
+    "prompt": "fixture prompt for antigravity",
+    "runtimeSessionId": "antigravity-conversation",
+    "managedArgs": ["--model", "gemini-3-pro", "--effort", "high"],
+    "expectedArgs": ["--model", "gemini-3-pro", "--effort", "high", "--conversation", "antigravity-conversation", "-p", "fixture prompt for antigravity", "--output-format", "stream-json"],
+    "promptDelivery": "argument"
   }
 ]

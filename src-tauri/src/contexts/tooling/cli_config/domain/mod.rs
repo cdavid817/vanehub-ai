@@ -5,7 +5,17 @@ use thiserror::Error;
 use url::Url;
 
 pub(crate) const PAYLOAD_VERSION: i64 = 1;
-pub(crate) const SUPPORTED_AGENT_IDS: [&str; 3] = ["claude-code", "opencode", "codex-cli"];
+pub(crate) const SUPPORTED_AGENT_IDS: [&str; 4] =
+    ["claude-code", "opencode", "codex-cli", "antigravity-cli"];
+
+/// Keys VaneHub owns inside Antigravity's settings document. Everything else in that file belongs
+/// to the user and is preserved on apply.
+pub(crate) const ANTIGRAVITY_MANAGED_KEYS: [&str; 4] = [
+    "enableTerminalSandbox",
+    "model",
+    "toolPermission",
+    "verbosity",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -88,6 +98,17 @@ pub(crate) enum CodexAuthStrategy {
     ReplaceAuth,
 }
 
+/// Antigravity CLI's graduated tool-approval modes, which live in its settings document rather
+/// than in launch flags.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum AntigravityToolPermission {
+    RequestReview,
+    ProceedInSandbox,
+    AlwaysProceed,
+    Strict,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(
     tag = "kind",
@@ -121,6 +142,16 @@ pub(crate) enum CliConfigPayload {
         headers: BTreeMap<String, String>,
         models: Vec<OpenCodeModelDefinition>,
         default_model: String,
+    },
+    /// Antigravity CLI authenticates through the OS keyring with Google Sign-In and speaks a
+    /// Google-proprietary protocol, so this payload carries no credential and no endpoint: it
+    /// manages the settings the CLI actually honors.
+    Antigravity {
+        tool_permission: AntigravityToolPermission,
+        enable_terminal_sandbox: bool,
+        verbosity: String,
+        model: String,
+        advanced_settings: BTreeMap<String, Value>,
     },
 }
 
@@ -361,6 +392,11 @@ pub(crate) fn validate_profile_input(
             "profile payload does not match the selected Agent".into(),
         ));
     }
+    if input.credential.is_some() && !input.payload.supports_credential() {
+        return Err(CliConfigError::Validation(
+            "this CLI authenticates outside VaneHub and does not accept a credential".into(),
+        ));
+    }
     input.payload.validate()
 }
 
@@ -481,8 +517,16 @@ impl CliConfigPayload {
             Self::ClaudeCode { .. } => "claude-code",
             Self::CodexCli { .. } => "codex-cli",
             Self::Opencode { .. } => "opencode",
+            Self::Antigravity { .. } => "antigravity-cli",
         }
         .to_string()
+    }
+
+    /// Whether this kind can hold a credential at all. Declared here rather than branched on by
+    /// Agent id at each call site, so credential capture, validation, and the `needs-credential`
+    /// state all derive from one fact.
+    pub(crate) fn supports_credential(&self) -> bool {
+        !matches!(self, Self::Antigravity { .. })
     }
 
     pub(crate) fn requires_credential(&self) -> bool {
@@ -492,6 +536,7 @@ impl CliConfigPayload {
                 *auth_strategy != CodexAuthStrategy::PreserveOfficial
             }
             Self::Opencode { .. } => true,
+            Self::Antigravity { .. } => false,
         }
     }
 
@@ -523,6 +568,18 @@ impl CliConfigPayload {
             ],
             Self::Opencode { provider_id, .. } => {
                 vec!["model".into(), format!("provider.{provider_id}")]
+            }
+            Self::Antigravity {
+                advanced_settings, ..
+            } => {
+                let mut keys = ANTIGRAVITY_MANAGED_KEYS
+                    .iter()
+                    .map(|key| (*key).to_string())
+                    .collect::<Vec<_>>();
+                keys.extend(advanced_settings.keys().cloned());
+                keys.sort();
+                keys.dedup();
+                keys
             }
         }
     }
@@ -639,6 +696,30 @@ impl CliConfigPayload {
                 if !ids.contains(default_model.as_str()) {
                     return Err(CliConfigError::Validation(
                         "default model must exist in the model list".into(),
+                    ));
+                }
+            }
+            Self::Antigravity {
+                verbosity,
+                model,
+                advanced_settings,
+                ..
+            } => {
+                validate_text(verbosity, "verbosity")?;
+                validate_text(model, "model")?;
+                if advanced_settings.len() > 16
+                    || advanced_settings.keys().any(|key| {
+                        validate_id(key, "advanced setting key").is_err()
+                            || ANTIGRAVITY_MANAGED_KEYS.contains(&key.as_str())
+                            || key == "permissions"
+                            || looks_like_secret_key(key)
+                    })
+                    || advanced_settings.values().any(|value| {
+                        !matches!(value, Value::String(_) | Value::Bool(_) | Value::Number(_))
+                    })
+                {
+                    return Err(CliConfigError::Validation(
+                        "advanced settings contain unsupported keys or values".into(),
                     ));
                 }
             }

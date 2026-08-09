@@ -118,6 +118,15 @@ export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefiniti
     booleanDefinition("opencode", "thinking", "--thinking", ["chat"]),
     booleanDefinition("opencode", "autoApprove", "--auto", ["interactive", "chat"], "warning"),
   ],
+  // No bypass-flag entry: Antigravity's graduated approval modes live in its settings document,
+  // so a permissive posture is reached through the CLI configuration profile instead.
+  "antigravity-cli": [
+    customTextDefinition("antigravity-cli", "model", "--model", ["default"]),
+    enumDefinition("antigravity-cli", "effort", "--effort", ["default", "low", "medium", "high"]),
+    enumDefinition("antigravity-cli", "mode", "--mode", ["default", "plan", "accept-edits"]),
+    customTextDefinition("antigravity-cli", "agent", "--agent", ["default"]),
+    booleanDefinition("antigravity-cli", "sandbox", "--sandbox", ["interactive", "chat"]),
+  ],
 };
 
 export function isManagedCliAgentId(value: string): value is ManagedCliAgentId {

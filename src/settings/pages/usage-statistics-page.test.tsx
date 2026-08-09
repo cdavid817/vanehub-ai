@@ -7,7 +7,7 @@ import { UsageStatisticsPage } from "./usage-statistics-page";
 import { UsageAgentBreakdown } from "./usage/usage-agent-breakdown";
 import { UsageAccountingNote } from "./usage/usage-accounting-note";
 import { UsageControls } from "./usage/usage-controls";
-import { preserveUsageData, usagePollingInterval } from "./usage/usage-query";
+import { preserveUsageData, usagePollingInterval, usageRefetchInterval } from "./usage/usage-query";
 import { UsageLoadError } from "./usage/usage-status";
 import { UsageSummary } from "./usage/usage-summary";
 
@@ -109,6 +109,13 @@ describe("UsageStatisticsPage", () => {
     expect(preserveUsageData(statistics)).toBe(statistics);
     expect(preserveUsageData(undefined)).toBeUndefined();
     expect(usagePollingInterval).toBe(30_000);
+  });
+
+  // The settings shell keeps every visited page mounted and merely hides the inactive ones, so an
+  // unconditional interval keeps querying native usage for a page nobody is looking at.
+  it("only polls while the page is the active settings tab", () => {
+    expect(usageRefetchInterval(true)).toBe(usagePollingInterval);
+    expect(usageRefetchInterval(false)).toBe(false);
   });
 
   it("states every accounting boundary in both locales", async () => {

@@ -92,6 +92,8 @@
   --agent-claude: 35 92% 52%;
   --agent-opencode: 154 64% 40%;
   --agent-gemini: 262 83% 62%;
+  /* Distinct from Gemini's violet so the two Google CLIs stay tellable apart at icon size. */
+  --agent-antigravity: 210 90% 45%;
 
   /* Embedded terminals render agent/TUI ANSI output as their own opaque dark
      surface (full-screen TUIs are dark-themed and paint 256/truecolor
@@ -157,6 +159,7 @@
   --agent-claude: 35 92% 62%;
   --agent-opencode: 154 64% 52%;
   --agent-gemini: 262 83% 72%;
+  --agent-antigravity: 210 90% 62%;
 }
 
 :root[data-theme="minimal"] {
@@ -195,6 +198,7 @@
   --agent-claude: 31 90% 44%;
   --agent-opencode: 154 64% 34%;
   --agent-gemini: 262 83% 52%;
+  --agent-antigravity: 210 90% 38%;
 }
 
 * {
@@ -444,6 +448,12 @@ body.floating-assistant-surface {
   border-color: hsl(var(--agent-gemini) / 0.4);
   background: hsl(var(--agent-gemini) / 0.12);
   color: hsl(var(--agent-gemini));
+}
+
+.ucd-agent-antigravity {
+  border-color: hsl(var(--agent-antigravity) / 0.4);
+  background: hsl(var(--agent-antigravity) / 0.12);
+  color: hsl(var(--agent-antigravity));
 }
 
 *:focus-visible {

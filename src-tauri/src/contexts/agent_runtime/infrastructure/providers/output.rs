@@ -55,6 +55,7 @@ pub(crate) struct ProviderToolEvent {
 enum ParserKind {
     Claude,
     StructuredJson,
+    Antigravity,
     GenericLine,
 }
 
@@ -67,6 +68,7 @@ pub(crate) fn output_parser_for(agent_id: &str) -> ProviderOutputParser {
     let kind = match agent_id {
         "claude-code" => ParserKind::Claude,
         "codex-cli" | "gemini-cli" | "opencode" => ParserKind::StructuredJson,
+        "antigravity-cli" => ParserKind::Antigravity,
         _ => ParserKind::GenericLine,
     };
     ProviderOutputParser { kind }
@@ -77,6 +79,7 @@ impl ProviderOutputParser {
         match self.kind {
             ParserKind::Claude => parse_claude_line(line),
             ParserKind::StructuredJson => parse_structured_json_line(line),
+            ParserKind::Antigravity => parse_antigravity_line(line),
             ParserKind::GenericLine => parse_generic_line(line),
         }
     }
@@ -88,6 +91,99 @@ fn parse_generic_line(line: &str) -> ProviderOutputEvent {
     } else {
         ProviderOutputEvent::Token(line.to_string())
     }
+}
+
+/// Antigravity's `stream-json` wraps each event as `{"event":"<kind>","<kind>":{...}}` — verified
+/// against a real run, not inferred from the flat `{"type":...}` shape the other CLIs use.
+///
+/// `result` is mapped in full because its payload is captured verbatim. `init` is read only for
+/// `conversation_id`, and `step_update` is deliberately consumed without emitting increments: its
+/// payload shape has not been observed on a live authenticated run, and inventing field names
+/// would produce a parser that silently drops real output. The completed turn still carries the
+/// whole reply through `result.response`, so a run is usable — it just is not token-by-token yet.
+fn parse_antigravity_line(line: &str) -> ProviderOutputEvent {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return ProviderOutputEvent::Empty;
+    }
+    let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
+        return ProviderOutputEvent::Empty;
+    };
+    let Some(kind) = value.get("event").and_then(Value::as_str) else {
+        return ProviderOutputEvent::Empty;
+    };
+    let payload = value.get(kind);
+
+    match kind {
+        "init" => payload
+            .and_then(|payload| payload.get("conversation_id"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .map_or(ProviderOutputEvent::Empty, |id| {
+                ProviderOutputEvent::SessionId(id.to_string())
+            }),
+        "result" => antigravity_result_event(payload),
+        // Unknown kinds — including `step_update` until its payload is captured — must not fail the
+        // run. A stricter parser would turn every future Antigravity event into a hard error.
+        _ => ProviderOutputEvent::Empty,
+    }
+}
+
+fn antigravity_result_event(payload: Option<&Value>) -> ProviderOutputEvent {
+    let Some(payload) = payload else {
+        return ProviderOutputEvent::Empty;
+    };
+    let status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let diagnostic = payload
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    match status {
+        "SUCCESS" => ProviderOutputEvent::Completed(antigravity_usage(payload)),
+        // The parser vocabulary has no cancelled variant — cancellation is driven by an explicit
+        // stop at the chat layer, not inferred from provider output — so a self-reported cancel
+        // surfaces as a non-retryable failure carrying the CLI's own wording. Retrying it would
+        // not help either way.
+        "CANCELED" | "INTERRUPTED" => ProviderOutputEvent::Failed(
+            GenerationProcessFailure::non_retryable(fallback_diagnostic(&diagnostic, status)),
+        ),
+        // Verified from a real unauthenticated run: the process exits 1 and still emits a
+        // well-formed terminal event whose error names the authentication failure.
+        "ERROR" | "INVALID" => ProviderOutputEvent::Failed(
+            GenerationProcessFailure::non_retryable(fallback_diagnostic(&diagnostic, status)),
+        ),
+        // `WAITING` and `RUNNING` are non-terminal; seeing one on a terminal event means the
+        // contract changed, which is worth failing loudly rather than reporting a silent success.
+        other => ProviderOutputEvent::Failed(GenerationProcessFailure::non_retryable(format!(
+            "Antigravity reported a non-terminal result status: {other}"
+        ))),
+    }
+}
+
+fn fallback_diagnostic(diagnostic: &str, status: &str) -> String {
+    if diagnostic.trim().is_empty() {
+        format!("Antigravity ended the turn with status {status}")
+    } else {
+        diagnostic.to_string()
+    }
+}
+
+fn antigravity_usage(payload: &Value) -> Option<ProviderReportedUsage> {
+    let usage = payload.get("usage")?;
+    let read = |key: &str| usage.get(key).and_then(Value::as_i64).unwrap_or_default();
+    // Thinking tokens fold into output, matching how codex-cli, opencode, and gemini-cli already
+    // account for reasoning tokens.
+    Some(ProviderReportedUsage {
+        input_tokens: read("input_tokens"),
+        output_tokens: read("output_tokens") + read("thinking_tokens"),
+        cache_read_tokens: read("cache_read_tokens"),
+        cache_creation_tokens: 0,
+    })
 }
 
 fn parse_claude_line(line: &str) -> ProviderOutputEvent {

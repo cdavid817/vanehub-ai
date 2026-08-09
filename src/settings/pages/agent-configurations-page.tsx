@@ -19,6 +19,7 @@ const agentNameKeys: Record<ConfigurableAgentId, string> = {
   "claude-code": "agentConfigurations.agent.claudeCode",
   opencode: "agentConfigurations.agent.openCode",
   "codex-cli": "agentConfigurations.agent.codex",
+  "antigravity-cli": "agentConfigurations.agent.antigravity",
 };
 
 export function AgentConfigurationsPage({ navigationTarget, searchTerm, service }: SettingsPageContext & { service?: AgentService }) {
@@ -42,7 +43,9 @@ export function AgentConfigurationsPage({ navigationTarget, searchTerm, service 
         title={t("agentConfigurations.title")}
       />
       <div className="flex justify-center sm:justify-start">
-      <div aria-label={t("agentConfigurations.agentTabs")} className="grid w-full grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:w-auto sm:grid-cols-4" role="tablist">
+      {/* Column count follows the item count instead of being hard-coded: a fixed `sm:grid-cols-4`
+          silently wrapped the last tab onto a second row the moment a fifth Agent was added. */}
+      <div aria-label={t("agentConfigurations.agentTabs")} className="grid w-full grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:w-auto sm:auto-cols-fr sm:grid-flow-col sm:grid-cols-none" role="tablist">
         {configurableAgentIds.map((candidate) => (
           <button
             aria-selected={candidate === agentId}

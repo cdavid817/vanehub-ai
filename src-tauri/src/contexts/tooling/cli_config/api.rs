@@ -1113,6 +1113,13 @@ fn cli_probe_request<'a>(
     credential: &'a str,
 ) -> Result<ProviderCredentialProbeRequest<'a>, CliConfigError> {
     let request = match payload {
+        // Antigravity holds no credential to probe: it authenticates through the OS keyring with
+        // Google Sign-In, so there is nothing VaneHub could validate against an endpoint.
+        CliConfigPayload::Antigravity { .. } => {
+            return Err(CliConfigError::Validation(
+                "Antigravity CLI authenticates through the system keyring and has no credential to validate".into(),
+            ));
+        }
         CliConfigPayload::ClaudeCode {
             base_url,
             auth_mode,

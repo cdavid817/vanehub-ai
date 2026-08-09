@@ -1,12 +1,12 @@
 # AGENTS.md
 
-> 本文件是 VaneHub AI 项目所有 AI 编程助手(Claude Code / Gemini CLI / OpenCode / Codex 等)的统一入口。
+> 本文件是 VaneHub AI 项目所有 AI 编程助手(Claude Code / Gemini CLI / Antigravity CLI / OpenCode / Codex 等)的统一入口。
 > CLAUDE.md、GEMINI.md 均指向本文件,请勿分别维护三份不同内容。
 > 详细技术选型说明与完整代码规范见 `openspec/project.md`;具体场景的实现示例见 `.claude/skills/`。
 
 ## 项目概览
 
-VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理和切换 Claude Code、OpenCode、Codex CLI、Gemini CLI 等多个 AI 编程代理。同一套 React UI 既可运行在 Tauri 桌面客户端内,也可通过 Web/mock adapter 以浏览器页面形式运行。
+VaneHub AI 是一个桌面端多 AI 编程助手管理终端,用于统一管理和切换 Claude Code、OpenCode、Codex CLI、Gemini CLI、Antigravity CLI 等多个 AI 编程代理。同一套 React UI 既可运行在 Tauri 桌面客户端内,也可通过 Web/mock adapter 以浏览器页面形式运行。
 
 ## 技术栈(严格约束,不允许引入替代方案)
 

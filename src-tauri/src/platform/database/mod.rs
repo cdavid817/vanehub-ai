@@ -145,7 +145,7 @@ mod tests {
 
         assert_eq!(migration_count, 48);
         assert_eq!(foreign_keys, 1);
-        assert_eq!(agent_count, 5);
+        assert_eq!(agent_count, 6);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
@@ -233,7 +233,7 @@ mod tests {
 
         assert_eq!(written, workers as i64, "every concurrent writer committed");
         assert_eq!(
-            agents, 5,
+            agents, 6,
             "registry seeding ran exactly once, not per connection"
         );
     }

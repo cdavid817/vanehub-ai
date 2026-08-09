@@ -16,8 +16,23 @@ describe("CLI Agent provider presets", () => {
       expect(serialized).not.toContain("<script");
     }
     for (const agentId of cliConfigAgentIds) {
-      expect(getCliConfigPresets(agentId).length).toBeGreaterThanOrEqual(8);
+      // Endpoint-capable Agents get one preset per provider endpoint. Antigravity accepts no
+      // third-party endpoint, so a per-provider catalog would be a menu of unusable choices; it
+      // ships exactly one official settings preset instead.
+      const minimum = agentId === "antigravity-cli" ? 1 : 8;
+      expect(getCliConfigPresets(agentId).length).toBeGreaterThanOrEqual(minimum);
       expect(getCliConfigPresets(agentId).every((preset) => preset.agentId === agentId)).toBe(true);
+    }
+  });
+
+  it("offers no endpoint or credential surface for Antigravity", () => {
+    const presets = getCliConfigPresets("antigravity-cli");
+    expect(presets).toHaveLength(1);
+    for (const preset of presets) {
+      expect(preset.payload.kind).toBe("antigravity");
+      expect(preset.payload).not.toHaveProperty("baseUrl");
+      expect(preset.payload).not.toHaveProperty("authMode");
+      expect(preset.payload).not.toHaveProperty("authStrategy");
     }
   });
 
@@ -25,7 +40,8 @@ describe("CLI Agent provider presets", () => {
     expect(getCliConfigPresets("claude-code").every((preset) => preset.endpointType === "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("codex-cli").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("opencode").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
-    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(25);
+    // 25 from the shared endpoint directory, plus Antigravity's own single non-directory provider.
+    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(26);
   });
 
   it("returns editable copies instead of mutating the catalog", () => {

@@ -70,5 +70,29 @@
     "template": "yolo",
     "base": {"agent": "default", "autoApprove": false},
     "expected": {"agent": "default", "autoApprove": true}
+  },
+  {
+    "agentId": "antigravity-cli",
+    "template": "readonly",
+    "base": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"},
+    "expected": {"sandbox": true, "mode": "plan", "model": "gemini-3-pro"}
+  },
+  {
+    "agentId": "antigravity-cli",
+    "template": "standard",
+    "base": {"sandbox": true, "mode": "accept-edits", "model": "gemini-3-pro"},
+    "expected": {"sandbox": false, "mode": "default", "model": "gemini-3-pro"}
+  },
+  {
+    "agentId": "antigravity-cli",
+    "template": "trusted",
+    "base": {"sandbox": true, "mode": "plan", "model": "gemini-3-pro"},
+    "expected": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"}
+  },
+  {
+    "agentId": "antigravity-cli",
+    "template": "yolo",
+    "base": {"sandbox": true, "mode": "default", "model": "gemini-3-pro"},
+    "expected": {"sandbox": false, "mode": "accept-edits", "model": "gemini-3-pro"}
   }
 ]

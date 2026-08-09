@@ -7,7 +7,7 @@ use crate::contexts::tooling::cli::application::{
     CliApplicationError, CliLogCategory, CliLogEvent, CliLogLevel, CliPackagePort, CliToolStatus,
 };
 use crate::contexts::tooling::cli::domain::{
-    winget_package_id, InstallSource, LifecycleEligibility, ToolDefinition,
+    winget_package_id, InstallSource, LifecycleEligibility, ScriptInstaller, ToolDefinition,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -62,8 +62,10 @@ impl CliPackagePort for CliPackageAdapter {
                 }
             }
             LifecycleEligibility::Wget => {
-                if definition.script_install_url.is_none() {
-                    return validation_error("the CLI does not have a verified wget installer");
+                if definition.platform_installer().is_none() {
+                    return validation_error(
+                        "the CLI does not have a verified installer for this platform",
+                    );
                 }
                 if status.installed == Some(true) {
                     let active_path = fresh_candidates.first().ok_or_else(|| {
@@ -132,7 +134,10 @@ impl CliPackagePort for CliPackageAdapter {
     ) -> Result<(), CliApplicationError> {
         let plan = lifecycle_plan(definition, status, target_version)?;
         let first_result = self.run_plan(operation_id, definition, target_version, &plan, emit);
-        if first_result.is_err() && plan.fallback_npm_on_failure {
+        let npm_fallback_args = plan
+            .fallback_npm_on_failure
+            .then(|| npm_install_args(definition, target_version));
+        if let (true, Some(Some(args))) = (first_result.is_err(), npm_fallback_args) {
             emit(operation_event(
                 operation_id,
                 definition.agent_id,
@@ -142,7 +147,7 @@ impl CliPackagePort for CliPackageAdapter {
             let fallback = LifecyclePlan {
                 method: LifecycleMethod::Npm,
                 executable: npm_executable().to_string(),
-                args: npm_install_args(definition, target_version),
+                args,
                 fallback_npm_on_failure: false,
             };
             self.run_plan(operation_id, definition, target_version, &fallback, emit)
@@ -274,20 +279,30 @@ fn lifecycle_plan(
         LifecycleEligibility::Npm => Ok(LifecyclePlan {
             method: LifecycleMethod::Npm,
             executable: npm_executable().to_string(),
-            args: npm_install_args(definition, target_version),
-            fallback_npm_on_failure: false,
-        }),
-        LifecycleEligibility::Wget => Ok(LifecyclePlan {
-            method: LifecycleMethod::Wget,
-            executable: "bash".to_string(),
-            args: wget_script_args(definition).ok_or_else(|| {
+            args: npm_install_args(definition, target_version).ok_or_else(|| {
                 CliApplicationError::Validation(format!(
-                    "{} does not have a verified wget installer",
+                    "{} is not distributed as an npm package",
                     definition.display_name
                 ))
             })?,
-            fallback_npm_on_failure: status.installed != Some(true),
+            fallback_npm_on_failure: false,
         }),
+        LifecycleEligibility::Wget => {
+            let (executable, args) = script_install_plan(definition).ok_or_else(|| {
+                CliApplicationError::Validation(format!(
+                    "{} does not have a verified installer for this platform",
+                    definition.display_name
+                ))
+            })?;
+            Ok(LifecyclePlan {
+                method: LifecycleMethod::Wget,
+                executable,
+                args,
+                // A CLI with no npm package has nothing to fall back to.
+                fallback_npm_on_failure: status.installed != Some(true)
+                    && definition.package_name.is_some(),
+            })
+        }
         LifecycleEligibility::Winget => Ok(LifecyclePlan {
             method: LifecycleMethod::Winget,
             executable: "winget".to_string(),
@@ -315,24 +330,38 @@ fn lifecycle_plan(
     }
 }
 
-fn npm_install_args(definition: ToolDefinition, target_version: &str) -> Vec<String> {
-    vec![
+fn npm_install_args(definition: ToolDefinition, target_version: &str) -> Option<Vec<String>> {
+    let package = definition.package_name?;
+    Some(vec![
         "install".to_string(),
         "-g".to_string(),
-        format!("{}@{}", definition.package_name, target_version),
-    ]
+        format!("{package}@{target_version}"),
+    ])
 }
 
-fn wget_script_args(definition: ToolDefinition) -> Option<Vec<String>> {
-    let url = definition.script_install_url?;
-    let script = format!(
-        "tmp=$(mktemp) && \
-         (if command -v wget >/dev/null 2>&1; then wget -qO \"$tmp\" {url}; \
-         elif command -v curl >/dev/null 2>&1; then curl -fsSL {url} -o \"$tmp\"; \
-         else echo \"wget or curl is required\" >&2; exit 127; fi) && \
-         bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status"
-    );
-    Some(vec!["-lc".to_string(), script])
+fn script_install_plan(definition: ToolDefinition) -> Option<(String, Vec<String>)> {
+    match definition.platform_installer()? {
+        ScriptInstaller::Shell(url) => {
+            let script = format!(
+                "tmp=$(mktemp) && \
+                 (if command -v wget >/dev/null 2>&1; then wget -qO \"$tmp\" {url}; \
+                 elif command -v curl >/dev/null 2>&1; then curl -fsSL {url} -o \"$tmp\"; \
+                 else echo \"wget or curl is required\" >&2; exit 127; fi) && \
+                 bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status"
+            );
+            Some(("bash".to_string(), vec!["-lc".to_string(), script]))
+        }
+        ScriptInstaller::PowerShell(url) => Some((
+            "powershell".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
+                "-Command".to_string(),
+                format!("irm {url} | iex"),
+            ],
+        )),
+    }
 }
 
 fn winget_id(definition: ToolDefinition, status: &CliToolStatus) -> Option<String> {
@@ -459,7 +488,7 @@ fn definition_context(definition: ToolDefinition, operation_id: &str) -> BTreeMa
         ),
         (
             "packageName".to_string(),
-            definition.package_name.to_string(),
+            definition.package_name.unwrap_or_default().to_string(),
         ),
     ])
 }
@@ -542,7 +571,10 @@ mod tests {
         let mut status = CliToolStatus::unavailable(
             definition,
             EnvironmentType::Linux,
-            format!("npm install -g {}@latest", definition.package_name),
+            format!(
+                "npm install -g {}@latest",
+                definition.package_name.unwrap_or_default()
+            ),
         );
         status.lifecycle_eligibility = eligibility;
         status.version_check_status = VersionCheckStatus::Succeeded;

@@ -10,7 +10,8 @@ pub(crate) struct CliToolStatus {
     pub(crate) display_name: String,
     pub(crate) provider: String,
     pub(crate) executable_name: String,
-    pub(crate) package_name: String,
+    /// `None` for CLIs distributed only by installer script.
+    pub(crate) package_name: Option<String>,
     pub(crate) installed: Option<bool>,
     pub(crate) current_version: Option<String>,
     pub(crate) latest_version: Option<String>,
@@ -39,7 +40,7 @@ impl CliToolStatus {
             display_name: definition.display_name.to_string(),
             provider: definition.provider.to_string(),
             executable_name: definition.executable_name.to_string(),
-            package_name: definition.package_name.to_string(),
+            package_name: definition.package_name.map(str::to_string),
             installed: None,
             current_version: None,
             latest_version: None,

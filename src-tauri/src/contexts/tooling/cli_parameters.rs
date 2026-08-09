@@ -22,8 +22,13 @@ impl From<rusqlite::Error> for CliParametersError {
     }
 }
 
-pub(crate) const MANAGED_CLI_AGENT_IDS: [&str; 4] =
-    ["claude-code", "codex-cli", "gemini-cli", "opencode"];
+pub(crate) const MANAGED_CLI_AGENT_IDS: [&str; 5] = [
+    "claude-code",
+    "codex-cli",
+    "gemini-cli",
+    "opencode",
+    "antigravity-cli",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -313,6 +318,44 @@ pub(crate) fn catalog_for(
                 normal,
             ),
             boolean_definition(agent_id, "autoApprove", "--auto", both(), warning),
+        ],
+        // No bypass-flag entry: Antigravity's graduated approval modes live in its settings
+        // document (`toolPermission`), not in launch flags, so a permissive posture is reached
+        // through the CLI configuration profile rather than through `--dangerously-skip-permissions`.
+        "antigravity-cli" => vec![
+            custom_text_definition(
+                agent_id,
+                "model",
+                "--model",
+                &["default"],
+                "default",
+                normal.clone(),
+            ),
+            enum_definition(
+                agent_id,
+                "effort",
+                "--effort",
+                &["default", "low", "medium", "high"],
+                "default",
+                normal.clone(),
+            ),
+            enum_definition(
+                agent_id,
+                "mode",
+                "--mode",
+                &["default", "plan", "accept-edits"],
+                "default",
+                normal.clone(),
+            ),
+            custom_text_definition(
+                agent_id,
+                "agent",
+                "--agent",
+                &["default"],
+                "default",
+                normal.clone(),
+            ),
+            boolean_definition(agent_id, "sandbox", "--sandbox", both(), normal),
         ],
         _ => {
             return Err(CliParametersError::Validation(format!(
@@ -936,6 +979,7 @@ mod tests {
                 ],
                 "gemini-cli" => &["model", "approvalMode", "sandbox"],
                 "opencode" => &["agent", "thinking", "autoApprove"],
+                "antigravity-cli" => &["model", "effort", "mode", "agent", "sandbox"],
                 _ => unreachable!(),
             };
             assert_eq!(
@@ -957,6 +1001,9 @@ mod tests {
             assert!(definitions
                 .iter()
                 .all(|entry| !entry.flag.contains("dangerously")));
+            assert!(definitions
+                .iter()
+                .all(|entry| !entry.flag.contains("--conversation")));
         }
     }
 

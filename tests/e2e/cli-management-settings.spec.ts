@@ -8,7 +8,7 @@ test.describe("CLI local environment management", () => {
     await page.getByRole("button", { name: /^CLI 管理/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI 管理", level: 2 })).toBeVisible();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(4);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
     await expect(page.locator('[data-cli-agent="claude-code"]')).toContainText("Anthropic Claude Code CLI");
     await expect(page.getByText("不支持").first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "futuristic");
@@ -23,7 +23,7 @@ test.describe("CLI local environment management", () => {
     await page.getByRole("button", { name: /^CLI Management/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI Management", level: 2 })).toBeVisible();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(4);
+    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
     await expect(page.getByText("Unsupported").first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
 

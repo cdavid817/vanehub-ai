@@ -23,6 +23,7 @@ const managedCliDisplayNameKeys: Record<(typeof MANAGED_CLI_AGENT_IDS)[number], 
   "codex-cli": "codexCli",
   "gemini-cli": "geminiCli",
   opencode: "opencode",
+  "antigravity-cli": "antigravityCli",
 };
 
 function requiresConfirmationToAssign(template: PolicyTemplateName): boolean {

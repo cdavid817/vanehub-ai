@@ -30,7 +30,7 @@ Skill 的管理见[管理 Skill](skill-management.md)。
 
 VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你不用在 CLI 里重复配置。
 
-> **中继目前只对 Claude Code 与 Codex CLI 启用**。Gemini CLI 与 OpenCode 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
+> **中继目前只对 Claude Code 与 Codex CLI 启用**。Gemini CLI、OpenCode 与 Antigravity CLI 需要各自配置，且它们的 MCP 调用不会出现在执行链路中。
 
 走中继的调用会以「代理」保真度出现在[链路](observability.md)里。
 
@@ -70,7 +70,7 @@ VaneHub AI 可以把统一注册的 MCP 服务器转发给外部 CLI，这样你
 
 **受管 SDK 只有两个**：Claude Code SDK 与 Codex SDK，各自对应一个 npm 包，并带三个备选版本——某个版本出问题时可以回退。
 
-Gemini CLI 与 OpenCode 没有对应的受管 SDK。
+Gemini CLI、OpenCode 与 Antigravity CLI 没有对应的受管 SDK。
 
 ## CLI 管理与参数
 

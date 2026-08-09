@@ -245,7 +245,7 @@ describe("webAgentClient", () => {
     vi.useFakeTimers();
     const cliTools = await webAgentClient.listCliTools();
 
-    expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+    expect(cliTools.map((tool) => tool.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"]);
     expect(cliTools.every((tool) => tool.installed === null)).toBe(true);
     expect(cliTools.every((tool) => tool.versionCheckStatus === "unsupported")).toBe(true);
     expect(cliTools.every((tool) => tool.installations.length === 0 && tool.lifecycleEligibility === "unavailable")).toBe(true);
@@ -258,7 +258,7 @@ describe("webAgentClient", () => {
 
   it("persists and resets structured CLI parameter profiles", async () => {
     const initial = await webAgentClient.listCliParameterProfiles();
-    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode"]);
+    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"]);
 
     const saved = await webAgentClient.saveCliParameterProfile({
       agentId: "codex-cli",

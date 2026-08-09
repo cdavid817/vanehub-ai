@@ -30,9 +30,10 @@
 | OpenCode | OpenCode | 外部 CLI |
 | Codex CLI | OpenAI | 外部 CLI |
 | Gemini CLI | Google | 外部 CLI |
+| Antigravity CLI | Google | 外部 CLI |
 | OnePiece | VaneHub | **原生 API Agent** |
 
-前四个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。
+前五个是**外部 CLI**——VaneHub AI 启动它们的进程并管理进程之外的部分（启动参数、权限拦截、输出采集），真正的代码生成由 CLI 自己完成。
 
 **OnePiece** 不同：它直接通过 HTTP 调用模型 provider，完全在应用内运行，详见[原生 API Agent](native-agent.md)。
 

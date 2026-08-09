@@ -1,4 +1,9 @@
-export const cliConfigAgentIds = ["claude-code", "opencode", "codex-cli"] as const;
+export const cliConfigAgentIds = [
+  "claude-code",
+  "opencode",
+  "codex-cli",
+  "antigravity-cli",
+] as const;
 
 export type CliConfigAgentId = (typeof cliConfigAgentIds)[number];
 export function isCliConfigAgentId(value: string): value is CliConfigAgentId {
@@ -48,10 +53,43 @@ export interface OpenCodeConfigPayload {
   defaultModel: string;
 }
 
+export type AntigravityToolPermission =
+  | "request-review"
+  | "proceed-in-sandbox"
+  | "always-proceed"
+  | "strict";
+
+/**
+ * Antigravity CLI authenticates through the OS keyring with Google Sign-In and speaks a
+ * Google-proprietary protocol, so this payload carries neither a credential nor an endpoint:
+ * it manages the settings the CLI actually honors.
+ */
+export interface AntigravityConfigPayload {
+  kind: "antigravity";
+  toolPermission: AntigravityToolPermission;
+  enableTerminalSandbox: boolean;
+  verbosity: string;
+  model: string;
+  advancedSettings: Record<string, string | number | boolean>;
+}
+
 export type CliConfigPayload =
   | ClaudeCodeConfigPayload
   | CodexCliConfigPayload
-  | OpenCodeConfigPayload;
+  | OpenCodeConfigPayload
+  | AntigravityConfigPayload;
+
+/**
+ * Capability declarations, so credential fields, validation actions, and the `needs-credential`
+ * state derive from the payload kind rather than from scattered Agent-id conditionals.
+ */
+export function payloadSupportsCredential(payload: CliConfigPayload): boolean {
+  return payload.kind !== "antigravity";
+}
+
+export function payloadSupportsEndpointOverride(payload: CliConfigPayload): boolean {
+  return payload.kind !== "antigravity";
+}
 
 export interface CliConfigPreset {
   id: string;

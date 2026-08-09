@@ -768,6 +768,29 @@ const webCliTools: CliToolStatus[] = [
     conflictState: "none",
     lifecycleEligibility: "unavailable",
   },
+  {
+    agentId: "antigravity-cli",
+    displayName: "Google Antigravity CLI",
+    provider: "Google",
+    executableName: "agy",
+    // Distributed only by installer script, so there is no package to name.
+    packageName: null,
+    installed: null,
+    currentVersion: null,
+    latestVersion: null,
+    availableVersions: [],
+    detectedPath: null,
+    installCommand: "bash -lc 'tmp=$(mktemp) && wget -qO \"$tmp\" https://antigravity.google/cli/install.sh && bash \"$tmp\"; status=$?; rm -f \"$tmp\"; exit $status'",
+    lastCheckedAt: null,
+    lastError: webLocalCliDetectionMessage(),
+    lastOperationId: null,
+    versionCheckStatus: "unsupported",
+    environmentType: "unknown",
+    installations: [],
+    activeInstallationPath: null,
+    conflictState: "none",
+    lifecycleEligibility: "unavailable",
+  },
 ];
 
 function nowIso() {

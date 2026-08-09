@@ -44,6 +44,16 @@ export const mockAgents: AgentRegistryEntry[] = [
     agentOrigin: "builtin",
   },
   {
+    id: "antigravity-cli",
+    displayName: "Antigravity CLI",
+    provider: "Google",
+    launch: { kind: "cli", command: "agy", executableName: "agy" },
+    supportedInteractionModes: ["cli"],
+    availabilityState: "unknown",
+    capabilityTags: ["coding", "cli", "agent"],
+    agentOrigin: "builtin",
+  },
+  {
     id: "onepiece",
     displayName: "OnePiece",
     provider: "VaneHub",

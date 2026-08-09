@@ -7,7 +7,8 @@ import { Button } from "../../../components/ui/button";
 import { getOnePieceProviderPresets } from "../../../config/onepiece-provider-presets";
 import type { CliConfigPreset } from "../../../types/cli-agent-config";
 
-function presetBaseUrl(preset: CliConfigPreset) { return preset.payload.baseUrl; }
+// Presets for kinds without an endpoint have no base URL to badge.
+function presetBaseUrl(preset: CliConfigPreset) { return preset.payload.kind === "antigravity" ? "" : preset.payload.baseUrl; }
 
 export function CliConfigProviderCatalog({ presets, selectedPresetId, onCreateCustom, onSelectPreset, onOpenUrl = () => undefined }: {
   presets: CliConfigPreset[];

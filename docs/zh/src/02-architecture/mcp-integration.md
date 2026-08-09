@@ -279,7 +279,7 @@ MCP 暴露的工具进入统一的工具注册表（capability `agent-tool-regis
 
 ## 已知取舍
 
-- **受管中继只覆盖两个 Agent** —— OpenCode 与 Gemini CLI 目前不走中继，需各自配置，且它们的 MCP 调用不可追踪。
+- **受管中继只覆盖两个 Agent** —— OpenCode、Gemini CLI 与 Antigravity CLI 目前不走中继，需各自配置，且它们的 MCP 调用不可追踪。
 - **配置形态按 Agent 硬编码分派** —— 新增支持中继的 CLI 需要在 `provider_invocation_args` 里加分支。
 - **中继是额外一跳** —— 引入延迟与一个可能的故障点，换来配置统一与可追踪。
 - **私有目录的保护依赖平台实现** —— Windows 走 ACL，Unix 走文件权限，两边强度不完全等价。

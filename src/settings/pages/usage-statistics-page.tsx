@@ -10,17 +10,17 @@ import { UsageAgentBreakdown } from "./usage/usage-agent-breakdown";
 import { UsageControls } from "./usage/usage-controls";
 import { UsageSummary } from "./usage/usage-summary";
 import { UsageTrend } from "./usage/usage-trend";
-import { preserveUsageData, usagePollingInterval } from "./usage/usage-query";
+import { preserveUsageData, usageRefetchInterval } from "./usage/usage-query";
 import { UsageLoadError } from "./usage/usage-status";
 
-export function UsageStatisticsPage() {
+export function UsageStatisticsPage({ isActive = true }: { isActive?: boolean }) {
   const { i18n, t } = useTranslation();
   const [range, setRange] = useState<UsageStatisticsRange>("last30Days");
   const usageQuery = useQuery({
     queryKey: ["usage-statistics", range],
     queryFn: () => agentService.getUsageStatistics({ range }),
     placeholderData: preserveUsageData,
-    refetchInterval: usagePollingInterval,
+    refetchInterval: usageRefetchInterval(isActive),
   });
   const stats = usageQuery.data;
 

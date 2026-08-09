@@ -2,7 +2,7 @@ import { Box, Check, Copy, Globe2, KeyRound, Pencil, Trash2 } from "lucide-react
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
-import type { CliConfigPreset, CliConfigProfile } from "../../../types/cli-agent-config";
+import { payloadSupportsCredential, type CliConfigPreset, type CliConfigProfile } from "../../../types/cli-agent-config";
 import type { ProviderCredentialValidationResult } from "../../../types/provider-credential-validation";
 import { ProviderCredentialValidation } from "../../../components/provider-directory/provider-credential-validation";
 
@@ -18,7 +18,9 @@ function profileMetadata(profile: CliConfigProfile, presets: CliConfigPreset[]) 
   const payload = profile.payload;
   const provider = preset?.displayName
     ?? (payload.kind === "opencode" ? payload.providerName : payload.kind === "codex-cli" ? payload.providerId : profile.name);
-  const endpoint = payload.baseUrl;
+  // A kind that cannot point at a custom endpoint has none to show; the settings file it manages
+  // stands in its place.
+  const endpoint = payload.kind === "antigravity" ? "~/.gemini/antigravity-cli/settings.json" : payload.baseUrl;
   const model = payload.kind === "opencode" ? payload.defaultModel : payload.model;
   const toneIndex = [...provider].reduce((total, character) => total + character.charCodeAt(0), 0) % avatarTones.length;
   return { endpoint, model, provider, tone: avatarTones[toneIndex] };
@@ -26,6 +28,7 @@ function profileMetadata(profile: CliConfigProfile, presets: CliConfigPreset[]) 
 
 function profileUsesCredential(profile: CliConfigProfile) {
   const payload = profile.payload;
+  if (!payloadSupportsCredential(payload)) return false;
   if (payload.kind === "claude-code") return payload.authMode !== "none";
   if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
   return true;
