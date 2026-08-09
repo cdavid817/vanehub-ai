@@ -10,6 +10,10 @@
 
 # VaneHub AI
 
+<p align="center">
+  <img src="public/icon-512.png" alt="VaneHub AI アプリアイコン" width="160" />
+</p>
+
 単一の React インターフェースと明確な Web/mock・Tauri runtime 境界を通じて AI Coding Agent を管理する、デスクトップ優先のワークスペースです。
 
 <!-- docs-fact:project-version value:0.1.0-preview.1 -->
