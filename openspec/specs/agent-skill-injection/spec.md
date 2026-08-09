@@ -118,17 +118,6 @@ The Web/mock runtime SHALL expose equivalent Skill-to-API-agent binding behavior
 - **THEN** the Web adapter SHALL persist the binding through the same mock event contract
 - **AND** a subsequent mock generation for that agent SHALL deterministically signal that bound Skill content was applied, without calling a real provider
 
-### Requirement: Bounded Skill prompt assembly
-The system SHALL limit each injected Skill to 8,000 characters and all injected Skills together to 16,000 characters without partially truncating a Skill instruction body.
-
-#### Scenario: Skill exceeds individual budget
-- **WHEN** a Skill body exceeds the individual character budget
-- **THEN** the system SHALL skip it and write a warning through the unified logging boundary
-
-#### Scenario: Aggregate budget exhausted
-- **WHEN** the next deterministically ordered Skill would exceed the remaining aggregate budget
-- **THEN** the system SHALL skip it, continue evaluating later smaller Skills, and log the omission
-
 ### Requirement: Deterministic API system-prompt section ordering
 The system SHALL assemble an API Agent's provider-native system prompt from independently resolved sections in this order: mandatory Agent core instructions when defined, host-level custom instructions when enabled and non-empty, bound and enabled Skills, then scoped memories.
 
