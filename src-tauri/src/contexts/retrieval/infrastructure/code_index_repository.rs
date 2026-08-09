@@ -13,6 +13,7 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::path::Path;
 
 const MAX_AUDIT_ROWS_PER_WORKSPACE: usize = 200;
@@ -623,6 +624,78 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
             .optional()
             .map_err(storage_error)?
             .ok_or(RetrievalError::InvalidScope)
+    }
+
+    fn workspace_statuses(
+        &self,
+        workspace_ids: &[String],
+    ) -> Result<HashMap<String, CodeIndexStatus>, RetrievalError> {
+        if workspace_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let connection = self.database.connection().map_err(database_error)?;
+        // One query for every workspace instead of one per workspace (each running ~10
+        // COUNT subqueries). Same SELECT-list shape as `workspace_status` (columns 0..12 are
+        // exactly what `read_code_index_status` reads), with the COUNT subqueries correlated
+        // against the outer `w.workspace_id`, plus a `row_number()` window to pick each
+        // workspace's latest failure_category row without a per-group LIMIT-1 round-trip.
+        // Column 13 is the workspace_id itself, used as the map key.
+        let placeholders = (0..workspace_ids.len())
+            .map(|index| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params: Vec<&dyn rusqlite::ToSql> = workspace_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let sql = format!(
+            r#"
+            WITH ranked_failures AS (
+              SELECT scope_folder AS workspace_id, failure_category,
+                ROW_NUMBER() OVER (PARTITION BY scope_folder ORDER BY updated_at DESC, id DESC) AS rn
+              FROM retrieval_documents
+              WHERE source_kind = 'workspace_file' AND failure_category IS NOT NULL
+            )
+            SELECT w.phase, w.updated_at,
+              (SELECT COUNT(*) FROM code_index_files WHERE workspace_id = w.workspace_id),
+              (SELECT COUNT(*) FROM code_index_files
+               WHERE workspace_id = w.workspace_id AND state IN ('indexed', 'failed')),
+              (SELECT COUNT(*) FROM code_index_files
+               WHERE workspace_id = w.workspace_id AND state = 'failed'),
+              (SELECT COUNT(*) FROM code_index_chunks WHERE workspace_id = w.workspace_id),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state IN ('indexed', 'failed')),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'pending'),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'indexed'),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'failed'),
+              (SELECT COALESCE(SUM(redaction_count), 0) FROM code_index_chunks
+               WHERE workspace_id = w.workspace_id),
+              rf.failure_category,
+              w.index_mode,
+              w.workspace_id
+            FROM code_index_workspaces AS w
+            LEFT JOIN ranked_failures AS rf
+              ON rf.workspace_id = w.workspace_id AND rf.rn = 1
+            WHERE w.workspace_id IN ({placeholders})
+            "#,
+        );
+        let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+        let statuses = statement
+            .query_map(params.as_slice(), |row| {
+                let workspace_id: String = row.get(13)?;
+                Ok((workspace_id, read_code_index_status(row)?))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<HashMap<_, _>, _>>()
+            .map_err(storage_error)?;
+        Ok(statuses)
     }
 
     fn embedding_confirmation(

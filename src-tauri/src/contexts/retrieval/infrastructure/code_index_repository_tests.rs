@@ -451,6 +451,76 @@ fn workspace_status_reports_one_consistent_file_and_chunk_snapshot() {
 }
 
 #[test]
+fn workspace_statuses_batch_matches_per_workspace_status() {
+    // The batched workspace_statuses query must return the same shape as calling
+    // workspace_status once per workspace — the command-level N+1 it replaces relied on
+    // per-workspace status, so any drift in the aggregated COUNT/window-function SQL would
+    // silently change the workspace list page.
+    let fixture = Fixture::new("code index status batch");
+    let workspace = fixture
+        .repository
+        .save_configuration(
+            &fixture.register().workspace_id,
+            CodeIndexConfigurationUpdate {
+                enabled: true,
+                mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
+                selected_roots: vec![String::new()],
+                languages: vec![CodeLanguage::Rust],
+                exclusion_patterns: Vec::new(),
+                max_file_bytes: 100 * 1024,
+            },
+        )
+        .expect("semantic configuration");
+    fixture
+        .repository
+        .replace_file(
+            &manifest(&workspace.workspace_id, "src/a.rs", "a"),
+            &[
+                chunk("a-indexed", "indexed", "fn a() {}"),
+                chunk("a-failed", "failed", "fn af() {}"),
+            ],
+            &[],
+        )
+        .expect("replace a");
+    let connection = fixture.database.connection().expect("connection");
+    connection
+        .execute(
+            "UPDATE retrieval_documents SET index_state = 'indexed' WHERE source_id = 'a-indexed'",
+            [],
+        )
+        .expect("mark a indexed");
+    connection
+        .execute(
+            "UPDATE retrieval_documents SET index_state = 'failed', failure_category = 'network' WHERE source_id = 'a-failed'",
+            [],
+        )
+        .expect("mark a failed");
+    drop(connection);
+
+    let ids = vec![workspace.workspace_id.clone()];
+    let batched = fixture
+        .repository
+        .workspace_statuses(&ids)
+        .expect("batched statuses");
+    let single = fixture
+        .repository
+        .workspace_status(&workspace.workspace_id)
+        .expect("single status");
+
+    assert_eq!(batched.len(), 1);
+    assert_eq!(
+        batched.get(&workspace.workspace_id),
+        Some(&single),
+        "batched status must match per-workspace status"
+    );
+    // The latest-failure window picks the same row as the per-workspace LIMIT-1 subquery.
+    assert_eq!(
+        batched[&workspace.workspace_id].last_failure_category,
+        Some(FailureCategory::Network)
+    );
+}
+
+#[test]
 fn local_workspace_reports_searchable_chunks_without_embedding_work() {
     let fixture = Fixture::new("local code index status");
     let workspace = fixture.register();

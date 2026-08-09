@@ -197,6 +197,21 @@ pub(crate) trait CodeIndexRepository: Send + Sync {
         phase: CodeIndexPhase,
     ) -> Result<(), RetrievalError>;
     fn workspace_status(&self, workspace_id: &str) -> Result<CodeIndexStatus, RetrievalError>;
+    /// Status for many workspaces in one query instead of one `workspace_status` call per
+    /// workspace (each of which runs ~10 COUNT subqueries). Returns a map keyed by
+    /// workspace_id; workspaces without a status row are omitted. The default implementation
+    /// falls back to per-workspace calls; concrete repositories should override this with a
+    /// single aggregated query.
+    fn workspace_statuses(
+        &self,
+        workspace_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, CodeIndexStatus>, RetrievalError> {
+        let mut statuses = std::collections::HashMap::new();
+        for id in workspace_ids {
+            statuses.insert(id.clone(), self.workspace_status(id)?);
+        }
+        Ok(statuses)
+    }
     fn embedding_confirmation(
         &self,
         workspace_id: &str,
