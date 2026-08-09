@@ -10,6 +10,10 @@
 
 # VaneHub AI
 
+<p align="center">
+  <img src="public/icon-512.png" alt="VaneHub AI 应用图标" width="160" />
+</p>
+
 通过统一 React 界面和明确的 Web/mock、Tauri runtime 边界管理 AI Coding Agent 的桌面优先工作台。
 
 <!-- docs-fact:project-version value:0.1.0-preview.1 -->
