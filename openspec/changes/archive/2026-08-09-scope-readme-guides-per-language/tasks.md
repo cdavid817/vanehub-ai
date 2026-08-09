@@ -19,5 +19,5 @@
 - [x] 3.1 `npm run docs:check`
 - [x] 3.2 `npm run docs:test`
 - [x] 3.3 `npm run lint:ci`
-- [ ] 3.4 `openspec validate scope-readme-guides-per-language --strict`
+- [x] 3.4 `openspec validate scope-readme-guides-per-language --strict`
 - [ ] 3.5 Confirm the Documentation job passes on the pull request

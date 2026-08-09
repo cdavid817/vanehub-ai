@@ -122,6 +122,7 @@ import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import type {
   CodeEmbeddingConfirmation,
   CodeIndexAuditEntry,
+  CodeIndexAutomaticMode,
   CodeIndexConfigurationInput,
   CodeIndexStatus,
   CodeIndexWorkspace,
@@ -153,6 +154,7 @@ export interface AgentService {
   // so status aggregates across every agent and `scope_folder`, and rebuild requeues all of them.
   getRetrievalConfiguration(): Promise<RetrievalConfiguration>;
   saveRetrievalConfiguration(profileId: string, modelId: string): Promise<void>;
+  saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode): Promise<void>;
   listEmbeddingModels(profileId: string, transientCredential?: string): Promise<EmbeddingModelOption[]>;
   getRetrievalIndexStatus(): Promise<RetrievalIndexStatus>;
   rebuildRetrievalIndex(): Promise<void>;

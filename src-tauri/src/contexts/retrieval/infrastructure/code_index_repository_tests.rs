@@ -96,6 +96,39 @@ fn registering_the_same_canonical_root_reuses_the_stable_workspace_id() {
 }
 
 #[test]
+fn automatic_discovery_reuses_canonical_root_without_overwriting_explicit_configuration() {
+    let fixture = Fixture::new("automatic code index reuse");
+    let workspace = fixture.register();
+    let explicit = fixture
+        .repository
+        .save_configuration(
+            &workspace.workspace_id,
+            CodeIndexConfigurationUpdate {
+                enabled: false,
+                mode: CodeIndexMode::Semantic,
+                selected_roots: vec!["src".to_string()],
+                languages: vec![CodeLanguage::Rust],
+                exclusion_patterns: vec!["generated/**".to_string()],
+                max_file_bytes: 64 * 1024,
+            },
+        )
+        .expect("explicit configuration");
+
+    let (reused, created) = fixture
+        .repository
+        .ensure_automatic_workspace(
+            fixture.workspace_directory.path(),
+            "automatic name",
+            CodeIndexMode::Local,
+        )
+        .expect("automatic discovery");
+
+    assert!(!created);
+    assert_eq!(reused, explicit);
+    assert_eq!(reused.origin, CodeWorkspaceOrigin::Manual);
+}
+
+#[test]
 fn a_missing_registered_root_is_reported_unavailable_without_deleting_the_record() {
     let fixture = Fixture::new("code index unavailable workspace");
     let workspace = fixture.register();
@@ -224,6 +257,7 @@ fn saving_configuration_is_normalized_and_invalid_updates_are_atomic() {
             &workspace.workspace_id,
             CodeIndexConfigurationUpdate {
                 enabled: true,
+                mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
                 selected_roots: vec!["src\\app".to_string(), "src/app".to_string()],
                 languages: vec![CodeLanguage::Rust, CodeLanguage::TypeScript],
                 exclusion_patterns: vec!["vendor/**".to_string()],
@@ -232,6 +266,10 @@ fn saving_configuration_is_normalized_and_invalid_updates_are_atomic() {
         )
         .expect("save valid configuration");
     assert!(saved.enabled);
+    assert_eq!(
+        saved.mode,
+        crate::contexts::retrieval::domain::CodeIndexMode::Semantic
+    );
     assert_eq!(saved.selected_roots, vec!["src/app"]);
     assert_eq!(saved.languages, vec!["rust", "typescript"]);
     assert_eq!(saved.phase, CodeIndexPhase::Scanning);
@@ -241,6 +279,7 @@ fn saving_configuration_is_normalized_and_invalid_updates_are_atomic() {
         &workspace.workspace_id,
         CodeIndexConfigurationUpdate {
             enabled: true,
+            mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
             selected_roots: vec![String::new()],
             languages: vec![CodeLanguage::Rust],
             exclusion_patterns: vec!["[invalid".to_string()],
@@ -358,6 +397,20 @@ fn loading_a_stale_index_version_rebuilds_only_that_workspace() {
 fn workspace_status_reports_one_consistent_file_and_chunk_snapshot() {
     let fixture = Fixture::new("code index status");
     let workspace = fixture.register();
+    let workspace = fixture
+        .repository
+        .save_configuration(
+            &workspace.workspace_id,
+            CodeIndexConfigurationUpdate {
+                enabled: true,
+                mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
+                selected_roots: vec![String::new()],
+                languages: vec![CodeLanguage::Rust],
+                exclusion_patterns: Vec::new(),
+                max_file_bytes: 100 * 1024,
+            },
+        )
+        .expect("semantic configuration");
     fixture
         .repository
         .replace_file(
@@ -388,13 +441,46 @@ fn workspace_status_reports_one_consistent_file_and_chunk_snapshot() {
         .repository
         .workspace_status(&workspace.workspace_id)
         .expect("status");
-    assert_eq!(status.phase, CodeIndexPhase::Disabled);
+    assert_eq!(status.phase, CodeIndexPhase::Scanning);
     assert_eq!((status.processed_files, status.total_files), (1, 1));
     assert_eq!((status.processed_chunks, status.total_chunks), (2, 2));
     assert_eq!(status.pending_chunks, 0);
     assert_eq!((status.indexed_chunks, status.failed_chunks), (1, 1));
     assert_eq!(status.estimated_embedding_requests, 1);
     assert_eq!(status.last_failure_category, Some(FailureCategory::Network));
+}
+
+#[test]
+fn local_workspace_reports_searchable_chunks_without_embedding_work() {
+    let fixture = Fixture::new("local code index status");
+    let workspace = fixture.register();
+    fixture
+        .repository
+        .replace_file(
+            &manifest(&workspace.workspace_id, "src/lib.rs", "local"),
+            &[chunk("local-chunk", "local", "fn local() {}")],
+            &[],
+        )
+        .expect("replace");
+
+    let status = fixture
+        .repository
+        .workspace_status(&workspace.workspace_id)
+        .expect("status");
+    assert_eq!((status.processed_chunks, status.total_chunks), (1, 1));
+    assert_eq!(status.pending_chunks, 0);
+    assert_eq!((status.indexed_chunks, status.failed_chunks), (1, 0));
+    assert_eq!(status.estimated_embedding_requests, 0);
+
+    let connection = fixture.database.connection().expect("connection");
+    let state: String = connection
+        .query_row(
+            "SELECT index_state FROM retrieval_documents WHERE source_id = 'local-chunk'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("document state");
+    assert_eq!(state, "indexed");
 }
 
 #[test]

@@ -1875,6 +1875,7 @@ describe("webAgentClient", () => {
     await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
       sourceProfileId: null,
       embeddingModel: null,
+      automaticCodeIndexMode: "disabled",
     });
   });
 
@@ -1883,7 +1884,49 @@ describe("webAgentClient", () => {
     await expect(webAgentClient.getRetrievalConfiguration()).resolves.toEqual({
       sourceProfileId: "profile-a",
       embeddingModel: "text-embedding-3-small",
+      automaticCodeIndexMode: "disabled",
     });
+  });
+
+  it("saves the automatic code index mode independently", async () => {
+    await webAgentClient.saveCodeIndexAutomaticMode("local");
+    await expect(webAgentClient.getRetrievalConfiguration()).resolves.toMatchObject({
+      automaticCodeIndexMode: "local",
+      sourceProfileId: null,
+      embeddingModel: null,
+    });
+  });
+
+  it("discovers one local code index per OnePiece project when automatic indexing is enabled", async () => {
+    await webAgentClient.saveOnePieceProviderConfig({
+      provider: "Anthropic",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+      apiKey: "test-key",
+    });
+    await webAgentClient.saveCodeIndexAutomaticMode("local");
+    await createMockSession({
+      agentId: "onepiece",
+      interactionMode: "api",
+      projectPath: "D:/example/automatic-project",
+    });
+    await createMockSession({
+      agentId: "onepiece",
+      interactionMode: "api",
+      projectPath: "D:/example/automatic-project",
+    });
+
+    await expect(webAgentClient.listCodeIndexWorkspaces()).resolves.toEqual([
+      expect.objectContaining({
+        canonicalRoot: "D:/example/automatic-project",
+        enabled: true,
+        mode: "local",
+        generation: 1,
+        status: expect.objectContaining({ phase: "scanning" }),
+      }),
+    ]);
+    await webAgentClient.resetOnePieceProviderConfig();
   });
 
   it("reports index status without issuing any network request", async () => {

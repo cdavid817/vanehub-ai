@@ -10,6 +10,79 @@ const MAX_CONFIGURED_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_EXCLUSION_PATTERNS: usize = 128;
 const MAX_PATTERN_LENGTH: usize = 256;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum CodeIndexAutomaticMode {
+    #[default]
+    Disabled,
+    Local,
+    Semantic,
+}
+
+impl CodeIndexAutomaticMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Local => "local",
+            Self::Semantic => "semantic",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "disabled" => Some(Self::Disabled),
+            "local" => Some(Self::Local),
+            "semantic" => Some(Self::Semantic),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CodeIndexMode {
+    Local,
+    Semantic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CodeWorkspaceOrigin {
+    Manual,
+    Automatic,
+}
+
+impl CodeWorkspaceOrigin {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Automatic => "automatic",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "manual" => Some(Self::Manual),
+            "automatic" => Some(Self::Automatic),
+            _ => None,
+        }
+    }
+}
+
+impl CodeIndexMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Semantic => "semantic",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(Self::Local),
+            "semantic" => Some(Self::Semantic),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum CodeLanguage {
     JavaScript,
@@ -75,6 +148,7 @@ impl CodeLanguage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CodeIndexConfigurationUpdate {
     pub(crate) enabled: bool,
+    pub(crate) mode: CodeIndexMode,
     pub(crate) selected_roots: Vec<String>,
     pub(crate) languages: Vec<CodeLanguage>,
     pub(crate) exclusion_patterns: Vec<String>,
@@ -85,6 +159,7 @@ impl CodeIndexConfigurationUpdate {
     pub(crate) fn validate(self) -> Result<Self, RetrievalError> {
         let Self {
             enabled,
+            mode,
             selected_roots,
             mut languages,
             exclusion_patterns,
@@ -120,6 +195,7 @@ impl CodeIndexConfigurationUpdate {
         languages.dedup();
         Ok(Self {
             enabled,
+            mode,
             selected_roots,
             languages,
             exclusion_patterns,
@@ -202,7 +278,9 @@ pub(crate) struct CodeWorkspace {
     pub(crate) workspace_id: String,
     pub(crate) canonical_root: String,
     pub(crate) display_name: String,
+    pub(crate) origin: CodeWorkspaceOrigin,
     pub(crate) enabled: bool,
+    pub(crate) mode: CodeIndexMode,
     pub(crate) selected_roots: Vec<String>,
     pub(crate) languages: Vec<String>,
     pub(crate) exclusion_patterns: Vec<String>,
@@ -218,7 +296,9 @@ impl CodeWorkspace {
             workspace_id: Uuid::new_v4().to_string(),
             canonical_root,
             display_name,
+            origin: CodeWorkspaceOrigin::Manual,
             enabled: false,
+            mode: CodeIndexMode::Local,
             selected_roots: vec![String::new()],
             languages: CodeLanguage::ALL
                 .iter()
@@ -242,6 +322,7 @@ impl CodeWorkspace {
             .collect::<Result<Vec<_>, _>>()?;
         CodeIndexConfigurationUpdate {
             enabled: self.enabled,
+            mode: self.mode,
             selected_roots: self.selected_roots.clone(),
             languages,
             exclusion_patterns: self.exclusion_patterns.clone(),
@@ -258,6 +339,7 @@ mod tests {
     fn update() -> CodeIndexConfigurationUpdate {
         CodeIndexConfigurationUpdate {
             enabled: true,
+            mode: CodeIndexMode::Local,
             selected_roots: vec!["src\\nested".to_string(), "src/nested".to_string()],
             languages: vec![
                 CodeLanguage::Rust,
@@ -322,6 +404,20 @@ mod tests {
             assert_eq!(CodeLanguage::from_path(path), Some(expected));
         }
         assert_eq!(CodeLanguage::from_path("README.md"), None);
+    }
+
+    #[test]
+    fn code_index_modes_have_stable_storage_values() {
+        assert_eq!(CodeIndexMode::parse("local"), Some(CodeIndexMode::Local));
+        assert_eq!(
+            CodeIndexMode::parse("semantic"),
+            Some(CodeIndexMode::Semantic)
+        );
+        assert_eq!(CodeIndexMode::parse("hybrid"), None);
+        assert_eq!(
+            CodeWorkspace::new("C:/repo".into(), "repo".into()).mode,
+            CodeIndexMode::Local
+        );
     }
 }
 

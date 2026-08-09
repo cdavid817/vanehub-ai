@@ -1,6 +1,6 @@
 use crate::contexts::retrieval::domain::{
-    CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexConfigurationUpdate, CodeIndexStatus,
-    CodeLanguage, CodeWorkspace, RetrievalError,
+    CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexConfigurationUpdate, CodeIndexMode,
+    CodeIndexStatus, CodeLanguage, CodeWorkspace, RetrievalError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CodeIndexConfigurationInput {
     pub(crate) enabled: bool,
+    pub(crate) mode: String,
     pub(crate) selected_roots: Vec<String>,
     pub(crate) languages: Vec<String>,
     pub(crate) exclusion_patterns: Vec<String>,
@@ -27,8 +28,11 @@ impl TryFrom<CodeIndexConfigurationInput> for CodeIndexConfigurationUpdate {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let mode = CodeIndexMode::parse(&input.mode)
+            .ok_or_else(|| RetrievalError::Validation("unsupported code index mode".to_string()))?;
         CodeIndexConfigurationUpdate {
             enabled: input.enabled,
+            mode,
             selected_roots: input.selected_roots,
             languages,
             exclusion_patterns: input.exclusion_patterns,
@@ -84,7 +88,9 @@ pub(crate) struct CodeIndexWorkspaceDto {
     pub(crate) workspace_id: String,
     pub(crate) canonical_root: String,
     pub(crate) display_name: String,
+    pub(crate) origin: String,
     pub(crate) enabled: bool,
+    pub(crate) mode: String,
     pub(crate) selected_roots: Vec<String>,
     pub(crate) languages: Vec<String>,
     pub(crate) exclusion_patterns: Vec<String>,
@@ -100,7 +106,9 @@ impl CodeIndexWorkspaceDto {
             workspace_id: workspace.workspace_id,
             canonical_root: workspace.canonical_root,
             display_name: workspace.display_name,
+            origin: workspace.origin.as_str().to_string(),
             enabled: workspace.enabled,
+            mode: workspace.mode.as_str().to_string(),
             selected_roots: workspace.selected_roots,
             languages: workspace.languages,
             exclusion_patterns: workspace.exclusion_patterns,
@@ -167,6 +175,7 @@ mod tests {
     fn configuration(languages: &[&str]) -> CodeIndexConfigurationInput {
         CodeIndexConfigurationInput {
             enabled: true,
+            mode: "local".to_string(),
             selected_roots: vec!["src".to_string()],
             languages: languages
                 .iter()

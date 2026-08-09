@@ -13,11 +13,11 @@ Installation is not automatic: `PermissionsApi::assign_template` calls `install(
 - Never name a non-existent command in another tool's global configuration.
 - Say why, at the moment the user asks for it.
 - Keep the escape hatch open for anyone already affected.
+- Ship the wrapper in every supported Tauri package without committing platform binaries.
 
 **Non-Goals:**
 
-- Shipping the wrapper binary. That is the real fix and is deliberately separate; see Open Questions.
-- Changing how the path is resolved. The current resolution is also wrong for a sidecar, but correcting it without shipping the binary would change one wrong path for another.
+- Running or supervising the wrapper as a Tauri sidecar process; Claude Code launches the executable named in its hook configuration.
 - Any Web-runtime behaviour. That runtime has no permission-hook surface.
 
 ## Decisions
@@ -38,12 +38,25 @@ The failure is returned as `PermissionsApplicationError::Infrastructure { catego
 
 The message names the resolved path. A user who reports "hook management won't turn on" then arrives with the location that was checked, which is what distinguishes "this build doesn't ship it" from "it was there and moved".
 
+### Prepare a target-qualified Tauri external binary before invoking the CLI
+
+Tauri `bundle.externalBin` expects a source named `vanehub-permission-hook-<target-triple>` (plus `.exe` on Windows) and installs it beside the main executable under the unsuffixed name. A Node preparation script builds only the wrapper binary for the requested Rust target and copies it to the ignored `src-tauri/binaries` staging directory. Every npm entry that invokes `tauri dev` or `tauri build` runs this preparation first and merges a sidecar-specific Tauri config overlay; explicit package scripts pass their matrix target, while host builds derive the target from `rustc -vV`.
+
+The base `tauri.conf.json` deliberately omits `externalBin`. Cargo-only commands still execute Tauri's build script, and putting the declaration in the base config would make `cargo test`, `cargo check`, and Clippy fail before the preparation script can run. The overlay confines the generated-file precondition to Tauri CLI entry points that actually prepare it.
+
+Generated sidecar binaries remain outside Git. The workflow already calls the per-target npm package scripts, so Windows x64, macOS arm64/x64, and Linux x64 all exercise the same preparation path before bundling.
+
+### Resolve beside the executable before the resource directory
+
+An installed external binary lives beside the main executable, not under Tauri's resource directory. Runtime resolution therefore prefers the main executable's parent and uses the resource directory only as a compatibility fallback. Development preparation builds the wrapper into the same Cargo target profile as the application, preserving the same lookup rule in `tauri dev`.
+
 ## Risks / Trade-offs
 
 - **A previously working setup now reports an error.** → Only where the binary is genuinely gone. If it was working, the file is present and nothing changes.
 - **The check races a delete between the test and the write.** → Accepted. The window is microseconds, the consequence is the pre-existing behaviour, and closing it would mean holding a lock over another tool's configuration file.
-- **Reporting an error is not the same as making the feature work.** → It is not meant to be. The feature is unavailable in packaged builds either way; this change makes that visible instead of leaving a broken hook behind. The preview release notes state it plainly.
+- **The target-qualified staging file can become stale.** → Preparation always rebuilds and overwrites the exact target file before Tauri starts, and packaging entry points do not bypass that script.
+- **A package can still be damaged after installation.** → The adapter's `is_file()` guard remains authoritative and leaves Claude Code settings untouched.
 
 ## Open Questions
 
-- Shipping the wrapper as a Tauri sidecar needs `bundle.externalBin`, a step that builds it per target and renames it to `vanehub-permission-hook-<triple>`, and a corrected resolution order — a sidecar lands beside the main executable, so preferring the resource directory would still miss it. All four packaging targets need to be validated. Worth doing before `0.1.0`; too large to fold in here.
+None.

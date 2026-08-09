@@ -68,10 +68,41 @@ pub(crate) fn apply_retrieval_schema(connection: &Connection) -> Result<(), Data
             id INTEGER PRIMARY KEY CHECK (id = 1),
             source_profile_id TEXT,
             embedding_model TEXT,
+            automatic_code_index_mode TEXT NOT NULL DEFAULT 'disabled'
+                CHECK (automatic_code_index_mode IN ('disabled', 'local', 'semantic')),
             updated_at TEXT NOT NULL
         );
         "#,
     )?;
+    Ok(())
+}
+
+pub(crate) fn apply_code_index_automatic_mode_schema(
+    connection: &Connection,
+) -> Result<(), DatabaseError> {
+    let has_column = connection
+        .prepare("PRAGMA table_info(retrieval_configuration)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .any(|name| name == "automatic_code_index_mode");
+    if !has_column {
+        connection.execute_batch(
+            "ALTER TABLE retrieval_configuration ADD COLUMN automatic_code_index_mode TEXT \
+             NOT NULL DEFAULT 'disabled' CHECK (automatic_code_index_mode IN \
+             ('disabled', 'local', 'semantic'));",
+        )?;
+    }
+    let has_origin = connection
+        .prepare("PRAGMA table_info(code_index_workspaces)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .any(|name| name == "origin");
+    if !has_origin {
+        connection.execute_batch(
+            "ALTER TABLE code_index_workspaces ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual' \
+             CHECK (origin IN ('manual', 'automatic'));",
+        )?;
+    }
     Ok(())
 }
 
@@ -82,7 +113,9 @@ pub(crate) fn apply_code_index_schema(connection: &Connection) -> Result<(), Dat
             workspace_id TEXT PRIMARY KEY,
             canonical_root TEXT NOT NULL UNIQUE,
             display_name TEXT NOT NULL,
+            origin TEXT NOT NULL DEFAULT 'manual' CHECK (origin IN ('manual', 'automatic')),
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            index_mode TEXT NOT NULL DEFAULT 'semantic' CHECK (index_mode IN ('local', 'semantic')),
             selected_roots_json TEXT NOT NULL DEFAULT '[""]',
             languages_json TEXT NOT NULL DEFAULT '[]',
             exclusion_patterns_json TEXT NOT NULL DEFAULT '[]',
@@ -179,6 +212,19 @@ pub(crate) fn apply_code_index_schema(connection: &Connection) -> Result<(), Dat
     Ok(())
 }
 
+pub(crate) fn apply_code_index_mode_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    if !crate::platform::database::table_has_column(
+        connection,
+        "code_index_workspaces",
+        "index_mode",
+    )? {
+        connection.execute_batch(
+            "ALTER TABLE code_index_workspaces ADD COLUMN index_mode TEXT NOT NULL DEFAULT 'semantic' CHECK (index_mode IN ('local', 'semantic'));",
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +291,87 @@ mod tests {
                 .expect("table count");
             assert_eq!(count, 1, "missing table {table}");
         }
+    }
+
+    #[test]
+    fn mode_migration_preserves_existing_workspaces_as_semantic() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE code_index_workspaces (
+                    workspace_id TEXT PRIMARY KEY,
+                    canonical_root TEXT NOT NULL,
+                    display_name TEXT NOT NULL
+                );
+                INSERT INTO code_index_workspaces VALUES ('existing', 'C:/repo', 'repo');
+                "#,
+            )
+            .expect("legacy fixture");
+
+        apply_code_index_mode_schema(&connection).expect("mode migration");
+        apply_code_index_mode_schema(&connection).expect("idempotent migration");
+
+        let mode: String = connection
+            .query_row(
+                "SELECT index_mode FROM code_index_workspaces WHERE workspace_id = 'existing'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migrated mode");
+        assert_eq!(mode, "semantic");
+    }
+
+    #[test]
+    fn automatic_mode_migration_defaults_disabled_and_marks_existing_workspaces_manual() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE retrieval_configuration (
+                    id INTEGER PRIMARY KEY,
+                    source_profile_id TEXT,
+                    embedding_model TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO retrieval_configuration VALUES (1, 'profile', 'model', 't');
+                CREATE TABLE code_index_workspaces (
+                    workspace_id TEXT PRIMARY KEY,
+                    canonical_root TEXT NOT NULL,
+                    display_name TEXT NOT NULL
+                );
+                INSERT INTO code_index_workspaces VALUES ('existing', 'C:/repo', 'repo');
+                "#,
+            )
+            .expect("legacy fixture");
+
+        apply_code_index_automatic_mode_schema(&connection).expect("migration");
+        apply_code_index_automatic_mode_schema(&connection).expect("idempotent migration");
+
+        let values: (String, String, String) = connection
+            .query_row(
+                "SELECT automatic_code_index_mode, source_profile_id, embedding_model \
+                 FROM retrieval_configuration WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("configuration");
+        let origin: String = connection
+            .query_row(
+                "SELECT origin FROM code_index_workspaces WHERE workspace_id = 'existing'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("origin");
+        assert_eq!(
+            values,
+            (
+                "disabled".to_string(),
+                "profile".to_string(),
+                "model".to_string()
+            )
+        );
+        assert_eq!(origin, "manual");
     }
 
     #[test]

@@ -5,6 +5,7 @@ import {
   normalizeCodeIndexStatus,
   normalizeCodeIndexWorkspace,
   normalizeCodeIndexWorkspaces,
+  resolveCodeIndexChannelStatus,
 } from "./code-index-contract";
 
 const status = {
@@ -28,6 +29,7 @@ const workspace = {
   canonicalRoot: "D:/code/app",
   displayName: "App",
   enabled: true,
+  mode: "semantic",
   selectedRoots: ["src"],
   languages: ["rust"],
   exclusionPatterns: ["**/*.generated.rs"],
@@ -40,6 +42,7 @@ const workspace = {
 function configuration(overrides: Partial<CodeIndexConfigurationInput> = {}): CodeIndexConfigurationInput {
   return {
     enabled: true,
+    mode: "local",
     selectedRoots: [".\\src\\", "src"],
     languages: ["rust"],
     exclusionPatterns: ["dist/**"],
@@ -51,6 +54,9 @@ function configuration(overrides: Partial<CodeIndexConfigurationInput> = {}): Co
 describe("code-index contract", () => {
   it("normalizes relative roots and rejects invalid patterns or languages", () => {
     expect(normalizeCodeIndexConfiguration(configuration()).selectedRoots).toEqual(["src"]);
+    expect(() => normalizeCodeIndexConfiguration(configuration({
+      mode: "remote" as "local",
+    }))).toThrow("mode is unsupported");
     expect(() => normalizeCodeIndexConfiguration(configuration({
       languages: ["rust", "brainfuck" as "rust"],
     }))).toThrow("unsupported value");
@@ -71,5 +77,17 @@ describe("code-index contract", () => {
   it("rejects invalid and duplicate workspace identities", () => {
     expect(() => normalizeCodeIndexWorkspace({ ...workspace, workspaceId: "" })).toThrow("invalid code-index response");
     expect(() => normalizeCodeIndexWorkspaces([workspace, workspace])).toThrow("invalid code-index response");
+  });
+
+  it("reports local readiness separately from semantic configuration", () => {
+    const normalized = normalizeCodeIndexWorkspace({ ...workspace, origin: "automatic" });
+    expect(resolveCodeIndexChannelStatus(normalized, false)).toEqual({
+      local: "ready",
+      semantic: "unconfigured",
+    });
+    expect(resolveCodeIndexChannelStatus({ ...normalized, mode: "local" }, false)).toEqual({
+      local: "ready",
+      semantic: "not_applicable",
+    });
   });
 });

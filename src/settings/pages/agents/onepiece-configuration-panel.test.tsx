@@ -40,19 +40,8 @@ function overview(profiles: OnePieceProviderProfile[], activeProfileId: string |
   return { profiles, activeProfileId };
 }
 
-// The panel unconditionally mounts OnePieceRetrievalSection (onepiece-configuration-panel.tsx),
-// which fires these queries on every render. Centralized here so every double in this file
-// gets harmless defaults without repeating them per test; a future third retrieval method needs
-// one edit here, not one per `it` block. Individual tests still override either key when the
-// scenario under test needs to observe or control that call.
-const retrievalDoubleDefaults: Partial<AgentService> = {
-  getRetrievalConfiguration: async () => ({ sourceProfileId: null, embeddingModel: null }),
-  getRetrievalIndexStatus: async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }),
-  listCodeIndexWorkspaces: async () => [],
-};
-
 function createPanelServiceDouble(overrides: Partial<AgentService>): AgentService {
-  return createAgentServiceDouble({ ...retrievalDoubleDefaults, ...overrides });
+  return createAgentServiceDouble(overrides);
 }
 
 describe("OnePieceConfigurationPanel", () => {
@@ -316,30 +305,17 @@ describe("OnePieceConfigurationPanel", () => {
     expect((within(dialog).getByRole("button", { name: "获取模型" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("mounts the retrieval section with the panel's own Profile list", async () => {
-    const getRetrievalIndexStatus = vi.fn(async () => ({ indexed: 0, pending: 0, failed: 0, lastFailureCategory: null }));
+  it("keeps retrieval and code-index management out of provider configuration", async () => {
     const service = createPanelServiceDouble({
       listOnePieceProviderProfiles: async () => overview([anthropicProfile, proxyProfile], anthropicProfile.id),
       listOnePieceProviderPresets,
-      getRetrievalIndexStatus,
     });
     renderWithAppProviders(
       <OnePieceConfigurationPanel onChanged={vi.fn(async () => undefined)} service={service} />,
     );
 
     await screen.findByRole("heading", { name: "Anthropic 主账号" });
-    // Index status is global, like the configuration singleton it sits next to — the section takes
-    // no agent id, so the only thing to pin here is that the panel really mounts it and it really
-    // queries through the service boundary.
-    await waitFor(() => expect(getRetrievalIndexStatus).toHaveBeenCalledWith());
-
-    // Pins the `profiles={overview.profiles}` argument: the openai-compatible Profile the panel
-    // loaded is the one the section offers as an embedding source, and the Anthropic Profile
-    // (no embeddings API) is filtered out — proof this is the panel's real data, not a stub.
-    const select = await screen.findByRole("combobox", { name: "Embedding 来源" });
-    expect(within(select).getByRole("option", { name: "OpenRouter" })).toBeTruthy();
-    expect(within(select).queryByRole("option", { name: "Anthropic 主账号" })).toBeNull();
-
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("region", { name: "检索索引配置" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "工作区代码索引" })).toBeNull();
   });
 });

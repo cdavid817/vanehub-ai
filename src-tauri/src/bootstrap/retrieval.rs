@@ -25,7 +25,7 @@ use crate::contexts::retrieval::application::{
     RECONCILE_POLL_INTERVAL_SECONDS, RETRY_BACKOFF_SECONDS,
 };
 use crate::contexts::retrieval::domain::{
-    CodeIndexAuditEvent, CodeIndexPhase, FailureCategory, RetrievalError,
+    CodeIndexAuditEvent, CodeIndexMode, CodeIndexPhase, FailureCategory, RetrievalError,
 };
 use crate::contexts::retrieval::infrastructure::{
     code_index_repository::SqliteCodeIndexRepository, HttpEmbeddingAdapter,
@@ -386,6 +386,9 @@ fn run_workspace_code_round(worker: &RetrievalIndexingWorker, logging: &dyn Diag
             reconcile_started.elapsed(),
             phase,
         );
+        if workspace.mode == CodeIndexMode::Local {
+            continue;
+        }
         let Some((profile_id, model)) = &configured else {
             continue;
         };
@@ -1021,6 +1024,7 @@ mod tests {
                 Self::Configured => Ok(RetrievalConfiguration {
                     source_profile_id: Some("profile-a".to_string()),
                     embedding_model: Some(MODEL.to_string()),
+                    automatic_code_index_mode: Default::default(),
                 }),
                 Self::Unconfigured => Ok(RetrievalConfiguration::default()),
                 Self::Failing => Err(RetrievalError::Storage(
@@ -1030,6 +1034,13 @@ mod tests {
         }
 
         fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+
+        fn save_automatic_code_index_mode(
+            &self,
+            _mode: crate::contexts::retrieval::domain::CodeIndexAutomaticMode,
+        ) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by these tests")
         }
     }

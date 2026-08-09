@@ -30,6 +30,7 @@ const workspace = {
   canonicalRoot: "D:/code/app",
   displayName: "App",
   enabled: false,
+  mode: "local",
   selectedRoots: [""],
   languages: ["rust"],
   exclusionPatterns: [],
@@ -60,6 +61,7 @@ describe("Tauri code-index adapter", () => {
     await tauriAgentClient.registerCodeIndexWorkspace("D:/code/app", "App");
     await tauriAgentClient.saveCodeIndexConfiguration("workspace-a", {
       enabled: false,
+      mode: "semantic",
       selectedRoots: ["."],
       languages: ["rust"],
       exclusionPatterns: [],
@@ -78,7 +80,7 @@ describe("Tauri code-index adapter", () => {
       ["get_code_index_workspace", { workspaceId: "workspace-a" }],
       ["register_code_index_workspace", { root: "D:/code/app", displayName: "App" }],
       ["save_code_index_configuration", { workspaceId: "workspace-a", configuration: {
-        enabled: false, selectedRoots: [""], languages: ["rust"], exclusionPatterns: [], maxFileBytes: 102_400,
+        enabled: false, mode: "semantic", selectedRoots: [""], languages: ["rust"], exclusionPatterns: [], maxFileBytes: 102_400,
       } }],
       ["refresh_code_index_workspace", { workspaceId: "workspace-a" }],
       ["confirm_code_index_embedding", { workspaceId: "workspace-a", profileId: "profile-a", model: "model-a", generation: 0 }],

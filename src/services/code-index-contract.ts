@@ -1,5 +1,6 @@
 import {
   codeIndexLanguages,
+  codeIndexModes,
   codeIndexPhases,
   type CodeEmbeddingConfirmation,
   type CodeIndexAuditEntry,
@@ -7,6 +8,7 @@ import {
   type CodeIndexAuditReason,
   type CodeIndexConfigurationInput,
   type CodeIndexLanguage,
+  type CodeIndexChannelStatus,
   type CodeIndexStatus,
   type CodeIndexWorkspace,
 } from "../types/code-index";
@@ -92,6 +94,7 @@ export function normalizeCodeIndexConfiguration(
   value: CodeIndexConfigurationInput,
 ): CodeIndexConfigurationInput {
   if (typeof value.enabled !== "boolean") invalidConfiguration("enabled must be boolean");
+  if (!isMember(codeIndexModes, value.mode)) invalidConfiguration("mode is unsupported");
   if (!Array.isArray(value.selectedRoots)) invalidConfiguration("selected roots must be a list");
   const selectedRoots = [...new Set(value.selectedRoots.map((root) => {
     if (typeof root !== "string") return invalidConfiguration("selected roots must be strings");
@@ -114,7 +117,7 @@ export function normalizeCodeIndexConfiguration(
   if (!Number.isSafeInteger(value.maxFileBytes) || value.maxFileBytes < 1 || value.maxFileBytes > maximumFileBytes) {
     invalidConfiguration("maximum file size is outside the supported range");
   }
-  return { enabled: value.enabled, selectedRoots: selectedRoots.length ? selectedRoots : [""], languages, exclusionPatterns, maxFileBytes: value.maxFileBytes };
+  return { enabled: value.enabled, mode: value.mode, selectedRoots: selectedRoots.length ? selectedRoots : [""], languages, exclusionPatterns, maxFileBytes: value.maxFileBytes };
 }
 
 export function normalizeCodeIndexStatus(value: unknown): CodeIndexStatus {
@@ -138,6 +141,7 @@ export function normalizeCodeIndexWorkspace(value: unknown): CodeIndexWorkspace 
   if (!isRecord(value) || typeof value.enabled !== "boolean") return invalidResponse();
   const configuration = normalizeCodeIndexConfiguration({
     enabled: value.enabled,
+    mode: isMember(codeIndexModes, value.mode) ? value.mode : invalidResponse(),
     selectedRoots: stringArray(value.selectedRoots, true),
     languages: languageArray(value.languages),
     exclusionPatterns: stringArray(value.exclusionPatterns),
@@ -145,7 +149,9 @@ export function normalizeCodeIndexWorkspace(value: unknown): CodeIndexWorkspace 
   });
   return {
     workspaceId: requiredString(value.workspaceId), canonicalRoot: requiredString(value.canonicalRoot),
-    displayName: requiredString(value.displayName), ...configuration,
+    displayName: requiredString(value.displayName),
+    origin: value.origin === "automatic" ? "automatic" : "manual",
+    ...configuration,
     indexVersion: requiredString(value.indexVersion), generation: count(value.generation),
     status: normalizeCodeIndexStatus(value.status),
   };
@@ -158,6 +164,29 @@ export function normalizeCodeIndexWorkspaces(value: unknown): CodeIndexWorkspace
     return invalidResponse();
   }
   return workspaces;
+}
+
+export function resolveCodeIndexChannelStatus(
+  workspace: CodeIndexWorkspace,
+  embeddingConfigured: boolean,
+): CodeIndexChannelStatus {
+  if (!workspace.enabled || workspace.status.phase === "disabled") {
+    return { local: "disabled", semantic: workspace.mode === "local" ? "not_applicable" : "disabled" };
+  }
+  const phase = workspace.status.phase;
+  const local = phase === "scanning" || phase === "cancelling" ? "scanning"
+    : phase === "parsing" ? "parsing"
+      : phase === "degraded" ? "degraded"
+        : phase === "unavailable" ? "unavailable" : "ready";
+  if (workspace.mode === "local") return { local, semantic: "not_applicable" };
+  if (phase === "scanning" || phase === "parsing" || phase === "cancelling") {
+    return { local, semantic: "pending" };
+  }
+  if (!embeddingConfigured) return { local, semantic: "unconfigured" };
+  if (phase === "awaiting_embedding_confirmation") return { local, semantic: "awaiting_confirmation" };
+  if (phase === "embedding") return { local, semantic: "embedding" };
+  if (phase === "degraded" || phase === "unavailable") return { local, semantic: "degraded" };
+  return { local, semantic: "ready" };
 }
 
 export function normalizeCodeEmbeddingConfirmation(value: unknown): CodeEmbeddingConfirmation {

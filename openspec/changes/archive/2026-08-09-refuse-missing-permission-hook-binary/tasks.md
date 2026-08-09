@@ -17,12 +17,17 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
-- [ ] 4.2 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
-- [ ] 4.3 `cargo test --manifest-path src-tauri/Cargo.toml`
-- [ ] 4.4 `npm run lint:ci`, `npm run test`, `npm run build`, `npm run docs:check`
+- [x] 4.1 `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`
+- [x] 4.2 `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- [x] 4.3 `cargo test --manifest-path src-tauri/Cargo.toml`
+- [x] 4.4 `npm run lint:ci`, `npm run test`, `npm run build`, `npm run docs:check`
 - [ ] 4.5 `openspec validate refuse-missing-permission-hook-binary --strict` and `openspec validate --specs --strict`
+  - Change validation passed on 2026-08-09. Main-spec validation is blocked by pre-existing duplicate Requirement names in `agent-skill-injection` and `skill-management`.
 
 ## 5. Follow-up
 
-- [ ] 5.1 Ship the wrapper as a Tauri sidecar: `bundle.externalBin`, a per-target build-and-rename step, a resolution order that looks beside the main executable rather than in the resource directory, and validation on all four packaging targets. Needed before `0.1.0`
+- [x] 5.1 Add `bundle.externalBin` and a tested per-target wrapper build-and-rename script used by every Tauri dev/build npm entry point
+- [x] 5.2 Resolve the wrapper beside the main executable before the resource-directory compatibility fallback
+- [x] 5.3 Add configuration and resolution regression tests without committing generated platform binaries
+- [ ] 5.4 Validate the preparation and package path on Windows x64, macOS arm64/x64, and Linux x64 before `0.1.0`
+  - Windows x64 locally verified on 2026-08-09: the NSIS installer was produced and the release directory contained `vanehub-permission-hook.exe` beside `vanehub-ai.exe`.

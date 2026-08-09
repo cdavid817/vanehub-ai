@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: README structural and factual parity
-The multilingual README set SHALL preserve equivalent section order, command examples, repository-relative link targets, version facts, and delivered-versus-planned feature classifications across all supported languages. Documentation-guide links enclosed in a declared locale-scoped block SHALL be exempt from target equality, because each README routes readers to the guides written in its own language; the presence of exactly one such block in every README SHALL remain subject to parity.
+The multilingual README set SHALL preserve equivalent section order, command examples, repository-relative link targets, version facts, and delivered-versus-planned feature classifications across all supported languages. A version fact SHALL be compared by its declared value, independent of any presentation encoding a badge service requires. Documentation-guide links enclosed in a declared locale-scoped block SHALL be exempt from target equality, because each README routes readers to the guides written in its own language; the presence of exactly one such block in every README SHALL remain subject to parity.
 
 #### Scenario: Validate equivalent README structure
 - **WHEN** the documentation parity check runs
@@ -25,6 +25,15 @@ The multilingual README set SHALL preserve equivalent section order, command exa
 - **WHEN** a stable README fact is owned by a repository manifest
 - **THEN** the documentation parity check SHALL compare the canonical value with that manifest
 - **AND** it SHALL fail when the README value is stale even if all translations share the same stale value
+
+#### Scenario: Validate a pre-release version fact
+- **WHEN** the manifest version carries a semantic-versioning pre-release identifier
+- **THEN** the documentation parity check SHALL accept the README version fact that matches it exactly
+- **AND** it SHALL decode the badge's escaped presentation before comparison rather than failing on the encoding
+
+#### Scenario: Pre-release version fact is stale
+- **WHEN** the manifest version's pre-release identifier advances and a README still declares the previous one
+- **THEN** the documentation parity check SHALL fail
 
 #### Scenario: Translate narrative content
 - **WHEN** equivalent narrative text is expressed differently for linguistic quality

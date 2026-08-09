@@ -11,6 +11,23 @@ export const codeIndexLanguages = [
 
 export type CodeIndexLanguage = (typeof codeIndexLanguages)[number];
 
+export const codeIndexModes = ["local", "semantic"] as const;
+
+export type CodeIndexMode = (typeof codeIndexModes)[number];
+
+export type CodeIndexWorkspaceOrigin = "manual" | "automatic";
+export type CodeIndexLocalState = "disabled" | "scanning" | "parsing" | "ready" | "degraded" | "unavailable";
+export type CodeIndexSemanticState = "not_applicable" | "disabled" | "pending" | "unconfigured" | "awaiting_confirmation" | "embedding" | "ready" | "degraded";
+
+export interface CodeIndexChannelStatus {
+  local: CodeIndexLocalState;
+  semantic: CodeIndexSemanticState;
+}
+
+export const codeIndexAutomaticModes = ["disabled", "local", "semantic"] as const;
+
+export type CodeIndexAutomaticMode = (typeof codeIndexAutomaticModes)[number];
+
 export const codeIndexPhases = [
   "disabled",
   "scanning",
@@ -43,6 +60,7 @@ export interface CodeIndexStatus {
 
 export interface CodeIndexConfigurationInput {
   enabled: boolean;
+  mode: CodeIndexMode;
   selectedRoots: string[];
   languages: CodeIndexLanguage[];
   exclusionPatterns: string[];
@@ -53,6 +71,7 @@ export interface CodeIndexWorkspace extends CodeIndexConfigurationInput {
   workspaceId: string;
   canonicalRoot: string;
   displayName: string;
+  origin: CodeIndexWorkspaceOrigin;
   indexVersion: string;
   generation: number;
   status: CodeIndexStatus;

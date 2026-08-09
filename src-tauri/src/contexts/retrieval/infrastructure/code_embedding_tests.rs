@@ -65,6 +65,7 @@ impl Fixture {
                 &registered.workspace_id,
                 CodeIndexConfigurationUpdate {
                     enabled: true,
+                    mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
                     selected_roots: vec![String::new()],
                     languages: vec![CodeLanguage::Rust],
                     exclusion_patterns: Vec::new(),

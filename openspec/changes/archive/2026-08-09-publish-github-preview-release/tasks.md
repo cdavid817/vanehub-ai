@@ -85,6 +85,6 @@ Every edit in this group must be applied to `README.md`, `README.zh-CN.md`, and 
 
 ## 10. Archive
 
-- [ ] 10.1 Replace the `TBD` Purpose in `openspec/specs/desktop-release-delivery/spec.md` with the capability's actual purpose
-- [ ] 10.2 Replace the `TBD` Purpose in `openspec/specs/multilingual-readme/spec.md` with the capability's actual purpose
+- [x] 10.1 Replace the `TBD` Purpose in `openspec/specs/desktop-release-delivery/spec.md` with the capability's actual purpose
+- [x] 10.2 Replace the `TBD` Purpose in `openspec/specs/multilingual-readme/spec.md` with the capability's actual purpose
 - [ ] 10.3 Run `openspec archive publish-github-preview-release`, then `powershell -ExecutionPolicy Bypass -File scripts/Update-OpenSpecArchiveIndex.ps1`, and commit the main specs, archive directory, and index together

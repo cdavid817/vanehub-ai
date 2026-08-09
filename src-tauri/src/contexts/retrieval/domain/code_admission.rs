@@ -170,6 +170,7 @@ mod tests {
     fn configuration() -> CodeIndexConfigurationUpdate {
         CodeIndexConfigurationUpdate {
             enabled: true,
+            mode: crate::contexts::retrieval::domain::CodeIndexMode::Local,
             selected_roots: vec![String::new()],
             languages: CodeLanguage::ALL.to_vec(),
             exclusion_patterns: vec!["*.generated.ts".to_string(), "vendor/**".to_string()],

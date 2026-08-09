@@ -5,7 +5,7 @@
 - **Delivered:** CLI management, single-Agent sessions, interactive Agent terminals, session organization, project/worktree and SSH workspace tools, settings, MCP/SDK/Skills/Prompt Hooks/extensions, IM connectors, scheduled tasks, notifications, usage reporting, and unified redacted logs.
 - **Preview:** Multi-Agent coordination has native and Web/mock service contracts, but the create-session UI still disables Multi Agent mode.
 - **Not available yet:** the Multi-Agent coordination UI, and Japanese application UI resources — Japanese currently covers the README only.
-- **Not available in this build:** Claude Code permission-hook management. The hook is a separate binary that these packages do not yet ship, so enabling it in settings reports an error rather than writing a hook Claude Code could not run. Every other permission surface is unaffected, and your global Claude Code settings are left untouched.
+- **Claude Code permission hooks:** supported packages include the target-specific hook wrapper. If an installation is incomplete or damaged and the wrapper is missing, enabling hook management reports an error and leaves your global Claude Code settings untouched.
 
 ## Downloads
 

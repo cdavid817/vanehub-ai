@@ -227,6 +227,7 @@ mod tests {
     fn configuration() -> CodeIndexConfigurationUpdate {
         CodeIndexConfigurationUpdate {
             enabled: true,
+            mode: crate::contexts::retrieval::domain::CodeIndexMode::Local,
             selected_roots: vec!["src".to_string()],
             languages: vec![CodeLanguage::Rust],
             exclusion_patterns: vec!["*.generated.rs".to_string()],

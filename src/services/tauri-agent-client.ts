@@ -113,7 +113,7 @@ import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
-import type { CodeIndexConfigurationInput } from "../types/code-index";
+import type { CodeIndexAutomaticMode, CodeIndexConfigurationInput } from "../types/code-index";
 import {
   normalizeCodeEmbeddingConfirmation,
   normalizeCodeIndexAuditEntries,
@@ -212,6 +212,10 @@ export const tauriAgentClient: AgentService = {
 
   saveRetrievalConfiguration(profileId: string, modelId: string) {
     return invoke<void>("save_retrieval_configuration", { profileId, modelId });
+  },
+
+  saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode) {
+    return invoke<void>("save_code_index_automatic_mode", { mode });
   },
 
   listEmbeddingModels(profileId: string, transientCredential?: string) {

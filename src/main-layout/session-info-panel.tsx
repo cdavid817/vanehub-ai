@@ -22,8 +22,9 @@ import { agentService } from "../services/runtime-agent-client";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
+import { SessionCodeIndexPane } from "./session-code-index-pane";
 
-export type InfoTab = "basic" | "usage" | "skills";
+export type InfoTab = "basic" | "usage" | "skills" | "codeIndex";
 
 const tabs: Array<{ key: InfoTab; labelKey: string }> = [
   { key: "basic", labelKey: "layout.infoTab.basic" },
@@ -139,16 +140,19 @@ export function SessionInfoPanel({
     queryFn: () => agentService.getSessionUsageSummary(sessionId ?? ""),
     refetchInterval: activeSession?.lifecycleState === "running" ? 5000 : false,
   });
+  const showCodeIndex = activeSession?.agentId === "onepiece" && Boolean(workspacePath);
+  const visibleTabs = showCodeIndex ? [...tabs, { key: "codeIndex" as const, labelKey: "layout.infoTab.codeIndex" }] : tabs;
 
   useEffect(() => {
     if (requestedTab) setActiveTab(requestedTab);
-  }, [requestedTab, sessionId]);
+    else if (!showCodeIndex) setActiveTab("basic");
+  }, [requestedTab, sessionId, showCodeIndex]);
 
   return <>
     <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-lg transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
       <div className="flex h-full min-h-0 flex-col p-3">
         <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2><Button className="h-7 px-2 text-xs" onClick={() => onCollapsedChange(true)} variant="outline"><PanelRightClose className="h-3.5 w-3.5" />{t("layout.collapse")}</Button></div>
-        <div className="ucd-segmented mb-3 grid grid-cols-3 gap-1 rounded-md p-1">{tabs.map((tab) => <button aria-pressed={activeTab === tab.key} className={cn("h-8 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveTab(tab.key)} title={t(tab.labelKey)} type="button">{t(tab.labelKey)}</button>)}</div>
+        <div className={cn("ucd-segmented mb-3 grid gap-1 rounded-md p-1", showCodeIndex ? "grid-cols-4" : "grid-cols-3")}>{visibleTabs.map((tab) => <button aria-pressed={activeTab === tab.key} className={cn("h-8 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveTab(tab.key)} title={t(tab.labelKey)} type="button">{t(tab.labelKey)}</button>)}</div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <Pane active={activeTab === "basic"}>
             <dl className="grid gap-3">
@@ -169,6 +173,7 @@ export function SessionInfoPanel({
           <Pane active={activeTab === "skills"}>
             <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
           </Pane>
+          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"}><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
         </div>
       </div>
     </aside>

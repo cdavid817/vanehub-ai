@@ -31,6 +31,9 @@ jobs:
       - name: Validate synchronized project versions
         run: npm run version:check
 
+      - name: Validate permission hook sidecar configuration
+        run: npm run sidecar:unit:test
+
   package:
     name: Package (${{ matrix.platform }}-${{ matrix.arch }})
     needs: validate

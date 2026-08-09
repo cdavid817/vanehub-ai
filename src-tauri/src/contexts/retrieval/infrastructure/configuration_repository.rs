@@ -1,7 +1,7 @@
 use crate::contexts::retrieval::application::{
     RetrievalConfiguration, RetrievalConfigurationRepository,
 };
-use crate::contexts::retrieval::domain::RetrievalError;
+use crate::contexts::retrieval::domain::{CodeIndexAutomaticMode, RetrievalError};
 use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use rusqlite::{params, OptionalExtension};
@@ -22,12 +22,17 @@ impl RetrievalConfigurationRepository for SqliteRetrievalConfigurationRepository
         let connection = self.database.connection().map_err(database_error)?;
         let configuration = connection
             .query_row(
-                "SELECT source_profile_id, embedding_model FROM retrieval_configuration WHERE id = 1",
+                "SELECT source_profile_id, embedding_model, automatic_code_index_mode \
+                 FROM retrieval_configuration WHERE id = 1",
                 [],
                 |row| {
                     Ok(RetrievalConfiguration {
                         source_profile_id: row.get(0)?,
                         embedding_model: row.get(1)?,
+                        automatic_code_index_mode: CodeIndexAutomaticMode::parse(
+                            &row.get::<_, String>(2)?,
+                        )
+                        .unwrap_or_default(),
                     })
                 },
             )
@@ -52,6 +57,28 @@ impl RetrievalConfigurationRepository for SqliteRetrievalConfigurationRepository
                     updated_at = excluded.updated_at
                 "#,
                 params![profile_id, embedding_model, now],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    fn save_automatic_code_index_mode(
+        &self,
+        mode: CodeIndexAutomaticMode,
+    ) -> Result<(), RetrievalError> {
+        let connection = self.database.connection().map_err(database_error)?;
+        let now = SystemClock.rfc3339();
+        connection
+            .execute(
+                r#"
+                INSERT INTO retrieval_configuration
+                    (id, automatic_code_index_mode, updated_at)
+                VALUES (1, ?1, ?2)
+                ON CONFLICT(id) DO UPDATE SET
+                    automatic_code_index_mode = excluded.automatic_code_index_mode,
+                    updated_at = excluded.updated_at
+                "#,
+                params![mode.as_str(), now],
             )
             .map_err(storage_error)?;
         Ok(())
@@ -107,11 +134,42 @@ mod tests {
     }
 
     #[test]
+    fn automatic_mode_defaults_to_disabled_and_is_saved_independently() {
+        let (_directory, repository) = fixture("automatic code index mode");
+        assert_eq!(
+            repository
+                .load()
+                .expect("default")
+                .automatic_code_index_mode,
+            CodeIndexAutomaticMode::Disabled
+        );
+
+        repository.save("profile-a", "model-a").expect("embedding");
+        repository
+            .save_automatic_code_index_mode(CodeIndexAutomaticMode::Local)
+            .expect("automatic mode");
+        repository
+            .save("profile-b", "model-b")
+            .expect("embedding update");
+
+        let configuration = repository.load().expect("load");
+        assert_eq!(
+            configuration.automatic_code_index_mode,
+            CodeIndexAutomaticMode::Local
+        );
+        assert_eq!(
+            configuration.resolved_model(),
+            Some(("profile-b", "model-b"))
+        );
+    }
+
+    #[test]
     fn a_configuration_missing_either_half_is_not_resolved() {
         assert_eq!(
             RetrievalConfiguration {
                 source_profile_id: Some("p".to_string()),
                 embedding_model: None,
+                automatic_code_index_mode: CodeIndexAutomaticMode::Disabled,
             }
             .resolved_model(),
             None
@@ -120,6 +178,7 @@ mod tests {
             RetrievalConfiguration {
                 source_profile_id: None,
                 embedding_model: Some("m".to_string()),
+                automatic_code_index_mode: CodeIndexAutomaticMode::Disabled,
             }
             .resolved_model(),
             None

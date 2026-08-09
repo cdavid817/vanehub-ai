@@ -7,9 +7,9 @@ use super::{
     RetrievalDocumentRepository,
 };
 use crate::contexts::retrieval::domain::{
-    code_embedding_identity, cosine_similarity, escape_fts_query, fuse_with_rrf, CodeSearchHit,
-    CodeSearchOutcome, CodeSearchQuery, Degradation, MatchedVia, RetrievalError, RetrievalScope,
-    SourceKind,
+    code_embedding_identity, cosine_similarity, escape_fts_query, fuse_with_rrf, CodeIndexMode,
+    CodeSearchHit, CodeSearchOutcome, CodeSearchQuery, Degradation, MatchedVia, RetrievalError,
+    RetrievalScope, SourceKind,
 };
 
 pub(crate) struct CodeSearchService {
@@ -39,6 +39,15 @@ impl CodeSearchService {
     }
 
     fn vector_ranking(&self, text: &str, limit: usize) -> Option<Vec<String>> {
+        if self
+            .code_index
+            .load_workspace(&self.workspace_id)
+            .ok()??
+            .mode
+            == CodeIndexMode::Local
+        {
+            return None;
+        }
         let configuration = self.configuration.load().ok()?;
         let (profile_id, model) = configuration.resolved_model()?;
         let generation = self
@@ -88,6 +97,12 @@ impl CodeRetrievalPort for CodeSearchService {
         let text = truncate_for_embedding(&query.text);
         let over_fetch = query.limit.saturating_mul(4).max(query.limit);
         let scope = RetrievalScope::Workspace(self.workspace_id.clone());
+        let local_mode = self
+            .code_index
+            .load_workspace(&self.workspace_id)?
+            .ok_or(RetrievalError::InvalidScope)?
+            .mode
+            == CodeIndexMode::Local;
         let vector_ranking = self.vector_ranking(&text, over_fetch);
         let keyword_ranking = self
             .documents
@@ -98,10 +113,11 @@ impl CodeRetrievalPort for CodeSearchService {
                 over_fetch,
             )
             .ok();
-        let degraded = match (&vector_ranking, &keyword_ranking) {
-            (None, None) => return Err(RetrievalError::Unavailable),
-            (None, Some(_)) => Some(Degradation::KeywordOnly),
-            (Some(_), None) => Some(Degradation::VectorOnly),
+        let degraded = match (&vector_ranking, &keyword_ranking, local_mode) {
+            (None, None, _) => return Err(RetrievalError::Unavailable),
+            (None, Some(_), true) => None,
+            (None, Some(_), false) => Some(Degradation::KeywordOnly),
+            (Some(_), None, _) => Some(Degradation::VectorOnly),
             _ => None,
         };
         let vector_ids = vector_ranking.unwrap_or_default();

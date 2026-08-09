@@ -16,8 +16,8 @@ pub(crate) use document::{
 pub(crate) use error::RetrievalError;
 
 pub(crate) use code_index::{
-    CodeChunk, CodeFileManifest, CodeIndexConfigurationUpdate, CodeIndexPhase, CodeLanguage,
-    CodeSymbol, CodeWorkspace,
+    CodeChunk, CodeFileManifest, CodeIndexAutomaticMode, CodeIndexConfigurationUpdate,
+    CodeIndexMode, CodeIndexPhase, CodeLanguage, CodeSymbol, CodeWorkspace, CodeWorkspaceOrigin,
 };
 pub(crate) use code_index_status::{
     code_embedding_identity, CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexAuditEvent,

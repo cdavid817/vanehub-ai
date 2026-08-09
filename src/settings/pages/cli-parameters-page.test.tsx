@@ -7,7 +7,7 @@ import { createCliParameterProfile } from "../../services/cli-parameter-catalog"
 import { CliParametersPage } from "./cli-parameters-page";
 
 describe("CliParametersPage", () => {
-  it("renders the four managed CLIs and a safe preview", () => {
+  it("renders the four managed CLIs, OnePiece, and a safe preview", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(
       ["cli-parameter-profiles"],
@@ -25,6 +25,7 @@ describe("CliParametersPage", () => {
     expect(html).toContain("Codex CLI");
     expect(html).toContain("Gemini CLI");
     expect(html).toContain("OpenCode");
+    expect(html).toContain("OnePiece");
     expect(html).toContain("安全参数预览");
     expect(html).not.toContain("prompt=");
   });

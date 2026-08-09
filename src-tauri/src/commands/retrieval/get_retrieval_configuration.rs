@@ -13,6 +13,7 @@ use tauri::State;
 pub(crate) struct RetrievalConfiguration {
     pub(crate) source_profile_id: Option<String>,
     pub(crate) embedding_model: Option<String>,
+    pub(crate) automatic_code_index_mode: String,
 }
 
 #[tauri::command]
@@ -23,6 +24,7 @@ pub(crate) fn get_retrieval_configuration(
         .map(|configuration| RetrievalConfiguration {
             source_profile_id: configuration.source_profile_id,
             embedding_model: configuration.embedding_model,
+            automatic_code_index_mode: configuration.automatic_code_index_mode.as_str().to_string(),
         })
         // 类别而非 `Display`：`RetrievalError::Storage` 的载荷是 rusqlite 的原始消息，而
         // 这个串会被 `onepiece-retrieval-section.tsx` 原样渲染进 DOM（设计文档 §8.2）。

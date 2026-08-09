@@ -132,6 +132,7 @@ import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { createWebMcpToolSimulationPlan } from "./web-mcp-tool-simulation";
 import type {
   CodeIndexAuditEntry,
+  CodeIndexAutomaticMode,
   CodeIndexConfigurationInput,
   CodeIndexPhase,
   CodeIndexStatus,
@@ -587,7 +588,11 @@ function createAgentMemory(agentId: string, folder: string | null, content: stri
 /** Mock retrieval configuration (`add-retrieval-vector-search`) — a global singleton mirroring
  * the real `retrieval_configuration` table's single row; starts unconfigured like a fresh
  * install (design doc §7.4). */
-let webRetrievalConfiguration: RetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+let webRetrievalConfiguration: RetrievalConfiguration = {
+  sourceProfileId: null,
+  embeddingModel: null,
+  automaticCodeIndexMode: "disabled",
+};
 
 /** Mock retrieval index status — a single global aggregate, mirroring the real one across every
  * agent and every `scope_folder` (design doc §7.4). Seeded with plausible, self-consistent counts
@@ -668,6 +673,38 @@ function recordWebCodeIndexAudit(workspaceId: string, event: CodeIndexAuditEntry
     createdAt: nowIso(),
   }, ...webCodeIndexAudit].slice(0, 200);
   nextWebCodeAuditId += 1;
+}
+
+function discoverWebSessionCodeIndex(session: Session) {
+  const mode = webRetrievalConfiguration.automaticCodeIndexMode;
+  const root = session.worktreePath ?? session.folder ?? session.projectPath;
+  if (session.agentId !== "onepiece" || session.remoteWorkspace || !root || mode === "disabled") {
+    return;
+  }
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase();
+  const existing = [...webCodeIndexes.values()].find((workspace) => (
+    workspace.canonicalRoot.replaceAll("\\", "/").replace(/\/$/, "").toLocaleLowerCase()
+      === normalizedRoot
+  ));
+  if (existing) return;
+  const displayName = root.split(/[\\/]/).filter(Boolean).at(-1) ?? root;
+  const workspace: CodeIndexWorkspace = {
+    workspaceId: `web-code-index-${nextWebCodeIndexId}`,
+    canonicalRoot: root,
+    displayName,
+    origin: "automatic",
+    enabled: true,
+    mode,
+    selectedRoots: [""],
+    languages: [...codeIndexLanguages],
+    exclusionPatterns: [],
+    maxFileBytes: 100 * 1024,
+    indexVersion: "1",
+    generation: 1,
+    status: emptyCodeIndexStatus("scanning"),
+  };
+  nextWebCodeIndexId += 1;
+  webCodeIndexes.set(workspace.workspaceId, workspace);
 }
 
 /** Static catalog, independent of the requested profile — listing embedding models never hits
@@ -1757,7 +1794,11 @@ export function resetWebLoopsForTest() {
 }
 
 export function resetWebRetrievalForTest() {
-  webRetrievalConfiguration = { sourceProfileId: null, embeddingModel: null };
+  webRetrievalConfiguration = {
+    sourceProfileId: null,
+    embeddingModel: null,
+    automaticCodeIndexMode: "disabled",
+  };
   webRetrievalIndexStatus = seededWebRetrievalIndexStatus();
   nextWebCodeIndexId = 1;
   nextWebCodeAuditId = 1;
@@ -1781,7 +1822,7 @@ export function searchWebCodeIndex(workspaceId: string, query: string) {
     symbolName: "handle_login",
     symbolKind: "function",
     snippet: "export async function handle_login(request: Request) { /* redacted */ }",
-    matchedVia: "hybrid",
+    matchedVia: workspace.mode === "local" ? "keyword" : "hybrid",
   }];
 }
 
@@ -2292,7 +2333,15 @@ export const webAgentClient: AgentService = {
   },
 
   async saveRetrievalConfiguration(profileId: string, modelId: string) {
-    webRetrievalConfiguration = { sourceProfileId: profileId, embeddingModel: modelId };
+    webRetrievalConfiguration = {
+      ...webRetrievalConfiguration,
+      sourceProfileId: profileId,
+      embeddingModel: modelId,
+    };
+  },
+
+  async saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode) {
+    webRetrievalConfiguration = { ...webRetrievalConfiguration, automaticCodeIndexMode: mode };
   },
 
   async listEmbeddingModels(profileId: string, transientCredential?: string) {
@@ -2337,7 +2386,9 @@ export const webAgentClient: AgentService = {
       workspaceId: `web-code-index-${nextWebCodeIndexId}`,
       canonicalRoot,
       displayName: name,
+      origin: "manual",
       enabled: false,
+      mode: "local",
       selectedRoots: [""],
       languages: [...codeIndexLanguages],
       exclusionPatterns: [],
@@ -2362,6 +2413,22 @@ export const webAgentClient: AgentService = {
 
   async refreshCodeIndexWorkspace(workspaceId: string) {
     const workspace = requireWebCodeIndex(workspaceId);
+    if (workspace.mode === "local" && workspace.status.phase === "parsing") {
+      Object.assign(workspace.status, {
+        totalFiles: 18,
+        processedFiles: 18,
+        failedFiles: 0,
+        totalChunks: 54,
+        processedChunks: 0,
+        pendingChunks: 54,
+        indexedChunks: 0,
+        failedChunks: 0,
+        redactionCount: 4,
+        estimatedEmbeddingRequests: 0,
+      });
+      updateWebCodeIndexPhase(workspace, "ready");
+      return structuredClone(workspace.status);
+    }
     const nextPhase: Partial<Record<CodeIndexPhase, CodeIndexPhase>> = {
       scanning: "parsing",
       parsing: "awaiting_embedding_confirmation",
@@ -2375,6 +2442,9 @@ export const webAgentClient: AgentService = {
 
   async confirmCodeIndexEmbedding(workspaceId: string, profileId: string, model: string, generation: number) {
     const workspace = requireWebCodeIndex(workspaceId);
+    if (workspace.mode !== "semantic") {
+      throw new Error("Local code indexes do not use embedding confirmation.");
+    }
     if (!workspace.enabled || generation !== workspace.generation
       || webRetrievalConfiguration.sourceProfileId !== profileId
       || webRetrievalConfiguration.embeddingModel !== model) {
@@ -3157,6 +3227,7 @@ export const webAgentClient: AgentService = {
     nextSessionId += 1;
     sessions = [session, ...sessions];
     activeSessionId = session.id;
+    discoverWebSessionCodeIndex(session);
     emitSessionEvent({ kind: "active-session-changed", sessionId: session.id });
     workflowState = {
       ...workflowState,

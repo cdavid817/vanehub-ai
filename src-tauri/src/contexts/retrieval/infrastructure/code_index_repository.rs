@@ -3,8 +3,9 @@ use crate::contexts::retrieval::domain::code_index::CODE_INDEX_VERSION;
 use crate::contexts::retrieval::domain::{
     code_embedding_identity, content_hash, document_id, redact_code, CodeChunk,
     CodeEmbeddingConfirmation, CodeFileManifest, CodeIndexAuditEntry, CodeIndexAuditEvent,
-    CodeIndexAuditReason, CodeIndexConfigurationUpdate, CodeIndexPhase, CodeIndexStatus,
-    CodeSearchCandidate, CodeSymbol, CodeWorkspace, FailureCategory, RetrievalError, SourceKind,
+    CodeIndexAuditReason, CodeIndexConfigurationUpdate, CodeIndexMode, CodeIndexPhase,
+    CodeIndexStatus, CodeSearchCandidate, CodeSymbol, CodeWorkspace, CodeWorkspaceOrigin,
+    FailureCategory, RetrievalError, SourceKind,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
@@ -49,16 +50,18 @@ impl SqliteCodeIndexRepository {
             .execute(
                 r#"
                 INSERT INTO code_index_workspaces
-                  (workspace_id, canonical_root, display_name, enabled, selected_roots_json,
+                  (workspace_id, canonical_root, display_name, origin, enabled, index_mode, selected_roots_json,
                    languages_json, exclusion_patterns_json, max_file_bytes, index_version,
                    phase, generation, created_at, updated_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
                 "#,
                 params![
                     workspace.workspace_id,
                     workspace.canonical_root,
                     workspace.display_name,
+                    workspace.origin.as_str(),
                     workspace.enabled,
+                    workspace.mode.as_str(),
                     json(&workspace.selected_roots)?,
                     json(&workspace.languages)?,
                     json(&workspace.exclusion_patterns)?,
@@ -71,6 +74,63 @@ impl SqliteCodeIndexRepository {
             )
             .map_err(storage_error)?;
         Ok(workspace)
+    }
+
+    pub(crate) fn ensure_automatic_workspace(
+        &self,
+        root: &Path,
+        display_name: &str,
+        mode: CodeIndexMode,
+    ) -> Result<(CodeWorkspace, bool), RetrievalError> {
+        let canonical = root.canonicalize().map_err(io_error)?;
+        if !canonical.is_dir() {
+            return Err(RetrievalError::InvalidScope);
+        }
+        let canonical_root = normalize_windows_extended_length_path(&canonical.to_string_lossy());
+        let mut workspace =
+            CodeWorkspace::new(canonical_root.clone(), display_name.trim().to_string());
+        workspace.enabled = true;
+        workspace.mode = mode;
+        workspace.origin = CodeWorkspaceOrigin::Automatic;
+        workspace.phase = CodeIndexPhase::Scanning;
+        workspace.generation = 1;
+        let connection = self.database.connection().map_err(database_error)?;
+        let now = SystemClock.rfc3339();
+        let created = connection
+            .execute(
+                r#"
+                INSERT OR IGNORE INTO code_index_workspaces
+                  (workspace_id, canonical_root, display_name, origin, enabled, index_mode, selected_roots_json,
+                   languages_json, exclusion_patterns_json, max_file_bytes, index_version,
+                   phase, generation, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
+                "#,
+                params![
+                    workspace.workspace_id,
+                    workspace.canonical_root,
+                    workspace.display_name,
+                    workspace.origin.as_str(),
+                    workspace.enabled,
+                    workspace.mode.as_str(),
+                    json(&workspace.selected_roots)?,
+                    json(&workspace.languages)?,
+                    json(&workspace.exclusion_patterns)?,
+                    workspace.max_file_bytes as i64,
+                    workspace.index_version,
+                    workspace.phase.as_str(),
+                    workspace.generation as i64,
+                    now,
+                ],
+            )
+            .map_err(storage_error)?
+            == 1;
+        let existing = load_workspace_by_root(&connection, &canonical_root)?
+            .ok_or(RetrievalError::InvalidScope)?;
+        drop(connection);
+        let loaded = self
+            .load_workspace(&existing.workspace_id)?
+            .ok_or(RetrievalError::InvalidScope)?;
+        Ok((loaded, created))
     }
 
     pub(crate) fn load_workspace(
@@ -161,21 +221,23 @@ impl SqliteCodeIndexRepository {
         } else {
             CodeIndexPhase::Disabled
         };
-        let connection = self.database.connection().map_err(database_error)?;
-        let changed = connection
+        let mut connection = self.database.connection().map_err(database_error)?;
+        let transaction = connection.transaction().map_err(storage_error)?;
+        let changed = transaction
             .execute(
                 r#"
                 UPDATE code_index_workspaces
-                SET enabled = ?2, selected_roots_json = ?3, languages_json = ?4,
-                    exclusion_patterns_json = ?5, max_file_bytes = ?6, phase = ?7,
+                SET enabled = ?2, index_mode = ?3, selected_roots_json = ?4, languages_json = ?5,
+                    exclusion_patterns_json = ?6, max_file_bytes = ?7, phase = ?8,
                     generation = generation + 1, embedding_confirmed_profile = NULL,
                     embedding_confirmed_model = NULL, embedding_confirmed_generation = NULL,
-                    updated_at = ?8
+                    updated_at = ?9
                 WHERE workspace_id = ?1
                 "#,
                 params![
                     workspace_id,
                     update.enabled,
+                    update.mode.as_str(),
                     json(&update.selected_roots)?,
                     json(&languages)?,
                     json(&update.exclusion_patterns)?,
@@ -188,6 +250,20 @@ impl SqliteCodeIndexRepository {
         if changed == 0 {
             return Err(RetrievalError::InvalidScope);
         }
+        if update.mode == CodeIndexMode::Local {
+            transaction
+                .execute(
+                    r#"
+                    UPDATE retrieval_documents
+                    SET index_state = 'indexed', attempt_count = 0, failure_category = NULL,
+                        updated_at = ?2
+                    WHERE source_kind = 'workspace_file' AND scope_folder = ?1
+                    "#,
+                    params![workspace_id, SystemClock.rfc3339()],
+                )
+                .map_err(storage_error)?;
+        }
+        transaction.commit().map_err(storage_error)?;
         self.load_workspace(workspace_id)?
             .ok_or(RetrievalError::InvalidScope)
     }
@@ -257,6 +333,29 @@ impl SqliteCodeIndexRepository {
                         symbol.start_line,
                         symbol.end_line,
                     ],
+                )
+                .map_err(storage_error)?;
+        }
+        let mode = transaction
+            .query_row(
+                "SELECT index_mode FROM code_index_workspaces WHERE workspace_id = ?1",
+                [&manifest.workspace_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(storage_error)?;
+        if mode == CodeIndexMode::Local.as_str() {
+            transaction
+                .execute(
+                    r#"
+                    UPDATE retrieval_documents
+                    SET index_state = 'indexed', attempt_count = 0, failure_category = NULL,
+                        updated_at = ?3
+                    WHERE id IN (
+                      SELECT document_id FROM code_index_chunks
+                      WHERE workspace_id = ?1 AND relative_path = ?2
+                    )
+                    "#,
+                    params![manifest.workspace_id, relative_path, now],
                 )
                 .map_err(storage_error)?;
         }
@@ -403,6 +502,15 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
         Self::register_workspace(self, root, display_name)
     }
 
+    fn ensure_automatic_workspace(
+        &self,
+        root: &Path,
+        display_name: &str,
+        mode: CodeIndexMode,
+    ) -> Result<(CodeWorkspace, bool), RetrievalError> {
+        Self::ensure_automatic_workspace(self, root, display_name, mode)
+    }
+
     fn list_workspaces(&self) -> Result<Vec<CodeWorkspace>, RetrievalError> {
         let connection = self.database.connection().map_err(database_error)?;
         let mut statement = connection
@@ -503,7 +611,8 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
                   (SELECT failure_category FROM retrieval_documents
                    WHERE source_kind = 'workspace_file' AND scope_folder = ?1
                      AND failure_category IS NOT NULL
-                   ORDER BY updated_at DESC, id DESC LIMIT 1)
+                   ORDER BY updated_at DESC, id DESC LIMIT 1),
+                  index_mode
                 FROM code_index_workspaces WHERE workspace_id = ?1
                 "#,
                 [workspace_id],
@@ -574,7 +683,8 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
                 UPDATE code_index_workspaces
                 SET embedding_confirmed_profile = ?2, embedding_confirmed_model = ?3,
                     embedding_confirmed_generation = ?4, phase = 'embedding', updated_at = ?5
-                WHERE workspace_id = ?1 AND enabled = 1 AND generation = ?4
+                WHERE workspace_id = ?1 AND enabled = 1 AND index_mode = 'semantic'
+                  AND generation = ?4
                 "#,
                 params![
                     workspace_id,
@@ -771,6 +881,9 @@ fn read_code_index_status(row: &rusqlite::Row<'_>) -> Result<CodeIndexStatus, ru
     let phase: String = row.get(0)?;
     let total_chunks = row.get::<_, i64>(5)? as u64;
     let last_failure: Option<String> = row.get(11)?;
+    let mode =
+        CodeIndexMode::parse(&row.get::<_, String>(12)?).ok_or(rusqlite::Error::InvalidQuery)?;
+    let local = mode == CodeIndexMode::Local;
     Ok(CodeIndexStatus {
         phase: CodeIndexPhase::parse(&phase).ok_or(rusqlite::Error::InvalidQuery)?,
         updated_at: row.get(1)?,
@@ -778,12 +891,32 @@ fn read_code_index_status(row: &rusqlite::Row<'_>) -> Result<CodeIndexStatus, ru
         processed_files: row.get::<_, i64>(3)? as u64,
         failed_files: row.get::<_, i64>(4)? as u64,
         total_chunks,
-        processed_chunks: row.get::<_, i64>(6)? as u64,
-        pending_chunks: row.get::<_, i64>(7)? as u64,
-        indexed_chunks: row.get::<_, i64>(8)? as u64,
-        failed_chunks: row.get::<_, i64>(9)? as u64,
+        processed_chunks: if local {
+            total_chunks
+        } else {
+            row.get::<_, i64>(6)? as u64
+        },
+        pending_chunks: if local {
+            0
+        } else {
+            row.get::<_, i64>(7)? as u64
+        },
+        indexed_chunks: if local {
+            total_chunks
+        } else {
+            row.get::<_, i64>(8)? as u64
+        },
+        failed_chunks: if local {
+            0
+        } else {
+            row.get::<_, i64>(9)? as u64
+        },
         redaction_count: row.get::<_, i64>(10)? as u64,
-        estimated_embedding_requests: total_chunks.div_ceil(EMBEDDING_BATCH_SIZE as u64),
+        estimated_embedding_requests: if local {
+            0
+        } else {
+            total_chunks.div_ceil(EMBEDDING_BATCH_SIZE as u64)
+        },
         last_failure_category: last_failure
             .map(|category| FailureCategory::parse(&category).ok_or(rusqlite::Error::InvalidQuery))
             .transpose()?,
@@ -903,26 +1036,30 @@ fn workspace_requires_rebuild(
 
 fn workspace_select(filter: &str) -> String {
     format!(
-        "SELECT workspace_id, canonical_root, display_name, enabled, selected_roots_json,
+        "SELECT workspace_id, canonical_root, display_name, origin, enabled, index_mode, selected_roots_json,
          languages_json, exclusion_patterns_json, max_file_bytes, index_version, phase, generation
          FROM code_index_workspaces WHERE {filter}"
     )
 }
 
 fn read_workspace(row: &rusqlite::Row<'_>) -> Result<CodeWorkspace, rusqlite::Error> {
-    let phase: String = row.get(9)?;
+    let origin: String = row.get(3)?;
+    let mode: String = row.get(5)?;
+    let phase: String = row.get(11)?;
     Ok(CodeWorkspace {
         workspace_id: row.get(0)?,
         canonical_root: row.get(1)?,
         display_name: row.get(2)?,
-        enabled: row.get(3)?,
-        selected_roots: json_column(row, 4)?,
-        languages: language_column(row, 5)?,
-        exclusion_patterns: json_column(row, 6)?,
-        max_file_bytes: row.get::<_, i64>(7)? as u64,
-        index_version: row.get(8)?,
+        origin: CodeWorkspaceOrigin::parse(&origin).ok_or(rusqlite::Error::InvalidQuery)?,
+        enabled: row.get(4)?,
+        mode: CodeIndexMode::parse(&mode).ok_or(rusqlite::Error::InvalidQuery)?,
+        selected_roots: json_column(row, 6)?,
+        languages: language_column(row, 7)?,
+        exclusion_patterns: json_column(row, 8)?,
+        max_file_bytes: row.get::<_, i64>(9)? as u64,
+        index_version: row.get(10)?,
         phase: CodeIndexPhase::parse(&phase).unwrap_or(CodeIndexPhase::Unavailable),
-        generation: row.get::<_, i64>(10)? as u64,
+        generation: row.get::<_, i64>(12)? as u64,
     })
 }
 

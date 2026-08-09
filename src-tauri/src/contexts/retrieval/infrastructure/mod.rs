@@ -12,6 +12,9 @@ pub(crate) mod workspace_file_index_source;
 
 pub(crate) use configuration_repository::SqliteRetrievalConfigurationRepository;
 pub(crate) use openai_embedding_adapter::HttpEmbeddingAdapter;
-pub(crate) use schema::{apply_code_index_schema, apply_retrieval_schema};
+pub(crate) use schema::{
+    apply_code_index_automatic_mode_schema, apply_code_index_mode_schema, apply_code_index_schema,
+    apply_retrieval_schema,
+};
 pub(crate) use sqlite_repository::SqliteRetrievalDocumentRepository;
 pub(crate) use workspace_file_index_source::WorkspaceFileIndexSource;

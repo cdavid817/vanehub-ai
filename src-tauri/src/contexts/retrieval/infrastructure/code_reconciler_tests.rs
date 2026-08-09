@@ -30,6 +30,7 @@ impl Fixture {
                 &registered.workspace_id,
                 CodeIndexConfigurationUpdate {
                     enabled: true,
+                    mode: crate::contexts::retrieval::domain::CodeIndexMode::Local,
                     selected_roots: vec![String::new()],
                     languages,
                     exclusion_patterns: Vec::new(),
@@ -174,6 +175,7 @@ fn disabling_a_language_removes_its_existing_manifests_and_chunks() {
             &fixture.workspace.workspace_id,
             CodeIndexConfigurationUpdate {
                 enabled: true,
+                mode: crate::contexts::retrieval::domain::CodeIndexMode::Local,
                 selected_roots: vec![String::new()],
                 languages: vec![CodeLanguage::Rust],
                 exclusion_patterns: Vec::new(),

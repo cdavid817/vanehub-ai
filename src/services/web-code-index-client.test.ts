@@ -12,6 +12,7 @@ describe("Web code-index client", () => {
     const workspace = await webAgentClient.registerCodeIndexWorkspace("D:/code/app", "App");
     const configured = await webAgentClient.saveCodeIndexConfiguration(workspace.workspaceId, {
       enabled: true,
+      mode: "semantic",
       selectedRoots: ["src"],
       languages: ["typescript", "rust"],
       exclusionPatterns: ["dist/**"],
@@ -30,7 +31,7 @@ describe("Web code-index client", () => {
     await expect(webAgentClient.refreshCodeIndexWorkspace(workspace.workspaceId))
       .resolves.toMatchObject({ phase: "ready", indexedChunks: 54, pendingChunks: 0 });
     expect(searchWebCodeIndex(workspace.workspaceId, "handle_login"))
-      .toMatchObject([{ filePath: "src/auth.ts", symbolName: "handle_login" }]);
+      .toMatchObject([{ filePath: "src/auth.ts", symbolName: "handle_login", matchedVia: "hybrid" }]);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -39,6 +40,7 @@ describe("Web code-index client", () => {
     const second = await webAgentClient.registerCodeIndexWorkspace("D:/code/second", "Second");
     const configured = await webAgentClient.saveCodeIndexConfiguration(first.workspaceId, {
       enabled: true,
+      mode: "semantic",
       selectedRoots: [""],
       languages: ["rust"],
       exclusionPatterns: [],
@@ -55,5 +57,31 @@ describe("Web code-index client", () => {
 
     await webAgentClient.deleteCodeIndexWorkspace(first.workspaceId);
     await expect(webAgentClient.listCodeIndexWorkspaces()).resolves.toEqual([second]);
+  });
+
+  it("completes local indexing without an embedding model or confirmation", async () => {
+    const workspace = await webAgentClient.registerCodeIndexWorkspace("D:/code/local", "Local");
+    expect(workspace.mode).toBe("local");
+    await webAgentClient.saveCodeIndexConfiguration(workspace.workspaceId, {
+      enabled: true,
+      mode: "local",
+      selectedRoots: ["src"],
+      languages: ["typescript"],
+      exclusionPatterns: [],
+      maxFileBytes: 102_400,
+    });
+
+    await webAgentClient.refreshCodeIndexWorkspace(workspace.workspaceId);
+    await expect(webAgentClient.refreshCodeIndexWorkspace(workspace.workspaceId)).resolves.toMatchObject({
+      phase: "ready",
+      pendingChunks: 0,
+      indexedChunks: 54,
+      estimatedEmbeddingRequests: 0,
+    });
+    await expect(webAgentClient.confirmCodeIndexEmbedding(
+      workspace.workspaceId, "profile-a", "model-a", 1,
+    )).rejects.toThrow("do not use embedding confirmation");
+    expect(searchWebCodeIndex(workspace.workspaceId, "handle_login"))
+      .toMatchObject([{ matchedVia: "keyword" }]);
   });
 });

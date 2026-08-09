@@ -149,15 +149,36 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("plan migration");
-        let reconciliation_migration: String = connection
+        let code_index_migration: String = connection
             .query_row(
                 "SELECT name FROM schema_migrations WHERE version = 50",
                 [],
                 |row| row.get(0),
             )
+            .expect("code index migration");
+        let code_index_mode_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 51",
+                [],
+                |row| row.get(0),
+            )
+            .expect("code index mode migration");
+        let automatic_code_index_mode_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 52",
+                [],
+                |row| row.get(0),
+            )
+            .expect("automatic code index mode migration");
+        let reconciliation_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 53",
+                [],
+                |row| row.get(0),
+            )
             .expect("plan and code index reconciliation migration");
 
-        assert_eq!(migration_count, 50);
+        assert_eq!(migration_count, 53);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 6);
         assert_eq!(skill_table_exists, 0);
@@ -165,6 +186,12 @@ mod tests {
         assert_eq!(cli_config_migration, "cli-agent-applied-ownership-snapshot");
         assert_eq!(skill_reliability_migration, "skill-management-reliability");
         assert_eq!(plan_migration, "plan-execution-foundation");
+        assert_eq!(code_index_migration, "workspace-code-index-foundation");
+        assert_eq!(code_index_mode_migration, "workspace-code-index-mode");
+        assert_eq!(
+            automatic_code_index_mode_migration,
+            "automatic-code-index-mode"
+        );
         assert_eq!(
             reconciliation_migration,
             "plan-and-code-index-reconciliation"
@@ -200,7 +227,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 50);
+        assert_eq!(migration_count, 53);
     }
 
     #[test]

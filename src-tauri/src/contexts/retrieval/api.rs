@@ -8,7 +8,7 @@ use super::application::{
     RetrievalDocumentRepository, RetrievalIndexStatus, SearchOutcome, SearchService,
 };
 use super::domain::{
-    CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexAuditEvent,
+    CodeEmbeddingConfirmation, CodeIndexAuditEntry, CodeIndexAuditEvent, CodeIndexAutomaticMode,
     CodeIndexConfigurationUpdate, CodeIndexStatus, CodeWorkspace, RetrievalError, RetrievalQuery,
     RetrievalScope, SourceKind,
 };
@@ -121,6 +121,13 @@ impl RetrievalApi {
         Ok(())
     }
 
+    pub(crate) fn save_automatic_code_index_mode(
+        &self,
+        mode: CodeIndexAutomaticMode,
+    ) -> Result<(), RetrievalError> {
+        self.configuration.save_automatic_code_index_mode(mode)
+    }
+
     /// 与配置一样是全局的：检索能力对所有 agent 生效，`is_configured()` 也不分 agent，按
     /// 单个 agent 汇报状态只会让别的 agent 的索引行无处可见。
     pub(crate) fn index_status(&self) -> Result<RetrievalIndexStatus, RetrievalError> {
@@ -166,6 +173,39 @@ impl CodeIndexApi {
         self.repository.register_workspace(root, display_name)
     }
 
+    pub(crate) fn discover_session_workspace(
+        &self,
+        agent_id: &str,
+        local_folder: Option<&str>,
+        is_remote: bool,
+    ) -> Result<Option<CodeWorkspace>, RetrievalError> {
+        if agent_id != "onepiece" || is_remote {
+            return Ok(None);
+        }
+        let Some(folder) = local_folder.filter(|folder| !folder.trim().is_empty()) else {
+            return Ok(None);
+        };
+        let policy = self.retrieval.configuration()?.automatic_code_index_mode;
+        let mode = match policy {
+            CodeIndexAutomaticMode::Disabled => return Ok(None),
+            CodeIndexAutomaticMode::Local => super::domain::CodeIndexMode::Local,
+            CodeIndexAutomaticMode::Semantic => super::domain::CodeIndexMode::Semantic,
+        };
+        let path = Path::new(folder);
+        let display_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(folder);
+        let (workspace, created) =
+            self.repository
+                .ensure_automatic_workspace(path, display_name, mode)?;
+        if created {
+            self.retrieval.wake_worker();
+        }
+        Ok(Some(workspace))
+    }
+
     pub(crate) fn list_workspaces(&self) -> Result<Vec<CodeWorkspace>, RetrievalError> {
         self.repository.list_workspaces()
     }
@@ -205,6 +245,11 @@ impl CodeIndexApi {
         model: &str,
         generation: u64,
     ) -> Result<CodeEmbeddingConfirmation, RetrievalError> {
+        if self.workspace(workspace_id)?.mode != super::domain::CodeIndexMode::Semantic {
+            return Err(RetrievalError::Validation(
+                "local code indexes do not accept embedding confirmation".to_string(),
+            ));
+        }
         let configuration = self.retrieval.configuration()?;
         let Some((effective_profile, effective_model)) = configuration.resolved_model() else {
             return Err(RetrievalError::NotConfigured);
@@ -256,8 +301,11 @@ impl CodeIndexApi {
         self.save_configuration(workspace_id, update)
     }
 
-    pub(crate) fn delete(&self, workspace_id: &str) -> Result<(), RetrievalError> {
-        self.repository.delete_workspace(workspace_id)
+    pub(crate) async fn delete(&self, workspace_id: String) -> Result<(), RetrievalError> {
+        let repository = Arc::clone(&self.repository);
+        tauri::async_runtime::spawn_blocking(move || repository.delete_workspace(&workspace_id))
+            .await
+            .map_err(|_| RetrievalError::Storage("workspace deletion task failed".to_string()))?
     }
 }
 
@@ -283,6 +331,7 @@ mod tests {
         Configured,
         Unconfigured,
         Failing,
+        Automatic(CodeIndexAutomaticMode),
     }
 
     const PROFILE: &str = "profile-a";
@@ -294,13 +343,25 @@ mod tests {
                 Self::Configured => Ok(RetrievalConfiguration {
                     source_profile_id: Some(PROFILE.to_string()),
                     embedding_model: Some(MODEL.to_string()),
+                    automatic_code_index_mode: CodeIndexAutomaticMode::Disabled,
                 }),
                 Self::Unconfigured => Ok(RetrievalConfiguration::default()),
                 Self::Failing => Err(RetrievalError::Storage("boom".to_string())),
+                Self::Automatic(mode) => Ok(RetrievalConfiguration {
+                    automatic_code_index_mode: *mode,
+                    ..RetrievalConfiguration::default()
+                }),
             }
         }
 
         fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            Ok(())
+        }
+
+        fn save_automatic_code_index_mode(
+            &self,
+            _mode: CodeIndexAutomaticMode,
+        ) -> Result<(), RetrievalError> {
             Ok(())
         }
     }
@@ -522,6 +583,69 @@ mod tests {
     }
 
     #[test]
+    fn automatic_discovery_respects_policy_and_reuses_existing_configuration() {
+        let database_directory = TempDirectory::new("automatic-api-database");
+        let root = TempDirectory::new("automatic-api-root");
+        let database =
+            NativeDatabase::new(database_directory.path().to_path_buf()).expect("database");
+        let repository = Arc::new(SqliteCodeIndexRepository::new(database));
+        let (retrieval, _documents, wakeups) = api(FakeConfigurationRepository::Automatic(
+            CodeIndexAutomaticMode::Local,
+        ));
+        let code_api = CodeIndexApi::new(repository, retrieval);
+
+        let created = code_api
+            .discover_session_workspace("onepiece", root.path().to_str(), false)
+            .expect("discover")
+            .expect("workspace");
+        assert!(created.enabled);
+        assert_eq!(created.mode, super::super::domain::CodeIndexMode::Local);
+        assert_eq!(
+            created.origin,
+            super::super::domain::CodeWorkspaceOrigin::Automatic
+        );
+        assert!(wakeups.try_recv().is_ok());
+
+        let mut update = created.configuration().expect("configuration");
+        update.enabled = false;
+        update.mode = super::super::domain::CodeIndexMode::Semantic;
+        let explicit = code_api
+            .save_configuration(&created.workspace_id, update)
+            .expect("explicit override");
+        let reused = code_api
+            .discover_session_workspace("onepiece", root.path().to_str(), false)
+            .expect("rediscover")
+            .expect("workspace");
+        assert_eq!(reused, explicit);
+    }
+
+    #[test]
+    fn automatic_discovery_ignores_disabled_remote_and_non_onepiece_sessions() {
+        let database_directory = TempDirectory::new("automatic-api-disabled-database");
+        let root = TempDirectory::new("automatic-api-disabled-root");
+        let database =
+            NativeDatabase::new(database_directory.path().to_path_buf()).expect("database");
+        let repository = Arc::new(SqliteCodeIndexRepository::new(database));
+        let (retrieval, _documents, _wakeups) = api(FakeConfigurationRepository::Automatic(
+            CodeIndexAutomaticMode::Disabled,
+        ));
+        let code_api = CodeIndexApi::new(repository, retrieval);
+
+        assert_eq!(
+            code_api.discover_session_workspace("onepiece", root.path().to_str(), false),
+            Ok(None)
+        );
+        assert_eq!(
+            code_api.discover_session_workspace("onepiece", root.path().to_str(), true),
+            Ok(None)
+        );
+        assert_eq!(
+            code_api.discover_session_workspace("codex-cli", root.path().to_str(), false),
+            Ok(None)
+        );
+    }
+
+    #[test]
     fn code_index_audit_api_is_bounded_to_the_requested_workspace() {
         let database_directory = TempDirectory::new("code-index-api-database");
         let first_root = TempDirectory::new("code-index-api-first");
@@ -566,5 +690,24 @@ mod tests {
             code_api.audit("unknown-workspace", 10),
             Err(RetrievalError::InvalidScope)
         );
+    }
+
+    #[test]
+    fn local_workspace_rejects_embedding_confirmation() {
+        let database_directory = TempDirectory::new("local-code-index-api");
+        let workspace_root = TempDirectory::new("local-code-index-root");
+        let database =
+            NativeDatabase::new(database_directory.path().to_path_buf()).expect("database");
+        let repository = Arc::new(SqliteCodeIndexRepository::new(database));
+        let workspace = repository
+            .register_workspace(workspace_root.path(), "local")
+            .expect("workspace");
+        let (retrieval, _documents, _wakeups) = api(FakeConfigurationRepository::Configured);
+        let code_api = CodeIndexApi::new(repository, retrieval);
+
+        assert!(matches!(
+            code_api.confirm_embedding(&workspace.workspace_id, PROFILE, MODEL, 0),
+            Err(RetrievalError::Validation(_))
+        ));
     }
 }

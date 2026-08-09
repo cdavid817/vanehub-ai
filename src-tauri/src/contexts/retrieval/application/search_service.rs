@@ -225,6 +225,7 @@ mod tests {
                 configuration: RetrievalConfiguration {
                     source_profile_id: Some(profile.to_string()),
                     embedding_model: Some(model.to_string()),
+                    automatic_code_index_mode: Default::default(),
                 },
             }
         }
@@ -242,6 +243,13 @@ mod tests {
         }
 
         fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by search_service tests")
+        }
+
+        fn save_automatic_code_index_mode(
+            &self,
+            _mode: crate::contexts::retrieval::domain::CodeIndexAutomaticMode,
+        ) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by search_service tests")
         }
     }

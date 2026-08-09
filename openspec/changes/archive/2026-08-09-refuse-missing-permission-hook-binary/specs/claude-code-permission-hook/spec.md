@@ -16,6 +16,18 @@ VaneHub SHALL NOT write a permission-hook entry into Claude Code's global settin
 - **WHEN** hook management is disabled while the wrapper binary is absent
 - **THEN** the removal SHALL still clear VaneHub's entries from Claude Code's settings
 
-#### Scenario: Distribution does not carry the wrapper binary
-- **WHEN** a packaged build does not ship the wrapper binary
-- **THEN** the limitation SHALL be stated to users rather than surfacing as a hook Claude Code cannot execute
+### Requirement: Packaged applications carry the permission-hook wrapper
+Every supported Tauri package SHALL include the permission-hook wrapper as a target-specific external binary installed beside the main application executable. Runtime hook configuration SHALL resolve that installed location before any resource-directory fallback.
+
+#### Scenario: A supported target is packaged
+- **WHEN** a package command runs for Windows x64, macOS arm64, macOS x64, or Linux x64
+- **THEN** it SHALL build and stage the wrapper for the same Rust target before Tauri bundling
+- **AND** the resulting package SHALL contain the wrapper beside the main executable
+
+#### Scenario: Packaged hook management is enabled
+- **WHEN** the installed wrapper is present beside the main executable
+- **THEN** hook configuration SHALL name that executable
+
+#### Scenario: An installation is incomplete or damaged
+- **WHEN** the resolved packaged wrapper is absent
+- **THEN** enabling hook management SHALL fail without modifying Claude Code's global settings

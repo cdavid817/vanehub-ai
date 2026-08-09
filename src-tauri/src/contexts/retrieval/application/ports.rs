@@ -1,8 +1,8 @@
 use crate::contexts::retrieval::domain::{
     CodeChunk, CodeEmbeddingConfirmation, CodeFileManifest, CodeIndexAuditEntry,
-    CodeIndexAuditEvent, CodeIndexAuditReason, CodeIndexPhase, CodeIndexStatus,
-    CodeSearchCandidate, CodeSearchOutcome, CodeSearchQuery, CodeSymbol, CodeWorkspace,
-    FailureCategory, RetrievalDocument, RetrievalError, RetrievalScope, SourceKind,
+    CodeIndexAuditEvent, CodeIndexAuditReason, CodeIndexAutomaticMode, CodeIndexPhase,
+    CodeIndexStatus, CodeSearchCandidate, CodeSearchOutcome, CodeSearchQuery, CodeSymbol,
+    CodeWorkspace, FailureCategory, RetrievalDocument, RetrievalError, RetrievalScope, SourceKind,
 };
 use std::path::Path;
 use std::time::Duration;
@@ -171,6 +171,12 @@ pub(crate) trait CodeIndexRepository: Send + Sync {
         root: &Path,
         display_name: &str,
     ) -> Result<CodeWorkspace, RetrievalError>;
+    fn ensure_automatic_workspace(
+        &self,
+        root: &Path,
+        display_name: &str,
+        mode: crate::contexts::retrieval::domain::CodeIndexMode,
+    ) -> Result<(CodeWorkspace, bool), RetrievalError>;
     fn list_workspaces(&self) -> Result<Vec<CodeWorkspace>, RetrievalError>;
     fn load_workspace(&self, workspace_id: &str) -> Result<Option<CodeWorkspace>, RetrievalError>;
     fn save_workspace_configuration(
@@ -284,6 +290,7 @@ pub(crate) trait EmbeddingEndpointPort: Send + Sync {
 pub(crate) struct RetrievalConfiguration {
     pub(crate) source_profile_id: Option<String>,
     pub(crate) embedding_model: Option<String>,
+    pub(crate) automatic_code_index_mode: CodeIndexAutomaticMode,
 }
 
 impl RetrievalConfiguration {
@@ -298,4 +305,8 @@ impl RetrievalConfiguration {
 pub(crate) trait RetrievalConfigurationRepository: Send + Sync {
     fn load(&self) -> Result<RetrievalConfiguration, RetrievalError>;
     fn save(&self, profile_id: &str, embedding_model: &str) -> Result<(), RetrievalError>;
+    fn save_automatic_code_index_mode(
+        &self,
+        mode: CodeIndexAutomaticMode,
+    ) -> Result<(), RetrievalError>;
 }

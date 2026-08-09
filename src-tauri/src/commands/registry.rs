@@ -269,6 +269,7 @@ pub(crate) fn invoke_handler(
         // Retrieval
         crate::commands::retrieval::get_retrieval_configuration::get_retrieval_configuration,
         crate::commands::retrieval::save_retrieval_configuration::save_retrieval_configuration,
+        crate::commands::retrieval::save_code_index_automatic_mode::save_code_index_automatic_mode,
         crate::commands::retrieval::list_embedding_models::list_embedding_models,
         crate::commands::retrieval::get_retrieval_index_status::get_retrieval_index_status,
         crate::commands::retrieval::rebuild_retrieval_index::rebuild_retrieval_index,

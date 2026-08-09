@@ -22,10 +22,18 @@ impl RetrievalConfigurationRepository for Configured {
         Ok(RetrievalConfiguration {
             source_profile_id: Some(PROFILE.to_string()),
             embedding_model: Some(MODEL.to_string()),
+            automatic_code_index_mode: Default::default(),
         })
     }
 
     fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+        Ok(())
+    }
+
+    fn save_automatic_code_index_mode(
+        &self,
+        _mode: crate::contexts::retrieval::domain::CodeIndexAutomaticMode,
+    ) -> Result<(), RetrievalError> {
         Ok(())
     }
 }
@@ -113,6 +121,7 @@ fn register_enabled(
         &registered.workspace_id,
         CodeIndexConfigurationUpdate {
             enabled: true,
+            mode: crate::contexts::retrieval::domain::CodeIndexMode::Semantic,
             selected_roots: vec![String::new()],
             languages: vec![CodeLanguage::Rust],
             exclusion_patterns: Vec::new(),
@@ -182,6 +191,44 @@ fn unconfirmed_search_is_keyword_only_typed_redacted_and_workspace_scoped() {
     assert!(!hit.snippet.contains("SENSITIVE-CODE-SEARCH"));
     assert_eq!(*embedder.calls.lock().expect("lock"), 0);
     assert_ne!(fixture.first_id, fixture.second_id);
+}
+
+#[test]
+fn deliberate_local_search_is_keyword_only_without_degradation_or_embedding() {
+    let fixture = Fixture::new();
+    let workspace = fixture
+        .code
+        .load_workspace(&fixture.first_id)
+        .expect("load")
+        .expect("workspace");
+    fixture
+        .code
+        .save_configuration(
+            &fixture.first_id,
+            CodeIndexConfigurationUpdate {
+                enabled: true,
+                mode: crate::contexts::retrieval::domain::CodeIndexMode::Local,
+                selected_roots: workspace.selected_roots,
+                languages: vec![CodeLanguage::Rust],
+                exclusion_patterns: workspace.exclusion_patterns,
+                max_file_bytes: workspace.max_file_bytes,
+            },
+        )
+        .expect("local mode");
+    let embedder = Arc::new(QueryEmbedder::default());
+
+    let outcome = fixture
+        .service(embedder.clone())
+        .search_code(&CodeSearchQuery {
+            text: "handle_login".to_string(),
+            limit: 5,
+        })
+        .expect("search");
+
+    assert_eq!(outcome.degraded, None);
+    assert_eq!(outcome.hits.len(), 1);
+    assert_eq!(outcome.hits[0].matched_via, MatchedVia::Keyword);
+    assert_eq!(*embedder.calls.lock().expect("lock"), 0);
 }
 
 #[test]
