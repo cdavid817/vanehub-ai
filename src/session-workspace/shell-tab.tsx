@@ -54,6 +54,15 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
+    let outputBuffer = "";
+    let outputFrame = 0;
+    const flushOutput = () => {
+      outputFrame = 0;
+      if (outputBuffer.length === 0) return;
+      terminal.write(outputBuffer);
+      outputBuffer = "";
+    };
+
     async function connect() {
       try {
         setState("connecting");
@@ -62,8 +71,14 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
         shellIdRef.current = shell.shellId; setState(shell.state); setSimulated(shell.capability === "simulated");
         if (shell.capability === "simulated") terminal.writeln(t("sessionTabs.shell.simulatedBanner"));
         unsubscribe = await agentService.subscribeShellEvents(shell.shellId, (event) => {
-          if (event.type === "output") terminal.write(event.content);
-          else {
+          if (event.type === "output") {
+            // PTY backends emit many small chunks under burst output (a build log); writing
+            // each synchronously stalls the main thread. Coalesce chunks and write once per
+            // animation frame.
+            outputBuffer += event.content;
+            if (outputFrame === 0) outputFrame = requestAnimationFrame(flushOutput);
+          } else {
+            flushOutput();
             setState(event.state);
             if (event.state === "disconnected" || event.state === "failed") shellIdRef.current = null;
             if (event.error) setError(workspaceErrorKey(event.error));
@@ -74,6 +89,7 @@ export function ShellTab({ active, sessionId }: { active: boolean; sessionId: st
     void connect();
     return () => {
       disposed = true; resizeObserver.disconnect(); themeObserver.disconnect(); inputDisposable.dispose(); unsubscribe?.(); terminal.dispose();
+      if (outputFrame !== 0) cancelAnimationFrame(outputFrame);
       const shellId = shellIdRef.current; shellIdRef.current = null;
       if (shellId) void agentService.killShell(shellId);
       terminalRef.current = null; fitRef.current = null;

@@ -1,4 +1,5 @@
-use super::dto::{safe_error, CodeIndexWorkspaceDto};
+use super::dto::safe_error;
+use super::dto::CodeIndexWorkspaceDto;
 use crate::contexts::retrieval::api::CodeIndexApi;
 use tauri::State;
 
@@ -6,14 +7,13 @@ use tauri::State;
 pub(crate) fn list_code_index_workspaces(
     api: State<'_, CodeIndexApi>,
 ) -> Result<Vec<CodeIndexWorkspaceDto>, String> {
-    api.list_workspaces()
-        .and_then(|workspaces| {
+    // One query for every workspace's status instead of one workspace_status() call per
+    // workspace (each of which runs ~10 COUNT subqueries).
+    api.list_workspaces_with_status()
+        .map(|workspaces| {
             workspaces
                 .into_iter()
-                .map(|workspace| {
-                    let status = api.workspace_status(&workspace.workspace_id)?;
-                    Ok(CodeIndexWorkspaceDto::new(workspace, status))
-                })
+                .map(|(workspace, status)| CodeIndexWorkspaceDto::new(workspace, status))
                 .collect()
         })
         .map_err(safe_error)

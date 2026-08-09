@@ -13,6 +13,7 @@ use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::path::Path;
 
 const MAX_AUDIT_ROWS_PER_WORKSPACE: usize = 200;
@@ -625,6 +626,78 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
             .ok_or(RetrievalError::InvalidScope)
     }
 
+    fn workspace_statuses(
+        &self,
+        workspace_ids: &[String],
+    ) -> Result<HashMap<String, CodeIndexStatus>, RetrievalError> {
+        if workspace_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let connection = self.database.connection().map_err(database_error)?;
+        // One query for every workspace instead of one per workspace (each running ~10
+        // COUNT subqueries). Same SELECT-list shape as `workspace_status` (columns 0..12 are
+        // exactly what `read_code_index_status` reads), with the COUNT subqueries correlated
+        // against the outer `w.workspace_id`, plus a `row_number()` window to pick each
+        // workspace's latest failure_category row without a per-group LIMIT-1 round-trip.
+        // Column 13 is the workspace_id itself, used as the map key.
+        let placeholders = (0..workspace_ids.len())
+            .map(|index| format!("?{}", index + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let params: Vec<&dyn rusqlite::ToSql> = workspace_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let sql = format!(
+            r#"
+            WITH ranked_failures AS (
+              SELECT scope_folder AS workspace_id, failure_category,
+                ROW_NUMBER() OVER (PARTITION BY scope_folder ORDER BY updated_at DESC, id DESC) AS rn
+              FROM retrieval_documents
+              WHERE source_kind = 'workspace_file' AND failure_category IS NOT NULL
+            )
+            SELECT w.phase, w.updated_at,
+              (SELECT COUNT(*) FROM code_index_files WHERE workspace_id = w.workspace_id),
+              (SELECT COUNT(*) FROM code_index_files
+               WHERE workspace_id = w.workspace_id AND state IN ('indexed', 'failed')),
+              (SELECT COUNT(*) FROM code_index_files
+               WHERE workspace_id = w.workspace_id AND state = 'failed'),
+              (SELECT COUNT(*) FROM code_index_chunks WHERE workspace_id = w.workspace_id),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state IN ('indexed', 'failed')),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'pending'),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'indexed'),
+              (SELECT COUNT(*) FROM code_index_chunks AS chunk
+               JOIN retrieval_documents AS document ON document.id = chunk.document_id
+               WHERE chunk.workspace_id = w.workspace_id AND document.index_state = 'failed'),
+              (SELECT COALESCE(SUM(redaction_count), 0) FROM code_index_chunks
+               WHERE workspace_id = w.workspace_id),
+              rf.failure_category,
+              w.index_mode,
+              w.workspace_id
+            FROM code_index_workspaces AS w
+            LEFT JOIN ranked_failures AS rf
+              ON rf.workspace_id = w.workspace_id AND rf.rn = 1
+            WHERE w.workspace_id IN ({placeholders})
+            "#,
+        );
+        let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+        let statuses = statement
+            .query_map(params.as_slice(), |row| {
+                let workspace_id: String = row.get(13)?;
+                Ok((workspace_id, read_code_index_status(row)?))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<HashMap<_, _>, _>>()
+            .map_err(storage_error)?;
+        Ok(statuses)
+    }
+
     fn embedding_confirmation(
         &self,
         workspace_id: &str,
@@ -813,40 +886,66 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
         workspace_id: &str,
         source_ids: &[String],
     ) -> Result<Vec<CodeSearchCandidate>, RetrievalError> {
-        let connection = self.database.connection().map_err(database_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT document.source_id, chunk.relative_path, chunk.start_line, chunk.end_line,
-                       chunk.language, chunk.symbol_name, chunk.symbol_kind, document.content
-                FROM code_index_chunks AS chunk
-                JOIN retrieval_documents AS document ON document.id = chunk.document_id
-                WHERE chunk.workspace_id = ?1 AND document.source_kind = 'workspace_file'
-                  AND document.scope_folder = ?1 AND document.source_id = ?2
-                "#,
-            )
-            .map_err(storage_error)?;
-        let mut candidates = Vec::with_capacity(source_ids.len());
-        for source_id in source_ids {
-            let candidate = statement
-                .query_row(params![workspace_id, source_id], |row| {
-                    Ok(CodeSearchCandidate {
-                        source_id: row.get(0)?,
-                        file_path: row.get(1)?,
-                        start_line: row.get::<_, i64>(2)? as u32,
-                        end_line: row.get::<_, i64>(3)? as u32,
-                        language: row.get(4)?,
-                        symbol_name: row.get(5)?,
-                        symbol_kind: row.get(6)?,
-                        snippet: row.get(7)?,
-                    })
-                })
-                .optional()
-                .map_err(storage_error)?;
-            if let Some(candidate) = candidate {
-                candidates.push(candidate);
-            }
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
         }
+        let connection = self.database.connection().map_err(database_error)?;
+        // One round-trip for all candidates instead of one per source_id. `?1` previously
+        // bound both `chunk.workspace_id` and `document.scope_folder` — two semantically
+        // distinct columns — which could mask a cross-workspace leak; they are now separate
+        // parameters even though both carry the workspace id today.
+        let placeholders = (0..source_ids.len())
+            .map(|index| format!("?{}", index + 3))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT document.source_id, chunk.relative_path, chunk.start_line, chunk.end_line,
+                   chunk.language, chunk.symbol_name, chunk.symbol_kind, document.content
+            FROM code_index_chunks AS chunk
+            JOIN retrieval_documents AS document ON document.id = chunk.document_id
+            WHERE chunk.workspace_id = ?1 AND document.source_kind = 'workspace_file'
+              AND document.scope_folder = ?2 AND document.source_id IN ({placeholders})
+            "#,
+        );
+        let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+        let params: Vec<&dyn rusqlite::ToSql> = {
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&workspace_id, &workspace_id];
+            for source_id in source_ids {
+                params.push(source_id);
+            }
+            params
+        };
+        let candidates = statement
+            .query_map(params.as_slice(), |row| {
+                let start_line = row.get::<_, i64>(2)?;
+                let end_line = row.get::<_, i64>(3)?;
+                Ok(CodeSearchCandidate {
+                    source_id: row.get(0)?,
+                    file_path: row.get(1)?,
+                    start_line: u32::try_from(start_line).map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            2,
+                            rusqlite::types::Type::Integer,
+                            format!("start_line {start_line} out of u32 range").into(),
+                        )
+                    })?,
+                    end_line: u32::try_from(end_line).map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Integer,
+                            format!("end_line {end_line} out of u32 range").into(),
+                        )
+                    })?,
+                    language: row.get(4)?,
+                    symbol_name: row.get(5)?,
+                    symbol_kind: row.get(6)?,
+                    snippet: row.get(7)?,
+                })
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
         Ok(candidates)
     }
 

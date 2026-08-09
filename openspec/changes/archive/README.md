@@ -132,6 +132,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | add-gemini-cli-terminal-usage-tracking | usage-statistics | `openspec/changes/archive/2026-08-09-add-gemini-cli-terminal-usage-tracking/` |
 | 2026-08-09 | add-local-code-index-mode | workspace-code-indexing | `openspec/changes/archive/2026-08-09-add-local-code-index-mode/` |
 | 2026-08-09 | deduplicate-skill-spec-requirements | - | `openspec/changes/archive/2026-08-09-deduplicate-skill-spec-requirements/` |
+| 2026-08-09 | harden-runtime-concurrency-and-query-efficiency | frontend-runtime-architecture, native-runtime-architecture, runtime-performance-governance | `openspec/changes/archive/2026-08-09-harden-runtime-concurrency-and-query-efficiency/` |
 | 2026-08-09 | introduce-agent-provider-contract | agent-provider-runtime | `openspec/changes/archive/2026-08-09-introduce-agent-provider-contract/` |
 | 2026-08-09 | publish-github-preview-release | desktop-release-delivery, multilingual-readme, native-app-packaging | `openspec/changes/archive/2026-08-09-publish-github-preview-release/` |
 | 2026-08-09 | reconcile-builtin-skill-seeding | skill-management | `openspec/changes/archive/2026-08-09-reconcile-builtin-skill-seeding/` |

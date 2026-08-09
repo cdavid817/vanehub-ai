@@ -137,6 +137,7 @@ impl IndexingService {
 
         let mut outcome = ReconcileOutcome::default();
         let mut live: HashSet<&str> = HashSet::new();
+        let mut upserts: Vec<RetrievalDocument> = Vec::new();
         for record in &records {
             live.insert(record.source_id.as_str());
             let hash = content_hash(&record.content);
@@ -145,34 +146,33 @@ impl IndexingService {
                 Some(_) => outcome.invalidated += 1,
                 None => outcome.added += 1,
             }
-            self.repository.upsert_pending_scoped(
-                &RetrievalDocument {
-                    id: document_id(self.source_kind, &record.source_id),
-                    source_kind: self.source_kind,
-                    source_id: record.source_id.clone(),
-                    scope_agent_id: record.agent_id.clone(),
-                    scope_folder: record.folder.clone(),
-                    content: record.content.clone(),
-                    content_hash: hash,
-                    index_state: IndexState::Pending,
-                    attempt_count: 0,
-                    embedding_model: None,
-                },
-                &self.scope,
-            )?;
+            upserts.push(RetrievalDocument {
+                id: document_id(self.source_kind, &record.source_id),
+                source_kind: self.source_kind,
+                source_id: record.source_id.clone(),
+                scope_agent_id: record.agent_id.clone(),
+                scope_folder: record.folder.clone(),
+                content: record.content.clone(),
+                content_hash: hash,
+                index_state: IndexState::Pending,
+                attempt_count: 0,
+                embedding_model: None,
+            });
         }
 
         // 孤儿清理是 §5.3 显式撤销失败时的兜底。少了它，一次失败的撤销调用会让索引行永久残留。
-        for source_id in existing.keys() {
-            if !live.contains(source_id.as_str()) {
-                self.repository.delete_by_source_scoped(
-                    self.source_kind,
-                    &self.scope,
-                    source_id,
-                )?;
-                outcome.orphans_removed += 1;
-            }
-        }
+        let orphans: Vec<String> = existing
+            .keys()
+            .filter(|source_id| !live.contains(source_id.as_str()))
+            .cloned()
+            .collect();
+        outcome.orphans_removed += orphans.len();
+        // Apply the whole diff (upserts + orphan deletes) in one repository transaction so a
+        // full reconcile pays one fsync instead of one per row. `list_indexed_source_ids_scoped`
+        // already filtered `existing` to this scope, so the unscoped `reconcile_apply` operates
+        // on exactly the rows we compared against.
+        self.repository
+            .reconcile_apply(&upserts, &orphans, self.source_kind)?;
         Ok(outcome)
     }
 

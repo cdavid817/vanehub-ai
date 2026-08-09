@@ -6,10 +6,11 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 53. Migration 53 reconciles databases that may identify versions 49-51 as
-/// either Plan execution from main or workspace code indexing from the concurrent worktree.
+/// Contiguous through 54. Migration 53 reconciles databases that may identify versions 49-51 as
+/// either Plan execution from main or workspace code indexing from the concurrent worktree;
+/// migration 54 adds the loop_evidence(iteration_id) index.
 fn expected_versions() -> Vec<i64> {
-    (1..=53).collect()
+    (1..=54).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
