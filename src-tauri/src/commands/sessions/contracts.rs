@@ -183,9 +183,14 @@ fn session_command_errors_keep_legacy_safe_strings() {
             "validation error: Category name already exists.",
         ),
         (
-            SessionsError::Repository("secret database detail".to_string()),
+            SessionsError::Repository("database detail".to_string()),
             CommandErrorCategory::Infrastructure,
-            "database error: secret database detail",
+            "database error: database detail",
+        ),
+        (
+            SessionsError::Repository("token=abc secret value".to_string()),
+            CommandErrorCategory::Infrastructure,
+            "database error: token=[REDACTED] secret=[REDACTED]",
         ),
         (
             SessionsError::RuntimeLaunch("agent unavailable".to_string()),

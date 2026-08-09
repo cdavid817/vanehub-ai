@@ -62,6 +62,19 @@ impl CommandError {
             message: format!("storage error: {}", message.into()),
         }
     }
+
+    /// For lower-layer messages forwarded verbatim that may carry absolute filesystem paths
+    /// or provider diagnostics (e.g. `CliError::Internal`, `SdkError::Package`,
+    /// `SessionsError::Repository`). Applied at the `From` boundary rather than at the
+    /// `Serialize` boundary so category-level error codes (`connector-credentials-required`
+    /// etc.) — which are safe, structured, and matched by the frontend — are not mangled by
+    /// `redact_text`'s heuristic key detection.
+    fn redacted(category: CommandErrorCategory, message: impl AsRef<str>) -> Self {
+        Self {
+            category,
+            message: redact_text(message.as_ref()),
+        }
+    }
 }
 
 impl std::fmt::Display for CommandError {
@@ -77,14 +90,7 @@ impl Serialize for CommandError {
     where
         S: serde::Serializer,
     {
-        // The single outbound serialization point for every command error. Several `From`
-        // implementations forward lower-layer messages verbatim (e.g. `CliError::Internal`,
-        // `SdkError::Package`, `SessionsError::Repository`, `McpError::Database`) which can
-        // carry absolute filesystem paths or provider diagnostics. Redacting here, once,
-        // covers all of them — including any future variant — instead of hunting each
-        // `message` field individually. `redact_text` is idempotent on already-safe text.
-        let safe = redact_text(&self.message);
-        serializer.serialize_str(&safe)
+        serializer.serialize_str(&self.message)
     }
 }
 
@@ -99,14 +105,12 @@ impl From<ApplicationError> for CommandError {
                 category: CommandErrorCategory::NotFound,
                 message,
             },
-            ApplicationError::Infrastructure { message, .. } => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message,
-            },
-            ApplicationError::Internal(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
+            ApplicationError::Infrastructure { message, .. } => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            ApplicationError::Internal(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
         }
     }
 }
@@ -119,14 +123,12 @@ impl From<PermissionsApplicationError> for CommandError {
                 message,
             },
             PermissionsApplicationError::Domain(error) => Self::validation(error.to_string()),
-            PermissionsApplicationError::Infrastructure { message, .. } => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message,
-            },
-            PermissionsApplicationError::Internal(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
+            PermissionsApplicationError::Infrastructure { message, .. } => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            PermissionsApplicationError::Internal(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
         }
     }
 }
@@ -387,10 +389,12 @@ impl From<SessionsError> for CommandError {
                 category: CommandErrorCategory::Conflict,
                 message: "validation error: Category name already exists.".to_string(),
             },
-            SessionsError::Repository(message) | SessionsError::Transaction(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
+            SessionsError::Repository(message) | SessionsError::Transaction(message) => {
+                Self::redacted(
+                    CommandErrorCategory::Infrastructure,
+                    format!("database error: {message}"),
+                )
+            }
             SessionsError::WorkspaceLaunch(message) | SessionsError::RuntimeLaunch(message) => {
                 Self {
                     category: CommandErrorCategory::Unavailable,
@@ -515,10 +519,10 @@ impl From<McpError> for CommandError {
                 category: CommandErrorCategory::Validation,
                 message: "validation error: limit_exceeded".to_string(),
             },
-            McpError::Database(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
+            McpError::Database(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("database error: {message}"),
+            ),
             McpError::Storage(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
@@ -542,18 +546,13 @@ impl From<CliError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-            CliError::Detection(message) | CliError::Package(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
-            CliError::Operation(message) | CliError::Logging(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message,
-            },
-            CliError::Internal(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
+            CliError::Detection(message) | CliError::Package(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
+            CliError::Operation(message) | CliError::Logging(message) => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            CliError::Internal(message) => Self::redacted(CommandErrorCategory::Internal, message),
         }
     }
 }
@@ -612,14 +611,11 @@ impl From<SdkError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-            SdkError::Package(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
-            SdkError::Operation(message) | SdkError::Logging(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("storage error: {message}"),
-            },
+            SdkError::Package(message) => Self::redacted(CommandErrorCategory::Internal, message),
+            SdkError::Operation(message) | SdkError::Logging(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("storage error: {message}"),
+            ),
         }
     }
 }

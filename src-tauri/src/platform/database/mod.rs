@@ -178,7 +178,7 @@ mod tests {
             )
             .expect("plan and code index reconciliation migration");
 
-        assert_eq!(migration_count, 53);
+        assert_eq!(migration_count, 54);
         assert_eq!(foreign_keys, 1);
         assert_eq!(agent_count, 6);
         assert_eq!(skill_table_exists, 0);
@@ -227,7 +227,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 53);
+        assert_eq!(migration_count, 54);
     }
 
     #[test]
