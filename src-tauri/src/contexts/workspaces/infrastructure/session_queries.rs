@@ -613,6 +613,35 @@ fn git_status_at(root: &Path) -> Result<ParsedGitStatus, AppError> {
     Ok(Some(parse_git_status(&output.stdout)))
 }
 
+/// Whether `path` is untracked in `root`. `git ls-files --error-unmatch` succeeds only for
+/// paths git tracks, so a non-zero exit (that isn't a repository error) means untracked.
+/// This avoids the full-directory `git status` walk the diff path used to run just to find
+/// one entry.
+fn is_path_untracked(root: &Path, path: &str) -> Result<bool, AppError> {
+    let args = vec![
+        "-c".to_string(),
+        "core.quotepath=false".to_string(),
+        "ls-files".to_string(),
+        "--error-unmatch".to_string(),
+        "--".to_string(),
+        path.to_string(),
+    ];
+    let output = git_output(root, &args)?;
+    if output.status.success() {
+        return Ok(false);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+    // `did not match any files` is the expected failure for an untracked path. Anything
+    // else (e.g. "not a git repository") is a real error to surface.
+    if stderr.contains("did not match any files") || stderr.contains("pathspec") {
+        return Ok(true);
+    }
+    if stderr.contains("not a git repository") {
+        return Ok(true);
+    }
+    Err(AppError::LaunchFailed("Git ls-files failed.".to_string()))
+}
+
 pub(crate) fn get_session_git_status(
     conn: &Connection,
     session_id: &str,
@@ -835,8 +864,12 @@ pub(crate) fn get_session_git_diff(
     let root = resolve_session_root(conn, session_id)?
         .ok_or_else(|| AppError::Validation("Session workspace is unavailable.".to_string()))?;
     let (_candidate, normalized_path) = resolve_git_path(&root, path)?;
-    let status = match git_status_at(&root) {
-        Ok(status) => status,
+    // A single-path untracked check is far cheaper than the full
+    // `git status --porcelain -z --untracked-files=all` directory walk this used to run
+    // just to find one entry. `git ls-files --error-unmatch -- <path>` succeeds only for
+    // tracked paths, so a failure (non-zero exit, not a repository error) means untracked.
+    let is_untracked = match is_path_untracked(&root, &normalized_path) {
+        Ok(value) => value,
         Err(error) => {
             write_git_failure(
                 conn,
@@ -847,15 +880,6 @@ pub(crate) fn get_session_git_diff(
             return Err(error);
         }
     };
-    let is_untracked = status
-        .as_ref()
-        .map(|(_, entries)| {
-            entries.iter().any(|entry| {
-                entry.path == normalized_path
-                    && (entry.index == "untracked" || entry.worktree == "untracked")
-            })
-        })
-        .unwrap_or(false);
     if is_untracked && source == GitDiffSource::Working {
         return Ok(GitDiffResult {
             context: available_context(&root),
