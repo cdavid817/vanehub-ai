@@ -19,14 +19,16 @@ describe("runtime adapter selection", () => {
     expect(detectRuntimeKind(undefined)).toBe("web-mock");
   });
 
-  it("returns the matching adapter and falls back to Web mock when HTTP is not implemented", () => {
+  it("returns the matching adapter and refuses to fall back to the Web mock under web-http", () => {
     const adapters = {
       tauri: { name: "desktop" },
       webMock: { name: "mock" },
     };
 
     expect(createRuntimeAdapter(adapters, "tauri").name).toBe("desktop");
-    expect(createRuntimeAdapter(adapters, "web-http").name).toBe("mock");
+    // A web-http deployment without an HTTP adapter must not silently serve mock data —
+    // throwing surfaces the missing adapter at startup instead of fabricating responses.
+    expect(() => createRuntimeAdapter(adapters, "web-http")).toThrow(/no HTTP adapter/);
     expect(createRuntimeAdapter({ ...adapters, webHttp: { name: "http" } }, "web-http").name).toBe("http");
   });
 });
