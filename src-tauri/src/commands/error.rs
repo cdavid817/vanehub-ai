@@ -8,6 +8,7 @@ use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
 use crate::contexts::task_orchestration::api::PlanApplicationError;
 use crate::contexts::tooling::cli::api::CliError;
+use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
@@ -76,7 +77,14 @@ impl Serialize for CommandError {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.message)
+        // The single outbound serialization point for every command error. Several `From`
+        // implementations forward lower-layer messages verbatim (e.g. `CliError::Internal`,
+        // `SdkError::Package`, `SessionsError::Repository`, `McpError::Database`) which can
+        // carry absolute filesystem paths or provider diagnostics. Redacting here, once,
+        // covers all of them — including any future variant — instead of hunting each
+        // `message` field individually. `redact_text` is idempotent on already-safe text.
+        let safe = redact_text(&self.message);
+        serializer.serialize_str(&safe)
     }
 }
 
@@ -545,6 +553,49 @@ impl From<CliError> for CommandError {
             CliError::Internal(message) => Self {
                 category: CommandErrorCategory::Internal,
                 message,
+            },
+        }
+    }
+}
+
+impl From<CliConfigError> for CommandError {
+    fn from(error: CliConfigError) -> Self {
+        match error {
+            CliConfigError::Validation(message) => Self::validation(message),
+            CliConfigError::NotFound => Self {
+                category: CommandErrorCategory::NotFound,
+                message: "CLI configuration profile not found.".to_string(),
+            },
+            // These variants carry an absolute filesystem path (profile JSON / auth.json
+            // location) in their Display output. Routing that through `to_string()` would
+            // leak the local file layout to the frontend, so they map to a fixed
+            // category-level message; the path itself is preserved for diagnostics via
+            // logging at the service boundary, not the command return value.
+            CliConfigError::Parse { .. } | CliConfigError::Filesystem { .. } => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message: "storage error: CLI configuration file is missing or unreadable."
+                    .to_string(),
+            },
+            CliConfigError::Repository => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message: "storage error: CLI configuration repository is unavailable."
+                    .to_string(),
+            },
+            CliConfigError::Credential | CliConfigError::CredentialRequired => Self {
+                category: CommandErrorCategory::Unavailable,
+                message: "launch failed: secure CLI credential operation failed.".to_string(),
+            },
+            CliConfigError::DriftConflict => Self {
+                category: CommandErrorCategory::Conflict,
+                message: "validation error: live configuration changed during the operation; retry the switch.".to_string(),
+            },
+            CliConfigError::AuthConfirmationRequired => Self {
+                category: CommandErrorCategory::Validation,
+                message: "validation error: explicit auth.json replacement confirmation is required.".to_string(),
+            },
+            CliConfigError::RollbackIncomplete => Self {
+                category: CommandErrorCategory::Internal,
+                message: "storage error: CLI configuration rollback was incomplete.".to_string(),
             },
         }
     }
