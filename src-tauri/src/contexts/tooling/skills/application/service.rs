@@ -1,18 +1,29 @@
 use super::{
     AgentMountConfiguration, SkillAgentMountPath, SkillApiBindingRepository, SkillApplicationError,
     SkillClockPort, SkillCreateRequest, SkillDocument, SkillDriftReport, SkillFailure,
-    SkillFilesystemPort, SkillFilesystemTransaction, SkillImportRequest, SkillListResult,
-    SkillLogAction, SkillLogEvent, SkillLogLevel, SkillLoggingPort, SkillMountMigrationReport,
-    SkillMountRepair, SkillOverview, SkillPreview, SkillPromptForAgent, SkillRecord,
-    SkillRepository, SkillScopeQuery, SkillStats, SkillSyncResult, SkillUpdateRequest,
-    SkillWorkspaceSelectionPort,
+    SkillFilesystemPort, SkillFilesystemTransaction, SkillImportRequest, SkillImportedSource,
+    SkillListResult, SkillLogAction, SkillLogEvent, SkillLogLevel, SkillLoggingPort,
+    SkillMountMigrationReport, SkillMountRepair, SkillOverview, SkillPreview, SkillPromptForAgent,
+    SkillRecord, SkillRepository, SkillScopeQuery, SkillSourceProbe, SkillStats, SkillSyncResult,
+    SkillUpdateRequest, SkillWorkspaceSelectionPort,
 };
 use crate::contexts::tooling::skills::domain::{
-    builtin_definitions, builtin_restore_plan, default_mount_path, deletion_policy, detect_drift,
-    plan_binding_change, plan_enablement, source_for_user_create, validate_create_identity,
-    validate_update_identity, SkillDomainError, SkillDriftIssueType, SkillId, SkillKey,
-    SkillLocation, SkillMountPath, SkillScope, SkillSource,
+    builtin_definition, builtin_definitions, builtin_restore_plan, default_mount_path,
+    deletion_policy, detect_drift, plan_binding_change, plan_enablement, source_for_user_create,
+    validate_create_identity, validate_update_identity, BuiltinSkillDefinition, SkillDomainError,
+    SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata, SkillMountPath,
+    SkillScope, SkillSource,
 };
+
+/// Whether reconciling a built-in created a new source or adopted one that was already on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinSeedOutcome {
+    Created,
+    Adopted {
+        /// Whether the adopted file is still what the shipped definition would have written.
+        matches_definition: bool,
+    },
+}
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex};
@@ -409,33 +420,184 @@ impl SkillApplicationService {
             return Ok(());
         }
 
-        let result = self.transact(|transaction| {
-            let mut records = Vec::with_capacity(missing.len());
-            for (definition, metadata) in &missing {
-                let managed_source = self.filesystem.create_source(
-                    transaction,
-                    &location,
-                    &metadata.id,
-                    &SkillDocument {
-                        metadata: metadata.clone(),
-                        body: definition.body.to_string(),
-                    },
-                )?;
-                let now = self.clock.now();
-                records.push(SkillRecord {
-                    key: SkillKey::new(metadata.id.clone(), location.clone()),
-                    source: SkillSource::Builtin,
-                    enabled: true,
-                    managed_source,
-                    metadata: metadata.clone(),
-                    bindings: Vec::new(),
-                    created_at: now.clone(),
-                    updated_at: now,
-                });
+        // Reconciled one Skill at a time rather than in a single all-or-nothing transaction: a
+        // shared transaction means one unusable source discards the records for every other
+        // built-in, which is how an installation ends up with zero rows instead of five.
+        let mut created = Vec::new();
+        let mut adopted = Vec::new();
+        let mut diverged = Vec::new();
+        let mut failed = Vec::new();
+        for (definition, metadata) in &missing {
+            let id = metadata.id.as_str().to_string();
+            match self.reconcile_builtin(&location, *definition, metadata) {
+                Ok(BuiltinSeedOutcome::Created) => created.push(id),
+                Ok(BuiltinSeedOutcome::Adopted { matches_definition }) => {
+                    if !matches_definition {
+                        diverged.push(id.clone());
+                    }
+                    adopted.push(id);
+                }
+                Err(error) => failed.push((id, error)),
             }
-            self.repository.save_skills(&records, &[])
+        }
+        self.report_builtin_seeding(&created, &adopted, &diverged, &failed);
+        Ok(())
+    }
+
+    /// Reports what a seeding pass did. Each unusable source is named with the Skill it belongs to,
+    /// so an investigation starts at the file that is actually broken rather than at the seeding
+    /// code; the pass itself is then summarized once, at a level that reflects whether anything was
+    /// actually left undone.
+    fn report_builtin_seeding(
+        &self,
+        created: &[String],
+        adopted: &[String],
+        diverged: &[String],
+        failed: &[(String, SkillApplicationError)],
+    ) {
+        for (id, error) in failed {
+            self.record_seed_event(
+                SkillLogLevel::Error,
+                Some(id.clone()),
+                format!("built-in Skill {id} could not be registered: {error}"),
+            );
+        }
+
+        let mut summary = if created.is_empty() {
+            "seeded no built-in Skills".to_string()
+        } else {
+            format!("created built-in Skills {}", created.join(", "))
+        };
+        if !adopted.is_empty() {
+            summary.push_str(&format!(
+                ", adopted existing sources for {}",
+                adopted.join(", ")
+            ));
+        }
+        // Drift compares a record against its own source, and an adopted record already matches
+        // its source — so nothing downstream would ever mention that the adopted content is not
+        // what shipped. Seeding is the only place that knows both, so it is the place that says so.
+        if !diverged.is_empty() {
+            summary.push_str(&format!(
+                ", adopted content differs from the shipped definition for {}",
+                diverged.join(", ")
+            ));
+        }
+        if !failed.is_empty() {
+            summary.push_str(&format!(
+                ", left {} unregistered: {}",
+                failed.len(),
+                failed
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        let level = if failed.is_empty() {
+            SkillLogLevel::Info
+        } else {
+            SkillLogLevel::Warn
+        };
+        self.record_seed_event(level, None, summary);
+    }
+
+    /// Brings one built-in Skill's registry record in line with what is on disk.
+    ///
+    /// The registry answers "is it registered"; the filesystem answers "is it there". Seeding has
+    /// to consult both, because a source present without a record is a recoverable state, not a
+    /// failure — and it is not rare: sources live under the user's home while records live in the
+    /// application database, so the two can diverge whenever those lifecycles differ.
+    fn reconcile_builtin(
+        &self,
+        location: &SkillLocation,
+        definition: BuiltinSkillDefinition,
+        metadata: &SkillMetadata,
+    ) -> Result<BuiltinSeedOutcome, SkillApplicationError> {
+        let probe = self.filesystem.probe_source(location, &metadata.id)?;
+        if let SkillSourceProbe::Unusable(reason) = probe {
+            return Err(SkillApplicationError::Filesystem(reason));
+        }
+
+        let shipped = SkillDocument {
+            metadata: metadata.clone(),
+            body: definition.body.to_string(),
+        };
+        self.transact(|transaction| {
+            let (adopted, outcome) = match &probe {
+                // Adoption registers the file as it stands. Overwriting would silently destroy a
+                // user's edits to fix a problem they did not cause, so the record describes disk
+                // and the difference from the shipped definition is reported instead.
+                SkillSourceProbe::Present(adopted) => {
+                    let matches_definition =
+                        adopted.source.content_hash == self.filesystem.content_hash_for(&shipped);
+                    (
+                        adopted.clone(),
+                        BuiltinSeedOutcome::Adopted { matches_definition },
+                    )
+                }
+                SkillSourceProbe::Absent => (
+                    SkillImportedSource {
+                        source: self.filesystem.create_source(
+                            transaction,
+                            location,
+                            &metadata.id,
+                            &shipped,
+                        )?,
+                        metadata: metadata.clone(),
+                    },
+                    BuiltinSeedOutcome::Created,
+                ),
+                SkillSourceProbe::Unusable(_) => unreachable!("returned before the transaction"),
+            };
+            let record = self.record_for_adopted_source(
+                location,
+                &metadata.id,
+                SkillSource::Builtin,
+                adopted,
+            )?;
+            self.repository.save_skills(&[record], &[])?;
+            Ok(outcome)
+        })
+    }
+
+    /// Builds the registry record for a source that already exists on disk.
+    ///
+    /// The record describes the file rather than the definition that was expected there, so the
+    /// registry never claims content the file does not have. A file whose frontmatter names a
+    /// different Skill is refused rather than registered under a key it disagrees with.
+    fn record_for_adopted_source(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+        source: SkillSource,
+        adopted: SkillImportedSource,
+    ) -> Result<SkillRecord, SkillApplicationError> {
+        validate_update_identity(id, &adopted.metadata)?;
+        let now = self.clock.now();
+        Ok(SkillRecord {
+            key: SkillKey::new(id.clone(), location.clone()),
+            source,
+            enabled: true,
+            managed_source: adopted.source,
+            metadata: adopted.metadata,
+            bindings: Vec::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        })
+    }
+
+    /// An already-present built-in is an expected state, so it is reported at info level. Logging
+    /// it as an error trains readers to ignore the channel that carries real failures.
+    fn record_seed_event(&self, level: SkillLogLevel, skill_id: Option<String>, message: String) {
+        let _ = self.logging.record(&SkillLogEvent {
+            level,
+            action: SkillLogAction::SeedBuiltins,
+            skill_id,
+            message,
+            timestamp: self.clock.now(),
+            context: BTreeMap::new(),
         });
-        self.observe(SkillLogAction::SeedBuiltins, None, result)
     }
 
     fn update_mount_path_work(
@@ -770,6 +932,11 @@ impl SkillApplicationService {
             .into_iter()
             .map(|record| (record.key.clone(), record))
             .collect::<BTreeMap<_, _>>();
+        let deleted_builtins = self
+            .repository
+            .deleted_builtin_ids()?
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         self.transact(|transaction| {
             let mut changed = BTreeMap::new();
             let cleared_tombstones = Vec::new();
@@ -853,9 +1020,51 @@ impl SkillApplicationService {
                             }),
                         }
                     }
+                    // A source without a record is the same recoverable state seeding handles, so
+                    // synchronization resolves it the same way. Leaving it as a no-op reported an
+                    // issue the user had no action available for.
+                    SkillDriftIssueType::UnregisteredSource => {
+                        let adoption = (|| {
+                            let id = SkillId::parse(&issue.skill_id)?;
+                            // An intentional deletion still wins: a source on disk must not
+                            // resurrect a built-in the user removed.
+                            if deleted_builtins.contains(&id) {
+                                return Ok(None);
+                            }
+                            let source = match self.filesystem.probe_source(&location, &id)? {
+                                SkillSourceProbe::Present(source) => source,
+                                SkillSourceProbe::Absent => {
+                                    return Err(SkillApplicationError::NotFound(
+                                        issue.skill_id.clone(),
+                                    ))
+                                }
+                                SkillSourceProbe::Unusable(reason) => {
+                                    return Err(SkillApplicationError::Filesystem(reason))
+                                }
+                            };
+                            let origin = if builtin_definition(&id).is_some() {
+                                SkillSource::Builtin
+                            } else {
+                                SkillSource::User
+                            };
+                            let record =
+                                self.record_for_adopted_source(&location, &id, origin, source)?;
+                            Ok::<_, SkillApplicationError>(Some((record.key.clone(), record)))
+                        })();
+                        match adoption {
+                            Ok(Some((key, record))) => {
+                                result.restored.push(issue.skill_id.clone());
+                                changed.insert(key, record);
+                            }
+                            Ok(None) => {}
+                            Err(error) => result.failed.push(SkillFailure {
+                                skill_id: issue.skill_id.clone(),
+                                reason: error.to_string(),
+                            }),
+                        }
+                    }
                     SkillDriftIssueType::DeletedBuiltin => {}
-                    SkillDriftIssueType::MissingSource
-                    | SkillDriftIssueType::UnregisteredSource => {}
+                    SkillDriftIssueType::MissingSource => {}
                 }
             }
 

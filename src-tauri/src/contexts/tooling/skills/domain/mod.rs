@@ -9,7 +9,7 @@ mod mutation;
 mod source;
 
 pub(crate) use binding::{plan_binding_change, plan_enablement, SkillBindingPlan};
-pub(crate) use catalog::{builtin_definition, builtin_definitions};
+pub(crate) use catalog::{builtin_definition, builtin_definitions, BuiltinSkillDefinition};
 pub(crate) use drift::{
     detect_drift, RegisteredSkillInspection, SkillBindingInspection, SkillDriftInspection,
     SkillDriftIssue, SkillDriftIssueType, SkillMountObservation, SkillSourceInspection,

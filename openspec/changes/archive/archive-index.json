@@ -1920,6 +1920,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-09",
+                         "changeName":  "reconcile-builtin-skill-seeding",
+                         "path":  "openspec/changes/archive/2026-08-09-reconcile-builtin-skill-seeding/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-09",
                          "changeName":  "refuse-missing-permission-hook-binary",
                          "path":  "openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/",
                          "artifacts":  [

@@ -3,7 +3,7 @@ use crate::contexts::tooling::skills::domain::{
     builtin_definitions, RegisteredSkillInspection, SkillBindingInspection, SkillBindingPlan,
     SkillDomainError, SkillDriftInspection, SkillDriftIssue, SkillDriftIssueType, SkillId,
     SkillKey, SkillLocation, SkillMetadata, SkillMountObservation, SkillMountPath, SkillScope,
-    SkillSource, SkillSourceInspection,
+    SkillSource, SkillSourceInspection, UnregisteredSkillInspection,
 };
 use crate::test_support::TempDirectory;
 use std::collections::{BTreeMap, BTreeSet};
@@ -350,6 +350,13 @@ struct FakeFilesystem {
     migration_failure_for: Mutex<Option<String>>,
     refresh_id_override: Mutex<Option<String>>,
     unreadable_ids: Mutex<BTreeSet<String>>,
+    /// Skill ids whose source directory is already on disk. Models the state this change exists to
+    /// recover from: a source present with no registry record behind it.
+    existing_sources: Mutex<BTreeSet<String>>,
+    /// Subset of `existing_sources` whose `SKILL.md` cannot be read or parsed.
+    unreadable_sources: Mutex<BTreeSet<String>>,
+    /// Source directories drift inspection should report when no registry record covers them.
+    unregistered_sources: Mutex<BTreeSet<String>>,
 }
 
 impl FakeFilesystem {
@@ -395,6 +402,43 @@ impl SkillFilesystemPort for FakeFilesystem {
         self.push_event(format!("rollback:{}", transaction.id));
     }
 
+    fn probe_source(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+    ) -> Result<SkillSourceProbe, SkillApplicationError> {
+        if !self
+            .existing_sources
+            .lock()
+            .expect("existing sources")
+            .contains(id.as_str())
+        {
+            return Ok(SkillSourceProbe::Absent);
+        }
+        if self
+            .unreadable_sources
+            .lock()
+            .expect("unreadable sources")
+            .contains(id.as_str())
+        {
+            return Ok(SkillSourceProbe::Unusable(format!(
+                "SKILL.md for {} could not be parsed",
+                id.as_str()
+            )));
+        }
+        // The metadata comes from the file, not from whatever the caller expected to find there,
+        // so a test can tell an adopted record apart from a freshly created one. The hash differs
+        // from `content_hash_for`, modelling a source that no longer matches what shipped.
+        Ok(SkillSourceProbe::Present(SkillImportedSource {
+            metadata: metadata(id.as_str()),
+            source: Self::source(location, id, &format!("on-disk-hash-{}", id.as_str())),
+        }))
+    }
+
+    fn content_hash_for(&self, document: &SkillDocument) -> String {
+        format!("shipped-hash-{}", document.metadata.id.as_str())
+    }
+
     fn create_source(
         &self,
         _transaction: &SkillFilesystemTransaction,
@@ -402,6 +446,15 @@ impl SkillFilesystemPort for FakeFilesystem {
         id: &SkillId,
         _document: &SkillDocument,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
+        // Mirrors the real filesystem: creating over an existing directory is refused.
+        if self
+            .existing_sources
+            .lock()
+            .expect("existing sources")
+            .contains(id.as_str())
+        {
+            return Err(SkillApplicationError::Conflict(id.as_str().to_string()));
+        }
         self.push_event(format!("create:{}", id.as_str()));
         Ok(Self::source(location, id, &format!("hash-{}", id.as_str())))
     }
@@ -540,20 +593,35 @@ impl SkillFilesystemPort for FakeFilesystem {
     fn inspect_drift(
         &self,
         location: &SkillLocation,
-        _records: &[SkillRecord],
+        records: &[SkillRecord],
         deleted_builtin_ids: &[SkillId],
     ) -> Result<SkillDriftInspection, SkillApplicationError> {
-        Ok(self
-            .inspection
+        if let Some(inspection) = self.inspection.lock().expect("drift inspection").clone() {
+            return Ok(inspection);
+        }
+        // Mirrors the real inspection: a source only counts as unregistered while no record
+        // covers it, so adopting one has to make the issue go away.
+        let registered_ids = records
+            .iter()
+            .map(|record| record.key.id.as_str().to_string())
+            .collect::<BTreeSet<_>>();
+        let unregistered_sources = self
+            .unregistered_sources
             .lock()
-            .expect("drift inspection")
-            .clone()
-            .unwrap_or_else(|| SkillDriftInspection {
-                location: location.clone(),
-                registered: Vec::new(),
-                unregistered_sources: Vec::new(),
-                deleted_builtin_ids: deleted_builtin_ids.to_vec(),
-            }))
+            .expect("unregistered sources")
+            .iter()
+            .filter(|id| !registered_ids.contains(*id))
+            .map(|id| UnregisteredSkillInspection {
+                id: id.clone(),
+                path: format!("/skills/{id}"),
+            })
+            .collect();
+        Ok(SkillDriftInspection {
+            location: location.clone(),
+            registered: Vec::new(),
+            unregistered_sources,
+            deleted_builtin_ids: deleted_builtin_ids.to_vec(),
+        })
     }
 
     fn repair_binding(
@@ -1576,4 +1644,278 @@ fn unbinding_removes_a_skill_from_the_bound_list() {
         .list_api_agent_bindings(existing.key)
         .expect("bindings")
         .is_empty());
+}
+
+/// The state observed on a real installation: every built-in source directory present on disk,
+/// zero registry rows, no deletion tombstones. Seeding must recover from it without user action.
+#[test]
+fn seeding_adopts_builtin_sources_that_exist_without_a_registry_record() {
+    let fixture = Fixture::new();
+    {
+        let mut existing = fixture
+            .filesystem
+            .existing_sources
+            .lock()
+            .expect("existing sources");
+        for definition in builtin_definitions() {
+            existing.insert(
+                definition
+                    .metadata()
+                    .expect("metadata")
+                    .id
+                    .as_str()
+                    .to_string(),
+            );
+        }
+    }
+
+    let listed = fixture
+        .service
+        .list_skills(SkillScopeQuery { location: global() })
+        .expect("listing must recover rather than fail");
+
+    assert_eq!(
+        listed.skills.len(),
+        builtin_definitions().len(),
+        "every built-in with a source on disk must end up registered"
+    );
+    assert!(listed
+        .skills
+        .iter()
+        .all(|skill| skill.source == SkillSource::Builtin));
+    let events = fixture.filesystem.events.lock().expect("filesystem events");
+    assert!(
+        !events.iter().any(|event| event.starts_with("replace:")),
+        "adoption must register what is on disk, not overwrite it: {events:?}"
+    );
+    drop(events);
+
+    // The record has to describe the file, not the shipped definition — otherwise the registry
+    // claims content the file does not have, and drift can never see the difference.
+    let stored = fixture.repository.state.lock().expect("repository state");
+    for record in stored.records.values() {
+        assert_eq!(
+            record.managed_source.content_hash,
+            format!("on-disk-hash-{}", record.key.id.as_str()),
+            "the adopted record must carry the hash of the file on disk"
+        );
+        assert_eq!(
+            record.metadata,
+            metadata(record.key.id.as_str()),
+            "the adopted record must carry the metadata the file declares"
+        );
+    }
+}
+
+/// `UnregisteredSource` was detected and then ignored, leaving a reported issue that no action
+/// could clear. Synchronization now resolves it the same way seeding does.
+#[test]
+fn synchronization_adopts_an_unregistered_source_and_clears_the_issue() {
+    let fixture = Fixture::new();
+    fixture
+        .filesystem
+        .unregistered_sources
+        .lock()
+        .expect("unregistered sources")
+        .insert("stray-skill".to_string());
+    fixture
+        .filesystem
+        .existing_sources
+        .lock()
+        .expect("existing sources")
+        .insert("stray-skill".to_string());
+
+    let before = fixture
+        .service
+        .detect_skill_drift(SkillScopeQuery { location: global() })
+        .expect("drift detection");
+    assert!(
+        before.issues.iter().any(|issue| issue.issue_type
+            == SkillDriftIssueType::UnregisteredSource
+            && issue.skill_id == "stray-skill"),
+        "the fixture must start from the state being repaired"
+    );
+
+    let synced = fixture
+        .service
+        .sync_skill_drift(SkillScopeQuery { location: global() })
+        .expect("synchronization");
+    assert!(
+        synced.restored.contains(&"stray-skill".to_string()),
+        "the adopted Skill must be reported as repaired: {synced:?}"
+    );
+    assert!(synced.failed.is_empty(), "{:?}", synced.failed);
+
+    let after = fixture
+        .service
+        .detect_skill_drift(SkillScopeQuery { location: global() })
+        .expect("drift detection");
+    assert!(
+        !after
+            .issues
+            .iter()
+            .any(|issue| issue.issue_type == SkillDriftIssueType::UnregisteredSource),
+        "registering the source must clear the issue: {:?}",
+        after.issues
+    );
+    assert_eq!(
+        fixture
+            .repository
+            .state
+            .lock()
+            .expect("repository state")
+            .records
+            .values()
+            .filter(|record| record.key.id.as_str() == "stray-skill")
+            .map(|record| record.source)
+            .collect::<Vec<_>>(),
+        vec![SkillSource::User],
+        "a source with no built-in definition is adopted as a user Skill"
+    );
+}
+
+/// An unregistered source that cannot be parsed has to say why, rather than leaving behind an
+/// issue that reappears on every detection with no explanation.
+#[test]
+fn synchronization_reports_why_an_unusable_source_could_not_be_adopted() {
+    let fixture = Fixture::new();
+    for set in [
+        &fixture.filesystem.unregistered_sources,
+        &fixture.filesystem.existing_sources,
+        &fixture.filesystem.unreadable_sources,
+    ] {
+        set.lock().expect("source set").insert("broken".to_string());
+    }
+
+    let synced = fixture
+        .service
+        .sync_skill_drift(SkillScopeQuery { location: global() })
+        .expect("synchronization");
+
+    let failure = synced
+        .failed
+        .iter()
+        .find(|failure| failure.skill_id == "broken")
+        .expect("the unusable source must be reported as failed");
+    assert!(
+        failure.reason.contains("could not be parsed"),
+        "the failure must name the reason: {}",
+        failure.reason
+    );
+}
+
+/// Adoption during synchronization must respect the same deletion tombstones seeding respects.
+#[test]
+fn synchronization_leaves_a_deleted_builtin_unregistered() {
+    let fixture = Fixture::new();
+    fixture.repository.tombstone_builtin(&id("code-review"));
+    for set in [
+        &fixture.filesystem.unregistered_sources,
+        &fixture.filesystem.existing_sources,
+    ] {
+        set.lock()
+            .expect("source set")
+            .insert("code-review".to_string());
+    }
+
+    let synced = fixture
+        .service
+        .sync_skill_drift(SkillScopeQuery { location: global() })
+        .expect("synchronization");
+
+    assert!(!synced.restored.contains(&"code-review".to_string()));
+    assert!(
+        !synced
+            .failed
+            .iter()
+            .any(|failure| failure.skill_id == "code-review"),
+        "an intentional deletion is not a failure"
+    );
+    assert!(
+        !fixture
+            .repository
+            .state
+            .lock()
+            .expect("repository state")
+            .records
+            .values()
+            .any(|record| record.key.id.as_str() == "code-review"),
+        "synchronization must not resurrect a deleted built-in"
+    );
+}
+
+/// One unusable built-in cost this installation the other five, because a single transaction
+/// discarded every record when the first source refused to be created.
+#[test]
+fn one_unusable_builtin_does_not_strand_the_others() {
+    let fixture = Fixture::new();
+    {
+        let mut existing = fixture
+            .filesystem
+            .existing_sources
+            .lock()
+            .expect("existing sources");
+        existing.insert("tdd-discipline".to_string());
+    }
+    fixture
+        .filesystem
+        .unreadable_sources
+        .lock()
+        .expect("unreadable sources")
+        .insert("tdd-discipline".to_string());
+
+    let listed = fixture
+        .service
+        .list_skills(SkillScopeQuery { location: global() })
+        .expect("an unusable source must not fail the whole listing");
+
+    assert_eq!(
+        listed.skills.len(),
+        builtin_definitions().len() - 1,
+        "the five usable built-ins must register even though one could not"
+    );
+    assert!(
+        !listed
+            .skills
+            .iter()
+            .any(|skill| skill.key.id.as_str() == "tdd-discipline"),
+        "the unusable one must be absent rather than half-registered"
+    );
+}
+
+/// Adoption must not undo an intentional deletion, which is an existing guarantee.
+#[test]
+fn adoption_leaves_an_intentionally_deleted_builtin_unregistered() {
+    let fixture = Fixture::new();
+    fixture.repository.tombstone_builtin(&id("code-review"));
+    {
+        let mut existing = fixture
+            .filesystem
+            .existing_sources
+            .lock()
+            .expect("existing sources");
+        for definition in builtin_definitions() {
+            existing.insert(
+                definition
+                    .metadata()
+                    .expect("metadata")
+                    .id
+                    .as_str()
+                    .to_string(),
+            );
+        }
+    }
+
+    let listed = fixture
+        .service
+        .list_skills(SkillScopeQuery { location: global() })
+        .expect("listing");
+
+    assert!(
+        !listed
+            .skills
+            .iter()
+            .any(|skill| skill.key.id.as_str() == "code-review"),
+        "a source on disk must not resurrect a built-in the user deleted"
+    );
 }

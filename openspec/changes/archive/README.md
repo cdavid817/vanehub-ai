@@ -134,6 +134,7 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | deduplicate-skill-spec-requirements | - | `openspec/changes/archive/2026-08-09-deduplicate-skill-spec-requirements/` |
 | 2026-08-09 | introduce-agent-provider-contract | agent-provider-runtime | `openspec/changes/archive/2026-08-09-introduce-agent-provider-contract/` |
 | 2026-08-09 | publish-github-preview-release | desktop-release-delivery, multilingual-readme, native-app-packaging | `openspec/changes/archive/2026-08-09-publish-github-preview-release/` |
+| 2026-08-09 | reconcile-builtin-skill-seeding | skill-management | `openspec/changes/archive/2026-08-09-reconcile-builtin-skill-seeding/` |
 | 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |

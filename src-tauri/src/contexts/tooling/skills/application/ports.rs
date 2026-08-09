@@ -52,10 +52,39 @@ pub(crate) trait SkillRepository: Send + Sync {
     ) -> Result<(), SkillApplicationError>;
 }
 
+/// What is actually on disk where a Skill's source would live.
+///
+/// Seeding needs this because "absent from the registry" and "absent from disk" are different
+/// questions, and answering the second with a `Conflict` from `create_source` leaves the caller
+/// unable to tell an adoptable source from a genuine failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SkillSourceProbe {
+    /// Nothing is there; the source can be created.
+    Absent,
+    /// A readable, parseable source is there and can be adopted as-is, described by what the file
+    /// says rather than by what the caller expected it to say.
+    Present(SkillImportedSource),
+    /// Something is there but cannot be read or parsed as a Skill.
+    Unusable(String),
+}
+
 pub(crate) trait SkillFilesystemPort: Send + Sync {
     fn begin_mutation(&self) -> Result<SkillFilesystemTransaction, SkillApplicationError>;
     fn commit_mutation(&self, transaction: SkillFilesystemTransaction);
     fn rollback_mutation(&self, transaction: SkillFilesystemTransaction);
+
+    /// Reports what exists at a Skill's source path without modifying it.
+    fn probe_source(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+    ) -> Result<SkillSourceProbe, SkillApplicationError>;
+
+    /// The content hash a document would have if it were written to disk.
+    ///
+    /// Lets a caller compare an adopted source against the definition that was supposed to be
+    /// there, without duplicating the filesystem's rules for serializing and hashing a document.
+    fn content_hash_for(&self, document: &SkillDocument) -> String;
 
     fn create_source(
         &self,
