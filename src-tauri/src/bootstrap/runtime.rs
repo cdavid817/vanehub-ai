@@ -210,9 +210,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
     let super::RetrievalAssembly {
         api: retrieval_api,
+        code_index_api,
         worker: retrieval_worker,
-    } = super::assemble_retrieval(database.clone(), agent_runtime_api.clone());
+        code_retrieval,
+    } = super::assemble_retrieval(
+        database.clone(),
+        agent_runtime_api.clone(),
+        sessions_api.clone(),
+        workspace_api.clone(),
+    );
     deferred_retrieval.bind(retrieval_api.clone());
+    deferred_retrieval.bind_code(code_retrieval);
     agent_runtime_api
         .reconcile_loop_startup()
         .map_err(boxed_message)?;
@@ -259,6 +267,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     app.manage(agent_runtime_api.clone());
     app.manage(permissions_api.clone());
     app.manage(retrieval_api);
+    app.manage(code_index_api);
     app.manage(telemetry_lifecycle);
     app.manage(execution_observability_api);
     app.manage(communications_api.clone());

@@ -11,7 +11,6 @@ import { agentService as defaultAgentService } from "../../../services/runtime-a
 import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../../types/agent";
 import { OnePieceProfileActionDialog, type OnePieceProfileAction } from "./onepiece-profile-action-dialog";
 import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
-import { OnePieceRetrievalSection } from "./onepiece-retrieval-section";
 
 const queryKey = ["agents", "onepiece-provider-profiles"] as const;
 
@@ -124,8 +123,6 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
           </article>
         ))}</div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.noMatches")}</p></div> : <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center"><p className="text-sm leading-6 text-muted-foreground">{t("onepiece.providers.empty")}</p><Button className="mt-4" onClick={() => setEditingProfile(null)}><Plus className="h-4 w-4" />{t("onepiece.addProvider")}</Button></div>}
       </section>
-
-      <OnePieceRetrievalSection profiles={overview.profiles} service={service} />
 
       {operationError ? <p className="rounded-md border p-3 text-sm ucd-status-warning" role="alert">{operationError instanceof Error ? operationError.message : String(operationError)}</p> : null}
       {notice ? <p className="rounded-md border p-3 text-sm ucd-status-success" role="status">{notice}</p> : null}

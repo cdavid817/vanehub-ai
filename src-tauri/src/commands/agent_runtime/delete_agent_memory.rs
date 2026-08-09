@@ -88,6 +88,8 @@ fn error_category(error: &RetrievalError) -> &'static str {
         RetrievalError::Storage(_) => "storage",
         RetrievalError::Embedding(_) => "embedding",
         RetrievalError::NotConfigured => "not_configured",
+        RetrievalError::InvalidScope => "invalid_scope",
+        RetrievalError::Validation(_) => "validation",
         RetrievalError::Unavailable => "unavailable",
     }
 }

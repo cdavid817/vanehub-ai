@@ -188,6 +188,7 @@ export interface AgentMemory {
 export interface RetrievalConfiguration {
   sourceProfileId: string | null;
   embeddingModel: string | null;
+  automaticCodeIndexMode: import("./code-index").CodeIndexAutomaticMode;
 }
 
 export interface RetrievalIndexStatus {

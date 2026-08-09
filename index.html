@@ -8,10 +8,20 @@
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
+    <link rel="stylesheet" href="/bootstrap.css" />
     <title>VaneHub AI</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="bootstrap-shell" role="status" aria-live="polite">
+        <img class="bootstrap-shell__logo" src="/icon-192.png" alt="" width="64" height="64" />
+        <div class="bootstrap-shell__copy">
+          <strong>VaneHub AI</strong>
+          <span>Starting...</span>
+        </div>
+        <span class="bootstrap-shell__progress" aria-hidden="true"></span>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

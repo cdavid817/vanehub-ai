@@ -11,38 +11,52 @@
 
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::agent_runtime::application::{
-    AgentMemoryPort, AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
+    AgentCodeRetrievalHit, AgentCodeRetrievalOutcome, AgentCodeRetrievalPort, AgentMemoryPort,
+    AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort,
 };
 use crate::contexts::agent_runtime::infrastructure::SqliteAgentMemoryRepository;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
-use crate::contexts::retrieval::api::{RetrievalApi, RetrievalWorkerSignal};
+use crate::contexts::retrieval::api::{CodeIndexApi, RetrievalApi, RetrievalWorkerSignal};
 use crate::contexts::retrieval::application::{
-    BatchOutcome, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort, IndexSourcePort,
-    IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint,
+    BatchOutcome, CodeRetrievalPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
+    IndexSourcePort, IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint,
     RetrievalConfigurationRepository, RetrievalDocumentRepository, SearchOutcome, SearchService,
     RECONCILE_POLL_INTERVAL_SECONDS, RETRY_BACKOFF_SECONDS,
 };
-use crate::contexts::retrieval::domain::{FailureCategory, RetrievalError};
-use crate::contexts::retrieval::infrastructure::{
-    HttpEmbeddingAdapter, SqliteRetrievalConfigurationRepository, SqliteRetrievalDocumentRepository,
+use crate::contexts::retrieval::domain::{
+    CodeIndexAuditEvent, CodeIndexMode, CodeIndexPhase, FailureCategory, RetrievalError,
 };
+use crate::contexts::retrieval::infrastructure::{
+    code_index_repository::SqliteCodeIndexRepository, HttpEmbeddingAdapter,
+    SqliteRetrievalConfigurationRepository, SqliteRetrievalDocumentRepository,
+    WorkspaceFileIndexSource,
+};
+use crate::contexts::sessions::api::SessionsApi;
+use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(RECONCILE_POLL_INTERVAL_SECONDS);
+const DEFAULT_INTER_BATCH_INTERVAL: Duration = Duration::from_millis(250);
+const MAX_PROVIDER_RETRY_AFTER: Duration = Duration::from_secs(60);
+const MAX_CODE_WORKSPACES_PER_CYCLE: usize = 8;
 const RECONCILE_CATEGORY: &str = "retrieval.indexing.reconcile";
 const BATCH_CATEGORY: &str = "retrieval.indexing.batch";
+const CODE_RECONCILE_CATEGORY: &str = "retrieval.code_index.reconcile";
+const CODE_BATCH_CATEGORY: &str = "retrieval.code_index.embedding";
 const WORKER_CATEGORY: &str = "retrieval.indexing.worker";
 
 pub(crate) struct RetrievalAssembly {
     pub(crate) api: RetrievalApi,
+    pub(crate) code_index_api: CodeIndexApi,
     pub(crate) worker: RetrievalIndexingWorker,
+    pub(crate) code_retrieval: Arc<dyn AgentCodeRetrievalPort>,
 }
 
 /// worker 需要的全部状态。与 `RetrievalApi` 分开返回，好让组合根按既有惯例先 `manage` 门面、
@@ -51,19 +65,54 @@ pub(crate) struct RetrievalIndexingWorker {
     indexing: IndexingService,
     configuration: Arc<dyn RetrievalConfigurationRepository>,
     wakeups: Receiver<()>,
+    inter_batch_interval: Duration,
+    code: Option<WorkspaceCodeIndexWorker>,
+}
+
+struct WorkspaceCodeIndexWorker {
+    database: NativeDatabase,
+    code_index: Arc<dyn crate::contexts::retrieval::application::CodeIndexRepository>,
+    documents: Arc<dyn RetrievalDocumentRepository>,
+    embeddings: Arc<dyn EmbeddingPort>,
+    active_workspace: ActiveSessionWorkspace,
+    round_robin_cursor: Mutex<usize>,
+}
+
+struct ActiveSessionWorkspace {
+    sessions: SessionsApi,
+    workspaces: WorkspaceApi,
+}
+
+impl ActiveSessionWorkspace {
+    fn root(&self) -> Result<Option<PathBuf>, RetrievalError> {
+        let Some(session) = self
+            .sessions
+            .active()
+            .map_err(|_| RetrievalError::Unavailable)?
+        else {
+            return Ok(None);
+        };
+        self.workspaces
+            .resolve_session_root(session.id())
+            .map(|root| root.map(PathBuf::from))
+            .map_err(|_| RetrievalError::Unavailable)
+    }
 }
 
 pub(crate) fn assemble_retrieval(
     database: NativeDatabase,
     agent_runtime: AgentRuntimeApi,
+    sessions: SessionsApi,
+    workspaces: WorkspaceApi,
 ) -> RetrievalAssembly {
     let documents: Arc<dyn RetrievalDocumentRepository> =
         Arc::new(SqliteRetrievalDocumentRepository::new(database.clone()));
+    let code_index = Arc::new(SqliteCodeIndexRepository::new(database.clone()));
     let configuration: Arc<dyn RetrievalConfigurationRepository> = Arc::new(
         SqliteRetrievalConfigurationRepository::new(database.clone()),
     );
     let source: Arc<dyn IndexSourcePort> = Arc::new(AgentMemoryIndexSource {
-        memories: SqliteAgentMemoryRepository::new(database),
+        memories: SqliteAgentMemoryRepository::new(database.clone()),
     });
     let endpoint: Arc<dyn EmbeddingEndpointPort> =
         Arc::new(AgentRuntimeEmbeddingEndpoint { agent_runtime });
@@ -72,23 +121,118 @@ pub(crate) fn assemble_retrieval(
         endpoint,
     });
     let (signal, wakeups) = RetrievalWorkerSignal::channel();
-    RetrievalAssembly {
-        api: RetrievalApi::new(
-            Arc::new(SearchService::new(
-                configuration.clone(),
-                documents.clone(),
-                source.clone(),
-                embeddings.clone(),
-            )),
-            documents.clone(),
+    let api = RetrievalApi::new(
+        Arc::new(SearchService::new(
             configuration.clone(),
-            signal,
-        ),
+            documents.clone(),
+            source.clone(),
+            embeddings.clone(),
+        )),
+        documents.clone(),
+        configuration.clone(),
+        signal,
+    );
+    RetrievalAssembly {
+        code_index_api: CodeIndexApi::new(code_index.clone(), api.clone()),
+        code_retrieval: Arc::new(NativeAgentCodeRetrieval {
+            code_index: code_index.clone(),
+            configuration: configuration.clone(),
+            documents: documents.clone(),
+            embeddings: embeddings.clone(),
+        }),
+        api,
         worker: RetrievalIndexingWorker {
-            indexing: IndexingService::new(documents, source, embeddings),
+            indexing: IndexingService::new(documents.clone(), source, embeddings.clone()),
             configuration,
             wakeups,
+            inter_batch_interval: DEFAULT_INTER_BATCH_INTERVAL,
+            code: Some(WorkspaceCodeIndexWorker {
+                database,
+                code_index,
+                documents,
+                embeddings,
+                active_workspace: ActiveSessionWorkspace {
+                    sessions,
+                    workspaces,
+                },
+                round_robin_cursor: Mutex::new(0),
+            }),
         },
+    }
+}
+
+struct NativeAgentCodeRetrieval {
+    code_index: Arc<SqliteCodeIndexRepository>,
+    configuration: Arc<dyn RetrievalConfigurationRepository>,
+    documents: Arc<dyn RetrievalDocumentRepository>,
+    embeddings: Arc<dyn EmbeddingPort>,
+}
+
+impl AgentCodeRetrievalPort for NativeAgentCodeRetrieval {
+    fn is_available(&self, workspace_folder: &str) -> bool {
+        self.code_index
+            .resolve_workspace(std::path::Path::new(workspace_folder))
+            .ok()
+            .flatten()
+            .is_some_and(|workspace| {
+                workspace.enabled
+                    && workspace.phase
+                        != crate::contexts::retrieval::domain::CodeIndexPhase::Unavailable
+            })
+    }
+
+    fn search_code(
+        &self,
+        workspace_folder: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<AgentCodeRetrievalOutcome, String> {
+        let workspace = self
+            .code_index
+            .resolve_workspace(std::path::Path::new(workspace_folder))
+            .map_err(|error| error.to_string())?
+            .filter(|workspace| workspace.enabled)
+            .ok_or_else(|| "code indexing is not enabled for this workspace".to_string())?;
+        let service =
+            crate::contexts::retrieval::application::code_search_service::CodeSearchService::new(
+                workspace.workspace_id,
+                self.configuration.clone(),
+                self.documents.clone(),
+                self.code_index.clone(),
+                self.embeddings.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+        service
+            .search_code(&crate::contexts::retrieval::domain::CodeSearchQuery {
+                text: query.to_string(),
+                limit,
+            })
+            .map(project_code_search_outcome)
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn project_code_search_outcome(
+    outcome: crate::contexts::retrieval::domain::CodeSearchOutcome,
+) -> AgentCodeRetrievalOutcome {
+    AgentCodeRetrievalOutcome {
+        hits: outcome
+            .hits
+            .into_iter()
+            .map(|hit| AgentCodeRetrievalHit {
+                file_path: hit.file_path,
+                start_line: hit.start_line,
+                end_line: hit.end_line,
+                language: hit.language,
+                symbol_name: hit.symbol_name,
+                symbol_kind: hit.symbol_kind,
+                snippet: hit.snippet,
+                matched_via: hit.matched_via.as_str().to_string(),
+            })
+            .collect(),
+        degraded: outcome
+            .degraded
+            .map(|degradation| degradation.as_str().to_string()),
     }
 }
 
@@ -160,10 +304,245 @@ fn run_indexing_cycle(worker: &RetrievalIndexingWorker, logging: &dyn Diagnostic
             [("category", error_category(&error).to_string())],
         ),
     }
-    let Some(model) = configured_model(worker.configuration.as_ref()) else {
+    run_workspace_code_round(worker, logging);
+    if let Some(model) = configured_model(worker.configuration.as_ref()) {
+        drain_pending_batches(worker, &model, logging);
+    }
+}
+
+fn run_workspace_code_round(worker: &RetrievalIndexingWorker, logging: &dyn DiagnosticLogPort) {
+    let Some(code) = &worker.code else {
         return;
     };
-    drain_pending_batches(worker, &model, logging);
+    let active_root = match code.active_workspace.root() {
+        Ok(root) => root,
+        Err(error) => {
+            write_failure_log(
+                logging,
+                RECONCILE_CATEGORY,
+                "Active workspace lookup failed; code indexing is deferred",
+                [("category", error_category(&error).to_string())],
+            );
+            return;
+        }
+    };
+    let workspaces = match code.code_index.list_workspaces() {
+        Ok(workspaces) => eligible_code_workspaces(workspaces, active_root.as_deref()),
+        Err(error) => {
+            write_failure_log(
+                logging,
+                RECONCILE_CATEGORY,
+                "Workspace code index inventory lookup failed",
+                [("category", error_category(&error).to_string())],
+            );
+            return;
+        }
+    };
+    let selected = {
+        let mut cursor = code
+            .round_robin_cursor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        round_robin_workspaces(&workspaces, &mut cursor, MAX_CODE_WORKSPACES_PER_CYCLE)
+    };
+    let configured = worker.configuration.load().ok().and_then(|configuration| {
+        configuration
+            .resolved_model()
+            .map(|(profile, model)| (profile.to_string(), model.to_string()))
+    });
+    for workspace in selected {
+        let reconcile_started = Instant::now();
+        let outcome =
+            match crate::contexts::retrieval::infrastructure::code_reconciler::reconcile_workspace(
+                code.code_index.as_ref(),
+                &workspace,
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    write_failure_log(
+                        logging,
+                        RECONCILE_CATEGORY,
+                        "Workspace code index reconciliation failed",
+                        [
+                            ("workspaceId", workspace.workspace_id.clone()),
+                            ("category", error_category(&error).to_string()),
+                        ],
+                    );
+                    continue;
+                }
+            };
+        let phase = if outcome.cancelled {
+            CodeIndexPhase::Cancelling
+        } else if outcome.failed > 0 {
+            CodeIndexPhase::Degraded
+        } else {
+            CodeIndexPhase::Ready
+        };
+        write_code_reconcile_log(
+            logging,
+            &workspace.workspace_id,
+            workspace.generation,
+            &outcome,
+            reconcile_started.elapsed(),
+            phase,
+        );
+        if workspace.mode == CodeIndexMode::Local {
+            continue;
+        }
+        let Some((profile_id, model)) = &configured else {
+            continue;
+        };
+        if outcome.failed > 0 {
+            continue;
+        }
+        match crate::contexts::retrieval::application::code_embedding::prepare_code_embedding(
+            code.code_index.as_ref(),
+            &workspace.workspace_id,
+            profile_id,
+            model,
+            workspace.generation,
+        ) {
+            Ok(true) => {}
+            Ok(false) => {
+                write_log(
+                    logging,
+                    LogSeverity::Info,
+                    CODE_BATCH_CATEGORY,
+                    "Workspace code embedding is awaiting explicit confirmation",
+                    [
+                        ("sourceKind", "workspace_file".to_string()),
+                        ("workspaceId", workspace.workspace_id.clone()),
+                        (
+                            "phase",
+                            CodeIndexPhase::AwaitingEmbeddingConfirmation
+                                .as_str()
+                                .to_string(),
+                        ),
+                        ("generation", workspace.generation.to_string()),
+                        ("model", model.clone()),
+                    ],
+                );
+                continue;
+            }
+            Err(error) => {
+                write_failure_log(
+                    logging,
+                    CODE_BATCH_CATEGORY,
+                    "Workspace code embedding preparation failed",
+                    [
+                        ("workspaceId", workspace.workspace_id.clone()),
+                        ("category", error_category(&error).to_string()),
+                    ],
+                );
+                continue;
+            }
+        }
+        let source: Arc<dyn IndexSourcePort> = Arc::new(WorkspaceFileIndexSource::new(
+            code.database.clone(),
+            workspace.workspace_id.clone(),
+        ));
+        let service = match crate::contexts::retrieval::application::code_embedding::WorkspaceCodeEmbeddingService::new(
+            code.documents.clone(),
+            source,
+            code.embeddings.clone(),
+            code.code_index.clone(),
+            workspace.workspace_id.clone(),
+            workspace.generation,
+            profile_id.clone(),
+            model.clone(),
+        ) {
+            Ok(service) => service,
+            Err(_) => continue,
+        };
+        let batch_started = Instant::now();
+        match service.process_pending_batch() {
+            Ok(outcome) if outcome.succeeded + outcome.failed == 0 => {
+                let _ = code
+                    .code_index
+                    .set_workspace_phase(&workspace.workspace_id, CodeIndexPhase::Ready);
+                write_code_batch_log(
+                    logging,
+                    &workspace.workspace_id,
+                    &outcome,
+                    batch_started.elapsed(),
+                    model,
+                    CodeIndexPhase::Ready,
+                );
+            }
+            Ok(outcome) => {
+                if outcome.succeeded > 0 {
+                    let _ = code.code_index.record_audit(
+                        &workspace.workspace_id,
+                        None,
+                        CodeIndexAuditEvent::Indexed,
+                        None,
+                        outcome.succeeded as u64,
+                    );
+                }
+                if outcome.failed > 0 {
+                    let _ = code.code_index.record_audit(
+                        &workspace.workspace_id,
+                        None,
+                        CodeIndexAuditEvent::Failed,
+                        None,
+                        outcome.failed as u64,
+                    );
+                }
+                write_code_batch_log(
+                    logging,
+                    &workspace.workspace_id,
+                    &outcome,
+                    batch_started.elapsed(),
+                    model,
+                    CodeIndexPhase::Embedding,
+                );
+                wait_between_batches(worker, worker.inter_batch_interval);
+            }
+            Err(error) => {
+                write_failure_log(
+                    logging,
+                    CODE_BATCH_CATEGORY,
+                    "Workspace code embedding batch failed before completion",
+                    [
+                        ("workspaceId", workspace.workspace_id.clone()),
+                        ("category", error_category(&error).to_string()),
+                    ],
+                );
+            }
+        }
+    }
+}
+
+fn eligible_code_workspaces(
+    workspaces: Vec<crate::contexts::retrieval::domain::CodeWorkspace>,
+    active_root: Option<&Path>,
+) -> Vec<crate::contexts::retrieval::domain::CodeWorkspace> {
+    let Some(active_root) = active_root.and_then(|root| root.canonicalize().ok()) else {
+        return Vec::new();
+    };
+    workspaces
+        .into_iter()
+        .filter(|workspace| {
+            workspace.enabled
+                && Path::new(&workspace.canonical_root)
+                    .canonicalize()
+                    .is_ok_and(|root| root == active_root)
+        })
+        .collect()
+}
+
+fn round_robin_workspaces<T: Clone>(items: &[T], cursor: &mut usize, limit: usize) -> Vec<T> {
+    if items.is_empty() || limit == 0 {
+        *cursor = 0;
+        return Vec::new();
+    }
+    let count = items.len().min(limit);
+    let start = *cursor % items.len();
+    let selected = (0..count)
+        .map(|offset| items[(start + offset) % items.len()].clone())
+        .collect();
+    *cursor = (start + count) % items.len();
+    selected
 }
 
 /// 串行处理，不并发冲击速率限制（设计文档 §5.2）。
@@ -201,6 +580,7 @@ fn drain_pending_batches(
         write_batch_log(logging, &outcome, started.elapsed(), model);
         if outcome.failed == 0 {
             consecutive_failures = 0;
+            wait_between_batches(worker, worker.inter_batch_interval);
             continue;
         }
         // 可重试的失败会把行留在 `pending`：不退避就会在同一批上原地打转，把 provider 的速率
@@ -234,13 +614,28 @@ fn drain_pending_batches(
         // 最多要等 300s 才会看到反应。收到唤醒就立刻结束退避、回到循环顶部重试；发送端没了则
         // 退化成真正的睡眠——和 `start_retrieval_indexing_worker` 对同一种情况的处理保持一致
         // （同一个理由：`recv_timeout` 在发送端消失后会立刻返回，不特殊处理就会把退避变成忙等）。
-        let delay = retry_backoff(consecutive_failures);
-        match worker.wakeups.recv_timeout(delay) {
-            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => thread::sleep(delay),
-        }
+        let delay = failure_retry_delay(&outcome, consecutive_failures);
+        wait_between_batches(worker, delay);
         consecutive_failures += 1;
     }
+}
+
+fn wait_between_batches(worker: &RetrievalIndexingWorker, delay: Duration) {
+    if delay.is_zero() {
+        return;
+    }
+    match worker.wakeups.recv_timeout(delay) {
+        Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+        Err(RecvTimeoutError::Disconnected) => thread::sleep(delay),
+    }
+}
+
+fn failure_retry_delay(outcome: &BatchOutcome, consecutive_failures: usize) -> Duration {
+    let provider_delay = outcome
+        .retry_after
+        .unwrap_or_default()
+        .min(MAX_PROVIDER_RETRY_AFTER);
+    retry_backoff(consecutive_failures).max(provider_delay)
 }
 
 fn retry_backoff(consecutive_failures: usize) -> Duration {
@@ -274,6 +669,62 @@ fn write_batch_log(
         BATCH_CATEGORY,
         "Retrieval embedding batch completed",
         [
+            (
+                "batchSize",
+                (outcome.succeeded + outcome.failed).to_string(),
+            ),
+            ("succeeded", outcome.succeeded.to_string()),
+            ("failed", outcome.failed.to_string()),
+            ("durationMs", elapsed.as_millis().to_string()),
+            ("model", model.to_string()),
+        ],
+    );
+}
+
+fn write_code_reconcile_log(
+    logging: &dyn DiagnosticLogPort,
+    workspace_id: &str,
+    generation: u64,
+    outcome: &crate::contexts::retrieval::infrastructure::code_reconciler::CodeReconcileOutcome,
+    elapsed: Duration,
+    phase: CodeIndexPhase,
+) {
+    write_log(
+        logging,
+        LogSeverity::Info,
+        CODE_RECONCILE_CATEGORY,
+        "Workspace code index reconciliation completed",
+        [
+            ("sourceKind", "workspace_file".to_string()),
+            ("workspaceId", workspace_id.to_string()),
+            ("phase", phase.as_str().to_string()),
+            ("generation", generation.to_string()),
+            ("discovered", outcome.discovered.to_string()),
+            ("replaced", outcome.replaced.to_string()),
+            ("deleted", outcome.deleted.to_string()),
+            ("failed", outcome.failed.to_string()),
+            ("durationMs", elapsed.as_millis().to_string()),
+        ],
+    );
+}
+
+fn write_code_batch_log(
+    logging: &dyn DiagnosticLogPort,
+    workspace_id: &str,
+    outcome: &BatchOutcome,
+    elapsed: Duration,
+    model: &str,
+    phase: CodeIndexPhase,
+) {
+    write_log(
+        logging,
+        LogSeverity::Info,
+        CODE_BATCH_CATEGORY,
+        "Workspace code embedding batch completed",
+        [
+            ("sourceKind", "workspace_file".to_string()),
+            ("workspaceId", workspace_id.to_string()),
+            ("phase", phase.as_str().to_string()),
             (
                 "batchSize",
                 (outcome.succeeded + outcome.failed).to_string(),
@@ -403,6 +854,7 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
         // 32 条记忆永久打成 failed，而 reconcile 因内容哈希未变会保留 failed，只能靠人工重建。
         let configuration = self.configuration.load().map_err(|_| EmbeddingFailure {
             category: FailureCategory::Network,
+            retry_after: None,
             message: "the retrieval configuration could not be read".to_string(),
         })?;
         let profile_id = configuration
@@ -410,6 +862,7 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
             .map(|(profile, _model)| profile.to_string())
             .ok_or_else(|| EmbeddingFailure {
                 category: FailureCategory::InvalidRequest,
+                retry_after: None,
                 message: "no embedding profile is configured".to_string(),
             })?;
         HttpEmbeddingAdapter::new(self.endpoint.clone(), profile_id).embed(model, inputs)
@@ -427,6 +880,7 @@ impl EmbeddingPort for ConfiguredProfileEmbeddingAdapter {
 #[derive(Default)]
 pub(crate) struct DeferredAgentRetrieval {
     bound: OnceLock<RetrievalApi>,
+    code: OnceLock<Arc<dyn AgentCodeRetrievalPort>>,
 }
 
 impl DeferredAgentRetrieval {
@@ -436,6 +890,10 @@ impl DeferredAgentRetrieval {
     /// (the rejected value) is deliberately discarded rather than surfaced.
     pub(crate) fn bind(&self, retrieval: RetrievalApi) {
         let _ = self.bound.set(retrieval);
+    }
+
+    pub(crate) fn bind_code(&self, retrieval: Arc<dyn AgentCodeRetrievalPort>) {
+        let _ = self.code.set(retrieval);
     }
 }
 
@@ -458,6 +916,10 @@ impl AgentRetrievalPort for DeferredAgentRetrieval {
         if let Some(retrieval) = self.bound.get() {
             retrieval.wake_worker();
         }
+    }
+
+    fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
+        self.code.get().map(Arc::as_ref)
     }
 }
 
@@ -487,8 +949,10 @@ mod tests {
     use crate::contexts::operations::api::OperationsError;
     use crate::contexts::retrieval::application::{RetrievalConfiguration, RetrievalIndexStatus};
     use crate::contexts::retrieval::domain::{
-        Degradation, IndexState, MatchedVia, RetrievalDocument, ScoredHit, SourceKind,
+        CodeWorkspace, Degradation, IndexState, MatchedVia, RetrievalDocument, ScoredHit,
+        SourceKind,
     };
+    use crate::test_support::TempDirectory;
     use std::sync::mpsc::sync_channel;
     use std::sync::Mutex;
 
@@ -506,6 +970,24 @@ mod tests {
             retry_backoff(RETRY_BACKOFF_SECONDS.len() + 10).as_secs(),
             300
         );
+    }
+
+    #[test]
+    fn provider_retry_after_is_bounded_and_never_shortens_the_worker_backoff() {
+        let outcome = BatchOutcome {
+            failed: 1,
+            retry_after: Some(Duration::from_secs(10)),
+            ..BatchOutcome::default()
+        };
+        assert_eq!(failure_retry_delay(&outcome, 0), Duration::from_secs(10));
+        assert_eq!(failure_retry_delay(&outcome, 3), Duration::from_secs(60));
+
+        let excessive = BatchOutcome {
+            failed: 1,
+            retry_after: Some(Duration::from_secs(600)),
+            ..BatchOutcome::default()
+        };
+        assert_eq!(failure_retry_delay(&excessive, 0), MAX_PROVIDER_RETRY_AFTER);
     }
 
     #[test]
@@ -542,6 +1024,7 @@ mod tests {
                 Self::Configured => Ok(RetrievalConfiguration {
                     source_profile_id: Some("profile-a".to_string()),
                     embedding_model: Some(MODEL.to_string()),
+                    automatic_code_index_mode: Default::default(),
                 }),
                 Self::Unconfigured => Ok(RetrievalConfiguration::default()),
                 Self::Failing => Err(RetrievalError::Storage(
@@ -551,6 +1034,13 @@ mod tests {
         }
 
         fn save(&self, _profile_id: &str, _embedding_model: &str) -> Result<(), RetrievalError> {
+            unimplemented!("not exercised by these tests")
+        }
+
+        fn save_automatic_code_index_mode(
+            &self,
+            _mode: crate::contexts::retrieval::domain::CodeIndexAutomaticMode,
+        ) -> Result<(), RetrievalError> {
             unimplemented!("not exercised by these tests")
         }
     }
@@ -643,6 +1133,7 @@ mod tests {
             // drain_pending_batches/run_indexing_cycle 的测试不用关心重试计数是否达到上限。
             Err(EmbeddingFailure {
                 category: FailureCategory::Auth,
+                retry_after: None,
                 message: "SENSITIVE-SENTINEL".to_string(),
             })
         }
@@ -750,6 +1241,7 @@ mod tests {
         ) -> Result<Vec<Vec<f32>>, EmbeddingFailure> {
             Err(EmbeddingFailure {
                 category: FailureCategory::RateLimit,
+                retry_after: None,
                 message: "SENSITIVE-SENTINEL".to_string(),
             })
         }
@@ -858,6 +1350,8 @@ mod tests {
             ),
             configuration: Arc::new(FakeConfigurationRepository::Configured),
             wakeups,
+            inter_batch_interval: Duration::ZERO,
+            code: None,
         };
         // 接收端随 worker 一起在下面的线程里被丢弃，`send` 届时返回 Err，本线程自然退出。
         thread::spawn(move || while wake_tx.send(()).is_ok() {});
@@ -876,6 +1370,60 @@ mod tests {
             RETRY_BACKOFF_SECONDS.len(),
             "the drain must hand control back after the backoff table is exhausted"
         );
+    }
+
+    #[test]
+    fn workspace_round_robin_is_bounded_and_advances_past_large_queues() {
+        let workspaces = (0..10).collect::<Vec<_>>();
+        let mut cursor = 0;
+        assert_eq!(
+            round_robin_workspaces(&workspaces, &mut cursor, 3),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            round_robin_workspaces(&workspaces, &mut cursor, 3),
+            vec![3, 4, 5]
+        );
+        assert_eq!(
+            round_robin_workspaces(&workspaces, &mut cursor, 3),
+            vec![6, 7, 8]
+        );
+        assert_eq!(
+            round_robin_workspaces(&workspaces, &mut cursor, 3),
+            vec![9, 0, 1]
+        );
+        assert_eq!(cursor, 2);
+    }
+
+    #[test]
+    fn workspace_code_round_only_selects_the_active_workspace() {
+        let active = TempDirectory::new("active-code-workspace");
+        let inactive = TempDirectory::new("inactive-code-workspace");
+        let mut active_workspace = CodeWorkspace::new(
+            active.path().to_string_lossy().into_owned(),
+            "active".to_string(),
+        );
+        active_workspace.enabled = true;
+        let active_id = active_workspace.workspace_id.clone();
+        let mut inactive_workspace = CodeWorkspace::new(
+            inactive.path().to_string_lossy().into_owned(),
+            "inactive".to_string(),
+        );
+        inactive_workspace.enabled = true;
+
+        let selected = eligible_code_workspaces(
+            vec![inactive_workspace.clone(), active_workspace],
+            Some(active.path()),
+        );
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|workspace| workspace.workspace_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![active_id]
+        );
+        assert!(eligible_code_workspaces(vec![inactive_workspace], None).is_empty());
     }
 
     /// 断言一组 `DiagnosticLog` 里没有任何一条的 message 或 context 值携带了哨兵文本。
@@ -897,6 +1445,73 @@ mod tests {
     }
 
     #[test]
+    fn code_index_diagnostics_expose_only_the_safe_field_whitelist() {
+        use crate::contexts::retrieval::infrastructure::code_reconciler::CodeReconcileOutcome;
+
+        let logging = CapturingLogPort::default();
+        write_code_reconcile_log(
+            &logging,
+            "workspace-safe",
+            3,
+            &CodeReconcileOutcome {
+                discovered: 4,
+                replaced: 2,
+                deleted: 1,
+                ..CodeReconcileOutcome::default()
+            },
+            Duration::from_millis(12),
+            CodeIndexPhase::Ready,
+        );
+        write_code_batch_log(
+            &logging,
+            "workspace-safe",
+            &BatchOutcome {
+                succeeded: 2,
+                ..BatchOutcome::default()
+            },
+            Duration::from_millis(8),
+            "model-safe",
+            CodeIndexPhase::Embedding,
+        );
+
+        let allowed = [
+            "source",
+            "sourceKind",
+            "workspaceId",
+            "phase",
+            "generation",
+            "discovered",
+            "replaced",
+            "deleted",
+            "failed",
+            "durationMs",
+            "batchSize",
+            "succeeded",
+            "model",
+        ];
+        let logs = logging.logs.lock().expect("lock");
+        assert_eq!(logs.len(), 2);
+        for log in logs.iter() {
+            assert!(log
+                .context
+                .keys()
+                .all(|key| allowed.contains(&key.as_str())));
+            let rendered = format!("{log:?}").to_ascii_lowercase();
+            for forbidden in [
+                "rawcode-sentinel",
+                "query-sentinel",
+                "credential-sentinel",
+                "detected-secret-sentinel",
+                "c:\\private\\sentinel",
+                "/private/sentinel",
+                "provider-body-sentinel",
+            ] {
+                assert!(!rendered.contains(forbidden));
+            }
+        }
+    }
+
+    #[test]
     fn a_reconcile_failure_is_logged_by_category_without_the_underlying_storage_error_text() {
         // 驱动真实调用点——`run_indexing_cycle` 里的 reconcile 失败分支——而不是直接调纯函数
         // `error_category`，证明设计文档 §8.2 的"只落盘类别"约束在实际日志管线里成立。
@@ -910,6 +1525,8 @@ mod tests {
             ),
             configuration: Arc::new(FakeConfigurationRepository::Unconfigured),
             wakeups,
+            inter_batch_interval: Duration::ZERO,
+            code: None,
         };
 
         run_indexing_cycle(&worker, &logging);
@@ -942,6 +1559,8 @@ mod tests {
             ),
             configuration: Arc::new(FakeConfigurationRepository::Configured),
             wakeups,
+            inter_batch_interval: Duration::ZERO,
+            code: None,
         };
 
         run_indexing_cycle(&worker, &logging);
@@ -974,6 +1593,8 @@ mod tests {
             ),
             configuration: Arc::new(FakeConfigurationRepository::Configured),
             wakeups,
+            inter_batch_interval: Duration::ZERO,
+            code: None,
         };
 
         let started = Instant::now();
@@ -1003,6 +1624,8 @@ mod tests {
             ),
             configuration: Arc::new(FakeConfigurationRepository::Configured),
             wakeups,
+            inter_batch_interval: Duration::ZERO,
+            code: None,
         };
 
         let started = Instant::now();

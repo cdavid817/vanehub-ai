@@ -1,23 +1,51 @@
 use sha2::{Digest, Sha256};
 
+use super::error::RetrievalError;
+
 /// 索引来源类别。第 1 期只有 `AgentMemory`；第 2/3 期扩展 `session_message`、`workspace_file`。
 /// 字符串形式是持久化格式，改动即破坏既有索引行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceKind {
     AgentMemory,
+    WorkspaceFile,
 }
 
 impl SourceKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::AgentMemory => "agent_memory",
+            Self::WorkspaceFile => "workspace_file",
         }
     }
 
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "agent_memory" => Some(Self::AgentMemory),
+            "workspace_file" => Some(Self::WorkspaceFile),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RetrievalScope {
+    GlobalMemory,
+    Workspace(String),
+}
+
+impl RetrievalScope {
+    pub(crate) fn validate_for(&self, source_kind: SourceKind) -> Result<(), RetrievalError> {
+        match (source_kind, self) {
+            (SourceKind::AgentMemory, Self::GlobalMemory) => Ok(()),
+            (SourceKind::WorkspaceFile, Self::Workspace(id)) if !id.trim().is_empty() => Ok(()),
+            _ => Err(RetrievalError::InvalidScope),
+        }
+    }
+
+    pub(crate) fn workspace_id(&self) -> Option<&str> {
+        match self {
+            Self::GlobalMemory => None,
+            Self::Workspace(id) => Some(id),
         }
     }
 }
@@ -75,6 +103,16 @@ impl FailureCategory {
     pub(crate) fn is_retryable(self) -> bool {
         matches!(self, Self::RateLimit | Self::Network)
     }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auth" => Some(Self::Auth),
+            "invalid_request" => Some(Self::InvalidRequest),
+            "rate_limit" => Some(Self::RateLimit),
+            "network" => Some(Self::Network),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,7 +140,11 @@ pub(crate) fn document_id(source_kind: SourceKind, source_id: &str) -> String {
 }
 
 pub(crate) fn content_hash(content: &str) -> String {
-    bytes_to_hex(&Sha256::digest(content.as_bytes()))
+    content_hash_bytes(content.as_bytes())
+}
+
+pub(crate) fn content_hash_bytes(content: &[u8]) -> String {
+    bytes_to_hex(&Sha256::digest(content))
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -150,6 +192,37 @@ mod tests {
             Some(SourceKind::AgentMemory)
         );
         assert_eq!(SourceKind::parse("nonsense"), None);
+        assert_eq!(SourceKind::WorkspaceFile.as_str(), "workspace_file");
+        assert_eq!(
+            SourceKind::parse("workspace_file"),
+            Some(SourceKind::WorkspaceFile)
+        );
+    }
+
+    #[test]
+    fn source_kinds_accept_only_their_valid_scope_shape() {
+        assert!(RetrievalScope::GlobalMemory
+            .validate_for(SourceKind::AgentMemory)
+            .is_ok());
+        assert!(RetrievalScope::Workspace("workspace-1".to_string())
+            .validate_for(SourceKind::WorkspaceFile)
+            .is_ok());
+        for (source, scope) in [
+            (
+                SourceKind::AgentMemory,
+                RetrievalScope::Workspace("workspace-1".to_string()),
+            ),
+            (SourceKind::WorkspaceFile, RetrievalScope::GlobalMemory),
+            (
+                SourceKind::WorkspaceFile,
+                RetrievalScope::Workspace(" ".to_string()),
+            ),
+        ] {
+            assert_eq!(
+                scope.validate_for(source),
+                Err(RetrievalError::InvalidScope)
+            );
+        }
     }
 
     #[test]

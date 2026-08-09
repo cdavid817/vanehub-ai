@@ -13,6 +13,7 @@
 - [权限审批](permissions.md)
 - [个性化配置](personalization.md)
 - [管理 Skill](skill-management.md)
+- [索引工作区代码](code-indexing.md)
 - [工具与扩展](tooling.md)
 - [原生 API Agent](native-agent.md)
 - [可观测性与日志](observability.md)

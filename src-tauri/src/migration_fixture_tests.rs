@@ -1,16 +1,15 @@
 use crate::platform::database::{migrate, table_has_column};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 const EMPTY_FIXTURE: &str = include_str!("../tests/fixtures/database/empty.sql");
 const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-v1.sql");
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous again: the 42 this branch left open was taken by `agent-memory-shared-pool` on
-/// main, this branch's own four moved up to 45-48 behind `retrieval-vector-index` and
-/// `permissions-core`, and Plan execution follows at 49.
+/// Contiguous through 53. Migration 53 reconciles databases that may identify versions 49-51 as
+/// either Plan execution from main or workspace code indexing from the concurrent worktree.
 fn expected_versions() -> Vec<i64> {
-    (1..=49).collect()
+    (1..=53).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -20,6 +19,89 @@ fn applied_versions(conn: &Connection) -> Vec<i64> {
         .expect("query versions")
         .collect::<Result<Vec<_>, _>>()
         .expect("collect versions")
+}
+
+#[test]
+fn migration_49_collision_histories_converge_at_version_53() {
+    for migration_49_name in [
+        "plan-execution-foundation",
+        "workspace-code-index-foundation",
+    ] {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        conn.execute_batch(
+            "CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
+            );",
+        )
+        .expect("create migration history");
+        conn.execute(
+            "INSERT INTO schema_migrations (version, name) VALUES (49, ?1)",
+            params![migration_49_name],
+        )
+        .expect("seed migration 49 history");
+
+        migrate(&conn).expect("reconcile migration collision");
+
+        assert_eq!(applied_versions(&conn), expected_versions());
+        for table in ["plans", "code_index_workspaces"] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .expect("query reconciled table");
+            assert_eq!(
+                exists, 1,
+                "{table} missing for version 49 history {migration_49_name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn code_index_worktree_migration_history_gains_plan_schema_at_version_53() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("initial migration");
+    conn.execute_batch(
+        "DROP TABLE plan_generation_failures;
+         DROP TABLE plan_control_requests;
+         DROP TABLE plan_verification_evidence;
+         DROP TABLE plan_subtask_attempts;
+         DROP TABLE plan_subtask_runs;
+         DROP TABLE plan_runs;
+         DROP TABLE plan_subtask_dependencies;
+         DROP TABLE plan_subtasks;
+         DROP TABLE plan_versions;
+         DROP TABLE plans;
+         DELETE FROM schema_migrations WHERE version BETWEEN 49 AND 53;",
+    )
+    .expect("remove canonical migration tail");
+    for (version, name) in [
+        (49, "workspace-code-index-foundation"),
+        (50, "workspace-code-index-mode"),
+        (51, "automatic-code-index-mode"),
+    ] {
+        conn.execute(
+            "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+            params![version, name],
+        )
+        .expect("seed worktree migration history");
+    }
+
+    migrate(&conn).expect("reconcile worktree migration history");
+
+    assert_eq!(applied_versions(&conn), expected_versions());
+    let plans_exist: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'plans'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query plans table");
+    assert_eq!(plans_exist, 1);
 }
 
 #[test]

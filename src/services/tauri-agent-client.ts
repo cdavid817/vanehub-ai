@@ -113,6 +113,15 @@ import { cliConfigAgentIds } from "../types/cli-agent-config";
 import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
+import type { CodeIndexAutomaticMode, CodeIndexConfigurationInput } from "../types/code-index";
+import {
+  normalizeCodeEmbeddingConfirmation,
+  normalizeCodeIndexAuditEntries,
+  normalizeCodeIndexConfiguration,
+  normalizeCodeIndexStatus,
+  normalizeCodeIndexWorkspace,
+  normalizeCodeIndexWorkspaces,
+} from "./code-index-contract";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -205,6 +214,10 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("save_retrieval_configuration", { profileId, modelId });
   },
 
+  saveCodeIndexAutomaticMode(mode: CodeIndexAutomaticMode) {
+    return invoke<void>("save_code_index_automatic_mode", { mode });
+  },
+
   listEmbeddingModels(profileId: string, transientCredential?: string) {
     return invoke<EmbeddingModelOption[]>("list_embedding_models", {
       profileId,
@@ -218,6 +231,62 @@ export const tauriAgentClient: AgentService = {
 
   rebuildRetrievalIndex() {
     return invoke<void>("rebuild_retrieval_index");
+  },
+
+  async listCodeIndexWorkspaces() {
+    return normalizeCodeIndexWorkspaces(await invoke<unknown>("list_code_index_workspaces"));
+  },
+
+  async getCodeIndexWorkspace(workspaceId: string) {
+    return normalizeCodeIndexWorkspace(await invoke<unknown>("get_code_index_workspace", { workspaceId }));
+  },
+
+  async registerCodeIndexWorkspace(root: string, displayName: string) {
+    return normalizeCodeIndexWorkspace(await invoke<unknown>("register_code_index_workspace", { root, displayName }));
+  },
+
+  async saveCodeIndexConfiguration(workspaceId: string, configuration: CodeIndexConfigurationInput) {
+    const normalized = normalizeCodeIndexConfiguration(configuration);
+    return normalizeCodeIndexWorkspace(await invoke<unknown>("save_code_index_configuration", {
+      workspaceId,
+      configuration: normalized,
+    }));
+  },
+
+  async refreshCodeIndexWorkspace(workspaceId: string) {
+    return normalizeCodeIndexStatus(await invoke<unknown>("refresh_code_index_workspace", { workspaceId }));
+  },
+
+  async confirmCodeIndexEmbedding(workspaceId: string, profileId: string, model: string, generation: number) {
+    return normalizeCodeEmbeddingConfirmation(await invoke<unknown>("confirm_code_index_embedding", {
+      workspaceId,
+      profileId,
+      model,
+      generation,
+    }));
+  },
+
+  async getCodeIndexStatus(workspaceId: string) {
+    return normalizeCodeIndexStatus(await invoke<unknown>("get_code_index_status", { workspaceId }));
+  },
+
+  async listCodeIndexAudit(workspaceId: string, limit?: number) {
+    return normalizeCodeIndexAuditEntries(await invoke<unknown>("list_code_index_audit", {
+      workspaceId,
+      limit: limit ?? null,
+    }));
+  },
+
+  async rebuildCodeIndexWorkspace(workspaceId: string) {
+    return normalizeCodeIndexWorkspace(await invoke<unknown>("rebuild_code_index_workspace", { workspaceId }));
+  },
+
+  async disableCodeIndexWorkspace(workspaceId: string) {
+    return normalizeCodeIndexWorkspace(await invoke<unknown>("disable_code_index_workspace", { workspaceId }));
+  },
+
+  deleteCodeIndexWorkspace(workspaceId: string) {
+    return invoke<void>("delete_code_index_workspace", { workspaceId });
   },
 
   listCliTools() {

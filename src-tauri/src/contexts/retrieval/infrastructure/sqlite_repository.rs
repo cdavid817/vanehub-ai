@@ -1,7 +1,7 @@
 use crate::contexts::retrieval::application::{RetrievalDocumentRepository, RetrievalIndexStatus};
 use crate::contexts::retrieval::domain::{
     decode_embedding, encode_embedding, FailureCategory, IndexState, RetrievalDocument,
-    RetrievalError, SourceKind,
+    RetrievalError, RetrievalScope, SourceKind,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::{DatabaseError, NativeDatabase};
@@ -307,6 +307,246 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
             .map_err(storage_error)?;
         Ok(())
     }
+
+    fn list_indexed_source_ids_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+    ) -> Result<Vec<(String, String)>, RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT source_id, content_hash FROM retrieval_documents
+                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)",
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![source_kind.as_str(), workspace_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        Ok(rows)
+    }
+
+    fn delete_by_source_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+        source_id: &str,
+    ) -> Result<(), RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        connection
+            .execute(
+                "DELETE FROM retrieval_documents
+                 WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2) AND source_id = ?3",
+                params![source_kind.as_str(), workspace_id, source_id],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    fn claim_pending_batch_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+        limit: usize,
+    ) -> Result<Vec<RetrievalDocument>, RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
+                       index_state, attempt_count, embedding_model
+                FROM retrieval_documents
+                WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                  AND index_state = 'pending'
+                ORDER BY updated_at ASC
+                LIMIT ?3
+                "#,
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(
+                params![source_kind.as_str(), workspace_id, limit as i64],
+                DocumentRow::read,
+            )
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        rows.into_iter().map(DocumentRow::into_document).collect()
+    }
+
+    fn vector_candidates_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+        model: &str,
+    ) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT source_id, embedding FROM retrieval_documents
+                WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                  AND index_state = 'indexed' AND embedding_model = ?3 AND embedding IS NOT NULL
+                "#,
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![source_kind.as_str(), workspace_id, model], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        decode_candidates(rows)
+    }
+
+    fn keyword_candidates_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<String>, RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT d.source_id FROM retrieval_documents d
+                JOIN retrieval_documents_fts f ON f.rowid = d.rowid
+                WHERE retrieval_documents_fts MATCH ?1 AND d.source_kind = ?2
+                  AND (?3 IS NULL OR d.scope_folder = ?3)
+                ORDER BY bm25(retrieval_documents_fts)
+                LIMIT ?4
+                "#,
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(
+                params![query, source_kind.as_str(), workspace_id, limit as i64],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        Ok(rows)
+    }
+
+    fn index_status_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+    ) -> Result<RetrievalIndexStatus, RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        connection
+            .query_row(
+                r#"
+                SELECT
+                  SUM(index_state = 'indexed'), SUM(index_state = 'pending'), SUM(index_state = 'failed'),
+                  (SELECT failure_category FROM retrieval_documents
+                   WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                     AND failure_category IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+                FROM retrieval_documents
+                WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                "#,
+                params![source_kind.as_str(), workspace_id],
+                read_index_status,
+            )
+            .map_err(storage_error)
+    }
+
+    fn requeue_all_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+    ) -> Result<(), RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        connection
+            .execute(
+                r#"
+                UPDATE retrieval_documents
+                SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?3
+                WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                "#,
+                params![source_kind.as_str(), workspace_id, SystemClock.rfc3339()],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    fn requeue_stale_model_scoped(
+        &self,
+        source_kind: SourceKind,
+        scope: &RetrievalScope,
+        new_model: &str,
+    ) -> Result<(), RetrievalError> {
+        let workspace_id = validated_workspace(source_kind, scope)?;
+        let connection = self.database.connection().map_err(database_error)?;
+        connection
+            .execute(
+                r#"
+                UPDATE retrieval_documents
+                SET index_state = 'pending', attempt_count = 0, failure_category = NULL, updated_at = ?4
+                WHERE source_kind = ?1 AND (?2 IS NULL OR scope_folder = ?2)
+                  AND index_state = 'indexed'
+                  AND (embedding_model IS NULL OR embedding_model <> ?3)
+                "#,
+                params![
+                    source_kind.as_str(),
+                    workspace_id,
+                    new_model,
+                    SystemClock.rfc3339()
+                ],
+            )
+            .map_err(storage_error)?;
+        Ok(())
+    }
+}
+
+fn validated_workspace(
+    source_kind: SourceKind,
+    scope: &RetrievalScope,
+) -> Result<Option<&str>, RetrievalError> {
+    scope.validate_for(source_kind)?;
+    Ok(scope.workspace_id())
+}
+
+fn decode_candidates(
+    rows: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<(String, Vec<f32>)>, RetrievalError> {
+    rows.into_iter()
+        .map(|(source_id, blob)| {
+            decode_embedding(&blob)
+                .map(|vector| (source_id.clone(), vector))
+                .ok_or_else(|| {
+                    RetrievalError::Storage(format!(
+                        "stored embedding for source '{source_id}' is not a valid f32 blob"
+                    ))
+                })
+        })
+        .collect()
+}
+
+fn read_index_status(row: &Row<'_>) -> Result<RetrievalIndexStatus, rusqlite::Error> {
+    let indexed: Option<i64> = row.get(0)?;
+    let pending: Option<i64> = row.get(1)?;
+    let failed: Option<i64> = row.get(2)?;
+    Ok(RetrievalIndexStatus {
+        indexed: indexed.unwrap_or(0) as u32,
+        pending: pending.unwrap_or(0) as u32,
+        failed: failed.unwrap_or(0) as u32,
+        last_failure_category: row.get(3)?,
+    })
 }
 
 struct DocumentRow {
@@ -429,6 +669,122 @@ mod tests {
             attempt_count: 0,
             embedding_model: None,
         }
+    }
+
+    fn workspace_document(workspace: &str, source_id: &str, content: &str) -> RetrievalDocument {
+        RetrievalDocument {
+            id: document_id(SourceKind::WorkspaceFile, source_id),
+            source_kind: SourceKind::WorkspaceFile,
+            source_id: source_id.to_string(),
+            scope_agent_id: String::new(),
+            scope_folder: workspace.to_string(),
+            content: content.to_string(),
+            content_hash: content_hash(content),
+            index_state: IndexState::Pending,
+            attempt_count: 0,
+            embedding_model: None,
+        }
+    }
+
+    fn workspace_scope(id: &str) -> RetrievalScope {
+        RetrievalScope::Workspace(id.to_string())
+    }
+
+    #[test]
+    fn workspace_scoped_operations_never_cross_workspace_or_memory_boundaries() {
+        let fixture = Fixture::new("retrieval workspace scope isolation");
+        for entry in [
+            document("memory", "agent", "workspace-a", "shared memory"),
+            workspace_document("workspace-a", "a-indexed", "shared alpha"),
+            workspace_document("workspace-a", "a-pending", "pending alpha"),
+            workspace_document("workspace-b", "b-indexed", "shared beta"),
+        ] {
+            fixture.repository.upsert_pending(&entry).expect("upsert");
+        }
+        for id in ["a-indexed", "b-indexed"] {
+            fixture
+                .repository
+                .store_embedding(
+                    &document_id(SourceKind::WorkspaceFile, id),
+                    "model-a",
+                    &[1.0, 0.0],
+                )
+                .expect("store embedding");
+        }
+
+        let scope_a = workspace_scope("workspace-a");
+        let scope_b = workspace_scope("workspace-b");
+        assert_eq!(
+            fixture
+                .repository
+                .list_indexed_source_ids_scoped(SourceKind::WorkspaceFile, &scope_a)
+                .expect("list a")
+                .len(),
+            2
+        );
+        assert_eq!(
+            fixture
+                .repository
+                .claim_pending_batch_scoped(SourceKind::WorkspaceFile, &scope_a, 10)
+                .expect("claim a")
+                .into_iter()
+                .map(|row| row.source_id)
+                .collect::<Vec<_>>(),
+            vec!["a-pending"]
+        );
+        assert_eq!(
+            fixture
+                .repository
+                .vector_candidates_scoped(SourceKind::WorkspaceFile, &scope_a, "model-a")
+                .expect("vectors a")[0]
+                .0,
+            "a-indexed"
+        );
+        assert_eq!(
+            fixture
+                .repository
+                .keyword_candidates_scoped(SourceKind::WorkspaceFile, &scope_b, "\"shared\"", 10,)
+                .expect("keywords b"),
+            vec!["b-indexed"]
+        );
+
+        let status_a = fixture
+            .repository
+            .index_status_scoped(SourceKind::WorkspaceFile, &scope_a)
+            .expect("status a");
+        assert_eq!((status_a.indexed, status_a.pending), (1, 1));
+        fixture
+            .repository
+            .requeue_stale_model_scoped(SourceKind::WorkspaceFile, &scope_a, "model-b")
+            .expect("requeue stale a");
+        assert_eq!(
+            fixture
+                .repository
+                .index_status_scoped(SourceKind::WorkspaceFile, &scope_b)
+                .expect("status b")
+                .indexed,
+            1
+        );
+        fixture
+            .repository
+            .delete_by_source_scoped(SourceKind::WorkspaceFile, &scope_a, "b-indexed")
+            .expect("wrong-scope delete is a no-op");
+        assert_eq!(
+            fixture
+                .repository
+                .vector_candidates_scoped(SourceKind::WorkspaceFile, &scope_b, "model-a")
+                .expect("vectors b")
+                .len(),
+            1
+        );
+        assert_eq!(
+            fixture
+                .repository
+                .index_status_scoped(SourceKind::AgentMemory, &RetrievalScope::GlobalMemory)
+                .expect("memory status")
+                .pending,
+            1
+        );
     }
 
     #[test]

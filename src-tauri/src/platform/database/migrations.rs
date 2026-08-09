@@ -298,8 +298,39 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-execution-foundation",
         crate::contexts::task_orchestration::infrastructure::apply_schema,
     )?;
+    apply_migration(
+        conn,
+        50,
+        "workspace-code-index-foundation",
+        crate::contexts::retrieval::infrastructure::apply_code_index_schema,
+    )?;
+    apply_migration(
+        conn,
+        51,
+        "workspace-code-index-mode",
+        crate::contexts::retrieval::infrastructure::apply_code_index_mode_schema,
+    )?;
+    apply_migration(
+        conn,
+        52,
+        "automatic-code-index-mode",
+        crate::contexts::retrieval::infrastructure::apply_code_index_automatic_mode_schema,
+    )?;
+    apply_migration(
+        conn,
+        53,
+        "plan-and-code-index-reconciliation",
+        apply_plan_and_code_index_reconciliation,
+    )?;
 
     Ok(())
+}
+
+// Versions 49-51 existed in two histories: Plan execution on main, or workspace code indexing in
+// a concurrent worktree. Version 53 is unclaimed by both and makes their idempotent schemas meet.
+fn apply_plan_and_code_index_reconciliation(conn: &Connection) -> Result<(), DatabaseError> {
+    crate::contexts::task_orchestration::infrastructure::apply_schema(conn)?;
+    crate::contexts::retrieval::infrastructure::apply_code_index_schema(conn)
 }
 
 /// Version 27 created the multi-Agent coordination table. The capability is retired, so the slot
@@ -936,7 +967,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (48, 49));
+        assert_eq!(migration_state, (52, 53));
 
         migrate(&connection).expect("upgrade migration");
 

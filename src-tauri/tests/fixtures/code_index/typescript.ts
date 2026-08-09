@@ -1,0 +1,1 @@
+interface Fixture { value: number }
