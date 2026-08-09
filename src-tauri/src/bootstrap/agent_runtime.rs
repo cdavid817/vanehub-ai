@@ -125,7 +125,7 @@ type ExecutionExporterSet = (
 
 pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
-) -> AgentRuntimeAssembly {
+) -> Result<AgentRuntimeAssembly, String> {
     let shared = dependencies.shared_registry;
     let unified_logging = shared.unified_logging;
     let diagnostics: Arc<dyn DiagnosticLogPort> = unified_logging.clone();
@@ -149,6 +149,10 @@ pub(crate) fn assemble_agent_runtime_api(
     ));
     let telemetry_lifecycle =
         ExecutionTelemetryLifecycle::new(telemetry.clone(), Duration::from_secs(3));
+    let provider_registry = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::providers::builtin_cli_provider_registry()
+            .map_err(|error| error.to_string())?,
+    );
     let cli_processes = Arc::new(RuntimeAgentProcessAdapter::new(
         logging.clone(),
         clock.clone(),
@@ -157,6 +161,7 @@ pub(crate) fn assemble_agent_runtime_api(
         Arc::new(InvocationScopedMcpRelayAdapter::new(
             dependencies.database.clone(),
         )),
+        provider_registry.clone(),
     ));
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
@@ -218,6 +223,7 @@ pub(crate) fn assemble_agent_runtime_api(
             telemetry.clone(),
         ),
         std::env::temp_dir().join("vanehub-agent-terminal-wrappers"),
+        provider_registry,
     ));
     let loop_completions = Arc::new(InMemoryLoopRoleGenerationCompletions::default());
     let seat_completions = Arc::new(InMemorySeatTurnCompletions::default());
@@ -333,7 +339,7 @@ pub(crate) fn assemble_agent_runtime_api(
     });
     let loop_scheduler = NativeLoopScheduler::new((*loop_execution).clone(), loop_orchestrator);
     let seat_turns = NativeSeatTurnCoordinator::new(service.clone());
-    AgentRuntimeAssembly {
+    Ok(AgentRuntimeAssembly {
         api: AgentRuntimeApi::new(AgentRuntimeApiServices {
             service,
             terminal_service,
@@ -347,7 +353,7 @@ pub(crate) fn assemble_agent_runtime_api(
             onepiece_planning,
         }),
         telemetry_lifecycle,
-    }
+    })
 }
 
 fn execution_exporters(

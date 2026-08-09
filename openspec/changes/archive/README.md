@@ -129,5 +129,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-08 | add-plan-execution-foundation | agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management, project-worktree-management | `openspec/changes/archive/2026-08-08-add-plan-execution-foundation/` |
 | 2026-08-08 | workspace-code-indexing-foundation | retrieval-vector-search, workspace-code-indexing | `openspec/changes/archive/2026-08-08-workspace-code-indexing-foundation/` |
 | 2026-08-09 | add-antigravity-cli | agent-cross-session-memory, agent-terminal-runtime, chat-experience, cli-agent-config-management, cli-agent-permission-launch-flags, cli-parameter-management, main-layout-ui, native-model-discovery, native-runtime-architecture, permissions-approval, prompt-hook-management, settings-cli-management-ui, skill-management, usage-statistics | `openspec/changes/archive/2026-08-09-add-antigravity-cli/` |
+| 2026-08-09 | introduce-agent-provider-contract | agent-provider-runtime | `openspec/changes/archive/2026-08-09-introduce-agent-provider-contract/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

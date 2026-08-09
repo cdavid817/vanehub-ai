@@ -17,6 +17,7 @@ mod model_category;
 mod models;
 mod onepiece_provider_catalog;
 mod ports;
+mod provider;
 mod seat_turn;
 #[cfg(test)]
 mod seat_turn_tests;
@@ -108,6 +109,11 @@ pub(crate) use ports::{
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
     LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, OnePiecePlanningPort, ToolApprovalPort,
+};
+pub(crate) use provider::{
+    AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,
+    ProviderInteractiveInvocationRequest, ProviderInteractiveInvocationSpec,
+    ProviderInvocationSpec, ProviderOutputFormat, ProviderPromptDelivery, ProviderRegistry,
 };
 pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};

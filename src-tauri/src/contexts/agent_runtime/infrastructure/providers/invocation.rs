@@ -1,4 +1,7 @@
-use crate::contexts::agent_runtime::application::AgentChatConfiguration;
+use crate::contexts::agent_runtime::application::{
+    AgentChatConfiguration, ProviderInteractiveInvocationSpec, ProviderInvocationSpec,
+    ProviderPromptDelivery,
+};
 use crate::contexts::permissions::api::PolicyTemplateName;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -10,26 +13,6 @@ use std::fmt::{Display, Formatter};
 /// (`add-cli-agent-permission-launch-flags` design.md).
 pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 4] =
     ["codex-cli", "gemini-cli", "opencode", "antigravity-cli"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProviderPromptDelivery {
-    Stdin,
-    Argument,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProviderInvocationSpec {
-    pub(crate) executable: String,
-    pub(crate) args: Vec<String>,
-    pub(crate) prompt_delivery: ProviderPromptDelivery,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProviderInteractiveInvocationSpec {
-    pub(crate) executable: String,
-    pub(crate) args: Vec<String>,
-    pub(crate) assigned_runtime_session_id: Option<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderInvocationError {

@@ -195,7 +195,8 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         shared_registry: shared_agent_registry,
         retrieval: deferred_retrieval.clone(),
         desktop_settings: desktop_settings_api.clone(),
-    });
+    })
+    .map_err(boxed_message)?;
     let task_orchestration_api = super::assemble_task_orchestration_api(
         database.clone(),
         sessions_api.clone(),
