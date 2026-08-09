@@ -753,6 +753,53 @@ mod tests {
         }
     }
 
+    fn antigravity_input() -> SaveCliConfigProfileInput {
+        SaveCliConfigProfileInput {
+            id: None,
+            agent_id: "antigravity-cli".into(),
+            name: "Antigravity".into(),
+            payload: CliConfigPayload::Antigravity {
+                tool_permission: AntigravityToolPermission::RequestReview,
+                enable_terminal_sandbox: false,
+                verbosity: "high".into(),
+                model: "gemini-3-pro".into(),
+                advanced_settings: BTreeMap::new(),
+            },
+            source_preset_id: None,
+            source_preset_version: None,
+            credential: None,
+            remove_credential: false,
+        }
+    }
+
+    /// A credential-free kind must refuse a submitted secret before anything touches a config
+    /// file, so a mis-wired caller cannot persist a credential the CLI would never read.
+    #[test]
+    fn credential_free_kinds_reject_a_submitted_credential() {
+        assert!(validate_profile_input(&antigravity_input()).is_ok());
+
+        let mut with_credential = antigravity_input();
+        with_credential.credential = Some("should-not-be-accepted".into());
+        let error = validate_profile_input(&with_credential)
+            .expect_err("a credential-free kind must reject a credential");
+        assert!(
+            matches!(error, CliConfigError::Validation(_)),
+            "expected a validation error, got {error:?}"
+        );
+    }
+
+    /// `needs-credential` has to be unreachable for this kind, otherwise the UI would render a
+    /// repair prompt for a credential that does not exist.
+    #[test]
+    fn antigravity_never_requires_or_supports_a_credential() {
+        let CliConfigPayload::Antigravity { .. } = antigravity_input().payload else {
+            panic!("fixture must be an Antigravity payload");
+        };
+        let payload = antigravity_input().payload;
+        assert!(!payload.supports_credential());
+        assert!(!payload.requires_credential());
+    }
+
     #[test]
     fn validates_supported_tagged_payloads() {
         assert!(validate_profile_input(&claude_input()).is_ok());

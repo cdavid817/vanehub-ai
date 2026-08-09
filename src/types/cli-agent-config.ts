@@ -87,8 +87,25 @@ export function payloadSupportsCredential(payload: CliConfigPayload): boolean {
   return payload.kind !== "antigravity";
 }
 
-export function payloadSupportsEndpointOverride(payload: CliConfigPayload): boolean {
+/** Payload kinds that can point their CLI at a user-chosen provider endpoint. */
+export type EndpointCapableConfigPayload = Exclude<CliConfigPayload, AntigravityConfigPayload>;
+
+/**
+ * A type predicate rather than a plain boolean, so the declaration narrows the union too — a
+ * caller cannot reach for `baseUrl` on a kind that has none without the compiler objecting.
+ */
+export function payloadSupportsEndpointOverride(
+  payload: CliConfigPayload,
+): payload is EndpointCapableConfigPayload {
   return payload.kind !== "antigravity";
+}
+
+/**
+ * What a kind without a provider endpoint shows in place of one: the local document its profile
+ * manages. Kept beside the capability declaration so the two cannot drift apart.
+ */
+export function managedSettingsPath(payload: CliConfigPayload): string {
+  return payload.kind === "antigravity" ? "~/.gemini/antigravity-cli/settings.json" : "";
 }
 
 export interface CliConfigPreset {

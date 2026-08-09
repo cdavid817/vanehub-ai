@@ -5,10 +5,11 @@ import { ProviderCatalog } from "../../../components/provider-directory/provider
 import { ProviderEndpointBadge, ProviderEndpointSelector, ProviderHelpLinks } from "../../../components/provider-directory/provider-endpoint-controls";
 import { Button } from "../../../components/ui/button";
 import { getOnePieceProviderPresets } from "../../../config/onepiece-provider-presets";
-import type { CliConfigPreset } from "../../../types/cli-agent-config";
+import { payloadSupportsEndpointOverride, type CliConfigPreset } from "../../../types/cli-agent-config";
 
-// Presets for kinds without an endpoint have no base URL to badge.
-function presetBaseUrl(preset: CliConfigPreset) { return preset.payload.kind === "antigravity" ? "" : preset.payload.baseUrl; }
+// Presets for kinds without an endpoint have no base URL to badge. Driven by the capability
+// declaration rather than the kind literal, per design decision D2.
+function presetBaseUrl(preset: CliConfigPreset) { return payloadSupportsEndpointOverride(preset.payload) ? preset.payload.baseUrl : ""; }
 
 export function CliConfigProviderCatalog({ presets, selectedPresetId, onCreateCustom, onSelectPreset, onOpenUrl = () => undefined }: {
   presets: CliConfigPreset[];
