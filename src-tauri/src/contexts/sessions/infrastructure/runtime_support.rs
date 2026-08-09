@@ -241,6 +241,9 @@ fn agent_runtime_error(error: AgentRuntimeApplicationError) -> SessionsApplicati
         AgentRuntimeApplicationError::Domain(error) => {
             SessionsApplicationError::Validation(error.to_string())
         }
+        AgentRuntimeApplicationError::Provider(error) => {
+            SessionsApplicationError::RuntimeLaunch(error.to_string())
+        }
         AgentRuntimeApplicationError::Validation(message) => {
             SessionsApplicationError::Validation(message)
         }

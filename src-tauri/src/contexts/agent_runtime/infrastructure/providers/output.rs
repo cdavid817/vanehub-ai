@@ -1,4 +1,4 @@
-use crate::contexts::agent_runtime::application::GenerationProcessFailure;
+use crate::contexts::agent_runtime::application::{GenerationProcessFailure, ProviderOutputFormat};
 use crate::contexts::execution_observability::api::ExecutionFidelity;
 use serde_json::Value;
 
@@ -56,6 +56,7 @@ enum ParserKind {
     Claude,
     StructuredJson,
     Antigravity,
+    #[cfg(test)]
     GenericLine,
 }
 
@@ -64,12 +65,25 @@ pub(crate) struct ProviderOutputParser {
     kind: ParserKind,
 }
 
+#[cfg(test)]
 pub(crate) fn output_parser_for(agent_id: &str) -> ProviderOutputParser {
-    let kind = match agent_id {
-        "claude-code" => ParserKind::Claude,
-        "codex-cli" | "gemini-cli" | "opencode" => ParserKind::StructuredJson,
-        "antigravity-cli" => ParserKind::Antigravity,
-        _ => ParserKind::GenericLine,
+    match agent_id {
+        "claude-code" => output_parser_for_format(ProviderOutputFormat::ClaudeStreamJson),
+        "codex-cli" | "gemini-cli" | "opencode" => {
+            output_parser_for_format(ProviderOutputFormat::StructuredJsonLines)
+        }
+        "antigravity-cli" => output_parser_for_format(ProviderOutputFormat::AntigravityStreamJson),
+        _ => ProviderOutputParser {
+            kind: ParserKind::GenericLine,
+        },
+    }
+}
+
+pub(crate) fn output_parser_for_format(format: ProviderOutputFormat) -> ProviderOutputParser {
+    let kind = match format {
+        ProviderOutputFormat::ClaudeStreamJson => ParserKind::Claude,
+        ProviderOutputFormat::StructuredJsonLines => ParserKind::StructuredJson,
+        ProviderOutputFormat::AntigravityStreamJson => ParserKind::Antigravity,
     };
     ProviderOutputParser { kind }
 }
@@ -80,6 +94,7 @@ impl ProviderOutputParser {
             ParserKind::Claude => parse_claude_line(line),
             ParserKind::StructuredJson => parse_structured_json_line(line),
             ParserKind::Antigravity => parse_antigravity_line(line),
+            #[cfg(test)]
             ParserKind::GenericLine => parse_generic_line(line),
         }
     }

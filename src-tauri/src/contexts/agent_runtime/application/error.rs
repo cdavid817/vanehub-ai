@@ -1,3 +1,4 @@
+use super::AgentProviderError;
 use crate::contexts::agent_runtime::domain::AgentRuntimeDomainError;
 use std::fmt;
 
@@ -32,6 +33,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     Mcp(String),
     Permission(String),
     Personalization(String),
+    Provider(AgentProviderError),
 }
 
 impl fmt::Display for AgentRuntimeApplicationError {
@@ -87,7 +89,14 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Personalization(message) => {
                 write!(formatter, "agent personalization error: {message}")
             }
+            Self::Provider(error) => error.fmt(formatter),
         }
+    }
+}
+
+impl From<AgentProviderError> for AgentRuntimeApplicationError {
+    fn from(error: AgentProviderError) -> Self {
+        Self::Provider(error)
     }
 }
 

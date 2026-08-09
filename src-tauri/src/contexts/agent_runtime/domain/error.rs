@@ -34,4 +34,6 @@ pub(crate) enum AgentRuntimeDomainError {
     LoopLimitReached(&'static str),
     #[error("invalid expert role: {0}.")]
     InvalidExpertRole(String),
+    #[error("invalid Agent provider capability declaration: {0}.")]
+    InvalidProviderCapability(String),
 }

@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::providers::output_parser_for;
 use super::providers::{
-    build_interactive_invocation, output_parser_for, prepare_provider_session_capture,
-    ProviderOutputEvent, ProviderSessionCapture, ProviderSessionDiscovery,
+    output_parser_for_format, prepare_provider_session_capture, ProviderOutputEvent,
+    ProviderSessionCapture, ProviderSessionDiscovery,
 };
 use super::terminal_observability::{
     finish_terminal_execution_trace, start_terminal_execution_trace,
@@ -17,7 +19,8 @@ use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentRuntimeApplicationError,
     AgentSessionGateway, AgentTerminalCapability, AgentTerminalEvent, AgentTerminalEventPort,
     AgentTerminalGateway, AgentTerminalInputRequest, AgentTerminalProcessRequest,
-    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, ResizeAgentTerminalRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
+    ProviderInteractiveInvocationRequest, ProviderRegistry, ResizeAgentTerminalRequest,
     StopAgentTerminalRequest,
 };
 use crate::contexts::agent_runtime::domain::AgentLifecycle;
@@ -124,6 +127,7 @@ pub(crate) struct PortablePtyAgentTerminalRuntime {
     clock: Arc<dyn AgentClockPort>,
     observability: TerminalExecutionObservability,
     wrapper_dir: PathBuf,
+    providers: Arc<ProviderRegistry>,
 }
 
 impl PortablePtyAgentTerminalRuntime {
@@ -134,6 +138,7 @@ impl PortablePtyAgentTerminalRuntime {
         clock: Arc<dyn AgentClockPort>,
         observability: TerminalExecutionObservability,
         wrapper_dir: PathBuf,
+        providers: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             terminals: Arc::new(Mutex::new(HashMap::new())),
@@ -144,6 +149,7 @@ impl PortablePtyAgentTerminalRuntime {
             clock,
             observability,
             wrapper_dir,
+            providers,
         }
     }
 
@@ -286,6 +292,19 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         }
         let agent_id_for_error = request.agent.id.clone();
         let session_id_for_error = request.session.id.clone();
+        let provider = self.providers.get(&request.agent.id)?;
+        if !provider.capabilities().terminal() {
+            return Err(crate::contexts::agent_runtime::application::AgentProviderError::UnsupportedCapability {
+                provider_id: request.agent.id.clone(),
+                capability: "terminal".to_string(),
+            }
+            .into());
+        }
+        let provider_session = self.providers.resolve_session(
+            &request.agent.id,
+            request.session.runtime_session_id.as_deref(),
+        )?;
+        let output_format = provider.output_format();
         let provider_session_capture = if non_empty_runtime_session_id(
             request.session.runtime_session_id.as_deref(),
         )
@@ -330,22 +349,22 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         };
         let executable =
             normalize_interactive_executable(&request.agent.id, &request.cli_profile.executable);
-        let invocation = build_interactive_invocation(
-            &request.agent.id,
-            executable,
-            request.session.runtime_session_id.as_deref(),
-            &request.cli_profile.managed_args,
-        )
-        .map_err(|error| {
-            let message = format!("Failed to prepare Agent terminal invocation: {error}");
-            self.record_log(
-                AgentLogLevel::Error,
-                message.clone(),
-                Some(&agent_id_for_error),
-                Some(&session_id_for_error),
-            );
-            AgentRuntimeApplicationError::Process(message)
-        })?;
+        let invocation = provider
+            .prepare_interactive(ProviderInteractiveInvocationRequest {
+                executable,
+                provider_session: provider_session.as_ref(),
+                managed_args: &request.cli_profile.managed_args,
+            })
+            .map_err(|error| {
+                let message = format!("Failed to prepare Agent terminal invocation: {error}");
+                self.record_log(
+                    AgentLogLevel::Error,
+                    message.clone(),
+                    Some(&agent_id_for_error),
+                    Some(&session_id_for_error),
+                );
+                AgentRuntimeApplicationError::Process(message)
+            })?;
         let terminal_id = self.next_terminal_id(&request.session.id);
         // `Set-Location`/`cd /d` and `CreateProcess`'s `lpCurrentDirectory` all reject or
         // mishandle a Windows extended-length path prefix (`\\?\`) — normalize once and
@@ -571,7 +590,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         };
         drop(terminal_registry);
         thread::spawn(move || {
-            let parser = output_parser_for(&agent_id);
+            let parser = output_parser_for_format(output_format);
             let mut provider_session_capture = provider_session_capture;
             let mut last_capture_attempt: Option<Instant> = None;
             let mut capture_failure_logged = false;
