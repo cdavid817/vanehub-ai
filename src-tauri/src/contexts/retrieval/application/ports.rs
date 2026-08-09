@@ -18,25 +18,29 @@ pub(crate) struct RetrievalIndexStatus {
 
 pub(crate) trait RetrievalDocumentRepository: Send + Sync {
     fn upsert_pending(&self, document: &RetrievalDocument) -> Result<(), RetrievalError>;
-
-    fn upsert_pending_scoped(
-        &self,
-        document: &RetrievalDocument,
-        scope: &RetrievalScope,
-    ) -> Result<(), RetrievalError> {
-        scope.validate_for(document.source_kind)?;
-        if scope
-            .workspace_id()
-            .is_some_and(|workspace| workspace != document.scope_folder)
-        {
-            return Err(RetrievalError::InvalidScope);
-        }
-        self.upsert_pending(document)
-    }
     fn list_indexed_source_ids(
         &self,
         source_kind: SourceKind,
     ) -> Result<Vec<(String, String)>, RetrievalError>;
+
+    /// Apply a reconcile diff — upsert every changed/new document and delete every orphan —
+    /// in a single transaction. The default implementation falls back to one call per item;
+    /// concrete repositories should override this to wrap the batch in one transaction so a
+    /// full reconcile doesn't pay one fsync per row.
+    fn reconcile_apply(
+        &self,
+        upserts: &[RetrievalDocument],
+        orphan_source_ids: &[String],
+        source_kind: SourceKind,
+    ) -> Result<(), RetrievalError> {
+        for document in upserts {
+            self.upsert_pending(document)?;
+        }
+        for source_id in orphan_source_ids {
+            self.delete_by_source(source_kind, source_id)?;
+        }
+        Ok(())
+    }
     fn delete_by_source(
         &self,
         source_kind: SourceKind,
@@ -193,6 +197,21 @@ pub(crate) trait CodeIndexRepository: Send + Sync {
         phase: CodeIndexPhase,
     ) -> Result<(), RetrievalError>;
     fn workspace_status(&self, workspace_id: &str) -> Result<CodeIndexStatus, RetrievalError>;
+    /// Status for many workspaces in one query instead of one `workspace_status` call per
+    /// workspace (each of which runs ~10 COUNT subqueries). Returns a map keyed by
+    /// workspace_id; workspaces without a status row are omitted. The default implementation
+    /// falls back to per-workspace calls; concrete repositories should override this with a
+    /// single aggregated query.
+    fn workspace_statuses(
+        &self,
+        workspace_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, CodeIndexStatus>, RetrievalError> {
+        let mut statuses = std::collections::HashMap::new();
+        for id in workspace_ids {
+            statuses.insert(id.clone(), self.workspace_status(id)?);
+        }
+        Ok(statuses)
+    }
     fn embedding_confirmation(
         &self,
         workspace_id: &str,

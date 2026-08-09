@@ -322,7 +322,129 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-and-code-index-reconciliation",
         apply_plan_and_code_index_reconciliation,
     )?;
+    apply_migration(conn, 54, "loop-evidence-iteration-index", |connection| {
+        connection.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_loop_evidence_iteration_created
+                ON loop_evidence(iteration_id, created_at);
+            "#,
+        )?;
+        Ok(())
+    })?;
 
+    // After applying, assert the recorded migration history is dense and matches the
+    // names this binary expects. `apply_migration` is version-gated and silently skips a
+    // number claimed twice (the second migration never runs, its table is just missing at
+    // startup) — a collision that has already happened across shared local databases (every
+    // worktree shares one `ai.vanehub.app` database). Failing fast here turns a silent
+    // "no such table" startup crash into an explicit, diagnosable error.
+    assert_migration_history_is_dense(conn)?;
+
+    Ok(())
+}
+
+/// `(version, name)` for every migration `migrate` records, in order. This is the ground
+/// truth the post-migration density check compares `schema_migrations` against, so a
+/// version-number collision (two migrations claiming the same number — the second is
+/// silently skipped because `apply_migration` is version-gated, leaving its table missing)
+/// surfaces at startup instead of as an opaque "no such table" crash. This has already
+/// happened across shared local databases (every worktree shares one `ai.vanehub.app`
+/// database). Keep this in lockstep with the `apply_migration` / `apply_transactional_migration`
+/// calls in `migrate` — the `migration_sequence_is_dense_and_matches_expected` test guards
+/// against drift.
+const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
+    (1, "initial-schema"),
+    (2, "agent-managed-sdk-dependency"),
+    (3, "session-management"),
+    (4, "chat-messages"),
+    (5, "app-settings"),
+    (6, "cli-tool-status"),
+    (7, "skill-management"),
+    (8, "project-worktree-management"),
+    (9, "session-runtime-metadata"),
+    (10, "im-connectors"),
+    (11, "im-session-source"),
+    (12, "cli-parameter-settings"),
+    (13, "session-chat-configuration"),
+    (14, "floating-assistant-configuration"),
+    (15, "local-extension-management"),
+    (16, "cli-local-environment-details"),
+    (17, "message-rich-blocks"),
+    (18, "session-management-organization"),
+    (19, "prompt-hook-management"),
+    (20, "remote-workspace-sessions"),
+    (21, "sdk-operation-logs"),
+    (22, "session-usage-records"),
+    (23, "scheduled-task-management"),
+    (24, "ssh-connection-management"),
+    (25, "loop-engineering-runtime"),
+    (26, "agent-execution-observability"),
+    (27, "multi-agent-coordination"),
+    (28, "remote-terminal-management"),
+    (29, "api-agent-registration"),
+    (30, "openai-compatible-agent-registration"),
+    (31, "agent-cross-session-memory"),
+    (32, "agent-tool-trust"),
+    (33, "session-message-search-index"),
+    (34, "cli-agent-global-config"),
+    (35, "cli-agent-applied-ownership-snapshot"),
+    (36, "mcp-truthful-url-transports"),
+    (37, "skill-management-reliability"),
+    (38, "agent-management-origin"),
+    (39, "onepiece-provider-profiles"),
+    (40, "onepiece-provider-catalog"),
+    (41, "onepiece-provider-endpoints"),
+    (42, "agent-memory-shared-pool"),
+    (43, "retrieval-vector-index"),
+    (44, "permissions-core"),
+    (45, "remove-multi-agent-coordination"),
+    (46, "expert-role-management"),
+    (47, "session-seats"),
+    (48, "message-speaker"),
+    (49, "plan-execution-foundation"),
+    (50, "workspace-code-index-foundation"),
+    (51, "workspace-code-index-mode"),
+    (52, "automatic-code-index-mode"),
+    (53, "plan-and-code-index-reconciliation"),
+    (54, "loop-evidence-iteration-index"),
+];
+
+fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
+    // Density + upper-bound check only. A version-number *collision* (two migrations
+    // claiming the same number) does not create a gap — the second is silently skipped
+    // and the first's row fills the version — so name divergence is the only signal.
+    // That is asserted in tests (`migration_sequence_matches_expected`), not at startup,
+    // because a shared local database already in a collided state would otherwise become
+    // unbootable here, which is worse than the missing-table crash it would hit later.
+    let max_expected = EXPECTED_MIGRATIONS
+        .iter()
+        .map(|(version, _)| *version)
+        .max()
+        .unwrap_or(0);
+    let mut rows = conn.prepare("SELECT version FROM schema_migrations ORDER BY version ASC")?;
+    let versions: Vec<i64> = rows
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut prev: Option<i64> = None;
+    for version in &versions {
+        if let Some(p) = prev {
+            if *version != p + 1 {
+                return Err(DatabaseError::Storage(format!(
+                    "migration history is not dense: version {p} is followed by {version} \
+                     (a migration did not record its schema_migrations row — the schema and the \
+                     version table have diverged)"
+                )));
+            }
+        }
+        if *version > max_expected {
+            return Err(DatabaseError::Storage(format!(
+                "migration version {version} is recorded but exceeds the highest version \
+                 ({max_expected}) this binary expects — an unknown migration is in the history"
+            )));
+        }
+        prev = Some(*version);
+    }
     Ok(())
 }
 
@@ -675,11 +797,19 @@ fn apply_migration(
         return Ok(());
     }
 
-    migration(conn)?;
-    conn.execute(
+    // Wrap the schema change and the version-bookkeeping row in one transaction so a
+    // mid-migration failure rolls back the DDL/DML that already landed. Without this,
+    // SQLite auto-commits each DDL statement, leaving the schema partially applied
+    // while `schema_migrations` never records the version — the next startup re-runs
+    // the migration and relies on `IF NOT EXISTS` / `table_has_column` idempotency to
+    // paper over it, which is not guaranteed for data-bearing migrations.
+    let transaction = conn.unchecked_transaction()?;
+    migration(&transaction)?;
+    transaction.execute(
         "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
         params![version, name],
     )?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -967,7 +1097,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (52, 53));
+        assert_eq!(migration_state, (53, 54));
 
         migrate(&connection).expect("upgrade migration");
 
@@ -1261,5 +1391,57 @@ mod tests {
 
         // Re-running must not fail or duplicate the column.
         migrate(&connection).expect("idempotent migrate");
+    }
+
+    /// `EXPECTED_MIGRATIONS` is the ground truth the post-migration density check compares
+    /// against, so it must stay in lockstep with the `apply_migration` /
+    /// `apply_transactional_migration` calls in `migrate`. A fresh migrate must produce exactly
+    /// those (version, name) rows — this guards against both drift in the constant and a
+    /// silent version-number collision (the second migration claiming a number is skipped, so
+    /// the recorded name would be the first's, not the expected one).
+    #[test]
+    fn migration_sequence_matches_expected() {
+        let connection = Connection::open_in_memory().expect("database");
+        migrate(&connection).expect("migrate");
+
+        let mut rows = connection
+            .prepare("SELECT version, name FROM schema_migrations ORDER BY version ASC")
+            .expect("prepare");
+        let recorded: Vec<(i64, String)> = rows
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .expect("query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect");
+
+        let expected: Vec<(i64, String)> = EXPECTED_MIGRATIONS
+            .iter()
+            .map(|(v, n)| (*v, (*n).to_string()))
+            .collect();
+        assert_eq!(
+            recorded, expected,
+            "EXPECTED_MIGRATIONS drifted from migrate()"
+        );
+    }
+
+    /// A non-dense history (a missing row, as a mid-migration failure + unrecorded version
+    /// would leave) must fail the startup density check rather than booting with a diverged
+    /// schema.
+    #[test]
+    fn density_check_rejects_a_missing_migration_row() {
+        let connection = Connection::open_in_memory().expect("database");
+        migrate(&connection).expect("migrate");
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version = 40", [])
+            .expect("delete a row to create a gap");
+
+        let error = assert_migration_history_is_dense(&connection)
+            .expect_err("a gapped history must be rejected");
+        let message = error.to_string();
+        assert!(
+            message.contains("not dense"),
+            "expected a density error, got: {message}"
+        );
     }
 }
