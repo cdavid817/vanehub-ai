@@ -322,6 +322,15 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-and-code-index-reconciliation",
         apply_plan_and_code_index_reconciliation,
     )?;
+    apply_migration(conn, 54, "loop-evidence-iteration-index", |connection| {
+        connection.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_loop_evidence_iteration_created
+                ON loop_evidence(iteration_id, created_at);
+            "#,
+        )?;
+        Ok(())
+    })?;
 
     // After applying, assert the recorded migration history is dense and matches the
     // names this binary expects. `apply_migration` is version-gated and silently skips a
@@ -397,6 +406,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (51, "workspace-code-index-mode"),
     (52, "automatic-code-index-mode"),
     (53, "plan-and-code-index-reconciliation"),
+    (54, "loop-evidence-iteration-index"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

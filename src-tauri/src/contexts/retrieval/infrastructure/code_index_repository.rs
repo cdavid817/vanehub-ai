@@ -813,40 +813,52 @@ impl CodeIndexRepository for SqliteCodeIndexRepository {
         workspace_id: &str,
         source_ids: &[String],
     ) -> Result<Vec<CodeSearchCandidate>, RetrievalError> {
-        let connection = self.database.connection().map_err(database_error)?;
-        let mut statement = connection
-            .prepare(
-                r#"
-                SELECT document.source_id, chunk.relative_path, chunk.start_line, chunk.end_line,
-                       chunk.language, chunk.symbol_name, chunk.symbol_kind, document.content
-                FROM code_index_chunks AS chunk
-                JOIN retrieval_documents AS document ON document.id = chunk.document_id
-                WHERE chunk.workspace_id = ?1 AND document.source_kind = 'workspace_file'
-                  AND document.scope_folder = ?1 AND document.source_id = ?2
-                "#,
-            )
-            .map_err(storage_error)?;
-        let mut candidates = Vec::with_capacity(source_ids.len());
-        for source_id in source_ids {
-            let candidate = statement
-                .query_row(params![workspace_id, source_id], |row| {
-                    Ok(CodeSearchCandidate {
-                        source_id: row.get(0)?,
-                        file_path: row.get(1)?,
-                        start_line: row.get::<_, i64>(2)? as u32,
-                        end_line: row.get::<_, i64>(3)? as u32,
-                        language: row.get(4)?,
-                        symbol_name: row.get(5)?,
-                        symbol_kind: row.get(6)?,
-                        snippet: row.get(7)?,
-                    })
-                })
-                .optional()
-                .map_err(storage_error)?;
-            if let Some(candidate) = candidate {
-                candidates.push(candidate);
-            }
+        if source_ids.is_empty() {
+            return Ok(Vec::new());
         }
+        let connection = self.database.connection().map_err(database_error)?;
+        // One round-trip for all candidates instead of one per source_id. `?1` previously
+        // bound both `chunk.workspace_id` and `document.scope_folder` — two semantically
+        // distinct columns — which could mask a cross-workspace leak; they are now separate
+        // parameters even though both carry the workspace id today.
+        let placeholders = (0..source_ids.len())
+            .map(|index| format!("?{}", index + 3))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT document.source_id, chunk.relative_path, chunk.start_line, chunk.end_line,
+                   chunk.language, chunk.symbol_name, chunk.symbol_kind, document.content
+            FROM code_index_chunks AS chunk
+            JOIN retrieval_documents AS document ON document.id = chunk.document_id
+            WHERE chunk.workspace_id = ?1 AND document.source_kind = 'workspace_file'
+              AND document.scope_folder = ?2 AND document.source_id IN ({placeholders})
+            "#,
+        );
+        let mut statement = connection.prepare(&sql).map_err(storage_error)?;
+        let params: Vec<&dyn rusqlite::ToSql> = {
+            let mut params: Vec<&dyn rusqlite::ToSql> = vec![&workspace_id, &workspace_id];
+            for source_id in source_ids {
+                params.push(source_id);
+            }
+            params
+        };
+        let candidates = statement
+            .query_map(params.as_slice(), |row| {
+                Ok(CodeSearchCandidate {
+                    source_id: row.get(0)?,
+                    file_path: row.get(1)?,
+                    start_line: row.get::<_, i64>(2)? as u32,
+                    end_line: row.get::<_, i64>(3)? as u32,
+                    language: row.get(4)?,
+                    symbol_name: row.get(5)?,
+                    symbol_kind: row.get(6)?,
+                    snippet: row.get(7)?,
+                })
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
         Ok(candidates)
     }
 
