@@ -1791,6 +1791,32 @@
                          "capabilities":  [
                                               "session-runtime-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-09",
+                         "changeName":  "add-antigravity-cli",
+                         "path":  "openspec/changes/archive/2026-08-09-add-antigravity-cli/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-cross-session-memory",
+                                              "agent-terminal-runtime",
+                                              "chat-experience",
+                                              "cli-agent-config-management",
+                                              "cli-agent-permission-launch-flags",
+                                              "cli-parameter-management",
+                                              "main-layout-ui",
+                                              "native-model-discovery",
+                                              "native-runtime-architecture",
+                                              "permissions-approval",
+                                              "prompt-hook-management",
+                                              "settings-cli-management-ui",
+                                              "skill-management",
+                                              "usage-statistics"
+                                          ]
                      }
                  ]
 }

@@ -53,7 +53,7 @@ The system SHALL bind Prompt Hooks to supported CLI agents by stable agent id.
 
 #### Scenario: Bind hook to CLI agents
 - **WHEN** a user updates a Prompt Hook's CLI bindings
-- **THEN** the service SHALL persist only supported stable CLI agent ids among `claude-code`, `codex-cli`, `gemini-cli`, and `opencode`
+- **THEN** the service SHALL persist only supported stable CLI agent ids among `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli`
 - **AND** it SHALL NOT match agents by display name
 
 #### Scenario: Unbound hook does not apply

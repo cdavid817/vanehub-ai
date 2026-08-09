@@ -53,7 +53,7 @@ The system SHALL use registered CLI-capable Agent ids as Skill mount carriers, S
 
 #### Scenario: Default Agent mount paths
 - **WHEN** the system returns mount paths for registered Agents
-- **THEN** it SHALL include defaults for `claude-code`, `codex-cli`, `gemini-cli`, and `opencode` when those CLI Agents are registered
+- **THEN** it SHALL include defaults for `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli` when those CLI Agents are registered
 - **AND** SHALL exclude API-only Agents
 
 #### Scenario: Update Agent mount path

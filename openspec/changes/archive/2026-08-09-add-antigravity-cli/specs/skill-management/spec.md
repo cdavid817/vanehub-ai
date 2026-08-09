@@ -11,3 +11,11 @@ The system SHALL use registered CLI-capable Agent ids as Skill mount carriers, S
 #### Scenario: Update Agent mount path
 - **WHEN** a user changes a CLI Agent mount path to a valid disjoint relative path
 - **THEN** the system SHALL persist the new path for that Agent and immediately migrate existing managed Skill links for that Agent
+
+#### Scenario: Reject managed namespace overlap
+- **WHEN** a requested mount path is `.vanehub`, is below `.vanehub`, or otherwise overlaps a resolved Skill source path
+- **THEN** the system SHALL reject it before moving, backing up, or linking any filesystem entry
+
+#### Scenario: Migration report
+- **WHEN** an Agent mount path migration completes
+- **THEN** the system SHALL return a report containing migrated, removed, overwritten, backed up, and failed Skill entries
