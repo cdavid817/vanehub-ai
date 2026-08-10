@@ -37,8 +37,19 @@ export function createRuntimeAdapter<T extends object>(adapters: RuntimeAdapterS
     return withServiceErrorNormalization(adapters.tauri as object) as T;
   }
 
-  if (runtimeKind === "web-http" && adapters.webHttp) {
-    return withServiceErrorNormalization(adapters.webHttp as object) as T;
+  if (runtimeKind === "web-http") {
+    if (adapters.webHttp) {
+      return withServiceErrorNormalization(adapters.webHttp as object) as T;
+    }
+    // An HTTP deployment was selected (the host set __VANEHUB_HTTP_BASE_URL__) but this
+    // service has no HTTP adapter. Falling back to the mock here would silently return
+    // fabricated data in production — the worst failure mode, since the app looks healthy
+    // but every read is fake. Throw instead so the gap surfaces immediately at startup.
+    throw new Error(
+      `The "web-http" runtime was selected, but this service has no HTTP adapter. ` +
+        `Either provide a webHttp adapter for this service, or unset __VANEHUB_HTTP_BASE_URL__ ` +
+        `to fall back to the web mock.`,
+    );
   }
 
   return withServiceErrorNormalization(adapters.webMock as object) as T;

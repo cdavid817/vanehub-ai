@@ -6,6 +6,7 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::domain::{LoopRunPhase, LoopRunStatus, LoopTerminalReason};
 use crate::platform::database::NativeDatabase;
 use rusqlite::{OptionalExtension, Row};
+use std::collections::HashMap;
 
 const RUN_SELECT: &str = r#"SELECT id, definition_id, definition_snapshot, status, phase,
     terminal_reason, current_iteration, consecutive_runtime_errors, consecutive_no_progress,
@@ -26,16 +27,39 @@ pub(super) fn list_run_views(
         None => (format!("{RUN_SELECT} ORDER BY created_at DESC, id"), None),
     };
     let mut statement = connection.prepare(&sql).map_err(loop_error)?;
-    let rows = match parameter {
+    let mut runs = match parameter {
         Some(value) => statement.query_map([value], read_run_view),
         None => statement.query_map([], read_run_view),
     }
     .map_err(loop_error)?
     .collect::<Result<Vec<_>, _>>()
     .map_err(loop_error)?;
-    rows.into_iter()
-        .map(|run| hydrate_iterations(&connection, run))
-        .collect()
+
+    // Hydrate iterations and evidence in two bulk queries instead of one per run plus one
+    // per iteration (1+N+N×M round-trips). The run list is the hot UI path; a run with a
+    // dozen iterations and a few evidence rows each previously fired dozens of queries.
+    let run_ids = runs.iter().map(|run| run.id.as_str()).collect::<Vec<_>>();
+    let iterations_by_run = load_iterations_by_run(&connection, &run_ids)?;
+    let iteration_ids = iterations_by_run
+        .values()
+        .flatten()
+        .map(|iteration| iteration.id.as_str())
+        .collect::<Vec<_>>();
+    let evidence_by_iteration = load_evidence_by_iteration(&connection, &iteration_ids)?;
+    for run in &mut runs {
+        let iterations = iterations_by_run.get(&run.id).cloned().unwrap_or_default();
+        run.iterations = iterations
+            .into_iter()
+            .map(|mut iteration| {
+                iteration.evidence = evidence_by_iteration
+                    .get(&iteration.id)
+                    .cloned()
+                    .unwrap_or_default();
+                iteration
+            })
+            .collect();
+    }
+    Ok(runs)
 }
 
 pub(super) fn find_run_view(
@@ -99,6 +123,79 @@ fn load_evidence(
         .collect::<Result<Vec<_>, _>>()
         .map_err(loop_error)?;
     Ok(evidence)
+}
+
+/// Bulk-loads iterations for many runs in a single query, grouped by `run_id`, preserving
+/// the `sequence, id` ordering `hydrate_iterations` used per-run.
+fn load_iterations_by_run(
+    connection: &rusqlite::Connection,
+    run_ids: &[&str],
+) -> Result<HashMap<String, Vec<LoopIterationView>>, AgentRuntimeApplicationError> {
+    let mut grouped: HashMap<String, Vec<LoopIterationView>> = HashMap::new();
+    if run_ids.is_empty() {
+        return Ok(grouped);
+    }
+    let placeholders = (0..run_ids.len())
+        .map(|index| format!("?{}", index + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let params: Vec<&dyn rusqlite::ToSql> = run_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+    let sql = format!(
+        r#"SELECT id, run_id, sequence, status, worker_session_id, verifier_session_id,
+            worker_summary, verifier_recommendation, verifier_findings, decision_reason,
+            diff_fingerprint, check_failure_fingerprint, user_feedback, started_at, completed_at
+           FROM loop_iterations WHERE run_id IN ({placeholders}) ORDER BY sequence, id"#,
+    );
+    let mut statement = connection.prepare(&sql).map_err(loop_error)?;
+    let rows = statement
+        .query_map(params.as_slice(), read_iteration)
+        .map_err(loop_error)?;
+    for iteration in rows {
+        let iteration = iteration.map_err(loop_error)?;
+        grouped
+            .entry(iteration.run_id.clone())
+            .or_default()
+            .push(iteration);
+    }
+    Ok(grouped)
+}
+
+/// Bulk-loads evidence for many iterations in a single query, grouped by `iteration_id`,
+/// preserving the `created_at, id` ordering `load_evidence` used per-iteration.
+fn load_evidence_by_iteration(
+    connection: &rusqlite::Connection,
+    iteration_ids: &[&str],
+) -> Result<HashMap<String, Vec<LoopEvidenceView>>, AgentRuntimeApplicationError> {
+    let mut grouped: HashMap<String, Vec<LoopEvidenceView>> = HashMap::new();
+    if iteration_ids.is_empty() {
+        return Ok(grouped);
+    }
+    let placeholders = (0..iteration_ids.len())
+        .map(|index| format!("?{}", index + 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let params: Vec<&dyn rusqlite::ToSql> = iteration_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+    let sql = format!(
+        r#"SELECT id, run_id, iteration_id, kind, status, summary, operation_id, command_id,
+            exit_code, duration_ms, details, created_at
+           FROM loop_evidence WHERE iteration_id IN ({placeholders}) ORDER BY created_at, id"#,
+    );
+    let mut statement = connection.prepare(&sql).map_err(loop_error)?;
+    let rows = statement
+        .query_map(params.as_slice(), read_evidence)
+        .map_err(loop_error)?;
+    for evidence in rows {
+        let evidence = evidence.map_err(loop_error)?;
+        let key = evidence.iteration_id.clone().unwrap_or_default();
+        grouped.entry(key).or_default().push(evidence);
+    }
+    Ok(grouped)
 }
 
 fn read_run_view(row: &Row<'_>) -> rusqlite::Result<LoopRunView> {

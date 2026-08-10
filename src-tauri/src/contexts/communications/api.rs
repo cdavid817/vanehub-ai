@@ -58,7 +58,31 @@ impl CommunicationsApi {
     pub(crate) async fn list_connectors(
         &self,
     ) -> Result<Vec<ConnectorSummary>, CommunicationsApplicationError> {
-        self.service.list_connectors().await
+        // `connector_snapshot` runs synchronous rusqlite + credential I/O; running it inline
+        // blocks the async executor for every concurrent command sharing this worker.
+        // Capture the snapshot on the blocking pool, await transport health here, then fold
+        // them together (allocation-only) back on the pool.
+        let snapshot_service = self.service.clone();
+        let snapshot =
+            tauri::async_runtime::spawn_blocking(move || snapshot_service.connector_snapshot())
+                .await
+                .map_err(|_| {
+                    CommunicationsApplicationError::failure("connector-snapshot-task-failed")
+                })??;
+        let health = self
+            .service
+            .transport_health()
+            .await
+            .into_iter()
+            .map(|health| (health.kind, health))
+            .collect::<std::collections::HashMap<_, _>>();
+        let assemble_service = self.service.clone();
+        let summaries = tauri::async_runtime::spawn_blocking(move || {
+            assemble_service.assemble_connectors(snapshot, health)
+        })
+        .await
+        .map_err(|_| CommunicationsApplicationError::failure("connector-assemble-task-failed"))?;
+        Ok(summaries)
     }
 
     pub(crate) fn routing(

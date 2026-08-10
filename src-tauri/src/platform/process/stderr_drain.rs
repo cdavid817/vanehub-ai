@@ -1,5 +1,6 @@
 use std::io::{self, Read};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -37,21 +38,33 @@ pub(crate) enum StderrDrainError {
 }
 
 pub(crate) struct BlockingStderrDrain {
-    worker: JoinHandle<io::Result<StderrCapture>>,
+    result: mpsc::Receiver<io::Result<StderrCapture>>,
 }
 
 impl BlockingStderrDrain {
     pub(crate) fn spawn(reader: impl Read + Send + 'static, limit: usize) -> Self {
-        Self {
-            worker: thread::spawn(move || read_bounded(reader, limit)),
-        }
+        let (sender, result) = mpsc::channel();
+        // The worker is detached: a std thread cannot be aborted, so on timeout we
+        // simply stop waiting for it. It terminates on its own once the pipe's last
+        // writer closes it (after the child tree is killed), which is the same
+        // eventual outcome as the tokio variant's abort.
+        thread::spawn(move || {
+            let _ = sender.send(read_bounded(reader, limit));
+        });
+        Self { result }
     }
 
-    pub(crate) fn finish(self) -> Result<StderrCapture, StderrDrainError> {
-        self.worker
-            .join()
-            .map_err(|_| StderrDrainError::WorkerStopped)?
-            .map_err(Into::into)
+    /// Blocks until the drain worker completes, with a deadline so a worker stuck
+    /// reading a pipe held open by a grandchild that outlives the killed child
+    /// cannot wedge relay shutdown indefinitely (mirroring `TokioStderrDrain`).
+    /// On timeout the worker is abandoned — it terminates on its own once the pipe's
+    /// last writer closes it.
+    pub(crate) fn finish(self, timeout: Duration) -> Result<StderrCapture, StderrDrainError> {
+        match self.result.recv_timeout(timeout) {
+            Ok(outcome) => outcome.map_err(Into::into),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(StderrDrainError::TimedOut),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(StderrDrainError::WorkerStopped),
+        }
     }
 }
 
@@ -145,7 +158,9 @@ mod tests {
     fn blocking_drain_consumes_all_input_and_retains_only_the_limit() {
         let drain = BlockingStderrDrain::spawn(Cursor::new(vec![b'x'; NOISY_BYTES]), CAPTURE_LIMIT);
 
-        let capture = drain.finish().expect("bounded stderr capture");
+        let capture = drain
+            .finish(Duration::from_secs(5))
+            .expect("bounded stderr capture");
 
         assert_eq!(capture.retained().len(), CAPTURE_LIMIT);
         assert_eq!(capture.observed_bytes(), NOISY_BYTES as u64);

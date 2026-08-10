@@ -12,6 +12,14 @@ use crate::contexts::communications::domain::{
     ConnectorFieldStorage, ConnectorHealth, ConnectorKind, ConnectorLifecycle, InboundDisposition,
     InboundEventIdentity, NormalizedInbound, RoutingSettings,
 };
+
+/// Synchronous snapshot of connector configuration + credential presence, captured by
+/// `connector_snapshot` on the blocking pool so the async executor never waits on rusqlite
+/// or credential storage.
+pub(crate) struct ConnectorSnapshot {
+    pub(crate) configurations: HashMap<ConnectorKind, ConnectorConfig>,
+    pub(crate) credentials: HashMap<ConnectorKind, bool>,
+}
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -49,16 +57,15 @@ impl CommunicationsApplicationService {
         }
     }
 
+    /// Test-facing convenience that runs the snapshot, health lookup, and assembly inline.
+    /// Production code calls `CommunicationsApi::list_connectors`, which keeps the blocking
+    /// snapshot on `spawn_blocking`; this synchronous-flavored path exists so unit tests can
+    /// exercise the same assembly without a Tauri runtime.
+    #[cfg(test)]
     pub(crate) async fn list_connectors(
         &self,
     ) -> Result<Vec<ConnectorSummary>, CommunicationsApplicationError> {
-        let configurations = self
-            .ports
-            .repository
-            .list_configurations()?
-            .into_iter()
-            .map(|configuration| (configuration.kind, configuration))
-            .collect::<HashMap<_, _>>();
+        let snapshot = self.connector_snapshot()?;
         let health = self
             .ports
             .transports
@@ -67,6 +74,54 @@ impl CommunicationsApplicationService {
             .into_iter()
             .map(|health| (health.kind, health))
             .collect::<HashMap<_, _>>();
+        Ok(self.assemble_connectors(snapshot, health))
+    }
+
+    /// Synchronous DB + credential snapshot used by `list_connectors`. Separated so the
+    /// blocking I/O can run on `spawn_blocking` from the api layer instead of stalling the
+    /// async executor (each `list_configurations` / `credentials.load` is synchronous
+    /// rusqlite / credential storage access).
+    pub(crate) fn connector_snapshot(
+        &self,
+    ) -> Result<ConnectorSnapshot, CommunicationsApplicationError> {
+        let configurations = self
+            .ports
+            .repository
+            .list_configurations()?
+            .into_iter()
+            .map(|configuration| (configuration.kind, configuration))
+            .collect::<HashMap<_, _>>();
+        let credentials: HashMap<ConnectorKind, bool> = builtin_descriptors()
+            .into_iter()
+            .map(|descriptor| {
+                let has_credentials = self.ports.credentials.load(descriptor.kind)?.is_some();
+                Ok::<_, CommunicationsApplicationError>((descriptor.kind, has_credentials))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        Ok(ConnectorSnapshot {
+            configurations,
+            credentials,
+        })
+    }
+
+    /// Live transport health for every connector kind. Async because it queries the
+    /// running transports; exposed so the api layer can await it between the synchronous
+    /// snapshot and the assembly step.
+    pub(crate) async fn transport_health(&self) -> Vec<ConnectorHealth> {
+        self.ports.transports.health().await
+    }
+
+    /// Pure assembly of connector summaries from a DB/credential snapshot and the live
+    /// transport health. Synchronous and allocation-only — safe to run on the blocking pool.
+    pub(crate) fn assemble_connectors(
+        &self,
+        snapshot: ConnectorSnapshot,
+        health: HashMap<ConnectorKind, ConnectorHealth>,
+    ) -> Vec<ConnectorSummary> {
+        let ConnectorSnapshot {
+            configurations,
+            credentials,
+        } = snapshot;
         let now = self.ports.clock.now_rfc3339();
         builtin_descriptors()
             .into_iter()
@@ -76,7 +131,7 @@ impl CommunicationsApplicationService {
                     .get(&kind)
                     .cloned()
                     .unwrap_or_else(|| default_configuration(kind));
-                let has_credentials = self.ports.credentials.load(kind)?.is_some();
+                let has_credentials = *credentials.get(&kind).unwrap_or(&false);
                 let mut connector_health =
                     health
                         .get(&kind)
@@ -98,12 +153,12 @@ impl CommunicationsApplicationService {
                     connector_health.lifecycle = ConnectorLifecycle::Unconfigured;
                     connector_health.safe_error_code = None;
                 }
-                Ok(ConnectorSummary {
+                ConnectorSummary {
                     descriptor,
                     configuration,
                     health: connector_health,
                     has_credentials,
-                })
+                }
             })
             .collect()
     }

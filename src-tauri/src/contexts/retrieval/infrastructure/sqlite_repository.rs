@@ -59,6 +59,73 @@ impl RetrievalDocumentRepository for SqliteRetrievalDocumentRepository {
         Ok(())
     }
 
+    fn reconcile_apply(
+        &self,
+        upserts: &[RetrievalDocument],
+        orphan_source_ids: &[String],
+        source_kind: SourceKind,
+    ) -> Result<(), RetrievalError> {
+        // One transaction for the whole reconcile instead of one autocommit per row — a full
+        // workspace re-index otherwise pays one fsync per document/orphan. Same SQL as
+        // upsert_pending / delete_by_source_scoped, just batched under a single BEGIN/COMMIT.
+        if upserts.is_empty() && orphan_source_ids.is_empty() {
+            return Ok(());
+        }
+        let connection = self.database.connection().map_err(database_error)?;
+        let transaction = connection.unchecked_transaction().map_err(storage_error)?;
+        let now = SystemClock.rfc3339();
+        {
+            let mut upsert_statement = transaction
+                .prepare(
+                    r#"
+                INSERT INTO retrieval_documents
+                    (id, source_kind, source_id, scope_agent_id, scope_folder, content, content_hash,
+                     index_state, attempt_count, failure_category, created_at, updated_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, NULL, ?8, ?8)
+                ON CONFLICT(id) DO UPDATE SET
+                    content = excluded.content,
+                    content_hash = excluded.content_hash,
+                    scope_agent_id = excluded.scope_agent_id,
+                    scope_folder = excluded.scope_folder,
+                    index_state = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
+                                       THEN retrieval_documents.index_state ELSE 'pending' END,
+                    attempt_count = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
+                                         THEN retrieval_documents.attempt_count ELSE 0 END,
+                    failure_category = CASE WHEN retrieval_documents.content_hash = excluded.content_hash
+                                            THEN retrieval_documents.failure_category ELSE NULL END,
+                    updated_at = excluded.updated_at
+                "#,
+                )
+                .map_err(storage_error)?;
+            for document in upserts {
+                upsert_statement
+                    .execute(params![
+                        document.id,
+                        document.source_kind.as_str(),
+                        document.source_id,
+                        document.scope_agent_id,
+                        document.scope_folder,
+                        document.content,
+                        document.content_hash,
+                        now,
+                    ])
+                    .map_err(storage_error)?;
+            }
+            let mut delete_statement = transaction
+                .prepare(
+                    "DELETE FROM retrieval_documents WHERE source_kind = ?1 AND source_id = ?2",
+                )
+                .map_err(storage_error)?;
+            for source_id in orphan_source_ids {
+                delete_statement
+                    .execute(params![source_kind.as_str(), source_id])
+                    .map_err(storage_error)?;
+            }
+        }
+        transaction.commit().map_err(storage_error)?;
+        Ok(())
+    }
+
     fn list_indexed_source_ids(
         &self,
         source_kind: SourceKind,
