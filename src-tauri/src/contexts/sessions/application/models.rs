@@ -1,7 +1,7 @@
 use crate::contexts::sessions::domain::{
-    ChatConfigurationRequest, ChatPreferences, FileReferenceSet, LoopSessionRole,
-    SessionActivation, SessionAggregate, SessionCategory, SessionMessage, SessionOwner,
-    SessionSeat,
+    ChatConfigurationRequest, ChatPreferences, FileReferenceSet, LoopSessionRole, MessageStatus,
+    SessionActivation, SessionAggregate, SessionCategory, SessionLifecycle, SessionMessage,
+    SessionOwner, SessionSeat,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -94,6 +94,11 @@ pub(crate) struct RuntimeSessionSnapshot {
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) archived: bool,
     pub(crate) loop_ownership: Option<LoopSessionOwnership>,
+    pub(crate) recovery_status: String,
+    pub(crate) recovery_revision: u64,
+    pub(crate) state_revision: u64,
+    pub(crate) history_revision: u64,
+    pub(crate) active_execution_run_id: Option<String>,
 }
 
 impl RuntimeSessionSnapshot {
@@ -108,6 +113,15 @@ impl RuntimeSessionSnapshot {
             runtime_session_id: record.runtime_session_id.clone(),
             archived: record.aggregate.is_archived(),
             loop_ownership: record.workspace.loop_ownership.clone(),
+            recovery_status: record.aggregate.recovery().status().as_str().to_string(),
+            recovery_revision: record.aggregate.recovery().recovery_revision(),
+            state_revision: record.aggregate.recovery().state_revision(),
+            history_revision: record.aggregate.recovery().history_revision(),
+            active_execution_run_id: record
+                .aggregate
+                .recovery()
+                .active_execution_run_id()
+                .map(str::to_string),
         }
     }
 }
@@ -290,6 +304,9 @@ pub(crate) struct MessageRecord {
     pub(crate) message: SessionMessage,
     /// Which seat spoke this. `None` for a user message and for anything predating seats.
     pub(crate) seat_index: Option<usize>,
+    /// Correlates serial seat generations without making observability storage authoritative.
+    pub(crate) seat_round_id: Option<String>,
+    pub(crate) parent_execution_run_id: Option<String>,
     pub(crate) content: String,
     pub(crate) thinking_content: Option<String>,
     pub(crate) tool_use: Option<Vec<Value>>,
@@ -298,6 +315,87 @@ pub(crate) struct MessageRecord {
     pub(crate) error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GenerationStartRequest {
+    pub(crate) session_id: String,
+    pub(crate) execution_run_id: String,
+    pub(crate) user_message: Option<MessageRecord>,
+    pub(crate) assistant_message: MessageRecord,
+    pub(crate) started_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GenerationStartResult {
+    pub(crate) session: SessionRecord,
+    pub(crate) user_message: Option<MessageRecord>,
+    pub(crate) assistant_message: MessageRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GenerationTerminalStatus {
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl GenerationTerminalStatus {
+    pub(crate) fn message_status(self) -> MessageStatus {
+        match self {
+            Self::Completed => MessageStatus::Completed,
+            Self::Failed => MessageStatus::Failed,
+            Self::Cancelled => MessageStatus::Cancelled,
+        }
+    }
+
+    pub(crate) fn lifecycle(self) -> SessionLifecycle {
+        match self {
+            Self::Completed => SessionLifecycle::Idle,
+            Self::Failed => SessionLifecycle::Failed,
+            Self::Cancelled => SessionLifecycle::Stopped,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GenerationTerminalRequest {
+    pub(crate) execution_run_id: String,
+    pub(crate) message: MessageRecord,
+    pub(crate) terminal_status: GenerationTerminalStatus,
+    pub(crate) usage: Option<MessageUsageRecord>,
+    pub(crate) finished_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct GenerationTerminalResult {
+    pub(crate) session: SessionRecord,
+    pub(crate) message: MessageRecord,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DurableGenerationTerminalRequest {
+    pub(crate) session_id: String,
+    pub(crate) message_id: String,
+    pub(crate) execution_run_id: String,
+    pub(crate) terminal_status: GenerationTerminalStatus,
+    pub(crate) content: String,
+    pub(crate) thinking_content: Option<String>,
+    pub(crate) tool_use: Option<Vec<Value>>,
+    pub(crate) rich_blocks: Option<Vec<Value>>,
+    pub(crate) token_usage: Option<MessageTokenUsage>,
+    pub(crate) usage: Option<MessageUsageRecord>,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DurableGenerationStartRequest {
+    pub(crate) session_id: String,
+    pub(crate) execution_run_id: String,
+    pub(crate) seat_round_id: Option<String>,
+    pub(crate) parent_execution_run_id: Option<String>,
+    pub(crate) user_message: Option<CreateMessageRequest>,
+    pub(crate) assistant_message: CreateMessageRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +423,10 @@ pub(crate) struct RuntimeMessageSnapshot {
     pub(crate) error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) session_sequence: u64,
+    pub(crate) execution_run_id: Option<String>,
+    pub(crate) seat_round_id: Option<String>,
+    pub(crate) parent_execution_run_id: Option<String>,
 }
 
 impl RuntimeMessageSnapshot {
@@ -356,6 +458,10 @@ impl RuntimeMessageSnapshot {
             error: record.error.clone(),
             created_at: record.created_at.clone(),
             updated_at: record.updated_at.clone(),
+            session_sequence: record.message.session_sequence(),
+            execution_run_id: record.message.execution_run_id().map(str::to_string),
+            seat_round_id: record.seat_round_id.clone(),
+            parent_execution_run_id: record.parent_execution_run_id.clone(),
         }
     }
 }
@@ -550,18 +656,94 @@ pub(crate) struct SessionMaintenanceResult {
     pub(crate) archived: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecoveryCandidateClaim {
+    pub(crate) session_id: String,
+    pub(crate) observed_lifecycle: String,
+    pub(crate) observed_execution_run_id: Option<String>,
+    pub(crate) recovery_revision: u64,
+    pub(crate) state_revision: u64,
+    pub(crate) history_revision: u64,
+    pub(crate) captured_recovery_revision: i64,
+    pub(crate) captured_state_revision: i64,
+    pub(crate) captured_history_revision: i64,
+    pub(crate) previous_recovery_status: String,
+    pub(crate) structurally_invalid: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClaimRecoveryCandidateRequest {
+    pub(crate) candidate: RecoveryCandidateClaim,
+    pub(crate) claimed_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PublishRecoveryRequest {
+    pub(crate) claim: RecoveryCandidateClaim,
+    pub(crate) assistant_message_id: Option<String>,
+    pub(crate) report: crate::contexts::sessions::domain::recovery::SessionRecoveryReport,
+    pub(crate) published_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AcknowledgeRecoveryRequest {
+    pub(crate) session_id: String,
+    pub(crate) expected_recovery_revision: u64,
+    pub(crate) acknowledged_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AcknowledgeRecoveryResult {
+    pub(crate) session: SessionRecord,
+    pub(crate) report: crate::contexts::sessions::domain::recovery::SessionRecoveryReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionRecoveryProjection {
+    pub(crate) session_id: String,
+    pub(crate) execution_run_id: Option<String>,
+    pub(crate) lifecycle: String,
+    pub(crate) recovery_status: String,
+    pub(crate) recovery_revision: u64,
+    pub(crate) decision: Option<crate::contexts::sessions::domain::recovery::RecoveryDecision>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionRecoverySummary {
+    pub(crate) session: SessionRecord,
+    pub(crate) latest_report:
+        Option<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RecoveryBatchResult {
+    pub(crate) scanned: usize,
+    pub(crate) published: usize,
+    pub(crate) deferred: usize,
+    pub(crate) stale: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionRecoveryEventKind {
+    Started,
+    Completed,
+    ActionRequired,
+    Quarantined,
+    Acknowledged,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionRecoveryEvent {
+    pub(crate) kind: SessionRecoveryEventKind,
+    pub(crate) session_id: String,
+    pub(crate) recovery_revision: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionApplicationLogLevel {
     Error,
     Warn,
     Info,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "session logging preserves the four-level log contract"
-        )
-    )]
     Debug,
 }
 
@@ -572,6 +754,8 @@ pub(crate) struct SessionApplicationLog {
     pub(crate) message: String,
     pub(crate) session_id: Option<String>,
     pub(crate) operation_id: Option<String>,
+    pub(crate) execution_run_id: Option<String>,
+    pub(crate) recovery_report_id: Option<String>,
 }
 
 pub(super) fn references_from_domain(references: &FileReferenceSet) -> Vec<FileReferenceInput> {

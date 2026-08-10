@@ -31,6 +31,7 @@ export function SessionTabs({
   messagesPartial,
   onLoadEarlier = () => undefined,
   onOpenSettings,
+  recoveryNotice,
   requestedTab,
   sessionActivationKey,
   turnStatus = null,
@@ -42,6 +43,7 @@ export function SessionTabs({
   messagesPartial: boolean;
   onLoadEarlier?: () => void;
   onOpenSettings: () => void;
+  recoveryNotice?: ReactNode;
   requestedTab?: SessionTabId | null;
   sessionActivationKey: number;
   /** Null in a single-seat session, which has no turn to hand off. */
@@ -111,6 +113,7 @@ export function SessionTabs({
         onOpenSettings={onOpenSettings}
         session={activeSession}
       />
+      {recoveryNotice}
       <div className="min-h-0 flex-1 overflow-hidden">
         {sessionTabDefinitions.map(({ id }) => mountedTabs.has(id) ? (
           <section

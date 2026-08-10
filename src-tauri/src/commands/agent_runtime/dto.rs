@@ -345,6 +345,8 @@ pub(crate) struct ChatMessage {
     pub(crate) error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) session_sequence: u64,
+    pub(crate) execution_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

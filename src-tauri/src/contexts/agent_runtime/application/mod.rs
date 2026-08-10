@@ -36,8 +36,9 @@ pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicatio
 pub(crate) use loop_models::LoopLimitsView;
 pub(crate) use loop_models::LoopVerificationCommandView;
 pub(crate) use loop_models::{
-    ContinueLoopRequest, LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView,
-    LoopGitStateView, LoopIterationView, LoopRoleSessionRequest, LoopRunView,
+    ContinueLoopRequest, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
+    LoopDefinitionView, LoopEvidenceView, LoopGitStateEntryView, LoopGitStateView,
+    LoopIterationView, LoopOwnedRecoverySession, LoopRoleSessionRequest, LoopRunView,
     LoopVerificationBatchResult, LoopVerifierResult, PreparedLoopWorktree,
     RunLoopVerificationRequest, SaveLoopDefinitionRequest, SaveLoopVerifierResultRequest,
     StartLoopResultView, StartLoopVerifierRequest, StartLoopWorkerRequest, StartedLoopVerifierView,
@@ -66,7 +67,8 @@ pub(crate) use models::{
     AgentTerminalProcessRequest, AgentTerminalSession, AgentTerminalSize, AgentTerminalState,
     AgentToolCallOutcome, AgentUsageAccountingKind, AgentUsageRecord, AgentView, ApiProviderConfig,
     BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
-    DiscoverOnePieceProviderModelsInput, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
+    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
+    DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
     GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
     GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
     LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
@@ -107,8 +109,9 @@ pub(crate) use ports::{
     EffectivePromptGateway, LoopExecutionControlPort, LoopExecutionLeasePort,
     LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
-    LoopVerificationProcessPort, LoopVerifierContextPort, LoopVerifierGenerationPort,
-    LoopWorkerGenerationPort, OnePieceModelDiscoveryPort, OnePiecePlanningPort, ToolApprovalPort,
+    LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
+    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
+    OnePiecePlanningPort, ToolApprovalPort,
 };
 pub(crate) use provider::{
     AgentProvider, AgentProviderError, ProviderGenerationInvocationRequest,

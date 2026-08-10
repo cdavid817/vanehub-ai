@@ -1,4 +1,7 @@
-use super::{ArchivedSessionAction, CategoryId, SessionId, SessionsDomainError};
+use super::{
+    recovery::SessionRecoveryMetadata, ArchivedSessionAction, CategoryId, SessionId,
+    SessionRecoveryStatus, SessionsDomainError,
+};
 
 const DEFAULT_SESSION_TITLE: &str = "新会话";
 
@@ -156,6 +159,7 @@ pub(crate) struct SessionAggregate {
     category_id: Option<CategoryId>,
     pinned: bool,
     archived: bool,
+    recovery: SessionRecoveryMetadata,
 }
 
 impl SessionAggregate {
@@ -172,6 +176,29 @@ impl SessionAggregate {
         pinned: bool,
         archived: bool,
     ) -> Self {
+        Self::rehydrate_with_recovery(
+            id,
+            title,
+            lifecycle,
+            owner,
+            category_id,
+            pinned,
+            archived,
+            SessionRecoveryMetadata::default(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn rehydrate_with_recovery(
+        id: SessionId,
+        title: SessionTitle,
+        lifecycle: SessionLifecycle,
+        owner: SessionOwner,
+        category_id: Option<CategoryId>,
+        pinned: bool,
+        archived: bool,
+        recovery: SessionRecoveryMetadata,
+    ) -> Self {
         Self {
             id,
             title,
@@ -180,6 +207,7 @@ impl SessionAggregate {
             category_id,
             pinned,
             archived,
+            recovery,
         }
     }
 
@@ -243,7 +271,11 @@ impl SessionAggregate {
     }
 
     pub(crate) fn can_archive_automatically(&self) -> bool {
-        !self.archived && !self.pinned && !self.lifecycle.has_active_generation()
+        !self.archived
+            && !self.pinned
+            && !self.lifecycle.has_active_generation()
+            && self.recovery.status() == SessionRecoveryStatus::Clean
+            && self.recovery.active_execution_run_id().is_none()
     }
 
     pub(crate) fn id(&self) -> &SessionId {
@@ -272,6 +304,10 @@ impl SessionAggregate {
 
     pub(crate) fn is_archived(&self) -> bool {
         self.archived
+    }
+
+    pub(crate) fn recovery(&self) -> &SessionRecoveryMetadata {
+        &self.recovery
     }
 }
 

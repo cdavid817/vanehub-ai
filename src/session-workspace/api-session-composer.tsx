@@ -1,5 +1,6 @@
 import { ChatInputBox } from "../components/chat/ChatInputBox";
 import type { MainLayoutModel } from "../main-layout/use-main-layout-model";
+import { canSendToSession } from "../services/session-admission";
 
 export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
   return (
@@ -9,7 +10,7 @@ export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
       availableModels={model.chatConfig.availableModels}
       availableReasoning={model.chatConfig.availableReasoning}
       config={model.chatConfig.config}
-      disabled={!model.activeSession || model.activeSession.archived || model.isSending}
+      disabled={!canSendToSession(model.activeSession) || model.isSending}
       fileReferenceCandidates={model.fileReferenceCandidates}
       fileReferences={model.fileReferences}
       isStreaming={model.isStreaming}

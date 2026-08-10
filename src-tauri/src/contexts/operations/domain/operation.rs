@@ -11,7 +11,7 @@ pub enum OperationKind {
     Extension,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OperationStatus {
     Queued,
@@ -19,6 +19,36 @@ pub enum OperationStatus {
     Succeeded,
     Failed,
     Cancelled,
+}
+
+impl OperationStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "queued" => Some(Self::Queued),
+            "running" => Some(Self::Running),
+            "succeeded" => Some(Self::Succeeded),
+            "failed" => Some(Self::Failed),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OperationRecoveryEvidence {
+    pub(crate) operation_id: String,
+    pub(crate) execution_run_id: String,
+    pub(crate) status: OperationStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

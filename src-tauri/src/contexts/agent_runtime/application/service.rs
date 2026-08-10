@@ -8,8 +8,8 @@ use super::{
     AgentSessionGateway, AgentTaskPort, AgentUsageAccountingKind, AgentUsageRecord, AgentView,
     ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, CliProfileSnapshot,
     CompleteAgentMessage, ConversationHistoryPort, DiscoverOnePieceProviderModelsInput,
-    EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
+    DurableAgentGenerationStart, EffectivePrompt, EffectivePromptGateway, EmbeddingEndpointView,
+    GenerationLease, GenerationProcessEvent, GenerationProcessRequest, LaunchWorkflowResult,
     LoopGenerationControlPort, LoopRoleGenerationCompletionPort, LoopRoleGenerationOutcome,
     LoopRoleGenerationTerminal, LoopVerifierGenerationPort, LoopWorkerGenerationPort, MemorySource,
     MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
@@ -1517,10 +1517,29 @@ impl AgentRuntimeApplicationService {
                 configuration.interaction_mode.as_str().to_string(),
             ));
         }
-        let lease = self.ports.generations.reserve(&session.id)?;
         let terminal = register_completion
             .then(|| self.ports.message_completions.register(&session.id))
             .transpose()?;
+        let seat_ownership = if session.seats.len() > 1 {
+            let first = self
+                .seat_roster(&session)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    AgentRuntimeApplicationError::Validation(
+                        "A multi-seat session has no routable first seat.".to_string(),
+                    )
+                })?;
+            Some(super::SeatTurnOwnership {
+                seat_index: first.seat_index,
+                seat_mention: first.briefing.mention,
+                depth: 0,
+                round_id: format!("seat-round-{}", Uuid::new_v4()),
+                parent_execution_run_id: None,
+            })
+        } else {
+            None
+        };
         let result = self.start_message_generation(
             &session,
             &agent,
@@ -1530,17 +1549,13 @@ impl AgentRuntimeApplicationService {
                 content,
                 file_references: request.file_references,
                 role_briefing: None,
-                seat_ownership: None,
+                seat_ownership,
                 record_user_message: true,
                 orchestration_profile,
             },
-            &lease,
         );
-        if result.is_err() {
-            let _ = self.ports.generations.release(&lease);
-            if terminal.is_some() {
-                let _ = self.ports.message_completions.remove(&session.id);
-            }
+        if result.is_err() && terminal.is_some() {
+            let _ = self.ports.message_completions.remove(&session.id);
         }
         result.map(|message| (message, terminal))
     }
@@ -1550,7 +1565,6 @@ impl AgentRuntimeApplicationService {
         session: &AgentSession,
         agent: &AgentDefinition,
         input: MessageGenerationInput,
-        lease: &GenerationLease,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
         let MessageGenerationInput {
             source,
@@ -1583,6 +1597,26 @@ impl AgentRuntimeApplicationService {
                 SafeAttributeValue::String(agent.id().as_str().to_string()),
             ),
         ];
+        if let Some(ownership) = &seat_ownership {
+            root_attributes.extend([
+                (
+                    "vanehub.seat.round.id".to_string(),
+                    SafeAttributeValue::String(ownership.round_id.clone()),
+                ),
+                (
+                    "vanehub.seat.index".to_string(),
+                    SafeAttributeValue::Integer(
+                        i64::try_from(ownership.seat_index).unwrap_or(i64::MAX),
+                    ),
+                ),
+            ]);
+            if let Some(parent_run_id) = &ownership.parent_execution_run_id {
+                root_attributes.push((
+                    "vanehub.seat.parent_run.id".to_string(),
+                    SafeAttributeValue::String(parent_run_id.clone()),
+                ));
+            }
+        }
         root_attributes.extend(orchestration_attributes(orchestration_profile.as_ref()));
         let mut run = ExecutionRun {
             context: root_context.clone(),
@@ -1614,15 +1648,6 @@ impl AgentRuntimeApplicationService {
         };
         let _ = self.ports.telemetry.start_run(&run);
         let _ = self.ports.telemetry.start_span(&root_span);
-        if let Err(error) = self.ports.generations.correlate(lease, &root_context) {
-            self.finish_execution_root(
-                &root_context,
-                ExecutionStatus::Failed,
-                Some("generation_correlation_failed"),
-            );
-            return Err(error);
-        }
-
         let prompt_context = child_context(&root_context, self.ports.execution_ids.next_span_id());
         let prompt_span = ExecutionSpan {
             context: prompt_context.clone(),
@@ -1671,48 +1696,80 @@ impl AgentRuntimeApplicationService {
             &self.ports.clock.now(),
             None,
         );
-        let user_message = if record_user_message {
-            match self.ports.sessions.create_message(NewAgentMessage {
-                session_id: session.id.clone(),
-                seat_index: None,
-                role: "user".to_string(),
-                status: "completed".to_string(),
-                content,
-                file_references,
-            }) {
-                Ok(message) => Some(message),
+        let durable_messages =
+            match self
+                .ports
+                .sessions
+                .start_generation(DurableAgentGenerationStart {
+                    session_id: session.id.clone(),
+                    execution_run_id: root_context.run_id.as_str().to_string(),
+                    seat_round_id: seat_ownership
+                        .as_ref()
+                        .map(|ownership| ownership.round_id.clone()),
+                    parent_execution_run_id: seat_ownership
+                        .as_ref()
+                        .and_then(|ownership| ownership.parent_execution_run_id.clone()),
+                    user_message: record_user_message.then_some(NewAgentMessage {
+                        session_id: session.id.clone(),
+                        seat_index: None,
+                        role: "user".to_string(),
+                        status: "completed".to_string(),
+                        content,
+                        file_references,
+                    }),
+                    assistant_message: NewAgentMessage {
+                        session_id: session.id.clone(),
+                        seat_index: seat_ownership
+                            .as_ref()
+                            .map(|ownership| ownership.seat_index),
+                        role: "assistant".to_string(),
+                        status: "streaming".to_string(),
+                        content: String::new(),
+                        file_references: Vec::new(),
+                    },
+                }) {
+                Ok(messages) => messages,
                 Err(error) => {
                     self.finish_execution_root(
                         &root_context,
                         ExecutionStatus::Failed,
-                        Some("user_message_persistence_failed"),
+                        Some("generation_start_persistence_failed"),
                     );
                     return Err(error);
                 }
-            }
-        } else {
-            None
-        };
-        let assistant = match self.ports.sessions.create_message(NewAgentMessage {
-            session_id: session.id.clone(),
-            seat_index: seat_ownership
-                .as_ref()
-                .map(|ownership| ownership.seat_index),
-            role: "assistant".to_string(),
-            status: "streaming".to_string(),
-            content: String::new(),
-            file_references: Vec::new(),
-        }) {
-            Ok(message) => message,
+            };
+        let user_message = durable_messages.user_message;
+        let assistant = durable_messages.assistant_message;
+        let lease = match self.ports.generations.reserve(&session.id) {
+            Ok(lease) => lease,
             Err(error) => {
+                let _ = self.ports.sessions.fail_message(
+                    &assistant.id,
+                    &session.id,
+                    "Generation control reservation failed.",
+                );
                 self.finish_execution_root(
                     &root_context,
                     ExecutionStatus::Failed,
-                    Some("assistant_message_persistence_failed"),
+                    Some("generation_control_reservation_failed"),
                 );
                 return Err(error);
             }
         };
+        if let Err(error) = self.ports.generations.correlate(&lease, &root_context) {
+            let _ = self.ports.sessions.fail_message(
+                &assistant.id,
+                &session.id,
+                "Generation control correlation failed.",
+            );
+            let _ = self.ports.generations.release(&lease);
+            self.finish_execution_root(
+                &root_context,
+                ExecutionStatus::Failed,
+                Some("generation_correlation_failed"),
+            );
+            return Err(error);
+        }
         let operation = match self.ports.operations.start_agent_generation(
             agent.id().as_str(),
             &session.id,
@@ -1724,7 +1781,7 @@ impl AgentRuntimeApplicationService {
                     &root_context,
                     session,
                     &assistant,
-                    lease,
+                    &lease,
                     None,
                     generation_failure(
                         format!("{} command failed", agent.display_name()),
@@ -1737,24 +1794,19 @@ impl AgentRuntimeApplicationService {
         run.assistant_message_id = Some(assistant.id.clone());
         run.operation_id = Some(operation.id.clone());
         let _ = self.ports.telemetry.start_run(&run);
-        let _ = self.ports.operations.correlate_execution(
+        if let Err(error) = self.ports.operations.correlate_execution(
             &operation.id,
             root_context.run_id.as_str(),
             root_context.trace_id.as_str(),
-        );
-        if let Err(error) = self
-            .ports
-            .sessions
-            .update_lifecycle(&session.id, AgentLifecycle::Starting)
-        {
+        ) {
             return self.fail_prepared_message(
                 &root_context,
                 session,
                 &assistant,
-                lease,
+                &lease,
                 Some(&operation.id),
                 generation_failure(
-                    format!("{} command failed", agent.display_name()),
+                    "Generation recovery evidence could not be persisted.",
                     error.to_string(),
                 ),
             );
@@ -1772,7 +1824,7 @@ impl AgentRuntimeApplicationService {
                 &root_context,
                 session,
                 &assistant,
-                lease,
+                &lease,
                 Some(&operation.id),
                 generation_failure(
                     format!("{} command failed", agent.display_name()),
@@ -1798,7 +1850,7 @@ impl AgentRuntimeApplicationService {
                             &root_context,
                             session,
                             &assistant,
-                            lease,
+                            &lease,
                             Some(&operation.id),
                             generation_failure("Prompt Hook assembly failed", error.to_string()),
                         );
@@ -1901,7 +1953,7 @@ impl AgentRuntimeApplicationService {
             })
             .collect::<Vec<_>>();
         if let Err(error) = self.ports.generations.correlate_prompt(
-            lease,
+            &lease,
             &PendingPromptExecution {
                 invocation_id: operation.id.clone(),
                 agent_id: agent.id().as_str().to_string(),
@@ -1920,7 +1972,7 @@ impl AgentRuntimeApplicationService {
                 &root_context,
                 session,
                 &assistant,
-                lease,
+                &lease,
                 Some(&operation.id),
                 generation_failure(
                     format!("{} command failed", agent.display_name()),
@@ -1947,7 +1999,7 @@ impl AgentRuntimeApplicationService {
                         &root_context,
                         session,
                         &assistant,
-                        lease,
+                        &lease,
                         Some(&operation.id),
                         generation_failure(
                             format!("{} command failed", agent.display_name()),
@@ -2050,7 +2102,7 @@ impl AgentRuntimeApplicationService {
                     &root_context,
                     session,
                     &assistant,
-                    lease,
+                    &lease,
                     Some(&operation.id),
                     generation_failure(
                         format!("{} command failed", agent.display_name()),
@@ -2062,7 +2114,7 @@ impl AgentRuntimeApplicationService {
         if let Err(error) =
             self.ports
                 .generations
-                .attach(lease, &assistant.id, &started.process_id, &operation.id)
+                .attach(&lease, &assistant.id, &started.process_id, &operation.id)
         {
             let _ = self.ports.processes.stop_generation(
                 &started.process_id,
@@ -2086,7 +2138,7 @@ impl AgentRuntimeApplicationService {
                 &root_context,
                 session,
                 &assistant,
-                lease,
+                &lease,
                 Some(&operation.id),
                 generation_failure(
                     format!("{} command failed", agent.display_name()),
@@ -2142,7 +2194,7 @@ impl AgentRuntimeApplicationService {
                 &root_context,
                 session,
                 &assistant,
-                lease,
+                &lease,
                 Some(&operation.id),
                 generation_failure(
                     format!("{} command failed", agent.display_name()),
@@ -3086,6 +3138,8 @@ impl GenerationEventHandler {
             seat_index: ownership.seat_index,
             seat_mention: ownership.seat_mention.clone(),
             depth: ownership.depth,
+            round_id: ownership.round_id.clone(),
+            execution_run_id: self.root_context.run_id.as_str().to_string(),
             reply,
         });
     }

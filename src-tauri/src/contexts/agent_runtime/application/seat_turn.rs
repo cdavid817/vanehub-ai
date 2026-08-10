@@ -73,6 +73,8 @@ pub(crate) struct SeatTurnDecision {
 pub(crate) struct SeatTurnAssignment {
     pub(crate) seat_index: usize,
     pub(crate) depth: usize,
+    pub(crate) round_id: String,
+    pub(crate) parent_execution_run_id: Option<String>,
 }
 
 impl AgentRuntimeApplicationService {
@@ -215,6 +217,8 @@ impl AgentRuntimeApplicationService {
                     .map(|entry| SeatTurnAssignment {
                         seat_index: entry.seat_index,
                         depth: terminal.depth + 1,
+                        round_id: terminal.round_id.clone(),
+                        parent_execution_run_id: Some(terminal.execution_run_id.clone()),
                     })
             })
             .collect();
@@ -290,7 +294,6 @@ impl AgentRuntimeApplicationService {
             },
         );
         let prompt = self.seat_turn_prompt(session_id, &roster, seat)?;
-        let lease = self.ports.generations.reserve(&session.id)?;
         let result = self.start_message_generation(
             &session,
             &agent,
@@ -304,15 +307,13 @@ impl AgentRuntimeApplicationService {
                     seat_index: seat.seat_index,
                     seat_mention: seat.briefing.mention.clone(),
                     depth: assignment.depth,
+                    round_id: assignment.round_id.clone(),
+                    parent_execution_run_id: assignment.parent_execution_run_id.clone(),
                 }),
                 record_user_message: false,
                 orchestration_profile: None,
             },
-            &lease,
         );
-        if result.is_err() {
-            let _ = self.ports.generations.release(&lease);
-        }
         result.map(|_| ())
     }
 

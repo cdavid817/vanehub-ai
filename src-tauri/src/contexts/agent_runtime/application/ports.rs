@@ -9,15 +9,16 @@ use super::{
     AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
     AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
     AgentToolCallOutcome, ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot,
-    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView, LoopGitStateView,
-    LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
-    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
-    OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
-    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    CompleteAgentMessage, DurableAgentGenerationMessages, DurableAgentGenerationStart,
+    EffectivePrompt, GenerationCancellation, GenerationLease, GenerationProcessEvent,
+    GenerationProcessRequest, LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView,
+    LoopIterationView, LoopLog, LoopOperationContext, LoopOwnedRecoverySession,
+    LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
+    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
+    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -67,6 +68,12 @@ pub(crate) trait LoopRepository: Send + Sync {
         Err(AgentRuntimeApplicationError::Loop(
             "Loop run projection is unavailable.".to_string(),
         ))
+    }
+    fn recovery_owned_sessions(
+        &self,
+        _run_id: &str,
+    ) -> Result<Vec<LoopOwnedRecoverySession>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
     }
     fn attach_run_operation(
         &self,
@@ -149,6 +156,13 @@ pub(crate) trait LoopExecutionControlPort: Send + Sync {
 
 pub(crate) trait LoopExecutionLeasePort: Send + Sync {
     fn has_live_lease(&self, run_id: &str) -> Result<bool, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait LoopSessionRecoveryPort: Send + Sync {
+    fn recovery_projection(
+        &self,
+        session_id: &str,
+    ) -> Result<LoopChildRecoveryProjection, AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait LoopIterationRepository: Send + Sync {
@@ -325,6 +339,15 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         &self,
         message: NewAgentMessage,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError>;
+
+    fn start_generation(
+        &self,
+        _request: DurableAgentGenerationStart,
+    ) -> Result<DurableAgentGenerationMessages, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Session(
+            "durable generation start is not implemented".to_string(),
+        ))
+    }
 
     fn find_message(
         &self,

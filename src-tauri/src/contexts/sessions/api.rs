@@ -1,17 +1,21 @@
 use super::application::SessionsApplicationService;
 pub(crate) use super::application::{
     ArchivalPolicy, CategoryRecord, ChatConfigurationValues, CompleteMessageRequest,
-    CreateMessageRequest, FailMessageRequest, FileReferenceInput, LoopRoleSessionRequest,
-    MessageRecord, MessageTokenUsage, MessageUsageRecord, NewRemoteWorkspace, NewSessionRequest,
-    NewSessionWorkspace, NewWorktree, PreparedNewSessionCreation, RuntimeMessageSnapshot,
-    RuntimeSessionSnapshot, SessionChatConfiguration, SessionCreationOperation,
-    SessionExportFormat, SessionExportRequest, SessionExportResult, SessionListScope,
-    SessionMaintenanceResult, SessionRecord, SessionSearchMatchKind, SessionSearchResult,
+    CreateMessageRequest, DurableGenerationStartRequest, DurableGenerationTerminalRequest,
+    FailMessageRequest, FileReferenceInput, GenerationStartResult, GenerationTerminalResult,
+    GenerationTerminalStatus, LoopRoleSessionRequest, MessageRecord, MessageTokenUsage,
+    MessageUsageRecord, NewRemoteWorkspace, NewSessionRequest, NewSessionWorkspace, NewWorktree,
+    PreparedNewSessionCreation, RuntimeMessageSnapshot, RuntimeSessionSnapshot,
+    SessionChatConfiguration, SessionCreationOperation, SessionExportFormat, SessionExportRequest,
+    SessionExportResult, SessionListScope, SessionMaintenanceResult, SessionRecord,
+    SessionRecoveryProjection, SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
     SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
     SessionsApplicationError as SessionsError, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{
-    LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner, SessionSeat,
+    LoopSessionRole, RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode,
+    RecoveryTrigger, SessionActivation, SessionLifecycle, SessionOwner, SessionRecoveryReport,
+    SessionRecoveryStatus, SessionSeat,
 };
 use serde_json::Value;
 
@@ -21,6 +25,39 @@ pub(crate) struct SessionsApi {
 }
 
 impl SessionsApi {
+    pub(crate) fn recovery_summary(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionRecoverySummary, SessionsError> {
+        self.service.recovery_summary(session_id)
+    }
+
+    pub(crate) fn list_recovery_reports(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SessionRecoveryReport>, SessionsError> {
+        self.service.list_recovery_reports(session_id, limit)
+    }
+
+    pub(crate) fn acknowledge_recovery(
+        &self,
+        session_id: &str,
+        expected_recovery_revision: u64,
+    ) -> Result<super::application::AcknowledgeRecoveryResult, SessionsError> {
+        self.service
+            .acknowledge_recovery(session_id, expected_recovery_revision)
+    }
+
+    pub(crate) fn recovery_projection(
+        &self,
+        session_id: &str,
+        execution_run_id: Option<&str>,
+    ) -> Result<SessionRecoveryProjection, SessionsError> {
+        self.service
+            .recovery_projection(session_id, execution_run_id)
+    }
+
     pub(crate) fn new(service: SessionsApplicationService) -> Self {
         Self { service }
     }
@@ -201,6 +238,20 @@ impl SessionsApi {
         request: CreateMessageRequest,
     ) -> Result<MessageRecord, SessionsError> {
         self.service.create_message(request)
+    }
+
+    pub(crate) fn start_generation(
+        &self,
+        request: DurableGenerationStartRequest,
+    ) -> Result<GenerationStartResult, SessionsError> {
+        self.service.start_generation(request)
+    }
+
+    pub(crate) fn terminalize_generation(
+        &self,
+        request: DurableGenerationTerminalRequest,
+    ) -> Result<GenerationTerminalResult, SessionsError> {
+        self.service.terminalize_generation(request)
     }
 
     pub(crate) fn compose_prompt(

@@ -1,6 +1,6 @@
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationError, LoopEvidenceView, LoopIterationRepository, LoopIterationView,
-    LoopRepository, SaveLoopVerifierResultRequest,
+    LoopOwnedRecoverySession, LoopRepository, SaveLoopVerifierResultRequest,
 };
 #[cfg(test)]
 use crate::contexts::agent_runtime::application::{LoopVerifierRecommendation, LoopVerifierResult};
@@ -181,6 +181,42 @@ impl LoopRepository for SqliteLoopRepository {
         AgentRuntimeApplicationError,
     > {
         super::loop_repository_views::find_run_view(&self.database, run_id)
+    }
+
+    fn recovery_owned_sessions(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<LoopOwnedRecoverySession>, AgentRuntimeApplicationError> {
+        let connection = self.connection()?;
+        let row = connection
+            .query_row(
+                r#"SELECT id, worker_session_id, verifier_session_id
+                   FROM loop_iterations
+                   WHERE run_id = ?1 AND completed_at IS NULL
+                   ORDER BY sequence DESC, id DESC
+                   LIMIT 1"#,
+                [run_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(loop_error)?;
+        let Some((iteration_id, worker_session_id, verifier_session_id)) = row else {
+            return Ok(Vec::new());
+        };
+        Ok([worker_session_id, verifier_session_id]
+            .into_iter()
+            .flatten()
+            .map(|session_id| LoopOwnedRecoverySession {
+                iteration_id: iteration_id.clone(),
+                session_id,
+            })
+            .collect())
     }
 
     fn has_active_run(&self, definition_id: &str) -> Result<bool, AgentRuntimeApplicationError> {
@@ -409,7 +445,11 @@ impl LoopRepository for SqliteLoopRepository {
         let run_changed = transaction
             .execute(
                 r#"UPDATE loop_runs SET status = ?2, phase = ?3, terminal_reason = ?4,
-                    pause_requested = ?5, active_operation_id = NULL, updated_at = ?6
+                    pause_requested = ?5, active_operation_id = NULL, updated_at = ?6,
+                    completed_at = CASE
+                        WHEN ?2 IN ('succeeded', 'failed', 'cancelled') THEN ?6
+                        ELSE completed_at
+                    END
                    WHERE id = ?1 AND status = ?7"#,
                 params![
                     run.id(),
@@ -426,6 +466,26 @@ impl LoopRepository for SqliteLoopRepository {
             run_changed,
             "Loop run state changed before recovery completed",
         )?;
+        if let Some(iteration_id) = evidence.iteration_id.as_deref() {
+            let iteration_status = match evidence.status.as_str() {
+                "completed" => Some("succeeded"),
+                "failed" => Some("failed"),
+                "cancelled" => Some("cancelled"),
+                _ => None,
+            };
+            if let Some(iteration_status) = iteration_status {
+                transaction
+                    .execute(
+                        r#"UPDATE loop_iterations
+                           SET status = ?3,
+                               decision_reason = 'session-recovery-projection',
+                               completed_at = ?4
+                           WHERE id = ?1 AND run_id = ?2 AND completed_at IS NULL"#,
+                        params![iteration_id, run.id(), iteration_status, updated_at],
+                    )
+                    .map_err(loop_error)?;
+            }
+        }
         transaction
             .execute(
                 r#"INSERT INTO loop_evidence (

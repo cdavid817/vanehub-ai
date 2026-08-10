@@ -15,6 +15,8 @@ import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import type { SessionDocument } from "../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
+import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
+import { useSessionRecoverySync } from "./use-session-recovery-sync";
 
 export function useMainLayoutModel() {
   const { t } = useTranslation();
@@ -56,7 +58,7 @@ export function useMainLayoutModel() {
     queryFn: () => activeSessionId ? agentService.listSessionDocuments(activeSessionId) : Promise.resolve({ context: { availability: "unavailable" as const, rootName: null, reason: null }, items: [], truncated: false, nextCursor: null }),
   });
   const fileReferenceCandidates = documentsQuery.data?.items ?? [];
-  const isStreaming = messages.some((message) => message.status === "streaming");
+  const isStreaming = hasLiveSessionGeneration(activeSession, messages);
   const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
     const event = createChatOperationFailureEvent(source, reason);
     if (restoreDraft !== undefined) setDraft(restoreDraft);
@@ -72,6 +74,18 @@ export function useMainLayoutModel() {
     (reason: unknown) => reportChatFailure("MainLayout.saveSessionChatConfig", reason, activeSessionId),
     [activeSessionId, reportChatFailure],
   );
+  const reportRecoveryFailure = useCallback(
+    (reason: unknown, sessionId: string) => reportChatFailure(
+      "MainLayout.acknowledgeSessionRecovery",
+      reason,
+      sessionId,
+    ),
+    [reportChatFailure],
+  );
+  const recoverySync = useSessionRecoverySync({
+    activeSession,
+    onAcknowledgementError: reportRecoveryFailure,
+  });
   const chatConfig = useChatConfig({
     activeSession,
     agents,
@@ -213,7 +227,7 @@ export function useMainLayoutModel() {
   }, [notify, t]);
 
   function submit() {
-    if (!activeSession || !draft.trim() || isStreaming) return;
+    if (!canSendToSession(activeSession) || !activeSession || !draft.trim() || isStreaming) return;
     const content = draft.trim();
     const references = fileReferences;
     setDraft("");
@@ -242,6 +256,9 @@ export function useMainLayoutModel() {
     isSending: sendMessage.isPending, isStreaming,
     loadEarlier: () => setMessageLimit((value) => value + 50), messages, messagesPartial: messages.length >= messageLimit,
     pinSession: (session: Session) => pinSession.mutate(session), archiveSession: (session: Session) => archiveSession.mutate(session),
+    recoverySummary: recoverySync.recoverySummary,
+    acknowledgeRecovery: recoverySync.acknowledgeRecovery,
+    acknowledgingRecovery: recoverySync.acknowledgingRecovery,
     renameSession: (session: Session, title: string) => renameSession.mutate({ sessionId: session.id, title }),
     sessionCreated,
     sessionSearchQuery,

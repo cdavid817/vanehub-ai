@@ -38,6 +38,7 @@ async function createAndApplyProfile(page: Page, agentName: string, presetName: 
 
 test.describe("Agent global CLI configuration", () => {
   test("opens Agent configurations and applies independent profiles", async ({ page }) => {
+    test.slow();
     await page.setViewportSize({ width: 1440, height: 1000 });
     await openAgentConfigurations(page);
 

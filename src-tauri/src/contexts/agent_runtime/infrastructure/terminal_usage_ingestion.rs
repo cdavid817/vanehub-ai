@@ -657,6 +657,8 @@ mod tests {
                 error: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
+                session_sequence: 0,
+                execution_run_id: None,
             })
         }
 
@@ -735,6 +737,8 @@ mod tests {
                 error: None,
                 created_at: "2026-01-01T00:00:00Z".to_string(),
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
+                session_sequence: 0,
+                execution_run_id: None,
             })
         }
 

@@ -1983,6 +1983,26 @@
                          "capabilities":  [
                                               "native-runtime-architecture"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-10",
+                         "changeName":  "add-session-recovery-evidence-foundation",
+                         "path":  "openspec/changes/archive/2026-08-10-add-session-recovery-evidence-foundation/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "loop-engineering-runtime",
+                                              "native-runtime-architecture",
+                                              "plan-execution-runtime",
+                                              "session-management",
+                                              "session-recovery",
+                                              "session-runtime-management"
+                                          ]
                      }
                  ]
 }
