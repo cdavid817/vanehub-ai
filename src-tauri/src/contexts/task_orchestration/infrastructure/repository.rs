@@ -854,9 +854,37 @@ mod tests {
         fn inspect(
             &self,
             _session_id: Option<&str>,
+            _execution_run_id: Option<&str>,
             _operation_id: Option<&str>,
         ) -> RecoveryEvidence {
             self.0
+        }
+    }
+
+    struct CountingRecoveryEvidence {
+        evidence: RecoveryEvidence,
+        inspections: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingRecoveryEvidence {
+        fn new(evidence: RecoveryEvidence) -> Self {
+            Self {
+                evidence,
+                inspections: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl RecoveryEvidenceGateway for CountingRecoveryEvidence {
+        fn inspect(
+            &self,
+            _session_id: Option<&str>,
+            _execution_run_id: Option<&str>,
+            _operation_id: Option<&str>,
+        ) -> RecoveryEvidence {
+            self.inspections
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.evidence
         }
     }
 
@@ -1854,33 +1882,62 @@ mod tests {
     }
 
     #[test]
-    fn startup_recovery_keeps_success_or_conflicting_evidence_behind_user_gate() {
-        for evidence in [
-            RecoveryEvidence {
-                session: Some(RecoveryTerminal::Succeeded),
-                operation: Some(RecoveryTerminal::Succeeded),
-            },
-            RecoveryEvidence {
-                session: Some(RecoveryTerminal::Failed),
-                operation: Some(RecoveryTerminal::Succeeded),
-            },
-        ] {
-            let repository = repository();
-            let (run_id, _, _) = create_inflight_recovery_attempt(&repository);
-            repository
-                .recover_ambiguous_inflight(
-                    &FixedRecoveryEvidence(evidence),
-                    "2026-08-08T00:01:00Z",
-                )
-                .expect("reconcile");
-            let detail = repository.get_run_detail(&run_id).expect("detail");
-            assert_eq!(detail.summary.status, "recovery_required");
-            assert_eq!(detail.tasks[0].status, "interrupted");
-            assert!(matches!(
-                repository.schedule_next(&run_id, "2026-08-08T00:01:01Z"),
-                Err(PlanApplicationError::Conflict)
-            ));
-        }
+    fn startup_recovery_projects_shared_success_and_gates_conflicts() {
+        let success_repository = repository();
+        let (run_id, _, _) = create_inflight_recovery_attempt(&success_repository);
+        let success_evidence = CountingRecoveryEvidence::new(RecoveryEvidence {
+            session: Some(RecoveryTerminal::Succeeded),
+            operation: None,
+        });
+        success_repository
+            .recover_ambiguous_inflight(&success_evidence, "2026-08-08T00:01:00Z")
+            .expect("reconcile success");
+        let detail = success_repository
+            .get_run_detail(&run_id)
+            .expect("success detail");
+        assert_eq!(detail.summary.status, "running");
+        assert_eq!(detail.tasks[0].status, "succeeded");
+        assert_eq!(detail.tasks[0].attempts[0].status, "succeeded");
+        assert_eq!(
+            detail.tasks[0].attempts[0].error_class.as_deref(),
+            Some("restart_reconciled_succeeded")
+        );
+        assert_eq!(
+            success_repository
+                .recover_ambiguous_inflight(&success_evidence, "2026-08-08T00:01:01Z")
+                .expect("repeat recovery"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            success_evidence
+                .inspections
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert!(success_repository
+            .schedule_next(&run_id, "2026-08-08T00:01:02Z")
+            .is_ok());
+
+        let conflict_repository = repository();
+        let (run_id, _, _) = create_inflight_recovery_attempt(&conflict_repository);
+        conflict_repository
+            .recover_ambiguous_inflight(
+                &FixedRecoveryEvidence(RecoveryEvidence {
+                    session: Some(RecoveryTerminal::Failed),
+                    operation: Some(RecoveryTerminal::Succeeded),
+                }),
+                "2026-08-08T00:01:00Z",
+            )
+            .expect("reconcile conflict");
+        let detail = conflict_repository
+            .get_run_detail(&run_id)
+            .expect("conflict detail");
+        assert_eq!(detail.summary.status, "recovery_required");
+        assert_eq!(detail.tasks[0].status, "interrupted");
+        assert!(matches!(
+            conflict_repository.schedule_next(&run_id, "2026-08-08T00:01:01Z"),
+            Err(PlanApplicationError::Conflict)
+        ));
     }
 
     #[test]

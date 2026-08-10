@@ -66,6 +66,21 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
     ),
 ];
 
+const RECOVERY_NATIVE_COMMANDS: [(&str, &str); 3] = [
+    (
+        "get_session_recovery_summary",
+        include_str!("get_session_recovery_summary.rs"),
+    ),
+    (
+        "list_session_recovery_reports",
+        include_str!("list_session_recovery_reports.rs"),
+    ),
+    (
+        "acknowledge_session_recovery",
+        include_str!("acknowledge_session_recovery.rs"),
+    ),
+];
+
 #[test]
 fn every_migrated_session_command_keeps_registration_frontend_and_error_boundaries() {
     let native_registration = include_str!("../registry.rs");
@@ -85,6 +100,28 @@ fn every_migrated_session_command_keeps_registration_frontend_and_error_boundari
                 && handler.contains(&format!("fn {command}("))
                 && handler.contains("map_command_error"),
             "{command} must remain a Tauri adapter using the shared safe error mapper"
+        );
+    }
+}
+
+#[test]
+fn recovery_commands_are_registered_one_per_file_with_safe_errors() {
+    let native_registration = include_str!("../registry.rs");
+    let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
+    for (command, handler) in RECOVERY_NATIVE_COMMANDS {
+        assert!(
+            native_registration.contains(&format!("commands::sessions::{command}::{command}")),
+            "native command registration missing {command}"
+        );
+        assert!(
+            tauri_client.contains(&format!("\"{command}\"")),
+            "frontend invoke missing {command}"
+        );
+        assert!(
+            handler.contains("#[tauri::command]")
+                && handler.contains(&format!("fn {command}("))
+                && handler.contains("map_command_error"),
+            "{command} must keep the shared safe command error boundary"
         );
     }
 }

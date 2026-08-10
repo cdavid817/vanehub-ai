@@ -139,5 +139,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
+| 2026-08-10 | add-session-recovery-evidence-foundation | chat-experience, loop-engineering-runtime, native-runtime-architecture, plan-execution-runtime, session-management, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-10-add-session-recovery-evidence-foundation/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -21,6 +21,10 @@ const MAX_POOL_SIZE: u32 = 12;
 /// opening an unbounded number of handles.
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// FULL makes SQLite synchronize the WAL at each recovery-critical commit. The guarantee starts
+/// after SQLite reports commit success; physical media destruction remains outside this boundary.
+const SQLITE_SYNCHRONOUS_FULL: i64 = 2;
+
 pub(crate) use migrations::{migrate, table_has_column};
 
 const DATABASE_FILE_NAME: &str = "vanehub.sqlite";
@@ -61,6 +65,12 @@ impl NativeDatabase {
             connection.busy_timeout(BUSY_TIMEOUT)?;
             connection.query_row("PRAGMA journal_mode=WAL", [], |_row| Ok(()))?;
             connection.pragma_update(None, "foreign_keys", "ON")?;
+            connection.pragma_update(None, "synchronous", "FULL")?;
+            let synchronous =
+                connection.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0))?;
+            if synchronous != SQLITE_SYNCHRONOUS_FULL {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
             Ok(())
         });
         let pool = Pool::builder()
@@ -115,6 +125,9 @@ mod tests {
         let foreign_keys: i64 = connection
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .expect("foreign key setting");
+        let synchronous: i64 = connection
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("synchronous setting");
         let agent_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM agents", [], |row| row.get(0))
             .expect("agent count");
@@ -178,8 +191,9 @@ mod tests {
             )
             .expect("plan and code index reconciliation migration");
 
-        assert_eq!(migration_count, 54);
+        assert_eq!(migration_count, 57);
         assert_eq!(foreign_keys, 1);
+        assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
         assert_eq!(skill_table_exists, 0);
         assert_eq!(cli_config_tables, 2);
@@ -227,7 +241,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 54);
+        assert_eq!(migration_count, 57);
     }
 
     #[test]
@@ -282,5 +296,34 @@ mod tests {
             agents, 6,
             "registry seeding ran exactly once, not per connection"
         );
+    }
+
+    #[test]
+    fn every_pooled_connection_uses_recovery_durability_settings() {
+        let directory = TempDirectory::new("native-database-durability");
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let connections: Vec<_> = (0..MAX_POOL_SIZE)
+            .map(|_| database.connection().expect("pooled connection"))
+            .collect();
+
+        for connection in connections {
+            let journal_mode: String = connection
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .expect("journal mode");
+            let synchronous: i64 = connection
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))
+                .expect("synchronous");
+            let foreign_keys: i64 = connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+                .expect("foreign keys");
+            let busy_timeout: i64 = connection
+                .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+                .expect("busy timeout");
+
+            assert_eq!(journal_mode, "wal");
+            assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
+            assert_eq!(foreign_keys, 1);
+            assert_eq!(busy_timeout, BUSY_TIMEOUT.as_millis() as i64);
+        }
     }
 }

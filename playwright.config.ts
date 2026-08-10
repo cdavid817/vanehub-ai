@@ -21,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- --port ${developmentPort} --strictPort`,
     url: developmentUrl,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
   projects: [
     {

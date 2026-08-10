@@ -389,12 +389,21 @@ impl From<SessionsError> for CommandError {
                 category: CommandErrorCategory::Conflict,
                 message: "validation error: Category name already exists.".to_string(),
             },
-            SessionsError::Repository(message) | SessionsError::Transaction(message) => {
-                Self::redacted(
-                    CommandErrorCategory::Infrastructure,
-                    format!("database error: {message}"),
-                )
-            }
+            error @ (SessionsError::RecoveryRevisionConflict { .. }
+            | SessionsError::RecoveryActionNotAllowed { .. }) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: error.to_string(),
+            },
+            SessionsError::Repository(message)
+            | SessionsError::Transaction(message)
+            | SessionsError::StructuralRecoveryEvidence(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("database error: {message}"),
+            ),
+            SessionsError::RetryableStorage(message) => Self::redacted(
+                CommandErrorCategory::Unavailable,
+                format!("storage temporarily unavailable: {message}"),
+            ),
             SessionsError::WorkspaceLaunch(message) | SessionsError::RuntimeLaunch(message) => {
                 Self {
                     category: CommandErrorCategory::Unavailable,

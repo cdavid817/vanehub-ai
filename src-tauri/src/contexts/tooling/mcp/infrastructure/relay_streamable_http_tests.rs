@@ -10,11 +10,17 @@ fn listener_url() -> (TcpListener, String) {
 }
 
 fn read_request(stream: &mut TcpStream) -> String {
+    try_read_request(stream).expect("request ended before headers")
+}
+
+fn try_read_request(stream: &mut TcpStream) -> Option<String> {
     let mut bytes = Vec::new();
     let mut chunk = [0_u8; 1024];
     loop {
         let count = stream.read(&mut chunk).expect("request bytes");
-        assert_ne!(count, 0, "request ended before headers");
+        if count == 0 {
+            return None;
+        }
         bytes.extend_from_slice(&chunk[..count]);
         let Some(header_end) = bytes.windows(4).position(|value| value == b"\r\n\r\n") else {
             continue;
@@ -30,7 +36,7 @@ fn read_request(stream: &mut TcpStream) -> String {
             })
             .unwrap_or(0);
         if bytes.len() >= body_start + content_length {
-            return String::from_utf8(bytes).expect("UTF-8 request");
+            return Some(String::from_utf8(bytes).expect("UTF-8 request"));
         }
     }
 }

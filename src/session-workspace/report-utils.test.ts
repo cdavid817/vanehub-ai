@@ -11,6 +11,8 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
     status: "completed",
     createdAt: "2026-07-17T00:00:00.000Z",
     updatedAt: "2026-07-17T00:00:01.000Z",
+    sessionSequence: 1,
+    executionRunId: null,
     ...overrides,
   };
 }

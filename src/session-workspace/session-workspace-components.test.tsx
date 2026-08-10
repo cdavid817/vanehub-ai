@@ -22,6 +22,8 @@ const message: ChatMessage = {
   tokenUsage: { input: 12, output: 8 },
   createdAt: "2026-07-17T00:00:00.000Z",
   updatedAt: "2026-07-17T00:00:01.000Z",
+  sessionSequence: 1,
+  executionRunId: null,
 };
 
 describe("session workspace components", () => {
@@ -54,6 +56,11 @@ describe("session workspace components", () => {
       agentId: "onepiece",
       interactionMode: "api",
       lifecycleState: "idle",
+      recoveryStatus: "clean",
+      recoveryRevision: 0,
+      stateRevision: 0,
+      historyRevision: 0,
+      activeExecutionRunId: null,
       folder: "D:/project",
       projectPath: "D:/project",
       worktreePath: null,

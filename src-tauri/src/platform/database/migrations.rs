@@ -331,15 +331,229 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         )?;
         Ok(())
     })?;
+    apply_transactional_migration(
+        conn,
+        55,
+        "session-recovery-evidence-foundation",
+        apply_session_recovery_foundation_migration,
+    )?;
+    apply_migration(
+        conn,
+        56,
+        "operation-recovery-evidence",
+        apply_operation_recovery_evidence_migration,
+    )?;
+    apply_transactional_migration(
+        conn,
+        57,
+        "session-recovery-performance-hardening",
+        apply_session_recovery_performance_migration,
+    )?;
 
-    // After applying, assert the recorded migration history is dense and matches the
-    // names this binary expects. `apply_migration` is version-gated and silently skips a
-    // number claimed twice (the second migration never runs, its table is just missing at
-    // startup) — a collision that has already happened across shared local databases (every
-    // worktree shares one `ai.vanehub.app` database). Failing fast here turns a silent
-    // "no such table" startup crash into an explicit, diagnosable error.
+    // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
 
+    Ok(())
+}
+
+fn apply_session_recovery_performance_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS messages_fts_insert;
+        DROP TRIGGER IF EXISTS messages_fts_delete;
+        DROP TRIGGER IF EXISTS messages_fts_update;
+        DROP TRIGGER IF EXISTS messages_fts_enter_streaming;
+        DROP TRIGGER IF EXISTS messages_fts_leave_streaming;
+
+        INSERT INTO session_message_fts(session_message_fts, rowid, content)
+        SELECT 'delete', rowid, content
+        FROM messages
+        WHERE status = 'streaming';
+
+        CREATE TRIGGER messages_fts_insert
+        AFTER INSERT ON messages
+        WHEN new.status <> 'streaming' BEGIN
+            INSERT INTO session_message_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+        CREATE TRIGGER messages_fts_delete
+        AFTER DELETE ON messages
+        WHEN old.status <> 'streaming' BEGIN
+            INSERT INTO session_message_fts(session_message_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+        END;
+        CREATE TRIGGER messages_fts_update
+        AFTER UPDATE OF content ON messages
+        WHEN old.status <> 'streaming' AND new.status <> 'streaming' BEGIN
+            INSERT INTO session_message_fts(session_message_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+            INSERT INTO session_message_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+        CREATE TRIGGER messages_fts_enter_streaming
+        AFTER UPDATE OF status ON messages
+        WHEN old.status <> 'streaming' AND new.status = 'streaming' BEGIN
+            INSERT INTO session_message_fts(session_message_fts, rowid, content)
+            VALUES ('delete', old.rowid, old.content);
+        END;
+        CREATE TRIGGER messages_fts_leave_streaming
+        AFTER UPDATE OF status ON messages
+        WHEN old.status = 'streaming' AND new.status <> 'streaming' BEGIN
+            INSERT INTO session_message_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+
+        CREATE INDEX IF NOT EXISTS idx_messages_session_run_sequence
+            ON messages(session_id, execution_run_id, session_sequence, id);
+        CREATE INDEX IF NOT EXISTS idx_messages_unfinished_session_sequence
+            ON messages(session_id, session_sequence, id, execution_run_id)
+            WHERE execution_run_id IS NOT NULL AND status IN ('pending', 'streaming');
+        DROP INDEX IF EXISTS idx_sessions_recovery_candidates;
+        CREATE INDEX IF NOT EXISTS idx_sessions_pending_recovery_id
+            ON sessions(id)
+            WHERE archived = 0
+              AND recovery_status NOT IN ('action_required', 'quarantined')
+              AND (
+                active_execution_run_id IS NOT NULL
+                OR lifecycle_state IN ('starting', 'running')
+                OR recovery_status = 'reconciling'
+              );
+        "#,
+    )?;
+    Ok(())
+}
+
+fn apply_operation_recovery_evidence_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS operation_recovery_evidence (
+            operation_id TEXT PRIMARY KEY,
+            execution_run_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'queued', 'running', 'succeeded', 'failed', 'cancelled'
+            )),
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operation_recovery_evidence_run
+            ON operation_recovery_evidence(execution_run_id, updated_at, operation_id);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn apply_session_recovery_foundation_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    let session_columns = [
+        (
+            "recovery_status",
+            "TEXT NOT NULL DEFAULT 'clean' CHECK (recovery_status IN ('clean', 'reconciling', 'action_required', 'quarantined'))",
+        ),
+        (
+            "recovery_revision",
+            "INTEGER NOT NULL DEFAULT 0 CHECK (recovery_revision >= 0)",
+        ),
+        (
+            "state_revision",
+            "INTEGER NOT NULL DEFAULT 0 CHECK (state_revision >= 0)",
+        ),
+        (
+            "history_revision",
+            "INTEGER NOT NULL DEFAULT 0 CHECK (history_revision >= 0)",
+        ),
+        ("active_execution_run_id", "TEXT"),
+        (
+            "next_message_sequence",
+            "INTEGER NOT NULL DEFAULT 1 CHECK (next_message_sequence > 0)",
+        ),
+    ];
+    for (column, declaration) in session_columns {
+        if !table_has_column(conn, "sessions", column)? {
+            conn.execute(
+                &format!("ALTER TABLE sessions ADD COLUMN {column} {declaration}"),
+                [],
+            )?;
+        }
+    }
+
+    if !table_has_column(conn, "messages", "session_sequence")? {
+        conn.execute(
+            "ALTER TABLE messages ADD COLUMN session_sequence INTEGER NOT NULL DEFAULT 0 CHECK (session_sequence >= 0)",
+            [],
+        )?;
+    }
+    if !table_has_column(conn, "messages", "execution_run_id")? {
+        conn.execute("ALTER TABLE messages ADD COLUMN execution_run_id TEXT", [])?;
+    }
+    if !table_has_column(conn, "messages", "seat_round_id")? {
+        conn.execute("ALTER TABLE messages ADD COLUMN seat_round_id TEXT", [])?;
+    }
+    if !table_has_column(conn, "messages", "parent_execution_run_id")? {
+        conn.execute(
+            "ALTER TABLE messages ADD COLUMN parent_execution_run_id TEXT",
+            [],
+        )?;
+    }
+
+    conn.execute_batch(
+        r#"
+        WITH ranked_messages AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY session_id
+                       ORDER BY created_at ASC, id ASC
+                   ) AS assigned_sequence
+            FROM messages
+        )
+        UPDATE messages
+        SET session_sequence = (
+            SELECT assigned_sequence
+            FROM ranked_messages
+            WHERE ranked_messages.id = messages.id
+        );
+
+        UPDATE sessions
+        SET next_message_sequence = COALESCE(
+            (
+                SELECT MAX(messages.session_sequence) + 1
+                FROM messages
+                WHERE messages.session_id = sessions.id
+            ),
+            1
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_sequence
+            ON messages(session_id, session_sequence);
+        CREATE INDEX IF NOT EXISTS idx_messages_execution_run
+            ON messages(execution_run_id);
+        CREATE INDEX IF NOT EXISTS idx_messages_seat_round
+            ON messages(session_id, seat_round_id, session_sequence);
+        CREATE INDEX IF NOT EXISTS idx_sessions_recovery_candidates
+            ON sessions(recovery_status, lifecycle_state, active_execution_run_id);
+
+        CREATE TABLE IF NOT EXISTS session_recovery_reports (
+            report_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            recovery_revision INTEGER NOT NULL CHECK (recovery_revision > 0),
+            trigger TEXT NOT NULL CHECK (trigger IN ('startup', 'explicit_retry', 'user_acknowledgement')),
+            observed_lifecycle TEXT NOT NULL,
+            observed_execution_run_id TEXT,
+            decision TEXT NOT NULL CHECK (decision IN (
+                'completed',
+                'failed',
+                'cancelled',
+                'interrupted_without_tool_ambiguity',
+                'action_required',
+                'quarantined',
+                'retry_later',
+                'acknowledged'
+            )),
+            reason_codes_json TEXT NOT NULL,
+            evidence_refs_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (session_id, recovery_revision),
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_session_recovery_reports_session_created
+            ON session_recovery_reports(session_id, created_at DESC, report_id DESC);
+        "#,
+    )?;
     Ok(())
 }
 
@@ -407,6 +621,9 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (52, "automatic-code-index-mode"),
     (53, "plan-and-code-index-reconciliation"),
     (54, "loop-evidence-iteration-index"),
+    (55, "session-recovery-evidence-foundation"),
+    (56, "operation-recovery-evidence"),
+    (57, "session-recovery-performance-hardening"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -979,6 +1196,105 @@ pub(crate) fn table_has_column(
 mod tests {
     use super::*;
     use crate::test_support::TempDirectory;
+    use rusqlite::ToSql;
+
+    fn recovery_performance_fixture(connection: &Connection) {
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    lifecycle_state TEXT NOT NULL,
+                    archived INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO sessions (id, lifecycle_state) VALUES ('session-1', 'running');
+                "#,
+            )
+            .expect("session performance fixture");
+        apply_chat_messages_migration(connection).expect("message schema");
+        apply_session_message_search_migration(connection).expect("legacy search schema");
+    }
+
+    fn search_count(connection: &Connection, query: &str) -> i64 {
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM session_message_fts WHERE session_message_fts MATCH ?1",
+                [query],
+                |row| row.get(0),
+            )
+            .expect("message search count")
+    }
+
+    fn query_plan(connection: &Connection, query: &str, params: &[&dyn ToSql]) -> Vec<String> {
+        connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {query}"))
+            .expect("prepare query plan")
+            .query_map(params, |row| row.get::<_, String>(3))
+            .expect("query plan")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect query plan")
+    }
+
+    fn legacy_session_recovery_fixture(connection: &Connection) {
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+
+                CREATE TABLE sessions (
+                    id TEXT PRIMARY KEY,
+                    lifecycle_state TEXT NOT NULL,
+                    runtime_session_id TEXT,
+                    loop_run_id TEXT,
+                    loop_iteration_id TEXT,
+                    loop_role TEXT
+                );
+
+                CREATE TABLE messages (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    tool_use TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE plan_subtask_attempts (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    status TEXT NOT NULL
+                );
+
+                INSERT INTO sessions (
+                    id, lifecycle_state, runtime_session_id,
+                    loop_run_id, loop_iteration_id, loop_role
+                ) VALUES
+                    ('clean-legacy', 'idle', NULL, NULL, NULL, NULL),
+                    ('orphan-active', 'running', 'provider-resume-1', NULL, NULL, NULL),
+                    ('plan-owned', 'starting', NULL, NULL, NULL, NULL),
+                    ('loop-owned', 'running', NULL, 'loop-run-1', 'iteration-1', 'worker');
+
+                INSERT INTO messages (
+                    id, session_id, role, status, content, tool_use, created_at
+                ) VALUES
+                    ('message-b', 'clean-legacy', 'assistant', 'completed', 'second', NULL, '100'),
+                    ('message-a', 'clean-legacy', 'user', 'completed', 'first', NULL, '100'),
+                    ('message-c', 'clean-legacy', 'assistant', 'completed', 'third', NULL, '101'),
+                    (
+                        'message-tool', 'orphan-active', 'assistant', 'streaming', 'partial',
+                        '[{"id":"tool-1","status":"running"}]', '200'
+                    ),
+                    ('message-plan', 'plan-owned', 'assistant', 'streaming', 'plan', NULL, '300'),
+                    ('message-loop', 'loop-owned', 'assistant', 'streaming', 'loop', NULL, '400');
+
+                INSERT INTO plan_subtask_attempts (id, session_id, status)
+                VALUES ('attempt-1', 'plan-owned', 'running');
+                "#,
+            )
+            .expect("legacy recovery fixture");
+    }
 
     fn mcp_migration_fixture(connection: &Connection) {
         connection
@@ -1065,6 +1381,107 @@ mod tests {
     }
 
     #[test]
+    fn recovery_performance_migration_indexes_streamed_content_only_at_terminal_state() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        recovery_performance_fixture(&connection);
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO messages (
+                    id, session_id, role, status, content, created_at, updated_at
+                ) VALUES
+                    ('streaming-message', 'session-1', 'assistant', 'streaming',
+                     'partial searchable', '1', '1'),
+                    ('completed-message', 'session-1', 'assistant', 'completed',
+                     'completed searchable', '2', '2');
+                "#,
+            )
+            .expect("legacy indexed messages");
+        assert_eq!(search_count(&connection, "searchable"), 2);
+
+        apply_session_recovery_foundation_migration(&connection).expect("recovery schema");
+        apply_session_recovery_performance_migration(&connection)
+            .expect("recovery performance schema");
+
+        assert_eq!(search_count(&connection, "partial"), 0);
+        assert_eq!(search_count(&connection, "completed"), 1);
+        connection
+            .execute(
+                "UPDATE messages SET content = 'updated streamed content' WHERE id = ?1",
+                ["streaming-message"],
+            )
+            .expect("persist streaming content");
+        assert_eq!(search_count(&connection, "updated"), 0);
+
+        connection
+            .execute(
+                "UPDATE messages SET status = 'failed' WHERE id = ?1",
+                ["streaming-message"],
+            )
+            .expect("terminalize streamed message");
+        assert_eq!(search_count(&connection, "updated"), 1);
+        connection
+            .execute("DELETE FROM messages WHERE id = ?1", ["streaming-message"])
+            .expect("delete terminal message");
+        assert_eq!(search_count(&connection, "updated"), 0);
+    }
+
+    #[test]
+    fn recovery_performance_indexes_match_the_production_hot_queries() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        recovery_performance_fixture(&connection);
+        apply_session_recovery_foundation_migration(&connection).expect("recovery schema");
+        apply_session_recovery_performance_migration(&connection)
+            .expect("recovery performance schema");
+
+        let no_cursor: Option<String> = None;
+        let candidate_limit = 100_i64;
+        let candidate_plan = query_plan(
+            &connection,
+            "SELECT id FROM sessions
+             WHERE archived = 0
+               AND recovery_status NOT IN ('action_required', 'quarantined')
+               AND (
+                 active_execution_run_id IS NOT NULL
+                 OR lifecycle_state IN ('starting', 'running')
+                 OR recovery_status = 'reconciling'
+               )
+               AND (?1 IS NULL OR id > ?1)
+             ORDER BY id LIMIT ?2",
+            &[&no_cursor, &candidate_limit],
+        );
+        assert!(candidate_plan
+            .iter()
+            .any(|detail| detail.contains("idx_sessions_pending_recovery_id")));
+
+        let evidence_limit = 257_i64;
+        let evidence_plan = query_plan(
+            &connection,
+            "SELECT id FROM messages INDEXED BY idx_messages_session_run_sequence
+             WHERE session_id = ?1 AND execution_run_id = ?2
+             ORDER BY session_sequence, id LIMIT ?3",
+            &[&"session-1", &"run-1", &evidence_limit],
+        );
+        assert!(evidence_plan
+            .iter()
+            .any(|detail| detail.contains("idx_messages_session_run_sequence")));
+
+        let conflict_plan = query_plan(
+            &connection,
+            "SELECT id FROM messages INDEXED BY idx_messages_unfinished_session_sequence
+             WHERE session_id = ?1
+               AND execution_run_id IS NOT NULL
+               AND execution_run_id <> ?2
+               AND status IN ('pending', 'streaming')
+             ORDER BY session_sequence, id LIMIT 1",
+            &[&"session-1", &"run-1"],
+        );
+        assert!(conflict_plan
+            .iter()
+            .any(|detail| detail.contains("idx_messages_unfinished_session_sequence")));
+    }
+
+    #[test]
     fn skill_reliability_migration_upgrades_database_without_api_binding_table() {
         let connection = Connection::open_in_memory().expect("in-memory database");
         migrate(&connection).expect("current schema");
@@ -1097,7 +1514,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (53, 54));
+        assert_eq!(migration_state, (56, 57));
 
         migrate(&connection).expect("upgrade migration");
 
@@ -1442,6 +1859,155 @@ mod tests {
         assert!(
             message.contains("not dense"),
             "expected a density error, got: {message}"
+        );
+    }
+
+    #[test]
+    fn session_recovery_migration_adds_schema_and_backfills_durable_order() {
+        let connection = Connection::open_in_memory().expect("database");
+        legacy_session_recovery_fixture(&connection);
+
+        apply_session_recovery_foundation_migration(&connection).expect("recovery migration");
+
+        for column in [
+            "recovery_status",
+            "recovery_revision",
+            "state_revision",
+            "history_revision",
+            "active_execution_run_id",
+            "next_message_sequence",
+        ] {
+            assert!(table_has_column(&connection, "sessions", column).expect("session column"));
+        }
+        for column in [
+            "session_sequence",
+            "execution_run_id",
+            "seat_round_id",
+            "parent_execution_run_id",
+        ] {
+            assert!(table_has_column(&connection, "messages", column).expect("message column"));
+        }
+
+        let ordered: Vec<(String, i64, Option<String>)> = connection
+            .prepare(
+                "SELECT id, session_sequence, execution_run_id FROM messages \
+                 WHERE session_id = 'clean-legacy' ORDER BY session_sequence",
+            )
+            .expect("ordered messages")
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("message query")
+            .collect::<Result<_, _>>()
+            .expect("message rows");
+        assert_eq!(
+            ordered,
+            vec![
+                ("message-a".to_string(), 1, None),
+                ("message-b".to_string(), 2, None),
+                ("message-c".to_string(), 3, None),
+            ]
+        );
+
+        let session_defaults: (String, i64, i64, i64, Option<String>, i64) = connection
+            .query_row(
+                "SELECT recovery_status, recovery_revision, state_revision, history_revision, \
+                        active_execution_run_id, next_message_sequence \
+                 FROM sessions WHERE id = 'clean-legacy'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("session defaults");
+        assert_eq!(session_defaults, ("clean".to_string(), 0, 0, 0, None, 4));
+
+        let unique_index: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type = 'index' AND name = 'idx_messages_session_sequence'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("sequence index");
+        let reports_table: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master \
+                 WHERE type = 'table' AND name = 'session_recovery_reports'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("recovery reports table");
+        assert_eq!(unique_index, 1);
+        assert_eq!(reports_table, 1);
+    }
+
+    #[test]
+    fn session_recovery_migration_preserves_runtime_and_orchestrator_evidence() {
+        let connection = Connection::open_in_memory().expect("database");
+        legacy_session_recovery_fixture(&connection);
+
+        apply_session_recovery_foundation_migration(&connection).expect("first migration");
+        apply_session_recovery_foundation_migration(&connection).expect("idempotent migration");
+
+        let orphan: (String, Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT lifecycle_state, runtime_session_id, active_execution_run_id \
+                 FROM sessions WHERE id = 'orphan-active'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("orphan session");
+        assert_eq!(
+            orphan,
+            (
+                "running".to_string(),
+                Some("provider-resume-1".to_string()),
+                None
+            )
+        );
+
+        let tool_use: String = connection
+            .query_row(
+                "SELECT tool_use FROM messages WHERE id = 'message-tool'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("tool snapshot");
+        assert_eq!(tool_use, r#"[{"id":"tool-1","status":"running"}]"#);
+
+        let plan_attempt: (String, String) = connection
+            .query_row(
+                "SELECT session_id, status FROM plan_subtask_attempts WHERE id = 'attempt-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("plan attempt");
+        assert_eq!(
+            plan_attempt,
+            ("plan-owned".to_string(), "running".to_string())
+        );
+
+        let loop_owner: (String, String, String) = connection
+            .query_row(
+                "SELECT loop_run_id, loop_iteration_id, loop_role \
+                 FROM sessions WHERE id = 'loop-owned'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("loop ownership");
+        assert_eq!(
+            loop_owner,
+            (
+                "loop-run-1".to_string(),
+                "iteration-1".to_string(),
+                "worker".to_string()
+            )
         );
     }
 }

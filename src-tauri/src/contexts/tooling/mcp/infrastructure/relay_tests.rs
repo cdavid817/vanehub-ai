@@ -537,6 +537,12 @@ fn one_response_server(
                 Err(error) => panic!("accept HTTP request: {error}"),
             }
         };
+        stream
+            .set_nonblocking(false)
+            .expect("configure blocking HTTP fixture stream");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("configure bounded HTTP fixture read");
         let _ = read_http_request(&mut stream);
         if let Some(delay) = delay {
             thread::sleep(delay);

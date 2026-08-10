@@ -27,6 +27,8 @@ const message: ChatMessage = {
   status: "completed",
   createdAt: "2026-07-17T08:30:00.000Z",
   updatedAt: "2026-07-17T08:30:00.000Z",
+  sessionSequence: 1,
+  executionRunId: null,
 };
 
 const cliTool: CliToolStatus = {
