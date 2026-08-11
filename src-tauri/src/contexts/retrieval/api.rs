@@ -12,9 +12,12 @@ use super::domain::{
     CodeIndexConfigurationUpdate, CodeIndexStatus, CodeWorkspace, RetrievalError, RetrievalQuery,
     RetrievalScope, SourceKind,
 };
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+const MAX_PENDING_CODE_INDEX_MUTATIONS: usize = 512;
 
 /// 后台索引 worker 的唤醒端。
 ///
@@ -35,6 +38,88 @@ impl RetrievalWorkerSignal {
 
     fn notify(&self) {
         let _ = self.sender.try_send(());
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CodeIndexMutationBatch {
+    pub(crate) canonical_workspace: PathBuf,
+    pub(crate) relative_paths: Vec<String>,
+}
+
+#[derive(Default)]
+struct CodeIndexMutationState {
+    paths: BTreeMap<PathBuf, BTreeSet<String>>,
+    total: usize,
+}
+
+/// Bounded best-effort mutation handoff shared by the public API and indexing worker.
+#[derive(Clone)]
+pub(crate) struct CodeIndexMutationQueue {
+    state: Arc<Mutex<CodeIndexMutationState>>,
+    capacity: usize,
+}
+
+impl CodeIndexMutationQueue {
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(MAX_PENDING_CODE_INDEX_MUTATIONS)
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(CodeIndexMutationState::default())),
+            capacity,
+        }
+    }
+
+    pub(crate) fn offer(&self, canonical_workspace: &Path, relative_path: &str) -> bool {
+        let relative_path = relative_path.replace('\\', "/");
+        if relative_path.is_empty() {
+            return false;
+        }
+        let Ok(mut state) = self.state.try_lock() else {
+            return false;
+        };
+        if state
+            .paths
+            .get(canonical_workspace)
+            .is_some_and(|paths| paths.contains(&relative_path))
+        {
+            return true;
+        }
+        if state.total >= self.capacity {
+            return false;
+        }
+        state
+            .paths
+            .entry(canonical_workspace.to_path_buf())
+            .or_default()
+            .insert(relative_path);
+        state.total += 1;
+        true
+    }
+
+    pub(crate) fn drain(&self) -> Vec<CodeIndexMutationBatch> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.total = 0;
+        std::mem::take(&mut state.paths)
+            .into_iter()
+            .map(
+                |(canonical_workspace, relative_paths)| CodeIndexMutationBatch {
+                    canonical_workspace,
+                    relative_paths: relative_paths.into_iter().collect(),
+                },
+            )
+            .collect()
+    }
+}
+
+impl Default for CodeIndexMutationQueue {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -155,13 +240,24 @@ impl RetrievalApi {
 pub(crate) struct CodeIndexApi {
     repository: Arc<dyn CodeIndexRepository>,
     retrieval: RetrievalApi,
+    mutations: CodeIndexMutationQueue,
 }
 
 impl CodeIndexApi {
+    #[cfg(test)]
     pub(crate) fn new(repository: Arc<dyn CodeIndexRepository>, retrieval: RetrievalApi) -> Self {
+        Self::new_with_mutations(repository, retrieval, CodeIndexMutationQueue::new())
+    }
+
+    pub(crate) fn new_with_mutations(
+        repository: Arc<dyn CodeIndexRepository>,
+        retrieval: RetrievalApi,
+        mutations: CodeIndexMutationQueue,
+    ) -> Self {
         Self {
             repository,
             retrieval,
+            mutations,
         }
     }
 
@@ -171,6 +267,12 @@ impl CodeIndexApi {
         display_name: &str,
     ) -> Result<CodeWorkspace, RetrievalError> {
         self.repository.register_workspace(root, display_name)
+    }
+
+    pub(crate) fn notify_targeted_change(&self, workspace: &Path, relative_path: &str) {
+        if self.mutations.offer(workspace, relative_path) {
+            self.retrieval.wake_worker();
+        }
     }
 
     pub(crate) fn discover_session_workspace(
@@ -365,6 +467,62 @@ mod tests {
 
     const PROFILE: &str = "profile-a";
     const MODEL: &str = "model-a";
+
+    #[test]
+    fn code_index_mutation_queue_coalesces_normalized_paths_per_workspace() {
+        let queue = CodeIndexMutationQueue::with_capacity(4);
+        let first = Path::new("C:/workspace-a");
+        let second = Path::new("C:/workspace-b");
+
+        assert!(queue.offer(first, "src\\lib.rs"));
+        assert!(queue.offer(first, "src/lib.rs"));
+        assert!(queue.offer(second, "src/lib.rs"));
+
+        assert_eq!(
+            queue.drain(),
+            vec![
+                CodeIndexMutationBatch {
+                    canonical_workspace: first.to_path_buf(),
+                    relative_paths: vec!["src/lib.rs".to_string()],
+                },
+                CodeIndexMutationBatch {
+                    canonical_workspace: second.to_path_buf(),
+                    relative_paths: vec!["src/lib.rs".to_string()],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn code_index_mutation_queue_rejects_new_paths_at_capacity_and_reopens_after_drain() {
+        let queue = CodeIndexMutationQueue::with_capacity(2);
+        let workspace = Path::new("C:/workspace");
+
+        assert!(queue.offer(workspace, "src/a.rs"));
+        assert!(queue.offer(workspace, "src/b.rs"));
+        assert!(!queue.offer(workspace, "src/c.rs"));
+        assert_eq!(queue.drain()[0].relative_paths.len(), 2);
+        assert!(queue.offer(workspace, "src/c.rs"));
+    }
+
+    #[test]
+    fn full_code_index_mutation_queue_still_coalesces_existing_paths() {
+        let queue = CodeIndexMutationQueue::with_capacity(2);
+        let workspace = Path::new("C:/workspace");
+
+        assert!(queue.offer(workspace, "src/a.rs"));
+        assert!(queue.offer(workspace, "src/b.rs"));
+        assert!(queue.offer(workspace, "src\\a.rs"));
+        assert!(!queue.offer(workspace, "src/c.rs"));
+
+        assert_eq!(
+            queue.drain(),
+            vec![CodeIndexMutationBatch {
+                canonical_workspace: workspace.to_path_buf(),
+                relative_paths: vec!["src/a.rs".to_string(), "src/b.rs".to_string()],
+            }]
+        );
+    }
 
     impl RetrievalConfigurationRepository for FakeConfigurationRepository {
         fn load(&self) -> Result<RetrievalConfiguration, RetrievalError> {

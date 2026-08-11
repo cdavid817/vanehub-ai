@@ -1,6 +1,7 @@
 //! Bounded contexts for native domain and application behavior.
 
 pub(crate) mod agent_runtime;
+pub(crate) mod code_intelligence;
 pub(crate) mod communications;
 pub(crate) mod desktop;
 pub(crate) mod execution_observability;

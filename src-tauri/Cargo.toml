@@ -23,6 +23,8 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.35"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+lsp-types = "0.97"
+tempfile = "3"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
 axum = "0.8"
@@ -88,7 +90,6 @@ libc = "0.2"
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs", "testing"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
-tempfile = "3"
 
 [profile.release]
 opt-level = 3

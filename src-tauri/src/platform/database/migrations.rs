@@ -349,6 +349,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-recovery-performance-hardening",
         apply_session_recovery_performance_migration,
     )?;
+    apply_migration(
+        conn,
+        58,
+        "lsp-code-intelligence-foundation",
+        crate::contexts::code_intelligence::api::apply_schema,
+    )?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -624,6 +630,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (55, "session-recovery-evidence-foundation"),
     (56, "operation-recovery-evidence"),
     (57, "session-recovery-performance-hardening"),
+    (58, "lsp-code-intelligence-foundation"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1514,7 +1521,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (56, 57));
+        assert_eq!(migration_state, (57, 58));
 
         migrate(&connection).expect("upgrade migration");
 

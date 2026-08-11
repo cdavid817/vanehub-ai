@@ -16,6 +16,8 @@ mod migration_fixture_tests;
 #[cfg(test)]
 mod native_lifecycle_tests;
 #[cfg(test)]
+mod native_lsp_end_to_end_tests;
+#[cfg(test)]
 mod remote_terminal_migration_tests;
 #[cfg(test)]
 mod test_support;

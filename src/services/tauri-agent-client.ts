@@ -120,6 +120,11 @@ import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import type { CodeIndexAutomaticMode, CodeIndexConfigurationInput } from "../types/code-index";
+import type {
+  LspConfiguration,
+  LspLanguageId,
+  LspWorkspaceTrustUpdate,
+} from "../types/lsp";
 import {
   normalizeCodeEmbeddingConfirmation,
   normalizeCodeIndexAuditEntries,
@@ -128,6 +133,16 @@ import {
   normalizeCodeIndexWorkspace,
   normalizeCodeIndexWorkspaces,
 } from "./code-index-contract";
+import {
+  normalizeLspConfiguration,
+  normalizeLspServerDiscoveries,
+  normalizeLspServerStatuses,
+  normalizeLspServerTestInput,
+  normalizeLspServerTestResult,
+  normalizeLspWorkspaceTrust,
+  normalizeLspWorkspaceTrustList,
+  normalizeLspWorkspaceTrustUpdate,
+} from "./lsp-contract";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -316,6 +331,42 @@ export const tauriAgentClient: AgentService = {
 
   deleteCodeIndexWorkspace(workspaceId: string) {
     return invoke<void>("delete_code_index_workspace", { workspaceId });
+  },
+
+  async getLspConfiguration() {
+    return normalizeLspConfiguration(await invoke<unknown>("get_lsp_configuration"));
+  },
+
+  async saveLspConfiguration(configuration: LspConfiguration) {
+    const normalized = normalizeLspConfiguration(configuration);
+    await invoke<void>("save_lsp_configuration", { configuration: normalized });
+  },
+
+  async listLspWorkspaceTrust() {
+    return normalizeLspWorkspaceTrustList(await invoke<unknown>("list_lsp_workspace_trust"));
+  },
+
+  async updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate) {
+    const normalized = normalizeLspWorkspaceTrustUpdate(update);
+    return normalizeLspWorkspaceTrust(await invoke<unknown>("update_lsp_workspace_trust", {
+      update: normalized,
+    }));
+  },
+
+  async discoverLspServers() {
+    return normalizeLspServerDiscoveries(await invoke<unknown>("discover_lsp_servers"));
+  },
+
+  async testLspServer(language: LspLanguageId) {
+    const input = normalizeLspServerTestInput({ language });
+    return normalizeLspServerTestResult(
+      await invoke<unknown>("test_lsp_server", { input }),
+      input.language,
+    );
+  },
+
+  async getLspServerStatus() {
+    return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
   },
 
   listCliTools() {

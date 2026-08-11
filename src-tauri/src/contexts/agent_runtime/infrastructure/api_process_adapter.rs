@@ -1,3 +1,4 @@
+use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, locations_outcome};
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
@@ -5,25 +6,31 @@ use super::tools::{
 };
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
-    AgentChatConfiguration, AgentClockPort, AgentCodeRetrievalOutcome, AgentCoreInstructionsPort,
-    AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
-    AgentMessage, AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError,
-    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
-    ConversationHistoryPort, ExecutionToolMode, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessRequest, MemorySource, OrchestrationExecutionProfile, PersonalizationSettings,
-    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME,
-    FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
+    code_intelligence_tool_definitions, plan_mode_tool_catalog, recall_tool_definition,
+    search_code_tool_definition, tool_catalog, AgentChatConfiguration, AgentClockPort,
+    AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome,
+    AgentCoreInstructionsPort, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
+    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage,
+    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, ExecutionToolMode,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    OrchestrationExecutionProfile, PersonalizationSettings, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME,
+    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
+    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
     MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
     SHELL_TOOL_NAME,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
+use crate::platform::filesystem::BoundedFilesystem;
 use crate::platform::network::blocking_http_client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::BufRead;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -60,6 +67,17 @@ type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecis
 /// formats need to build a reply turn from.
 type ExecutedToolCall = (ToolUseBlock, String, bool);
 
+#[cfg(test)]
+struct NoopWorkspaceMutationPort;
+
+#[cfg(test)]
+impl AgentWorkspaceMutationPort for NoopWorkspaceMutationPort {
+    fn publish(&self, _mutation: AgentWorkspaceMutation) {}
+}
+
+#[cfg(test)]
+static NOOP_WORKSPACE_MUTATIONS: NoopWorkspaceMutationPort = NoopWorkspaceMutationPort;
+
 /// `AgentProcessGateway` implementation for `launch_kind = "api"` agents: no subprocess is
 /// spawned, generation is a direct streaming HTTP call to the provider's Messages API.
 #[derive(Clone)]
@@ -75,6 +93,8 @@ pub(crate) struct RuntimeAgentApiAdapter {
     mcp: Arc<dyn AgentMcpToolPort>,
     permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
+    code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
+    workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
@@ -93,7 +113,8 @@ struct ManagedApiGeneration {
 
 impl RuntimeAgentApiAdapter {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn new_without_code_intelligence(
         credentials: Arc<dyn ApiCredentialPort>,
         config: Arc<dyn ApiAgentGateway>,
         history: Arc<dyn ConversationHistoryPort>,
@@ -105,6 +126,45 @@ impl RuntimeAgentApiAdapter {
         mcp: Arc<dyn AgentMcpToolPort>,
         permissions: Arc<dyn AgentPermissionPort>,
         retrieval: Arc<dyn AgentRetrievalPort>,
+        workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
+        personalization: Arc<dyn AgentPersonalizationPort>,
+    ) -> Self {
+        let code_intelligence = Arc::new(super::RuntimeAgentCodeIntelligenceAdapter::new(
+            Arc::new(super::UnavailableAgentCodeIntelligenceResponder),
+        ));
+        Self::new_with_code_intelligence(
+            credentials,
+            config,
+            history,
+            logging,
+            clock,
+            skills,
+            core_instructions,
+            memories,
+            mcp,
+            permissions,
+            retrieval,
+            code_intelligence,
+            workspace_mutations,
+            personalization,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_code_intelligence(
+        credentials: Arc<dyn ApiCredentialPort>,
+        config: Arc<dyn ApiAgentGateway>,
+        history: Arc<dyn ConversationHistoryPort>,
+        logging: Arc<dyn AgentLoggingPort>,
+        clock: Arc<dyn AgentClockPort>,
+        skills: Arc<dyn AgentSkillPort>,
+        core_instructions: Arc<dyn AgentCoreInstructionsPort>,
+        memories: Arc<dyn AgentMemoryPort>,
+        mcp: Arc<dyn AgentMcpToolPort>,
+        permissions: Arc<dyn AgentPermissionPort>,
+        retrieval: Arc<dyn AgentRetrievalPort>,
+        code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
+        workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
         personalization: Arc<dyn AgentPersonalizationPort>,
     ) -> Self {
         Self {
@@ -119,6 +179,8 @@ impl RuntimeAgentApiAdapter {
             mcp,
             permissions,
             retrieval,
+            code_intelligence,
+            workspace_mutations,
             personalization,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
@@ -207,6 +269,8 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let mcp = self.mcp.clone();
         let permissions = self.permissions.clone();
         let retrieval = self.retrieval.clone();
+        let code_intelligence = self.code_intelligence.clone();
+        let workspace_mutations = self.workspace_mutations.clone();
         let personalization = self.personalization.clone();
         thread::spawn(move || {
             run_generation(
@@ -223,6 +287,8 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 mcp,
                 permissions,
                 retrieval,
+                code_intelligence,
+                workspace_mutations,
                 personalization,
                 sink,
                 pending_approvals,
@@ -296,11 +362,13 @@ fn run_generation(
     mcp: Arc<dyn AgentMcpToolPort>,
     permissions: Arc<dyn AgentPermissionPort>,
     retrieval: Arc<dyn AgentRetrievalPort>,
+    code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
+    workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
-    let terminal = execute(
+    let terminal = execute_with_code_intelligence(
         &request,
         cancelled,
         credentials.as_ref(),
@@ -316,6 +384,8 @@ fn run_generation(
         mcp.as_ref(),
         permissions.as_ref(),
         retrieval.as_ref(),
+        code_intelligence.as_ref(),
+        workspace_mutations.as_ref(),
         personalization.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
@@ -449,6 +519,7 @@ pub(crate) fn wire_format_for(config: &ApiProviderConfig) -> Result<WireFormat, 
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn execute(
     request: &GenerationProcessRequest,
     cancelled: Arc<AtomicBool>,
@@ -465,6 +536,52 @@ fn execute(
     mcp: &dyn AgentMcpToolPort,
     permissions: &dyn AgentPermissionPort,
     retrieval: &dyn AgentRetrievalPort,
+    personalization: &dyn AgentPersonalizationPort,
+) -> GenerationProcessEvent {
+    let code_intelligence = super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
+        super::UnavailableAgentCodeIntelligenceResponder,
+    ));
+    execute_with_code_intelligence(
+        request,
+        cancelled,
+        credentials,
+        config,
+        history,
+        sink,
+        pending_approvals,
+        logging,
+        clock,
+        skills,
+        core_instructions,
+        memories,
+        mcp,
+        permissions,
+        retrieval,
+        &code_intelligence,
+        &NOOP_WORKSPACE_MUTATIONS,
+        personalization,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_with_code_intelligence(
+    request: &GenerationProcessRequest,
+    cancelled: Arc<AtomicBool>,
+    credentials: &dyn ApiCredentialPort,
+    config: &dyn ApiAgentGateway,
+    history: &dyn ConversationHistoryPort,
+    sink: &dyn AgentProcessEventSink,
+    pending_approvals: &PendingApprovals,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    skills: &dyn AgentSkillPort,
+    core_instructions: &dyn AgentCoreInstructionsPort,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    permissions: &dyn AgentPermissionPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: &dyn AgentCodeIntelligencePort,
+    workspace_mutations: &dyn AgentWorkspaceMutationPort,
     personalization: &dyn AgentPersonalizationPort,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
@@ -535,7 +652,15 @@ fn execute(
                 .map(|code| code.is_available(folder))
         })
         .unwrap_or(false);
-    let tools = resolve_tool_catalog(
+    let code_intelligence_context = request
+        .session
+        .folder
+        .as_deref()
+        .map(AgentCodeIntelligenceContext::from_session_workspace);
+    let code_intelligence_available = code_intelligence_context
+        .as_ref()
+        .is_some_and(|context| code_intelligence.is_available(context));
+    let tools = resolve_tool_catalog_with_code_intelligence(
         request,
         mcp,
         logging,
@@ -543,6 +668,7 @@ fn execute(
         plan_mode,
         retrieval_available,
         code_search_available,
+        code_intelligence_available,
     );
     let generation_options = generation_options_from_configuration(&request.configuration);
     let mut turns = (wire_format.history_to_turns)(&recent);
@@ -797,7 +923,7 @@ fn execute(
                     is_error: true,
                 }
             } else {
-                execute_tool_call(
+                execute_tool_call_with_runtime_ports(
                     &tool_use.name,
                     &input,
                     request.session.folder.as_deref(),
@@ -806,6 +932,8 @@ fn execute(
                     memories,
                     mcp,
                     retrieval,
+                    code_intelligence,
+                    workspace_mutations,
                     plan_mode,
                 )
             };
@@ -904,6 +1032,7 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
 /// skips the MCP lookup entirely — MCP tools are always excluded in plan mode, so there is no
 /// reason to pay the lookup cost. `recall` is still offered in plan mode: it is read-only, and
 /// planning is when history from earlier sessions matters most.
+#[cfg(test)]
 fn resolve_tool_catalog(
     request: &GenerationProcessRequest,
     mcp: &dyn AgentMcpToolPort,
@@ -912,6 +1041,29 @@ fn resolve_tool_catalog(
     plan_mode: bool,
     retrieval_available: bool,
     code_search_available: bool,
+) -> Vec<ToolDefinition> {
+    resolve_tool_catalog_with_code_intelligence(
+        request,
+        mcp,
+        logging,
+        clock,
+        plan_mode,
+        retrieval_available,
+        code_search_available,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_tool_catalog_with_code_intelligence(
+    request: &GenerationProcessRequest,
+    mcp: &dyn AgentMcpToolPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    plan_mode: bool,
+    retrieval_available: bool,
+    code_search_available: bool,
+    code_intelligence_available: bool,
 ) -> Vec<ToolDefinition> {
     if let Some(profile) = &request.orchestration_profile {
         match profile.tool_mode {
@@ -926,6 +1078,9 @@ fn resolve_tool_catalog(
         }
         if code_search_available {
             tools.push(search_code_tool_definition());
+        }
+        if code_intelligence_available {
+            tools.extend(code_intelligence_tool_definitions());
         }
         return tools;
     }
@@ -955,6 +1110,9 @@ fn resolve_tool_catalog(
     }
     if code_search_available {
         tools.push(search_code_tool_definition());
+    }
+    if code_intelligence_available {
+        tools.extend(code_intelligence_tool_definitions());
     }
     if let Some(profile) = &request.orchestration_profile {
         if !profile.permitted_tools.is_empty() {
@@ -1443,6 +1601,13 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
                 _ => (Action::file_write(), resource),
             }
         }
+        FIND_DEFINITION_TOOL_NAME
+        | FIND_REFERENCES_TOOL_NAME
+        | GET_HOVER_TOOL_NAME
+        | GET_DIAGNOSTICS_TOOL_NAME => {
+            let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            (Action::file_read(), Resource::file_path(path))
+        }
         REMEMBER_TOOL_NAME => (Action::memory_write(), Resource::memory()),
         name if name.starts_with(MCP_TOOL_NAME_PREFIX) => (Action::mcp_tool(), Resource::new(name)),
         name => (Action::new(format!("unknown:{name}")), Resource::new(name)),
@@ -1536,6 +1701,7 @@ fn non_negative_integer(value: &Value) -> Option<usize> {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn execute_tool_call(
     name: &str,
     input: &Value,
@@ -1545,6 +1711,122 @@ fn execute_tool_call(
     memories: &dyn AgentMemoryPort,
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
+    plan_mode: bool,
+) -> ToolExecutionOutcome {
+    execute_tool_call_impl(
+        name,
+        input,
+        workspace_folder,
+        cancelled,
+        agent_id,
+        memories,
+        mcp,
+        retrieval,
+        None,
+        None,
+        plan_mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(test)]
+fn execute_tool_call_with_code_intelligence(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: &dyn AgentCodeIntelligencePort,
+    plan_mode: bool,
+) -> ToolExecutionOutcome {
+    execute_tool_call_impl(
+        name,
+        input,
+        workspace_folder,
+        cancelled,
+        agent_id,
+        memories,
+        mcp,
+        retrieval,
+        Some(code_intelligence),
+        None,
+        plan_mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_tool_call_with_runtime_ports(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: &dyn AgentCodeIntelligencePort,
+    workspace_mutations: &dyn AgentWorkspaceMutationPort,
+    plan_mode: bool,
+) -> ToolExecutionOutcome {
+    execute_tool_call_impl(
+        name,
+        input,
+        workspace_folder,
+        cancelled,
+        agent_id,
+        memories,
+        mcp,
+        retrieval,
+        Some(code_intelligence),
+        Some(workspace_mutations),
+        plan_mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(test)]
+fn execute_tool_call_with_workspace_mutations(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    workspace_mutations: &dyn AgentWorkspaceMutationPort,
+    plan_mode: bool,
+) -> ToolExecutionOutcome {
+    execute_tool_call_impl(
+        name,
+        input,
+        workspace_folder,
+        cancelled,
+        agent_id,
+        memories,
+        mcp,
+        retrieval,
+        None,
+        Some(workspace_mutations),
+        plan_mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_tool_call_impl(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    code_intelligence: Option<&dyn AgentCodeIntelligencePort>,
+    workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
     plan_mode: bool,
 ) -> ToolExecutionOutcome {
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
@@ -1608,6 +1890,21 @@ fn execute_tool_call(
             is_error: true,
         };
     };
+    if matches!(
+        name,
+        FIND_DEFINITION_TOOL_NAME
+            | FIND_REFERENCES_TOOL_NAME
+            | GET_HOVER_TOOL_NAME
+            | GET_DIAGNOSTICS_TOOL_NAME
+    ) {
+        let Some(code_intelligence) = code_intelligence else {
+            return ToolExecutionOutcome {
+                output: "Code intelligence is unavailable for this session.".to_owned(),
+                is_error: true,
+            };
+        };
+        return execute_code_intelligence_tool(name, input, folder, cancelled, code_intelligence);
+    }
     match name {
         SHELL_TOOL_NAME => {
             let command = input
@@ -1637,7 +1934,11 @@ fn execute_tool_call(
                 Ok(limit) => limit,
                 Err(outcome) => return outcome,
             };
-            execute_file(operation, path, content, offset, limit, folder)
+            let outcome = execute_file(operation, path, content, offset, limit, folder);
+            if operation == "write" && !outcome.is_error {
+                publish_workspace_mutation(folder, path, workspace_mutations);
+            }
+            outcome
         }
         GREP_TOOL_NAME => {
             let context = match parse_optional_non_negative_integer_arg(input, "context") {
@@ -1680,29 +1981,123 @@ fn execute_tool_call(
             folder,
             cancelled,
         ),
-        EDIT_TOOL_NAME => execute_edit(
-            input
+        EDIT_TOOL_NAME => {
+            let path = input
                 .get("path")
                 .and_then(Value::as_str)
-                .unwrap_or_default(),
-            input
-                .get("old_string")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            input
-                .get("new_string")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-            input
-                .get("replace_all")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            folder,
-        ),
+                .unwrap_or_default();
+            let outcome = execute_edit(
+                path,
+                input
+                    .get("old_string")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                input
+                    .get("new_string")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+                input
+                    .get("replace_all")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                folder,
+            );
+            if !outcome.is_error {
+                publish_workspace_mutation(folder, path, workspace_mutations);
+            }
+            outcome
+        }
         other => ToolExecutionOutcome {
             output: format!("Unknown tool \"{other}\"."),
             is_error: true,
         },
+    }
+}
+
+fn publish_workspace_mutation(
+    workspace_folder: &str,
+    relative_path: &str,
+    workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
+) {
+    let Some(workspace_mutations) = workspace_mutations else {
+        return;
+    };
+    let Ok(boundary) = BoundedFilesystem::new(Path::new(workspace_folder)) else {
+        return;
+    };
+    let Ok(relative_path) = boundary.validate_relative(relative_path) else {
+        return;
+    };
+    let Ok(canonical_workspace) = Path::new(workspace_folder).canonicalize() else {
+        return;
+    };
+    workspace_mutations.publish(AgentWorkspaceMutation {
+        canonical_workspace,
+        relative_path: relative_path.to_string_lossy().replace('\\', "/"),
+    });
+}
+
+fn execute_code_intelligence_tool(
+    name: &str,
+    input: &Value,
+    folder: &str,
+    cancelled: Arc<AtomicBool>,
+    code_intelligence: &dyn AgentCodeIntelligencePort,
+) -> ToolExecutionOutcome {
+    let relative_path = input
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    if relative_path.is_empty() {
+        return invalid_code_intelligence_input("path must be a non-empty relative string");
+    }
+    let context = AgentCodeIntelligenceContext::from_session_workspace(folder);
+    if name == GET_DIAGNOSTICS_TOOL_NAME {
+        return diagnostics_outcome(code_intelligence.get_diagnostics(
+            &context,
+            &AgentDocumentInput { relative_path },
+            cancelled,
+        ));
+    }
+    let Some(line) = one_based_u32(input, "line") else {
+        return invalid_code_intelligence_input("line must be a one-based integer");
+    };
+    let Some(column) = one_based_u32(input, "column") else {
+        return invalid_code_intelligence_input("column must be a one-based integer");
+    };
+    let position = AgentDocumentPositionInput {
+        relative_path,
+        line,
+        column,
+    };
+    match name {
+        FIND_DEFINITION_TOOL_NAME => locations_outcome(
+            "definitions",
+            code_intelligence.find_definition(&context, &position, cancelled),
+            20,
+        ),
+        FIND_REFERENCES_TOOL_NAME => locations_outcome(
+            "references",
+            code_intelligence.find_references(&context, &position, cancelled),
+            50,
+        ),
+        GET_HOVER_TOOL_NAME => {
+            hover_outcome(code_intelligence.get_hover(&context, &position, cancelled))
+        }
+        _ => invalid_code_intelligence_input("unsupported code-intelligence operation"),
+    }
+}
+
+fn one_based_u32(input: &Value, field: &str) -> Option<u32> {
+    let value = input.get(field)?.as_u64()?;
+    (value > 0).then(|| u32::try_from(value).ok()).flatten()
+}
+
+fn invalid_code_intelligence_input(message: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: message.to_owned(),
+        is_error: true,
     }
 }
 
@@ -1922,9 +2317,12 @@ fn failed_retryable(message: &str) -> GenerationProcessEvent {
 mod tests {
     use super::*;
     use crate::contexts::agent_runtime::application::{
+        AgentCodeDiagnostic, AgentCodeHover, AgentCodeIntelligenceMetadata,
+        AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation,
         AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
-        AgentSession, AgentView, CliProfileSnapshot, GenerationProcessFailureKind,
-        OrchestrationCorrelation, OrchestrationExecutionProfile, INTERFACE_FORMAT_ANTHROPIC,
+        AgentSession, AgentView, AgentWorkspaceMutation, CliProfileSnapshot,
+        GenerationProcessFailureKind, OrchestrationCorrelation, OrchestrationExecutionProfile,
+        INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -1940,6 +2338,28 @@ mod tests {
     #[derive(Default)]
     struct FakeCredentials {
         value: Option<String>,
+    }
+
+    #[derive(Default)]
+    struct RecordingWorkspaceMutations {
+        published: Mutex<Vec<AgentWorkspaceMutation>>,
+    }
+
+    impl AgentWorkspaceMutationPort for RecordingWorkspaceMutations {
+        fn publish(&self, mutation: AgentWorkspaceMutation) {
+            self.published.lock().expect("published").push(mutation);
+        }
+    }
+
+    #[derive(Default)]
+    struct DroppingWorkspaceMutations {
+        attempted: AtomicBool,
+    }
+
+    impl AgentWorkspaceMutationPort for DroppingWorkspaceMutations {
+        fn publish(&self, _mutation: AgentWorkspaceMutation) {
+            self.attempted.store(true, Ordering::SeqCst);
+        }
     }
 
     impl ApiCredentialPort for FakeCredentials {
@@ -2131,6 +2551,75 @@ mod tests {
                 output: format!("NoopMcp cannot call \"{name}\"."),
                 is_error: true,
             }
+        }
+    }
+
+    #[derive(Default)]
+    struct ReadyCodeIntelligence {
+        calls: Mutex<Vec<(String, AgentDocumentPositionInput)>>,
+    }
+
+    impl AgentCodeIntelligencePort for ReadyCodeIntelligence {
+        fn is_available(&self, _: &AgentCodeIntelligenceContext) -> bool {
+            true
+        }
+
+        fn find_definition(
+            &self,
+            context: &AgentCodeIntelligenceContext,
+            input: &AgentDocumentPositionInput,
+            _: Arc<AtomicBool>,
+        ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push((context.session_workspace().to_owned(), input.clone()));
+            ready_code_intelligence(Vec::new())
+        }
+
+        fn find_references(
+            &self,
+            _: &AgentCodeIntelligenceContext,
+            _: &AgentDocumentPositionInput,
+            _: Arc<AtomicBool>,
+        ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>> {
+            ready_code_intelligence(Vec::new())
+        }
+
+        fn get_hover(
+            &self,
+            _: &AgentCodeIntelligenceContext,
+            _: &AgentDocumentPositionInput,
+            _: Arc<AtomicBool>,
+        ) -> AgentCodeIntelligenceOutcome<Option<AgentCodeHover>> {
+            ready_code_intelligence(None)
+        }
+
+        fn get_diagnostics(
+            &self,
+            _: &AgentCodeIntelligenceContext,
+            _: &AgentDocumentInput,
+            _: Arc<AtomicBool>,
+        ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>> {
+            ready_code_intelligence(Vec::new())
+        }
+    }
+
+    fn ready_code_intelligence<T>(value: T) -> AgentCodeIntelligenceOutcome<T> {
+        AgentCodeIntelligenceOutcome {
+            metadata: AgentCodeIntelligenceMetadata {
+                status: AgentCodeIntelligenceStatus::Ready,
+                server: Some("fixture".to_owned()),
+                language: Some("rust".to_owned()),
+                document_version: Some(1),
+                stale: false,
+                returned_count: 0,
+                total: 0,
+                truncated: false,
+                filtered_count: 0,
+                reason_code: None,
+            },
+            value: Some(value),
         }
     }
 
@@ -2552,7 +3041,7 @@ mod tests {
     }
 
     fn adapter() -> RuntimeAgentApiAdapter {
-        RuntimeAgentApiAdapter::new(
+        RuntimeAgentApiAdapter::new_without_code_intelligence(
             Arc::new(FakeCredentials::default()),
             Arc::new(FakeConfig::default()),
             Arc::new(FakeHistory(FakeHistoryOutcome::Messages(Vec::new()))),
@@ -2566,6 +3055,7 @@ mod tests {
             Arc::new(NoopMcp),
             Arc::new(FakePermissions::default_classification()),
             Arc::new(NoopRetrieval),
+            Arc::new(NoopWorkspaceMutationPort),
             Arc::new(NoopPersonalization),
         )
     }
@@ -3517,6 +4007,22 @@ mod tests {
     }
 
     #[test]
+    fn read_only_lsp_tools_use_file_read_permissions_and_mutations_fail_closed() {
+        let input = json!({"path": "src/lib.rs", "line": 4, "column": 2});
+        for tool_name in expected_lsp_tool_names() {
+            let (action, resource) = permission_action_and_resource(tool_name, &input);
+            assert_eq!(action, Action::file_read(), "{tool_name}");
+            assert_eq!(resource, Resource::file_path("src/lib.rs"), "{tool_name}");
+        }
+
+        for tool_name in ["execute_rename", "code_intelligence/execute_rename"] {
+            let (action, resource) = permission_action_and_resource(tool_name, &input);
+            assert_eq!(action, Action::new(format!("unknown:{tool_name}")));
+            assert_eq!(resource, Resource::new(tool_name));
+        }
+    }
+
+    #[test]
     fn execute_tool_call_fails_closed_without_a_workspace_folder() {
         let outcome = execute_tool_call(
             SHELL_TOOL_NAME,
@@ -3839,6 +4345,154 @@ mod tests {
         assert!(outcome.is_error);
         assert!(outcome.output.contains("plan mode"));
         assert!(!directory.path().join("a.txt").exists());
+    }
+
+    #[test]
+    fn workspace_mutation_successful_file_write_publishes_one_normalized_path() {
+        let directory = crate::test_support::TempDirectory::new("mutation-file-write");
+        std::fs::create_dir(directory.path().join("src")).expect("create fixture directory");
+        let folder = directory.path().to_string_lossy().to_string();
+        let mutations = RecordingWorkspaceMutations::default();
+
+        let outcome = execute_tool_call_with_workspace_mutations(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "src\\new.rs", "content": "fn new() {}\n"}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            &mutations,
+            false,
+        );
+
+        assert!(!outcome.is_error, "{}", outcome.output);
+        assert_eq!(
+            mutations.published.lock().expect("published").as_slice(),
+            &[AgentWorkspaceMutation {
+                canonical_workspace: directory
+                    .path()
+                    .canonicalize()
+                    .expect("canonical workspace"),
+                relative_path: "src/new.rs".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn workspace_mutation_successful_edit_publishes_one_normalized_path() {
+        let directory = crate::test_support::TempDirectory::new("mutation-edit");
+        std::fs::create_dir(directory.path().join("src")).expect("create fixture directory");
+        std::fs::write(directory.path().join("src/lib.rs"), "let value = 1;\n")
+            .expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+        let mutations = RecordingWorkspaceMutations::default();
+        let relative_path = Path::new("src").join("lib.rs");
+
+        let outcome = execute_tool_call_with_workspace_mutations(
+            EDIT_TOOL_NAME,
+            &json!({
+                "path": relative_path.to_string_lossy(),
+                "old_string": "value = 1",
+                "new_string": "value = 2"
+            }),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            &mutations,
+            false,
+        );
+
+        assert!(!outcome.is_error, "{}", outcome.output);
+        assert_eq!(
+            mutations.published.lock().expect("published").as_slice(),
+            &[AgentWorkspaceMutation {
+                canonical_workspace: directory
+                    .path()
+                    .canonicalize()
+                    .expect("canonical workspace"),
+                relative_path: "src/lib.rs".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn workspace_mutation_failed_and_denied_operations_publish_nothing() {
+        let directory = crate::test_support::TempDirectory::new("mutation-rejected");
+        std::fs::write(directory.path().join("a.rs"), "let value = 1;\n").expect("write fixture");
+        let folder = directory.path().to_string_lossy().to_string();
+        let mutations = RecordingWorkspaceMutations::default();
+        let cases = [
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "../escape.rs", "content": "x"}),
+                false,
+            ),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "a.rs", "old_string": "missing", "new_string": "changed"}),
+                false,
+            ),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "denied.rs", "content": "x"}),
+                true,
+            ),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "a.rs", "old_string": "value = 1", "new_string": "value = 2"}),
+                true,
+            ),
+        ];
+
+        for (name, input, plan_mode) in cases {
+            let outcome = execute_tool_call_with_workspace_mutations(
+                name,
+                &input,
+                Some(&folder),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                &mutations,
+                plan_mode,
+            );
+            assert!(outcome.is_error, "{name} unexpectedly succeeded");
+        }
+
+        assert!(mutations.published.lock().expect("published").is_empty());
+    }
+
+    #[test]
+    fn workspace_mutation_notification_failure_does_not_change_successful_tool_result() {
+        let directory = crate::test_support::TempDirectory::new("mutation-notification-failure");
+        let folder = directory.path().to_string_lossy().to_string();
+        let mutations = DroppingWorkspaceMutations::default();
+
+        let outcome = execute_tool_call_with_workspace_mutations(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "a.rs", "content": "fn main() {}\n"}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            &mutations,
+            false,
+        );
+
+        assert!(mutations.attempted.load(Ordering::SeqCst));
+        assert!(!outcome.is_error, "{}", outcome.output);
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("a.rs")).expect("read back"),
+            "fn main() {}\n"
+        );
     }
 
     #[test]
@@ -4454,6 +5108,223 @@ mod tests {
         assert!(unavailable
             .iter()
             .all(|tool| tool.name != SEARCH_CODE_TOOL_NAME));
+    }
+
+    #[test]
+    fn normal_generation_registers_all_read_only_lsp_tools_when_available() {
+        let tools = resolve_tool_catalog_with_code_intelligence(
+            &sample_request("api"),
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(lsp_tool_names(&tools), expected_lsp_tool_names());
+    }
+
+    #[test]
+    fn plan_mode_registers_the_same_read_only_lsp_tools_when_available() {
+        let tools = resolve_tool_catalog_with_code_intelligence(
+            &sample_request("api"),
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            true,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(lsp_tool_names(&tools), expected_lsp_tool_names());
+        assert!(tools.iter().all(|tool| tool.name != SHELL_TOOL_NAME));
+        assert!(tools.iter().all(|tool| tool.name != EDIT_TOOL_NAME));
+    }
+
+    #[test]
+    fn unavailable_untrusted_and_remote_workspaces_register_no_lsp_tools() {
+        for reason in ["unavailable", "untrusted", "remote"] {
+            let tools = resolve_tool_catalog_with_code_intelligence(
+                &sample_request("api"),
+                &NoopMcp,
+                &NoopLogging,
+                &FixedClock,
+                false,
+                false,
+                false,
+                false,
+            );
+            assert!(
+                lsp_tool_names(&tools).is_empty(),
+                "{reason} workspace must not expose LSP tools"
+            );
+        }
+    }
+
+    #[test]
+    fn lsp_registration_does_not_depend_on_code_index_availability() {
+        let tools = resolve_tool_catalog_with_code_intelligence(
+            &sample_request("api"),
+            &NoopMcp,
+            &NoopLogging,
+            &FixedClock,
+            false,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(lsp_tool_names(&tools), expected_lsp_tool_names());
+        assert!(tools.iter().all(|tool| tool.name != SEARCH_CODE_TOOL_NAME));
+    }
+
+    #[test]
+    fn lsp_execution_derives_scope_from_session_and_returns_visible_json() {
+        let code_intelligence = ReadyCodeIntelligence::default();
+        let outcome = execute_tool_call_with_code_intelligence(
+            FIND_DEFINITION_TOOL_NAME,
+            &json!({"path": "src/lib.rs", "line": 3, "column": 7}),
+            Some("C:/workspace"),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            &code_intelligence,
+            false,
+        );
+
+        assert!(!outcome.is_error);
+        let value: Value = serde_json::from_str(&outcome.output).expect("visible JSON result");
+        assert_eq!(value["metadata"]["status"], "ready");
+        assert_eq!(value["definitions"], json!([]));
+        let calls = code_intelligence.calls.lock().expect("calls");
+        assert_eq!(calls[0].0, "C:/workspace");
+        assert_eq!(calls[0].1.relative_path, "src/lib.rs");
+        assert_eq!((calls[0].1.line, calls[0].1.column), (3, 7));
+    }
+
+    #[test]
+    fn lsp_workspace_scope_injection_cannot_override_the_session_context() {
+        let code_intelligence = ReadyCodeIntelligence::default();
+        let outcome = execute_tool_call_with_code_intelligence(
+            FIND_DEFINITION_TOOL_NAME,
+            &json!({
+                "path": "src/lib.rs",
+                "line": 3,
+                "column": 7,
+                "workspace_id": "attacker-workspace",
+                "workspace_root": "C:/outside",
+                "server": "attacker-server",
+                "uri": "https://attacker.invalid/private.rs"
+            }),
+            Some("C:/trusted-workspace"),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            &code_intelligence,
+            false,
+        );
+
+        assert!(!outcome.is_error);
+        let calls = code_intelligence.calls.lock().expect("calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "C:/trusted-workspace");
+        assert_eq!(calls[0].1.relative_path, "src/lib.rs");
+    }
+
+    #[test]
+    fn plan_mode_executes_all_four_read_only_lsp_tools() {
+        let code_intelligence = ReadyCodeIntelligence::default();
+        let cases = [
+            (
+                FIND_DEFINITION_TOOL_NAME,
+                json!({"path": "src/lib.rs", "line": 1, "column": 1}),
+                "definitions",
+            ),
+            (
+                FIND_REFERENCES_TOOL_NAME,
+                json!({"path": "src/lib.rs", "line": 1, "column": 1}),
+                "references",
+            ),
+            (
+                GET_HOVER_TOOL_NAME,
+                json!({"path": "src/lib.rs", "line": 1, "column": 1}),
+                "hover",
+            ),
+            (
+                GET_DIAGNOSTICS_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                "diagnostics",
+            ),
+        ];
+
+        for (tool_name, input, result_key) in cases {
+            let outcome = execute_tool_call_with_code_intelligence(
+                tool_name,
+                &input,
+                Some("C:/workspace"),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                &code_intelligence,
+                true,
+            );
+            assert!(!outcome.is_error, "{tool_name}: {}", outcome.output);
+            let value: Value = serde_json::from_str(&outcome.output).expect("tool JSON");
+            assert_eq!(value["metadata"]["status"], "ready", "{tool_name}");
+            assert!(!value[result_key].is_null() || result_key == "hover");
+        }
+    }
+
+    #[test]
+    fn plan_mode_rejects_workspace_edits_and_unadvertised_mutating_lsp_tools() {
+        let code_intelligence = ReadyCodeIntelligence::default();
+        for tool_name in [
+            "workspace/applyEdit",
+            "execute_rename",
+            "textDocument/rename",
+            "code_intelligence/execute_rename",
+        ] {
+            let outcome = execute_tool_call_with_code_intelligence(
+                tool_name,
+                &json!({"path": "src/lib.rs", "line": 1, "column": 1}),
+                Some("C:/workspace"),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                &code_intelligence,
+                true,
+            );
+            assert!(outcome.is_error, "{tool_name} must fail closed");
+            assert!(outcome.output.contains("Unknown tool"), "{tool_name}");
+        }
+    }
+
+    fn expected_lsp_tool_names() -> Vec<&'static str> {
+        vec![
+            FIND_DEFINITION_TOOL_NAME,
+            FIND_REFERENCES_TOOL_NAME,
+            GET_HOVER_TOOL_NAME,
+            GET_DIAGNOSTICS_TOOL_NAME,
+        ]
+    }
+
+    fn lsp_tool_names(tools: &[ToolDefinition]) -> Vec<&str> {
+        tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .filter(|name| expected_lsp_tool_names().contains(name))
+            .collect()
     }
 
     #[test]

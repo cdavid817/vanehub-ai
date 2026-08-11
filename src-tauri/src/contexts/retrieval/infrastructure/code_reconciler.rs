@@ -167,13 +167,6 @@ fn should_stop(
     Ok(repository.workspace_generation(&workspace.workspace_id)? != Some(workspace.generation))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the follow-up filesystem watcher calls the production targeted reconcile entry point"
-    )
-)]
 pub(crate) fn reconcile_paths(
     repository: &dyn CodeIndexRepository,
     workspace: &CodeWorkspace,

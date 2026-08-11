@@ -17,7 +17,10 @@ use crate::contexts::agent_runtime::application::{
 use crate::contexts::agent_runtime::infrastructure::SqliteAgentMemoryRepository;
 use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
 use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
-use crate::contexts::retrieval::api::{CodeIndexApi, RetrievalApi, RetrievalWorkerSignal};
+use crate::contexts::retrieval::api::{
+    CodeIndexApi, CodeIndexMutationBatch, CodeIndexMutationQueue, RetrievalApi,
+    RetrievalWorkerSignal,
+};
 use crate::contexts::retrieval::application::{
     BatchOutcome, CodeRetrievalPort, EmbeddingEndpointPort, EmbeddingFailure, EmbeddingPort,
     IndexSourcePort, IndexSourceRecord, IndexingService, ResolvedEmbeddingEndpoint,
@@ -76,6 +79,7 @@ struct WorkspaceCodeIndexWorker {
     embeddings: Arc<dyn EmbeddingPort>,
     active_workspace: ActiveSessionWorkspace,
     round_robin_cursor: Mutex<usize>,
+    mutations: CodeIndexMutationQueue,
 }
 
 struct ActiveSessionWorkspace {
@@ -121,6 +125,7 @@ pub(crate) fn assemble_retrieval(
         endpoint,
     });
     let (signal, wakeups) = RetrievalWorkerSignal::channel();
+    let code_mutations = CodeIndexMutationQueue::new();
     let api = RetrievalApi::new(
         Arc::new(SearchService::new(
             configuration.clone(),
@@ -133,7 +138,11 @@ pub(crate) fn assemble_retrieval(
         signal,
     );
     RetrievalAssembly {
-        code_index_api: CodeIndexApi::new(code_index.clone(), api.clone()),
+        code_index_api: CodeIndexApi::new_with_mutations(
+            code_index.clone(),
+            api.clone(),
+            code_mutations.clone(),
+        ),
         code_retrieval: Arc::new(NativeAgentCodeRetrieval {
             code_index: code_index.clone(),
             configuration: configuration.clone(),
@@ -156,6 +165,7 @@ pub(crate) fn assemble_retrieval(
                     workspaces,
                 },
                 round_robin_cursor: Mutex::new(0),
+                mutations: code_mutations,
             }),
         },
     }
@@ -314,6 +324,7 @@ fn run_workspace_code_round(worker: &RetrievalIndexingWorker, logging: &dyn Diag
     let Some(code) = &worker.code else {
         return;
     };
+    run_targeted_code_mutations(code, logging);
     let active_root = match code.active_workspace.root() {
         Ok(root) => root,
         Err(error) => {
@@ -511,6 +522,88 @@ fn run_workspace_code_round(worker: &RetrievalIndexingWorker, logging: &dyn Diag
             }
         }
     }
+}
+
+fn run_targeted_code_mutations(code: &WorkspaceCodeIndexWorker, logging: &dyn DiagnosticLogPort) {
+    let mutations = code.mutations.drain();
+    if mutations.is_empty() {
+        return;
+    }
+    let workspaces = match code.code_index.list_workspaces() {
+        Ok(workspaces) => workspaces,
+        Err(error) => {
+            write_failure_log(
+                logging,
+                CODE_RECONCILE_CATEGORY,
+                "Targeted workspace inventory lookup failed",
+                [("category", error_category(&error).to_string())],
+            );
+            return;
+        }
+    };
+    for mutation in mutations {
+        let Some(workspace) = workspace_for_mutation(&workspaces, &mutation) else {
+            continue;
+        };
+        let changes = mutation
+            .relative_paths
+            .into_iter()
+            .map(
+                crate::contexts::retrieval::infrastructure::code_reconciler::CodePathChange::Upsert,
+            )
+            .collect::<Vec<_>>();
+        let started = Instant::now();
+        let outcome =
+            match crate::contexts::retrieval::infrastructure::code_reconciler::reconcile_paths(
+                code.code_index.as_ref(),
+                &workspace,
+                &changes,
+            ) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    write_failure_log(
+                        logging,
+                        CODE_RECONCILE_CATEGORY,
+                        "Targeted workspace code reconciliation failed",
+                        [
+                            ("workspaceId", workspace.workspace_id.clone()),
+                            ("category", error_category(&error).to_string()),
+                        ],
+                    );
+                    continue;
+                }
+            };
+        let phase = if outcome.cancelled {
+            CodeIndexPhase::Cancelling
+        } else if outcome.failed > 0 {
+            CodeIndexPhase::Degraded
+        } else {
+            CodeIndexPhase::Ready
+        };
+        write_code_reconcile_log(
+            logging,
+            &workspace.workspace_id,
+            workspace.generation,
+            &outcome,
+            started.elapsed(),
+            phase,
+        );
+    }
+}
+
+fn workspace_for_mutation(
+    workspaces: &[crate::contexts::retrieval::domain::CodeWorkspace],
+    mutation: &CodeIndexMutationBatch,
+) -> Option<crate::contexts::retrieval::domain::CodeWorkspace> {
+    workspaces
+        .iter()
+        .find(|workspace| {
+            workspace.enabled
+                && Path::new(&workspace.canonical_root)
+                    .canonicalize()
+                    .is_ok_and(|root| root == mutation.canonical_workspace)
+        })
+        .cloned()
 }
 
 fn eligible_code_workspaces(
@@ -1424,6 +1517,38 @@ mod tests {
             vec![active_id]
         );
         assert!(eligible_code_workspaces(vec![inactive_workspace], None).is_empty());
+    }
+
+    #[test]
+    fn targeted_mutation_maps_canonical_root_only_to_an_enabled_workspace() {
+        let root = TempDirectory::new("targeted-mutation-root");
+        let other = TempDirectory::new("targeted-mutation-other");
+        let mut enabled = CodeWorkspace::new(
+            root.path().to_string_lossy().into_owned(),
+            "enabled".to_string(),
+        );
+        enabled.enabled = true;
+        let enabled_id = enabled.workspace_id.clone();
+        let disabled = CodeWorkspace::new(
+            root.path().to_string_lossy().into_owned(),
+            "disabled".to_string(),
+        );
+        let mutation = CodeIndexMutationBatch {
+            canonical_workspace: root.path().canonicalize().expect("canonical root"),
+            relative_paths: vec!["src/lib.rs".to_string()],
+        };
+
+        assert_eq!(
+            workspace_for_mutation(&[disabled, enabled.clone()], &mutation)
+                .expect("enabled workspace")
+                .workspace_id,
+            enabled_id
+        );
+        let outside = CodeIndexMutationBatch {
+            canonical_workspace: other.path().canonicalize().expect("canonical other root"),
+            relative_paths: vec!["src/lib.rs".to_string()],
+        };
+        assert!(workspace_for_mutation(&[enabled], &outside).is_none());
     }
 
     /// 断言一组 `DiagnosticLog` 里没有任何一条的 message 或 context 值携带了哨兵文本。

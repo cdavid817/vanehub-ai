@@ -125,6 +125,7 @@ import {
 } from "./cli-parameter-catalog";
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
+import { webLspClient } from "./web-lsp-client";
 import { defaultChatConfigForSession, normalizeChatConfigForSession } from "./chat-configuration";
 import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import type {
@@ -2160,6 +2161,7 @@ function scheduleWebLoopPhase(run: LoopRun) {
 
 export const webAgentClient: AgentService = {
   ...webSessionWorkspaceClient,
+  ...webLspClient,
   async openExternalUrl(url) {
     const target = requireHttpsExternalUrl(url);
     const opened = window.open(target, "_blank", "noopener,noreferrer");

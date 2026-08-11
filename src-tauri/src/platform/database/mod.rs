@@ -190,8 +190,15 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("plan and code index reconciliation migration");
+        let lsp_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 58",
+                [],
+                |row| row.get(0),
+            )
+            .expect("LSP code intelligence migration");
 
-        assert_eq!(migration_count, 57);
+        assert_eq!(migration_count, 58);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -210,6 +217,7 @@ mod tests {
             reconciliation_migration,
             "plan-and-code-index-reconciliation"
         );
+        assert_eq!(lsp_migration, "lsp-code-intelligence-foundation");
     }
 
     #[test]
@@ -241,7 +249,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 57);
+        assert_eq!(migration_count, 58);
     }
 
     #[test]
