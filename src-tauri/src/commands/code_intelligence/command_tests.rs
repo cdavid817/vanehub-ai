@@ -8,6 +8,7 @@ use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
 use serde_json::json;
+use std::path::Path;
 use std::sync::Arc;
 
 fn fixture(label: &str) -> (TempDirectory, CodeIntelligenceApi) {
@@ -20,21 +21,27 @@ fn fixture(label: &str) -> (TempDirectory, CodeIntelligenceApi) {
     )
 }
 
-fn unavailable_configuration() -> LspConfigurationDto {
+fn unavailable_configuration(root: &Path) -> LspConfigurationDto {
     LspConfigurationDto {
         enabled: true,
         languages: vec![
             LspLanguageConfigurationDto {
                 language: LspLanguageIdDto::Rust,
                 enabled: true,
-                executable_override: Some("C:\\missing\\rust-analyzer.exe".to_string()),
+                executable_override: Some(
+                    root.join("missing-rust-analyzer")
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
                 initialization_options: json!({"cargo": {"allTargets": false}}),
             },
             LspLanguageConfigurationDto {
                 language: LspLanguageIdDto::TypeScriptJavaScript,
                 enabled: false,
                 executable_override: Some(
-                    "C:\\missing\\typescript-language-server.cmd".to_string(),
+                    root.join("missing-typescript-language-server")
+                        .to_string_lossy()
+                        .into_owned(),
                 ),
                 initialization_options: json!({}),
             },
@@ -44,13 +51,13 @@ fn unavailable_configuration() -> LspConfigurationDto {
 
 #[test]
 fn configuration_commands_round_trip_validated_values() {
-    let (_directory, api) = fixture("lsp-command-configuration");
+    let (directory, api) = fixture("lsp-command-configuration");
 
     let initial = super::get_lsp_configuration::execute(&api).expect("initial configuration");
     assert!(!initial.enabled);
     assert_eq!(initial.languages.len(), 2);
 
-    let replacement = unavailable_configuration();
+    let replacement = unavailable_configuration(directory.path());
     super::save_lsp_configuration::execute(&api, replacement.clone()).expect("save configuration");
 
     assert_eq!(
@@ -84,8 +91,8 @@ fn workspace_trust_commands_canonicalize_update_and_list() {
 
 #[tokio::test]
 async fn discovery_and_server_test_return_safe_unavailable_results() {
-    let (_directory, api) = fixture("lsp-command-server-test");
-    super::save_lsp_configuration::execute(&api, unavailable_configuration())
+    let (directory, api) = fixture("lsp-command-server-test");
+    super::save_lsp_configuration::execute(&api, unavailable_configuration(directory.path()))
         .expect("save unavailable configuration");
 
     let discoveries =

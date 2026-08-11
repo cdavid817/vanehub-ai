@@ -1,9 +1,11 @@
 use crate::contexts::code_intelligence::domain::models::ServerKind;
+#[cfg(windows)]
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const MAX_SEARCH_PATH_ENTRIES: usize = 256;
+#[cfg(windows)]
 const MAX_PATH_EXTENSIONS: usize = 16;
 
 pub(crate) trait NativeExecutableLocationPort: Send + Sync {

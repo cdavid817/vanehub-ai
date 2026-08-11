@@ -4388,10 +4388,15 @@ mod tests {
             .expect("write fixture");
         let folder = directory.path().to_string_lossy().to_string();
         let mutations = RecordingWorkspaceMutations::default();
+        let relative_path = Path::new("src").join("lib.rs");
 
         let outcome = execute_tool_call_with_workspace_mutations(
             EDIT_TOOL_NAME,
-            &json!({"path": "src\\lib.rs", "old_string": "value = 1", "new_string": "value = 2"}),
+            &json!({
+                "path": relative_path.to_string_lossy(),
+                "old_string": "value = 1",
+                "new_string": "value = 2"
+            }),
             Some(&folder),
             not_cancelled(),
             "test-agent",

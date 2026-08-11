@@ -3,7 +3,7 @@ use super::server_discovery::{
     ServerCommandPreset, ServerDiscovery, SystemNativeExecutableLocator,
 };
 use crate::contexts::code_intelligence::domain::models::ServerKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -124,14 +124,14 @@ fn fixture_executable(name: &str) -> PathBuf {
     path
 }
 
-fn write_executable(path: &PathBuf) {
+fn write_executable(path: &Path) {
     std::fs::write(path, b"fixture").expect("write executable fixture");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut permissions = std::fs::metadata(&path).expect("metadata").permissions();
+        let mut permissions = std::fs::metadata(path).expect("metadata").permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("executable permissions");
+        std::fs::set_permissions(path, permissions).expect("executable permissions");
     }
 }
 
