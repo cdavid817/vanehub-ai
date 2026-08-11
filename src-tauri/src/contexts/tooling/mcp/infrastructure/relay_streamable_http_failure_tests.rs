@@ -92,8 +92,8 @@ fn disconnect_timeout_and_delete_failure_are_bounded_and_typed() {
         let (listener, url) = listener_url();
         let fixture = thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("request");
-            let _ = read_request(&mut stream);
             if delay.is_zero() {
+                let _ = read_request(&mut stream);
                 stream
                     .write_all(
                         b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 64\r\nConnection: close\r\n\r\n{",
@@ -101,6 +101,7 @@ fn disconnect_timeout_and_delete_failure_are_bounded_and_typed() {
                     .expect("partial response");
                 stream.flush().expect("partial response flush");
             } else {
+                let _ = try_read_request(&mut stream);
                 thread::sleep(delay);
             }
         });

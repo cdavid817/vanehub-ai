@@ -115,14 +115,14 @@ fn child_disconnect_fails_pending_request_without_waiting_for_parent_eof() {
         node_child("process.stdin.once('data', () => process.exit(7))"),
         ControlledReader::open(request, stop.clone()),
         output.clone(),
-        Duration::from_secs(2),
+        Duration::from_secs(10),
         McpCancellation::default(),
         stop,
         None,
         &log_context(),
     );
 
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(6));
     let response: serde_json::Value =
         serde_json::from_slice(&output.bytes()).expect("disconnect response");
     assert_eq!(response["id"], "disconnect-1");

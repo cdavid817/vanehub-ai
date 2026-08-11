@@ -1,6 +1,7 @@
 use super::repository::{storage_error, SqlitePlanRepository};
-use crate::contexts::operations::api::{OperationStatus, OperationsApi};
+use crate::contexts::operations::api::OperationsApi;
 use crate::contexts::sessions::api::SessionsApi;
+use crate::contexts::sessions::domain::recovery::RecoveryDecision;
 use crate::contexts::task_orchestration::application::PlanApplicationError;
 use crate::contexts::task_orchestration::domain::PlanRunStatus;
 use rusqlite::{params, OptionalExtension, Transaction};
@@ -19,52 +20,57 @@ pub(crate) struct RecoveryEvidence {
 }
 
 pub(crate) trait RecoveryEvidenceGateway: Send + Sync {
-    fn inspect(&self, session_id: Option<&str>, operation_id: Option<&str>) -> RecoveryEvidence;
+    fn inspect(
+        &self,
+        session_id: Option<&str>,
+        execution_run_id: Option<&str>,
+        operation_id: Option<&str>,
+    ) -> RecoveryEvidence;
 }
 
 pub(crate) struct NativeRecoveryEvidenceGateway {
     sessions: SessionsApi,
-    operations: OperationsApi,
 }
 
 impl NativeRecoveryEvidenceGateway {
-    pub(crate) fn new(sessions: SessionsApi, operations: OperationsApi) -> Self {
-        Self {
-            sessions,
-            operations,
-        }
+    pub(crate) fn new(sessions: SessionsApi, _operations: OperationsApi) -> Self {
+        Self { sessions }
     }
 }
 
 impl RecoveryEvidenceGateway for NativeRecoveryEvidenceGateway {
-    fn inspect(&self, session_id: Option<&str>, operation_id: Option<&str>) -> RecoveryEvidence {
+    fn inspect(
+        &self,
+        session_id: Option<&str>,
+        execution_run_id: Option<&str>,
+        _operation_id: Option<&str>,
+    ) -> RecoveryEvidence {
         let session = session_id
-            .and_then(|id| self.sessions.list_messages(id, Some(50), None).ok())
-            .and_then(|messages| {
-                messages
-                    .into_iter()
-                    .filter(|message| message.message.role().as_str() == "assistant")
-                    .max_by(|left, right| {
-                        left.updated_at.cmp(&right.updated_at).then_with(|| {
-                            left.message.id().as_str().cmp(right.message.id().as_str())
-                        })
-                    })
-            })
-            .and_then(|message| terminal_from_text(message.message.status().as_str()));
-        let operation = operation_id
-            .and_then(|id| self.operations.get(id).ok())
-            .and_then(|operation| match operation.status {
-                OperationStatus::Succeeded => Some(RecoveryTerminal::Succeeded),
-                OperationStatus::Failed => Some(RecoveryTerminal::Failed),
-                OperationStatus::Cancelled => Some(RecoveryTerminal::Cancelled),
-                OperationStatus::Queued | OperationStatus::Running => None,
+            .and_then(|id| self.sessions.recovery_projection(id, execution_run_id).ok())
+            .and_then(|projection| match projection.decision {
+                Some(RecoveryDecision::Completed) => Some(RecoveryTerminal::Succeeded),
+                Some(
+                    RecoveryDecision::Failed | RecoveryDecision::InterruptedWithoutToolAmbiguity,
+                ) => Some(RecoveryTerminal::Failed),
+                Some(RecoveryDecision::Cancelled) => Some(RecoveryTerminal::Cancelled),
+                Some(
+                    RecoveryDecision::ActionRequired
+                    | RecoveryDecision::Quarantined
+                    | RecoveryDecision::RetryLater
+                    | RecoveryDecision::Acknowledged,
+                )
+                | None => None,
             });
-        RecoveryEvidence { session, operation }
+        RecoveryEvidence {
+            session,
+            operation: None,
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecoveryResolution {
+    Succeeded,
     Interrupted,
     Failed,
     Cancelled,
@@ -75,6 +81,7 @@ struct ActiveAttempt {
     task_run_id: String,
     attempt_id: Option<String>,
     session_id: Option<String>,
+    execution_run_id: Option<String>,
     operation_id: Option<String>,
 }
 
@@ -104,6 +111,7 @@ impl SqlitePlanRepository {
                 .map(|attempt| {
                     resolve_evidence(evidence.inspect(
                         attempt.session_id.as_deref(),
+                        attempt.execution_run_id.as_deref(),
                         attempt.operation_id.as_deref(),
                     ))
                 })
@@ -143,7 +151,8 @@ impl SqlitePlanRepository {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                r#"SELECT task.id, attempt.id, attempt.session_id, attempt.operation_id
+                r#"SELECT task.id, attempt.id, attempt.session_id,
+                          attempt.execution_run_id, attempt.operation_id
                    FROM plan_subtask_runs AS task
                    LEFT JOIN plan_subtask_attempts AS attempt
                      ON attempt.subtask_run_id = task.id
@@ -159,7 +168,8 @@ impl SqlitePlanRepository {
                     task_run_id: row.get(0)?,
                     attempt_id: row.get(1)?,
                     session_id: row.get(2)?,
-                    operation_id: row.get(3)?,
+                    execution_run_id: row.get(3)?,
+                    operation_id: row.get(4)?,
                 })
             })
             .map_err(storage_error)?
@@ -179,6 +189,7 @@ impl SqlitePlanRepository {
         let transaction = connection.transaction().map_err(storage_error)?;
         for (attempt, resolution) in attempts.iter().zip(resolutions) {
             let (status, error_class) = match resolution {
+                RecoveryResolution::Succeeded => ("succeeded", "restart_reconciled_succeeded"),
                 RecoveryResolution::Interrupted => ("interrupted", "restart_interrupted"),
                 RecoveryResolution::Failed => ("failed", "restart_reconciled_failed"),
                 RecoveryResolution::Cancelled => ("cancelled", "restart_reconciled_cancelled"),
@@ -202,13 +213,17 @@ impl SqlitePlanRepository {
                 .map_err(storage_error)?;
         }
         let run_resolution = if resolutions.contains(&RecoveryResolution::Interrupted) {
-            RecoveryResolution::Interrupted
+            Some(RecoveryResolution::Interrupted)
         } else if resolutions.contains(&RecoveryResolution::Cancelled) {
-            RecoveryResolution::Cancelled
+            Some(RecoveryResolution::Cancelled)
+        } else if resolutions.contains(&RecoveryResolution::Failed) {
+            Some(RecoveryResolution::Failed)
         } else {
-            RecoveryResolution::Failed
+            None
         };
-        apply_run_resolution(&transaction, run_id, run_resolution, now)?;
+        if let Some(run_resolution) = run_resolution {
+            apply_run_resolution(&transaction, run_id, run_resolution, now)?;
+        }
         transaction.commit().map_err(storage_error)
     }
 
@@ -335,16 +350,12 @@ fn resolve_evidence(evidence: RecoveryEvidence) -> RecoveryResolution {
         | (Some(RecoveryTerminal::Cancelled), Some(RecoveryTerminal::Cancelled)) => {
             RecoveryResolution::Cancelled
         }
+        (Some(RecoveryTerminal::Succeeded), None)
+        | (None, Some(RecoveryTerminal::Succeeded))
+        | (Some(RecoveryTerminal::Succeeded), Some(RecoveryTerminal::Succeeded)) => {
+            RecoveryResolution::Succeeded
+        }
         _ => RecoveryResolution::Interrupted,
-    }
-}
-
-fn terminal_from_text(value: &str) -> Option<RecoveryTerminal> {
-    match value {
-        "completed" => Some(RecoveryTerminal::Succeeded),
-        "failed" => Some(RecoveryTerminal::Failed),
-        "cancelled" => Some(RecoveryTerminal::Cancelled),
-        _ => None,
     }
 }
 
@@ -355,6 +366,11 @@ fn apply_run_resolution(
     now: &str,
 ) -> Result<(), PlanApplicationError> {
     let (status, completed_at) = match resolution {
+        RecoveryResolution::Succeeded => {
+            return Err(PlanApplicationError::Validation(
+                "successful recovery leaves the PlanRun active for scheduling".to_string(),
+            ));
+        }
         RecoveryResolution::Interrupted => ("recovery_required", None),
         RecoveryResolution::Failed => ("failed", Some(now)),
         RecoveryResolution::Cancelled => ("cancelled", Some(now)),

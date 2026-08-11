@@ -24,6 +24,7 @@ const projectPath = "D:/repo-worktree";
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     id: "session", title: "Session", agentId: "api-agent", interactionMode: "api", lifecycleState: "running",
+    recoveryStatus: "clean", recoveryRevision: 0, stateRevision: 0, historyRevision: 0, activeExecutionRunId: null,
     folder: null, projectPath: "D:/repo", worktreePath: projectPath, worktreeName: "feature", worktreeBranch: "feature/skill",
     remoteWorkspace: null, remoteSshConnectionId: null, remoteSshConnectionRevision: null, runtimeSessionId: null,
     categoryId: null, pinned: false, archived: false, createdAt: "now", updatedAt: "now", ...overrides,

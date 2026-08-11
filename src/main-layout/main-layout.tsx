@@ -23,6 +23,7 @@ import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import type { SettingsPageId } from "../settings/settings-pages";
+import { SessionRecoveryNotice } from "../session-workspace/session-recovery-notice";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
@@ -292,6 +293,14 @@ export function MainLayout({
                   messagesPartial={loopInspection ? false : model.messagesPartial}
                   onLoadEarlier={model.loadEarlier}
                   onOpenSettings={onOpenSettings}
+                  recoveryNotice={!loopInspection ? (
+                    <SessionRecoveryNotice
+                      acknowledging={model.acknowledgingRecovery}
+                      onAcknowledge={model.acknowledgeRecovery}
+                      session={model.activeSession}
+                      summary={model.recoverySummary}
+                    />
+                  ) : null}
                   requestedTab={requestedWorkspaceTab}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}

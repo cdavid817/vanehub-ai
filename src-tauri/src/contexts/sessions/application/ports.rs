@@ -1,11 +1,15 @@
 use super::{
-    CategoryRecord, ChatConfigurationValues, CreatedSessionWorktree, MessagePageQuery,
-    MessageRecord, MessageUsageRecord, NewRemoteWorkspace, SessionApplicationLog,
-    SessionChatConfiguration, SessionCreationOperation, SessionListScope, SessionProject,
-    SessionRecord, SessionRemoteWorkspace, SessionSearchQuery, SessionSearchResult,
-    SessionSshProfile, SessionUsageStatistics, SessionUsageSummary, SessionsApplicationError,
-    UsageStatisticsRange,
+    AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, CategoryRecord, ChatConfigurationValues,
+    ClaimRecoveryCandidateRequest, CreatedSessionWorktree, GenerationStartRequest,
+    GenerationStartResult, GenerationTerminalRequest, GenerationTerminalResult, MessagePageQuery,
+    MessageRecord, MessageUsageRecord, NewRemoteWorkspace, PublishRecoveryRequest,
+    RecoveryCandidateClaim, SessionApplicationLog, SessionChatConfiguration,
+    SessionCreationOperation, SessionListScope, SessionProject, SessionRecord,
+    SessionRemoteWorkspace, SessionSearchQuery, SessionSearchResult, SessionSshProfile,
+    SessionUsageStatistics, SessionUsageSummary, SessionsApplicationError, UsageStatisticsRange,
 };
+use crate::contexts::sessions::domain::evidence::SessionTerminalEvidence;
+use crate::contexts::sessions::domain::recovery::SessionRecoveryReport;
 use crate::contexts::sessions::domain::{
     CategoryId, ChatPreferences, MessageId, SessionActivation, SessionId,
 };
@@ -18,6 +22,30 @@ pub(crate) trait SessionRepository: Send + Sync {
 
     fn list(&self, scope: SessionListScope)
         -> Result<Vec<SessionRecord>, SessionsApplicationError>;
+
+    fn recovery_candidates(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RecoveryCandidateClaim>, SessionsApplicationError> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+
+    fn recovery_candidates_after(
+        &self,
+        after_session_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RecoveryCandidateClaim>, SessionsApplicationError> {
+        if after_session_id.is_some() {
+            return Ok(Vec::new());
+        }
+        self.recovery_candidates(limit)
+    }
+
+    #[cfg(test)]
+    fn recovery_candidate_count(&self) -> Result<usize, SessionsApplicationError> {
+        Ok(self.recovery_candidates(100)?.len())
+    }
 
     #[cfg(test)]
     fn list_including_loop_owned(
@@ -36,12 +64,18 @@ pub(crate) trait SessionRepository: Send + Sync {
 
     fn save(&self, session: &SessionRecord) -> Result<SessionRecord, SessionsApplicationError>;
 
-    fn recoverable_sessions(&self) -> Result<Vec<SessionRecord>, SessionsApplicationError>;
-
     fn inactive_sessions(
         &self,
         cutoff: &str,
     ) -> Result<Vec<SessionRecord>, SessionsApplicationError>;
+}
+
+pub(crate) trait SessionTerminalEvidencePort: Send + Sync {
+    fn read_terminal_evidence(
+        &self,
+        session_id: &SessionId,
+        execution_run_id: Option<&str>,
+    ) -> Result<SessionTerminalEvidence, SessionsApplicationError>;
 }
 
 pub(crate) trait SessionMessageRepository: Send + Sync {
@@ -65,6 +99,25 @@ pub(crate) trait SessionMessageRepository: Send + Sync {
         &self,
         session_id: &SessionId,
     ) -> Result<Vec<MessageRecord>, SessionsApplicationError>;
+}
+
+pub(crate) trait SessionRecoveryReportRepository: Send + Sync {
+    #[cfg(test)]
+    fn insert_report(&self, report: &SessionRecoveryReport)
+        -> Result<(), SessionsApplicationError>;
+
+    fn list_reports(
+        &self,
+        session_id: &SessionId,
+        limit: usize,
+    ) -> Result<Vec<SessionRecoveryReport>, SessionsApplicationError>;
+}
+
+pub(crate) trait SessionRecoveryEventPort: Send + Sync {
+    fn publish_recovery_event(
+        &self,
+        event: super::SessionRecoveryEvent,
+    ) -> Result<(), SessionsApplicationError>;
 }
 
 pub(crate) trait SessionCategoryRepository: Send + Sync {
@@ -127,6 +180,54 @@ pub(crate) trait SessionUsageRepository: Send + Sync {
 }
 
 pub(crate) trait SessionTransactionPort: Send + Sync {
+    fn acknowledge_recovery(
+        &self,
+        request: &AcknowledgeRecoveryRequest,
+    ) -> Result<AcknowledgeRecoveryResult, SessionsApplicationError>;
+
+    fn start_generation(
+        &self,
+        _request: &GenerationStartRequest,
+    ) -> Result<GenerationStartResult, SessionsApplicationError> {
+        Err(SessionsApplicationError::Transaction(
+            "durable generation start is not implemented".to_string(),
+        ))
+    }
+
+    fn terminalize_generation(
+        &self,
+        _request: &GenerationTerminalRequest,
+    ) -> Result<GenerationTerminalResult, SessionsApplicationError> {
+        Err(SessionsApplicationError::Transaction(
+            "durable generation terminal is not implemented".to_string(),
+        ))
+    }
+
+    fn claim_recovery_candidate(
+        &self,
+        request: &ClaimRecoveryCandidateRequest,
+    ) -> Result<Option<RecoveryCandidateClaim>, SessionsApplicationError> {
+        let _ = request;
+        Ok(None)
+    }
+
+    fn publish_recovery(
+        &self,
+        request: &PublishRecoveryRequest,
+    ) -> Result<bool, SessionsApplicationError> {
+        let _ = request;
+        Ok(false)
+    }
+
+    fn defer_recovery(
+        &self,
+        claim: &RecoveryCandidateClaim,
+        deferred_at: &str,
+    ) -> Result<bool, SessionsApplicationError> {
+        let _ = (claim, deferred_at);
+        Ok(false)
+    }
+
     fn create_session(
         &self,
         session: &SessionRecord,
@@ -171,12 +272,6 @@ pub(crate) trait SessionTransactionPort: Send + Sync {
         &self,
         messages: &[MessageRecord],
     ) -> Result<Vec<String>, SessionsApplicationError>;
-
-    fn recover_orphaned_session(
-        &self,
-        session: &SessionRecord,
-        recovered_at: &str,
-    ) -> Result<(), SessionsApplicationError>;
 }
 
 pub(crate) trait SessionClockPort: Send + Sync {

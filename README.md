@@ -10,6 +10,10 @@
 
 # VaneHub AI
 
+<p align="center">
+  <img src="public/icon-512.png" alt="VaneHub AI app icon" width="160" />
+</p>
+
 Desktop-first workspace for managing AI coding agents through one React interface and explicit Web/mock and Tauri runtime boundaries.
 
 <!-- docs-fact:project-version value:0.1.0-preview.1 -->

@@ -4,7 +4,7 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::domain::{
     LoopDefinition, LoopDefinitionInput, LoopLimits, LoopRun, LoopRunPhase, LoopRunStatus,
-    LoopVerificationCommand,
+    LoopTerminalReason, LoopVerificationCommand,
 };
 use crate::platform::database::NativeDatabase;
 use crate::test_support::TempDirectory;
@@ -262,5 +262,80 @@ fn recovery_transition_is_atomic_and_resumable_after_confirmation() {
             .expect("run")
             .status(),
         LoopRunStatus::Queued
+    );
+}
+
+#[test]
+fn conclusive_child_recovery_updates_iteration_run_and_evidence_atomically() {
+    let directory = TempDirectory::new("loop-conclusive-recovery-repository");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let repository = SqliteLoopRepository::new(database.clone());
+    let definition = definition();
+    repository
+        .create_definition(&definition)
+        .expect("definition");
+    let mut run =
+        LoopRun::new("run-control-1".to_string(), "loop-control".to_string()).expect("run");
+    repository
+        .create_run(&run, &definition, "D:/project", "2026-07-22T10:00:00Z")
+        .expect("create run");
+    let mut active_iteration = iteration();
+    active_iteration.status = LoopRunStatus::Running;
+    active_iteration.completed_at = None;
+    repository
+        .insert_iteration(&active_iteration)
+        .expect("create iteration");
+    run.fail(LoopTerminalReason::RuntimeError)
+        .expect("fail recovered run");
+    let evidence = LoopEvidenceView {
+        id: "recovery-evidence-conclusive".to_string(),
+        run_id: run.id().to_string(),
+        iteration_id: Some("iteration-control-1".to_string()),
+        kind: "recovery".to_string(),
+        status: "failed".to_string(),
+        summary: "Shared child failure projected.".to_string(),
+        operation_id: Some("recovery-operation-conclusive".to_string()),
+        command_id: None,
+        exit_code: None,
+        duration_ms: None,
+        details: Some(serde_json::json!({ "reason": "session-recovery-projection" })),
+        created_at: "2026-07-22T10:00:01Z".to_string(),
+    };
+
+    repository
+        .save_recovery_transition(
+            &run,
+            LoopRunStatus::Queued,
+            &evidence,
+            "2026-07-22T10:00:01Z",
+        )
+        .expect("save conclusive recovery");
+    let connection = database.connection().expect("connection");
+    let iteration_state: (String, String, String) = connection
+        .query_row(
+            "SELECT status, decision_reason, completed_at FROM loop_iterations WHERE id = 'iteration-control-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("iteration state");
+    let run_state: (String, String) = connection
+        .query_row(
+            "SELECT status, completed_at FROM loop_runs WHERE id = 'run-control-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("run state");
+
+    assert_eq!(
+        iteration_state,
+        (
+            "failed".to_string(),
+            "session-recovery-projection".to_string(),
+            "2026-07-22T10:00:01Z".to_string(),
+        )
+    );
+    assert_eq!(
+        run_state,
+        ("failed".to_string(), "2026-07-22T10:00:01Z".to_string(),)
     );
 }

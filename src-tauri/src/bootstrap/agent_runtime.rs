@@ -306,6 +306,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let loop_recovery = LoopRecoveryApplicationService::new(LoopRecoveryApplicationPorts {
         loops: loop_repository.clone(),
         leases: loop_execution.clone(),
+        sessions: sessions.clone(),
         observer: loop_observer.clone(),
         clock: clock.clone(),
     });

@@ -18,6 +18,6 @@ pub(crate) use models::{
 };
 pub(crate) use ports::{
     SkillApiBindingRepository, SkillClockPort, SkillFilesystemPort, SkillLoggingPort,
-    SkillRepository, SkillWorkspaceSelectionPort,
+    SkillRepository, SkillSourceProbe, SkillWorkspaceSelectionPort,
 };
 pub(crate) use service::SkillApplicationService;

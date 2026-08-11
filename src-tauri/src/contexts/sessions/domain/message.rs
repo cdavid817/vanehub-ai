@@ -164,6 +164,8 @@ pub(crate) struct SessionMessage {
     role: MessageRole,
     status: MessageStatus,
     file_references: FileReferenceSet,
+    session_sequence: u64,
+    execution_run_id: Option<String>,
 }
 
 impl SessionMessage {
@@ -174,12 +176,26 @@ impl SessionMessage {
         status: MessageStatus,
         file_references: FileReferenceSet,
     ) -> Self {
+        Self::rehydrate_with_correlation(id, session_id, role, status, file_references, 0, None)
+    }
+
+    pub(crate) fn rehydrate_with_correlation(
+        id: MessageId,
+        session_id: SessionId,
+        role: MessageRole,
+        status: MessageStatus,
+        file_references: FileReferenceSet,
+        session_sequence: u64,
+        execution_run_id: Option<String>,
+    ) -> Self {
         Self {
             id,
             session_id,
             role,
             status,
             file_references,
+            session_sequence,
+            execution_run_id,
         }
     }
 
@@ -227,6 +243,14 @@ impl SessionMessage {
 
     pub(crate) fn file_references(&self) -> &FileReferenceSet {
         &self.file_references
+    }
+
+    pub(crate) fn session_sequence(&self) -> u64 {
+        self.session_sequence
+    }
+
+    pub(crate) fn execution_run_id(&self) -> Option<&str> {
+        self.execution_run_id.as_deref()
     }
 }
 

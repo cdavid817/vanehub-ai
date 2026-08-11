@@ -8,13 +8,15 @@ import { normalizeDisplayPath } from "../lib/session-path";
 import { useDebouncedValue } from "../hooks/use-debounced-value";
 import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import { turnStatusFromEvent, waitedMinutes } from "../services/turn-status";
-import { applyChatEvent } from "../services/chat-events";
+import { applyChatEvents } from "../services/chat-events";
 import { agentService } from "../services/runtime-agent-client";
 import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import type { SessionDocument } from "../types/session-workspace";
-import type { ChatConfig, ChatFileReference, ChatMessage } from "../types/chat";
+import type { ChatConfig, ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
+import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
+import { useSessionRecoverySync } from "./use-session-recovery-sync";
 
 export function useMainLayoutModel() {
   const { t } = useTranslation();
@@ -56,7 +58,7 @@ export function useMainLayoutModel() {
     queryFn: () => activeSessionId ? agentService.listSessionDocuments(activeSessionId) : Promise.resolve({ context: { availability: "unavailable" as const, rootName: null, reason: null }, items: [], truncated: false, nextCursor: null }),
   });
   const fileReferenceCandidates = documentsQuery.data?.items ?? [];
-  const isStreaming = messages.some((message) => message.status === "streaming");
+  const isStreaming = hasLiveSessionGeneration(activeSession, messages);
   const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
     const event = createChatOperationFailureEvent(source, reason);
     if (restoreDraft !== undefined) setDraft(restoreDraft);
@@ -72,6 +74,18 @@ export function useMainLayoutModel() {
     (reason: unknown) => reportChatFailure("MainLayout.saveSessionChatConfig", reason, activeSessionId),
     [activeSessionId, reportChatFailure],
   );
+  const reportRecoveryFailure = useCallback(
+    (reason: unknown, sessionId: string) => reportChatFailure(
+      "MainLayout.acknowledgeSessionRecovery",
+      reason,
+      sessionId,
+    ),
+    [reportChatFailure],
+  );
+  const recoverySync = useSessionRecoverySync({
+    activeSession,
+    onAcknowledgementError: reportRecoveryFailure,
+  });
   const chatConfig = useChatConfig({
     activeSession,
     agents,
@@ -134,20 +148,47 @@ export function useMainLayoutModel() {
     if (!activeSessionId) return;
     let cleanup: (() => void) | null = null;
     let cancelled = false;
+    // Token events arrive in the thousands per turn; buffer them and flush on an animation
+    // frame so the message array is rebuilt once per frame instead of once per token.
+    let pending: ChatStreamEvent[] = [];
+    let frame = 0;
+    const flush = () => {
+      frame = 0;
+      if (pending.length === 0) return;
+      const batch = pending;
+      pending = [];
+      queryClient.setQueryData<ChatMessage[]>(messagesKey, (current) =>
+        applyChatEvents(current ?? [], batch),
+      );
+    };
     void agentService.subscribeMessageEvents(activeSessionId, (event) => {
-      queryClient.setQueryData<ChatMessage[]>(messagesKey, (current) => applyChatEvent(current ?? [], event));
+      if (event.type === "turn_status") {
+        // turn_status is session-scoped, not message-scoped, and drives the waiting bar; it
+        // must update immediately rather than ride a frame delay.
+        waitingSince.current = event.status.kind === "waiting_human" ? event.status.since : null;
+        setTurnStatus(turnStatusFromEvent(event.status));
+        return;
+      }
+      pending.push(event);
       if (event.type === "completed" && event.tokenUsage) {
         void queryClient.invalidateQueries({ queryKey: ["session-usage-summary", event.sessionId] });
         void queryClient.invalidateQueries({ queryKey: ["usage-statistics"] });
       }
-      if (event.type === "turn_status") {
-        waitingSince.current = event.status.kind === "waiting_human" ? event.status.since : null;
-        setTurnStatus(turnStatusFromEvent(event.status));
-      }
       // A round that ends leaves nobody holding the turn, so the bar has to go rather than freeze.
-      if (["completed", "failed", "cancelled"].includes(event.type)) invalidateSessions();
+      if (["completed", "failed", "cancelled"].includes(event.type)) {
+        invalidateSessions();
+        // Flush the buffered tokens now so the terminal message lands with the status change.
+        if (frame !== 0) { cancelAnimationFrame(frame); frame = 0; }
+        flush();
+      } else if (frame === 0) {
+        frame = requestAnimationFrame(flush);
+      }
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
-    return () => { cancelled = true; cleanup?.(); };
+    return () => {
+      cancelled = true;
+      if (frame !== 0) cancelAnimationFrame(frame);
+      cleanup?.();
+    };
   }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
 
   useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId]);
@@ -186,7 +227,7 @@ export function useMainLayoutModel() {
   }, [notify, t]);
 
   function submit() {
-    if (!activeSession || !draft.trim() || isStreaming) return;
+    if (!canSendToSession(activeSession) || !activeSession || !draft.trim() || isStreaming) return;
     const content = draft.trim();
     const references = fileReferences;
     setDraft("");
@@ -215,6 +256,9 @@ export function useMainLayoutModel() {
     isSending: sendMessage.isPending, isStreaming,
     loadEarlier: () => setMessageLimit((value) => value + 50), messages, messagesPartial: messages.length >= messageLimit,
     pinSession: (session: Session) => pinSession.mutate(session), archiveSession: (session: Session) => archiveSession.mutate(session),
+    recoverySummary: recoverySync.recoverySummary,
+    acknowledgeRecovery: recoverySync.acknowledgeRecovery,
+    acknowledgingRecovery: recoverySync.acknowledgingRecovery,
     renameSession: (session: Session, title: string) => renameSession.mutate({ sessionId: session.id, title }),
     sessionCreated,
     sessionSearchQuery,

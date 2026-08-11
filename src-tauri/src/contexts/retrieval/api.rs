@@ -308,6 +308,12 @@ impl CodeIndexApi {
         Ok(Some(workspace))
     }
 
+    /// List workspaces without their status. Used by the retrieval indexing worker
+    /// (bootstrap), which only needs the ids; the command surface uses
+    /// `list_workspaces_with_status` to avoid the per-workspace status N+1. Clippy flags this
+    /// as dead code because the worker is reached only through a `thread::spawn` closure in
+    /// `start_retrieval_indexing_worker`, which its dead-code analysis does not follow.
+    #[allow(dead_code)]
     pub(crate) fn list_workspaces(&self) -> Result<Vec<CodeWorkspace>, RetrievalError> {
         self.repository.list_workspaces()
     }
@@ -378,6 +384,29 @@ impl CodeIndexApi {
         workspace_id: &str,
     ) -> Result<CodeIndexStatus, RetrievalError> {
         self.repository.workspace_status(workspace_id)
+    }
+
+    /// Every workspace plus its index status. Cheaper than `list_workspaces` followed by one
+    /// `workspace_status` per workspace (the command-level N+1 the list endpoint used to pay).
+    pub(crate) fn list_workspaces_with_status(
+        &self,
+    ) -> Result<Vec<(CodeWorkspace, CodeIndexStatus)>, RetrievalError> {
+        let workspaces = self.repository.list_workspaces()?;
+        let ids = workspaces
+            .iter()
+            .map(|workspace| workspace.workspace_id.clone())
+            .collect::<Vec<_>>();
+        let statuses = self.repository.workspace_statuses(&ids)?;
+        workspaces
+            .into_iter()
+            .map(|workspace| {
+                let status = statuses
+                    .get(&workspace.workspace_id)
+                    .cloned()
+                    .ok_or(RetrievalError::InvalidScope)?;
+                Ok((workspace, status))
+            })
+            .collect()
     }
 
     pub(crate) fn audit(

@@ -18,6 +18,11 @@ use std::time::{Duration, Instant};
 
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+/// Upper bound on waiting for the stderr drain after the child has been shut down.
+/// A grandchild that inherits the stderr pipe and outlives the killed child would
+/// otherwise keep the drain reader pending forever; this mirrors the tokio drain's
+/// timeout. Generous relative to `SHUTDOWN_TIMEOUT` so a clean child still drains.
+const STDERR_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 enum StopReason {
     ParentEof,
@@ -224,7 +229,9 @@ fn finish_supervision<W>(
     drop(child);
     join_if_finished(input);
     join_if_finished(output);
-    let capture = stderr.finish().map_err(|error| error.to_string())?;
+    let capture = stderr
+        .finish(STDERR_DRAIN_TIMEOUT)
+        .map_err(|error| error.to_string())?;
     let status = shutdown.map_err(|error| error.to_string())?;
     runtime_logging::record_child_exit(
         log_context,

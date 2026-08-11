@@ -152,6 +152,10 @@ pub(crate) struct SeatTurnOwnership {
     pub(crate) seat_mention: String,
     /// How many handoffs deep this turn already is, for the chain bound.
     pub(crate) depth: usize,
+    /// Stable identity shared by every serial generation in one handoff round.
+    pub(crate) round_id: String,
+    /// The immediately preceding seat generation, absent for the first seat in a round.
+    pub(crate) parent_execution_run_id: Option<String>,
 }
 
 /// A completed seat turn, handed to the coordinator to decide what happens next.
@@ -162,6 +166,8 @@ pub(crate) struct SeatTurnTerminal {
     pub(crate) seat_index: usize,
     pub(crate) seat_mention: String,
     pub(crate) depth: usize,
+    pub(crate) round_id: String,
+    pub(crate) execution_run_id: String,
     /// The full reply. `None` when the turn failed, in which case the chain simply stops.
     pub(crate) reply: Option<String>,
 }
@@ -442,6 +448,8 @@ pub(crate) struct AgentMessage {
     pub(crate) error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) session_sequence: u64,
+    pub(crate) execution_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,6 +461,22 @@ pub(crate) struct NewAgentMessage {
     pub(crate) status: String,
     pub(crate) content: String,
     pub(crate) file_references: Vec<AgentFileReference>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DurableAgentGenerationStart {
+    pub(crate) session_id: String,
+    pub(crate) execution_run_id: String,
+    pub(crate) seat_round_id: Option<String>,
+    pub(crate) parent_execution_run_id: Option<String>,
+    pub(crate) user_message: Option<NewAgentMessage>,
+    pub(crate) assistant_message: NewAgentMessage,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DurableAgentGenerationMessages {
+    pub(crate) user_message: Option<AgentMessage>,
+    pub(crate) assistant_message: AgentMessage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

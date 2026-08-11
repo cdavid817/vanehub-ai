@@ -724,10 +724,14 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                     &session_id,
                 );
             }
-            let exit_result = child
-                .lock()
-                .map_err(|error| error.to_string())
-                .and_then(|mut child| child.wait().map_err(|error| error.to_string()));
+            // Reap the PTY child without holding the `child` lock across the blocking
+            // wait: `stop()` -> `terminate_terminal_child` locks the same
+            // `Arc<Mutex<…Child…>>` to kill a runaway terminal, so holding the lock
+            // across `wait()` deadlocks cancellation whenever the PTY master hits EOF
+            // (the reader breaks) while the child process itself is still alive.
+            // Polling `try_wait()` with short lock holds lets a concurrent `stop()`
+            // `kill()` proceed.
+            let exit_result = reap_terminal_without_holding_lock(&child);
             let (state, error) = match exit_result {
                 Ok(status) if status.success() => (AgentTerminalState::Stopped, None),
                 Ok(status) => (
@@ -1072,22 +1076,53 @@ fn terminal_by_id_mut<'a>(
         })
 }
 
+/// Reaps a PTY child without holding the lock across the blocking wait.
+///
+/// Both the reader thread (on PTY EOF) and `terminate_terminal_child` (on `stop()`)
+/// reach this on the same `Arc<Mutex<…Child…>>`. Holding the lock across `wait()`
+/// — which blocks until the child exits — would serialize them and deadlock the
+/// second caller whenever the child stays alive after the PTY/kill. Polling
+/// `try_wait()` with short lock holds lets both callers make progress and lets a
+/// concurrent `kill()` take effect.
+fn reap_terminal_without_holding_lock(
+    child: &Mutex<Box<dyn Child + Send + Sync>>,
+) -> Result<portable_pty::ExitStatus, String> {
+    const POLL_INTERVAL: Duration = Duration::from_millis(50);
+    loop {
+        let status = child
+            .lock()
+            .map_err(|error| error.to_string())?
+            .try_wait()
+            .map_err(|error| error.to_string())?;
+        if let Some(status) = status {
+            return Ok(status);
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
+}
+
 fn terminate_terminal_child(
     child: &Mutex<Box<dyn Child + Send + Sync>>,
 ) -> Result<(), AgentRuntimeApplicationError> {
-    let mut child = child
-        .lock()
-        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
-    if child
-        .try_wait()
-        .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
-        .is_none()
+    // Kill inside the lock, then release it before reaping. `wait()` blocks until the
+    // child actually exits, and the reader thread reaches `reap_terminal_without_holding_lock`
+    // on the same `Arc<Mutex<…>>` when the PTY master hits EOF — holding the lock across
+    // `wait()` here would deadlock that reaper (and any concurrent `stop()`).
     {
-        child
-            .kill()
+        let mut child = child
+            .lock()
             .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        if child
+            .try_wait()
+            .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?
+            .is_none()
+        {
+            child
+                .kill()
+                .map_err(|error| AgentRuntimeApplicationError::Process(error.to_string()))?;
+        }
     }
-    let _ = child.wait();
+    let _ = reap_terminal_without_holding_lock(child);
     Ok(())
 }
 

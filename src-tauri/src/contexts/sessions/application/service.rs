@@ -1,15 +1,20 @@
 use super::models::CreateSessionRequest;
 use super::ports::configuration_from_preferences;
 use super::{
-    ArchivalPolicy, CategoryRecord, CompleteMessageRequest, CreateMessageRequest,
-    FailMessageRequest, FileReferenceInput, LoopRoleSessionRequest, LoopSessionOwnership,
-    MessagePageQuery, MessageRecord, MessageUsageRecord, NewSessionRequest, NewSessionWorkspace,
+    AcknowledgeRecoveryRequest, AcknowledgeRecoveryResult, ArchivalPolicy, CategoryRecord,
+    CompleteMessageRequest, CreateMessageRequest, DurableGenerationStartRequest,
+    DurableGenerationTerminalRequest, FailMessageRequest, FileReferenceInput,
+    GenerationStartRequest, GenerationStartResult, GenerationTerminalRequest,
+    GenerationTerminalResult, LoopRoleSessionRequest, LoopSessionOwnership, MessagePageQuery,
+    MessageRecord, MessageUsageRecord, NewSessionRequest, NewSessionWorkspace,
     PreparedNewSessionCreation, SessionApplicationLog, SessionApplicationLogLevel,
     SessionCategoryRepository, SessionChatConfiguration, SessionChatProfilePort, SessionClockPort,
     SessionConfigurationRepository, SessionCreationContextPort, SessionExportFormat,
     SessionExportRequest, SessionExportResult, SessionFileContentPort, SessionIdentityPort,
     SessionListScope, SessionLoggingPort, SessionMaintenanceResult, SessionMessageRepository,
-    SessionOperationPort, SessionRecord, SessionRepository, SessionRuntimePort, SessionSearchQuery,
+    SessionOperationPort, SessionRecord, SessionRecoveryEvent, SessionRecoveryEventKind,
+    SessionRecoveryEventPort, SessionRecoveryProjection, SessionRecoveryReportRepository,
+    SessionRecoverySummary, SessionRepository, SessionRuntimePort, SessionSearchQuery,
     SessionSearchResult, SessionSshBinding, SessionTransactionPort, SessionUsageRepository,
     SessionUsageStatistics, SessionUsageSummary, SessionWorkspace, SessionsApplicationError,
     UsageStatisticsRange,
@@ -32,6 +37,8 @@ pub(crate) struct SessionApplicationPorts {
     pub(crate) configurations: Arc<dyn SessionConfigurationRepository>,
     pub(crate) usage: Arc<dyn SessionUsageRepository>,
     pub(crate) transactions: Arc<dyn SessionTransactionPort>,
+    pub(crate) recovery_reports: Arc<dyn SessionRecoveryReportRepository>,
+    pub(crate) recovery_events: Arc<dyn SessionRecoveryEventPort>,
     pub(crate) clock: Arc<dyn SessionClockPort>,
     pub(crate) identities: Arc<dyn SessionIdentityPort>,
     pub(crate) files: Arc<dyn SessionFileContentPort>,
@@ -48,7 +55,112 @@ pub(crate) struct SessionsApplicationService {
     ports: SessionApplicationPorts,
 }
 
+#[derive(Clone, Copy)]
+struct GenerationMessageCorrelation<'a> {
+    execution_run_id: &'a str,
+    seat_round_id: Option<&'a str>,
+    parent_execution_run_id: Option<&'a str>,
+    now: &'a str,
+}
+
 impl SessionsApplicationService {
+    pub(crate) fn recovery_summary(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionRecoverySummary, SessionsApplicationError> {
+        let session_id = SessionId::parse(session_id)?;
+        let session = self.ports.sessions.find(&session_id)?.ok_or_else(|| {
+            SessionsApplicationError::SessionNotFound(session_id.as_str().to_string())
+        })?;
+        let latest_report = self
+            .ports
+            .recovery_reports
+            .list_reports(&session_id, 1)?
+            .into_iter()
+            .next();
+        Ok(SessionRecoverySummary {
+            session,
+            latest_report,
+        })
+    }
+
+    pub(crate) fn list_recovery_reports(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<
+        Vec<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>,
+        SessionsApplicationError,
+    > {
+        let session_id = SessionId::parse(session_id)?;
+        if self.ports.sessions.find(&session_id)?.is_none() {
+            return Err(SessionsApplicationError::SessionNotFound(
+                session_id.as_str().to_string(),
+            ));
+        }
+        self.ports
+            .recovery_reports
+            .list_reports(&session_id, limit.clamp(1, 100))
+    }
+
+    pub(crate) fn recovery_projection(
+        &self,
+        session_id: &str,
+        execution_run_id: Option<&str>,
+    ) -> Result<SessionRecoveryProjection, SessionsApplicationError> {
+        let session_id = SessionId::parse(session_id)?;
+        let session = self.ports.sessions.find(&session_id)?.ok_or_else(|| {
+            SessionsApplicationError::SessionNotFound(session_id.as_str().to_string())
+        })?;
+        let report = self
+            .ports
+            .recovery_reports
+            .list_reports(&session_id, 100)?
+            .into_iter()
+            .find(|report| {
+                execution_run_id
+                    .map(|run_id| report.observed_execution_run_id() == Some(run_id))
+                    .unwrap_or(true)
+            });
+        let projected_run_id = report
+            .as_ref()
+            .and_then(|report| report.observed_execution_run_id().map(str::to_string))
+            .or_else(|| execution_run_id.map(str::to_string));
+        Ok(SessionRecoveryProjection {
+            session_id: session_id.as_str().to_string(),
+            execution_run_id: projected_run_id,
+            lifecycle: session.aggregate.lifecycle().as_str().to_string(),
+            recovery_status: session.aggregate.recovery().status().as_str().to_string(),
+            recovery_revision: session.aggregate.recovery().recovery_revision(),
+            decision: report.map(|report| report.decision()),
+        })
+    }
+
+    pub(crate) fn acknowledge_recovery(
+        &self,
+        session_id: &str,
+        expected_recovery_revision: u64,
+    ) -> Result<AcknowledgeRecoveryResult, SessionsApplicationError> {
+        SessionId::parse(session_id)?;
+        let result = self
+            .ports
+            .transactions
+            .acknowledge_recovery(&AcknowledgeRecoveryRequest {
+                session_id: session_id.to_string(),
+                expected_recovery_revision,
+                acknowledged_at: self.ports.clock.now(),
+            })?;
+        let _ = self
+            .ports
+            .recovery_events
+            .publish_recovery_event(SessionRecoveryEvent {
+                kind: SessionRecoveryEventKind::Acknowledged,
+                session_id: session_id.to_string(),
+                recovery_revision: result.report.recovery_revision(),
+            });
+        Ok(result)
+    }
+
     pub(crate) fn new(ports: SessionApplicationPorts) -> Self {
         Self { ports }
     }
@@ -147,6 +259,8 @@ impl SessionsApplicationService {
                     message: message.clone(),
                     session_id: None,
                     operation_id: Some(operation_id.to_string()),
+                    execution_run_id: None,
+                    recovery_report_id: None,
                 });
                 let _ = self
                     .ports
@@ -699,6 +813,8 @@ impl SessionsApplicationService {
         self.ports.messages.insert(&MessageRecord {
             message,
             seat_index: request.seat_index,
+            seat_round_id: None,
+            parent_execution_run_id: None,
             content,
             thinking_content: None,
             tool_use: None,
@@ -707,6 +823,131 @@ impl SessionsApplicationService {
             error: None,
             created_at: now.clone(),
             updated_at: now,
+        })
+    }
+
+    pub(crate) fn start_generation(
+        &self,
+        request: DurableGenerationStartRequest,
+    ) -> Result<GenerationStartResult, SessionsApplicationError> {
+        let session = self.load_session(&request.session_id)?;
+        let now = self.ports.clock.now();
+        let correlation = GenerationMessageCorrelation {
+            execution_run_id: &request.execution_run_id,
+            seat_round_id: request.seat_round_id.as_deref(),
+            parent_execution_run_id: request.parent_execution_run_id.as_deref(),
+            now: &now,
+        };
+        let user_message = request
+            .user_message
+            .map(|message| {
+                self.generation_message_record(&session, message, correlation, MessageRole::User)
+            })
+            .transpose()?;
+        let assistant_message = self.generation_message_record(
+            &session,
+            request.assistant_message,
+            correlation,
+            MessageRole::Assistant,
+        )?;
+        self.ports
+            .transactions
+            .start_generation(&GenerationStartRequest {
+                session_id: request.session_id,
+                execution_run_id: request.execution_run_id,
+                user_message,
+                assistant_message,
+                started_at: now,
+            })
+    }
+
+    pub(crate) fn terminalize_generation(
+        &self,
+        request: DurableGenerationTerminalRequest,
+    ) -> Result<GenerationTerminalResult, SessionsApplicationError> {
+        let session_id = SessionId::parse(&request.session_id)?;
+        let message_id = MessageId::parse(&request.message_id)?;
+        let mut record = self.load_message(&message_id)?;
+        record.message.ensure_owned_by(&session_id)?;
+        if record.message.execution_run_id() != Some(request.execution_run_id.as_str()) {
+            return Err(SessionsApplicationError::Transaction(
+                "generation terminal execution correlation does not match the message".to_string(),
+            ));
+        }
+        record
+            .message
+            .transition_to(request.terminal_status.message_status())?;
+        validate_usage(request.usage.as_ref(), &message_id, &session_id)?;
+        record.content = request.content;
+        record.thinking_content = request.thinking_content;
+        record.tool_use = request.tool_use;
+        record.rich_blocks = request.rich_blocks;
+        record.token_usage = request.token_usage;
+        record.error = request.error;
+        let finished_at = self.ports.clock.now();
+        record.updated_at.clone_from(&finished_at);
+        self.ports
+            .transactions
+            .terminalize_generation(&GenerationTerminalRequest {
+                execution_run_id: request.execution_run_id,
+                message: record,
+                terminal_status: request.terminal_status,
+                usage: request.usage,
+                finished_at,
+            })
+    }
+
+    fn generation_message_record(
+        &self,
+        session: &SessionRecord,
+        request: CreateMessageRequest,
+        correlation: GenerationMessageCorrelation<'_>,
+        expected_role: MessageRole,
+    ) -> Result<MessageRecord, SessionsApplicationError> {
+        if request.session_id != session.id() {
+            return Err(SessionsApplicationError::Validation(
+                "Generation message session does not match the durable claim.".to_string(),
+            ));
+        }
+        let role = MessageRole::parse(&request.role)?;
+        if role != expected_role {
+            return Err(SessionsApplicationError::Validation(
+                "Generation message role does not match the durable start slot.".to_string(),
+            ));
+        }
+        let content = if role == MessageRole::User {
+            let content = request.content.trim().to_string();
+            if content.is_empty() {
+                return Err(SessionsApplicationError::Validation(
+                    "Message content cannot be empty.".to_string(),
+                ));
+            }
+            content
+        } else {
+            request.content
+        };
+        let message = SessionMessage::rehydrate_with_correlation(
+            MessageId::parse(self.ports.identities.next_message_id())?,
+            session.aggregate.id().clone(),
+            role,
+            MessageStatus::parse(&request.status)?,
+            file_reference_set(request.file_references)?,
+            0,
+            Some(correlation.execution_run_id.to_string()),
+        );
+        Ok(MessageRecord {
+            message,
+            seat_index: request.seat_index,
+            seat_round_id: correlation.seat_round_id.map(str::to_string),
+            parent_execution_run_id: correlation.parent_execution_run_id.map(str::to_string),
+            content,
+            thinking_content: None,
+            tool_use: None,
+            rich_blocks: None,
+            token_usage: None,
+            error: None,
+            created_at: correlation.now.to_string(),
+            updated_at: correlation.now.to_string(),
         })
     }
 
@@ -933,6 +1174,8 @@ impl SessionsApplicationService {
                     message: error.to_string(),
                     session_id: Some(session.id().to_string()),
                     operation_id: None,
+                    execution_run_id: None,
+                    recovery_report_id: None,
                 });
             })?;
         Ok(SessionExportResult {
@@ -981,22 +1224,6 @@ impl SessionsApplicationService {
         policy: ArchivalPolicy,
     ) -> Result<SessionMaintenanceResult, SessionsApplicationError> {
         let mut result = SessionMaintenanceResult::default();
-        let recovered_at = self.ports.clock.now();
-        for mut session in self.ports.sessions.recoverable_sessions()? {
-            session.aggregate.transition_to(SessionLifecycle::Failed)?;
-            session.updated_at.clone_from(&recovered_at);
-            self.ports
-                .transactions
-                .recover_orphaned_session(&session, &recovered_at)?;
-            let _ = self.ports.logging.write(SessionApplicationLog {
-                level: SessionApplicationLogLevel::Warn,
-                category: "session.runtime".to_string(),
-                message: "Recovered orphan session state after startup.".to_string(),
-                session_id: Some(session.id().to_string()),
-                operation_id: None,
-            });
-            result.recovered += 1;
-        }
         if policy.enabled {
             if policy.inactive_days <= 0 {
                 return Err(SessionsApplicationError::Validation(
@@ -1018,6 +1245,8 @@ impl SessionsApplicationService {
                     message: "Automatically archived inactive session.".to_string(),
                     session_id: Some(session.id().to_string()),
                     operation_id: None,
+                    execution_run_id: None,
+                    recovery_report_id: None,
                 });
                 result.archived += 1;
             }
@@ -1032,6 +1261,8 @@ impl SessionsApplicationService {
                 ),
                 session_id: None,
                 operation_id: None,
+                execution_run_id: None,
+                recovery_report_id: None,
             });
         }
         Ok(result)

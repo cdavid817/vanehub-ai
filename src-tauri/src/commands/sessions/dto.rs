@@ -1,4 +1,7 @@
 use crate::contexts::communications::domain::ConnectorKind;
+use crate::contexts::sessions::api::{
+    RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -59,6 +62,11 @@ pub(crate) struct Session {
     pub(crate) seats: Vec<SessionSeat>,
     pub(crate) interaction_mode: InteractionMode,
     pub(crate) lifecycle_state: SessionLifecycleState,
+    pub(crate) recovery_status: SessionRecoveryStatus,
+    pub(crate) recovery_revision: u64,
+    pub(crate) state_revision: u64,
+    pub(crate) history_revision: u64,
+    pub(crate) active_execution_run_id: Option<String>,
     pub(crate) folder: Option<String>,
     pub(crate) project_path: Option<String>,
     pub(crate) worktree_path: Option<String>,
@@ -74,6 +82,44 @@ pub(crate) struct Session {
     pub(crate) archived: bool,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionRecoveryStatus {
+    Clean,
+    Reconciling,
+    ActionRequired,
+    Quarantined,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionRecoveryReport {
+    pub(crate) report_id: String,
+    pub(crate) session_id: String,
+    pub(crate) recovery_revision: u64,
+    pub(crate) trigger: RecoveryTrigger,
+    pub(crate) observed_lifecycle: String,
+    pub(crate) observed_execution_run_id: Option<String>,
+    pub(crate) decision: RecoveryDecision,
+    pub(crate) reason_codes: Vec<RecoveryReasonCode>,
+    pub(crate) evidence_refs: Vec<RecoveryEvidenceReference>,
+    pub(crate) created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionRecoverySummary {
+    pub(crate) session: Session,
+    pub(crate) latest_report: Option<SessionRecoveryReport>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionRecoveryAcknowledgement {
+    pub(crate) session: Session,
+    pub(crate) report: SessionRecoveryReport,
 }
 
 /// One participant in a session: an Agent playing an expert role.
@@ -259,6 +305,8 @@ pub(crate) struct ChatMessage {
     pub(crate) error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) session_sequence: u64,
+    pub(crate) execution_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

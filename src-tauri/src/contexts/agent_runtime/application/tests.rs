@@ -89,9 +89,10 @@ pub(super) struct FakeWorld {
     sessions: Mutex<BTreeMap<String, AgentSession>>,
     messages: Mutex<BTreeMap<String, AgentMessage>>,
     pub(super) created_messages: Mutex<Vec<NewAgentMessage>>,
+    generation_order: Mutex<Vec<&'static str>>,
     lifecycle_updates: Mutex<Vec<AgentLifecycle>>,
     pub(super) generation_requests: Mutex<Vec<GenerationProcessRequest>>,
-    generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
+    pub(super) generation_sinks: Mutex<BTreeMap<String, Arc<dyn AgentProcessEventSink>>>,
     loop_terminals: Mutex<Vec<LoopRoleGenerationTerminal>>,
     seat_terminals: Mutex<Vec<SeatTurnTerminal>>,
     stopped_processes: Mutex<Vec<String>>,
@@ -174,6 +175,8 @@ impl FakeWorld {
                 // Ordered so `recent_messages` returns them in the order they were seeded.
                 created_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
                 updated_at: format!("2026-08-07T00:00:{ordinal:02}Z"),
+                session_sequence: ordinal as u64,
+                execution_run_id: None,
             },
         );
     }
@@ -199,6 +202,7 @@ impl FakeWorld {
             sessions: Mutex::new(BTreeMap::from([(session.id.clone(), session)])),
             messages: Mutex::new(BTreeMap::new()),
             created_messages: Mutex::new(Vec::new()),
+            generation_order: Mutex::new(Vec::new()),
             lifecycle_updates: Mutex::new(Vec::new()),
             generation_requests: Mutex::new(Vec::new()),
             generation_sinks: Mutex::new(BTreeMap::new()),
@@ -368,12 +372,62 @@ impl AgentSessionGateway for FakeWorld {
             error: None,
             created_at: "2026-07-18T12:00:00Z".to_string(),
             updated_at: "2026-07-18T12:00:00Z".to_string(),
+            session_sequence: 0,
+            execution_run_id: None,
         };
         self.messages
             .lock()
             .expect("messages")
             .insert(id, record.clone());
         Ok(record)
+    }
+
+    fn start_generation(
+        &self,
+        request: DurableAgentGenerationStart,
+    ) -> Result<DurableAgentGenerationMessages, AgentRuntimeApplicationError> {
+        self.generation_order
+            .lock()
+            .expect("generation order")
+            .push("durable-claim");
+        self.lifecycle_updates
+            .lock()
+            .expect("lifecycle updates")
+            .push(AgentLifecycle::Starting);
+        self.sessions
+            .lock()
+            .expect("sessions")
+            .get_mut(&request.session_id)
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::SessionNotFound(request.session_id.clone())
+            })?
+            .lifecycle = AgentLifecycle::Starting;
+        let mut next_sequence = self.messages.lock().expect("messages").len() as u64 + 1;
+        let user_message = request
+            .user_message
+            .map(|message| self.create_message(message))
+            .transpose()?
+            .map(|mut message| {
+                message.session_sequence = next_sequence;
+                message.execution_run_id = Some(request.execution_run_id.clone());
+                next_sequence += 1;
+                self.messages
+                    .lock()
+                    .expect("messages")
+                    .insert(message.id.clone(), message.clone());
+                message
+            });
+        let mut assistant_message = self.create_message(request.assistant_message)?;
+        assistant_message.session_sequence = next_sequence;
+        assistant_message.execution_run_id = Some(request.execution_run_id);
+        self.messages
+            .lock()
+            .expect("messages")
+            .insert(assistant_message.id.clone(), assistant_message.clone());
+        Ok(DurableAgentGenerationMessages {
+            user_message,
+            assistant_message,
+        })
     }
 
     fn find_message(
@@ -1116,6 +1170,10 @@ impl AgentEventPort for FakeWorld {
 
 impl AgentGenerationPort for FakeWorld {
     fn reserve(&self, session_id: &str) -> Result<GenerationLease, AgentRuntimeApplicationError> {
+        self.generation_order
+            .lock()
+            .expect("generation order")
+            .push("control-reserve");
         let mut active = self.active_generation.lock().expect("active generation");
         if active.is_some() {
             return Err(AgentRuntimeApplicationError::GenerationConflict(
@@ -1238,6 +1296,24 @@ impl AgentGenerationPort for FakeWorld {
             .expect("active generation")
             .as_ref()
             .and_then(|current| current.2.clone()))
+    }
+
+    fn active_correlation(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<ActiveGenerationCorrelation>, AgentRuntimeApplicationError> {
+        Ok(self
+            .active_generation
+            .lock()
+            .expect("active generation")
+            .as_ref()
+            .map(|current| ActiveGenerationCorrelation {
+                operation_id: current.3.clone(),
+                execution_run_id: current
+                    .4
+                    .as_ref()
+                    .map(|context| context.run_id.as_str().to_string()),
+            }))
     }
 }
 
@@ -2439,7 +2515,7 @@ fn launch_coordinates_lifecycle_details_operations_logs_and_failure_state() {
 }
 
 #[test]
-fn send_message_reserves_before_writes_and_attaches_effective_prompt_process() {
+fn send_message_persists_before_reserving_control_and_attaches_effective_prompt_process() {
     let world = test_world();
     let service = service(world.clone());
     let message = service
@@ -2460,6 +2536,10 @@ fn send_message_reserves_before_writes_and_attaches_effective_prompt_process() {
 
     assert_eq!(message.id, "message-2");
     assert_eq!(message.status, "streaming");
+    assert_eq!(
+        *world.generation_order.lock().expect("generation order"),
+        vec!["durable-claim", "control-reserve"]
+    );
     let requests = world
         .generation_requests
         .lock()

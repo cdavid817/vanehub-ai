@@ -1,4 +1,11 @@
-import type { AgentService, SessionStateEvent } from "./agent-service";
+import type {
+  AgentService,
+  RecoveryDecision,
+  SessionRecoveryAcknowledgement,
+  SessionRecoveryReport,
+  SessionRecoverySummary,
+  SessionStateEvent,
+} from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
 import { createWebPendingApproval, isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
@@ -315,6 +322,7 @@ function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, Cl
 let nextMessageId = 1;
 let activeSessionId: string | null = null;
 let sessions: Session[] = [];
+const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
 let sessionCategories: SessionCategory[] = [];
 let nextSessionCategoryId = 1;
 let automaticArchivalSettings: AutomaticArchivalSettings = { enabled: true, inactiveDays: 10 };
@@ -362,6 +370,106 @@ function emitSessionEvent(event: SessionStateEvent) {
   sessionEventSubscribers.forEach((handler) => handler(event));
 }
 
+function mockRecoveryReport(
+  session: Session,
+  recoveryRevision: number,
+  decision: RecoveryDecision,
+): SessionRecoveryReport {
+  return {
+    reportId: `web-recovery-${session.id}-${recoveryRevision}`,
+    sessionId: session.id,
+    recoveryRevision,
+    trigger: decision === "acknowledged" ? "user_acknowledgement" : "startup",
+    observedLifecycle: session.lifecycleState,
+    observedExecutionRunId: session.activeExecutionRunId,
+    decision,
+    reasonCodes: decision === "acknowledged"
+      ? ["acknowledged_by_user"]
+      : ["unfinished_tool_activity"],
+    evidenceRefs: [{
+      kind: "session",
+      sessionId: session.id,
+      stateRevision: session.stateRevision,
+      historyRevision: session.historyRevision,
+    }],
+    createdAt: nowIso(),
+  };
+}
+
+function webRecoverySummary(sessionId: string): SessionRecoverySummary {
+  const session = findSession(sessionId);
+  return {
+    session,
+    latestReport: recoveryReportsBySession.get(sessionId)?.[0] ?? null,
+  };
+}
+
+export function seedWebRecoverySessionForTest(
+  status: "action_required" | "quarantined" = "action_required",
+): Session {
+  const timestamp = nowIso();
+  const session: Session = {
+    id: `web-recovery-session-${nextSessionId++}`,
+    title: "Recovered Web session",
+    agentId: "onepiece",
+    interactionMode: "api",
+    lifecycleState: "failed",
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
+    folder: "D:\\example\\recovery-project",
+    projectPath: "D:\\example\\recovery-project",
+    worktreePath: null,
+    worktreeName: null,
+    worktreeBranch: null,
+    remoteWorkspace: null,
+    remoteSshConnectionId: null,
+    remoteSshConnectionRevision: null,
+    runtimeSessionId: null,
+    categoryId: null,
+    pinned: false,
+    archived: false,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  sessions = [session, ...sessions];
+  activeSessionId = session.id;
+  const recoveryRevision = 1;
+  const recovered = updateSession(session.id, {
+    lifecycleState: "failed",
+    recoveryStatus: status,
+    recoveryRevision,
+    stateRevision: session.stateRevision + 1,
+    activeExecutionRunId: null,
+  });
+  recoveryReportsBySession.set(recovered.id, [
+    mockRecoveryReport(
+      recovered,
+      recoveryRevision,
+      status === "quarantined" ? "quarantined" : "action_required",
+    ),
+  ]);
+  emitSessionEvent({
+    kind: status === "quarantined" ? "recovery-quarantined" : "recovery-action-required",
+    sessionId: recovered.id,
+    recoveryRevision,
+  });
+  return recovered;
+}
+
+export function resetWebRecoverySessionsForTest() {
+  const recoverySessionIds = new Set(recoveryReportsBySession.keys());
+  sessions = sessions.filter((session) => !recoverySessionIds.has(session.id));
+  recoverySessionIds.forEach((sessionId) => {
+    messagesBySession.delete(sessionId);
+    activeStreams.delete(sessionId);
+  });
+  recoveryReportsBySession.clear();
+  if (activeSessionId && recoverySessionIds.has(activeSessionId)) activeSessionId = null;
+}
+
 export function seedWebImSessionForTest(connector: ImSessionConnector): Session {
   const timestamp = nowIso();
   const session: Session = {
@@ -370,6 +478,11 @@ export function seedWebImSessionForTest(connector: ImSessionConnector): Session 
     agentId: "codex-cli",
     interactionMode: "cli",
     lifecycleState: "idle",
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
     folder: "D:\\example\\im-project",
     projectPath: "D:\\example\\im-project",
     worktreePath: null,
@@ -1551,6 +1664,15 @@ function emitChatEvent(event: ChatStreamEvent) {
   subscribers?.forEach((handler) => handler(event));
 }
 
+function finishWebGeneration(sessionId: string, lifecycleState: Session["lifecycleState"]) {
+  const session = findSession(sessionId);
+  updateSession(sessionId, {
+    lifecycleState,
+    activeExecutionRunId: null,
+    stateRevision: session.stateRevision + 1,
+  });
+}
+
 function applyStreamEvent(event: ChatStreamEvent) {
   // The turn status belongs to the session, not to any message.
   if (event.type === "turn_status") return;
@@ -1579,12 +1701,15 @@ function applyStreamEvent(event: ChatStreamEvent) {
   } else if (event.type === "completed") {
     upsertMessage({ ...message, status: "completed", tokenUsage: event.tokenUsage, updatedAt: timestamp });
     activeStreams.delete(event.sessionId);
+    finishWebGeneration(event.sessionId, "idle");
   } else if (event.type === "failed") {
     upsertMessage({ ...message, status: "failed", error: event.error, updatedAt: timestamp });
     activeStreams.delete(event.sessionId);
+    finishWebGeneration(event.sessionId, "failed");
   } else if (event.type === "cancelled") {
     upsertMessage({ ...message, status: "cancelled", updatedAt: timestamp });
     activeStreams.delete(event.sessionId);
+    finishWebGeneration(event.sessionId, "stopped");
   }
 }
 
@@ -1883,6 +2008,11 @@ function createWebLoopRoleSession(run: LoopRun, iteration: LoopIteration, role: 
     agentId,
     interactionMode: "cli",
     lifecycleState: "stopped",
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
     folder: run.worktreePath,
     projectPath: run.projectPath,
     worktreePath: run.worktreePath,
@@ -2846,6 +2976,52 @@ export const webAgentClient: AgentService = {
     return findSession(sessionId);
   },
 
+  async getSessionRecoverySummary(sessionId: string) {
+    return structuredClone(webRecoverySummary(sessionId));
+  },
+
+  async listSessionRecoveryReports(sessionId: string, limit = 20) {
+    findSession(sessionId);
+    const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+    return structuredClone((recoveryReportsBySession.get(sessionId) ?? []).slice(0, boundedLimit));
+  },
+
+  async acknowledgeSessionRecovery(
+    sessionId: string,
+    expectedRecoveryRevision: number,
+  ): Promise<SessionRecoveryAcknowledgement> {
+    const session = findSession(sessionId);
+    if (session.recoveryStatus === "quarantined") {
+      throw new Error(`Recovery acknowledgement is not allowed for quarantined session ${sessionId}.`);
+    }
+    if (session.recoveryStatus !== "action_required") {
+      throw new Error(`Recovery acknowledgement is not allowed for session ${sessionId}.`);
+    }
+    if (session.recoveryRevision !== expectedRecoveryRevision) {
+      throw new Error(
+        `Recovery revision conflict for session ${sessionId}; current revision is ${session.recoveryRevision}.`,
+      );
+    }
+    const recoveryRevision = session.recoveryRevision + 1;
+    const updated = updateSession(sessionId, {
+      recoveryStatus: "clean",
+      recoveryRevision,
+      stateRevision: session.stateRevision + 1,
+      activeExecutionRunId: null,
+    });
+    const report = mockRecoveryReport(updated, recoveryRevision, "acknowledged");
+    recoveryReportsBySession.set(sessionId, [
+      report,
+      ...(recoveryReportsBySession.get(sessionId) ?? []),
+    ]);
+    emitSessionEvent({
+      kind: "recovery-acknowledged",
+      sessionId,
+      recoveryRevision,
+    });
+    return structuredClone({ session: updated, report });
+  },
+
   async getActiveSession() {
     if (!activeSessionId) return null;
     return sessions.find((session) => session.id === activeSessionId) ?? null;
@@ -3211,6 +3387,11 @@ export const webAgentClient: AgentService = {
       seats: input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }],
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
+      recoveryStatus: "clean",
+      recoveryRevision: 0,
+      stateRevision: 0,
+      historyRevision: 0,
+      activeExecutionRunId: null,
       folder: effectiveFolder,
       projectPath,
       worktreePath,
@@ -3252,6 +3433,7 @@ export const webAgentClient: AgentService = {
     findSession(sessionId);
     cancelActiveStream(sessionId);
     messagesBySession.delete(sessionId);
+    recoveryReportsBySession.delete(sessionId);
     subscribersBySession.delete(sessionId);
     const configs = { ...readChatConfigs() };
     delete configs[sessionId];
@@ -3344,11 +3526,24 @@ export const webAgentClient: AgentService = {
 
   async sendMessage(input) {
     const session = findSession(input.sessionId);
+    if (session.archived) throw new Error("Archived sessions cannot accept messages.");
+    if (session.recoveryStatus !== "clean") {
+      throw new Error(`Session recovery state ${session.recoveryStatus} blocks new messages.`);
+    }
+    if (session.activeExecutionRunId !== null) {
+      throw new Error("A generation is already active for this session.");
+    }
     const config = normalizeChatConfigForSession(session, input.config);
     if (activeStreams.has(input.sessionId)) {
       throw new Error("A generation is already active for this session.");
     }
     const timestamp = nowIso();
+    const existingMessages = getSessionMessages(input.sessionId);
+    const nextSequence = existingMessages.reduce(
+      (maximum, message) => Math.max(maximum, message.sessionSequence),
+      0,
+    ) + 1;
+    const executionRunId = `web-run-${input.sessionId}-${Date.now()}`;
     const userMessage: ChatMessage = {
       id: createMessageId(),
       sessionId: input.sessionId,
@@ -3358,6 +3553,8 @@ export const webAgentClient: AgentService = {
       fileReferences: input.fileReferences,
       createdAt: timestamp,
       updatedAt: timestamp,
+      sessionSequence: nextSequence,
+      executionRunId,
     };
     const assistantMessage: ChatMessage = {
       id: createMessageId(),
@@ -3367,9 +3564,16 @@ export const webAgentClient: AgentService = {
       status: "streaming",
       createdAt: timestamp,
       updatedAt: timestamp,
+      sessionSequence: nextSequence + 1,
+      executionRunId,
     };
-    setSessionMessages(input.sessionId, [...getSessionMessages(input.sessionId), userMessage, assistantMessage]);
-    updateSession(input.sessionId, { lifecycleState: "running" });
+    setSessionMessages(input.sessionId, [...existingMessages, userMessage, assistantMessage]);
+    updateSession(input.sessionId, {
+      lifecycleState: "running",
+      activeExecutionRunId: executionRunId,
+      stateRevision: session.stateRevision + 1,
+      historyRevision: session.historyRevision + 2,
+    });
 
     const responseText = `Mock ${session.agentId} response: I received "${userMessage.content}". This is a streaming preview in Web mode.`;
     const tokens = responseText.match(/.{1,6}/g) ?? [responseText];
@@ -3742,7 +3946,6 @@ export const webAgentClient: AgentService = {
         messageId: assistantMessage.id,
         tokenUsage: { input: userMessage.content.length, output: responseText.length },
       });
-      updateSession(input.sessionId, { lifecycleState: "idle" });
     }, 320 + tokens.length * 90);
     timeoutIds.push(completeTimeoutId);
     activeStreams.set(input.sessionId, { messageId: assistantMessage.id, timeoutIds });

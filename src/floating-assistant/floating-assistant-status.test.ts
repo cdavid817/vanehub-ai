@@ -9,6 +9,11 @@ const session: Session = {
   agentId: "codex-cli",
   interactionMode: "cli",
   lifecycleState: "idle",
+  recoveryStatus: "clean",
+  recoveryRevision: 0,
+  stateRevision: 0,
+  historyRevision: 0,
+  activeExecutionRunId: null,
   folder: null,
   projectPath: null,
   worktreePath: null,
@@ -34,6 +39,8 @@ function assistant(status: ChatMessage["status"]): ChatMessage {
     status,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
+    sessionSequence: 1,
+    executionRunId: null,
   };
 }
 

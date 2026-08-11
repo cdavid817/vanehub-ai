@@ -6,10 +6,11 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 54. Migration 53 reconciles databases that may identify versions 49-51 as
-/// either Plan execution from main or workspace code indexing from the concurrent worktree.
+/// Contiguous through 58. Migration 53 reconciles databases that may identify versions 49-51 as
+/// either Plan execution or workspace code indexing, and migration 54 preserves the Loop evidence
+/// query optimization that landed before the session-recovery migrations.
 fn expected_versions() -> Vec<i64> {
-    (1..=54).collect()
+    (1..=58).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -160,6 +161,10 @@ fn empty_fixture_migrates_to_latest_schema() {
         table_has_column(&conn, "cli_config_applied_state", "managed_keys_json")
             .expect("CLI configuration ownership snapshot")
     );
+    assert!(
+        table_has_column(&conn, "operation_recovery_evidence", "execution_run_id")
+            .expect("operation recovery evidence table")
+    );
 }
 
 #[test]
@@ -198,7 +203,7 @@ fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
         .expect("workspace trust count");
     let migration_name: String = conn
         .query_row(
-            "SELECT name FROM schema_migrations WHERE version = 54",
+            "SELECT name FROM schema_migrations WHERE version = 58",
             [],
             |row| row.get(0),
         )

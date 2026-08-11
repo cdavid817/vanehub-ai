@@ -221,6 +221,12 @@ export interface AgentService {
   listArchivedSessions(): Promise<Session[]>;
   searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
   getSession(sessionId: string): Promise<Session>;
+  getSessionRecoverySummary(sessionId: string): Promise<SessionRecoverySummary>;
+  listSessionRecoveryReports(sessionId: string, limit?: number): Promise<SessionRecoveryReport[]>;
+  acknowledgeSessionRecovery(
+    sessionId: string,
+    expectedRecoveryRevision: number,
+  ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
   listSessionCategories(): Promise<SessionCategory[]>;
   createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
@@ -341,4 +347,76 @@ export interface AgentService {
 
 export type SessionStateEvent =
   | { kind: "active-session-changed"; sessionId: string | null }
-  | { kind: "configuration-changed"; sessionId: string };
+  | { kind: "configuration-changed"; sessionId: string }
+  | RecoverySessionStateEvent;
+
+export type RecoveryDecision =
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "interrupted_without_tool_ambiguity"
+  | "action_required"
+  | "quarantined"
+  | "retry_later"
+  | "acknowledged";
+
+export type RecoveryTrigger = "startup" | "explicit_retry" | "user_acknowledgement";
+
+export type RecoveryReasonCode =
+  | "confirmed_completed_message"
+  | "confirmed_failed_message"
+  | "confirmed_cancelled_operation"
+  | "interrupted_tool_free_response"
+  | "missing_execution_run"
+  | "missing_assistant_message"
+  | "unfinished_tool_activity"
+  | "opaque_provider_activity"
+  | "conflicting_execution_runs"
+  | "conflicting_terminal_outcomes"
+  | "invalid_message_sequence"
+  | "invalid_execution_correlation"
+  | "live_runtime_handle"
+  | "storage_temporarily_unavailable"
+  | "acknowledged_by_user";
+
+export type RecoveryEvidenceReference =
+  | { kind: "session"; sessionId: string; stateRevision: number; historyRevision: number }
+  | { kind: "message"; messageId: string; executionRunId: string | null; status: string }
+  | { kind: "operation"; operationId: string; executionRunId: string | null; status: string }
+  | { kind: "tool_activity"; toolUseId: string; executionRunId: string | null; status: string }
+  | { kind: "provider_resume_metadata"; present: boolean }
+  | { kind: "live_runtime_handle"; executionRunId: string | null; present: boolean };
+
+export interface SessionRecoveryReport {
+  reportId: string;
+  sessionId: string;
+  recoveryRevision: number;
+  trigger: RecoveryTrigger;
+  observedLifecycle: string;
+  observedExecutionRunId: string | null;
+  decision: RecoveryDecision;
+  reasonCodes: RecoveryReasonCode[];
+  evidenceRefs: RecoveryEvidenceReference[];
+  createdAt: string;
+}
+
+export interface SessionRecoverySummary {
+  session: Session;
+  latestReport: SessionRecoveryReport | null;
+}
+
+export interface SessionRecoveryAcknowledgement {
+  session: Session;
+  report: SessionRecoveryReport;
+}
+
+export type RecoverySessionStateEvent = {
+  kind:
+    | "recovery-started"
+    | "recovery-completed"
+    | "recovery-action-required"
+    | "recovery-quarantined"
+    | "recovery-acknowledged";
+  sessionId: string;
+  recoveryRevision: number;
+};
