@@ -127,6 +127,12 @@ impl ManagedLspStdio {
                 }
             }
             if let Some(Err(error)) = take_finished_task(&mut self.writer).await {
+                for _ in 0..3 {
+                    tokio::task::yield_now().await;
+                    if let Some(Err(reader_error)) = take_finished_task(&mut self.reader).await {
+                        return Err(self.terminate_after(reader_error, deadline).await);
+                    }
+                }
                 return Err(self.terminate_after(error, deadline).await);
             }
             let now = Instant::now();
@@ -220,15 +226,21 @@ impl ManagedLspStdio {
         deadline: Instant,
     ) -> Result<ManagedLspExit, LspStdioError> {
         self.reaped = true;
-        self.finish_protocol_tasks(deadline).await;
+        let protocol_error = self.finish_protocol_tasks(deadline).await;
         let stderr = self.finish_stderr().await.ok_or(LspStdioError::Stderr)?;
+        if let Some(error) = protocol_error {
+            return Err(error);
+        }
         Ok(ManagedLspExit { status, stderr })
     }
 
-    async fn finish_protocol_tasks(&mut self, deadline: Instant) {
-        finish_or_abort_task(&mut self.reader, deadline).await;
-        finish_or_abort_task(&mut self.writer, deadline).await;
+    async fn finish_protocol_tasks(&mut self, deadline: Instant) -> Option<LspStdioError> {
+        let reader = finish_or_abort_task(&mut self.reader, deadline).await;
+        let writer = finish_or_abort_task(&mut self.writer, deadline).await;
         self.protocol_tasks_finished = true;
+        reader
+            .and_then(Result::err)
+            .or_else(|| writer.and_then(Result::err))
     }
 
     async fn abort_protocol_tasks(&mut self) {
@@ -271,14 +283,16 @@ async fn take_finished_task(
 async fn finish_or_abort_task(
     task: &mut Option<JoinHandle<Result<(), LspStdioError>>>,
     deadline: Instant,
-) {
-    let Some(mut task) = task.take() else {
-        return;
-    };
+) -> Option<Result<(), LspStdioError>> {
+    let mut task = task.take()?;
     let remaining = deadline.saturating_duration_since(Instant::now());
-    if tokio::time::timeout(remaining, &mut task).await.is_err() {
-        task.abort();
-        let _ = task.await;
+    match tokio::time::timeout(remaining, &mut task).await {
+        Ok(result) => Some(result.unwrap_or(Err(LspStdioError::Process))),
+        Err(_) => {
+            task.abort();
+            let _ = task.await;
+            None
+        }
     }
 }
 

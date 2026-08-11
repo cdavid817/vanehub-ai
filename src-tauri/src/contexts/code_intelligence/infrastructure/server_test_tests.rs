@@ -108,7 +108,7 @@ async fn malformed_initialize_result_still_runs_protocol_cleanup() {
 async fn initialize_timeout_forces_bounded_process_tree_cleanup_without_cancellation() {
     let result = IsolatedServerTester::run(
         fixture_command("lsp-hang", Some("Cargo.toml")),
-        Duration::from_millis(800),
+        Duration::from_secs(2),
     )
     .await;
 

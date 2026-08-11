@@ -203,7 +203,8 @@ async fn production_coordinator_logs_crash_restart_and_protocol_limit_events() {
         let events = logged_events(&logs);
         assert!(
             events.iter().any(|event| event == expected),
-            "expected {expected} event for {mode}, got {events:?}"
+            "expected {expected} event for {mode}, got {:?}",
+            logs.0.lock().expect("logs")
         );
         assert!(
             events.iter().any(|event| event == "crash"),
