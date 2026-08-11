@@ -70,6 +70,7 @@ mod tests {
         SeatTurnTerminal {
             session_id: "s1".to_string(),
             message_id: message_id.to_string(),
+            seat_id: format!("seat-{seat_index}"),
             seat_index,
             seat_mention: "架构师".to_string(),
             depth: 1,

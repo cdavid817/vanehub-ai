@@ -109,7 +109,7 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByLabel("Agent CLI 工作区")).toContainText("echo workspace data");
 
     const terminal = page.getByRole("tab", { name: /终端记录/ });
-    await expect(terminal).toContainText("0");
+    await expect(terminal).not.toContainText("0");
     await terminal.click();
     await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("当前会话尚未记录工具执行。");
 

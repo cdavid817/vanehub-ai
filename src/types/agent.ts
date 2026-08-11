@@ -212,11 +212,34 @@ export interface WorkflowState {
   intent: string;
 }
 
+export interface SessionSeatRoleSnapshot {
+  roleName: string | null;
+  avatar: string;
+  color: string;
+  responsibility: string | null;
+  agentName: string;
+  modelFamily: "anthropic" | "openai" | "google" | "unknown";
+  crossFamilyReviewer: boolean;
+}
+
 /** One participant in a session: an Agent playing an expert role. */
 export interface SessionSeat {
+  /** Assigned by the session service. Creation inputs may omit it. */
+  seatId?: string;
   agentId: string;
   /** Null for a plain single-Agent session, which has no role assigned. */
   roleId: string | null;
+  /** Captured when the participant joins so role edits cannot rewrite history. */
+  roleSnapshot?: SessionSeatRoleSnapshot | null;
+  joinedAt?: string;
+  /** Departed participants remain available for historical message attribution. */
+  leftAt?: string | null;
+}
+
+export interface UpdateSessionSeatsInput {
+  sessionId: string;
+  expectedUpdatedAt: string;
+  seats: SessionSeat[];
 }
 
 export interface Session {

@@ -7,6 +7,7 @@ fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTermina
     SeatTurnTerminal {
         session_id: "session-1".to_string(),
         message_id: "message-1".to_string(),
+        seat_id: "seat-1".to_string(),
         seat_index: 0,
         seat_mention: speaker.to_string(),
         depth,
@@ -27,6 +28,7 @@ fn a_line_leading_mention_routes_the_turn_to_that_seat() {
     assert_eq!(
         decision.next,
         [SeatTurnAssignment {
+            seat_id: "seat-2".to_string(),
             seat_index: 1,
             depth: 2,
         }]
@@ -82,6 +84,7 @@ fn an_informational_handoff_leaves_the_turn_with_the_agents() {
     assert_eq!(
         decision.next,
         [SeatTurnAssignment {
+            seat_id: "seat-2".to_string(),
             seat_index: 1,
             depth: 2,
         }]
@@ -175,6 +178,23 @@ fn a_multi_seat_session_is_coordinated() {
     assert!(service.is_multi_seat_session("session-1"));
 }
 
+#[test]
+fn the_first_reply_owns_the_first_stable_seat_and_receives_its_briefing() {
+    let service = service(seat_turn_world());
+    let session = service.require_session("session-1").expect("session");
+    let (ownership, briefing) = service
+        .initial_seat_turn_context(&session)
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-1");
+    assert_eq!(ownership.seat_index, 0);
+    assert_eq!(ownership.seat_mention, "架构师");
+    assert_eq!(ownership.depth, 1);
+    assert!(briefing.starts_with("你是架构师。"));
+    assert!(briefing.contains("@代码审查"));
+}
+
 /// A seat added mid-session has to act on work it never witnessed, so its first prompt carries the
 /// thread rather than starting from nothing.
 #[test]
@@ -188,6 +208,7 @@ fn a_seat_starting_its_turn_is_given_the_preceding_turns_attributed_by_speaker()
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-3".to_string(),
                 seat_index: 2,
                 depth: 2,
             },
@@ -211,6 +232,7 @@ fn a_seat_turn_runs_the_seats_own_agent() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-2".to_string(),
                 seat_index: 1,
                 depth: 2,
             },
@@ -233,6 +255,7 @@ fn a_seat_turn_carries_the_roster_and_the_handoff_rules() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-1".to_string(),
                 seat_index: 0,
                 depth: 1,
             },
@@ -264,6 +287,7 @@ fn a_seat_turn_records_no_user_message() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-2".to_string(),
                 seat_index: 1,
                 depth: 2,
             },
@@ -276,7 +300,8 @@ fn a_seat_turn_records_no_user_message() {
         .iter()
         .find(|message| message.role == "assistant")
         .expect("an assistant message");
-    assert_eq!(assistant.seat_index, Some(1));
+    assert_eq!(assistant.speaker_seat_id.as_deref(), Some("seat-2"));
+    assert_eq!(assistant.seat_index, None);
 }
 
 /// Removing a seat has to stop it being invoked, including by a turn already queued for it.
@@ -288,6 +313,7 @@ fn starting_a_turn_for_a_removed_seat_is_rejected() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "missing-seat".to_string(),
                 seat_index: 9,
                 depth: 2,
             },
@@ -308,6 +334,7 @@ fn a_seat_turn_marks_its_agent_span_with_the_seat() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-2".to_string(),
                 seat_index: 1,
                 depth: 2,
             },
@@ -346,6 +373,7 @@ fn starting_a_seat_turn_announces_who_holds_it() {
         .start_seat_turn(
             "session-1",
             &SeatTurnAssignment {
+                seat_id: "seat-2".to_string(),
                 seat_index: 1,
                 depth: 3,
             },
@@ -366,6 +394,7 @@ fn starting_a_seat_turn_announces_who_holds_it() {
     assert_eq!(
         status,
         SeatTurnStatus::Agent {
+            seat_id: "seat-2".to_string(),
             seat_index: 1,
             mention: "代码审查".to_string(),
             depth: 3,

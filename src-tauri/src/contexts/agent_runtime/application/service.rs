@@ -1517,6 +1517,10 @@ impl AgentRuntimeApplicationService {
                 configuration.interaction_mode.as_str().to_string(),
             ));
         }
+        let initial_seat_context = self.initial_seat_turn_context(&session)?;
+        let (seat_ownership, role_briefing) = initial_seat_context
+            .map(|(ownership, briefing)| (Some(ownership), Some(briefing)))
+            .unwrap_or((None, None));
         let lease = self.ports.generations.reserve(&session.id)?;
         let terminal = register_completion
             .then(|| self.ports.message_completions.register(&session.id))
@@ -1529,8 +1533,8 @@ impl AgentRuntimeApplicationService {
                 configuration,
                 content,
                 file_references: request.file_references,
-                role_briefing: None,
-                seat_ownership: None,
+                role_briefing,
+                seat_ownership,
                 record_user_message: true,
                 orchestration_profile,
             },
@@ -1674,6 +1678,7 @@ impl AgentRuntimeApplicationService {
         let user_message = if record_user_message {
             match self.ports.sessions.create_message(NewAgentMessage {
                 session_id: session.id.clone(),
+                speaker_seat_id: None,
                 seat_index: None,
                 role: "user".to_string(),
                 status: "completed".to_string(),
@@ -1695,9 +1700,10 @@ impl AgentRuntimeApplicationService {
         };
         let assistant = match self.ports.sessions.create_message(NewAgentMessage {
             session_id: session.id.clone(),
-            seat_index: seat_ownership
+            speaker_seat_id: seat_ownership
                 .as_ref()
-                .map(|ownership| ownership.seat_index),
+                .map(|ownership| ownership.seat_id.clone()),
+            seat_index: None,
             role: "assistant".to_string(),
             status: "streaming".to_string(),
             content: String::new(),
@@ -1991,6 +1997,10 @@ impl AgentRuntimeApplicationService {
         // The trace stays session-scoped and shows a whole round including the handoffs between
         // seats, so it has to say which seat each Agent span belongs to.
         if let Some(ownership) = &seat_ownership {
+            agent_attributes.push((
+                "vanehub.seat.id".to_string(),
+                SafeAttributeValue::String(ownership.seat_id.clone()),
+            ));
             agent_attributes.push((
                 "vanehub.seat.index".to_string(),
                 SafeAttributeValue::String(ownership.seat_index.to_string()),
@@ -3083,6 +3093,7 @@ impl GenerationEventHandler {
         let _ = self.ports.seat_completions.deliver(SeatTurnTerminal {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
+            seat_id: ownership.seat_id.clone(),
             seat_index: ownership.seat_index,
             seat_mention: ownership.seat_mention.clone(),
             depth: ownership.depth,

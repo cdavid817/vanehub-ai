@@ -124,9 +124,11 @@ pub(crate) struct AgentSession {
 /// One participant in a session: an Agent playing an expert role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentSessionSeat {
+    pub(crate) seat_id: String,
     pub(crate) agent_id: String,
     /// `None` for a plain single-Agent session, which has no role assigned.
     pub(crate) role_id: Option<String>,
+    pub(crate) left_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +149,7 @@ pub(crate) enum LoopRoleGenerationOutcome {
 /// completed reply for routing. Absent for single-Agent sessions, which have no turn loop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatTurnOwnership {
+    pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     /// The seat's own handle, so it can be filtered out of its own reply's mentions.
     pub(crate) seat_mention: String,
@@ -159,6 +162,7 @@ pub(crate) struct SeatTurnOwnership {
 pub(crate) struct SeatTurnTerminal {
     pub(crate) session_id: String,
     pub(crate) message_id: String,
+    pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     pub(crate) seat_mention: String,
     pub(crate) depth: usize,
@@ -430,6 +434,7 @@ pub(crate) struct MessageTokenUsage {
 pub(crate) struct AgentMessage {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) speaker_seat_id: Option<String>,
     pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) content: String,
@@ -447,6 +452,7 @@ pub(crate) struct AgentMessage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NewAgentMessage {
     pub(crate) session_id: String,
+    pub(crate) speaker_seat_id: Option<String>,
     /// Which seat is speaking. `None` for a user message and for single-Agent sessions.
     pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
@@ -844,12 +850,14 @@ pub(crate) enum AgentEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SeatTurnStatus {
     Agent {
+        seat_id: String,
         seat_index: usize,
         mention: String,
         depth: usize,
         max_depth: usize,
     },
     WaitingHuman {
+        seat_id: String,
         seat_index: usize,
         mention: String,
         /// When the wait began. The duration is counted from here rather than accumulated in the
@@ -857,6 +865,7 @@ pub(crate) enum SeatTurnStatus {
         since: String,
     },
     RoundComplete {
+        seat_id: String,
         seat_index: usize,
         mention: String,
     },
@@ -1350,8 +1359,10 @@ mod orchestration_profile_tests {
             id: "session-1".into(),
             agent_id: "onepiece".into(),
             seats: vec![AgentSessionSeat {
+                seat_id: "seat-1".into(),
                 agent_id: "onepiece".into(),
                 role_id: None,
+                left_at: None,
             }],
             interaction_mode: InteractionMode::Api,
             lifecycle: AgentLifecycle::Running,

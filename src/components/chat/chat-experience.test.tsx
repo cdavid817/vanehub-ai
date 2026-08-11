@@ -5,6 +5,7 @@ import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
 import { ChatInputBox } from "./ChatInputBox";
 import { MessageItem } from "./MessageItem";
+import { anchoredScrollTop } from "./MessageList";
 
 const config: ChatConfig = {
   agentId: "codex-cli",
@@ -99,5 +100,39 @@ describe("chat Mermaid and file references", () => {
 
     expect(html).toContain("README.md");
     expect(html).toContain("docs/notes.txt");
+    expect(html).toContain('data-testid="wechat-style-composer"');
+    expect(html).toContain('data-testid="composer-toolbar"');
+  });
+
+  it("distinguishes participant mentions from file completions", () => {
+    const html = renderToString(
+      <ChatInputBox
+        agents={[agent]}
+        availableModes={["default"]}
+        availableModels={[]}
+        availableReasoning={["medium"]}
+        config={config}
+        fileReferenceCandidates={[]}
+        fileReferences={[]}
+        isStreaming={false}
+        participantMentions={[{ mention: "Reviewer", roleName: "Reviewer", agentName: "Codex", modelFamily: "openai", avatar: "🔍" }]}
+        onAddFileReference={vi.fn()} onChange={vi.fn()} onClear={vi.fn()}
+        onConfigAgentChange={vi.fn()} onConfigLongContextChange={vi.fn()}
+        onConfigModeChange={vi.fn()} onConfigModelChange={vi.fn()}
+        onConfigProviderChange={vi.fn()} onConfigReasoningChange={vi.fn()}
+        onConfigStreamingChange={vi.fn()} onConfigThinkingChange={vi.fn()}
+        onRemoveFileReference={vi.fn()} onStop={vi.fn()} onSubmit={vi.fn()}
+        value="@rev"
+      />,
+    );
+    expect(html).toContain("Reviewer");
+    expect(html).toContain('role="group"');
+    expect(html).not.toContain("docs/");
+  });
+
+  it("pins the latest message and preserves history offset after message reflow", () => {
+    expect(anchoredScrollTop(true, 1_000, 1_240, 500)).toBe(1_240);
+    expect(anchoredScrollTop(false, 1_000, 1_240, 500)).toBe(740);
+    expect(anchoredScrollTop(false, 1_000, 800, 100)).toBe(0);
   });
 });

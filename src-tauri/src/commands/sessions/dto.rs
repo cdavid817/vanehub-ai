@@ -80,8 +80,36 @@ pub(crate) struct Session {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SessionSeat {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) seat_id: Option<String>,
     pub(crate) agent_id: String,
     pub(crate) role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) role_snapshot: Option<SessionSeatRoleSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) joined_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) left_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionSeatRoleSnapshot {
+    pub(crate) role_name: Option<String>,
+    pub(crate) avatar: String,
+    pub(crate) color: String,
+    pub(crate) responsibility: Option<String>,
+    pub(crate) agent_name: String,
+    pub(crate) model_family: String,
+    pub(crate) cross_family_reviewer: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateSessionSeatsInput {
+    pub(crate) session_id: String,
+    pub(crate) expected_updated_at: String,
+    pub(crate) seats: Vec<SessionSeat>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -243,6 +271,8 @@ pub(crate) struct ChatFileReference {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatMessage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) speaker_seat_id: Option<String>,
     /// Index of the seat that spoke this. Absent for user messages and single-Agent sessions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) seat_index: Option<usize>,

@@ -107,7 +107,7 @@ export function SessionTabBar({
           >
             <Icon aria-hidden="true" className="h-3.5 w-3.5" />
             <span>{label}</span>
-            {badge !== undefined ? (
+            {badge !== undefined && badge > 0 ? (
               <span className="min-w-5 rounded-full border border-border px-1 font-mono text-[10px]" title={t("sessionTabs.badge", { count: badge })}>
                 {badge}
               </span>

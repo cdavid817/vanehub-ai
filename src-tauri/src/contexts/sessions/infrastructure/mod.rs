@@ -11,7 +11,7 @@ mod usage;
 
 pub(crate) use schema::{
     apply_configuration_schema, apply_loop_ownership_schema, apply_message_speaker_schema,
-    apply_session_seat_schema,
+    apply_session_seat_schema, apply_stable_participant_schema,
 };
 pub(crate) use sqlite_repository::SqliteSessionsRepository;
 pub(crate) use usage::apply_schema as apply_usage_schema;

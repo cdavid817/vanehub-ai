@@ -44,6 +44,18 @@ export function sessionResult(result: OperationTask["result"]): Session | null {
   return result as unknown as Session;
 }
 
+export async function resolveCreatedSession(
+  result: OperationTask["result"],
+  loadSession: (sessionId: string) => Promise<Session> = (sessionId) =>
+    agentService.getSession(sessionId),
+): Promise<Session | null> {
+  const operationSession = sessionResult(result);
+  if (!operationSession) return null;
+  // Workspace operations intentionally expose only a bounded result. Reload through the session
+  // service so stable seat ids and captured role presentation reach React as one canonical shape.
+  return loadSession(operationSession.id);
+}
+
 export function canCreateSession({
   agentMode,
   multiSeats,

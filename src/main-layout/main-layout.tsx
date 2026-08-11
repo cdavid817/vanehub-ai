@@ -16,13 +16,13 @@ import { SessionContextPanel, type ContextPanelState } from "./session-context-p
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
 import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
-import { StatusBar } from "./status-bar";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
 import { WorkspaceActivityBar } from "./workspace-activity-bar";
 import { cn } from "../lib/utils";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import type { SettingsPageId } from "../settings/settings-pages";
+import { seatsFromSession } from "../services/session-seats";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
@@ -97,8 +97,10 @@ export function MainLayout({
   const model = useMainLayoutModel();
   const { t } = useTranslation();
   const { notify } = useNotifications();
+  const [conversationFocusMode, setConversationFocusMode] = useState(false);
   const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
+  const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
@@ -111,10 +113,12 @@ export function MainLayout({
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
   const workspaceGridRef = useRef<HTMLDivElement>(null);
   const inspectionRequestRef = useRef(0);
+  const effectiveInfoPanelCollapsed = conversationFocusMode || infoPanelCollapsed;
+  const effectiveSessionSidebarCollapsed = conversationFocusMode || sessionSidebarCollapsed;
 
   useEffect(() => {
-    if (sessionSidebarRef.current) sessionSidebarRef.current.inert = sessionSidebarCollapsed;
-  }, [sessionSidebarCollapsed]);
+    if (sessionSidebarRef.current) sessionSidebarRef.current.inert = effectiveSessionSidebarCollapsed;
+  }, [effectiveSessionSidebarCollapsed]);
 
   useEffect(() => {
     workspaceGridRef.current?.style.setProperty("--session-sidebar-width", `${sessionSidebarWidth}px`);
@@ -128,7 +132,7 @@ export function MainLayout({
   }, [openCreateSession]);
 
   function startSessionSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (sessionSidebarCollapsed) return;
+    if (effectiveSessionSidebarCollapsed) return;
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = sessionSidebarWidth;
@@ -185,16 +189,22 @@ export function MainLayout({
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
     : null;
-  const apiComposer = !loopInspection && displayedSession?.interactionMode === "api" ? (
+  const usesStructuredChat = Boolean(
+    displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
+  );
+  const apiComposer = !loopInspection && usesStructuredChat ? (
     <ApiSessionComposer model={model} />
   ) : null;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 opacity-[0.035] bg-[linear-gradient(hsl(var(--primary))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--primary))_1px,transparent_1px)] bg-size-[100px_100px]" />
       <div className="relative flex h-screen min-h-0 flex-col overflow-hidden">
-        <TopBar />
-        <div className="relative flex min-h-0 flex-1">
+        <TopBar
+          focusMode={conversationFocusMode}
+          focusModeAvailable={destination === "sessions"}
+          onFocusModeChange={setConversationFocusMode}
+        />
+        <div className="relative flex min-h-0 flex-1" data-testid="workspace-frame">
           <WorkspaceActivityBar
             activeDestination={destination}
             labels={{
@@ -220,19 +230,24 @@ export function MainLayout({
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onSessions={() => {
               if (destination !== "sessions") setDestination("sessions");
+              else if (conversationFocusMode) setConversationFocusMode(false);
               else setSessionSidebarCollapsed((collapsed) => !collapsed);
             }}
-            sessionSidebarExpanded={!sessionSidebarCollapsed}
+            sessionSidebarExpanded={!effectiveSessionSidebarCollapsed}
           />
           <div
-            className={cn("ucd-workspace-grid relative min-h-0 min-w-0 flex-1 gap-4 p-2 transition-[grid-template-columns] duration-200 max-[900px]:gap-2", destination === "sessions" ? "grid" : "hidden")}
-            data-info-collapsed={infoPanelCollapsed ? "true" : "false"}
-            data-session-collapsed={sessionSidebarCollapsed ? "true" : "false"}
+            className={cn(
+              "ucd-workspace-grid relative min-h-0 min-w-0 flex-1 gap-0",
+              destination === "sessions" ? "grid" : "hidden",
+            )}
+            data-conversation-focus={conversationFocusMode ? "true" : "false"}
+            data-info-collapsed={effectiveInfoPanelCollapsed ? "true" : "false"}
+            data-session-collapsed={effectiveSessionSidebarCollapsed ? "true" : "false"}
             ref={workspaceGridRef}
           >
             <div
-              aria-hidden={sessionSidebarCollapsed}
-              className={cn("ucd-session-sidebar-shell relative flex min-h-0 min-w-0 overflow-visible transition-[opacity,transform] duration-200", sessionSidebarCollapsed ? "pointer-events-none -translate-x-2 opacity-0" : "opacity-100")}
+              aria-hidden={effectiveSessionSidebarCollapsed}
+              className={cn("ucd-session-sidebar-shell relative flex min-h-0 min-w-0 overflow-visible border-r border-border transition-[opacity,transform] duration-200", effectiveSessionSidebarCollapsed ? "pointer-events-none -translate-x-2 opacity-0" : "opacity-100")}
               id="workspace-session-sidebar"
               ref={sessionSidebarRef}
             >
@@ -265,9 +280,9 @@ export function MainLayout({
                 type="button"
               />
             </div>
-            <section className="ucd-panel flex min-h-0 min-w-0 flex-col rounded-lg p-3">
+            <section className="flex min-h-0 min-w-0 flex-col border-r border-border/70 bg-background">
               {loopInspection ? (
-                <div className="mb-3 flex min-h-9 shrink-0 items-center gap-2 border-b border-border/70 pb-2">
+                <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3">
                   <button
                     aria-label={t("loops.inspection.back")}
                     className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
@@ -287,6 +302,7 @@ export function MainLayout({
                 <SessionTabs
                   activeSession={displayedSession}
                   apiComposer={apiComposer}
+                  focusMode={conversationFocusMode}
                   isStreaming={loopInspection ? false : model.isStreaming}
                   messages={displayedMessages}
                   messagesPartial={loopInspection ? false : model.messagesPartial}
@@ -295,13 +311,35 @@ export function MainLayout({
                   requestedTab={requestedWorkspaceTab}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}
+                  visibilityControls={{
+                    infoPanelExpanded: !effectiveInfoPanelCollapsed,
+                    onToggleInfoPanel: () => {
+                      if (effectiveInfoPanelCollapsed) {
+                        if (conversationFocusMode) setConversationFocusMode(false);
+                        setInfoPanelCollapsed(false);
+                      } else setInfoPanelCollapsed(true);
+                    },
+                    onToggleSessionList: () => {
+                      if (effectiveSessionSidebarCollapsed) {
+                        if (conversationFocusMode) setConversationFocusMode(false);
+                        setSessionSidebarCollapsed(false);
+                      } else setSessionSidebarCollapsed(true);
+                    },
+                    onToggleWorkspaceTabs: () => {
+                      if (conversationFocusMode) setConversationFocusMode(false);
+                      setWorkspaceTabsCollapsed((collapsed) => conversationFocusMode ? false : !collapsed);
+                    },
+                    sessionListExpanded: !effectiveSessionSidebarCollapsed,
+                    workspaceTabsExpanded: !(conversationFocusMode || workspaceTabsCollapsed),
+                  }}
+                  workspaceTabsCollapsed={workspaceTabsCollapsed}
                 />
               </div>
             </section>
             <SessionInfoPanel
               activeSession={displayedSession}
-              collapsed={infoPanelCollapsed}
-              onCollapsedChange={setInfoPanelCollapsed}
+              collapsed={effectiveInfoPanelCollapsed}
+              currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
               onOpenSkillSettings={() => onOpenSettings("skills")}
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : null}
             />
@@ -326,8 +364,12 @@ export function MainLayout({
           >
             {planCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadPlanCenter} /> : null}
           </section>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-px bg-border"
+            data-testid="workspace-bottom-divider"
+          />
         </div>
-        <StatusBar />
       </div>
       <SessionContextPanel
         categories={model.categories}

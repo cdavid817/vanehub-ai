@@ -15,6 +15,14 @@ import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import type { SessionDocument } from "../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ChatMessage } from "../types/chat";
+import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById } from "./optimistic-message";
+
+interface SendMessageMutationInput {
+  config: ChatConfig;
+  content: string;
+  fileReferences: ChatFileReference[];
+  sessionId: string;
+}
 
 export function useMainLayoutModel() {
   const { t } = useTranslation();
@@ -25,6 +33,8 @@ export function useMainLayoutModel() {
   const [messageLimit, setMessageLimit] = useState(50);
   const [turnStatus, setTurnStatus] = useState<TurnStatus | null>(null);
   const waitingSince = useRef<string | null>(null);
+  const optimisticMessageSequence = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const normalizedSessionSearchQuery = sessionSearchQuery.trim();
   const debouncedSessionSearchQuery = useDebouncedValue(normalizedSessionSearchQuery, 250);
@@ -41,6 +51,7 @@ export function useMainLayoutModel() {
   const agents = agentsQuery.data ?? [];
   const activeSession = activeQuery.data ?? null;
   const activeSessionId = activeSession?.id ?? null;
+  activeSessionIdRef.current = activeSessionId;
   const messagesKey = useMemo(
     () => ["messages", activeSessionId, messageLimit] as const,
     [activeSessionId, messageLimit],
@@ -120,9 +131,37 @@ export function useMainLayoutModel() {
     onError: (reason, input) => reportChatFailure("MainLayout.exportSession", reason, input.session.id),
   });
   const sendMessage = useMutation({
-    mutationFn: (input: { content: string; config: ChatConfig; fileReferences: ChatFileReference[]; sessionId: string }) => agentService.sendMessage(input),
-    onSuccess: invalidateRuntime,
-    onError: (reason, input) => reportChatFailure("MainLayout.sendMessage", reason, input.sessionId, input.content),
+    mutationFn: (input: SendMessageMutationInput) => agentService.sendMessage(input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: ["messages", input.sessionId] });
+      optimisticMessageSequence.current += 1;
+      const optimisticId = `optimistic:${input.sessionId}:${optimisticMessageSequence.current}`;
+      const optimisticMessage = createOptimisticUserMessage({
+        content: input.content,
+        fileReferences: input.fileReferences,
+        id: optimisticId,
+        sessionId: input.sessionId,
+      });
+      queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+        appendMessageIfMissing(current, optimisticMessage));
+      return { optimisticId };
+    },
+    onSuccess: (assistant, input) => {
+      queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+        appendMessageIfMissing(current, assistant));
+      invalidateRuntime();
+    },
+    onError: (reason, input, context) => {
+      if (context?.optimisticId) {
+        queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+          removeMessageById(current, context.optimisticId));
+      }
+      if (activeSessionIdRef.current === input.sessionId) {
+        setDraft(input.content);
+        setFileReferences(input.fileReferences);
+      }
+      reportChatFailure("MainLayout.sendMessage", reason, input.sessionId);
+    },
   });
   const stopGeneration = useMutation({
     mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId),

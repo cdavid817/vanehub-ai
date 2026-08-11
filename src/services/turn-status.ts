@@ -2,9 +2,9 @@ import type { TurnStatus } from "../components/chat/TurnStatusBar";
 
 /** The turn status as the native layer publishes it. */
 export type TurnStatusEvent =
-  | { kind: "agent"; seatIndex: number; mention: string; depth: number; maxDepth: number }
-  | { kind: "waiting_human"; seatIndex: number; mention: string; since: string }
-  | { kind: "round_complete"; seatIndex: number; mention: string };
+  | { kind: "agent"; seatId?: string; seatIndex: number; mention: string; depth: number; maxDepth: number }
+  | { kind: "waiting_human"; seatId?: string; seatIndex: number; mention: string; since: string }
+  | { kind: "round_complete"; seatId?: string; seatIndex: number; mention: string };
 
 /**
  * Counts how long a paused round has been waiting.
@@ -23,15 +23,17 @@ export function turnStatusFromEvent(event: TurnStatusEvent, now = new Date()): T
   if (event.kind === "waiting_human") {
     return {
       kind: "waiting-human",
+      seatId: event.seatId,
       requesterName: event.mention,
       waitedMinutes: waitedMinutes(event.since, now),
     };
   }
   if (event.kind === "round_complete") {
-    return { kind: "round-complete", finisherName: event.mention };
+    return { kind: "round-complete", seatId: event.seatId, finisherName: event.mention };
   }
   return {
     kind: "agent",
+    seatId: event.seatId,
     holderName: event.mention,
     depth: event.depth,
     maxDepth: event.maxDepth,

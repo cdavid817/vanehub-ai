@@ -30,3 +30,4 @@ pub(crate) mod search_sessions;
 pub(crate) mod switch_session;
 pub(crate) mod unarchive_session;
 pub(crate) mod unpin_session;
+pub(crate) mod update_session_seats;

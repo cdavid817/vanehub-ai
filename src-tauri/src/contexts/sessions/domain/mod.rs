@@ -20,4 +20,4 @@ pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,
     SessionTitle,
 };
-pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat};
+pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat, SessionSeatRoleSnapshot};

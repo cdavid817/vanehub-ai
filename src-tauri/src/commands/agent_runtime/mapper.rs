@@ -603,6 +603,7 @@ mod tests {
         let value = serde_json::to_value(message_to_dto(AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "assistant".to_string(),
             content: "done".to_string(),

@@ -211,9 +211,10 @@ export interface ChatMessage {
   id: string;
   sessionId: string;
   role: MessageRole;
+  /** Stable participant identity for messages created after participant migration. */
+  speakerSeatId?: string;
   /**
-   * Index of the seat that spoke this message. Absent for user messages, for messages that predate
-   * seats, and for single-seat sessions, which keep their original rendering.
+   * Legacy attribution for messages that predate stable participant ids.
    */
   seatIndex?: number;
   content: string;

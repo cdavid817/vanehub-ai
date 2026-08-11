@@ -21,17 +21,20 @@ export function sessionSpeakers({
   agents: AgentRegistryEntry[];
   roles: ExpertRole[];
   seats: SessionSeat[];
-}): Map<number, MessageSpeaker> {
-  const speakers = new Map<number, MessageSpeaker>();
+}): Map<string | number, MessageSpeaker> {
+  const speakers = new Map<string | number, MessageSpeaker>();
   if (seats.length < 2) return speakers;
   seats.forEach((_, seatIndex) => {
     const speaker = resolveMessageSpeaker({ agents, roles, seatIndex, seats });
-    if (speaker) speakers.set(seatIndex, speaker);
+    if (!speaker) return;
+    speakers.set(seatIndex, speaker);
+    const seatId = seats[seatIndex]?.seatId;
+    if (seatId) speakers.set(seatId, speaker);
   });
   return speakers;
 }
 
-export function useSessionSpeakers(session: Session | null): Map<number, MessageSpeaker> {
+export function useSessionSpeakers(session: Session | null): Map<string | number, MessageSpeaker> {
   const seats = useMemo(() => (session ? seatsFromSession(session) : []), [session]);
   const isMultiSeat = seats.length > 1;
   // Neither query runs for a single-Agent session, which must not pay for a feature it never uses.

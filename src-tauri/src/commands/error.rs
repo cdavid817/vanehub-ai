@@ -379,6 +379,11 @@ impl From<SessionsError> for CommandError {
                 category: CommandErrorCategory::Conflict,
                 message: "validation error: Category name already exists.".to_string(),
             },
+            SessionsError::SessionRevisionConflict(_) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: "validation error: Session participants changed since they were loaded."
+                    .to_string(),
+            },
             SessionsError::Repository(message) | SessionsError::Transaction(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("database error: {message}"),

@@ -927,21 +927,61 @@ fn safe_file_segment(value: &str) -> String {
 }
 
 fn normalize_generation_executable(agent_id: &str, executable: &str) -> String {
-    if agent_id != "opencode" {
-        return executable.to_string();
+    match agent_id {
+        "codex-cli" => resolve_codex_npm_shim(executable).unwrap_or_else(|| executable.to_string()),
+        "opencode" => {
+            resolve_opencode_npm_shim(executable).unwrap_or_else(|| executable.to_string())
+        }
+        _ => executable.to_string(),
     }
-    resolve_opencode_npm_shim(executable).unwrap_or_else(|| executable.to_string())
 }
 
-fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
+fn resolve_codex_npm_shim(executable: &str) -> Option<String> {
+    let path = recognized_npm_shim(executable, "codex")?;
+    let package_root = path
+        .parent()?
+        .join("node_modules")
+        .join("@openai")
+        .join("codex");
+    let (platform_package, target_triple) = if cfg!(target_arch = "aarch64") {
+        ("codex-win32-arm64", "aarch64-pc-windows-msvc")
+    } else {
+        ("codex-win32-x64", "x86_64-pc-windows-msvc")
+    };
+    let candidates = [
+        package_root
+            .join("node_modules")
+            .join("@openai")
+            .join(platform_package)
+            .join("vendor")
+            .join(target_triple)
+            .join("bin")
+            .join("codex.exe"),
+        package_root
+            .join("vendor")
+            .join(target_triple)
+            .join("bin")
+            .join("codex.exe"),
+        package_root.join("bin").join("codex.exe"),
+        package_root.join("codex.exe"),
+    ];
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .map(|candidate| candidate.to_string_lossy().to_string())
+}
+
+fn recognized_npm_shim<'a>(executable: &'a str, expected_stem: &str) -> Option<&'a Path> {
     let path = Path::new(executable);
     let extension = path.extension()?.to_string_lossy().to_ascii_lowercase();
     if extension != "cmd" && extension != "ps1" {
         return None;
     }
-    if path.file_stem()?.to_string_lossy().to_ascii_lowercase() != "opencode" {
-        return None;
-    }
+    (path.file_stem()?.to_string_lossy().to_ascii_lowercase() == expected_stem).then_some(path)
+}
+
+fn resolve_opencode_npm_shim(executable: &str) -> Option<String> {
+    let path = recognized_npm_shim(executable, "opencode")?;
     let resolved = path
         .parent()?
         .join("node_modules")
@@ -994,6 +1034,7 @@ fn compose_terminal_event(
 mod terminal_event_tests {
     use super::*;
     use crate::contexts::agent_runtime::application::GenerationProcessFailureKind;
+    use crate::test_support::TempDirectory;
 
     fn failure(message: &str) -> GenerationProcessFailure {
         GenerationProcessFailure::non_retryable(message)
@@ -1071,5 +1112,51 @@ mod terminal_event_tests {
     fn a_successful_exit_completes_with_its_usage() {
         let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Success), "", None);
         assert!(matches!(terminal, GenerationProcessEvent::Completed(None)));
+    }
+
+    #[test]
+    fn codex_npm_shim_resolves_the_packaged_native_windows_binary() {
+        let directory = TempDirectory::new("codex-generation-shim");
+        let shim = directory.path().join("codex.cmd");
+        let native = directory
+            .path()
+            .join("node_modules")
+            .join("@openai")
+            .join("codex")
+            .join("node_modules")
+            .join("@openai")
+            .join(if cfg!(target_arch = "aarch64") {
+                "codex-win32-arm64"
+            } else {
+                "codex-win32-x64"
+            })
+            .join("vendor")
+            .join(if cfg!(target_arch = "aarch64") {
+                "aarch64-pc-windows-msvc"
+            } else {
+                "x86_64-pc-windows-msvc"
+            })
+            .join("bin")
+            .join("codex.exe");
+        std::fs::write(&shim, "fixture").expect("shim");
+        std::fs::create_dir_all(native.parent().expect("native parent")).expect("native dirs");
+        std::fs::write(&native, "fixture").expect("native executable");
+
+        assert_eq!(
+            normalize_generation_executable("codex-cli", &shim.to_string_lossy()),
+            native.to_string_lossy().to_string()
+        );
+    }
+
+    #[test]
+    fn codex_npm_shim_falls_back_when_the_native_package_is_missing() {
+        let directory = TempDirectory::new("codex-generation-shim-missing");
+        let shim = directory.path().join("codex.cmd");
+        std::fs::write(&shim, "fixture").expect("shim");
+
+        assert_eq!(
+            normalize_generation_executable("codex-cli", &shim.to_string_lossy()),
+            shim.to_string_lossy().to_string()
+        );
     }
 }

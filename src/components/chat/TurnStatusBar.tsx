@@ -2,9 +2,9 @@ import { CheckCircle2, Loader2, PauseCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export type TurnStatus =
-  | { kind: "agent"; holderName: string; depth: number; maxDepth: number }
-  | { kind: "waiting-human"; requesterName: string; waitedMinutes: number }
-  | { kind: "round-complete"; finisherName: string };
+  | { kind: "agent"; seatId?: string; holderName: string; depth: number; maxDepth: number }
+  | { kind: "waiting-human"; seatId?: string; requesterName: string; waitedMinutes: number }
+  | { kind: "round-complete"; seatId?: string; finisherName: string };
 
 /**
  * Always visible in a multi-seat session, because the one question a reader has is "who are we

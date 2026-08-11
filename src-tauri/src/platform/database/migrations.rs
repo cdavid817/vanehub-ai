@@ -322,7 +322,28 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-and-code-index-reconciliation",
         apply_plan_and_code_index_reconciliation,
     )?;
+    apply_transactional_migration(
+        conn,
+        54,
+        "stable-session-participants",
+        crate::contexts::sessions::infrastructure::apply_stable_participant_schema,
+    )?;
+    repair_missing_stable_participant_schema(conn)?;
 
+    Ok(())
+}
+
+/// Parallel development worktrees can share the application data directory while carrying
+/// different migrations at version 54. The version gate then legitimately preserves the first
+/// record, so enforce the required schema invariant without rewriting that database history.
+fn repair_missing_stable_participant_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    if table_has_column(conn, "messages", "speaker_seat_id")? {
+        return Ok(());
+    }
+
+    let transaction = conn.unchecked_transaction()?;
+    crate::contexts::sessions::infrastructure::apply_stable_participant_schema(&transaction)?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -967,7 +988,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (52, 53));
+        assert_eq!(migration_state, (53, 54));
 
         migrate(&connection).expect("upgrade migration");
 

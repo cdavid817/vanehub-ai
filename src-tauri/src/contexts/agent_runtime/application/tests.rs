@@ -157,6 +157,7 @@ impl FakeWorld {
             AgentMessage {
                 id,
                 session_id: "session-1".to_string(),
+                speaker_seat_id: seat_index.map(|index| format!("seat-{}", index + 1)),
                 seat_index,
                 role: if seat_index.is_some() {
                     "assistant".to_string()
@@ -356,6 +357,7 @@ impl AgentSessionGateway for FakeWorld {
         let record = AgentMessage {
             id: id.clone(),
             session_id: message.session_id,
+            speaker_seat_id: message.speaker_seat_id,
             seat_index: message.seat_index,
             role: message.role,
             content: message.content,
@@ -1492,9 +1494,12 @@ pub(super) fn seat_turn_world() -> Arc<FakeWorld> {
         session.agent_id = "claude-code".to_string();
         session.seats = seats
             .iter()
-            .map(|(role_id, _, agent_id, _)| AgentSessionSeat {
+            .enumerate()
+            .map(|(index, (role_id, _, agent_id, _))| AgentSessionSeat {
+                seat_id: format!("seat-{}", index + 1),
                 agent_id: (*agent_id).to_string(),
                 role_id: Some((*role_id).to_string()),
+                left_at: None,
             })
             .collect();
     }

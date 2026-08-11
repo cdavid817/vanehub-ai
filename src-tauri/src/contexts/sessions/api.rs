@@ -8,10 +8,11 @@ pub(crate) use super::application::{
     SessionExportFormat, SessionExportRequest, SessionExportResult, SessionListScope,
     SessionMaintenanceResult, SessionRecord, SessionSearchMatchKind, SessionSearchResult,
     SessionUsageAccountingKind, SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit,
-    SessionsApplicationError as SessionsError, UsageStatisticsRange,
+    SessionsApplicationError as SessionsError, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 pub(crate) use super::domain::{
     LoopSessionRole, SessionActivation, SessionLifecycle, SessionOwner, SessionSeat,
+    SessionSeatRoleSnapshot,
 };
 use serde_json::Value;
 
@@ -100,6 +101,13 @@ impl SessionsApi {
         title: String,
     ) -> Result<SessionRecord, SessionsError> {
         self.service.rename_session(session_id, title)
+    }
+
+    pub(crate) fn update_seats(
+        &self,
+        request: UpdateSessionSeatsRequest,
+    ) -> Result<SessionRecord, SessionsError> {
+        self.service.update_session_seats(request)
     }
 
     pub(crate) fn set_pinned(

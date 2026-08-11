@@ -12,8 +12,8 @@ use crate::contexts::sessions::application::{
 use crate::contexts::sessions::domain::{
     encode_seats, CategoryId, ChatPreferences, MessageId, SessionId,
 };
-use crate::platform::database::{NativeDatabase, PooledSqlite};
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::platform::database::{table_has_column, NativeDatabase, PooledSqlite};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 #[derive(Clone)]
 pub(crate) struct SqliteSessionsRepository {
@@ -116,6 +116,42 @@ impl SessionRepository for SqliteSessionsRepository {
     }
 
     fn save(&self, session: &SessionRecord) -> Result<SessionRecord, SessionsApplicationError> {
+        self.save_with_revision(session, None)?
+            .ok_or_else(|| SessionsApplicationError::SessionNotFound(session.id().to_string()))
+    }
+
+    fn save_if_revision(
+        &self,
+        session: &SessionRecord,
+        expected_updated_at: &str,
+    ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
+        self.save_with_revision(session, Some(expected_updated_at))
+    }
+
+    fn recoverable_sessions(&self) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.query_sessions(
+            "WHERE lifecycle_state IN ('starting', 'running') ORDER BY updated_at ASC",
+            None,
+        )
+    }
+
+    fn inactive_sessions(
+        &self,
+        cutoff: &str,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.query_sessions(
+            "WHERE archived = 0 AND pinned = 0 AND loop_run_id IS NULL AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
+            Some(cutoff),
+        )
+    }
+}
+
+impl SqliteSessionsRepository {
+    fn save_with_revision(
+        &self,
+        session: &SessionRecord,
+        expected_updated_at: Option<&str>,
+    ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
         let connection = self.connection()?;
         let changed = connection
             .execute(
@@ -124,8 +160,8 @@ impl SessionRepository for SqliteSessionsRepository {
                 SET title = ?1, lifecycle_state = ?2, runtime_session_id = ?3,
                     category_id = ?4, pinned = ?5, archived = ?6, updated_at = ?7,
                     remote_ssh_connection_id = ?8, remote_ssh_connection_revision = ?9,
-                    seats = ?10
-                WHERE id = ?11
+                    seats = ?10, agent_id = ?11
+                WHERE id = ?12 AND (?13 IS NULL OR updated_at = ?13)
                 "#,
                 params![
                     session.aggregate.title().as_str(),
@@ -146,34 +182,16 @@ impl SessionRepository for SqliteSessionsRepository {
                         .as_ref()
                         .map(|binding| binding.revision),
                     encode_seats(&session.seats),
+                    session.agent_id,
                     session.id(),
+                    expected_updated_at,
                 ],
             )
             .map_err(repository_error)?;
         if changed == 0 {
-            return Err(SessionsApplicationError::SessionNotFound(
-                session.id().to_string(),
-            ));
+            return Ok(None);
         }
-        load_session(&connection, session.aggregate.id())?
-            .ok_or_else(|| SessionsApplicationError::SessionNotFound(session.id().to_string()))
-    }
-
-    fn recoverable_sessions(&self) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        self.query_sessions(
-            "WHERE lifecycle_state IN ('starting', 'running') ORDER BY updated_at ASC",
-            None,
-        )
-    }
-
-    fn inactive_sessions(
-        &self,
-        cutoff: &str,
-    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        self.query_sessions(
-            "WHERE archived = 0 AND pinned = 0 AND loop_run_id IS NULL AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
-            Some(cutoff),
-        )
+        load_session(&connection, session.aggregate.id())
     }
 }
 
@@ -239,8 +257,18 @@ impl SessionMessageRepository for SqliteSessionsRepository {
     }
 
     fn insert(&self, message: &MessageRecord) -> Result<MessageRecord, SessionsApplicationError> {
-        let connection = self.connection()?;
-        insert_message(&connection, message)?;
+        let mut connection = self.connection()?;
+        if has_message_sequence(&connection)? {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(repository_error)?;
+            let sequence =
+                allocate_compatible_message_sequence(&transaction, message.message.session_id())?;
+            insert_message(&transaction, message, Some(sequence))?;
+            transaction.commit().map_err(repository_error)?;
+        } else {
+            insert_message(&connection, message, None)?;
+        }
         load_message(&connection, message.message.id())?.ok_or_else(|| {
             SessionsApplicationError::MessageNotFound(message.message.id().as_str().to_string())
         })
@@ -504,38 +532,113 @@ impl SessionConfigurationRepository for SqliteSessionsRepository {
 pub(super) fn insert_message(
     connection: &Connection,
     message: &MessageRecord,
+    session_sequence: Option<i64>,
 ) -> Result<(), SessionsApplicationError> {
     let token_input = message.token_usage.as_ref().map(|usage| usage.input);
     let token_output = message.token_usage.as_ref().map(|usage| usage.output);
-    connection
-        .execute(
-            r#"
+    if let Some(sequence) = session_sequence {
+        connection
+            .execute(
+                r#"
             INSERT INTO messages (
                 id, session_id, role, status, content, thinking_content, tool_use,
                 rich_blocks, token_input, token_output, metadata, file_references,
-                created_at, updated_at, seat_index
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                created_at, updated_at, seat_index, speaker_seat_id, session_sequence
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
             "#,
-            params![
-                message.message.id().as_str(),
-                message.message.session_id().as_str(),
-                message.message.role().as_str(),
-                message.message.status().as_str(),
-                message.content,
-                message.thinking_content,
-                json_values(message.tool_use.as_ref())?,
-                json_values(message.rich_blocks.as_ref())?,
-                token_input,
-                token_output,
-                message.error,
-                file_references_json(message)?,
-                message.created_at,
-                message.updated_at,
-                message.seat_index.map(|index| index as i64),
-            ],
-        )
-        .map_err(repository_error)?;
+                params![
+                    message.message.id().as_str(),
+                    message.message.session_id().as_str(),
+                    message.message.role().as_str(),
+                    message.message.status().as_str(),
+                    message.content,
+                    message.thinking_content,
+                    json_values(message.tool_use.as_ref())?,
+                    json_values(message.rich_blocks.as_ref())?,
+                    token_input,
+                    token_output,
+                    message.error,
+                    file_references_json(message)?,
+                    message.created_at,
+                    message.updated_at,
+                    message.seat_index.map(|index| index as i64),
+                    message.speaker_seat_id,
+                    sequence,
+                ],
+            )
+            .map_err(repository_error)?;
+    } else {
+        connection
+            .execute(
+                r#"
+            INSERT INTO messages (
+                id, session_id, role, status, content, thinking_content, tool_use,
+                rich_blocks, token_input, token_output, metadata, file_references,
+                created_at, updated_at, seat_index, speaker_seat_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+            "#,
+                params![
+                    message.message.id().as_str(),
+                    message.message.session_id().as_str(),
+                    message.message.role().as_str(),
+                    message.message.status().as_str(),
+                    message.content,
+                    message.thinking_content,
+                    json_values(message.tool_use.as_ref())?,
+                    json_values(message.rich_blocks.as_ref())?,
+                    token_input,
+                    token_output,
+                    message.error,
+                    file_references_json(message)?,
+                    message.created_at,
+                    message.updated_at,
+                    message.seat_index.map(|index| index as i64),
+                    message.speaker_seat_id,
+                ],
+            )
+            .map_err(repository_error)?;
+    }
     Ok(())
+}
+
+fn has_message_sequence(connection: &Connection) -> Result<bool, SessionsApplicationError> {
+    table_has_column(connection, "messages", "session_sequence")
+        .map_err(|error| SessionsApplicationError::Repository(error.to_string()))
+}
+
+fn allocate_compatible_message_sequence(
+    connection: &Connection,
+    session_id: &SessionId,
+) -> Result<i64, SessionsApplicationError> {
+    if table_has_column(connection, "sessions", "next_message_sequence")
+        .map_err(|error| SessionsApplicationError::Repository(error.to_string()))?
+    {
+        return connection
+            .query_row(
+                r#"
+                UPDATE sessions
+                SET next_message_sequence = MAX(
+                    next_message_sequence,
+                    COALESCE((SELECT MAX(session_sequence) + 1 FROM messages WHERE session_id = ?1), 1)
+                ) + 1
+                WHERE id = ?1
+                RETURNING next_message_sequence - 1
+                "#,
+                [session_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(repository_error)?
+            .ok_or_else(|| SessionsApplicationError::SessionNotFound(session_id.as_str().to_string()));
+    }
+
+    connection
+        .query_row(
+            "SELECT COALESCE(MAX(session_sequence), 0) + 1 FROM messages WHERE session_id = ?1",
+            [session_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(repository_error)
 }
 
 pub(super) fn update_message(
@@ -550,8 +653,9 @@ pub(super) fn update_message(
             UPDATE messages
             SET role = ?1, status = ?2, content = ?3, thinking_content = ?4,
                 tool_use = ?5, rich_blocks = ?6, token_input = ?7, token_output = ?8,
-                metadata = ?9, file_references = ?10, updated_at = ?11
-            WHERE id = ?12 AND session_id = ?13
+                metadata = ?9, file_references = ?10, updated_at = ?11,
+                speaker_seat_id = ?12
+            WHERE id = ?13 AND session_id = ?14
             "#,
             params![
                 message.message.role().as_str(),
@@ -565,6 +669,7 @@ pub(super) fn update_message(
                 message.error,
                 file_references_json(message)?,
                 message.updated_at,
+                message.speaker_seat_id,
                 message.message.id().as_str(),
                 message.message.session_id().as_str(),
             ],

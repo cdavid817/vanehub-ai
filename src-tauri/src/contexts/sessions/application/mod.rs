@@ -17,7 +17,7 @@ pub(crate) use models::{
     SessionSearchMatch, SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult,
     SessionSshBinding, SessionSshProfile, SessionUsageAccountingKind, SessionUsageAgentBreakdown,
     SessionUsageCoverage, SessionUsagePoint, SessionUsageStatistics, SessionUsageSummary,
-    SessionUsageUnit, SessionWorkspace, UsageStatisticsRange,
+    SessionUsageUnit, SessionWorkspace, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 pub(crate) use ports::{
     SessionAgentEligibilityPort, SessionCategoryRepository, SessionChatProfilePort,

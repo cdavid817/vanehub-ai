@@ -5708,6 +5708,7 @@ mod tests {
         crate::contexts::agent_runtime::application::AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: role.to_string(),
             content,

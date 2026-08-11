@@ -90,6 +90,7 @@ pub(crate) fn invoke_handler(
         crate::commands::sessions::save_session_chat_config::save_session_chat_config,
         crate::commands::sessions::switch_session::switch_session,
         crate::commands::sessions::rename_session::rename_session,
+        crate::commands::sessions::update_session_seats::update_session_seats,
         crate::commands::sessions::rebind_remote_session_ssh_connection::rebind_remote_session_ssh_connection,
         crate::commands::sessions::pin_session::pin_session,
         crate::commands::sessions::unpin_session::unpin_session,

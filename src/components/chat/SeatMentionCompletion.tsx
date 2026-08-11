@@ -24,7 +24,8 @@ export function SeatMentionCompletion({
   if (options.length === 0) return null;
 
   return (
-    <div className="ucd-panel grid gap-0.5 rounded-lg border border-border p-1 text-sm">
+    <div aria-label={t("chat.completion.participant")} className="grid gap-0.5 text-sm" role="group">
+      <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.participant")}</p>
       {options.map((option) => (
         <button
           className="ucd-interactive flex items-center gap-2 rounded px-2 py-1.5 text-left"

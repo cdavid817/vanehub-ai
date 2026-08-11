@@ -98,8 +98,10 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                 .into_iter()
                 .map(
                     |seat| crate::contexts::agent_runtime::application::AgentSessionSeat {
+                        seat_id: seat.seat_id,
                         agent_id: seat.agent_id,
                         role_id: seat.role_id,
+                        left_at: seat.left_at,
                     },
                 )
                 .collect(),
@@ -205,6 +207,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         self.sessions
             .create_message(CreateMessageRequest {
                 session_id: message.session_id,
+                speaker_seat_id: message.speaker_seat_id,
                 seat_index: message.seat_index,
                 role: message.role,
                 status: message.status,
@@ -380,6 +383,7 @@ fn agent_message(message: RuntimeMessageSnapshot) -> AgentMessage {
     AgentMessage {
         id: message.id,
         session_id: message.session_id,
+        speaker_seat_id: message.speaker_seat_id,
         seat_index: message.seat_index,
         role: message.role,
         content: message.content,
@@ -504,6 +508,11 @@ fn session_error(error: SessionsError) -> AgentRuntimeApplicationError {
         }
         SessionsError::CategoryNameConflict(_) => {
             AgentRuntimeApplicationError::Session("Category name already exists.".to_string())
+        }
+        SessionsError::SessionRevisionConflict(session_id) => {
+            AgentRuntimeApplicationError::Session(format!(
+                "Session participants changed since they were loaded: {session_id}"
+            ))
         }
         SessionsError::Repository(message)
         | SessionsError::Transaction(message)
