@@ -1,11 +1,12 @@
 use super::dto::{
-    ChatConfig, CreateSessionInput, InteractionMode, SessionExportFormat, UsageStatisticsRange,
+    ChatConfig, CreateSessionInput, InteractionMode, SessionExportFormat, UpdateSessionSeatsInput,
+    UsageStatisticsRange,
 };
 use crate::commands::error::{map_command_error, CommandErrorCategory};
 use crate::contexts::sessions::api::SessionsError;
 use serde_json::{json, Value};
 
-const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
+const MIGRATED_SESSION_COMMANDS: [(&str, &str); 26] = [
     ("create_session", include_str!("create_session.rs")),
     ("list_sessions", include_str!("list_sessions.rs")),
     (
@@ -45,6 +46,10 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
     ),
     ("switch_session", include_str!("switch_session.rs")),
     ("rename_session", include_str!("rename_session.rs")),
+    (
+        "update_session_seats",
+        include_str!("update_session_seats.rs"),
+    ),
     (
         "rebind_remote_session_ssh_connection",
         include_str!("rebind_remote_session_ssh_connection.rs"),
@@ -179,6 +184,14 @@ fn session_command_input_dtos_keep_existing_serde_shapes() {
         serde_json::from_value::<UsageStatisticsRange>(json!("last30Days")).expect("usage range"),
         UsageStatisticsRange::Last30Days
     );
+
+    let membership: UpdateSessionSeatsInput = serde_json::from_value(json!({
+        "sessionId": "session-1",
+        "expectedUpdatedAt": "2026-08-10T00:00:00Z",
+        "seats": [{ "seatId": "seat-1", "agentId": "codex-cli", "roleId": null }]
+    }))
+    .expect("membership input");
+    assert_eq!(membership.seats[0].seat_id.as_deref(), Some("seat-1"));
 }
 
 #[test]
@@ -218,6 +231,11 @@ fn session_command_errors_keep_legacy_safe_strings() {
             SessionsError::CategoryNameConflict("Feature".to_string()),
             CommandErrorCategory::Conflict,
             "validation error: Category name already exists.",
+        ),
+        (
+            SessionsError::SessionRevisionConflict("session-1".to_string()),
+            CommandErrorCategory::Conflict,
+            "validation error: Session participants changed since they were loaded.",
         ),
         (
             SessionsError::Repository("database detail".to_string()),

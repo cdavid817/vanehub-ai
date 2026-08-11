@@ -18,13 +18,16 @@ export const sessionAgentFilters: SessionAgentFilter[] = ["all", "claude-code", 
 
 export function filterSessionsByAgent(sessions: Session[], agentFilter: SessionAgentFilter): Session[] {
   if (agentFilter === "all") return sessions;
-  return sessions.filter((session) => session.agentId === agentFilter);
+  return sessions.filter((session) =>
+    session.agentId === agentFilter || session.seats?.some((seat) => seat.leftAt == null && seat.agentId === agentFilter),
+  );
 }
 
 export function filterSearchResultsByAgent(results: SessionSearchResult[], agentFilter: SessionAgentFilter, sourceMode: SessionSourceMode): SessionSearchResult[] {
   return results.filter((result) => {
     const sourceMatches = sourceMode === "archived" ? result.session.archived : !result.session.archived;
-    const agentMatches = agentFilter === "all" || result.session.agentId === agentFilter;
+    const agentMatches = agentFilter === "all" || result.session.agentId === agentFilter ||
+      result.session.seats?.some((seat) => seat.leftAt == null && seat.agentId === agentFilter);
     return sourceMatches && agentMatches;
   });
 }

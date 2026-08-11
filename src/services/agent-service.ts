@@ -35,6 +35,7 @@ import type {
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
+  UpdateSessionSeatsInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
   Session,
@@ -263,6 +264,7 @@ export interface AgentService {
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
   renameSession(sessionId: string, title: string): Promise<Session>;
+  updateSessionSeats(input: UpdateSessionSeatsInput): Promise<Session>;
   rebindRemoteSessionSshConnection(sessionId: string, connectionId: string): Promise<Session>;
   pinSession(sessionId: string): Promise<Session>;
   unpinSession(sessionId: string): Promise<Session>;

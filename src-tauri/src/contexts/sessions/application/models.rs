@@ -150,6 +150,13 @@ pub(crate) struct NewSessionRequest {
     pub(crate) activation: SessionActivation,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UpdateSessionSeatsRequest {
+    pub(crate) session_id: String,
+    pub(crate) expected_updated_at: String,
+    pub(crate) seats: Vec<SessionSeat>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct NewSessionWorkspace {
     pub(crate) folder: Option<String>,
@@ -285,6 +292,7 @@ pub(crate) struct FileReferenceInput {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CreateMessageRequest {
     pub(crate) session_id: String,
+    pub(crate) speaker_seat_id: Option<String>,
     pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
@@ -302,6 +310,8 @@ pub(crate) struct MessageTokenUsage {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MessageRecord {
     pub(crate) message: SessionMessage,
+    /// Stable participant identity. `seat_index` remains only for legacy reads and diagnostics.
+    pub(crate) speaker_seat_id: Option<String>,
     /// Which seat spoke this. `None` for a user message and for anything predating seats.
     pub(crate) seat_index: Option<usize>,
     /// Correlates serial seat generations without making observability storage authoritative.
@@ -411,6 +421,7 @@ pub(crate) struct RuntimeFileReferenceSnapshot {
 pub(crate) struct RuntimeMessageSnapshot {
     pub(crate) id: String,
     pub(crate) session_id: String,
+    pub(crate) speaker_seat_id: Option<String>,
     pub(crate) seat_index: Option<usize>,
     pub(crate) role: String,
     pub(crate) status: String,
@@ -434,6 +445,7 @@ impl RuntimeMessageSnapshot {
         Self {
             id: record.message.id().as_str().to_string(),
             session_id: record.message.session_id().as_str().to_string(),
+            speaker_seat_id: record.speaker_seat_id.clone(),
             seat_index: record.seat_index,
             role: record.message.role().as_str().to_string(),
             status: record.message.status().as_str().to_string(),

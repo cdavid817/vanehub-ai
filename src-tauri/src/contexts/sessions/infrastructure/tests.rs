@@ -223,8 +223,12 @@ fn session_record(
         ),
         agent_id: "codex-cli".to_string(),
         seats: vec![SessionSeat {
+            seat_id: "seat-1".to_string(),
             agent_id: "codex-cli".to_string(),
             role_id: None,
+            role_snapshot: None,
+            joined_at: updated_at.to_string(),
+            left_at: None,
         }],
         interaction_mode: "interactive".to_string(),
         workspace: SessionWorkspace {
@@ -392,6 +396,7 @@ fn message_record(
             .expect("reference")])
             .expect("references"),
         ),
+        speaker_seat_id: None,
         seat_index: None,
         seat_round_id: None,
         parent_execution_run_id: None,
@@ -3877,12 +3882,20 @@ fn seats_survive_a_create_and_are_updated_on_save() {
     );
     session.seats = vec![
         SessionSeat {
+            seat_id: "seat-1".to_string(),
             agent_id: "claude-code".to_string(),
             role_id: Some("role-architect".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
         SessionSeat {
+            seat_id: "seat-2".to_string(),
             agent_id: "codex-cli".to_string(),
             role_id: Some("role-reviewer".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
     ];
     SessionTransactionPort::create_session(
@@ -3899,8 +3912,12 @@ fn seats_survive_a_create_and_are_updated_on_save() {
 
     // A seat added mid-session must be routable from the next turn, so `save` has to carry seats.
     loaded.seats.push(SessionSeat {
+        seat_id: "seat-3".to_string(),
         agent_id: "gemini-cli".to_string(),
         role_id: None,
+        role_snapshot: None,
+        joined_at: "2026-08-07T00:00:01+00:00".to_string(),
+        left_at: None,
     });
     let saved = SessionRepository::save(&fixture.repository, &loaded).expect("save seats");
     assert_eq!(saved.seats, loaded.seats);
@@ -3922,6 +3939,15 @@ fn a_session_without_seats_reads_as_one_seat() {
         SessionActivation::PreserveActive,
     )
     .expect("create single session");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            "UPDATE sessions SET seats = '[]' WHERE id = ?1",
+            [session.id()],
+        )
+        .expect("clear legacy seats");
 
     let loaded = SessionRepository::find(&fixture.repository, session.aggregate.id())
         .expect("find single session")
@@ -3929,8 +3955,12 @@ fn a_session_without_seats_reads_as_one_seat() {
     assert_eq!(
         loaded.seats,
         vec![SessionSeat {
+            seat_id: "session-single:seat:0".to_string(),
             agent_id: "codex-cli".to_string(),
             role_id: None,
+            role_snapshot: None,
+            joined_at: "2026-07-01T00:00:00+00:00".to_string(),
+            left_at: None,
         }]
     );
 }
@@ -3959,6 +3989,7 @@ fn a_message_records_the_seat_that_spoke_it() {
         MessageStatus::Completed,
         "方案如下",
     );
+    seated.speaker_seat_id = Some("seat-reviewer".to_string());
     seated.seat_index = Some(1);
     SessionMessageRepository::insert(&fixture.repository, &seated).expect("insert seated");
 
@@ -3976,10 +4007,135 @@ fn a_message_records_the_seat_that_spoke_it() {
         .expect("find seated")
         .expect("seated message");
     assert_eq!(loaded.seat_index, Some(1));
+    assert_eq!(loaded.speaker_seat_id.as_deref(), Some("seat-reviewer"));
 
     let loaded_user =
         SessionMessageRepository::find(&fixture.repository, spoken_by_user.message.id())
             .expect("find user")
             .expect("user message");
     assert_eq!(loaded_user.seat_index, None);
+}
+
+#[test]
+fn message_inserts_allocate_unique_sequences_in_the_current_shared_schema() {
+    let fixture = fixture("messages-additive-session-sequence");
+    let session = session_record(
+        "session-sequences",
+        SessionLifecycle::Idle,
+        "共享数据库序号",
+        "2026-08-08T00:00:00+00:00",
+    );
+    SessionTransactionPort::create_session(
+        &fixture.repository,
+        &session,
+        SessionActivation::PreserveActive,
+    )
+    .expect("create session");
+
+    for id in ["message-sequence-1", "message-sequence-2"] {
+        let message = message_record(
+            id,
+            session.id(),
+            MessageRole::User,
+            MessageStatus::Completed,
+            id,
+        );
+        SessionMessageRepository::insert(&fixture.repository, &message).expect("insert message");
+    }
+
+    let connection = fixture.database.connection().expect("connection");
+    let sequences = connection
+        .prepare(
+            "SELECT session_sequence FROM messages WHERE session_id = ?1 ORDER BY session_sequence",
+        )
+        .expect("prepare sequences")
+        .query_map([session.id()], |row| row.get::<_, i64>(0))
+        .expect("query sequences")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect sequences");
+    assert_eq!(sequences, vec![1, 2]);
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT next_message_sequence FROM sessions WHERE id = ?1",
+                [session.id()],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("next sequence"),
+        3
+    );
+}
+
+#[test]
+fn stable_participant_schema_normalizes_legacy_seats_and_backfills_only_valid_speakers() {
+    let connection = rusqlite::Connection::open_in_memory().expect("database");
+    connection
+        .execute_batch(
+            r#"
+            CREATE TABLE sessions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, created_at TEXT NOT NULL, seats TEXT NOT NULL);
+            CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, seat_index INTEGER, created_at TEXT NOT NULL);
+            "#,
+        )
+        .expect("legacy schema");
+    connection
+        .execute(
+            "INSERT INTO sessions(id, agent_id, created_at, seats) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                "shared",
+                "codex-cli",
+                "2026-08-01T00:00:00Z",
+                r#"[{"agentId":"codex-cli","roleId":"reviewer"},{"agentId":"gemini-cli","roleId":"architect","leftAt":"2026-08-02T00:00:00Z"}]"#
+            ],
+        )
+        .expect("shared session");
+    connection
+        .execute(
+            "INSERT INTO sessions(id, agent_id, created_at, seats) VALUES (?1, ?2, ?3, ?4)",
+            params!["single", "claude-code", "2026-08-01T00:00:00Z", "malformed"],
+        )
+        .expect("single session");
+    for (id, session_id, seat_index) in [
+        ("valid", "shared", 1_i64),
+        ("invalid", "shared", 8_i64),
+        ("single-valid", "single", 0_i64),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO messages(id, session_id, seat_index, created_at) VALUES (?1, ?2, ?3, ?4)",
+                params![id, session_id, seat_index, "2026-08-03T00:00:00Z"],
+            )
+            .expect("legacy message");
+    }
+
+    apply_stable_participant_schema(&connection).expect("first migration");
+    apply_stable_participant_schema(&connection).expect("idempotent migration");
+
+    let shared: String = connection
+        .query_row(
+            "SELECT seats FROM sessions WHERE id = 'shared'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("shared seats");
+    let shared = crate::contexts::sessions::domain::decode_seats(
+        &shared,
+        "shared",
+        "codex-cli",
+        "2026-08-01T00:00:00Z",
+    );
+    assert_eq!(shared[0].seat_id, "shared:seat:0");
+    assert_eq!(shared[1].seat_id, "shared:seat:1");
+    assert_eq!(shared[1].left_at.as_deref(), Some("2026-08-02T00:00:00Z"));
+    let speaker = |message_id: &str| -> Option<String> {
+        connection
+            .query_row(
+                "SELECT speaker_seat_id FROM messages WHERE id = ?1",
+                [message_id],
+                |row| row.get(0),
+            )
+            .expect("speaker")
+    };
+    assert_eq!(speaker("valid").as_deref(), Some("shared:seat:1"));
+    assert_eq!(speaker("invalid"), None);
+    assert_eq!(speaker("single-valid").as_deref(), Some("single:seat:0"));
 }

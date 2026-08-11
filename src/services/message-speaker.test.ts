@@ -41,6 +41,7 @@ describe("resolveMessageSpeaker", () => {
   it("resolves a seat into its role identity and Agent name", () => {
     const speaker = resolveMessageSpeaker({ seatIndex: 1, seats, roles, agents });
     expect(speaker).toEqual({
+      agentId: "codex-cli",
       avatar: "🔍",
       color: "#C77D3A",
       roleName: "代码审查",
@@ -76,5 +77,36 @@ describe("resolveMessageSpeaker", () => {
     const speaker = resolveMessageSpeaker({ seatIndex: 1, seats, roles: [], agents });
     expect(speaker?.roleName).toBeNull();
     expect(speaker?.agentName).toBe("Codex CLI");
+  });
+
+  it("keeps captured identity after the roster order and role registry change", () => {
+    const historical: SessionSeat = {
+      seatId: "seat-reviewer",
+      agentId: "codex-cli",
+      roleId: "deleted-role",
+      leftAt: "2026-08-10T01:00:00Z",
+      roleSnapshot: {
+        roleName: "Original reviewer",
+        avatar: "🧭",
+        color: "#123456",
+        responsibility: "Review",
+        agentName: "Original Codex",
+        modelFamily: "openai",
+        crossFamilyReviewer: true,
+      },
+    };
+    const speaker = resolveMessageSpeaker({
+      speakerSeatId: "seat-reviewer",
+      seatIndex: 0,
+      seats: [seats[0], historical],
+      roles: [],
+      agents: [],
+    });
+    expect(speaker).toMatchObject({
+      roleName: "Original reviewer",
+      agentName: "Original Codex",
+      avatar: "🧭",
+      color: "#123456",
+    });
   });
 });

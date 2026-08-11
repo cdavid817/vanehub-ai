@@ -9,6 +9,7 @@
 # 功能详解
 
 - [多 Agent 群聊与 `@` 交接](multi-agent-workflow.md)
+  - [案例教程：验证多 Agent 协作](multi-agent-testing-tutorial.md)
 - [Loop 工程化](loop-engineering.md)
 - [权限审批](permissions.md)
 - [个性化配置](personalization.md)

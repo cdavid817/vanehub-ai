@@ -8,7 +8,8 @@ use crate::contexts::sessions::api::{
     SessionCreationOperation, SessionExportFormat, SessionExportResult, SessionLifecycle,
     SessionOwner, SessionRecord, SessionRecoveryReport as DomainSessionRecoveryReport,
     SessionRecoveryStatus, SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
-    SessionSeat, SessionUsageStatistics, SessionsError, UsageStatisticsRange,
+    SessionSeat, SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsError,
+    UsageStatisticsRange,
 };
 
 pub(super) fn recovery_report_to_dto(
@@ -44,8 +45,12 @@ pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequ
             .seats
             .into_iter()
             .map(|seat| SessionSeat {
+                seat_id: seat.seat_id.unwrap_or_default(),
                 agent_id: seat.agent_id,
                 role_id: seat.role_id,
+                role_snapshot: seat.role_snapshot.map(role_snapshot_from_dto),
+                joined_at: seat.joined_at.unwrap_or_default(),
+                left_at: seat.left_at,
             })
             .collect(),
         interaction_mode: input.interaction_mode.as_str().to_string(),
@@ -97,8 +102,12 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
             .seats
             .into_iter()
             .map(|seat| dto::SessionSeat {
+                seat_id: Some(seat.seat_id),
                 agent_id: seat.agent_id,
                 role_id: seat.role_id,
+                role_snapshot: seat.role_snapshot.map(role_snapshot_to_dto),
+                joined_at: Some(seat.joined_at),
+                left_at: seat.left_at,
             })
             .collect(),
         interaction_mode: interaction_mode(&session.interaction_mode)?,
@@ -263,6 +272,7 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
     });
 
     dto::ChatMessage {
+        speaker_seat_id: record.speaker_seat_id,
         id: record.message.id().as_str().to_string(),
         session_id: record.message.session_id().as_str().to_string(),
         seat_index: record.seat_index,
@@ -282,6 +292,44 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
         updated_at: record.updated_at,
         session_sequence: record.message.session_sequence(),
         execution_run_id: record.message.execution_run_id().map(str::to_string),
+    }
+}
+
+pub(super) fn seats_from_dto(seats: Vec<dto::SessionSeat>) -> Vec<SessionSeat> {
+    seats
+        .into_iter()
+        .map(|seat| SessionSeat {
+            seat_id: seat.seat_id.unwrap_or_default(),
+            agent_id: seat.agent_id,
+            role_id: seat.role_id,
+            role_snapshot: seat.role_snapshot.map(role_snapshot_from_dto),
+            joined_at: seat.joined_at.unwrap_or_default(),
+            left_at: seat.left_at,
+        })
+        .collect()
+}
+
+fn role_snapshot_from_dto(snapshot: dto::SessionSeatRoleSnapshot) -> SessionSeatRoleSnapshot {
+    SessionSeatRoleSnapshot {
+        role_name: snapshot.role_name,
+        avatar: snapshot.avatar,
+        color: snapshot.color,
+        responsibility: snapshot.responsibility,
+        agent_name: snapshot.agent_name,
+        model_family: snapshot.model_family,
+        cross_family_reviewer: snapshot.cross_family_reviewer,
+    }
+}
+
+fn role_snapshot_to_dto(snapshot: SessionSeatRoleSnapshot) -> dto::SessionSeatRoleSnapshot {
+    dto::SessionSeatRoleSnapshot {
+        role_name: snapshot.role_name,
+        avatar: snapshot.avatar,
+        color: snapshot.color,
+        responsibility: snapshot.responsibility,
+        agent_name: snapshot.agent_name,
+        model_family: snapshot.model_family,
+        cross_family_reviewer: snapshot.cross_family_reviewer,
     }
 }
 
@@ -547,6 +595,7 @@ mod tests {
                 .expect("file reference")])
                 .expect("references"),
             ),
+            speaker_seat_id: None,
             seat_index: None,
             seat_round_id: None,
             parent_execution_run_id: None,

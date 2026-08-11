@@ -445,6 +445,35 @@ impl SessionRepository for SqliteSessionsRepository {
     }
 
     fn save(&self, session: &SessionRecord) -> Result<SessionRecord, SessionsApplicationError> {
+        self.save_with_revision(session, None)?
+            .ok_or_else(|| SessionsApplicationError::SessionNotFound(session.id().to_string()))
+    }
+
+    fn save_if_revision(
+        &self,
+        session: &SessionRecord,
+        expected_updated_at: &str,
+    ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
+        self.save_with_revision(session, Some(expected_updated_at))
+    }
+
+    fn inactive_sessions(
+        &self,
+        cutoff: &str,
+    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
+        self.query_sessions(
+            "WHERE archived = 0 AND pinned = 0 AND loop_run_id IS NULL AND recovery_status = 'clean' AND active_execution_run_id IS NULL AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
+            Some(cutoff),
+        )
+    }
+}
+
+impl SqliteSessionsRepository {
+    fn save_with_revision(
+        &self,
+        session: &SessionRecord,
+        expected_updated_at: Option<&str>,
+    ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
         let connection = self.connection()?;
         let changed = connection
             .execute(
@@ -453,10 +482,10 @@ impl SessionRepository for SqliteSessionsRepository {
                 SET title = ?1, lifecycle_state = ?2, runtime_session_id = ?3,
                     category_id = ?4, pinned = ?5, archived = ?6, updated_at = ?7,
                     remote_ssh_connection_id = ?8, remote_ssh_connection_revision = ?9,
-                    seats = ?10, recovery_status = ?11, recovery_revision = ?12,
-                    state_revision = ?13, history_revision = ?14,
-                    active_execution_run_id = ?15, next_message_sequence = ?16
-                WHERE id = ?17
+                    seats = ?10, agent_id = ?11, recovery_status = ?12,
+                    recovery_revision = ?13, state_revision = ?14, history_revision = ?15,
+                    active_execution_run_id = ?16, next_message_sequence = ?17
+                WHERE id = ?18 AND (?19 IS NULL OR updated_at = ?19)
                 "#,
                 params![
                     session.aggregate.title().as_str(),
@@ -477,6 +506,7 @@ impl SessionRepository for SqliteSessionsRepository {
                         .as_ref()
                         .map(|binding| binding.revision),
                     encode_seats(&session.seats),
+                    session.agent_id,
                     session.aggregate.recovery().status().as_str(),
                     session.aggregate.recovery().recovery_revision() as i64,
                     session.aggregate.recovery().state_revision() as i64,
@@ -484,26 +514,14 @@ impl SessionRepository for SqliteSessionsRepository {
                     session.aggregate.recovery().active_execution_run_id(),
                     session.aggregate.recovery().next_message_sequence() as i64,
                     session.id(),
+                    expected_updated_at,
                 ],
             )
             .map_err(repository_error)?;
         if changed == 0 {
-            return Err(SessionsApplicationError::SessionNotFound(
-                session.id().to_string(),
-            ));
+            return Ok(None);
         }
-        load_session(&connection, session.aggregate.id())?
-            .ok_or_else(|| SessionsApplicationError::SessionNotFound(session.id().to_string()))
-    }
-
-    fn inactive_sessions(
-        &self,
-        cutoff: &str,
-    ) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        self.query_sessions(
-            "WHERE archived = 0 AND pinned = 0 AND loop_run_id IS NULL AND recovery_status = 'clean' AND active_execution_run_id IS NULL AND lifecycle_state NOT IN ('starting', 'running') AND updated_at < ?1 ORDER BY updated_at ASC",
-            Some(cutoff),
-        )
+        load_session(&connection, session.aggregate.id())
     }
 }
 
@@ -984,9 +1002,9 @@ pub(super) fn insert_message(
             INSERT INTO messages (
                 id, session_id, role, status, content, thinking_content, tool_use,
                 rich_blocks, token_input, token_output, metadata, file_references,
-                created_at, updated_at, seat_index, session_sequence, execution_run_id,
-                seat_round_id, parent_execution_run_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                created_at, updated_at, seat_index, speaker_seat_id, session_sequence,
+                execution_run_id, seat_round_id, parent_execution_run_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             "#,
             params![
                 message.message.id().as_str(),
@@ -1004,6 +1022,7 @@ pub(super) fn insert_message(
                 message.created_at,
                 message.updated_at,
                 message.seat_index.map(|index| index as i64),
+                message.speaker_seat_id,
                 session_sequence as i64,
                 message.message.execution_run_id(),
                 message.seat_round_id,
@@ -1065,8 +1084,9 @@ pub(super) fn update_message(
             UPDATE messages
             SET role = ?1, status = ?2, content = ?3, thinking_content = ?4,
                 tool_use = ?5, rich_blocks = ?6, token_input = ?7, token_output = ?8,
-                metadata = ?9, file_references = ?10, updated_at = ?11
-            WHERE id = ?12 AND session_id = ?13
+                metadata = ?9, file_references = ?10, updated_at = ?11,
+                speaker_seat_id = ?12
+            WHERE id = ?13 AND session_id = ?14
             "#,
             params![
                 message.message.role().as_str(),
@@ -1080,6 +1100,7 @@ pub(super) fn update_message(
                 message.error,
                 file_references_json(message)?,
                 message.updated_at,
+                message.speaker_seat_id,
                 message.message.id().as_str(),
                 message.message.session_id().as_str(),
             ],

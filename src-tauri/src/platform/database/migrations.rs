@@ -355,6 +355,13 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "lsp-code-intelligence-foundation",
         crate::contexts::code_intelligence::api::apply_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        59,
+        "stable-session-participants",
+        crate::contexts::sessions::infrastructure::apply_stable_participant_schema,
+    )?;
+    repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -631,6 +638,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (56, "operation-recovery-evidence"),
     (57, "session-recovery-performance-hardening"),
     (58, "lsp-code-intelligence-foundation"),
+    (59, "stable-session-participants"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -669,6 +677,20 @@ fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseEr
         }
         prev = Some(*version);
     }
+    Ok(())
+}
+
+/// Parallel development worktrees can share the application data directory while carrying
+/// different migrations at version 54. The version gate then legitimately preserves the first
+/// record, so enforce the required schema invariant without rewriting that database history.
+fn repair_missing_stable_participant_schema(conn: &Connection) -> Result<(), DatabaseError> {
+    if table_has_column(conn, "messages", "speaker_seat_id")? {
+        return Ok(());
+    }
+
+    let transaction = conn.unchecked_transaction()?;
+    crate::contexts::sessions::infrastructure::apply_stable_participant_schema(&transaction)?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -1521,7 +1543,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (57, 58));
+        assert_eq!(migration_state, (58, 59));
 
         migrate(&connection).expect("upgrade migration");
 

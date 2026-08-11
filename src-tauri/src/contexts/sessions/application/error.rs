@@ -11,6 +11,7 @@ pub(crate) enum SessionsApplicationError {
     MessageNotFound(String),
     CategoryNotFound(String),
     CategoryNameConflict(String),
+    SessionRevisionConflict(String),
     Repository(String),
     RetryableStorage(String),
     StructuralRecoveryEvidence(String),
@@ -56,6 +57,12 @@ impl fmt::Display for SessionsApplicationError {
             }
             Self::CategoryNameConflict(name) => {
                 write!(formatter, "Session category name already exists: {name}")
+            }
+            Self::SessionRevisionConflict(session_id) => {
+                write!(
+                    formatter,
+                    "Session participants changed since they were loaded: {session_id}"
+                )
             }
             Self::Repository(message) => write!(formatter, "session repository error: {message}"),
             Self::RetryableStorage(message) => {

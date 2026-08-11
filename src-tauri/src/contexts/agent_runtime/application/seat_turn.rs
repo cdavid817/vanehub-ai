@@ -21,6 +21,7 @@ use crate::contexts::agent_runtime::domain::{
     next_turn_targets, normalize_model_family, parse_human_handoff, ChainEndReason,
     SeatBriefingEntry, SeatContextMode, SeatTurn as SeatContextTurn,
 };
+use uuid::Uuid;
 
 /// Inherited defaults that have not been measured against this runtime, so they live here as
 /// one obvious place to change rather than being threaded through configuration nobody has
@@ -41,6 +42,7 @@ const USER_SPEAKER: &str = "用户";
 /// One seat of a session, resolved from its stored role and Agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatRosterEntry {
+    pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     pub(crate) agent_id: String,
     pub(crate) briefing: SeatBriefingEntry,
@@ -71,6 +73,7 @@ pub(crate) struct SeatTurnDecision {
 /// A seat the coordinator is to invoke, and how deep into the chain that turn sits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SeatTurnAssignment {
+    pub(crate) seat_id: String,
     pub(crate) seat_index: usize,
     pub(crate) depth: usize,
     pub(crate) round_id: String,
@@ -83,8 +86,14 @@ impl AgentRuntimeApplicationService {
     /// A missing session answers `false`: there is nothing to coordinate, and reporting the lookup
     /// failure here would turn an unrelated error into a failed send.
     pub(crate) fn is_multi_seat_session(&self, session_id: &str) -> bool {
-        self.require_session(session_id)
-            .is_ok_and(|session| session.seats.len() > 1)
+        self.require_session(session_id).is_ok_and(|session| {
+            session
+                .seats
+                .iter()
+                .filter(|seat| seat.left_at.is_none())
+                .count()
+                > 1
+        })
     }
 
     /// Assembles who is in the session and how each is addressed.
@@ -99,7 +108,10 @@ impl AgentRuntimeApplicationService {
         let mut role_names = Vec::with_capacity(session.seats.len());
         let mut resolved = Vec::with_capacity(session.seats.len());
 
-        for seat in &session.seats {
+        for (seat_index, seat) in session.seats.iter().enumerate() {
+            if seat.left_at.is_some() {
+                continue;
+            }
             let agent = self.require_agent(&seat.agent_id)?;
             let role = seat
                 .role_id
@@ -111,37 +123,84 @@ impl AgentRuntimeApplicationService {
                 .map(|role| role.display_name.clone())
                 .unwrap_or_else(|| agent.display_name().to_string());
             role_names.push(role_name.clone());
-            resolved.push((seat.agent_id.clone(), agent, role, role_name));
+            resolved.push((
+                seat.seat_id.clone(),
+                seat_index,
+                seat.agent_id.clone(),
+                agent,
+                role,
+                role_name,
+            ));
         }
 
         let mentions = derive_mentions(&role_names);
         Ok(resolved
             .into_iter()
             .zip(mentions)
-            .enumerate()
             .map(
-                |(seat_index, ((agent_id, agent, role, role_name), mention))| SeatRosterEntry {
-                    seat_index,
-                    agent_id,
-                    briefing: SeatBriefingEntry {
-                        mention,
-                        role_name,
-                        agent_name: agent.display_name().to_string(),
-                        model_family: normalize_model_family(
-                            agent.id().as_str(),
-                            agent.provider(),
-                            None,
-                        ),
-                        responsibility: role
-                            .map(|role| role.responsibility.clone())
-                            .unwrap_or_default(),
-                        instruction: role
-                            .map(|role| role.instruction.clone())
-                            .unwrap_or_default(),
-                    },
+                |((seat_id, seat_index, agent_id, agent, role, role_name), mention)| {
+                    SeatRosterEntry {
+                        seat_id,
+                        seat_index,
+                        agent_id,
+                        briefing: SeatBriefingEntry {
+                            mention,
+                            role_name,
+                            agent_name: agent.display_name().to_string(),
+                            model_family: normalize_model_family(
+                                agent.id().as_str(),
+                                agent.provider(),
+                                None,
+                            ),
+                            responsibility: role
+                                .map(|role| role.responsibility.clone())
+                                .unwrap_or_default(),
+                            instruction: role
+                                .map(|role| role.instruction.clone())
+                                .unwrap_or_default(),
+                        },
+                    }
                 },
             )
             .collect())
+    }
+
+    /// Gives the first reply in a multi-seat round the same identity and instructions as every
+    /// later handoff. Without this, the first assistant message has no speaker and its mentions
+    /// cannot enter the seat-turn coordinator.
+    pub(crate) fn initial_seat_turn_context(
+        &self,
+        session: &AgentSession,
+    ) -> Result<Option<(SeatTurnOwnership, String)>, AgentRuntimeApplicationError> {
+        let roster = self.seat_roster(session)?;
+        if roster.len() <= 1 {
+            return Ok(None);
+        }
+        let Some(seat) = roster.first() else {
+            return Ok(None);
+        };
+        let others = roster
+            .iter()
+            .skip(1)
+            .map(|entry| entry.briefing.clone())
+            .collect::<Vec<_>>();
+        let briefing = build_seat_briefing(
+            &seat.briefing,
+            &others,
+            MAX_CHAIN_DEPTH,
+            MAX_MENTIONS_PER_REPLY,
+        );
+        Ok(Some((
+            SeatTurnOwnership {
+                seat_id: seat.seat_id.clone(),
+                seat_index: seat.seat_index,
+                seat_mention: seat.briefing.mention.clone(),
+                depth: 1,
+                round_id: format!("seat-round-{}", Uuid::new_v4()),
+                parent_execution_run_id: None,
+            },
+            briefing,
+        )))
     }
 
     /// Reads a completed turn and decides who speaks next.
@@ -167,6 +226,7 @@ impl AgentRuntimeApplicationService {
                 self.announce_turn_status(
                     &terminal.session_id,
                     SeatTurnStatus::RoundComplete {
+                        seat_id: terminal.seat_id.clone(),
                         seat_index: terminal.seat_index,
                         mention: terminal.seat_mention.clone(),
                     },
@@ -180,6 +240,7 @@ impl AgentRuntimeApplicationService {
                 self.announce_turn_status(
                     &terminal.session_id,
                     SeatTurnStatus::WaitingHuman {
+                        seat_id: terminal.seat_id.clone(),
                         seat_index: terminal.seat_index,
                         mention: terminal.seat_mention.clone(),
                         since: self.ports.clock.now(),
@@ -215,6 +276,7 @@ impl AgentRuntimeApplicationService {
                     .iter()
                     .find(|entry| &entry.briefing.mention == mention)
                     .map(|entry| SeatTurnAssignment {
+                        seat_id: entry.seat_id.clone(),
                         seat_index: entry.seat_index,
                         depth: terminal.depth + 1,
                         round_id: terminal.round_id.clone(),
@@ -242,7 +304,7 @@ impl AgentRuntimeApplicationService {
         let roster = self.seat_roster(&session)?;
         let seat = roster
             .iter()
-            .find(|entry| entry.seat_index == assignment.seat_index)
+            .find(|entry| entry.seat_id == assignment.seat_id)
             .ok_or_else(|| {
                 AgentRuntimeApplicationError::Validation(format!(
                     "Seat {} is no longer part of this session.",
@@ -287,6 +349,7 @@ impl AgentRuntimeApplicationService {
         self.announce_turn_status(
             session_id,
             SeatTurnStatus::Agent {
+                seat_id: seat.seat_id.clone(),
                 seat_index: seat.seat_index,
                 mention: seat.briefing.mention.clone(),
                 depth: assignment.depth,
@@ -304,6 +367,7 @@ impl AgentRuntimeApplicationService {
                 file_references: Vec::new(),
                 role_briefing: Some(briefing),
                 seat_ownership: Some(SeatTurnOwnership {
+                    seat_id: seat.seat_id.clone(),
                     seat_index: seat.seat_index,
                     seat_mention: seat.briefing.mention.clone(),
                     depth: assignment.depth,

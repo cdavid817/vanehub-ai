@@ -17,13 +17,13 @@ use super::{
     SessionRecoverySummary, SessionRepository, SessionRuntimePort, SessionSearchQuery,
     SessionSearchResult, SessionSshBinding, SessionTransactionPort, SessionUsageRepository,
     SessionUsageStatistics, SessionUsageSummary, SessionWorkspace, SessionsApplicationError,
-    UsageStatisticsRange,
+    UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
     FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
     SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat,
-    SessionTitle,
+    SessionSeatRoleSnapshot, SessionTitle,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -428,17 +428,34 @@ impl SessionsApplicationService {
             request.owner,
         );
         let now = self.ports.clock.now();
-        let seats = if request.seats.is_empty() {
+        let mut seats = if request.seats.is_empty() {
             vec![SessionSeat {
+                seat_id: String::new(),
                 agent_id: request.agent_id.clone(),
                 role_id: None,
+                role_snapshot: None,
+                joined_at: String::new(),
+                left_at: None,
             }]
         } else {
             request.seats
         };
+        for seat in &mut seats {
+            if seat.seat_id.trim().is_empty() {
+                seat.seat_id = self.ports.identities.next_seat_id();
+            }
+            if seat.joined_at.trim().is_empty() {
+                seat.joined_at.clone_from(&now);
+            }
+            if seat.role_snapshot.is_none() {
+                seat.role_snapshot = Some(fallback_role_snapshot(&seat.agent_id));
+            }
+            seat.left_at = None;
+        }
+        let primary_agent_id = seats[0].agent_id.clone();
         let record = SessionRecord {
             aggregate,
-            agent_id: request.agent_id,
+            agent_id: primary_agent_id,
             seats,
             interaction_mode: request.interaction_mode,
             workspace: request.workspace,
@@ -513,6 +530,88 @@ impl SessionsApplicationService {
         session.aggregate.rename(SessionTitle::for_rename(title)?);
         session.updated_at = self.ports.clock.now();
         self.ports.sessions.save(&session)
+    }
+
+    pub(crate) fn update_session_seats(
+        &self,
+        request: UpdateSessionSeatsRequest,
+    ) -> Result<SessionRecord, SessionsApplicationError> {
+        if request.seats.is_empty() {
+            return Err(SessionsApplicationError::Validation(
+                "A session must keep at least one active participant.".to_string(),
+            ));
+        }
+        let mut session = self.load_session(&request.session_id)?;
+        if session.updated_at != request.expected_updated_at {
+            return Err(SessionsApplicationError::SessionRevisionConflict(
+                request.session_id,
+            ));
+        }
+
+        let changed_at = self.ports.clock.now();
+        let mut retained = std::collections::HashSet::new();
+        let mut additions = Vec::new();
+        for requested in request.seats {
+            if requested.agent_id.trim().is_empty() {
+                return Err(SessionsApplicationError::Validation(
+                    "Participant Agent id is required.".to_string(),
+                ));
+            }
+            self.ports
+                .eligibility
+                .ensure_agent_supports(&requested.agent_id, &session.interaction_mode)?;
+            let matched = session.seats.iter().find(|existing| {
+                existing.is_active()
+                    && !retained.contains(&existing.seat_id)
+                    && ((!requested.seat_id.is_empty()
+                        && existing.seat_id == requested.seat_id
+                        && existing.agent_id == requested.agent_id
+                        && existing.role_id == requested.role_id)
+                        || (requested.seat_id.is_empty()
+                            && existing.agent_id == requested.agent_id
+                            && existing.role_id == requested.role_id))
+            });
+            if let Some(existing) = matched {
+                retained.insert(existing.seat_id.clone());
+                continue;
+            }
+            additions.push(SessionSeat {
+                seat_id: self.ports.identities.next_seat_id(),
+                agent_id: requested.agent_id.clone(),
+                role_id: requested.role_id,
+                role_snapshot: Some(
+                    requested
+                        .role_snapshot
+                        .unwrap_or_else(|| fallback_role_snapshot(&requested.agent_id)),
+                ),
+                joined_at: changed_at.clone(),
+                left_at: None,
+            });
+        }
+
+        for seat in &mut session.seats {
+            if seat.is_active() && !retained.contains(&seat.seat_id) {
+                seat.left_at = Some(changed_at.clone());
+            }
+        }
+        session.seats.extend(additions);
+        let first_active = session
+            .seats
+            .iter()
+            .find(|seat| seat.is_active())
+            .ok_or_else(|| {
+                SessionsApplicationError::Validation(
+                    "A session must keep at least one active participant.".to_string(),
+                )
+            })?;
+        session.agent_id = first_active.agent_id.clone();
+        session.updated_at = changed_at;
+        self.ports
+            .sessions
+            .save_if_revision(&session, &request.expected_updated_at)?
+            .ok_or(SessionsApplicationError::SessionRevisionConflict(
+                request.session_id,
+            ))
     }
 
     pub(crate) fn set_session_pinned(
@@ -812,6 +911,7 @@ impl SessionsApplicationService {
         let now = self.ports.clock.now();
         self.ports.messages.insert(&MessageRecord {
             message,
+            speaker_seat_id: request.speaker_seat_id,
             seat_index: request.seat_index,
             seat_round_id: None,
             parent_execution_run_id: None,
@@ -937,6 +1037,7 @@ impl SessionsApplicationService {
         );
         Ok(MessageRecord {
             message,
+            speaker_seat_id: request.speaker_seat_id,
             seat_index: request.seat_index,
             seat_round_id: correlation.seat_round_id.map(str::to_string),
             parent_execution_run_id: correlation.parent_execution_run_id.map(str::to_string),
@@ -1294,6 +1395,18 @@ impl SessionsApplicationService {
             .categories
             .find(category_id)?
             .ok_or_else(|| SessionsApplicationError::CategoryNotFound(category_id.as_str().into()))
+    }
+}
+
+fn fallback_role_snapshot(agent_id: &str) -> SessionSeatRoleSnapshot {
+    SessionSeatRoleSnapshot {
+        role_name: None,
+        avatar: "🤖".to_string(),
+        color: "#7A8899".to_string(),
+        responsibility: None,
+        agent_name: agent_id.to_string(),
+        model_family: "unknown".to_string(),
+        cross_family_reviewer: false,
     }
 }
 

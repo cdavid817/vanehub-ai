@@ -351,6 +351,71 @@ describe("webAgentClient", () => {
     expect((await webAgentClient.listSessions()).some((item) => item.id === session.id)).toBe(false);
   });
 
+  it("updates participant membership with stable ids, departure history, and stale-write rejection", async () => {
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Shared roster",
+      projectPath: "D:\\example\\shared-roster",
+      seats: [
+        { agentId: "codex-cli", roleId: "reviewer" },
+        { agentId: "gemini-cli", roleId: "architect" },
+      ],
+    });
+    const originalSeats = session.seats ?? [];
+    const expanded = await webAgentClient.updateSessionSeats({
+      sessionId: session.id,
+      expectedUpdatedAt: session.updatedAt,
+      seats: [...originalSeats, { agentId: "claude-code", roleId: null }],
+    });
+    expect(expanded.seats?.slice(0, 2).map((seat) => seat.seatId)).toEqual(
+      originalSeats.map((seat) => seat.seatId),
+    );
+    expect(expanded.seats?.[2]?.seatId).toBeTruthy();
+
+    await expect(webAgentClient.updateSessionSeats({
+      sessionId: session.id,
+      expectedUpdatedAt: session.updatedAt,
+      seats: originalSeats,
+    })).rejects.toThrow("changed since");
+
+    const remaining = expanded.seats?.[1];
+    expect(remaining).toBeDefined();
+    const reduced = await webAgentClient.updateSessionSeats({
+      sessionId: session.id,
+      expectedUpdatedAt: expanded.updatedAt,
+      seats: remaining ? [remaining] : [],
+    });
+    expect(reduced.agentId).toBe("gemini-cli");
+    expect(reduced.seats?.[0]?.leftAt).toBeTruthy();
+    expect(reduced.seats?.[1]?.leftAt).toBeNull();
+    await webAgentClient.deleteSession(session.id);
+  });
+
+  it("attributes the first shared-session reply to a stable seat", async () => {
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Attributed shared reply",
+      projectPath: "D:\\example\\attributed-roster",
+      seats: [
+        { agentId: "codex-cli", roleId: "reviewer" },
+        { agentId: "gemini-cli", roleId: "architect" },
+      ],
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const assistant = await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "Review this together",
+      config,
+    });
+
+    expect(assistant.speakerSeatId).toBe(session.seats?.[0]?.seatId);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await webAgentClient.deleteSession(session.id);
+  });
+
   it("searches sessions by title, project, and message content", async () => {
     vi.useFakeTimers();
     const session = await createMockSession({

@@ -64,6 +64,20 @@ pub(crate) trait SessionRepository: Send + Sync {
 
     fn save(&self, session: &SessionRecord) -> Result<SessionRecord, SessionsApplicationError>;
 
+    fn save_if_revision(
+        &self,
+        session: &SessionRecord,
+        expected_updated_at: &str,
+    ) -> Result<Option<SessionRecord>, SessionsApplicationError> {
+        let Some(current) = self.find(session.aggregate.id())? else {
+            return Ok(None);
+        };
+        if current.updated_at != expected_updated_at {
+            return Ok(None);
+        }
+        self.save(session).map(Some)
+    }
+
     fn inactive_sessions(
         &self,
         cutoff: &str,
@@ -287,6 +301,7 @@ pub(crate) trait SessionClockPort: Send + Sync {
 
 pub(crate) trait SessionIdentityPort: Send + Sync {
     fn next_session_id(&self) -> String;
+    fn next_seat_id(&self) -> String;
     fn next_message_id(&self) -> String;
     fn next_category_id(&self) -> String;
 }

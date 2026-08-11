@@ -44,6 +44,7 @@ import type {
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
+  UpdateSessionSeatsInput,
   RenameSessionCategoryInput,
   Session,
   SessionCategory,
@@ -669,6 +670,10 @@ export const tauriAgentClient: AgentService = {
 
   renameSession(sessionId: string, title: string) {
     return invoke<Session>("rename_session", { sessionId, title });
+  },
+
+  updateSessionSeats(input: UpdateSessionSeatsInput) {
+    return invoke<Session>("update_session_seats", { input });
   },
 
   rebindRemoteSessionSshConnection(sessionId: string, connectionId: string) {

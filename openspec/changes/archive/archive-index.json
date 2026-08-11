@@ -2022,6 +2022,22 @@
                                               "unified-log-management",
                                               "workspace-code-indexing"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-11",
+                         "changeName":  "complete-multi-agent-session-presence",
+                         "path":  "openspec/changes/archive/2026-08-11-complete-multi-agent-session-presence/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience",
+                                              "main-layout-ui",
+                                              "multi-agent-group-chat",
+                                              "session-management"
+                                          ]
                      }
                  ]
 }

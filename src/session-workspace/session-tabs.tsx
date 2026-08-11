@@ -4,7 +4,7 @@ import { cn } from "../lib/utils";
 import type { Session } from "../types/agent";
 import type { TurnStatus } from "../components/chat/TurnStatusBar";
 import { useSessionRoles } from "../hooks/use-session-speakers";
-import { seatsFromSession } from "../services/session-seats";
+import { activeSeatsFromSession, seatsFromSession } from "../services/session-seats";
 import { SeatSwitcher } from "./seat-switcher";
 import { showsSeatSwitcher } from "./tab-scope";
 import type { ChatMessage } from "../types/chat";
@@ -12,6 +12,17 @@ import { AgentTerminalTab } from "./agent-terminal-tab";
 import { ChatTab } from "./chat-tab";
 import { SessionTabBar, sessionTabDefinitions, type SessionTabId } from "./session-tab-bar";
 import { toolUseCount } from "./terminal-utils";
+import { ConversationOverflowMenu } from "./conversation-overflow-menu";
+import { SessionConversationHeader } from "./session-conversation-header";
+
+export interface ConversationVisibilityControls {
+  infoPanelExpanded: boolean;
+  onToggleInfoPanel: () => void;
+  onToggleSessionList: () => void;
+  onToggleWorkspaceTabs: () => void;
+  sessionListExpanded: boolean;
+  workspaceTabsExpanded: boolean;
+}
 
 const loadChangesTab = () => import("./changes-tab").then((module) => ({ default: module.ChangesTab }));
 const loadDocumentsTab = () => import("./documents-tab").then((module) => ({ default: module.DocumentsTab }));
@@ -26,6 +37,7 @@ const loadReportTab = () => import("./report-tab").then((module) => ({ default: 
 export function SessionTabs({
   activeSession,
   apiComposer,
+  focusMode = false,
   isStreaming = false,
   messages,
   messagesPartial,
@@ -35,9 +47,12 @@ export function SessionTabs({
   requestedTab,
   sessionActivationKey,
   turnStatus = null,
+  visibilityControls,
+  workspaceTabsCollapsed = false,
 }: {
   activeSession: Session | null;
   apiComposer?: ReactNode;
+  focusMode?: boolean;
   isStreaming?: boolean;
   messages: ChatMessage[];
   messagesPartial: boolean;
@@ -48,9 +63,12 @@ export function SessionTabs({
   sessionActivationKey: number;
   /** Null in a single-seat session, which has no turn to hand off. */
   turnStatus?: TurnStatus | null;
+  visibilityControls?: ConversationVisibilityControls;
+  workspaceTabsCollapsed?: boolean;
 }) {
   const sessionId = activeSession?.id ?? null;
-  const seats = useMemo(() => (activeSession ? seatsFromSession(activeSession) : []), [activeSession]);
+  const seats = useMemo(() => (activeSession ? activeSeatsFromSession(activeSession) : []), [activeSession]);
+  const isSharedThread = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
   const [activeTab, setActiveTab] = useState<SessionTabId>("chat");
   const [selectedSeat, setSelectedSeat] = useState(0);
   const roles = useSessionRoles(seats.length > 1);
@@ -76,12 +94,11 @@ export function SessionTabs({
 
   function renderPanel(id: SessionTabId) {
     if (id === "chat") {
-      if (activeSession?.interactionMode === "api") {
+      if (activeSession?.interactionMode === "api" || isSharedThread) {
         return (
           <ChatTab
             activeSession={activeSession}
             composer={apiComposer}
-            isStreaming={isStreaming}
             messages={messages}
             onLoadEarlier={onLoadEarlier}
             turnStatus={turnStatus}
@@ -105,15 +122,28 @@ export function SessionTabs({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
-      <SessionTabBar
-        activeTab={activeTab}
-        badges={{ terminal: terminalCount }}
-        onActivate={activate}
-        onOpenSettings={onOpenSettings}
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-focus-mode={focusMode ? "true" : "false"}
+      data-testid="session-workspace"
+    >
+      <SessionConversationHeader
+        actions={visibilityControls ? <ConversationOverflowMenu {...visibilityControls} /> : null}
+        isStreaming={isStreaming}
         session={activeSession}
       />
       {recoveryNotice}
+      {focusMode || workspaceTabsCollapsed ? null : (
+        <div className="shrink-0 border-b border-border/70 bg-[hsl(var(--panel))] px-3 py-2">
+          <SessionTabBar
+            activeTab={activeTab}
+            badges={{ terminal: terminalCount > 0 ? terminalCount : undefined }}
+            onActivate={activate}
+            onOpenSettings={onOpenSettings}
+            session={activeSession}
+          />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-hidden">
         {sessionTabDefinitions.map(({ id }) => mountedTabs.has(id) ? (
           <section

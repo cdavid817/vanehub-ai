@@ -386,6 +386,10 @@ impl SessionIdentityPort for LifecycleDoubles {
         "session-lifecycle-1".to_string()
     }
 
+    fn next_seat_id(&self) -> String {
+        "seat-lifecycle-1".to_string()
+    }
+
     fn next_message_id(&self) -> String {
         "message-lifecycle-1".to_string()
     }

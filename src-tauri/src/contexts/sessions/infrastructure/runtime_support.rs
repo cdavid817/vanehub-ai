@@ -86,6 +86,10 @@ impl SessionIdentityPort for UuidSessionIdentities {
         uuid::Uuid::new_v4().to_string()
     }
 
+    fn next_seat_id(&self) -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
     fn next_message_id(&self) -> String {
         uuid::Uuid::new_v4().to_string()
     }

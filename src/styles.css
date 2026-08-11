@@ -303,7 +303,7 @@ body.floating-assistant-surface {
 .ucd-session-sidebar-resize {
   position: absolute;
   top: 10px;
-  right: -8px;
+  right: -5px;
   z-index: 20;
   height: calc(100% - 20px);
   width: 10px;
@@ -333,8 +333,7 @@ body.floating-assistant-surface {
 }
 .ucd-activity-bar {
   border-right: 1px solid hsl(var(--panel-border));
-  background: hsl(var(--panel) / 0.72);
-  box-shadow: 1px 0 0 hsl(var(--foreground) / 0.02);
+  background: hsl(var(--panel-muted));
 }
 
 @media (max-width: 900px) {

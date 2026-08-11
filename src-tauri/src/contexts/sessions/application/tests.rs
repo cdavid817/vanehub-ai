@@ -6,7 +6,7 @@ use crate::contexts::sessions::domain::{
     SessionRecoveryReport, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -656,11 +656,21 @@ impl SessionClockPort for FakeClock {
     }
 }
 
-struct FakeIdentities;
+#[derive(Default)]
+struct FakeIdentities {
+    next_seat: AtomicUsize,
+}
 
 impl SessionIdentityPort for FakeIdentities {
     fn next_session_id(&self) -> String {
         "session-created".to_string()
+    }
+
+    fn next_seat_id(&self) -> String {
+        format!(
+            "seat-created-{}",
+            self.next_seat.fetch_add(1, Ordering::SeqCst) + 1
+        )
     }
 
     fn next_message_id(&self) -> String {
@@ -983,7 +993,7 @@ fn fixture() -> Fixture {
         recovery_reports: store.clone(),
         recovery_events: store.clone(),
         clock: clock.clone(),
-        identities: Arc::new(FakeIdentities),
+        identities: Arc::new(FakeIdentities::default()),
         files: files.clone(),
         operations: operations.clone(),
         logging: logging.clone(),
@@ -1048,6 +1058,7 @@ fn message_record(
             status,
             FileReferenceSet::default(),
         ),
+        speaker_seat_id: None,
         seat_index: None,
         seat_round_id: None,
         parent_execution_run_id: None,
@@ -1650,6 +1661,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .service
         .create_message(CreateMessageRequest {
             session_id: session.id().to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
@@ -2087,6 +2099,7 @@ fn category_and_message_domain_failures_stop_before_persistence() {
         .service
         .create_message(CreateMessageRequest {
             session_id: "session-fixture".to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
@@ -2110,12 +2123,20 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
     );
     session.seats = vec![
         SessionSeat {
+            seat_id: "seat-1".to_string(),
             agent_id: "gemini-cli".to_string(),
             role_id: Some("role-architect".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
         SessionSeat {
+            seat_id: "seat-2".to_string(),
             agent_id: "codex-cli".to_string(),
             role_id: Some("role-reviewer".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
     ];
     fixture.store.seed_session(session.clone());
@@ -2153,8 +2174,12 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
         false,
     );
     session.seats = vec![SessionSeat {
+        seat_id: "seat-1".to_string(),
         agent_id: "gemini-cli".to_string(),
         role_id: None,
+        role_snapshot: None,
+        joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+        left_at: None,
     }];
     fixture.store.seed_session(session.clone());
 
@@ -2175,4 +2200,100 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
             },
         })
         .is_err());
+}
+
+fn active_seat(seat_id: &str, agent_id: &str, role_id: Option<&str>) -> SessionSeat {
+    SessionSeat {
+        seat_id: seat_id.to_string(),
+        agent_id: agent_id.to_string(),
+        role_id: role_id.map(str::to_string),
+        role_snapshot: None,
+        joined_at: "2026-07-01T00:00:00+00:00".to_string(),
+        left_at: None,
+    }
+}
+
+#[test]
+fn membership_update_reuses_active_ids_appends_new_participants_and_preserves_departures() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-members",
+        "codex-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![active_seat("seat-existing", "codex-cli", Some("reviewer"))];
+    fixture.store.seed_session(session.clone());
+
+    let expanded = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: vec![
+                active_seat("seat-existing", "codex-cli", Some("reviewer")),
+                active_seat("", "gemini-cli", Some("architect")),
+            ],
+        })
+        .expect("expand roster");
+    assert_eq!(expanded.seats[0].seat_id, "seat-existing");
+    assert_eq!(expanded.seats[1].seat_id, "seat-created-1");
+    assert_eq!(expanded.agent_id, "codex-cli");
+
+    let reduced = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: expanded.id().to_string(),
+            expected_updated_at: expanded.updated_at.clone(),
+            seats: vec![expanded.seats[1].clone()],
+        })
+        .expect("reduce roster");
+    assert_eq!(
+        reduced.seats[0].left_at.as_deref(),
+        Some("2026-07-18T10:00:00+00:00")
+    );
+    assert_eq!(reduced.seats[1].seat_id, "seat-created-1");
+    assert!(reduced.seats[1].left_at.is_none());
+    assert_eq!(reduced.agent_id, "gemini-cli");
+}
+
+#[test]
+fn membership_update_rejects_empty_and_stale_rosters_without_saving() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-members",
+        "codex-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![active_seat("seat-existing", "codex-cli", None)];
+    fixture.store.seed_session(session.clone());
+
+    let empty = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: Vec::new(),
+        });
+    assert!(matches!(
+        empty,
+        Err(SessionsApplicationError::Validation(_))
+    ));
+
+    let stale = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: "stale".to_string(),
+            seats: session.seats.clone(),
+        });
+    assert!(matches!(
+        stale,
+        Err(SessionsApplicationError::SessionRevisionConflict(_))
+    ));
+    assert_eq!(
+        SessionRepository::find(&*fixture.store, session.aggregate.id()).expect("find"),
+        Some(session)
+    );
 }

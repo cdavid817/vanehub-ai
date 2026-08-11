@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { agentService } from "../services/runtime-agent-client";
+import { snapshotSeat } from "../services/seat-presentation";
 import { operationService } from "../services/runtime-operation-client";
 import { sshConnectionService } from "../services/runtime-ssh-connection-client";
 import { CreateSessionDialogContent } from "./create-session-dialog-content";
-import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, sessionResult, submitCreateSession } from "./create-session-dialog-utils";
+import { canCreateSession, conciseError, defaultSshConnectionDraft, firstMode, resolveCreatedSession, submitCreateSession } from "./create-session-dialog-utils";
 import { defaultSessionAgent, previousSessionAgentStorageKey, selectSessionAgents } from "./create-session-agents";
 import type { WorkspaceMode } from "./create-session-workspace-sections";
 import type { SessionAgentMode } from "./session-agent-mode-selector";
@@ -135,7 +136,7 @@ export function CreateSessionDialog({
           setError(operation.error ?? t("createSession.error.command"));
           return;
         }
-        const session = sessionResult(operation.result);
+        const session = await resolveCreatedSession(operation.result);
         if (!session) {
           setError(t("createSession.error.command"));
           return;
@@ -254,7 +255,7 @@ export function CreateSessionDialog({
       onSubmit={() =>
         void submitCreateSession({
           agentMode,
-          multiSeats,
+          multiSeats: multiSeats.map((seat) => snapshotSeat(seat, agents, expertRoles)),
           interactionMode,
           projectPath,
           remoteDisplayName,

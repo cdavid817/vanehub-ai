@@ -8,6 +8,8 @@
 
 这解决的是「多个 Agent 协作时，上下文要手工搬来搬去」的问题。
 
+想直接走一遍可复现的验收流程，请使用[案例教程：验证同一会话中的多 Agent 协作](multi-agent-testing-tutorial.md)。
+
 ## 分配席位
 
 1. 打开 VaneHub AI，选择**新建**。

@@ -18,6 +18,7 @@ import type {
   AgentTerminalEvent,
   AgentTerminalSession,
   UpdateApiAgentInput,
+  UpdateSessionSeatsInput,
   AgentTerminalSize,
   RegisterApiAgentInput,
   SaveOnePieceProviderConfigInput,
@@ -42,6 +43,7 @@ import type {
   ScheduledTask,
   SetScheduledTaskEnabledInput,
   Session,
+  SessionSeat,
   SessionCategory,
   SessionExportResult,
   SessionSearchInput,
@@ -57,6 +59,7 @@ import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
 import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
+import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
 import type { OperationTask } from "../types/operation";
@@ -320,6 +323,7 @@ function writeCliParameterSelections(value: Partial<Record<ManagedCliAgentId, Cl
   if (typeof localStorage !== "undefined") localStorage.setItem(cliParameterStorageKey, JSON.stringify(value));
 }
 let nextMessageId = 1;
+let nextSeatId = 1;
 let activeSessionId: string | null = null;
 let sessions: Session[] = [];
 const recoveryReportsBySession = new Map<string, SessionRecoveryReport[]>();
@@ -1794,6 +1798,12 @@ function updateSession(sessionId: string, updates: Partial<Session>) {
     };
   }
   return updatedSession;
+}
+
+function createWebSeatId() {
+  const seatId = `web-seat-${nextSeatId}`;
+  nextSeatId += 1;
+  return seatId;
 }
 
 function findScheduledTask(taskId: string) {
@@ -3379,12 +3389,20 @@ export const webAgentClient: AgentService = {
     }
     const timestamp = nowIso();
     const titleSource = remoteWorkspace?.displayName || effectiveFolder || "";
+    const normalizedSeats = (input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }]).map(
+      (seat) => ({
+        ...snapshotSeat(seat, mockAgents, webExpertRoles),
+        seatId: createWebSeatId(),
+        joinedAt: timestamp,
+        leftAt: null,
+      }),
+    );
     const session: Session = {
       id: `web-session-${nextSessionId}`,
       title: input.title?.trim() || defaultSessionTitleFromPath(titleSource) || tr("createSession.sessionPlaceholder"),
-      agentId: input.agentId,
+      agentId: normalizedSeats[0]?.agentId ?? input.agentId,
       // Mirrors the native normalization: no seats means one seat built from the Agent.
-      seats: input.seats?.length ? input.seats : [{ agentId: input.agentId, roleId: null }],
+      seats: normalizedSeats,
       interactionMode: input.interactionMode,
       lifecycleState: "idle",
       recoveryStatus: "clean",
@@ -3469,6 +3487,57 @@ export const webAgentClient: AgentService = {
     return updateSession(sessionId, { title: trimmedTitle });
   },
 
+  async updateSessionSeats(input: UpdateSessionSeatsInput) {
+    const session = findSession(input.sessionId);
+    if (session.updatedAt !== input.expectedUpdatedAt) {
+      throw new Error("validation error: Session participants changed since they were loaded.");
+    }
+    if (input.seats.length === 0) {
+      throw new Error("validation error: A session must keep at least one active participant.");
+    }
+    const changedAt = nowIso();
+    const historical = session.seats ?? [{
+      seatId: `${session.id}:seat:0`,
+      agentId: session.agentId,
+      roleId: null,
+      joinedAt: session.createdAt,
+      leftAt: null,
+    }];
+    const retained = new Set<string>();
+    const additions: SessionSeat[] = [];
+    for (const requested of input.seats) {
+      const existing = historical.find((seat) =>
+        seat.leftAt == null && !retained.has(seat.seatId ?? "") &&
+        ((Boolean(requested.seatId) && seat.seatId === requested.seatId &&
+          seat.agentId === requested.agentId && seat.roleId === requested.roleId) ||
+          (!requested.seatId && seat.agentId === requested.agentId && seat.roleId === requested.roleId)),
+      );
+      if (existing?.seatId) {
+        retained.add(existing.seatId);
+      } else {
+        additions.push({
+          ...requested,
+          seatId: createWebSeatId(),
+          joinedAt: changedAt,
+          leftAt: null,
+        });
+      }
+    }
+    const seats = [
+      ...historical.map((seat) =>
+        seat.leftAt == null && !retained.has(seat.seatId ?? "")
+          ? { ...seat, leftAt: changedAt }
+          : seat,
+      ),
+      ...additions,
+    ];
+    const firstActive = seats.find((seat) => seat.leftAt == null);
+    if (!firstActive) {
+      throw new Error("validation error: A session must keep at least one active participant.");
+    }
+    return updateSession(input.sessionId, { seats, agentId: firstActive.agentId });
+  },
+
   async rebindRemoteSessionSshConnection(
     sessionId: string,
     connectionId: string,
@@ -3538,6 +3607,8 @@ export const webAgentClient: AgentService = {
       throw new Error("A generation is already active for this session.");
     }
     const timestamp = nowIso();
+    const activeSeats = (session.seats ?? []).filter((seat) => seat.leftAt == null);
+    const firstSpeakerSeatId = activeSeats.length > 1 ? activeSeats[0]?.seatId : undefined;
     const existingMessages = getSessionMessages(input.sessionId);
     const nextSequence = existingMessages.reduce(
       (maximum, message) => Math.max(maximum, message.sessionSequence),
@@ -3560,6 +3631,7 @@ export const webAgentClient: AgentService = {
       id: createMessageId(),
       sessionId: input.sessionId,
       role: "assistant",
+      speakerSeatId: firstSpeakerSeatId,
       content: "",
       status: "streaming",
       createdAt: timestamp,

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { readFileSync } from "node:fs";
 import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import "../i18n";
 import { activateAppLanguage } from "../i18n";
 import type { Session } from "../types/agent";
@@ -69,7 +69,11 @@ function skill(id: string, enabled: boolean, boundAgentIds: string[], scope: "gl
   };
 }
 
-function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Session> = {}) {
+function renderPanel(
+  usage: SessionUsageSummary,
+  overrideSession: Partial<Session> = {},
+  currentSpeakerSeatId: string | null = null,
+) {
   const activeSession = { ...session(), ...overrideSession };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(["session-chat-config", activeSession.id], {
@@ -108,7 +112,7 @@ function renderPanel(usage: SessionUsageSummary, overrideSession: Partial<Sessio
 
   return renderToString(
     <QueryClientProvider client={queryClient}>
-      <SessionInfoPanel activeSession={activeSession} collapsed={false} onCollapsedChange={vi.fn()} />
+      <SessionInfoPanel activeSession={activeSession} collapsed={false} currentSpeakerSeatId={currentSpeakerSeatId} />
     </QueryClientProvider>,
   );
 }
@@ -136,6 +140,42 @@ describe("SessionInfoPanel", () => {
     expect(html).not.toContain(">Logs<");
     expect(html).toContain("GPT-5.5");
     expect(html).toContain("Codex CLI");
+    expect(html).not.toContain('data-testid="session-roster-editor"');
+    expect(html).not.toContain('id="info-tab-members"');
+    expect(html).toContain("grid-cols-3");
+    expect(html).not.toContain("Collapse");
+    expect(html).not.toContain("Expand info panel");
+  });
+
+  it("shows the independent membership card only after a session has held multiple participants", () => {
+    const usage: SessionUsageSummary = {
+      sessionId: "session-info-fixture",
+      reported: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0 },
+      estimated: { inputCharacters: 0, outputCharacters: 0, totalCharacters: 0 },
+      coverage: { reportedResponses: 0, estimatedResponses: 0, totalResponses: 0, reportedPercent: 0 },
+      responseCount: 0,
+      generatedAt: "2026-07-20T00:00:00.000Z",
+    };
+    const html = renderPanel(usage, {
+      seats: [
+        { seatId: "seat-architect", agentId: "codex-cli", roleId: "architect", joinedAt: "2026-07-20T00:00:00.000Z" },
+        { seatId: "seat-implementer", agentId: "claude-code", roleId: "implementer", joinedAt: "2026-07-20T00:00:00.000Z" },
+      ],
+    }, "seat-implementer");
+
+    expect(html).toContain('data-testid="session-roster-editor"');
+    expect(html).toContain("Member Information");
+    expect(html).toContain('id="info-tab-members"');
+    expect(html).toContain('data-testid="info-pane-members"');
+    expect(html).toContain("grid-cols-4");
+    const memberPane = html.indexOf('data-testid="info-pane-members"');
+    const editor = html.indexOf('data-testid="session-roster-editor"');
+    const basicPane = html.indexOf('data-testid="info-pane-basic"');
+    expect(memberPane).toBeLessThan(editor);
+    expect(editor).toBeLessThan(basicPane);
+    expect(html).toContain('data-speaking="true"');
+    expect(html).toContain('aria-current="true"');
+    expect(html).toContain("working");
   });
 
   it("keeps reported tokens primary and shows estimated fallback context separately", () => {
@@ -165,6 +205,7 @@ describe("SessionInfoPanel", () => {
     }, { agentId: "onepiece", interactionMode: "api" });
 
     expect(html).toContain("Code Index");
+    expect(html).toContain("grid-cols-4");
   });
 
   it("normalizes Windows extended-length workspace paths for display", () => {
@@ -217,12 +258,13 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("project-disabled");
   });
 
-  it("uses shared theme tokens without branching on registered style ids", () => {
+  it("uses a contiguous themed surface without branching on registered style ids", () => {
     const source = ["./session-info-panel.tsx", "./session-skills-pane.tsx"]
       .map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
       .join("\n");
 
-    expect(source).toContain("ucd-panel");
+    expect(source).toContain("bg-[hsl(var(--panel-muted))]");
+    expect(source).not.toContain('className={cn("ucd-panel');
     expect(source).toContain("ucd-muted-panel");
     expect(source).toContain("ucd-segmented");
     expect(source).not.toMatch(/theme\s*===\s*["'](?:minimal|futuristic)/);

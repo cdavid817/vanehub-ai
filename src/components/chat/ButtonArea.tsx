@@ -57,7 +57,7 @@ export function ButtonArea({
   const close = () => setOpenDropdown(null);
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
+    <div className="flex min-h-11 flex-wrap items-center gap-2 px-2 pb-2 pt-1" data-testid="composer-toolbar">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <ConfigSelect
           agents={agents}
@@ -109,17 +109,17 @@ export function ButtonArea({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        <Button disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title={t("chat.enhanceTitle")} type="button" variant="outline">
+        <Button className="h-8" disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title={t("chat.enhanceTitle")} type="button" variant="ghost">
           <Sparkles className="h-4 w-4" aria-hidden="true" />
           {t("chat.enhance")}
         </Button>
         {isStreaming ? (
-          <Button onClick={onStop} title={t("chat.stopTitle")} type="button" variant="outline">
+          <Button className="h-8" onClick={onStop} title={t("chat.stopTitle")} type="button" variant="outline">
             <Square className="h-4 w-4" aria-hidden="true" />
             {t("chat.stop")}
           </Button>
         ) : (
-          <Button disabled={!canSubmit} onClick={onSubmit} title={t("chat.sendTitle")} type="button">
+          <Button className="h-8 px-4" disabled={!canSubmit} onClick={onSubmit} title={t("chat.sendTitle")} type="button">
             <Send className="h-4 w-4" aria-hidden="true" />
             {t("chat.send")}
           </Button>

@@ -14,10 +14,10 @@ import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
 import type { SessionDocument } from "../types/session-workspace";
-import type { ChatConfig, ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
+import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
 import { useSessionRecoverySync } from "./use-session-recovery-sync";
-
 export function useMainLayoutModel() {
   const { t } = useTranslation();
   const { notify } = useNotifications();
@@ -27,6 +27,8 @@ export function useMainLayoutModel() {
   const [messageLimit, setMessageLimit] = useState(50);
   const [turnStatus, setTurnStatus] = useState<TurnStatus | null>(null);
   const waitingSince = useRef<string | null>(null);
+  const optimisticMessageSequence = useRef(0);
+  const activeSessionIdRef = useRef<string | null>(null);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const normalizedSessionSearchQuery = sessionSearchQuery.trim();
   const debouncedSessionSearchQuery = useDebouncedValue(normalizedSessionSearchQuery, 250);
@@ -43,6 +45,7 @@ export function useMainLayoutModel() {
   const agents = agentsQuery.data ?? [];
   const activeSession = activeQuery.data ?? null;
   const activeSessionId = activeSession?.id ?? null;
+  activeSessionIdRef.current = activeSessionId;
   const messagesKey = useMemo(
     () => ["messages", activeSessionId, messageLimit] as const,
     [activeSessionId, messageLimit],
@@ -100,7 +103,6 @@ export function useMainLayoutModel() {
     invalidateSessions();
     if (activeSessionId) void queryClient.invalidateQueries({ queryKey: ["messages", activeSessionId] });
   }, [activeSessionId, invalidateSessions, queryClient]);
-
   const switchSession = useMutation({ mutationFn: (sessionId: string) => agentService.switchSession(sessionId), onSuccess: invalidateSessions });
   const renameSession = useMutation({ mutationFn: ({ sessionId, title }: { sessionId: string; title: string }) => agentService.renameSession(sessionId, title), onSuccess: invalidateSessions });
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
@@ -134,16 +136,43 @@ export function useMainLayoutModel() {
     onError: (reason, input) => reportChatFailure("MainLayout.exportSession", reason, input.session.id),
   });
   const sendMessage = useMutation({
-    mutationFn: (input: { content: string; config: ChatConfig; fileReferences: ChatFileReference[]; sessionId: string }) => agentService.sendMessage(input),
-    onSuccess: invalidateRuntime,
-    onError: (reason, input) => reportChatFailure("MainLayout.sendMessage", reason, input.sessionId, input.content),
+    mutationFn: (input: SendMessageMutationInput) => agentService.sendMessage(input),
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: ["messages", input.sessionId] });
+      optimisticMessageSequence.current += 1;
+      const optimisticId = `optimistic:${input.sessionId}:${optimisticMessageSequence.current}`;
+      const optimisticMessage = createOptimisticUserMessage({
+        content: input.content,
+        fileReferences: input.fileReferences,
+        id: optimisticId,
+        sessionId: input.sessionId,
+      });
+      queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+        appendMessageIfMissing(current, optimisticMessage));
+      return { optimisticId };
+    },
+    onSuccess: (assistant, input) => {
+      queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+        appendMessageIfMissing(current, assistant));
+      invalidateRuntime();
+    },
+    onError: (reason, input, context) => {
+      if (context?.optimisticId) {
+        queryClient.setQueriesData<ChatMessage[]>({ queryKey: ["messages", input.sessionId] }, (current) =>
+          removeMessageById(current, context.optimisticId));
+      }
+      if (activeSessionIdRef.current === input.sessionId) {
+        setDraft(input.content);
+        setFileReferences(input.fileReferences);
+      }
+      reportChatFailure("MainLayout.sendMessage", reason, input.sessionId);
+    },
   });
   const stopGeneration = useMutation({
     mutationFn: (sessionId: string) => agentService.stopGeneration(sessionId),
     onSuccess: invalidateRuntime,
     onError: (reason, sessionId) => reportChatFailure("MainLayout.stopGeneration", reason, sessionId),
   });
-
   useEffect(() => {
     if (!activeSessionId) return;
     let cleanup: (() => void) | null = null;
@@ -190,11 +219,8 @@ export function useMainLayoutModel() {
       cleanup?.();
     };
   }, [activeSessionId, invalidateSessions, messagesKey, queryClient]);
-
   useEffect(() => { setMessageLimit(50); setDraft(""); setFileReferences([]); setTurnStatus(null); waitingSince.current = null; }, [activeSessionId]);
-
-  // A paused round is waiting on a person, so the duration has to keep moving without the backend
-  // republishing it every minute.
+  // Keep a human-wait duration moving without backend minute-by-minute events.
   useEffect(() => {
     if (turnStatus?.kind !== "waiting-human") return;
     const timer = setInterval(() => {
@@ -208,11 +234,8 @@ export function useMainLayoutModel() {
     }, 30_000);
     return () => clearInterval(timer);
   }, [turnStatus?.kind]);
-
   useEffect(() => {
-    // Global — not gated on activeSessionId — so a pending approval in a session the user isn't
-    // currently viewing is still surfaced (`permissions-approval`'s "Pending-approval visibility
-    // uses the existing notification system", specifically "visible without opening the session").
+    // Global so pending approvals remain visible without opening their owning session.
     let cleanup: (() => void) | null = null;
     let cancelled = false;
     void permissionsService.subscribePendingApprovalEvents((event) => {
@@ -225,7 +248,6 @@ export function useMainLayoutModel() {
     }).then((unsubscribe) => { if (cancelled) unsubscribe(); else cleanup = unsubscribe; });
     return () => { cancelled = true; cleanup?.(); };
   }, [notify, t]);
-
   function submit() {
     if (!canSendToSession(activeSession) || !activeSession || !draft.trim() || isStreaming) return;
     const content = draft.trim();

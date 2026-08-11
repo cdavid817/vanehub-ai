@@ -6,11 +6,11 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 58. Migration 53 reconciles databases that may identify versions 49-51 as
-/// either Plan execution or workspace code indexing, and migration 54 preserves the Loop evidence
-/// query optimization that landed before the session-recovery migrations.
+/// Contiguous through 59. Migration 53 reconciles Plan execution and workspace code indexing,
+/// migrations 54-58 add Loop, recovery, and LSP foundations, and migration 59 introduces stable
+/// shared-session participant identity.
 fn expected_versions() -> Vec<i64> {
-    (1..=58).collect()
+    (1..=59).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -106,6 +106,62 @@ fn code_index_worktree_migration_history_gains_plan_schema_at_version_53() {
 }
 
 #[test]
+fn migration_repairs_a_conflicting_54_without_the_message_speaker_column() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("initial migration");
+    conn.execute_batch(
+        "INSERT INTO agents (id, display_name, provider, launch_kind)
+         VALUES ('repair-agent', 'Repair Agent', 'test', 'api');
+         INSERT INTO sessions
+             (id, title, agent_id, interaction_mode, lifecycle_state, created_at, updated_at)
+         VALUES
+             ('repair-session', 'Repair Session', 'repair-agent', 'api', 'idle',
+              '2026-08-10', '2026-08-10');",
+    )
+    .expect("repair fixture ownership");
+    conn.execute_batch(
+        "DROP INDEX idx_messages_speaker_seat;
+         ALTER TABLE messages DROP COLUMN speaker_seat_id;
+         UPDATE schema_migrations
+         SET name = 'session-recovery-evidence-foundation'
+         WHERE version = 54;",
+    )
+    .expect("simulate early version 54 schema");
+
+    assert!(!table_has_column(&conn, "messages", "speaker_seat_id").expect("missing column"));
+    assert_eq!(
+        conn.query_row(
+            "SELECT name FROM schema_migrations WHERE version = 54",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("recorded version 54"),
+        "session-recovery-evidence-foundation"
+    );
+
+    migrate(&conn).expect("repair migration");
+
+    assert!(table_has_column(&conn, "messages", "speaker_seat_id").expect("repaired column"));
+    conn.execute(
+        "INSERT INTO messages
+         (id, session_id, role, content, created_at, updated_at, speaker_seat_id)
+         VALUES ('repair-message', 'repair-session', 'assistant', '', '2026-08-10',
+                 '2026-08-10', 'repair-seat')",
+        [],
+    )
+    .expect("write a message with a stable speaker");
+    assert_eq!(
+        conn.query_row(
+            "SELECT speaker_seat_id FROM messages WHERE id = 'repair-message'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("persisted speaker"),
+        "repair-seat"
+    );
+}
+
+#[test]
 fn empty_fixture_migrates_to_latest_schema() {
     let conn = Connection::open_in_memory().expect("in-memory sqlite");
     conn.execute_batch(EMPTY_FIXTURE)
@@ -121,6 +177,8 @@ fn empty_fixture_migrates_to_latest_schema() {
     assert!(table_has_column(&conn, "sessions", "remote_workspace_uri")
         .expect("remote workspace column"));
     assert!(table_has_column(&conn, "messages", "rich_blocks").expect("rich block column"));
+    assert!(table_has_column(&conn, "messages", "speaker_seat_id")
+        .expect("stable message speaker column"));
     assert!(table_has_column(&conn, "usage_records", "message_id").expect("usage record table"));
     assert!(
         table_has_column(&conn, "scheduled_tasks", "next_run_at").expect("scheduled task table")

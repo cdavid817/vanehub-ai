@@ -1,6 +1,7 @@
 import type { SafeAttribute } from "../types/execution-observability";
 
 export interface TraceSeat {
+  seatId: string | null;
   seatIndex: number;
   /** Null when the span predates mention handles or the seat carried none. */
   mention: string | null;
@@ -19,5 +20,10 @@ export function traceSeat(attributes: Record<string, SafeAttribute>): TraceSeat 
   const seatIndex = Number(raw);
   if (!Number.isInteger(seatIndex) || seatIndex < 0) return null;
   const mention = attributes["vanehub.seat.mention"];
-  return { seatIndex, mention: typeof mention === "string" ? mention : null };
+  const seatId = attributes["vanehub.seat.id"];
+  return {
+    seatId: typeof seatId === "string" ? seatId : null,
+    seatIndex,
+    mention: typeof mention === "string" ? mention : null,
+  };
 }

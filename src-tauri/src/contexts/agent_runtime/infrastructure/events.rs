@@ -100,6 +100,7 @@ enum ChatStreamEvent {
 enum SerializableTurnStatus {
     #[serde(rename_all = "camelCase")]
     Agent {
+        seat_id: String,
         seat_index: usize,
         mention: String,
         depth: usize,
@@ -107,12 +108,17 @@ enum SerializableTurnStatus {
     },
     #[serde(rename_all = "camelCase")]
     WaitingHuman {
+        seat_id: String,
         seat_index: usize,
         mention: String,
         since: String,
     },
     #[serde(rename_all = "camelCase")]
-    RoundComplete { seat_index: usize, mention: String },
+    RoundComplete {
+        seat_id: String,
+        seat_index: usize,
+        mention: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -158,29 +164,35 @@ struct SerializableTokenUsage {
 fn turn_status(status: SeatTurnStatus) -> SerializableTurnStatus {
     match status {
         SeatTurnStatus::Agent {
+            seat_id,
             seat_index,
             mention,
             depth,
             max_depth,
         } => SerializableTurnStatus::Agent {
+            seat_id,
             seat_index,
             mention,
             depth,
             max_depth,
         },
         SeatTurnStatus::WaitingHuman {
+            seat_id,
             seat_index,
             mention,
             since,
         } => SerializableTurnStatus::WaitingHuman {
+            seat_id,
             seat_index,
             mention,
             since,
         },
         SeatTurnStatus::RoundComplete {
+            seat_id,
             seat_index,
             mention,
         } => SerializableTurnStatus::RoundComplete {
+            seat_id,
             seat_index,
             mention,
         },

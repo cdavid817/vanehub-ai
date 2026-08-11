@@ -11,6 +11,10 @@ export function seatsFromSession(session: Session): SessionSeat[] {
   return [{ agentId: session.agentId, roleId: null }];
 }
 
+export function activeSeatsFromSession(session: Session): SessionSeat[] {
+  return seatsFromSession(session).filter((seat) => seat.leftAt == null);
+}
+
 export function sessionAgentIdFromSeats(seats: SessionSeat[], fallback = ""): string {
-  return seats[0]?.agentId ?? fallback;
+  return seats.find((seat) => seat.leftAt == null)?.agentId ?? fallback;
 }
