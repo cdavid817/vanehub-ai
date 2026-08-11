@@ -14,7 +14,7 @@ use crate::contexts::tooling::mcp::api::McpError;
 use crate::contexts::tooling::plugin_integrations::api::PluginIntegrationError;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookError;
 use crate::contexts::tooling::sdk::api::SdkError;
-use crate::contexts::tooling::skills::api::{SkillDomainError, SkillError};
+use crate::contexts::tooling::skills::api::{OverlayError, SkillDomainError, SkillError};
 use crate::contexts::workspaces::api::WorkspaceError;
 use crate::platform::error::InfrastructureError;
 use crate::platform::logging::redact_text;
@@ -628,6 +628,28 @@ impl From<SkillError> for CommandError {
                 category: CommandErrorCategory::Validation,
                 message: format!("validation error: {error}"),
             },
+            SkillError::Overlay(
+                error @ (OverlayError::InvalidRequest { .. }
+                | OverlayError::LimitExceeded { .. }
+                | OverlayError::TrustRequired { .. }
+                | OverlayError::ImportRejected { .. }),
+            ) => Self {
+                category: CommandErrorCategory::Validation,
+                message: format!("validation error: {error}"),
+            },
+            SkillError::Overlay(
+                error @ (OverlayError::PinnedRefusal { .. }
+                | OverlayError::StaleWitnesses { .. }
+                | OverlayError::PromotionWitnessMismatch { .. }
+                | OverlayError::NeedsReconciliation { .. }),
+            ) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!("validation error: {error}"),
+            },
+            SkillError::Overlay(error @ OverlayError::Integrity { .. }) => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message: format!("storage error: {error}"),
+            },
             SkillError::Validation(message) => Self {
                 category: CommandErrorCategory::Validation,
                 message: format!("validation error: {message}"),
@@ -643,6 +665,17 @@ impl From<SkillError> for CommandError {
             SkillError::ConcurrentModification(skill_id) => Self {
                 category: CommandErrorCategory::Conflict,
                 message: format!("validation error: Skill changed since it was loaded: {skill_id}"),
+            },
+            SkillError::ImmutablePackage(skill_id) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: format!("validation error: System Skill package is immutable: {skill_id}"),
+            },
+            error @ (SkillError::InvalidResourceUri
+            | SkillError::ResourceEscape
+            | SkillError::BinaryResource
+            | SkillError::OversizedResource) => Self {
+                category: CommandErrorCategory::Validation,
+                message: error.to_string(),
             },
             error @ (SkillError::MountRootExternalLink(_)
             | SkillError::MountRootBrokenLink(_)

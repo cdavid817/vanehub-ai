@@ -28,6 +28,14 @@ export function skillIdentity(skill: Skill) {
   return `${skill.scope}:${skill.workspacePath ?? ""}:${skill.id}`;
 }
 
+export function effectiveSkillInventory(skills: Skill[]) {
+  const byCanonicalId = new Map<string, Skill>();
+  for (const skill of skills) {
+    if (!byCanonicalId.has(skill.id)) byCanonicalId.set(skill.id, skill);
+  }
+  return [...byCanonicalId.values()];
+}
+
 export function resolveSessionSkillWorkspace(session: Session | null) {
   return session?.worktreePath ?? session?.projectPath ?? null;
 }
@@ -83,7 +91,7 @@ export function filterGlobalSkillInventory(
   const agent = view.kind === "agent"
     ? { id: view.agentId, kind: view.agentKind }
     : null;
-  return overview.skills
+  return effectiveSkillInventory(overview.skills)
     .filter((skill) => {
       if (view.kind === "unassigned" && isSkillAssigned(skill, overview)) return false;
       if (agent && !isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings)) return false;

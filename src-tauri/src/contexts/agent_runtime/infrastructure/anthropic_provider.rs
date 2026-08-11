@@ -324,7 +324,7 @@ mod tests {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
         let body = build_request_body("claude-opus-4-8", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
-        assert_eq!(declared.len(), 6);
+        assert_eq!(declared.len(), 9);
         assert_eq!(declared[0]["name"], "shell");
         assert!(declared[0]["input_schema"]["properties"]["command"].is_object());
         assert_eq!(declared[1]["name"], "file");
@@ -332,6 +332,10 @@ mod tests {
         assert_eq!(declared[3]["name"], "glob");
         assert_eq!(declared[4]["name"], "edit");
         assert_eq!(declared[5]["name"], "remember");
+        assert_eq!(declared[6]["name"], "list_skills");
+        assert_eq!(declared[7]["name"], "load_skill");
+        assert_eq!(declared[8]["name"], "read_skill_resource");
+        assert_eq!(declared[7]["input_schema"]["additionalProperties"], false);
     }
 
     #[test]

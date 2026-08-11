@@ -15,6 +15,63 @@ pub(crate) enum SkillSource {
     Imported,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillType {
+    Role,
+    Utility,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillDelivery {
+    Eager,
+    OnDemand,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillLayer {
+    Project,
+    User,
+    Registry,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillOrigin {
+    Created,
+    Imported,
+    Installed,
+    Shipped,
+    Migrated,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillTrust {
+    Trusted,
+    Untrusted,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SkillAvailability {
+    Available,
+    Disabled,
+    Invalid,
+    Conflicting,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillCompatibilityDefaults {
+    pub(crate) skill_type: bool,
+    pub(crate) delivery: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillScopeInput {
@@ -31,6 +88,23 @@ pub(crate) struct SkillMetadata {
     pub(crate) category: String,
     pub(crate) version: String,
     pub(crate) triggers: Vec<String>,
+    #[serde(default)]
+    pub(crate) aliases: Vec<String>,
+    #[serde(rename = "type", default)]
+    pub(crate) skill_type: Option<SkillType>,
+    #[serde(default)]
+    pub(crate) delivery: Option<SkillDelivery>,
+    #[serde(default)]
+    pub(crate) compatibility_defaults: SkillCompatibilityDefaults,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillShadowSummary {
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) version: String,
+    pub(crate) availability: SkillAvailability,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -58,6 +132,23 @@ pub(crate) struct Skill {
     pub(crate) bindings: Vec<SkillAgentBinding>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) trust: SkillTrust,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) immutable: bool,
+    pub(crate) shadowed_definitions: Vec<SkillShadowSummary>,
+    pub(crate) usage: SkillUsageSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillUsageSummary {
+    pub(crate) view_count: u64,
+    pub(crate) use_count: u64,
+    pub(crate) last_viewed_at: Option<String>,
+    pub(crate) last_used_at: Option<String>,
+    pub(crate) revision_witness: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -151,6 +242,89 @@ pub(crate) struct SkillPreview {
     pub(crate) workspace_path: Option<String>,
     pub(crate) content: String,
     pub(crate) path: String,
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) immutable: bool,
+    pub(crate) shadowed_definitions: Vec<SkillShadowSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillLoadInput {
+    pub(crate) id_or_alias: String,
+    pub(crate) workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillResourceReadInput {
+    pub(crate) uri: String,
+    pub(crate) revision: String,
+    pub(crate) workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillResourceEntry {
+    pub(crate) uri: String,
+    pub(crate) relative_path: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillResourceIndex {
+    pub(crate) scripts: Vec<SkillResourceEntry>,
+    pub(crate) references: Vec<SkillResourceEntry>,
+    pub(crate) templates: Vec<SkillResourceEntry>,
+    pub(crate) assets: Vec<SkillResourceEntry>,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillLoadResult {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) content: String,
+    pub(crate) truncated: bool,
+    pub(crate) revision: String,
+    pub(crate) base_uri: String,
+    pub(crate) resources: SkillResourceIndex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillAccessRefusal {
+    pub(crate) requested: String,
+    pub(crate) canonical_id: Option<String>,
+    pub(crate) reason: String,
+    pub(crate) conflicting_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub(crate) enum SkillLoadOutcome {
+    Loaded { result: SkillLoadResult },
+    Refused { refusal: SkillAccessRefusal },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SkillResourceReadResult {
+    pub(crate) id: String,
+    pub(crate) uri: String,
+    pub(crate) revision: String,
+    pub(crate) content: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub(crate) enum SkillResourceReadOutcome {
+    Read { result: SkillResourceReadResult },
+    Refused { refusal: SkillAccessRefusal },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

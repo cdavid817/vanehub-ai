@@ -8,7 +8,7 @@ const MAX_IMPORT_DEPTH: usize = 16;
 const MAX_IMPORT_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_SKILL_DOCUMENT_BYTES: u64 = 256 * 1024;
 
-pub(super) fn compose(document: &SkillDocument) -> String {
+pub(crate) fn compose(document: &SkillDocument) -> String {
     let triggers = document
         .metadata
         .triggers
@@ -16,14 +16,24 @@ pub(super) fn compose(document: &SkillDocument) -> String {
         .map(|trigger| format!("  - {trigger}"))
         .collect::<Vec<_>>()
         .join("\n");
+    let aliases = document
+        .metadata
+        .aliases
+        .iter()
+        .map(|alias| format!("  - {}", alias.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
-        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntriggers:\n{}\n---\n\n# {}\n\n{}\n",
+        "---\nid: {}\nname: {}\ndescription: {}\ncategory: {}\nversion: {}\ntype: {}\ndelivery: {}\ntriggers:\n{}\naliases:\n{}\n---\n\n# {}\n\n{}\n",
         document.metadata.id.as_str(),
         document.metadata.name,
         document.metadata.description,
         document.metadata.category,
         document.metadata.version,
+        document.metadata.skill_type.as_str(),
+        document.metadata.delivery.as_str(),
         triggers,
+        aliases,
         document.metadata.name,
         document.body.trim()
     )
@@ -42,24 +52,31 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
     let mut category = String::new();
     let mut version = String::new();
     let mut triggers = Vec::new();
-    let mut in_triggers = false;
+    let mut aliases = Vec::new();
+    let mut skill_type = None;
+    let mut delivery = None;
+    let mut list_key: Option<&str> = None;
     for raw_line in frontmatter.lines() {
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
         }
-        if in_triggers && line.starts_with('-') {
-            triggers.push(
-                line.trim_start_matches('-')
-                    .trim()
-                    .trim_matches('"')
-                    .to_string(),
-            );
+        if let Some(key) = list_key.filter(|_| line.starts_with('-')) {
+            let value = line
+                .trim_start_matches('-')
+                .trim()
+                .trim_matches('"')
+                .to_string();
+            match key {
+                "triggers" => triggers.push(value),
+                "aliases" => aliases.push(value),
+                _ => {}
+            }
             continue;
         }
-        in_triggers = false;
-        if line == "triggers:" {
-            in_triggers = true;
+        list_key = None;
+        if line == "triggers:" || line == "aliases:" {
+            list_key = Some(line.trim_end_matches(':'));
             continue;
         }
         let Some((key, value)) = line.split_once(':') else {
@@ -72,14 +89,53 @@ pub(super) fn parse(content: &str) -> Result<SkillMetadata, SkillApplicationErro
             "description" => description = value,
             "category" => category = value,
             "version" => version = value,
+            "type" => {
+                skill_type = Some(
+                    crate::contexts::tooling::skills::domain::SkillType::parse(&value)
+                        .map_err(|error| validation_error(error.to_string()))?,
+                )
+            }
+            "delivery" => {
+                delivery = Some(
+                    crate::contexts::tooling::skills::domain::SkillDelivery::parse(&value)
+                        .map_err(|error| validation_error(error.to_string()))?,
+                )
+            }
             _ => {}
         }
     }
-    SkillMetadata::new(id, name, description, category, version, triggers)
-        .map_err(|error| validation_error(error.to_string()))
+    SkillMetadata::with_classification(
+        id,
+        name,
+        description,
+        category,
+        version,
+        triggers,
+        aliases,
+        skill_type,
+        delivery,
+    )
+    .map_err(|error| validation_error(error.to_string()))
 }
 
-pub(super) fn content_hash(content: &str) -> String {
+pub(crate) fn parse_document(content: &str) -> Result<SkillDocument, SkillApplicationError> {
+    let metadata = parse(content)?;
+    let normalized = content.replace("\r\n", "\n");
+    let raw_body = normalized
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---"))
+        .map(|(_, remainder)| remainder.trim())
+        .ok_or_else(|| validation_error("SKILL.md requires frontmatter"))?;
+    let heading = format!("# {}\n\n", metadata.name);
+    let body = raw_body
+        .strip_prefix(&heading)
+        .unwrap_or(raw_body)
+        .trim()
+        .to_string();
+    Ok(SkillDocument { metadata, body })
+}
+
+pub(crate) fn content_hash(content: &str) -> String {
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
@@ -90,7 +146,7 @@ pub(super) fn copy_directory(source: &Path, target: &Path) -> Result<(), SkillAp
     copy_directory_bounded(source, target, 0, &mut budget)
 }
 
-pub(super) fn read_import_document(path: &Path) -> Result<String, SkillApplicationError> {
+pub(crate) fn read_import_document(path: &Path) -> Result<String, SkillApplicationError> {
     let size = std::fs::metadata(path).map_err(filesystem_error)?.len();
     if size > MAX_SKILL_DOCUMENT_BYTES {
         return Err(validation_error("SKILL.md exceeds 256 KiB"));
@@ -158,4 +214,61 @@ fn validation_error(message: impl Into<String>) -> SkillApplicationError {
 
 fn filesystem_error(error: std::io::Error) -> SkillApplicationError {
     SkillApplicationError::Filesystem(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::tooling::skills::domain::{SkillDelivery, SkillType};
+
+    #[test]
+    fn legacy_document_parsing_records_compatibility_defaults() {
+        let metadata = parse(
+            "---\nid: legacy-skill\nname: Legacy\ndescription: Existing\ncategory: test\nversion: 1.0.0\ntriggers:\n  - legacy\n---\n\nBody",
+        )
+        .expect("legacy metadata");
+
+        assert_eq!(metadata.skill_type, SkillType::Role);
+        assert_eq!(metadata.delivery, SkillDelivery::Eager);
+        assert!(metadata.compatibility_defaults.skill_type);
+        assert!(metadata.compatibility_defaults.delivery);
+    }
+
+    #[test]
+    fn explicit_classification_and_aliases_round_trip() {
+        let document = SkillDocument {
+            metadata: SkillMetadata::with_classification(
+                "developer",
+                "Developer",
+                "Development role",
+                "development",
+                "1.0.0",
+                vec!["develop".to_string()],
+                vec!["dev".to_string()],
+                Some(SkillType::Role),
+                Some(SkillDelivery::OnDemand),
+            )
+            .expect("metadata"),
+            body: "Use {skill_base_dir}.".to_string(),
+        };
+
+        let parsed = parse(&compose(&document)).expect("round trip");
+
+        assert_eq!(parsed.aliases[0].as_str(), "dev");
+        assert_eq!(parsed.skill_type, SkillType::Role);
+        assert_eq!(parsed.delivery, SkillDelivery::OnDemand);
+        assert_eq!(parsed.compatibility_defaults, Default::default());
+    }
+
+    #[test]
+    fn unknown_classification_is_rejected_without_legacy_fallback() {
+        let result = parse(
+            "---\nid: invalid-skill\nname: Invalid\ndescription: Invalid\ncategory: test\nversion: 1.0.0\ntype: agent\n---\n\nBody",
+        );
+
+        assert!(matches!(
+            result,
+            Err(SkillApplicationError::Validation(message)) if message.contains("Unknown Skill type")
+        ));
+    }
 }

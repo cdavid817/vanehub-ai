@@ -1,8 +1,99 @@
 use super::{
-    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
-    SkillCompatibleAgent, SkillDocument, SkillDriftReport, SkillFilesystemTransaction,
-    SkillImportedSource, SkillLogEvent, SkillMountRepair, SkillRecord, SkillSourceRefresh,
+    AgentMountConfiguration, EffectiveSkill, ManagedSkillSource, OverlayValidationDiagnostic,
+    SkillAgentBinding, SkillApplicationError, SkillCompatibleAgent, SkillDocument,
+    SkillDriftReport, SkillFilesystemTransaction, SkillImportedSource, SkillLogEvent,
+    SkillMountRepair, SkillPackageDescriptor, SkillPackageResource, SkillRecord,
+    SkillResourceDocument, SkillSourceRefresh, SkillUsageActivity, SkillUsageIdentity,
+    SkillUsageMutation, SkillUsageRead,
 };
+
+pub(crate) trait SkillPackageReader: Send + Sync {
+    fn read_document(
+        &self,
+        package: &SkillPackageDescriptor,
+    ) -> Result<SkillDocument, SkillApplicationError>;
+
+    fn list_resources(
+        &self,
+        _package: &SkillPackageDescriptor,
+    ) -> Result<Vec<SkillPackageResource>, SkillApplicationError> {
+        Ok(Vec::new())
+    }
+
+    fn read_resource(
+        &self,
+        package: &SkillPackageDescriptor,
+        _relative_path: &str,
+    ) -> Result<SkillResourceDocument, SkillApplicationError> {
+        Err(SkillApplicationError::NotFound(
+            package.metadata.id.as_str().to_string(),
+        ))
+    }
+
+    fn read_resource_bytes(
+        &self,
+        package: &SkillPackageDescriptor,
+        relative_path: &str,
+    ) -> Result<Vec<u8>, SkillApplicationError> {
+        self.read_resource(package, relative_path)
+            .map(|resource| resource.content.into_bytes())
+    }
+}
+
+pub(crate) trait SkillPackageMaterializer: Send + Sync {
+    fn materialize(
+        &self,
+        package: &SkillPackageDescriptor,
+    ) -> Result<ManagedSkillSource, SkillApplicationError>;
+}
+
+pub(crate) trait SkillReconciliationRepository: Send + Sync {
+    fn builtin_reconciliation(
+        &self,
+        id: &crate::contexts::tooling::skills::domain::SkillId,
+    ) -> Result<Option<super::BuiltinReconciliationState>, SkillApplicationError>;
+    fn save_builtin_reconciliation(
+        &self,
+        state: &super::BuiltinReconciliationState,
+        record: Option<&SkillRecord>,
+        clear_tombstone: bool,
+    ) -> Result<(), SkillApplicationError>;
+    fn complete_builtin_cleanup(
+        &self,
+        id: &crate::contexts::tooling::skills::domain::SkillId,
+        backup_path: Option<&str>,
+        updated_at: &str,
+    ) -> Result<(), SkillApplicationError>;
+}
+
+pub(crate) trait SkillLegacySourcePort: Send + Sync {
+    fn read_legacy_document(
+        &self,
+        location: &crate::contexts::tooling::skills::domain::SkillLocation,
+        id: &crate::contexts::tooling::skills::domain::SkillId,
+    ) -> Result<SkillDocument, SkillApplicationError>;
+    fn archive_legacy_source(
+        &self,
+        location: &crate::contexts::tooling::skills::domain::SkillLocation,
+        id: &crate::contexts::tooling::skills::domain::SkillId,
+        reconciliation_version: u32,
+    ) -> Result<Option<String>, SkillApplicationError>;
+}
+
+pub(crate) trait SkillLayerProvider: Send + Sync {
+    fn inventory(
+        &self,
+        workspace_path: Option<&str>,
+    ) -> Result<Vec<SkillPackageDescriptor>, SkillApplicationError>;
+}
+
+pub(crate) trait EffectiveSkillCatalogPort: Send + Sync {
+    fn effective_catalog(
+        &self,
+        workspace_path: Option<&str>,
+    ) -> Result<Vec<EffectiveSkill>, SkillApplicationError>;
+    fn invalidate(&self, workspace_path: Option<&str>);
+}
 use crate::contexts::tooling::skills::domain::{
     SkillBindingPlan, SkillDriftInspection, SkillDriftIssue, SkillId, SkillKey, SkillLocation,
     SkillMountPath,
@@ -63,7 +154,7 @@ pub(crate) enum SkillSourceProbe {
     Absent,
     /// A readable, parseable source is there and can be adopted as-is, described by what the file
     /// says rather than by what the caller expected it to say.
-    Present(SkillImportedSource),
+    Present(Box<SkillImportedSource>),
     /// Something is there but cannot be read or parsed as a Skill.
     Unusable(String),
 }
@@ -100,6 +191,10 @@ pub(crate) trait SkillFilesystemPort: Send + Sync {
         document: &SkillDocument,
         expected_content_hash: &str,
     ) -> Result<ManagedSkillSource, SkillApplicationError>;
+    fn inspect_import_metadata(
+        &self,
+        source_path: &str,
+    ) -> Result<crate::contexts::tooling::skills::domain::SkillMetadata, SkillApplicationError>;
     fn import_source(
         &self,
         transaction: &SkillFilesystemTransaction,
@@ -110,6 +205,7 @@ pub(crate) trait SkillFilesystemPort: Send + Sync {
         &self,
         transaction: &SkillFilesystemTransaction,
         record: &SkillRecord,
+        remove_source: bool,
     ) -> Result<(), SkillApplicationError>;
     fn reconcile_bindings(
         &self,
@@ -158,6 +254,32 @@ pub(crate) trait SkillClockPort: Send + Sync {
 
 pub(crate) trait SkillLoggingPort: Send + Sync {
     fn record(&self, event: &SkillLogEvent) -> Result<(), SkillApplicationError>;
+
+    // The Overlay preparation pipeline is introduced after its security and storage ports.
+    #[allow(dead_code)]
+    fn record_overlay_validation(
+        &self,
+        diagnostic: &OverlayValidationDiagnostic,
+    ) -> Result<(), SkillApplicationError> {
+        self.record(&diagnostic.to_log_event())
+    }
+}
+
+pub(crate) trait SkillUsageRepository: Send + Sync {
+    fn summaries(
+        &self,
+        location: &crate::contexts::tooling::skills::domain::SkillLocation,
+        identities: &[SkillUsageIdentity],
+    ) -> Result<SkillUsageRead, SkillApplicationError>;
+
+    fn bump(
+        &self,
+        location: &crate::contexts::tooling::skills::domain::SkillLocation,
+        identity: &SkillUsageIdentity,
+        activity: SkillUsageActivity,
+        timestamp: &str,
+        revision_witness: &str,
+    ) -> Result<SkillUsageMutation, SkillApplicationError>;
 }
 
 /// Non-mount binding boundary for Skills bound to API-based Agents (`add-agent-skill-support`) —

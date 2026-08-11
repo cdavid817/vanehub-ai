@@ -1968,6 +1968,53 @@
                          "capabilities":  [
                                               "native-runtime-architecture"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-10",
+                         "changeName":  "establish-effective-skill-runtime",
+                         "path":  "openspec/changes/archive/2026-08-10-establish-effective-skill-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-skill-injection",
+                                              "agent-tool-execution",
+                                              "effective-skill-runtime",
+                                              "settings-skill-management-ui",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-10",
+                         "changeName":  "refine-effective-skill-management-ui",
+                         "path":  "openspec/changes/archive/2026-08-10-refine-effective-skill-management-ui/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "settings-skill-management-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "add-skill-overlay-governance",
+                         "path":  "openspec/changes/archive/2026-08-12-add-skill-overlay-governance/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-skill-injection",
+                                              "settings-skill-management-ui",
+                                              "skill-management",
+                                              "skill-overlay-governance"
+                                          ]
                      }
                  ]
 }

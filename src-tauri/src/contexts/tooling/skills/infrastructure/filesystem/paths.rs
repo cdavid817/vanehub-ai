@@ -103,7 +103,7 @@ impl SkillPathResolver {
     }
 }
 
-fn default_home_root() -> PathBuf {
+pub(crate) fn default_home_root() -> PathBuf {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)

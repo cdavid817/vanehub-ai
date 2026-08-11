@@ -235,6 +235,23 @@ fn open_private_file(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
+/// Creates a new private file for feature adapters that need exclusive creation semantics.
+/// Keeping handle construction here preserves the platform boundary enforced by architecture tests.
+pub(crate) fn create_new_private_file(path: &Path) -> io::Result<File> {
+    open_private_file(path)
+}
+
+#[cfg(unix)]
+pub(crate) fn open_private_file_for_append(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new().append(true).mode(0o600).open(path)
+}
+
+#[cfg(windows)]
+pub(crate) fn open_private_file_for_append(path: &Path) -> io::Result<File> {
+    OpenOptions::new().append(true).open(path)
+}
+
 #[cfg(windows)]
 fn open_private_file(path: &Path) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)

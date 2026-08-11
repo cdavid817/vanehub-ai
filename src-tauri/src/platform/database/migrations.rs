@@ -322,6 +322,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-and-code-index-reconciliation",
         apply_plan_and_code_index_reconciliation,
     )?;
+    apply_transactional_migration(
+        conn,
+        54,
+        "effective-skill-runtime",
+        crate::contexts::tooling::skills::infrastructure::apply_effective_runtime_schema,
+    )?;
 
     Ok(())
 }
@@ -967,7 +973,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (52, 53));
+        assert_eq!(migration_state, (53, 54));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { getSkillBindingState, isSkillAssigned, isSkillAssignedToAgent, partitionSkillsForAgent, type SkillInventoryView } from "../../../lib/skill-management";
+import { effectiveSkillInventory, getSkillBindingState, isSkillAssigned, isSkillAssignedToAgent, partitionSkillsForAgent, type SkillInventoryView } from "../../../lib/skill-management";
 import type { SkillOverview } from "../../../types/skill";
 
 export function SkillInventorySummary({ overview, view }: { overview: SkillOverview; view: SkillInventoryView }) {
@@ -19,22 +19,23 @@ export function SkillInventorySummary({ overview, view }: { overview: SkillOverv
 }
 
 function buildItems(overview: SkillOverview, view: SkillInventoryView) {
+  const skills = effectiveSkillInventory(overview.skills);
   if (view.kind === "all") {
     const cliAgents = overview.agents.filter((agent) => agent.kind === "cli");
     const apiAgents = overview.agents.filter((agent) => agent.kind === "api");
     return [
-      item("total", "skills.stats.total", overview.skills.length),
-      item("enabled", "skills.stats.enabled", overview.skills.filter((skill) => skill.enabled).length),
-      item("cli", "skills.summary.cliBound", overview.skills.filter((skill) => cliAgents.some((agent) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings))).length),
-      item("api", "skills.summary.apiBound", overview.skills.filter((skill) => apiAgents.some((agent) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings))).length),
-      item("unassigned", "skills.navigation.unassigned", overview.skills.filter((skill) => !isSkillAssigned(skill, overview)).length),
+      item("total", "skills.stats.total", skills.length),
+      item("enabled", "skills.stats.enabled", skills.filter((skill) => skill.enabled).length),
+      item("cli", "skills.summary.cliBound", skills.filter((skill) => cliAgents.some((agent) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings))).length),
+      item("api", "skills.summary.apiBound", skills.filter((skill) => apiAgents.some((agent) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings))).length),
+      item("unassigned", "skills.navigation.unassigned", skills.filter((skill) => !isSkillAssigned(skill, overview)).length),
     ];
   }
 
   if (view.kind === "agent") {
     const agent = overview.agents.find((candidate) => candidate.id === view.agentId)
       ?? { id: view.agentId, displayName: view.agentId, kind: view.agentKind };
-    const partition = partitionSkillsForAgent(overview.skills, agent, overview.apiAgentBindings);
+    const partition = partitionSkillsForAgent(skills, agent, overview.apiAgentBindings);
     const states = partition.assigned.map((skill) => getSkillBindingState(skill, agent, overview.apiAgentBindings));
     const active = states.filter((state) => state === "mounted" || state === "api-prompt").length;
     const configured = states.filter((state) => state === "configured").length;
@@ -48,7 +49,7 @@ function buildItems(overview: SkillOverview, view: SkillInventoryView) {
     ];
   }
 
-  const unassigned = overview.skills.filter((skill) => !isSkillAssigned(skill, overview));
+  const unassigned = skills.filter((skill) => !isSkillAssigned(skill, overview));
   return [
     item("unassigned", "skills.navigation.unassigned", unassigned.length),
     item("enabled", "skills.stats.enabled", unassigned.filter((skill) => skill.enabled).length),

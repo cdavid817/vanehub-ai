@@ -83,14 +83,28 @@ import type {
   SkillDriftReport,
   SkillImportInput,
   SkillListResult,
+  SkillLoadInput,
+  SkillLoadOutcome,
   SkillMountMigrationReport,
   SkillMutationInput,
   SkillOverview,
   SkillPreview,
+  SkillResourceReadInput,
+  SkillResourceReadOutcome,
   SkillScopeInput,
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type {
+  SkillOverlayDetail,
+  SkillOverlayHistoryPage,
+  SkillOverlayImportReview,
+  SkillOverlayMutationOutcome,
+  SkillOverlayPreview,
+  SkillOverlaySummary,
+} from "../types/skill-overlay";
+import type { SkillOverlayReconciliationPreview } from "../types/skill-overlay-reconciliation";
+import { normalizeSkillOverlayError } from "./skill-overlay-error";
 import { tauriSessionWorkspaceClient } from "./tauri-session-workspace-client";
 import { normalizeTauriSessionUsageSummary, normalizeTauriUsageStatistics } from "./tauri-usage-statistics";
 import { subscribeLoopRunPolling } from "./loop-run-polling";
@@ -122,6 +136,12 @@ import {
   normalizeCodeIndexWorkspace,
   normalizeCodeIndexWorkspaces,
 } from "./code-index-contract";
+
+function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
+  return invoke<TResult>(command, { input }).catch((error: unknown) =>
+    Promise.reject(normalizeSkillOverlayError(error)),
+  );
+}
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
@@ -744,6 +764,14 @@ export const tauriAgentClient: AgentService = {
     return invoke<SkillPreview>("preview_skill", { skillId, input });
   },
 
+  loadSkill(input: SkillLoadInput) {
+    return invoke<SkillLoadOutcome>("load_skill", { input });
+  },
+
+  readSkillResource(input: SkillResourceReadInput) {
+    return invoke<SkillResourceReadOutcome>("read_skill_resource", { input });
+  },
+
   importSkill(input: SkillImportInput) {
     return invoke<Skill>("import_skill", { input });
   },
@@ -754,6 +782,62 @@ export const tauriAgentClient: AgentService = {
 
   syncSkillDrift(input: SkillScopeInput) {
     return invoke<SkillSyncResult>("sync_skill_drift", { input });
+  },
+
+  getSkillOverlaySummary(input) {
+    return invokeSkillOverlay<SkillOverlaySummary>("get_skill_overlay_summary", input);
+  },
+
+  getSkillOverlayDetail(input) {
+    return invokeSkillOverlay<SkillOverlayDetail>("get_skill_overlay_detail", input);
+  },
+
+  previewSkillOverlay(input) {
+    return invokeSkillOverlay<SkillOverlayPreview>("preview_skill_overlay", input);
+  },
+
+  getSkillOverlayHistory(input) {
+    return invokeSkillOverlay<SkillOverlayHistoryPage>("get_skill_overlay_history", input);
+  },
+
+  createSkillOverlayPatch(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("create_skill_overlay_patch", input);
+  },
+
+  createSkillOverlayGuidance(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("create_skill_overlay_guidance", input);
+  },
+
+  addSkillOverlayFile(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("add_skill_overlay_file", input);
+  },
+
+  replaceSkillOverlayFile(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("replace_skill_overlay_file", input);
+  },
+
+  importSkillOverlay(input) {
+    return invokeSkillOverlay<SkillOverlayImportReview>("import_skill_overlay", input);
+  },
+
+  promoteSkillOverlay(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("promote_skill_overlay", input);
+  },
+
+  disableSkillOverlayMutation(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("disable_skill_overlay_mutation", input);
+  },
+
+  revertSkillOverlayMutation(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("revert_skill_overlay_mutation", input);
+  },
+
+  previewSkillOverlayReconciliation(input) {
+    return invokeSkillOverlay<SkillOverlayReconciliationPreview>("preview_skill_overlay_reconciliation", input);
+  },
+
+  reconcileSkillOverlay(input) {
+    return invokeSkillOverlay<SkillOverlayMutationOutcome>("reconcile_skill_overlay", input);
   },
 
   listPromptHooks() {

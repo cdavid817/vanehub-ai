@@ -76,6 +76,7 @@ pub(super) fn list_to_dto(result: skill::SkillListResult) -> dto::SkillListResul
 
 pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
     let bound_agent_ids = record.bound_agent_ids();
+    let effective = record.effective_metadata();
     dto::Skill {
         id: record.key.id.as_str().to_string(),
         scope: scope_to_dto(record.key.location.scope),
@@ -99,6 +100,19 @@ pub(super) fn record_to_dto(record: skill::SkillRecord) -> dto::Skill {
             .collect(),
         created_at: record.created_at,
         updated_at: record.updated_at,
+        layer: layer_to_dto(effective.layer),
+        origin: origin_to_dto(effective.origin),
+        trust: trust_to_dto(effective.trust),
+        availability: availability_to_dto(effective.availability),
+        immutable: effective.immutable,
+        shadowed_definitions: effective.shadowed.into_iter().map(shadow_to_dto).collect(),
+        usage: dto::SkillUsageSummary {
+            view_count: effective.usage.view_count,
+            use_count: effective.usage.use_count,
+            last_viewed_at: effective.usage.last_viewed_at,
+            last_used_at: effective.usage.last_used_at,
+            revision_witness: effective.usage.revision_witness,
+        },
     }
 }
 
@@ -131,12 +145,118 @@ pub(super) fn mount_migration_to_dto(
 }
 
 pub(super) fn preview_to_dto(preview: skill::SkillPreview) -> dto::SkillPreview {
+    let effective = preview.effective;
     dto::SkillPreview {
         id: preview.key.id.as_str().to_string(),
         scope: scope_to_dto(preview.key.location.scope),
         workspace_path: preview.key.location.workspace_path,
         content: preview.content,
         path: preview.path,
+        layer: layer_to_dto(effective.layer),
+        origin: origin_to_dto(effective.origin),
+        availability: availability_to_dto(effective.availability),
+        immutable: effective.immutable,
+        shadowed_definitions: effective.shadowed.into_iter().map(shadow_to_dto).collect(),
+    }
+}
+
+pub(super) fn load_request(input: dto::SkillLoadInput) -> skill::SkillLoadRequest {
+    skill::SkillLoadRequest {
+        id_or_alias: input.id_or_alias,
+        workspace_path: input.workspace_path,
+    }
+}
+
+pub(super) fn resource_read_request(
+    input: dto::SkillResourceReadInput,
+) -> skill::SkillResourceReadRequest {
+    skill::SkillResourceReadRequest {
+        uri: input.uri,
+        revision: input.revision,
+        workspace_path: input.workspace_path,
+    }
+}
+
+pub(super) fn load_outcome_to_dto(outcome: skill::SkillLoadOutcome) -> dto::SkillLoadOutcome {
+    match outcome {
+        skill::SkillLoadOutcome::Loaded(result) => dto::SkillLoadOutcome::Loaded {
+            result: dto::SkillLoadResult {
+                id: result.id,
+                name: result.name,
+                content: result.content,
+                truncated: result.truncated,
+                revision: result.revision,
+                base_uri: result.base_uri,
+                resources: resource_index_to_dto(result.resources),
+            },
+        },
+        skill::SkillLoadOutcome::Refused(refusal) => dto::SkillLoadOutcome::Refused {
+            refusal: access_refusal_to_dto(refusal),
+        },
+    }
+}
+
+pub(super) fn resource_read_outcome_to_dto(
+    outcome: skill::SkillResourceReadOutcome,
+) -> dto::SkillResourceReadOutcome {
+    match outcome {
+        skill::SkillResourceReadOutcome::Read(result) => dto::SkillResourceReadOutcome::Read {
+            result: dto::SkillResourceReadResult {
+                id: result.id,
+                uri: result.uri,
+                revision: result.revision,
+                content: result.content,
+                size_bytes: result.size_bytes,
+            },
+        },
+        skill::SkillResourceReadOutcome::Refused(refusal) => {
+            dto::SkillResourceReadOutcome::Refused {
+                refusal: access_refusal_to_dto(refusal),
+            }
+        }
+    }
+}
+
+fn resource_index_to_dto(index: skill::SkillResourceIndex) -> dto::SkillResourceIndex {
+    dto::SkillResourceIndex {
+        scripts: index
+            .scripts
+            .into_iter()
+            .map(resource_entry_to_dto)
+            .collect(),
+        references: index
+            .references
+            .into_iter()
+            .map(resource_entry_to_dto)
+            .collect(),
+        templates: index
+            .templates
+            .into_iter()
+            .map(resource_entry_to_dto)
+            .collect(),
+        assets: index
+            .assets
+            .into_iter()
+            .map(resource_entry_to_dto)
+            .collect(),
+        truncated: index.truncated,
+    }
+}
+
+fn resource_entry_to_dto(entry: skill::SkillResourceEntry) -> dto::SkillResourceEntry {
+    dto::SkillResourceEntry {
+        uri: entry.uri,
+        relative_path: entry.relative_path,
+        size_bytes: entry.size_bytes,
+    }
+}
+
+fn access_refusal_to_dto(refusal: skill::SkillAccessRefusal) -> dto::SkillAccessRefusal {
+    dto::SkillAccessRefusal {
+        requested: refusal.requested,
+        canonical_id: refusal.canonical_id,
+        reason: refusal.reason.as_str().to_string(),
+        conflicting_ids: refusal.conflicting_ids,
     }
 }
 
@@ -246,18 +366,25 @@ pub(super) fn overview_to_dto(result: skill::SkillOverview) -> dto::SkillOvervie
 }
 
 fn metadata(value: dto::SkillMetadata) -> Result<skill::SkillMetadata, skill::SkillError> {
-    skill::SkillMetadata::new(
+    skill::SkillMetadata::with_classification(
         value.id,
         value.name,
         value.description,
         value.category,
         value.version,
         value.triggers,
+        value.aliases,
+        value.skill_type.map(skill_type_to_domain),
+        value.delivery.map(delivery_to_domain),
     )
     .map_err(Into::into)
 }
 
 fn metadata_to_dto(value: skill::SkillMetadata) -> dto::SkillMetadata {
+    let compatibility_defaults = dto::SkillCompatibilityDefaults {
+        skill_type: value.compatibility_defaults.skill_type,
+        delivery: value.compatibility_defaults.delivery,
+    };
     dto::SkillMetadata {
         id: value.id.as_str().to_string(),
         name: value.name,
@@ -265,6 +392,87 @@ fn metadata_to_dto(value: skill::SkillMetadata) -> dto::SkillMetadata {
         category: value.category,
         version: value.version,
         triggers: value.triggers,
+        aliases: value
+            .aliases
+            .into_iter()
+            .map(|alias| alias.as_str().to_string())
+            .collect(),
+        skill_type: Some(skill_type_to_dto(value.skill_type)),
+        delivery: Some(delivery_to_dto(value.delivery)),
+        compatibility_defaults,
+    }
+}
+
+fn skill_type_to_domain(value: dto::SkillType) -> skill::SkillType {
+    match value {
+        dto::SkillType::Role => skill::SkillType::Role,
+        dto::SkillType::Utility => skill::SkillType::Utility,
+    }
+}
+
+fn skill_type_to_dto(value: skill::SkillType) -> dto::SkillType {
+    match value {
+        skill::SkillType::Role => dto::SkillType::Role,
+        skill::SkillType::Utility => dto::SkillType::Utility,
+    }
+}
+
+fn delivery_to_domain(value: dto::SkillDelivery) -> skill::SkillDelivery {
+    match value {
+        dto::SkillDelivery::Eager => skill::SkillDelivery::Eager,
+        dto::SkillDelivery::OnDemand => skill::SkillDelivery::OnDemand,
+    }
+}
+
+fn delivery_to_dto(value: skill::SkillDelivery) -> dto::SkillDelivery {
+    match value {
+        skill::SkillDelivery::Eager => dto::SkillDelivery::Eager,
+        skill::SkillDelivery::OnDemand => dto::SkillDelivery::OnDemand,
+    }
+}
+
+fn layer_to_dto(value: skill::SkillLayer) -> dto::SkillLayer {
+    match value {
+        skill::SkillLayer::Project => dto::SkillLayer::Project,
+        skill::SkillLayer::User => dto::SkillLayer::User,
+        skill::SkillLayer::Registry => dto::SkillLayer::Registry,
+        skill::SkillLayer::System => dto::SkillLayer::System,
+    }
+}
+
+fn origin_to_dto(value: skill::SkillOrigin) -> dto::SkillOrigin {
+    match value {
+        skill::SkillOrigin::Created => dto::SkillOrigin::Created,
+        skill::SkillOrigin::Imported => dto::SkillOrigin::Imported,
+        skill::SkillOrigin::Installed => dto::SkillOrigin::Installed,
+        skill::SkillOrigin::Shipped => dto::SkillOrigin::Shipped,
+        skill::SkillOrigin::Migrated => dto::SkillOrigin::Migrated,
+    }
+}
+
+fn trust_to_dto(value: skill::SkillTrust) -> dto::SkillTrust {
+    match value {
+        skill::SkillTrust::Trusted => dto::SkillTrust::Trusted,
+        skill::SkillTrust::Untrusted => dto::SkillTrust::Untrusted,
+    }
+}
+
+fn availability_to_dto(value: skill::SkillAvailability) -> dto::SkillAvailability {
+    match value {
+        skill::SkillAvailability::Available => dto::SkillAvailability::Available,
+        skill::SkillAvailability::Disabled => dto::SkillAvailability::Disabled,
+        skill::SkillAvailability::Invalid => dto::SkillAvailability::Invalid,
+        skill::SkillAvailability::Conflicting => dto::SkillAvailability::Conflicting,
+        skill::SkillAvailability::Unsupported => dto::SkillAvailability::Unsupported,
+    }
+}
+
+fn shadow_to_dto(value: skill::SkillShadowSummary) -> dto::SkillShadowSummary {
+    dto::SkillShadowSummary {
+        layer: layer_to_dto(value.layer),
+        origin: origin_to_dto(value.origin),
+        version: value.version,
+        availability: availability_to_dto(value.availability),
     }
 }
 
@@ -315,7 +523,9 @@ fn failure_to_dto(failure: skill::SkillFailure) -> dto::SkillFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::tooling::skills::application::{ManagedSkillSource, SkillAgentBinding};
+    use crate::contexts::tooling::skills::application::{
+        ManagedSkillSource, SkillAccessRefusalReason, SkillAgentBinding,
+    };
     use crate::contexts::tooling::skills::domain::SkillDriftIssue;
     use serde_json::json;
 
@@ -415,6 +625,7 @@ mod tests {
             }],
             created_at: "2026-07-17T00:00:00Z".to_string(),
             updated_at: "2026-07-18T00:00:00Z".to_string(),
+            resolved_metadata: None,
         };
 
         let value = serde_json::to_value(record_to_dto(record)).expect("Skill DTO");
@@ -436,7 +647,14 @@ mod tests {
                     "description": "Description",
                     "category": "testing",
                     "version": "1.0.0",
-                    "triggers": ["fixture"]
+                    "triggers": ["fixture"],
+                    "aliases": [],
+                    "type": "role",
+                    "delivery": "eager",
+                    "compatibilityDefaults": {
+                        "skillType": true,
+                        "delivery": true
+                    }
                 },
                 "boundAgentIds": ["codex-cli"],
                 "bindings": [{
@@ -446,7 +664,67 @@ mod tests {
                     "mounted": true
                 }],
                 "createdAt": "2026-07-17T00:00:00Z",
-                "updatedAt": "2026-07-18T00:00:00Z"
+                "updatedAt": "2026-07-18T00:00:00Z",
+                "layer": "user",
+                "origin": "created",
+                "trust": "trusted",
+                "availability": "available",
+                "immutable": false,
+                "shadowedDefinitions": [],
+                "usage": {
+                    "viewCount": 0,
+                    "useCount": 0,
+                    "lastViewedAt": null,
+                    "lastUsedAt": null,
+                    "revisionWitness": null
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn progressive_outcomes_use_the_shared_frontend_discriminants() {
+        let load = load_outcome_to_dto(skill::SkillLoadOutcome::Refused(
+            skill::SkillAccessRefusal {
+                requested: "utility-skill".to_string(),
+                canonical_id: Some("utility-skill".to_string()),
+                reason: SkillAccessRefusalReason::UtilityNotLoadable,
+                conflicting_ids: Vec::new(),
+            },
+        ));
+        let read = resource_read_outcome_to_dto(skill::SkillResourceReadOutcome::Read(
+            crate::contexts::tooling::skills::application::SkillResourceReadResult {
+                id: "role-skill".to_string(),
+                uri: "skill://role-skill/references/guide.md".to_string(),
+                revision: "revision-1".to_string(),
+                content: "guide".to_string(),
+                size_bytes: 5,
+            },
+        ));
+
+        assert_eq!(
+            serde_json::to_value(load).expect("load DTO"),
+            json!({
+                "status": "refused",
+                "refusal": {
+                    "requested": "utility-skill",
+                    "canonicalId": "utility-skill",
+                    "reason": "utility-not-loadable",
+                    "conflictingIds": []
+                }
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(read).expect("read DTO"),
+            json!({
+                "status": "read",
+                "result": {
+                    "id": "role-skill",
+                    "uri": "skill://role-skill/references/guide.md",
+                    "revision": "revision-1",
+                    "content": "guide",
+                    "sizeBytes": 5
+                }
             })
         );
     }

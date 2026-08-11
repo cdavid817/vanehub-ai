@@ -28,6 +28,13 @@ const skill: Skill = {
   bindings: [],
   createdAt: "now",
   updatedAt: "now",
+  layer: "user",
+  origin: "created",
+  trust: "trusted",
+  availability: "available",
+  immutable: false,
+  shadowedDefinitions: [],
+  usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
 };
 
 describe("SkillDialogs", () => {
@@ -73,7 +80,12 @@ describe("SkillDialogs", () => {
         operationPending={false}
         reloadingEdit={false}
         scope="global"
-        state={{ mode: null, skill: null, preview: { id: skill.id, scope: "global", workspacePath: null, path: skill.skillMdPath, content: "---\nid: conflicted-skill\n---\n# Conflicted Skill\n\nBody" } }}
+        state={{ mode: null, skill: null, preview: {
+          id: skill.id, scope: "global", workspacePath: null, path: skill.skillMdPath,
+          content: "---\nid: conflicted-skill\n---\n# Conflicted Skill\n\nBody",
+          layer: "user", origin: "created", availability: "available", immutable: false,
+          shadowedDefinitions: [],
+        } }}
         workspacePath={null}
       />,
     );
@@ -104,5 +116,36 @@ describe("SkillDialogs", () => {
     expect(screen.getByRole("status").textContent).toContain("处理中");
     expect((screen.getByRole("button", { name: "取消" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps immutable System Skills read-only even when an edit state is requested", () => {
+    const immutableSkill: Skill = {
+      ...skill,
+      source: "builtin",
+      layer: "system",
+      origin: "shipped",
+      immutable: true,
+    };
+
+    render(
+      <SkillDialogs
+        editConflict={false}
+        editError={null}
+        onClose={vi.fn()}
+        onCreate={vi.fn()}
+        onImport={vi.fn()}
+        onReloadEdit={vi.fn()}
+        onUpdate={vi.fn()}
+        operationPending={false}
+        reloadingEdit={false}
+        scope="global"
+        state={{ mode: "edit", skill: immutableSkill, preview: null }}
+        workspacePath={null}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "只读系统 Skill" })).toBeTruthy();
+    expect(screen.getByText(/系统包为只读/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
   });
 });

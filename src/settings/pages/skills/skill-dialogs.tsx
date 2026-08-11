@@ -3,8 +3,9 @@ import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
+import { Badge } from "../../../components/ui/badge";
 import { normalizeDisplayPath } from "../../../lib/session-path";
-import type { Skill, SkillMetadata, SkillPreview, SkillScope, SkillSource } from "../../../types/skill";
+import type { Skill, SkillLoadOutcome, SkillMetadata, SkillPreview, SkillScope, SkillSource } from "../../../types/skill";
 
 type DialogMode = "create" | "edit" | "import" | "restore" | "delete" | null;
 type EditTab = "edit" | "preview";
@@ -15,10 +16,12 @@ export interface SkillDialogState {
   mode: DialogMode;
   skill: Skill | null;
   preview: SkillPreview | null;
+  loadOutcome?: SkillLoadOutcome | null;
+  returnFocus?: HTMLElement | null;
   editBody?: string;
 }
 
-export const closedSkillDialog: SkillDialogState = { mode: null, skill: null, preview: null };
+export const closedSkillDialog: SkillDialogState = { mode: null, skill: null, preview: null, loadOutcome: null };
 
 export function SkillDialogs({
   state, scope, workspacePath, onClose, onCreate, onUpdate, onImport, onRestore, onDelete,
@@ -52,7 +55,7 @@ export function SkillDialogs({
 
   useEffect(() => {
     if (state.mode === "edit" && state.skill) {
-      setMetadata(state.skill.metadata);
+      setMetadata(normalizeMetadata(state.skill.metadata));
       setBody(state.editBody ?? "");
       setEditTab("edit");
     } else if (state.mode === "create") {
@@ -70,8 +73,9 @@ export function SkillDialogs({
     if (state.preview) setPreviewTab("rendered");
   }, [state.preview]);
 
-  if (state.preview) return <Dialog title={state.preview.id} onClose={onClose}>
+  if (state.preview) return <Dialog title={state.preview.id} onClose={onClose} returnFocus={state.returnFocus}>
     <p className="mb-3 truncate text-xs text-muted-foreground">{normalizeDisplayPath(state.preview.path)}</p>
+    <PreviewRuntimeSummary loadOutcome={state.loadOutcome} preview={state.preview} />
     <div className="mb-3 flex gap-1 rounded-md bg-muted p-1" role="tablist">
       {(["rendered", "source"] as const).map((tab) => <button aria-selected={previewTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${previewTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setPreviewTab(tab)} role="tab" type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
     </div>
@@ -80,16 +84,24 @@ export function SkillDialogs({
   </Dialog>;
 
   if (!state.mode) return null;
+  if (state.mode === "delete" && state.skill?.immutable) return <Dialog title={t("skills.dialog.readOnlyTitle")} description={t("skills.immutable.explanation")} onClose={onClose}>
+    <DialogActions onClose={onClose} />
+  </Dialog>;
+  if (state.mode === "edit" && state.skill?.immutable) return <Dialog title={t("skills.dialog.readOnlyTitle")} description={t("skills.immutable.explanation")} onClose={onClose}>
+    <DialogActions onClose={onClose} />
+  </Dialog>;
   if (state.mode === "delete" && state.skill) return <Dialog closeDisabled={operationPending} title={t("skills.dialog.deleteTitle")} description={t("skills.dialog.deleteDescription", { name: state.skill.metadata.name })} onClose={onClose}>
     <OperationError message={operationError} />
     <DialogActions dangerLabel={t("skills.dialog.confirmDelete")} onClose={onClose} onSubmit={() => onDelete?.(state.skill!)} pending={operationPending} />
   </Dialog>;
   if (state.mode === "import") return <Dialog closeDisabled={operationPending} title={t("skills.dialog.importTitle")} onClose={onClose}>
+    <p className="mb-3 text-xs leading-5 text-muted-foreground">{t("skills.dialog.importUserLayer")}</p>
     <input className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" data-dialog-autofocus onChange={(event) => setPath(normalizeDisplayPath(event.target.value))} placeholder={t("skills.dialog.externalDirectory")} value={path} />
     <OperationError message={operationError} />
     <DialogActions onClose={onClose} onSubmit={() => onImport(path)} pending={operationPending} submitLabel={t("skills.dialog.import")} />
   </Dialog>;
   if (state.mode === "restore") return <Dialog closeDisabled={operationPending} title={t("skills.dialog.restoreTitle")} onClose={onClose}>
+    <p className="mb-3 text-xs leading-5 text-muted-foreground">{t("skills.dialog.restoreExplanation")}</p>
     <select className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" data-dialog-autofocus onChange={(event) => setRestoreId(event.target.value)} value={restoreId}>{candidates.map((id) => <option key={id} value={id}>{id}</option>)}</select>
     <OperationError message={operationError} />
     <DialogActions disabled={candidates.length === 0} onClose={onClose} onSubmit={() => onRestore?.(restoreId)} pending={operationPending} submitLabel={t("skills.dialog.restore")} />
@@ -102,7 +114,7 @@ export function SkillDialogs({
       {(["edit", "preview"] as const).map((tab) => <button aria-selected={editTab === tab} className={`flex-1 rounded px-3 py-2 text-sm ${editTab === tab ? "bg-background font-semibold shadow-xs" : "text-muted-foreground"}`} key={tab} onClick={() => setEditTab(tab)} role="tab" type="button">{t(`skills.dialog.${tab}Tab`)}</button>)}
     </div>
     {editTab === "edit" ? <>
-      <div className="grid gap-x-3 md:grid-cols-2"><Field disabled={Boolean(editing)} label="ID" onChange={(value) => setMetadata((current) => ({ ...current, id: value }))} value={metadata.id} /><Field label={t("skills.dialog.name")} onChange={(value) => setMetadata((current) => ({ ...current, name: value }))} value={metadata.name} /><Field label={t("skills.dialog.category")} onChange={(value) => setMetadata((current) => ({ ...current, category: value }))} value={metadata.category} /><Field label={t("skills.dialog.version")} onChange={(value) => setMetadata((current) => ({ ...current, version: value }))} value={metadata.version} /></div>
+      <div className="grid gap-x-3 md:grid-cols-2"><Field disabled={Boolean(editing)} label="ID" onChange={(value) => setMetadata((current) => ({ ...current, id: value }))} value={metadata.id} /><Field label={t("skills.dialog.name")} onChange={(value) => setMetadata((current) => ({ ...current, name: value }))} value={metadata.name} /><Field label={t("skills.dialog.category")} onChange={(value) => setMetadata((current) => ({ ...current, category: value }))} value={metadata.category} /><Field label={t("skills.dialog.version")} onChange={(value) => setMetadata((current) => ({ ...current, version: value }))} value={metadata.version} /><SelectField label={t("skills.dialog.type")} onChange={(value) => setMetadata((current) => ({ ...current, type: value as "role" | "utility" }))} options={["role", "utility"]} renderOption={(value) => t(`skills.type.${value}`)} value={metadata.type ?? "role"} /><SelectField label={t("skills.dialog.delivery")} onChange={(value) => setMetadata((current) => ({ ...current, delivery: value as "eager" | "on-demand" }))} options={["eager", "on-demand"]} renderOption={(value) => t(`skills.delivery.${value}`)} value={metadata.delivery ?? "eager"} /></div>
       <Field label={t("skills.dialog.description")} onChange={(value) => setMetadata((current) => ({ ...current, description: value }))} value={metadata.description} />
       <Field label={t("skills.dialog.triggers")} onChange={(value) => setMetadata((current) => ({ ...current, triggers: value.split(",").map((item) => item.trim()).filter(Boolean) }))} value={metadata.triggers.join(", ")} />
       <label className="mt-3 block text-sm">{t("skills.dialog.body")}<textarea className="mt-1 min-h-40 w-full rounded-md border border-border bg-background px-3 py-2 text-sm" onChange={(event) => setBody(event.target.value)} value={body} /></label>
@@ -113,8 +125,8 @@ export function SkillDialogs({
   </Dialog>;
 }
 
-function Dialog({ title, description, children, onClose, closeDisabled = false }: { title: string; description?: string; children: ReactNode; onClose: () => void; closeDisabled?: boolean }) {
-  return <ApplicationDialog closeDisabled={closeDisabled} description={description} onClose={onClose} title={title}>{children}</ApplicationDialog>;
+function Dialog({ title, description, children, onClose, closeDisabled = false, returnFocus }: { title: string; description?: string; children: ReactNode; onClose: () => void; closeDisabled?: boolean; returnFocus?: HTMLElement | null }) {
+  return <ApplicationDialog closeDisabled={closeDisabled} description={description} onClose={onClose} returnFocus={returnFocus} title={title}>{children}</ApplicationDialog>;
 }
 
 function DialogActions({ onClose, onSubmit, submitLabel, dangerLabel, disabled, pending = false }: { onClose: () => void; onSubmit?: () => void; submitLabel?: string; dangerLabel?: string; disabled?: boolean; pending?: boolean }) {
@@ -139,6 +151,35 @@ function Field({ label, value, disabled, onChange }: { label: string; value: str
   return <label className="mt-3 block text-sm">{label}<input className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm disabled:bg-muted" disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value} /></label>;
 }
 
+function SelectField({ label, value, options, renderOption, onChange }: { label: string; value: string; options: string[]; renderOption: (value: string) => string; onChange: (value: string) => void }) {
+  return <label className="mt-3 block text-sm">{label}<select className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm" onChange={(event) => onChange(event.target.value)} value={value}>{options.map((option) => <option key={option} value={option}>{renderOption(option)}</option>)}</select></label>;
+}
+
+function PreviewRuntimeSummary({ preview, loadOutcome }: { preview: SkillPreview; loadOutcome?: SkillLoadOutcome | null }) {
+  const { t } = useTranslation();
+  const resources = loadOutcome?.status === "loaded" ? loadOutcome.result.resources : null;
+  const resourceCount = resources
+    ? resources.scripts.length + resources.references.length + resources.templates.length + resources.assets.length
+    : 0;
+  return <div className="mb-3 rounded-md border border-border bg-muted/20 p-3 text-xs">
+    <div className="flex flex-wrap gap-2"><Badge tone="muted">{t(`skills.layer.${preview.layer}`)}</Badge><Badge tone="muted">{t(`skills.origin.${preview.origin}`)}</Badge><Badge tone={preview.availability === "available" ? "success" : "warning"}>{t(`skills.availability.${preview.availability}`)}</Badge>{preview.immutable ? <Badge tone="muted">{t("skills.immutable.badge")}</Badge> : null}</div>
+    {preview.immutable ? <p className="mt-2 leading-5 text-muted-foreground">{t("skills.immutable.explanation")}</p> : null}
+    {preview.shadowedDefinitions.length > 0 ? <p className="mt-2 leading-5 text-muted-foreground">{t("skills.shadowed.count", { count: preview.shadowedDefinitions.length })}</p> : null}
+    {resources ? <p className="mt-2 leading-5 text-muted-foreground">{t("skills.resources.summary", { count: resourceCount, scripts: resources.scripts.length, references: resources.references.length, templates: resources.templates.length, assets: resources.assets.length })}{resources.truncated ? ` ${t("skills.resources.truncated")}` : ""}</p> : null}
+    {loadOutcome?.status === "refused" ? <p className="mt-2 leading-5 text-muted-foreground">{resourceRefusalMessage(loadOutcome, t)}</p> : null}
+  </div>;
+}
+
 function emptyMetadata(): SkillMetadata {
-  return { id: "", name: "", description: "", category: "general", version: "1.0.0", triggers: [] };
+  return { id: "", name: "", description: "", category: "general", version: "1.0.0", triggers: [], aliases: [], type: "role", delivery: "on-demand", compatibilityDefaults: { skillType: false, delivery: false } };
+}
+
+function normalizeMetadata(metadata: SkillMetadata): SkillMetadata {
+  return { ...metadata, aliases: metadata.aliases ?? [], type: metadata.type ?? "role", delivery: metadata.delivery ?? "eager", compatibilityDefaults: metadata.compatibilityDefaults ?? { skillType: metadata.type == null, delivery: metadata.delivery == null } };
+}
+
+function resourceRefusalMessage(outcome: Extract<SkillLoadOutcome, { status: "refused" }>, t: (key: string, options?: Record<string, unknown>) => string) {
+  if (outcome.refusal.reason === "stale-revision") return t("skills.resources.stale");
+  if (outcome.refusal.reason === "utility-not-loadable" || outcome.refusal.reason === "unsupported") return t("skills.utility.unavailable");
+  return t("skills.resources.unavailable", { reason: outcome.refusal.reason });
 }

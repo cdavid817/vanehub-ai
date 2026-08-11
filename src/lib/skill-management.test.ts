@@ -3,6 +3,7 @@ import type { Session } from "../types/agent";
 import type { Skill, SkillOverview } from "../types/skill";
 import {
   deriveSessionSkillGroups,
+  effectiveSkillInventory,
   filterGlobalSkillInventory,
   getSkillBindingState,
   isSkillAssignedToAgent,
@@ -26,6 +27,13 @@ function makeSkill(id: string, scope: Skill["scope"], boundAgentIds: string[] = 
     bindings: [],
     createdAt: "2026-01-01",
     updatedAt: "2026-01-01",
+    layer: scope === "workspace" ? "project" : "user",
+    origin: "created",
+    trust: "trusted",
+    availability: "available",
+    immutable: false,
+    shadowedDefinitions: [],
+    usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
   };
 }
 
@@ -45,6 +53,17 @@ function overview(skills: Skill[]): SkillOverview {
 }
 
 describe("skill management presentation", () => {
+  it("keeps the first effective row for each canonical Skill id", () => {
+    const effective = { ...makeSkill("same", "global"), layer: "user" as const };
+    const duplicate = { ...makeSkill("same", "global"), layer: "system" as const, immutable: true };
+
+    expect(effectiveSkillInventory([effective, duplicate])).toEqual([effective]);
+    expect(filterGlobalSkillInventory(
+      overview([effective, duplicate]),
+      { kind: "all" },
+      { category: "all", query: "", sort: "name", source: "all", status: "all" },
+    )).toEqual([effective]);
+  });
   it("keeps identical ids distinct by scope and resolves worktree before project", () => {
     expect(skillIdentity(makeSkill("same", "global"))).not.toBe(skillIdentity(makeSkill("same", "workspace")));
     const session = { worktreePath: "D:/worktree", projectPath: "D:/project" } as Session;

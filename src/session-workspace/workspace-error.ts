@@ -1,4 +1,4 @@
-import { normalizeServiceError, type ServiceErrorCode } from "../services/service-error";
+import { normalizeServiceError, ServiceError, type ServiceErrorCode } from "../services/service-error";
 
 export type WorkspaceErrorKey =
   | "sessionTabs.error.validation"
@@ -15,5 +15,8 @@ const errorKeys: Record<ServiceErrorCode, WorkspaceErrorKey> = {
 };
 
 export function workspaceErrorKey(error: unknown): WorkspaceErrorKey {
-  return errorKeys[normalizeServiceError(error).code];
+  const normalized = normalizeServiceError(error);
+  return normalized instanceof ServiceError
+    ? errorKeys[normalized.code]
+    : "sessionTabs.error.runtime";
 }

@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "app", "dmg", "deb", "appimage"],
+    "resources": ["resources/skills/system/**/*"],
     "icon": [
       "icons/generated/32x32.png",
       "icons/generated/128x128.png",

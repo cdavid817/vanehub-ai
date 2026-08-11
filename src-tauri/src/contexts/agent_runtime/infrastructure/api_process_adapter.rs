@@ -10,17 +10,19 @@ use crate::contexts::agent_runtime::application::{
     AgentLog, AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort,
     AgentMessage, AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink,
     AgentProcessGateway, AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError,
-    AgentSkillPort, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt,
-    ConversationHistoryPort, ExecutionToolMode, GenerationProcessEvent, GenerationProcessFailure,
-    GenerationProcessRequest, MemorySource, OrchestrationExecutionProfile, PersonalizationSettings,
-    ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort,
-    ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME,
-    FILE_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
-    MCP_TOOL_NAME_PREFIX, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_TOOL_NAME,
+    AgentSkillPort, AgentSkillReadRequest, ApiAgentGateway, ApiCredentialPort, ApiProviderConfig,
+    BoundSkillPrompt, ConversationHistoryPort, ExecutionToolMode, GenerationProcessEvent,
+    GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    OrchestrationExecutionProfile, PersonalizationSettings, ProcessStopInitiator,
+    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
+    LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::platform::network::blocking_http_client;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -785,7 +787,7 @@ fn execute(
                     is_error: true,
                 }
             } else {
-                execute_tool_call(
+                execute_tool_call_with_skills(
                     &tool_use.name,
                     &input,
                     request.session.folder.as_deref(),
@@ -795,6 +797,7 @@ fn execute(
                     mcp,
                     retrieval,
                     plan_mode,
+                    skills,
                 )
             };
             if cancelled.load(Ordering::SeqCst) {
@@ -878,7 +881,7 @@ fn compaction_notice_block(message_id: &str, turns_before: usize) -> Value {
     })
 }
 
-/// Merges the fixed six-tool catalog (`shell`, `file`, `grep`, `glob`, `edit`, `remember`) with
+/// Merges the fixed native catalog (workspace, memory, and read-only Skill tools) with
 /// every MCP-sourced tool visible and active for the session's workspace folder
 /// (`add-agent-mcp-tools`), plus `recall` (`add-onepiece-vector-search` Task 13) when
 /// `retrieval_available`. A catalog lookup failure
@@ -1432,6 +1435,9 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
             }
         }
         REMEMBER_TOOL_NAME => (Action::memory_write(), Resource::memory()),
+        LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME => {
+            (Action::file_read(), Resource::new(tool_name))
+        }
         name if name.starts_with(MCP_TOOL_NAME_PREFIX) => (Action::mcp_tool(), Resource::new(name)),
         name => (Action::new(format!("unknown:{name}")), Resource::new(name)),
     }
@@ -1523,8 +1529,163 @@ fn non_negative_integer(value: &Value) -> Option<usize> {
     (float.is_finite() && float >= 0.0 && float.fract() == 0.0).then_some(float as u64 as usize)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListSkillsInput {
+    query: Option<String>,
+    #[serde(rename = "type")]
+    skill_type: Option<String>,
+    delivery: Option<String>,
+    availability: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoadSkillInput {
+    id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadSkillResourceInput {
+    uri: String,
+    revision: String,
+}
+
+fn invalid_skill_tool_input(name: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: json!({
+            "status": "error",
+            "error": {
+                "code": "invalid-input",
+                "message": format!("Invalid input for {name}.")
+            }
+        })
+        .to_string(),
+        is_error: true,
+    }
+}
+
+fn valid_skill_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn valid_skill_resource_uri(value: &str) -> bool {
+    if value.len() > 512 || value.contains(['\\', '%']) || value.chars().any(char::is_control) {
+        return false;
+    }
+    let Some(path) = value.strip_prefix("skill://") else {
+        return false;
+    };
+    let mut components = path.split('/');
+    let Some(id) = components.next() else {
+        return false;
+    };
+    let Some(directory) = components.next() else {
+        return false;
+    };
+    let resources = components.collect::<Vec<_>>();
+    valid_skill_identifier(id)
+        && matches!(directory, "scripts" | "references" | "templates" | "assets")
+        && !resources.is_empty()
+        && resources.iter().all(|component| {
+            !component.is_empty()
+                && *component != "."
+                && *component != ".."
+                && !component.starts_with('.')
+                && component.chars().count() <= 240
+        })
+}
+
+fn execute_skill_read(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    skills: &dyn AgentSkillPort,
+) -> ToolExecutionOutcome {
+    let request = match name {
+        LIST_SKILLS_TOOL_NAME => {
+            let Ok(input) = serde_json::from_value::<ListSkillsInput>(input.clone()) else {
+                return invalid_skill_tool_input(name);
+            };
+            let valid = input
+                .query
+                .as_deref()
+                .is_none_or(|query| query.chars().count() <= 80)
+                && input.limit.is_none_or(|limit| (1..=100).contains(&limit))
+                && input
+                    .skill_type
+                    .as_deref()
+                    .is_none_or(|value| matches!(value, "role" | "utility"))
+                && input
+                    .delivery
+                    .as_deref()
+                    .is_none_or(|value| matches!(value, "eager" | "on-demand"))
+                && input.availability.as_deref().is_none_or(|value| {
+                    matches!(
+                        value,
+                        "available" | "disabled" | "invalid" | "conflicting" | "unsupported"
+                    )
+                });
+            if !valid {
+                return invalid_skill_tool_input(name);
+            }
+            AgentSkillReadRequest::List {
+                workspace_path: workspace_folder.map(str::to_string),
+                query: input.query,
+                skill_type: input.skill_type,
+                delivery: input.delivery,
+                availability: input.availability,
+                limit: input.limit,
+            }
+        }
+        LOAD_SKILL_TOOL_NAME => {
+            let Ok(input) = serde_json::from_value::<LoadSkillInput>(input.clone()) else {
+                return invalid_skill_tool_input(name);
+            };
+            if !valid_skill_identifier(&input.id) {
+                return invalid_skill_tool_input(name);
+            }
+            AgentSkillReadRequest::Load {
+                workspace_path: workspace_folder.map(str::to_string),
+                id_or_alias: input.id,
+            }
+        }
+        READ_SKILL_RESOURCE_TOOL_NAME => {
+            let Ok(input) = serde_json::from_value::<ReadSkillResourceInput>(input.clone()) else {
+                return invalid_skill_tool_input(name);
+            };
+            if !valid_skill_resource_uri(&input.uri)
+                || input.revision.is_empty()
+                || input.revision.len() > 128
+                || input.revision.chars().any(char::is_control)
+            {
+                return invalid_skill_tool_input(name);
+            }
+            AgentSkillReadRequest::ReadResource {
+                workspace_path: workspace_folder.map(str::to_string),
+                uri: input.uri,
+                revision: input.revision,
+            }
+        }
+        _ => return invalid_skill_tool_input(name),
+    };
+    let outcome = skills.execute_read(request);
+    ToolExecutionOutcome {
+        output: outcome.output,
+        is_error: outcome.is_error,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-fn execute_tool_call(
+fn execute_tool_call_with_skills(
     name: &str,
     input: &Value,
     workspace_folder: Option<&str>,
@@ -1534,7 +1695,14 @@ fn execute_tool_call(
     mcp: &dyn AgentMcpToolPort,
     retrieval: &dyn AgentRetrievalPort,
     plan_mode: bool,
+    skills: &dyn AgentSkillPort,
 ) -> ToolExecutionOutcome {
+    if matches!(
+        name,
+        LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME
+    ) {
+        return execute_skill_read(name, input, workspace_folder, skills);
+    }
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
@@ -1692,6 +1860,47 @@ fn execute_tool_call(
             is_error: true,
         },
     }
+}
+
+#[cfg(test)]
+struct UnavailableSkillReads;
+
+#[cfg(test)]
+impl AgentSkillPort for UnavailableSkillReads {
+    fn bound_skill_prompts(
+        &self,
+        _agent_id: &str,
+        _workspace_path: Option<&str>,
+    ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn execute_tool_call(
+    name: &str,
+    input: &Value,
+    workspace_folder: Option<&str>,
+    cancelled: Arc<AtomicBool>,
+    agent_id: &str,
+    memories: &dyn AgentMemoryPort,
+    mcp: &dyn AgentMcpToolPort,
+    retrieval: &dyn AgentRetrievalPort,
+    plan_mode: bool,
+) -> ToolExecutionOutcome {
+    execute_tool_call_with_skills(
+        name,
+        input,
+        workspace_folder,
+        cancelled,
+        agent_id,
+        memories,
+        mcp,
+        retrieval,
+        plan_mode,
+        &UnavailableSkillReads,
+    )
 }
 
 /// After a successful save, wakes the background indexing worker (`retrieval.
@@ -2062,6 +2271,41 @@ mod tests {
             _workspace_path: Option<&str>,
         ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
             Ok(Vec::new())
+        }
+    }
+
+    struct RecordingSkills {
+        requests: Mutex<Vec<AgentSkillReadRequest>>,
+        outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome,
+    }
+
+    impl RecordingSkills {
+        fn returning(output: Value, is_error: bool) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                outcome: crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+                    output: output.to_string(),
+                    is_error,
+                },
+            }
+        }
+    }
+
+    impl AgentSkillPort for RecordingSkills {
+        fn bound_skill_prompts(
+            &self,
+            _agent_id: &str,
+            _workspace_path: Option<&str>,
+        ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError> {
+            Ok(Vec::new())
+        }
+
+        fn execute_read(
+            &self,
+            request: AgentSkillReadRequest,
+        ) -> crate::contexts::agent_runtime::application::AgentToolCallOutcome {
+            self.requests.lock().expect("requests").push(request);
+            self.outcome.clone()
         }
     }
 
@@ -3505,6 +3749,188 @@ mod tests {
     }
 
     #[test]
+    fn execute_persists_a_completed_skill_tool_result_and_continues_the_plan_mode_loop() {
+        let first_response = sse_body(&[
+            r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_skill_1","type":"function","function":{"name":"load_skill","arguments":"{\"id\":\"code-review\"}"}}]},"finish_reason":null}]}"#,
+            "[DONE]",
+        ]);
+        let second_response = sse_body(&["[DONE]"]);
+        let (address, server) =
+            http_fixture_sequence("200 OK", vec![first_response, second_response]);
+        let mut request = sample_request("api");
+        request.configuration.permission_mode = "plan".to_string();
+        request.session.folder = Some("D:/code/project".to_string());
+        let sink = CapturingSink::default();
+        let skills = RecordingSkills::returning(
+            json!({
+                "status": "loaded",
+                "skill": {"id": "code-review", "content": "bounded guidance"}
+            }),
+            false,
+        );
+
+        let event = execute(
+            &request,
+            not_cancelled(),
+            &FakeCredentials {
+                value: Some("sk-test".to_string()),
+            },
+            &openai_compatible_config("test-model", Some(&address)),
+            &FakeHistory(FakeHistoryOutcome::Messages(Vec::new())),
+            &sink,
+            &no_pending_approvals(),
+            &NoopLogging,
+            &FixedClock,
+            &skills,
+            &crate::contexts::agent_runtime::infrastructure::NativeAgentCoreInstructionsAdapter,
+            &FakeMemories::default(),
+            &NoopMcp,
+            &FakePermissions::default_classification(),
+            &NoopRetrieval,
+            &NoopPersonalization,
+        );
+
+        assert!(matches!(event, GenerationProcessEvent::Completed(None)));
+        assert_eq!(skills.requests.lock().expect("requests").len(), 1);
+        let requests = server.join().expect("fixture server");
+        assert_eq!(requests.len(), 2);
+        assert!(String::from_utf8_lossy(&requests[1]).contains("bounded guidance"));
+        let events = sink.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.name == LOAD_SKILL_TOOL_NAME && tool_use.status == "running"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GenerationProcessEvent::ToolUse(tool_use)
+                if tool_use.name == LOAD_SKILL_TOOL_NAME
+                    && tool_use.status == "completed"
+                    && tool_use.output.as_ref().is_some_and(|output| output.to_string().contains("bounded guidance"))
+        )));
+    }
+
+    #[test]
+    fn fixed_skill_tools_dispatch_closed_requests_and_remain_available_in_plan_mode() {
+        let skills = RecordingSkills::returning(json!({"status": "listed"}), false);
+        let outcome = execute_tool_call_with_skills(
+            LIST_SKILLS_TOOL_NAME,
+            &json!({
+                "query": "review",
+                "type": "role",
+                "delivery": "on-demand",
+                "availability": "available",
+                "limit": 5
+            }),
+            Some("D:/code/project"),
+            not_cancelled(),
+            "onepiece",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            true,
+            &skills,
+        );
+        assert!(!outcome.is_error);
+        assert_eq!(
+            skills.requests.lock().expect("requests").as_slice(),
+            &[AgentSkillReadRequest::List {
+                workspace_path: Some("D:/code/project".to_string()),
+                query: Some("review".to_string()),
+                skill_type: Some("role".to_string()),
+                delivery: Some("on-demand".to_string()),
+                availability: Some("available".to_string()),
+                limit: Some(5),
+            }]
+        );
+    }
+
+    #[test]
+    fn fixed_skill_tools_use_existing_read_only_permission_semantics() {
+        for name in [
+            LIST_SKILLS_TOOL_NAME,
+            LOAD_SKILL_TOOL_NAME,
+            READ_SKILL_RESOURCE_TOOL_NAME,
+        ] {
+            let (action, resource) = permission_action_and_resource(name, &json!({}));
+            assert_eq!(action, Action::file_read());
+            assert_eq!(resource.as_str(), name);
+        }
+    }
+
+    #[test]
+    fn fixed_skill_tool_validation_rejects_unknown_fields_and_malformed_identity_before_dispatch() {
+        let skills = RecordingSkills::returning(json!({"status": "loaded"}), false);
+        for (name, input) in [
+            (
+                LOAD_SKILL_TOOL_NAME,
+                json!({"id": "code-review", "path": "C:/secret"}),
+            ),
+            (LOAD_SKILL_TOOL_NAME, json!({"id": "Code Review"})),
+            (
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                json!({"uri": "C:/secret.txt", "revision": "rev-1"}),
+            ),
+            (
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                json!({"uri": "skill://code-review/references/../secret.txt", "revision": "rev-1"}),
+            ),
+        ] {
+            let outcome = execute_tool_call_with_skills(
+                name,
+                &input,
+                Some("D:/code/project"),
+                not_cancelled(),
+                "onepiece",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                false,
+                &skills,
+            );
+            assert!(outcome.is_error, "{name} should reject {input}");
+            assert!(outcome.output.contains("invalid-input"));
+        }
+        assert!(skills.requests.lock().expect("requests").is_empty());
+    }
+
+    #[test]
+    fn fixed_skill_tool_preserves_structured_unavailable_and_stale_outcomes() {
+        for (name, input, reason) in [
+            (
+                LOAD_SKILL_TOOL_NAME,
+                json!({"id": "future-utility"}),
+                "utility-not-loadable",
+            ),
+            (
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                json!({"uri": "skill://code-review/references/checks.md", "revision": "old"}),
+                "stale-revision",
+            ),
+        ] {
+            let skills = RecordingSkills::returning(
+                json!({"status": "refused", "refusal": {"reason": reason}}),
+                true,
+            );
+            let outcome = execute_tool_call_with_skills(
+                name,
+                &input,
+                None,
+                not_cancelled(),
+                "onepiece",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                true,
+                &skills,
+            );
+            assert!(outcome.is_error);
+            assert!(outcome.output.contains(reason));
+            assert_eq!(skills.requests.lock().expect("requests").len(), 1);
+        }
+    }
+
+    #[test]
     fn execute_tool_call_fails_closed_without_a_workspace_folder() {
         let outcome = execute_tool_call(
             SHELL_TOOL_NAME,
@@ -4127,7 +4553,7 @@ mod tests {
         let tools =
             resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 10);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -4160,19 +4586,22 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 262);
+        assert_eq!(tools.len(), 265);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, GREP_TOOL_NAME);
         assert_eq!(tools[3].name, GLOB_TOOL_NAME);
         assert_eq!(tools[4].name, EDIT_TOOL_NAME);
         assert_eq!(tools[5].name, REMEMBER_TOOL_NAME);
+        assert_eq!(tools[6].name, LIST_SKILLS_TOOL_NAME);
+        assert_eq!(tools[7].name, LOAD_SKILL_TOOL_NAME);
+        assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
     }
 
     #[test]
     fn resolve_tool_catalog_appends_recall_after_mcp_tools_when_retrieval_is_configured() {
         // Companion to the test above: same full MCP budget, but `retrieval_available = true` —
-        // total grows from 262 to 263 and `recall` lands last, proving it is appended after the
+        // total grows from 265 to 266 and `recall` lands last, proving it is appended after the
         // MCP merge rather than before it (a model reading only the tail of a long catalog should
         // still see it).
         let request = sample_request("api");
@@ -4201,7 +4630,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 263);
+        assert_eq!(tools.len(), 266);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 
@@ -4222,7 +4651,7 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            6,
+            9,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
@@ -4231,6 +4660,9 @@ mod tests {
         assert_eq!(tools[3].name, GLOB_TOOL_NAME);
         assert_eq!(tools[4].name, EDIT_TOOL_NAME);
         assert_eq!(tools[5].name, REMEMBER_TOOL_NAME);
+        assert_eq!(tools[6].name, LIST_SKILLS_TOOL_NAME);
+        assert_eq!(tools[7].name, LOAD_SKILL_TOOL_NAME);
+        assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
         let logs = logging.logs.lock().expect("logs");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].level, AgentLogLevel::Warn);
@@ -4393,7 +4825,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 7);
+        assert_eq!(tools.len(), 10);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 

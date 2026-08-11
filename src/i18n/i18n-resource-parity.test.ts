@@ -16,6 +16,17 @@ const resources: Record<AppLanguage, TranslationResource> = {
   ko,
 };
 const canonicalResource: TranslationResource = en;
+const overlayGovernanceKeys = [
+  "skills.overlay.diff.basePackage",
+  "skills.overlay.activeScopes",
+  "skills.overlay.import.quarantineTitle",
+  "skills.overlay.pinnedReadOnlyTitle",
+  "skills.overlay.mutation.scan",
+  "skills.overlay.reconcile.previewStale",
+  "skills.overlay.reconcile.title",
+  "skills.overlay.scopeStatus.blockedByEarlierScope",
+  "skills.overlay.history.integrityFailure",
+] as const;
 
 function findDuplicateKeys(filePath: string): string[] {
   const raw = readFileSync(filePath, "utf8");
@@ -52,6 +63,15 @@ describe("i18n resources", () => {
   it.each(appLanguages)("has no duplicate keys in the raw %s locale source", (language) => {
     expect(findDuplicateKeys(`src/i18n/locales/${language}.json`)).toEqual([]);
   });
+
+  it.each(appLanguages.filter((language) => language !== "en"))(
+    "localizes representative Overlay governance states in %s without English fallback copy",
+    (language) => {
+      for (const key of overlayGovernanceKeys) {
+        expect(resources[language][key], `${language}:${key}`).not.toBe(canonicalResource[key]);
+      }
+    },
+  );
 
   it("uses complete i18next v4 plural pairs for count-sensitive messages", () => {
     const pluralKeys = Object.keys(canonicalResource).filter((key) => /_(?:one|other)$/.test(key));

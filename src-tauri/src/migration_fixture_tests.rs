@@ -6,10 +6,11 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 53. Migration 53 reconciles databases that may identify versions 49-51 as
-/// either Plan execution from main or workspace code indexing from the concurrent worktree.
+/// Contiguous through 54. Migration 53 reconciles databases that may identify versions 49-51 as
+/// either Plan execution from main or workspace code indexing from the concurrent worktree, and
+/// migration 54 adds effective Skill reconciliation state.
 fn expected_versions() -> Vec<i64> {
-    (1..=53).collect()
+    (1..=54).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -22,7 +23,7 @@ fn applied_versions(conn: &Connection) -> Vec<i64> {
 }
 
 #[test]
-fn migration_49_collision_histories_converge_at_version_53() {
+fn migration_49_collision_histories_converge_and_reach_latest_schema() {
     for migration_49_name in [
         "plan-execution-foundation",
         "workspace-code-index-foundation",
@@ -62,7 +63,7 @@ fn migration_49_collision_histories_converge_at_version_53() {
 }
 
 #[test]
-fn code_index_worktree_migration_history_gains_plan_schema_at_version_53() {
+fn code_index_worktree_migration_history_gains_plan_schema_and_reaches_latest() {
     let conn = Connection::open_in_memory().expect("in-memory sqlite");
     migrate(&conn).expect("initial migration");
     conn.execute_batch(

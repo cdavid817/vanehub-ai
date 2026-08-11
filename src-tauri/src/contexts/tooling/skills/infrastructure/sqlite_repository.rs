@@ -1,11 +1,12 @@
 use crate::contexts::tooling::skills::application::{
-    AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillAgentKind,
+    AgentMountConfiguration, BuiltinCleanupStatus, BuiltinReconciliationOutcome,
+    BuiltinReconciliationState, ManagedSkillSource, SkillAgentBinding, SkillAgentKind,
     SkillApiBindingRepository, SkillApplicationError, SkillCompatibleAgent, SkillDriftReport,
-    SkillRecord, SkillRepository,
+    SkillReconciliationRepository, SkillRecord, SkillRepository,
 };
 use crate::contexts::tooling::skills::domain::{
-    default_mount_path, SkillDriftIssueType, SkillId, SkillKey, SkillLocation, SkillMetadata,
-    SkillMountPath, SkillScope, SkillSource,
+    default_mount_path, SkillAvailability, SkillDriftIssueType, SkillId, SkillKey, SkillLayer,
+    SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillScope, SkillSource,
 };
 use crate::platform::clock::SystemClock;
 use crate::platform::database::NativeDatabase;
@@ -312,6 +313,185 @@ impl SkillRepository for SqliteSkillRepository {
     }
 }
 
+impl SkillReconciliationRepository for SqliteSkillRepository {
+    fn builtin_reconciliation(
+        &self,
+        id: &SkillId,
+    ) -> Result<Option<BuiltinReconciliationState>, SkillApplicationError> {
+        let connection = self.database.connection().map_err(app_error)?;
+        let mut statement = connection
+            .prepare(
+                r#"
+                SELECT journal.reconciliation_version, journal.outcome,
+                       journal.system_revision, journal.legacy_revision,
+                       journal.cleanup_status, journal.backup_path, journal.error_code,
+                       state.enabled, state.deletion_intent, state.effective_layer,
+                       state.origin, state.availability, journal.updated_at
+                FROM skill_builtin_reconciliation journal
+                INNER JOIN skill_runtime_state state
+                  ON state.skill_id = journal.skill_id
+                 AND state.scope = 'global'
+                 AND state.workspace_path = ''
+                WHERE journal.skill_id = ?1
+                "#,
+            )
+            .map_err(repository_error)?;
+        let mut rows = statement
+            .query(params![id.as_str()])
+            .map_err(repository_error)?;
+        let Some(row) = rows.next().map_err(repository_error)? else {
+            return Ok(None);
+        };
+        let outcome = row.get::<_, String>(1).map_err(repository_error)?;
+        let cleanup = row.get::<_, String>(4).map_err(repository_error)?;
+        let layer = row.get::<_, String>(9).map_err(repository_error)?;
+        let origin = row.get::<_, String>(10).map_err(repository_error)?;
+        let availability = row.get::<_, String>(11).map_err(repository_error)?;
+        Ok(Some(BuiltinReconciliationState {
+            skill_id: id.clone(),
+            reconciliation_version: row.get::<_, i64>(0).map_err(repository_error)? as u32,
+            outcome: BuiltinReconciliationOutcome::parse(&outcome).ok_or_else(|| {
+                invalid_data(format!("unknown reconciliation outcome: {outcome}"))
+            })?,
+            system_revision: row.get(2).map_err(repository_error)?,
+            legacy_revision: row.get(3).map_err(repository_error)?,
+            cleanup_status: BuiltinCleanupStatus::parse(&cleanup)
+                .ok_or_else(|| invalid_data(format!("unknown cleanup status: {cleanup}")))?,
+            backup_path: row.get(5).map_err(repository_error)?,
+            error_code: row.get(6).map_err(repository_error)?,
+            enabled: row.get::<_, i32>(7).map_err(repository_error)? != 0,
+            deletion_intent: row.get::<_, i32>(8).map_err(repository_error)? != 0,
+            effective_layer: SkillLayer::parse(&layer)
+                .ok_or_else(|| invalid_data(format!("unknown effective layer: {layer}")))?,
+            origin: SkillOrigin::parse(&origin)
+                .ok_or_else(|| invalid_data(format!("unknown Skill origin: {origin}")))?,
+            availability: SkillAvailability::parse(&availability)
+                .ok_or_else(|| invalid_data(format!("unknown availability: {availability}")))?,
+            updated_at: row.get(12).map_err(repository_error)?,
+        }))
+    }
+
+    fn save_builtin_reconciliation(
+        &self,
+        state: &BuiltinReconciliationState,
+        record: Option<&SkillRecord>,
+        clear_tombstone: bool,
+    ) -> Result<(), SkillApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        if let Some(record) = record {
+            save_record(&transaction, record)?;
+        }
+        if clear_tombstone {
+            clear_tombstones(&transaction, std::slice::from_ref(&state.skill_id))?;
+        }
+        save_reconciliation_state(&transaction, state)?;
+        bump_catalog_revision(&transaction, &state.updated_at)?;
+        transaction.commit().map_err(repository_error)
+    }
+
+    fn complete_builtin_cleanup(
+        &self,
+        id: &SkillId,
+        backup_path: Option<&str>,
+        updated_at: &str,
+    ) -> Result<(), SkillApplicationError> {
+        let mut connection = self.database.connection().map_err(app_error)?;
+        let transaction = connection.transaction().map_err(repository_error)?;
+        transaction
+            .execute(
+                r#"
+                UPDATE skill_builtin_reconciliation
+                SET cleanup_status = 'complete', backup_path = ?2, updated_at = ?3
+                WHERE skill_id = ?1
+                "#,
+                params![id.as_str(), backup_path, updated_at],
+            )
+            .map_err(repository_error)?;
+        bump_catalog_revision(&transaction, updated_at)?;
+        transaction.commit().map_err(repository_error)
+    }
+}
+
+fn save_reconciliation_state(
+    transaction: &Transaction<'_>,
+    state: &BuiltinReconciliationState,
+) -> Result<(), SkillApplicationError> {
+    transaction
+        .execute(
+            r#"
+            INSERT INTO skill_builtin_reconciliation (
+                skill_id, reconciliation_version, outcome, system_revision, legacy_revision,
+                cleanup_status, backup_path, error_code, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            ON CONFLICT(skill_id) DO UPDATE SET
+                reconciliation_version = excluded.reconciliation_version,
+                outcome = excluded.outcome,
+                system_revision = excluded.system_revision,
+                legacy_revision = excluded.legacy_revision,
+                cleanup_status = excluded.cleanup_status,
+                backup_path = excluded.backup_path,
+                error_code = excluded.error_code,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                state.skill_id.as_str(),
+                state.reconciliation_version,
+                state.outcome.as_str(),
+                state.system_revision,
+                state.legacy_revision,
+                state.cleanup_status.as_str(),
+                state.backup_path,
+                state.error_code,
+                state.updated_at,
+            ],
+        )
+        .map_err(repository_error)?;
+    transaction
+        .execute(
+            r#"
+            INSERT INTO skill_runtime_state (
+                skill_id, scope, workspace_path, enabled, deletion_intent, effective_layer,
+                origin, availability, reconciliation_version, state_revision, updated_at
+            ) VALUES (?1, 'global', '', ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
+            ON CONFLICT(skill_id, scope, workspace_path) DO UPDATE SET
+                enabled = excluded.enabled,
+                deletion_intent = excluded.deletion_intent,
+                effective_layer = excluded.effective_layer,
+                origin = excluded.origin,
+                availability = excluded.availability,
+                reconciliation_version = excluded.reconciliation_version,
+                state_revision = skill_runtime_state.state_revision + 1,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                state.skill_id.as_str(),
+                state.enabled as i32,
+                state.deletion_intent as i32,
+                state.effective_layer.as_str(),
+                state.origin.as_str(),
+                state.availability.as_str(),
+                state.reconciliation_version,
+                state.updated_at,
+            ],
+        )
+        .map_err(repository_error)?;
+    Ok(())
+}
+
+fn bump_catalog_revision(
+    transaction: &Transaction<'_>,
+    updated_at: &str,
+) -> Result<(), SkillApplicationError> {
+    transaction
+        .execute(
+            "UPDATE skill_catalog_revision SET revision = revision + 1, updated_at = ?1 WHERE singleton = 1",
+            params![updated_at],
+        )
+        .map_err(repository_error)?;
+    Ok(())
+}
+
 impl SkillApiBindingRepository for SqliteSkillRepository {
     fn bind_api_agent(
         &self,
@@ -496,6 +676,86 @@ pub(crate) fn apply_schema(
           ON skill_api_agent_bindings(agent_id, scope, workspace_path, skill_id);
         "#,
     )?;
+    apply_effective_runtime_schema(connection)?;
+    Ok(())
+}
+
+pub(crate) fn apply_effective_runtime_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS skill_runtime_state (
+            skill_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            workspace_path TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            deletion_intent INTEGER NOT NULL DEFAULT 0,
+            effective_layer TEXT,
+            origin TEXT,
+            availability TEXT,
+            reconciliation_version INTEGER NOT NULL DEFAULT 0,
+            state_revision INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (skill_id, scope, workspace_path)
+        );
+
+        CREATE TABLE IF NOT EXISTS skill_builtin_reconciliation (
+            skill_id TEXT PRIMARY KEY,
+            reconciliation_version INTEGER NOT NULL,
+            outcome TEXT NOT NULL,
+            system_revision TEXT NOT NULL,
+            legacy_revision TEXT,
+            cleanup_status TEXT NOT NULL,
+            backup_path TEXT,
+            error_code TEXT,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS skill_catalog_revision (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            revision INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
+
+        INSERT OR IGNORE INTO skill_catalog_revision (singleton, revision, updated_at)
+        VALUES (1, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+        INSERT OR IGNORE INTO skill_runtime_state (
+            skill_id, scope, workspace_path, enabled, deletion_intent, effective_layer,
+            origin, availability, reconciliation_version, state_revision, updated_at
+        )
+        SELECT id, scope, workspace_path, enabled, 0,
+               CASE WHEN source = 'builtin' THEN 'system' ELSE 'user' END,
+               CASE source
+                   WHEN 'builtin' THEN 'shipped'
+                   WHEN 'imported' THEN 'imported'
+                   ELSE 'created'
+               END,
+               CASE WHEN enabled = 1 THEN 'available' ELSE 'disabled' END,
+               0, 1, updated_at
+        FROM skills;
+
+        INSERT OR IGNORE INTO skill_runtime_state (
+            skill_id, scope, workspace_path, enabled, deletion_intent, effective_layer,
+            origin, availability, reconciliation_version, state_revision, updated_at
+        )
+        SELECT skill_id, 'global', '', 1, 1, 'system', 'shipped', 'disabled', 0, 1,
+               deleted_at
+        FROM deleted_builtin_skills;
+
+        UPDATE skill_runtime_state
+        SET deletion_intent = 1,
+            state_revision = CASE WHEN state_revision < 1 THEN 1 ELSE state_revision END
+        WHERE scope = 'global' AND workspace_path = ''
+          AND skill_id IN (SELECT skill_id FROM deleted_builtin_skills);
+
+        CREATE INDEX IF NOT EXISTS idx_skill_runtime_state_scope_workspace
+          ON skill_runtime_state(scope, workspace_path, skill_id);
+        CREATE INDEX IF NOT EXISTS idx_skill_reconciliation_outcome
+          ON skill_builtin_reconciliation(reconciliation_version, outcome, skill_id);
+        "#,
+    )?;
     Ok(())
 }
 
@@ -658,6 +918,7 @@ impl SkillRow {
             bindings: Vec::new(),
             created_at: self.created_at,
             updated_at: self.updated_at,
+            resolved_metadata: None,
         })
     }
 }
@@ -1200,6 +1461,7 @@ mod tests {
                 .unwrap_or_default(),
             created_at: "2026-07-18T00:00:00Z".to_string(),
             updated_at: "2026-07-18T00:00:00Z".to_string(),
+            resolved_metadata: None,
         }
     }
 
@@ -1482,6 +1744,63 @@ mod tests {
             .api_agent_bindings(&expected.key)
             .expect("bindings")
             .is_empty());
+    }
+
+    #[test]
+    fn effective_runtime_migration_preserves_legacy_enablement_and_deletion_intent() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE skills (
+                    id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    workspace_path TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (id, scope, workspace_path)
+                );
+                CREATE TABLE deleted_builtin_skills (
+                    skill_id TEXT PRIMARY KEY,
+                    deleted_at TEXT NOT NULL
+                );
+                INSERT INTO skills VALUES
+                    ('code-review', 'global', '', 'builtin', 0, '2026-08-01T00:00:00Z'),
+                    ('custom-skill', 'workspace', 'D:/work', 'user', 1, '2026-08-02T00:00:00Z');
+                INSERT INTO deleted_builtin_skills VALUES
+                    ('readme-generation', '2026-08-03T00:00:00Z');
+                "#,
+            )
+            .expect("legacy schema");
+
+        apply_effective_runtime_schema(&connection).expect("effective runtime migration");
+        apply_effective_runtime_schema(&connection).expect("idempotent migration");
+
+        let disabled: (i64, String, String) = connection
+            .query_row(
+                "SELECT enabled, effective_layer, availability FROM skill_runtime_state WHERE skill_id = 'code-review'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("disabled state");
+        let deleted: (i64, i64) = connection
+            .query_row(
+                "SELECT enabled, deletion_intent FROM skill_runtime_state WHERE skill_id = 'readme-generation'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("deletion state");
+        let revision: i64 = connection
+            .query_row(
+                "SELECT revision FROM skill_catalog_revision WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("revision");
+        assert_eq!(disabled, (0, "system".to_string(), "disabled".to_string()));
+        assert_eq!(deleted, (1, 1));
+        assert_eq!(revision, 1);
     }
 
     #[test]

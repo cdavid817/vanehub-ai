@@ -96,21 +96,28 @@ import { builtinExpertRoles } from "../config/builtin-expert-roles";
 import { validateExpertRoleInput } from "./expert-role-runtime";
 import type {
   Skill,
+  SkillAccessRefusalReason,
   SkillAgentMountPath,
   SkillDriftReport,
   SkillImportInput,
   SkillListResult,
+  SkillLoadInput,
+  SkillLoadOutcome,
   SkillMetadata,
   SkillMountMigrationReport,
   SkillMutationInput,
   SkillOverview,
   SkillPreview,
+  SkillResourceReadInput,
+  SkillResourceReadOutcome,
   SkillScope,
   SkillScopeInput,
   SkillSource,
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import { createWebSkillOverlayRuntime } from "./web-skill-overlay-runtime";
+import { overlayError, webOverlayHash } from "./web-skill-overlay-support";
 import {
   createCliParameterProfile,
   defaultCliParameterSelections,
@@ -452,6 +459,8 @@ let webSkillMountPaths: SkillAgentMountPath[] = mockAgents.map((agent) => ({
 
 let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
   const timestamp = nowIso();
+  const isUserOverride = seed.id === "readme-generation";
+  const isUtility = seed.id === "code-security-scan";
   return {
     id: seed.id,
     scope: "global",
@@ -468,12 +477,66 @@ let webSkills: Skill[] = builtinSkillSeeds.map((seed) => {
       category: seed.category,
       version: "1.0.0",
       triggers: seed.triggers,
+      aliases: seed.id === "readme-generation" ? ["docs"] : [],
+      type: isUtility ? "utility" : "role",
+      delivery: seed.id === "tdd-discipline" ? "on-demand" : "eager",
+      compatibilityDefaults: { skillType: false, delivery: false },
     },
     boundAgentIds: ["claude-code", "codex-cli"],
     bindings: [],
     createdAt: timestamp,
     updatedAt: timestamp,
+    layer: isUserOverride ? "user" : "system",
+    origin: isUserOverride ? "migrated" : "shipped",
+    trust: "trusted",
+    availability: isUtility ? "unsupported" : "available",
+    immutable: !isUserOverride,
+    shadowedDefinitions: isUserOverride
+      ? [{ layer: "system", origin: "shipped", version: "1.0.0", availability: "available" }]
+      : [],
+    usage: {
+      viewCount: seed.id === "tdd-discipline" ? 3 : 0,
+      useCount: seed.id === "tdd-discipline" ? 1 : 0,
+      lastViewedAt: seed.id === "tdd-discipline" ? timestamp : null,
+      lastUsedAt: seed.id === "tdd-discipline" ? timestamp : null,
+      revisionWitness: "web-usage-1",
+    },
   };
+});
+
+webSkills.push({
+  ...webSkills[0],
+  id: "project-conventions",
+  scope: "workspace",
+  workspacePath: "D:/example/project",
+  source: "user",
+  skillDir: "D:/example/project/.vanehub/skills/project-conventions",
+  skillMdPath: "D:/example/project/.vanehub/skills/project-conventions/SKILL.md",
+  contentHash: "web-project-conventions",
+  metadata: {
+    id: "project-conventions",
+    name: "Project Conventions",
+    description: "Project-specific conventions.",
+    category: "development",
+    version: "1.0.0",
+    triggers: ["project"],
+    aliases: [],
+    type: "role",
+    delivery: "on-demand",
+    compatibilityDefaults: { skillType: false, delivery: false },
+  },
+  boundAgentIds: [],
+  layer: "project",
+  origin: "created",
+  immutable: false,
+  shadowedDefinitions: [],
+  usage: {
+    viewCount: 0,
+    useCount: 0,
+    lastViewedAt: null,
+    lastUsedAt: null,
+    revisionWitness: "web-project-usage-1",
+  },
 });
 
 const webSkillDocuments = new Map<string, string>(
@@ -482,6 +545,16 @@ const webSkillDocuments = new Map<string, string>(
     `Built-in instructions for ${skill.metadata.name}.`,
   ]),
 );
+webSkillDocuments.set(
+  "global::tdd-discipline",
+  `Use {skill_base_dir} for supporting material.\n${"TDD guidance. ".repeat(1_100)}`,
+);
+
+const webSkillResourceDocuments = new Map<string, string>([
+  ["skill://tdd-discipline/references/testing-cycle.md", "Red, green, refactor, then run regression tests."],
+  ["skill://tdd-discipline/templates/test-plan.md", "# Test plan\n\n- Expected failure\n- Minimal fix\n- Regression"],
+  ["skill://project-conventions/references/conventions.md", "Use the project formatting and validation commands."],
+]);
 let nextWebSkillRevision = 1;
 
 function nextWebSkillHash(skillId: string) {
@@ -1151,6 +1224,66 @@ function buildSkillContent(skill: Skill) {
   return `---\nid: ${skill.metadata.id}\nname: ${skill.metadata.name}\ndescription: ${skill.metadata.description}\ncategory: ${skill.metadata.category}\nversion: ${skill.metadata.version}\ntriggers:\n${triggers}\n---\n\n# ${skill.metadata.name}\n\n${body.trim()}\n`;
 }
 
+function webSkillResources(skillId: string) {
+  const entries = [...webSkillResourceDocuments.entries()]
+    .filter(([uri]) => uri.startsWith(`skill://${skillId}/`))
+    .map(([uri, content]) => ({
+      uri,
+      relativePath: uri.slice(`skill://${skillId}/`.length),
+      sizeBytes: new TextEncoder().encode(content).byteLength,
+    }));
+  const inDirectory = (directory: string) => entries.filter((entry) => entry.relativePath.startsWith(`${directory}/`));
+  return {
+    scripts: inDirectory("scripts"),
+    references: inDirectory("references"),
+    templates: inDirectory("templates"),
+    assets: inDirectory("assets"),
+    truncated: false,
+  };
+}
+
+type WebSkillRefusalOutcome = Extract<SkillLoadOutcome, { status: "refused" }>;
+
+function webSkillRefusal(
+  requested: string,
+  reason: SkillAccessRefusalReason,
+  canonicalId: string | null = null,
+): WebSkillRefusalOutcome {
+  return { status: "refused", refusal: { requested, canonicalId, reason, conflictingIds: [] } };
+}
+
+function findProgressiveWebSkill(input: SkillLoadInput): WebSkillRefusalOutcome | Skill {
+  const workspacePath = input.workspacePath ? normalizeWebPath(input.workspacePath, "Workspace path") : null;
+  const candidates = webSkills.filter((skill) =>
+    skill.scope === "global" || (workspacePath != null && skill.workspacePath === workspacePath),
+  );
+  const exact = candidates.find((skill) => skill.id === input.idOrAlias);
+  const aliases = exact == null
+    ? candidates.filter((skill) => skill.metadata.aliases?.includes(input.idOrAlias))
+    : [];
+  if (aliases.length > 1) {
+    return {
+      status: "refused",
+      refusal: {
+        requested: input.idOrAlias,
+        canonicalId: null,
+        reason: "ambiguous-alias",
+        conflictingIds: aliases.map((skill) => skill.id).sort(),
+      },
+    };
+  }
+  const skill = exact ?? aliases[0];
+  if (!skill) return webSkillRefusal(input.idOrAlias, "not-found");
+  if (!skill.enabled) return webSkillRefusal(input.idOrAlias, "disabled", skill.id);
+  if (skill.metadata.type === "utility") {
+    return webSkillRefusal(input.idOrAlias, "utility-not-loadable", skill.id);
+  }
+  if (skill.availability !== "available") {
+    return webSkillRefusal(input.idOrAlias, skill.availability, skill.id);
+  }
+  return skill;
+}
+
 function skillStats(skills: Skill[]) {
   return {
     total: skills.length,
@@ -1195,11 +1328,33 @@ function mutationToSkill(input: SkillMutationInput): Skill {
     skillDir: `${root}/${input.id}`,
     skillMdPath: `${root}/${input.id}/SKILL.md`,
     contentHash: nextWebSkillHash(input.id),
-    metadata: input.metadata,
+    metadata: {
+      ...input.metadata,
+      aliases: input.metadata.aliases ?? [],
+      type: input.metadata.type ?? "role",
+      delivery: input.metadata.delivery ?? "eager",
+      compatibilityDefaults: input.metadata.compatibilityDefaults ?? {
+        skillType: input.metadata.type == null,
+        delivery: input.metadata.delivery == null,
+      },
+    },
     boundAgentIds: [...input.boundAgentIds],
     bindings: [],
     createdAt: timestamp,
     updatedAt: timestamp,
+    layer: location.scope === "workspace" ? "project" : "user",
+    origin: input.source === "imported" ? "imported" : "created",
+    trust: input.source === "imported" ? "untrusted" : "trusted",
+    availability: input.metadata.type === "utility" ? "unsupported" : "available",
+    immutable: false,
+    shadowedDefinitions: [],
+    usage: {
+      viewCount: 0,
+      useCount: 0,
+      lastViewedAt: null,
+      lastUsedAt: null,
+      revisionWitness: "web-usage-1",
+    },
   };
   webSkillDocuments.set(skillDocumentKey(skill), input.body);
   return skill;
@@ -2027,6 +2182,27 @@ function scheduleWebLoopPhase(run: LoopRun) {
   }, 220);
   loopTimers.set(run.id, timeoutId);
 }
+
+const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
+  const workspacePath = target.scope === "project" && target.workspacePath
+    ? normalizeWebPath(target.workspacePath, "Workspace path")
+    : null;
+  const candidates = webSkills.filter((skill) =>
+    skill.id === target.skillId
+      && (skill.scope === "global" || (workspacePath != null && skill.workspacePath === workspacePath)),
+  );
+  const skill = candidates.find((candidate) => candidate.scope === "workspace") ?? candidates[0];
+  if (!skill) throw overlayError("notFound", "skill-not-found", `Skill not found: ${target.skillId}`);
+  const instructions = buildSkillContent(skill);
+  return {
+    skillId: skill.id,
+    layer: skill.layer,
+    instructions,
+    instructionHash: webOverlayHash(instructions),
+    packageHash: skill.contentHash,
+    pinned: false,
+  };
+});
 
 export const webAgentClient: AgentService = {
   ...webSessionWorkspaceClient,
@@ -3988,7 +4164,17 @@ export const webAgentClient: AgentService = {
     webSkillDocuments.set(skillDocumentKey(current), input.body);
     const updated: Skill = {
       ...current,
-      metadata: input.metadata,
+      metadata: {
+        ...input.metadata,
+        aliases: input.metadata.aliases ?? [],
+        type: input.metadata.type ?? "role",
+        delivery: input.metadata.delivery ?? "eager",
+        compatibilityDefaults: input.metadata.compatibilityDefaults ?? {
+          skillType: input.metadata.type == null,
+          delivery: input.metadata.delivery == null,
+        },
+      },
+      availability: input.metadata.type === "utility" ? "unsupported" : "available",
       contentHash: nextWebSkillHash(skillId),
       updatedAt: nowIso(),
     };
@@ -4024,7 +4210,8 @@ export const webAgentClient: AgentService = {
       throw new Error(`Skill already exists: ${skillId}`);
     }
     deletedBuiltinSkillIds.delete(skillId);
-    const restored = mutationToSkill({
+    const restored = {
+      ...mutationToSkill({
       id: seed.id,
       scope: "global",
       workspacePath: null,
@@ -4040,13 +4227,20 @@ export const webAgentClient: AgentService = {
       enabled: true,
       boundAgentIds: [],
       source: "builtin",
-    });
+      }),
+      layer: "system" as const,
+      origin: "shipped" as const,
+      immutable: true,
+    };
     return hydrateSkillBindings(upsertWebSkill(restored));
   },
 
   async setSkillEnabled(skillId, input, enabled) {
     const current = findWebSkill(skillId, input);
-    const updated = { ...current, enabled, updatedAt: nowIso() };
+    const availability = !enabled
+      ? "disabled" as const
+      : current.metadata.type === "utility" ? "unsupported" as const : "available" as const;
+    const updated = { ...current, enabled, availability, updatedAt: nowIso() };
     return hydrateSkillBindings(upsertWebSkill(updated));
   },
 
@@ -4132,6 +4326,82 @@ export const webAgentClient: AgentService = {
       workspacePath: skill.workspacePath,
       path: skill.skillMdPath,
       content: buildSkillContent(skill),
+      layer: skill.layer,
+      origin: skill.origin,
+      availability: skill.availability,
+      immutable: skill.immutable,
+      shadowedDefinitions: skill.shadowedDefinitions.map((definition) => ({ ...definition })),
+    };
+  },
+
+  async loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome> {
+    const resolved = findProgressiveWebSkill(input);
+    if ("status" in resolved) return resolved;
+    const body = webSkillDocuments.get(skillDocumentKey(resolved)) ?? "";
+    const baseUri = `skill://${resolved.id}/`;
+    const expanded = body.replaceAll("{skill_base_dir}", baseUri);
+    const characters = [...expanded];
+    const timestamp = nowIso();
+    upsertWebSkill({
+      ...resolved,
+      usage: {
+        ...resolved.usage,
+        viewCount: resolved.usage.viewCount + 1,
+        lastViewedAt: timestamp,
+        revisionWitness: `${resolved.usage.revisionWitness ?? "web-usage"}-view`,
+      },
+    });
+    return {
+      status: "loaded",
+      result: {
+        id: resolved.id,
+        name: resolved.metadata.name,
+        content: characters.slice(0, 12_000).join(""),
+        truncated: characters.length > 12_000,
+        revision: resolved.contentHash,
+        baseUri,
+        resources: webSkillResources(resolved.id),
+      },
+    };
+  },
+
+  async readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome> {
+    const match = /^skill:\/\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(.+)$/.exec(input.uri);
+    if (!match) {
+      return {
+        status: "refused",
+        refusal: { requested: input.uri, canonicalId: null, reason: "invalid-uri", conflictingIds: [] },
+      };
+    }
+    const skillId = match[1];
+    const resolved = findProgressiveWebSkill({ idOrAlias: skillId, workspacePath: input.workspacePath });
+    if ("status" in resolved) return resolved;
+    if (resolved.contentHash !== input.revision) {
+      return {
+        status: "refused",
+        refusal: { requested: input.uri, canonicalId: skillId, reason: "stale-revision", conflictingIds: [] },
+      };
+    }
+    const content = webSkillResourceDocuments.get(input.uri);
+    if (content == null || !webSkillResources(skillId).references.concat(
+      webSkillResources(skillId).templates,
+      webSkillResources(skillId).scripts,
+      webSkillResources(skillId).assets,
+    ).some((entry) => entry.uri === input.uri)) {
+      return {
+        status: "refused",
+        refusal: { requested: input.uri, canonicalId: skillId, reason: "unindexed-resource", conflictingIds: [] },
+      };
+    }
+    return {
+      status: "read",
+      result: {
+        id: skillId,
+        uri: input.uri,
+        revision: input.revision,
+        content,
+        sizeBytes: new TextEncoder().encode(content).byteLength,
+      },
     };
   },
 
@@ -4192,6 +4462,62 @@ export const webAgentClient: AgentService = {
       failed: [],
       resolvedFrom: report,
     };
+  },
+
+  async getSkillOverlaySummary(input) {
+    return webSkillOverlayRuntime.getSummary(input);
+  },
+
+  async getSkillOverlayDetail(input) {
+    return webSkillOverlayRuntime.getDetail(input);
+  },
+
+  async previewSkillOverlay(input) {
+    return webSkillOverlayRuntime.preview(input);
+  },
+
+  async getSkillOverlayHistory(input) {
+    return webSkillOverlayRuntime.getHistory(input);
+  },
+
+  async createSkillOverlayPatch(input) {
+    return webSkillOverlayRuntime.createPatch(input);
+  },
+
+  async createSkillOverlayGuidance(input) {
+    return webSkillOverlayRuntime.createGuidance(input);
+  },
+
+  async addSkillOverlayFile(input) {
+    return webSkillOverlayRuntime.addFile(input);
+  },
+
+  async replaceSkillOverlayFile(input) {
+    return webSkillOverlayRuntime.replaceFile(input);
+  },
+
+  async importSkillOverlay(input) {
+    return webSkillOverlayRuntime.importOverlay(input);
+  },
+
+  async promoteSkillOverlay(input) {
+    return webSkillOverlayRuntime.promote(input);
+  },
+
+  async disableSkillOverlayMutation(input) {
+    return webSkillOverlayRuntime.disable(input);
+  },
+
+  async revertSkillOverlayMutation(input) {
+    return webSkillOverlayRuntime.revert(input);
+  },
+
+  async previewSkillOverlayReconciliation(input) {
+    return webSkillOverlayRuntime.previewReconciliation(input);
+  },
+
+  async reconcileSkillOverlay(input) {
+    return webSkillOverlayRuntime.reconcile(input);
   },
 
   async listPromptHooks(): Promise<PromptHookListResult> {

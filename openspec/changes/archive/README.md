@@ -138,5 +138,8 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
+| 2026-08-10 | establish-effective-skill-runtime | agent-chat-configuration, agent-skill-injection, agent-tool-execution, effective-skill-runtime, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-10-establish-effective-skill-runtime/` |
+| 2026-08-10 | refine-effective-skill-management-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-10-refine-effective-skill-management-ui/` |
+| 2026-08-12 | add-skill-overlay-governance | agent-skill-injection, settings-skill-management-ui, skill-management, skill-overlay-governance | `openspec/changes/archive/2026-08-12-add-skill-overlay-governance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
