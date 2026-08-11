@@ -9,6 +9,7 @@ import type { ChatMessage } from "../types/chat";
 import { agentTerminalInputClassName } from "./agent-terminal-tab";
 import { ReportTab } from "./report-tab";
 import { SessionTabBar } from "./session-tab-bar";
+import { SessionConversationHeader } from "./session-conversation-header";
 import { SessionTabs } from "./session-tabs";
 import { TerminalTab, toolUseCount } from "./terminal-tab";
 
@@ -22,6 +23,16 @@ const message: ChatMessage = {
   tokenUsage: { input: 12, output: 8 },
   createdAt: "2026-07-17T00:00:00.000Z",
   updatedAt: "2026-07-17T00:00:01.000Z",
+  sessionSequence: 1,
+  executionRunId: null,
+};
+
+const cleanRecovery = {
+  recoveryStatus: "clean" as const,
+  recoveryRevision: 0,
+  stateRevision: 0,
+  historyRevision: 0,
+  activeExecutionRunId: null,
 };
 
 describe("session workspace components", () => {
@@ -34,6 +45,11 @@ describe("session workspace components", () => {
     expect(html).toContain("Changes");
     expect(html).toContain("Report");
     expect(html).toContain("1");
+  });
+
+  it("omits a zero terminal-history badge", () => {
+    const html = renderToStaticMarkup(<SessionTabBar activeTab="chat" badges={{ terminal: 0 }} onActivate={() => undefined} onOpenSettings={() => undefined} session={null} />);
+    expect(html).not.toContain('title="0 entries"');
   });
 
   it("renders tool execution cards and report values", () => {
@@ -54,6 +70,11 @@ describe("session workspace components", () => {
       agentId: "onepiece",
       interactionMode: "api",
       lifecycleState: "idle",
+      recoveryStatus: "clean",
+      recoveryRevision: 0,
+      stateRevision: 0,
+      historyRevision: 0,
+      activeExecutionRunId: null,
       folder: "D:/project",
       projectPath: "D:/project",
       worktreePath: null,
@@ -83,9 +104,95 @@ describe("session workspace components", () => {
     );
 
     expect(html).toContain("OnePiece session");
-    expect(html).toContain("onepiece · api");
+    expect(html).toContain('data-testid="session-conversation-header"');
+    expect(html).not.toContain('data-testid="session-roster-chips"');
+    expect(html).not.toMatch(/>onepiece<\/span>/);
     expect(html).toContain("API composer");
+    expect(html).toContain('data-testid="contiguous-chat-workspace"');
+    expect(html).toContain('data-testid="message-readable-measure"');
+    expect(html).toContain('data-message-canvas="adaptive"');
+    expect(html).not.toContain("max-w-5xl");
+    expect(html).toContain('data-testid="attached-chat-composer"');
     expect(html).not.toContain("Agent CLI workspace");
+  });
+
+  it("renders one structured thread for a multi-Agent CLI session", () => {
+    const session: Session = {
+      ...cleanRecovery,
+      id: "session-shared-cli", title: "Shared CLI session", agentId: "codex-cli", interactionMode: "cli",
+      lifecycleState: "idle", folder: "D:/project", projectPath: "D:/project", worktreePath: null,
+      worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
+      remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false, archived: false,
+      createdAt: "2026-08-02T00:00:00.000Z", updatedAt: "2026-08-02T00:00:00.000Z",
+      seats: [
+        { seatId: "seat-1", agentId: "codex-cli", roleId: null, joinedAt: "2026-08-02T00:00:00.000Z", leftAt: null },
+        { seatId: "seat-2", agentId: "claude-code", roleId: null, joinedAt: "2026-08-02T00:00:00.000Z", leftAt: null },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionTabs
+          activeSession={session}
+          apiComposer={<div>Shared composer</div>}
+          messages={[]}
+          messagesPartial={false}
+          onOpenSettings={() => undefined}
+          sessionActivationKey={0}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("Shared CLI session");
+    expect(html).toContain("Shared composer");
+    expect(html).not.toContain('data-testid="session-roster-chips"');
+    expect(html).not.toMatch(/>codex-cli<\/span>|>claude-code<\/span>/);
+    expect(html).not.toContain("Terminal input");
+  });
+
+  it("keeps every managed CLI identity out of the conversation header", () => {
+    for (const agentId of managedCliAgentIds) {
+      const session: Session = {
+        ...cleanRecovery,
+        id: `session-${agentId}`, title: `${agentId} session`, agentId, interactionMode: "cli",
+        lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
+        worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
+        remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false,
+        archived: false, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z",
+        seats: [{ seatId: `seat-${agentId}`, agentId, roleId: "builtin-architect", joinedAt: "2026-08-11T00:00:00.000Z", leftAt: null }],
+      };
+      const html = renderToStaticMarkup(<SessionConversationHeader isStreaming={false} session={session} />);
+      expect(html).not.toContain('data-testid="session-roster-chips"');
+      expect(html).not.toMatch(new RegExp(`>架构师<\\/span>|>${agentId}<\\/span>`));
+    }
+  });
+
+  it("collapses workspace tabs without changing the focused conversation panel", () => {
+    const session: Session = {
+      ...cleanRecovery,
+      id: "session-focus", title: "Focused session", agentId: "onepiece", interactionMode: "api",
+      lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
+      worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
+      remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null, pinned: false,
+      archived: false, createdAt: "2026-08-02T00:00:00.000Z", updatedAt: "2026-08-02T00:00:00.000Z",
+    };
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionTabs
+          activeSession={session}
+          apiComposer={<div>Focused composer</div>}
+          focusMode
+          messages={[]}
+          messagesPartial={false}
+          onOpenSettings={() => undefined}
+          sessionActivationKey={0}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain('data-focus-mode="true"');
+    expect(html).toContain("Focused session");
+    expect(html).toContain("Focused composer");
+    expect(html).not.toContain('role="tablist"');
   });
 
   it("does not render raw Markdown HTML", () => {

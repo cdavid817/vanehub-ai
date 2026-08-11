@@ -1,5 +1,6 @@
 use super::DesktopLifecycleApplicationError;
 use async_trait::async_trait;
+use std::time::Instant;
 
 pub(crate) trait DesktopLifecyclePort: Send + Sync {
     fn initialize(&self) -> Result<(), DesktopLifecycleApplicationError>;
@@ -9,5 +10,5 @@ pub(crate) trait DesktopLifecyclePort: Send + Sync {
 
 #[async_trait]
 pub(crate) trait DesktopShutdownPort: Send + Sync {
-    async fn shutdown(&self) -> Result<(), String>;
+    async fn shutdown(&self, deadline: Instant) -> Result<(), String>;
 }

@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { canCreateSession, defaultSshConnectionDraft, firstMode, sshConnectionSaveErrorKey } from "./create-session-dialog-utils";
+import { describe, expect, it, vi } from "vitest";
+import { canCreateSession, defaultSshConnectionDraft, firstMode, resolveCreatedSession, sshConnectionSaveErrorKey } from "./create-session-dialog-utils";
 import { defaultSessionAgent, groupSessionAgents, isSessionAgentSelectable, selectSessionAgents } from "./create-session-agents";
-import type { AgentRegistryEntry } from "../types/agent";
+import type { AgentRegistryEntry, Session } from "../types/agent";
 
 const agent = {
   id: "codex-cli",
@@ -234,5 +234,67 @@ describe("canCreateSession in multi-Agent mode", () => {
       { agentId: "claude-code", roleId: null },
       { agentId: "codex-cli", roleId: null },
     ])).toBe(true);
+  });
+});
+
+describe("resolveCreatedSession", () => {
+  const canonicalSession = {
+    id: "session-multi",
+    title: "Shared implementation",
+    agentId: "codex-cli",
+    seats: [
+      { seatId: "seat-architect", agentId: "codex-cli", roleId: "builtin-architect", joinedAt: "2026-08-10T00:00:00Z", leftAt: null },
+      { seatId: "seat-implementer", agentId: "claude-code", roleId: "builtin-implementer", joinedAt: "2026-08-10T00:00:00Z", leftAt: null },
+    ],
+    interactionMode: "cli",
+    lifecycleState: "idle",
+    folder: "D:\\work\\app",
+    projectPath: "D:\\work\\app",
+    worktreePath: null,
+    worktreeName: null,
+    worktreeBranch: null,
+    remoteWorkspace: null,
+    remoteSshConnectionId: null,
+    remoteSshConnectionRevision: null,
+    runtimeSessionId: null,
+    categoryId: null,
+    source: { kind: "desktop", connector: null },
+    pinned: false,
+    archived: false,
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
+    createdAt: "2026-08-10T00:00:00Z",
+    updatedAt: "2026-08-10T00:00:00Z",
+  } satisfies Session;
+
+  it("replaces a desktop operation projection with the canonical multi-Agent roster", async () => {
+    const loadSession = vi.fn().mockResolvedValue(canonicalSession);
+
+    const result = await resolveCreatedSession(
+      {
+        id: "session-multi",
+        title: "Shared implementation",
+        agentId: "codex-cli",
+        seats: [
+          { agentId: "codex-cli", roleId: "builtin-architect" },
+          { agentId: "claude-code", roleId: "builtin-implementer" },
+        ],
+        interactionMode: "cli",
+      },
+      loadSession,
+    );
+
+    expect(loadSession).toHaveBeenCalledWith("session-multi");
+    expect(result?.seats).toEqual(canonicalSession.seats);
+  });
+
+  it("does not query sessions for an invalid operation result", async () => {
+    const loadSession = vi.fn();
+
+    await expect(resolveCreatedSession({ id: "session-multi" }, loadSession)).resolves.toBeNull();
+    expect(loadSession).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,4 @@
+use crate::commands::error::{map_command_error, CommandError};
 use crate::contexts::tooling::cli_config::{
     ApplyCliConfigProfileInput, CliConfigApi, CliConfigApplyResult,
 };
@@ -7,6 +8,6 @@ use tauri::State;
 pub(crate) fn apply_cli_config_profile(
     api: State<'_, CliConfigApi>,
     input: ApplyCliConfigProfileInput,
-) -> Result<CliConfigApplyResult, String> {
-    api.apply_profile(input).map_err(|error| error.to_string())
+) -> Result<CliConfigApplyResult, CommandError> {
+    api.apply_profile(input).map_err(map_command_error)
 }

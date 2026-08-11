@@ -1,7 +1,110 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createSession } from "./session-helpers";
 
+async function expectContinuousBottomDivider(page: Page) {
+  const divider = page.getByTestId("workspace-bottom-divider");
+  await expect(divider).toHaveCSS("height", "1px");
+  await expect(divider).toHaveCSS("position", "absolute");
+  const box = await divider.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box?.x).toBe(0);
+  expect(box?.width).toBe(viewport?.width);
+  expect(Math.round((box?.y ?? 0) + (box?.height ?? 0))).toBe(viewport?.height);
+}
+
 test.describe("workspace activity bar", () => {
+  test("uses the conversation overflow menu to toggle adjacent workspace regions", async ({ page }) => {
+    await page.goto("/");
+
+    const grid = page.locator(".ucd-workspace-grid");
+    const sessionSidebar = page.locator("#workspace-session-sidebar");
+    const workspaceTabs = page.getByTestId("session-workspace").getByRole("tablist");
+    await expect(sessionSidebar).toHaveCSS("border-right-style", "solid");
+    await expectContinuousBottomDivider(page);
+
+    const menu = page.getByTestId("conversation-overflow-trigger");
+    await menu.click();
+    await expect(page.getByTestId("toggle-session-list")).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("toggle-info-panel")).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("toggle-workspace-tabs")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("toggle-workspace-tabs").click();
+    await expect(workspaceTabs).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "收起", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "展开信息面板" })).toHaveCount(0);
+
+    await menu.click();
+    await page.getByTestId("toggle-session-list").click();
+    await expect(grid).toHaveAttribute("data-session-collapsed", "true");
+    await menu.click();
+    await page.getByTestId("toggle-session-list").click();
+    await expect(grid).toHaveAttribute("data-session-collapsed", "false");
+
+    await menu.click();
+    await page.getByTestId("toggle-info-panel").click();
+    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expectContinuousBottomDivider(page);
+    await menu.click();
+    await page.getByTestId("toggle-workspace-tabs").click();
+    await expect(workspaceTabs).toBeVisible();
+  });
+
+  test("focuses the conversation and restores the preceding panel states", async ({ page }) => {
+    await page.goto("/");
+    await createSession(page, "专注模式测试");
+
+    const grid = page.locator(".ucd-workspace-grid");
+    const mainPanel = grid.locator(":scope > section").first();
+    const composer = page.getByRole("textbox", { name: "工作区命令输入" });
+    const topBar = page.getByTestId("top-bar");
+    const sessionWorkspace = page.getByTestId("session-workspace");
+    const overflowMenu = page.getByTestId("conversation-overflow-trigger");
+    const workspaceTabs = sessionWorkspace.getByRole("tablist");
+    await composer.fill("draft survives focus mode");
+    await expect(grid).toHaveCSS("gap", "0px");
+    await expect(page.getByTestId("session-sidebar")).toHaveCSS("border-top-left-radius", "0px");
+    await expect(mainPanel).toHaveCSS("border-right-style", "solid");
+    await expect(topBar).toHaveAttribute("data-focus-collapsed", "false");
+    await expect(workspaceTabs).toBeVisible();
+    const topBarBeforeFocus = await topBar.boundingBox();
+
+    await overflowMenu.click();
+    await page.getByTestId("toggle-info-panel").click();
+    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    const beforeFocus = await mainPanel.boundingBox();
+    expect(beforeFocus).not.toBeNull();
+
+    await page.getByRole("button", { name: "专注对话" }).click();
+    await expect(grid).toHaveAttribute("data-conversation-focus", "true");
+    await expectContinuousBottomDivider(page);
+    await expect(grid).not.toHaveCSS("transition-property", /grid-template-columns/);
+    await expect(grid).toHaveAttribute("data-session-collapsed", "true");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(grid).toHaveCSS("gap", "0px");
+    await expect(topBar).toHaveAttribute("data-focus-collapsed", "true");
+    await expect(sessionWorkspace).toHaveAttribute("data-focus-mode", "true");
+    await expect(workspaceTabs).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "恢复工作区" })).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(async () => (await topBar.boundingBox())?.height ?? 0).toBeLessThan(topBarBeforeFocus?.height ?? 48);
+    await expect.poll(async () => (await mainPanel.boundingBox())?.width ?? 0).toBeGreaterThan((beforeFocus?.width ?? 0) + 150);
+    await expect(composer).toHaveValue("draft survives focus mode");
+
+    await page.getByRole("button", { name: "恢复工作区" }).click();
+    await expect(grid).toHaveAttribute("data-conversation-focus", "false");
+    await expect(grid).toHaveAttribute("data-session-collapsed", "false");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "true");
+    await expect(topBar).toHaveAttribute("data-focus-collapsed", "false");
+    await expect(sessionWorkspace).toHaveAttribute("data-focus-mode", "false");
+    await expect(workspaceTabs).toBeVisible();
+    await expect(composer).toHaveValue("draft survives focus mode");
+
+    await overflowMenu.click();
+    await page.getByTestId("toggle-info-panel").click();
+    await page.getByRole("button", { name: "专注对话" }).click();
+    await page.getByRole("button", { name: "恢复工作区" }).click();
+    await expect(grid).toHaveAttribute("data-session-collapsed", "false");
+    await expect(grid).toHaveAttribute("data-info-collapsed", "false");
+  });
+
   test("toggles the session sidebar, preserves its view, and keeps panel states independent", async ({ page }) => {
     await page.goto("/");
 
@@ -25,7 +128,8 @@ test.describe("workspace activity bar", () => {
     await expect(sessionMoreActions).toBeVisible();
     await expect(sessionMoreActions).toHaveClass(/text-primary/);
 
-    await page.getByRole("button", { name: "收起" }).click();
+    await page.getByTestId("conversation-overflow-trigger").click();
+    await page.getByTestId("toggle-info-panel").click();
     await expect(grid).toHaveAttribute("data-info-collapsed", "true");
     await page.getByRole("button", { name: "折叠会话栏" }).click();
     await expect(grid).toHaveAttribute("data-session-collapsed", "true");
@@ -87,14 +191,16 @@ test.describe("workspace activity bar", () => {
     const folder = page.getByRole("button", { name: /example-workspace.*1/ });
     const sessionCard = page.getByRole("button", { name: /文件夹状态测试/ });
     await expect(sessionCard).toBeVisible();
-    await expect(sessionCard).toHaveClass(/border-primary/);
+    await expect(sessionCard).toHaveAttribute("aria-pressed", "true");
+    await expect(sessionCard).toHaveClass(/shadow-xs/);
 
     await folder.click();
     await expect(sessionCard).toBeHidden();
     expect(await page.evaluate(() => window.localStorage.getItem("vanehub.session-sidebar.expanded-groups.v1"))).toBe("[]");
     await folder.click();
     await expect(sessionCard).toBeVisible();
-    await expect(sessionCard).toHaveClass(/border-primary/);
+    await expect(sessionCard).toHaveAttribute("aria-pressed", "true");
+    await expect(sessionCard).toHaveClass(/shadow-xs/);
     expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem("vanehub.session-sidebar.expanded-groups.v1") ?? "[]"))).toContain("project:D:\\example-workspace");
 
     await page.getByRole("button", { name: "折叠会话栏" }).click();
@@ -108,7 +214,8 @@ test.describe("workspace activity bar", () => {
     await expect(projectMode).toHaveClass(/text-primary/);
     await expect(folder).toBeVisible();
     await expect(sessionCard).toBeVisible();
-    await expect(sessionCard).toHaveClass(/border-primary/);
+    await expect(sessionCard).toHaveAttribute("aria-pressed", "true");
+    await expect(sessionCard).toHaveClass(/shadow-xs/);
   });
 
   test("opens scheduled tasks and manages a Web mock task", async ({ page }) => {
@@ -166,6 +273,7 @@ test.describe("workspace activity bar", () => {
       const activityBar = page.getByRole("navigation", { name: "工作区导航" });
       const sessionSidebar = page.locator("#workspace-session-sidebar");
       await expect(activityBar).toBeVisible();
+      await expectContinuousBottomDivider(page);
       await page.getByRole("button", { name: "折叠会话栏" }).click();
       await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
       await page.getByRole("button", { name: "展开会话栏" }).click();

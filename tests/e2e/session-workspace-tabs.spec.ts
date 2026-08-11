@@ -3,6 +3,14 @@ import { createSession } from "./session-helpers";
 
 const tabNames = ["工作区", "变更", "文档", "文件", "终端记录", "Shell", "日志", "链路", "报告"];
 
+function workspaceTablist(page: Parameters<typeof createSession>[0]) {
+  return page.getByRole("tablist", { name: "会话工作区" });
+}
+
+function activeWorkspacePanel(page: Parameters<typeof createSession>[0]) {
+  return page.locator('[id^="session-tab-panel-"]:not(.hidden)');
+}
+
 async function openWorkspace(page: Parameters<typeof createSession>[0], title = "工作区标签测试") {
   await page.goto("/");
   await createSession(page, title);
@@ -12,17 +20,18 @@ test.describe("session workspace tabs", () => {
   test("exposes nine accessible tabs and supports keyboard navigation", async ({ page }) => {
     await openWorkspace(page);
 
-    await expect(page.getByRole("tab")).toHaveCount(9);
-    for (const name of tabNames) await expect(page.getByRole("tab", { name })).toBeVisible();
+    const tabs = workspaceTablist(page);
+    await expect(tabs.getByRole("tab")).toHaveCount(9);
+    for (const name of tabNames) await expect(tabs.getByRole("tab", { name })).toBeVisible();
 
-    const workspace = page.getByRole("tab", { name: "工作区" });
+    const workspace = tabs.getByRole("tab", { name: "工作区" });
     await workspace.focus();
     await workspace.press("ArrowRight");
-    await expect(page.getByRole("tab", { name: "变更" })).toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "变更" }).press("End");
-    await expect(page.getByRole("tab", { name: "报告" })).toBeFocused();
-    await expect(page.getByRole("tab", { name: "报告" })).toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "报告" }).press("Home");
+    await expect(tabs.getByRole("tab", { name: "变更" })).toHaveAttribute("aria-selected", "true");
+    await tabs.getByRole("tab", { name: "变更" }).press("End");
+    await expect(tabs.getByRole("tab", { name: "报告" })).toBeFocused();
+    await expect(tabs.getByRole("tab", { name: "报告" })).toHaveAttribute("aria-selected", "true");
+    await tabs.getByRole("tab", { name: "报告" }).press("Home");
     await expect(workspace).toBeFocused();
   });
 
@@ -30,7 +39,7 @@ test.describe("session workspace tabs", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openWorkspace(page, "文件夹打开方式测试");
 
-    await expect(page.getByRole("tab")).toHaveCount(9);
+    await expect(workspaceTablist(page).getByRole("tab")).toHaveCount(9);
     await expect(page.getByRole("button", { name: /使用 Visual Studio Code 打开文件夹/ })).toBeVisible();
     await page.getByRole("button", { name: "选择工作区打开工具" }).click();
     await expect(page.getByRole("menuitem", { name: /Visual Studio Code/ })).toBeVisible();
@@ -109,12 +118,12 @@ test.describe("session workspace tabs", () => {
     await expect(page.getByLabel("Agent CLI 工作区")).toContainText("echo workspace data");
 
     const terminal = page.getByRole("tab", { name: /终端记录/ });
-    await expect(terminal).toContainText("0");
+    await expect(terminal).not.toContainText("0");
     await terminal.click();
-    await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("当前会话尚未记录工具执行。");
+    await expect(activeWorkspacePanel(page)).toContainText("当前会话尚未记录工具执行。");
 
     await page.getByRole("tab", { name: "报告" }).click();
-    await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toContainText("发送消息后即可生成会话报告。");
+    await expect(activeWorkspacePanel(page)).toContainText("发送消息后即可生成会话报告。");
   });
 
   test("resets mounted tabs and active tab when selecting another session", async ({ page }) => {
@@ -125,7 +134,7 @@ test.describe("session workspace tabs", () => {
     await createSession(page, "第二会话");
     await expect(page.getByRole("tab", { name: "工作区" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toBeVisible();
-    await expect(page.getByRole("tabpanel")).toHaveCount(1);
+    await expect(page.locator('[id^="session-tab-panel-"]')).toHaveCount(1);
   });
 
   for (const variant of [
@@ -146,7 +155,7 @@ test.describe("session workspace tabs", () => {
       for (const name of tabNames) {
         await page.getByRole("tab", { name }).click();
         await expect(page.getByRole("tab", { name })).toHaveAttribute("aria-selected", "true");
-        await expect(page.locator('[role="tabpanel"]:not(.hidden)')).toBeVisible();
+        await expect(activeWorkspacePanel(page)).toBeVisible();
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     });

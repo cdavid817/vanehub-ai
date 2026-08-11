@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { AlertTriangle, Bot, CheckCircle2, CircleStop, FileText, UserRound } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, CircleStop, FileText } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
 import type { ChatMessage } from "../../types/chat";
@@ -9,6 +9,7 @@ import { RichBlocks } from "./RichBlocks";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
+import { ParticipantAvatar } from "../session-roster-presence";
 
 function statusLabel(message: ChatMessage, t: (key: string) => string) {
   if (message.status === "streaming") return message.content ? t("chat.status.streaming") : t("chat.status.waiting");
@@ -22,6 +23,10 @@ function formatTime(value: string, language: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function safeRoleColor(color: string) {
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : "currentColor";
 }
 
 // Memoized because streaming appends a token at a time: applyChatEvent keeps stable
@@ -40,34 +45,24 @@ export const MessageItem = memo(function MessageItem({
 }) {
   const { i18n, t } = useTranslation();
   const isUser = message.role === "user";
-  const Icon = isUser ? UserRound : Bot;
   const showSpeaker = !isUser && Boolean(speaker);
   return (
-    <article className={cn("flex min-w-0 gap-3", isUser && "justify-end")}>
+    <article className={cn("flex min-w-0 items-start gap-2.5", isUser && "justify-end")}>
       {!isUser ? (
-        <span
-          className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-primary"
-          style={showSpeaker ? { borderColor: speaker?.color } : undefined}
-        >
-          {showSpeaker ? (
-            <span aria-hidden="true" className="text-base leading-none">{speaker?.avatar}</span>
-          ) : (
-            <Icon className="h-4 w-4" aria-hidden="true" />
-          )}
-        </span>
+        showSpeaker && speaker ? <ParticipantAvatar agentId={speaker.agentId} label={`${speaker.roleName ?? speaker.agentName} · ${speaker.agentName}`} roleAvatar={speaker.avatar} roleName={speaker.roleName} /> : (
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background text-primary shadow-xs">
+            <Bot className="h-4 w-4" aria-hidden="true" />
+          </span>
+        )
       ) : null}
-      <div
-        className={cn(
-          "min-w-0 max-w-[78%] rounded-lg border border-border p-3 text-sm",
-          isUser ? "bg-primary text-primary-foreground" : "bg-background",
-          message.status === "failed" && "border-destructive/50",
-          message.status === "cancelled" && "border-warning/50",
-        )}
-      >
-        <div className={cn("mb-2 flex items-center gap-2 text-xs", isUser ? "text-primary-foreground/80" : "text-muted-foreground")}>
+      <div className="min-w-0 max-w-[88%] lg:max-w-3xl">
+        <div className={cn("mb-1 flex items-center gap-2 px-1 text-xs text-muted-foreground", isUser && "justify-end")}>
           {showSpeaker ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="font-medium" style={{ color: speaker?.color }}>
+            <span className="inline-flex items-center gap-1.5" data-testid="message-speaker">
+              <svg aria-hidden="true" className="h-2.5 w-2.5 shrink-0 text-primary" data-testid="message-role-color" fill={safeRoleColor(speaker?.color ?? "")} viewBox="0 0 10 10">
+                <circle cx="5" cy="5" r="4" />
+              </svg>
+              <span className="font-semibold text-primary">
                 {speaker?.roleName ?? speaker?.agentName}
               </span>
               {speaker?.roleName ? <span>· {speaker.agentName}</span> : null}
@@ -79,32 +74,41 @@ export const MessageItem = memo(function MessageItem({
             <span>{isUser ? t("chat.you") : message.role === "assistant" ? t("chat.agent") : message.role}</span>
           )}
           <span className="font-mono">{formatTime(message.updatedAt, i18n.language)}</span>
-          <span className="ml-auto inline-flex items-center gap-1">
+          <span className={cn("inline-flex items-center gap-1", !isUser && "ml-auto")}>
             {message.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {message.status === "cancelled" ? <CircleStop className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {message.status === "completed" ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : null}
             {statusLabel(message, t)}
           </span>
         </div>
-        {message.content ? (
-          <RichMarkdown>{message.content}</RichMarkdown>
-        ) : message.status === "streaming" ? (
-          <WaitingIndicator />
-        ) : null}
-        {message.fileReferences?.length ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {message.fileReferences.map((reference) => (
-              <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.path}>
-                <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">{reference.name}</span>
-              </span>
-            ))}
-          </div>
-        ) : null}
-        {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
-        <ThinkingBlock content={message.thinkingContent ?? ""} />
-        <ToolUseBlock sessionId={message.sessionId} toolUse={message.toolUse ?? []} />
-        <RichBlocks blocks={message.richBlocks ?? []} />
+        <div
+          className={cn(
+            "rounded-lg border border-transparent px-3 py-2.5 text-sm",
+            isUser ? "rounded-tr-sm bg-primary text-primary-foreground" : "rounded-tl-sm bg-[hsl(var(--panel))] shadow-xs",
+            message.status === "failed" && "border-destructive/50",
+            message.status === "cancelled" && "border-warning/50",
+          )}
+        >
+          {message.content ? (
+            <RichMarkdown>{message.content}</RichMarkdown>
+          ) : message.status === "streaming" ? (
+            <WaitingIndicator />
+          ) : null}
+          {message.fileReferences?.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {message.fileReferences.map((reference) => (
+                <span className={cn("inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs", isUser ? "border-primary-foreground/30 bg-primary-foreground/10" : "border-border bg-muted")} key={reference.path}>
+                  <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{reference.name}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {message.error ? <p className="mt-2 text-xs text-destructive">{message.error}</p> : null}
+          <ThinkingBlock content={message.thinkingContent ?? ""} />
+          <ToolUseBlock sessionId={message.sessionId} toolUse={message.toolUse ?? []} />
+          <RichBlocks blocks={message.richBlocks ?? []} />
+        </div>
       </div>
     </article>
   );

@@ -328,6 +328,47 @@ fn analyze(relative_path: &Path, source: &str) -> Result<Vec<Violation>, String>
     Ok(visitor.violations.into_iter().collect())
 }
 
+#[derive(Default)]
+struct PathDependencyVisitor {
+    dependencies: BTreeSet<(usize, Vec<String>)>,
+}
+
+impl PathDependencyVisitor {
+    fn record(&mut self, segments: Vec<String>, line: usize) {
+        if !segments.is_empty() {
+            self.dependencies.insert((line, segments));
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for PathDependencyVisitor {
+    fn visit_item_use(&mut self, node: &'ast ItemUse) {
+        let mut imports = Vec::new();
+        flatten_use_tree(&node.tree, Vec::new(), &mut imports);
+        for segments in imports {
+            self.record(segments, node.span().start().line);
+        }
+    }
+
+    fn visit_path(&mut self, node: &'ast syn::Path) {
+        self.record(
+            node.segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect(),
+            node.span().start().line,
+        );
+        syn::visit::visit_path(self, node);
+    }
+}
+
+fn path_dependencies(source: &str) -> Result<BTreeSet<(usize, Vec<String>)>, String> {
+    let syntax = syn::parse_file(source).map_err(|error| error.to_string())?;
+    let mut visitor = PathDependencyVisitor::default();
+    visitor.visit_file(&syntax);
+    Ok(visitor.dependencies)
+}
+
 fn rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     fn visit(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
         for entry in
@@ -347,6 +388,99 @@ fn rust_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     visit(root, &mut files)?;
     files.sort();
     Ok(files)
+}
+
+fn project_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("native crate must be inside the project")
+        .to_path_buf()
+}
+
+fn frontend_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    fn visit(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+        for entry in
+            fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?
+        {
+            let path = entry.map_err(|error| error.to_string())?.path();
+            if path.is_dir() {
+                visit(&path, files)?;
+            } else if matches!(
+                path.extension().and_then(|value| value.to_str()),
+                Some("ts" | "tsx")
+            ) {
+                files.push(path);
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    visit(root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn is_frontend_test(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    name.contains(".test.") || name.contains(".spec.")
+}
+
+fn typescript_module_specifiers(source: &str) -> Vec<String> {
+    let markers = [
+        (" from \"", '"'),
+        (" from '", '\''),
+        ("import(\"", '"'),
+        ("import('", '\''),
+    ];
+    let mut modules = Vec::new();
+    for line in source.lines() {
+        for &(marker, quote) in &markers {
+            let Some(start) = line.find(marker) else {
+                continue;
+            };
+            let value = &line[start + marker.len()..];
+            if let Some(end) = value.find(quote) {
+                modules.push(value[..end].to_string());
+            }
+        }
+    }
+    modules
+}
+
+fn path_segments(path: &str) -> Vec<String> {
+    path.split("::").map(str::to_string).collect()
+}
+
+fn context_target(segments: &[String]) -> Option<(&str, &str)> {
+    (segments.len() >= 4 && segments[0] == "crate" && segments[1] == "contexts")
+        .then(|| (segments[2].as_str(), segments[3].as_str()))
+}
+
+fn forbidden_lsp_retrieval_context_link(owner: &str, segments: &[String]) -> bool {
+    let Some((target, _layer)) = context_target(segments) else {
+        return false;
+    };
+    match owner {
+        "agent_runtime" => matches!(target, "code_intelligence" | "retrieval"),
+        "code_intelligence" => matches!(target, "agent_runtime" | "retrieval"),
+        "retrieval" => matches!(target, "agent_runtime" | "code_intelligence"),
+        _ => false,
+    }
+}
+
+fn forbidden_lsp_retrieval_bridge_link(segments: &[String]) -> bool {
+    let Some((target, layer)) = context_target(segments) else {
+        return false;
+    };
+    match target {
+        "code_intelligence" | "retrieval" => layer != "api",
+        "agent_runtime" => layer != "application",
+        _ => false,
+    }
 }
 
 fn type_name(ty: &syn::Type) -> String {
@@ -718,6 +852,319 @@ fn detector_allows_published_cross_context_api() {
     .expect("analyze fixture");
 
     assert!(violations.is_empty());
+}
+
+#[test]
+fn code_intelligence_context_exposes_a_layered_public_api_boundary() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let context_root = source_root.join("contexts/code_intelligence");
+    let contexts_module =
+        fs::read_to_string(source_root.join("contexts/mod.rs")).expect("read contexts module");
+
+    assert!(
+        contexts_module.contains("pub(crate) mod code_intelligence;"),
+        "contexts/mod.rs must register the code_intelligence bounded context"
+    );
+    for relative in [
+        "mod.rs",
+        "api.rs",
+        "application/mod.rs",
+        "domain/mod.rs",
+        "infrastructure/mod.rs",
+    ] {
+        assert!(
+            context_root.join(relative).is_file(),
+            "code_intelligence must expose the expected layered boundary: {relative}"
+        );
+    }
+
+    let mut violations = Vec::new();
+    for path in rust_files(&source_root).expect("enumerate native Rust sources") {
+        if path.starts_with(&context_root) {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path");
+        let source = fs::read_to_string(&path).expect("read native Rust source");
+        for (line, segments) in path_dependencies(&source).expect("parse native Rust source") {
+            if segments.len() >= 4
+                && segments[0] == "crate"
+                && segments[1] == "contexts"
+                && segments[2] == "code_intelligence"
+                && segments[3] != "api"
+            {
+                violations.push(format!(
+                    "{}:{line}: {}",
+                    relative.display(),
+                    segments.join("::")
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "cross-context code_intelligence access must use its api module:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn code_intelligence_never_imports_private_retrieval_layers() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let context_root = source_root.join("contexts/code_intelligence");
+    assert!(
+        context_root.is_dir(),
+        "code_intelligence bounded context must exist before its dependencies can be checked"
+    );
+
+    let mut violations = Vec::new();
+    for path in rust_files(&context_root).expect("enumerate code_intelligence sources") {
+        let relative = path
+            .strip_prefix(&source_root)
+            .expect("relative source path");
+        let source = fs::read_to_string(&path).expect("read code_intelligence source");
+        for (line, segments) in path_dependencies(&source).expect("parse code_intelligence source")
+        {
+            if segments.len() >= 4
+                && segments[0] == "crate"
+                && segments[1] == "contexts"
+                && segments[2] == "retrieval"
+                && segments[3] != "api"
+            {
+                violations.push(format!(
+                    "{}:{line}: {}",
+                    relative.display(),
+                    segments.join("::")
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "code_intelligence must not import retrieval internals:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn native_agent_runtime_injects_configured_lsp_responder_into_normal_and_plan_catalogs() {
+    let native_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let bootstrap = fs::read_to_string(native_root.join("src/bootstrap/agent_runtime.rs"))
+        .expect("read agent runtime bootstrap");
+    let adapter = fs::read_to_string(
+        native_root.join("src/contexts/agent_runtime/infrastructure/api_process_adapter.rs"),
+    )
+    .expect("read API process adapter");
+
+    for behavior_test in [
+        "normal_generation_registers_all_read_only_lsp_tools_when_available",
+        "plan_mode_registers_the_same_read_only_lsp_tools_when_available",
+        "plan_mode_executes_all_four_read_only_lsp_tools",
+    ] {
+        assert!(
+            adapter.contains(behavior_test),
+            "the production wiring guard depends on `{behavior_test}` covering the four read-only catalogs"
+        );
+    }
+
+    assert!(
+        bootstrap.contains(
+            "pub(crate) code_intelligence: Arc<dyn AgentCodeIntelligenceResponderPort>"
+        ),
+        "configured trusted workspaces must supply a concrete code-intelligence responder to the native runtime"
+    );
+    assert!(
+        bootstrap.contains("RuntimeAgentApiAdapter::new_with_code_intelligence("),
+        "native bootstrap must use the constructor that accepts the production responder"
+    );
+    assert!(
+        bootstrap.contains("dependencies.code_intelligence,"),
+        "native bootstrap must pass its configured responder into the API adapter"
+    );
+}
+
+#[test]
+fn react_components_never_invoke_lsp_commands_directly() {
+    let project_root = project_root();
+    let frontend_root = project_root.join("src");
+    let lsp_commands = [
+        "get_lsp_configuration",
+        "save_lsp_configuration",
+        "list_lsp_workspace_trust",
+        "update_lsp_workspace_trust",
+        "discover_lsp_servers",
+        "test_lsp_server",
+        "list_lsp_server_status",
+    ];
+    let mut inspected = 0;
+    let mut violations = Vec::new();
+    for path in frontend_files(&frontend_root).expect("enumerate frontend sources") {
+        if path.extension().and_then(|value| value.to_str()) != Some("tsx")
+            || is_frontend_test(&path)
+        {
+            continue;
+        }
+        inspected += 1;
+        let source = fs::read_to_string(&path).expect("read React source");
+        let relative = path
+            .strip_prefix(&project_root)
+            .expect("relative React path")
+            .to_string_lossy()
+            .replace('\\', "/");
+        for token in ["@tauri-apps/", "invoke(", "invoke ("] {
+            if source.contains(token) {
+                violations.push(format!("{relative}: direct native token `{token}`"));
+            }
+        }
+        for command in lsp_commands {
+            if source.contains(command) {
+                violations.push(format!("{relative}: direct LSP command `{command}`"));
+            }
+        }
+    }
+
+    assert!(
+        inspected > 0,
+        "no production React components were inspected"
+    );
+    assert!(
+        violations.is_empty(),
+        "React must reach LSP through AgentService, never Tauri invoke:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn web_lsp_mode_cannot_reach_native_process_or_filesystem_adapters() {
+    let services = project_root().join("src/services");
+    let web_lsp_path = services.join("web-lsp-client.ts");
+    let web_agent_path = services.join("web-agent-client.ts");
+    let web_lsp = fs::read_to_string(&web_lsp_path).expect("read Web LSP adapter");
+    let web_agent = fs::read_to_string(&web_agent_path).expect("read Web Agent adapter");
+    let forbidden = [
+        "@tauri-apps/",
+        "tauri-agent-client",
+        "invoke(",
+        "invoke (",
+        "node:fs",
+        "node:child_process",
+        "showOpenFilePicker",
+        "showDirectoryPicker",
+        "FileSystemHandle",
+    ];
+    let mut violations = Vec::new();
+    for (name, source) in [
+        ("web-lsp-client.ts", web_lsp.as_str()),
+        ("web-agent-client.ts", web_agent.as_str()),
+    ] {
+        for token in forbidden {
+            if source.contains(token) {
+                violations.push(format!("{name}: native capability token `{token}`"));
+            }
+        }
+    }
+
+    let imports = typescript_module_specifiers(&web_lsp);
+    let allowed = ["./agent-service", "./lsp-contract", "../types/lsp"];
+    for import in &imports {
+        if !allowed.contains(&import.as_str()) {
+            violations.push(format!(
+                "web-lsp-client.ts: unreviewed dependency `{import}`"
+            ));
+        }
+    }
+    assert_eq!(
+        imports.iter().cloned().collect::<BTreeSet<_>>(),
+        allowed.iter().map(|value| (*value).to_string()).collect(),
+        "Web LSP import guard is stale"
+    );
+    assert!(web_agent.contains("import { webLspClient } from \"./web-lsp-client\";"));
+    assert!(web_agent.contains("...webLspClient"));
+    assert!(
+        violations.is_empty(),
+        "Web LSP mode must remain an in-memory adapter:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn lsp_and_retrieval_communicate_only_through_owned_ports_and_public_apis() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let contexts_root = source_root.join("contexts");
+    let mut violations = Vec::new();
+    for owner in ["agent_runtime", "code_intelligence", "retrieval"] {
+        let owner_root = contexts_root.join(owner);
+        for path in rust_files(&owner_root).expect("enumerate bounded context") {
+            let source = fs::read_to_string(&path).expect("read bounded-context source");
+            let relative = path
+                .strip_prefix(&source_root)
+                .expect("relative context path");
+            for (line, segments) in path_dependencies(&source).expect("parse context source") {
+                if forbidden_lsp_retrieval_context_link(owner, &segments) {
+                    violations.push(format!(
+                        "{}:{line}: {}",
+                        relative.display(),
+                        segments.join("::")
+                    ));
+                }
+            }
+        }
+    }
+
+    let bridge_path = source_root.join("bootstrap/code_intelligence.rs");
+    let bridge = fs::read_to_string(&bridge_path).expect("read LSP composition root");
+    let bridge_dependencies = path_dependencies(&bridge).expect("parse LSP composition root");
+    for required in [
+        "crate::contexts::agent_runtime::application::AgentWorkspaceMutationPort",
+        "crate::contexts::code_intelligence::api::CodeIntelligenceApi",
+        "crate::contexts::retrieval::api::CodeIndexApi",
+    ] {
+        assert!(
+            bridge_dependencies
+                .iter()
+                .any(|(_, segments)| segments.join("::") == required),
+            "composition root must retain reviewed boundary `{required}`"
+        );
+    }
+    for (line, segments) in bridge_dependencies {
+        if forbidden_lsp_retrieval_bridge_link(&segments) {
+            violations.push(format!(
+                "bootstrap/code_intelligence.rs:{line}: {}",
+                segments.join("::")
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "LSP/retrieval boundaries must use public APIs or Agent-owned ports:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn lsp_architecture_detectors_reject_direct_boundary_bypasses() {
+    assert!(forbidden_lsp_retrieval_context_link(
+        "agent_runtime",
+        &path_segments("crate::contexts::code_intelligence::api::CodeIntelligenceApi")
+    ));
+    assert!(forbidden_lsp_retrieval_context_link(
+        "retrieval",
+        &path_segments("crate::contexts::code_intelligence::infrastructure::ProcessRegistry")
+    ));
+    assert!(forbidden_lsp_retrieval_bridge_link(&path_segments(
+        "crate::contexts::retrieval::infrastructure::SqliteCodeIndexRepository"
+    )));
+    assert!(!forbidden_lsp_retrieval_bridge_link(&path_segments(
+        "crate::contexts::retrieval::api::CodeIndexApi"
+    )));
+    assert_eq!(
+        typescript_module_specifiers(
+            "import { invoke } from \"@tauri-apps/api/core\";\nimport('./native-helper');"
+        ),
+        ["@tauri-apps/api/core", "./native-helper"]
+    );
 }
 
 #[test]

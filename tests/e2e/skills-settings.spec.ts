@@ -148,7 +148,7 @@ test.describe("Skills management", () => {
     const create = page.getByRole("button", { name: "Create", exact: true });
     await expect(create).toBeEnabled();
     await create.click();
-    await page.getByRole("button", { name: "Skill", exact: true }).click();
+    await page.getByRole("tab", { name: "Skill", exact: true }).click();
     await expect(page.getByRole("tab", { name: "Effective" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Global" })).toBeVisible();
     await page.getByRole("tab", { name: "Project" }).click();

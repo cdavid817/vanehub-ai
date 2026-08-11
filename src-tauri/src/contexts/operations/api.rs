@@ -13,9 +13,8 @@ pub(crate) use crate::contexts::operations::application::{
     DiagnosticLog, DiagnosticLogPort, ExternalLogExportPort, LogSeverity, OperationLog,
     OperationLogPort,
 };
-pub(crate) use crate::contexts::operations::domain::{
-    OperationKind, OperationStatus, OperationTask,
-};
+use crate::contexts::operations::domain::OperationRecoveryEvidence;
+pub(crate) use crate::contexts::operations::domain::{OperationKind, OperationTask};
 
 #[derive(Clone)]
 /// Application facade for operation lifecycle and correlation.
@@ -88,5 +87,13 @@ impl OperationsApi {
 
     pub(crate) fn list(&self) -> Result<Vec<OperationTask>, ApplicationError> {
         self.service.list()
+    }
+
+    pub(crate) fn list_recovery_evidence(
+        &self,
+        execution_run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<OperationRecoveryEvidence>, ApplicationError> {
+        self.service.list_recovery_evidence(execution_run_id, limit)
     }
 }

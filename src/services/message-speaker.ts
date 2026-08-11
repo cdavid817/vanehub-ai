@@ -2,6 +2,7 @@ import type { AgentRegistryEntry, SessionSeat } from "../types/agent";
 import type { ExpertRole } from "../types/expert-role";
 
 export interface MessageSpeaker {
+  agentId: string;
   avatar: string;
   color: string;
   /** Null when the seat carries no role: the Agent alone identifies the speaker. */
@@ -18,31 +19,38 @@ const fallbackColor = "#7A8899";
  *
  * Returns null rather than a placeholder when there is no seat — messages predate seats, and a
  * single-seat session must keep rendering exactly as it did before. It also returns null for a seat
- * index that no longer exists, because removing a seat mid-session leaves its messages behind and
- * they must not break the thread.
+ * identity that no longer exists, because malformed legacy attribution must not break the thread.
  */
 export function resolveMessageSpeaker({
   agents,
   roles,
+  speakerSeatId,
   seatIndex,
   seats,
 }: {
   agents: AgentRegistryEntry[];
   roles: ExpertRole[];
+  speakerSeatId?: string;
   seatIndex: number | undefined;
   seats: SessionSeat[];
 }): MessageSpeaker | null {
-  if (seatIndex === undefined) return null;
-  const seat = seats[seatIndex];
+  const seat = speakerSeatId
+    ? seats.find((candidate) => candidate.seatId === speakerSeatId)
+    : seatIndex === undefined
+      ? undefined
+      : seats[seatIndex];
   if (!seat) return null;
 
   const role = roles.find((candidate) => candidate.id === seat.roleId) ?? null;
   const agent = agents.find((candidate) => candidate.id === seat.agentId) ?? null;
+  const snapshot = seat.roleSnapshot;
   return {
-    avatar: role?.avatar ?? fallbackAvatar,
-    color: role?.color ?? fallbackColor,
-    roleName: role?.displayName ?? null,
-    agentName: agent?.displayName ?? seat.agentId,
-    crossFamilyReviewer: role?.reviewPolicy.requireDifferentFamily ?? false,
+    agentId: seat.agentId,
+    avatar: snapshot?.avatar ?? role?.avatar ?? fallbackAvatar,
+    color: snapshot?.color ?? role?.color ?? fallbackColor,
+    roleName: snapshot?.roleName ?? role?.displayName ?? null,
+    agentName: snapshot?.agentName ?? agent?.displayName ?? seat.agentId,
+    crossFamilyReviewer:
+      snapshot?.crossFamilyReviewer ?? role?.reviewPolicy.requireDifferentFamily ?? false,
   };
 }

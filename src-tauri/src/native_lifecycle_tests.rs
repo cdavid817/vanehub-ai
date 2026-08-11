@@ -23,8 +23,9 @@ use crate::contexts::sessions::application::{
     ChatConfigurationValues, CreatedSessionWorktree, NewRemoteWorkspace,
     SessionAgentEligibilityPort, SessionApplicationLog, SessionApplicationPorts,
     SessionChatProfilePort, SessionClockPort, SessionCreationContextPort, SessionFileContentPort,
-    SessionIdentityPort, SessionLoggingPort, SessionProject, SessionRecord, SessionRemoteWorkspace,
-    SessionRuntimePort, SessionsApplicationError, SessionsApplicationService, UsageStatisticsRange,
+    SessionIdentityPort, SessionLoggingPort, SessionProject, SessionRecord, SessionRecoveryEvent,
+    SessionRecoveryEventPort, SessionRemoteWorkspace, SessionRuntimePort, SessionsApplicationError,
+    SessionsApplicationService, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{SessionActivation, SessionOwner};
 use crate::contexts::sessions::infrastructure::{
@@ -63,7 +64,9 @@ impl LifecycleHarness {
             categories: repository.clone(),
             configurations: repository.clone(),
             usage: repository.clone(),
-            transactions: repository,
+            transactions: repository.clone(),
+            recovery_reports: repository,
+            recovery_events: doubles.clone(),
             clock: doubles.clone(),
             identities: doubles.clone(),
             files: doubles.clone(),
@@ -383,6 +386,10 @@ impl SessionIdentityPort for LifecycleDoubles {
         "session-lifecycle-1".to_string()
     }
 
+    fn next_seat_id(&self) -> String {
+        "seat-lifecycle-1".to_string()
+    }
+
     fn next_message_id(&self) -> String {
         "message-lifecycle-1".to_string()
     }
@@ -512,6 +519,15 @@ impl SessionFileContentPort for LifecycleDoubles {
 impl SessionLoggingPort for LifecycleDoubles {
     fn write(&self, log: SessionApplicationLog) -> Result<(), SessionsApplicationError> {
         self.session_logs.lock().expect("session logs").push(log);
+        Ok(())
+    }
+}
+
+impl SessionRecoveryEventPort for LifecycleDoubles {
+    fn publish_recovery_event(
+        &self,
+        _event: SessionRecoveryEvent,
+    ) -> Result<(), SessionsApplicationError> {
         Ok(())
     }
 }

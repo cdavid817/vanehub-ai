@@ -20,6 +20,7 @@
 | 章节 | 讲什么 |
 | --- | --- |
 | [多 Agent 群聊与 `@` 交接](multi-agent-workflow.md) | 一个会话里放多个 Agent，用 `@` 交接发言权 |
+| [多 Agent 协作测试教程](multi-agent-testing-tutorial.md) | 用架构师、实现者和代码审查走完 UI、交接与历史身份验收 |
 | [Loop 工程化](loop-engineering.md) | 定目标与必过检查，让它自动迭代到达成 |
 | [权限审批](permissions.md) | 四档模板、审批弹窗、记忆范围 |
 | [个性化配置](personalization.md) | 关于你、回复风格、跨会话记忆、专家角色 |

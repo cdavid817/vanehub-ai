@@ -1,4 +1,6 @@
+use crate::contexts::sessions::domain::{decode_seats, encode_seats};
 use rusqlite::Connection;
+use std::collections::HashMap;
 
 pub(crate) fn apply_configuration_schema(
     connection: &Connection,
@@ -58,5 +60,78 @@ pub(crate) fn apply_session_seat_schema(
             [],
         )?;
     }
+    Ok(())
+}
+
+pub(crate) fn apply_stable_participant_schema(
+    connection: &Connection,
+) -> Result<(), crate::platform::database::DatabaseError> {
+    if !crate::platform::database::table_has_column(connection, "messages", "speaker_seat_id")? {
+        connection.execute("ALTER TABLE messages ADD COLUMN speaker_seat_id TEXT", [])?;
+    }
+
+    let sessions = {
+        let mut statement = connection.prepare(
+            "SELECT id, agent_id, created_at, seats FROM sessions ORDER BY created_at, id",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+
+    let mut seats_by_session = HashMap::new();
+    for (session_id, agent_id, created_at, stored) in sessions {
+        let seats = decode_seats(&stored, &session_id, &agent_id, &created_at);
+        connection.execute(
+            "UPDATE sessions SET seats = ?1 WHERE id = ?2",
+            rusqlite::params![encode_seats(&seats), session_id],
+        )?;
+        seats_by_session.insert(session_id, seats);
+    }
+
+    let legacy_messages = {
+        let mut statement = connection.prepare(
+            "SELECT id, session_id, seat_index FROM messages WHERE speaker_seat_id IS NULL AND seat_index IS NOT NULL",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+
+    for (message_id, session_id, seat_index) in legacy_messages {
+        let Some(index) = usize::try_from(seat_index).ok() else {
+            continue;
+        };
+        let Some(seat_id) = seats_by_session
+            .get(&session_id)
+            .and_then(|seats| seats.get(index))
+            .map(|seat| seat.seat_id.as_str())
+        else {
+            continue;
+        };
+        connection.execute(
+            "UPDATE messages SET speaker_seat_id = ?1 WHERE id = ?2",
+            rusqlite::params![seat_id, message_id],
+        )?;
+    }
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_speaker_seat ON messages(session_id, speaker_seat_id, created_at)",
+        [],
+    )?;
     Ok(())
 }

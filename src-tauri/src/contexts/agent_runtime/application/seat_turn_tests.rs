@@ -1,16 +1,33 @@
 use super::tests::{seat_turn_world, service};
-use super::{SeatTurnAssignment, SeatTurnStatus, SeatTurnStop, SeatTurnTerminal};
+use super::{
+    AgentChatConfiguration, AgentMessageSource, GenerationProcessEvent, SeatTurnAssignment,
+    SeatTurnStatus, SeatTurnStop, SeatTurnTerminal, SendMessageRequest,
+};
 use crate::contexts::agent_runtime::domain::ChainEndReason;
+use crate::contexts::agent_runtime::domain::InteractionMode;
 use crate::contexts::execution_observability::api::CapturedTelemetryRecord;
 
 fn terminal(reply: Option<&str>, speaker: &str, depth: usize) -> SeatTurnTerminal {
     SeatTurnTerminal {
         session_id: "session-1".to_string(),
         message_id: "message-1".to_string(),
+        seat_id: "seat-1".to_string(),
         seat_index: 0,
         seat_mention: speaker.to_string(),
         depth,
+        round_id: "round-1".to_string(),
+        execution_run_id: "run-1".to_string(),
         reply: reply.map(str::to_string),
+    }
+}
+
+fn assignment(seat_index: usize, depth: usize) -> SeatTurnAssignment {
+    SeatTurnAssignment {
+        seat_id: format!("seat-{}", seat_index + 1),
+        seat_index,
+        depth,
+        round_id: "round-1".to_string(),
+        parent_execution_run_id: Some("run-1".to_string()),
     }
 }
 
@@ -24,14 +41,75 @@ fn a_line_leading_mention_routes_the_turn_to_that_seat() {
             1,
         ))
         .expect("decide");
-    assert_eq!(
-        decision.next,
-        [SeatTurnAssignment {
-            seat_index: 1,
-            depth: 2,
-        }]
-    );
+    assert_eq!(decision.next, [assignment(1, 2)]);
     assert_eq!(decision.stop, None);
+}
+
+#[test]
+fn serial_handoff_keeps_one_round_and_allocates_a_new_child_run() {
+    let world = seat_turn_world();
+    let service = service(world.clone());
+    let first = service
+        .send_message(SendMessageRequest {
+            source: AgentMessageSource::Desktop,
+            session_id: "session-1".to_string(),
+            content: "开始".to_string(),
+            configuration: AgentChatConfiguration {
+                agent_id: "claude-code".to_string(),
+                interaction_mode: InteractionMode::Cli,
+                permission_mode: "default".to_string(),
+                provider_id: None,
+                model_id: None,
+                reasoning_depth: None,
+                streaming: true,
+                thinking: false,
+                long_context: false,
+            },
+            file_references: Vec::new(),
+        })
+        .expect("start first seat");
+    let first_run = first.execution_run_id.clone().expect("first run");
+    let first_sink = world
+        .generation_sinks
+        .lock()
+        .expect("generation sinks")
+        .get("process-1")
+        .cloned()
+        .expect("first sink");
+    first_sink
+        .handle(GenerationProcessEvent::Token("@代码审查 继续".to_string()))
+        .expect("first reply");
+    first_sink
+        .handle(GenerationProcessEvent::Completed(None))
+        .expect("complete first seat");
+
+    let terminal = service
+        .take_seat_turn_completion("session-1")
+        .expect("take terminal")
+        .expect("terminal");
+    assert_eq!(terminal.execution_run_id, first_run);
+    let assignment = service
+        .decide_seat_turn(&terminal)
+        .expect("decide")
+        .next
+        .into_iter()
+        .next()
+        .expect("next seat");
+    assert_eq!(assignment.round_id, terminal.round_id);
+    assert_eq!(
+        assignment.parent_execution_run_id.as_deref(),
+        Some(first_run.as_str())
+    );
+
+    service
+        .start_seat_turn("session-1", &assignment)
+        .expect("start second seat");
+    let second_run = service
+        .active_generation_correlation("session-1")
+        .expect("active correlation")
+        .and_then(|correlation| correlation.execution_run_id)
+        .expect("second run");
+    assert_ne!(second_run, first_run);
 }
 
 #[test]
@@ -79,13 +157,7 @@ fn an_informational_handoff_leaves_the_turn_with_the_agents() {
             1,
         ))
         .expect("decide");
-    assert_eq!(
-        decision.next,
-        [SeatTurnAssignment {
-            seat_index: 1,
-            depth: 2,
-        }]
-    );
+    assert_eq!(decision.next, [assignment(1, 2)]);
     assert_eq!(decision.stop, None);
 }
 
@@ -175,6 +247,23 @@ fn a_multi_seat_session_is_coordinated() {
     assert!(service.is_multi_seat_session("session-1"));
 }
 
+#[test]
+fn the_first_reply_owns_the_first_stable_seat_and_receives_its_briefing() {
+    let service = service(seat_turn_world());
+    let session = service.require_session("session-1").expect("session");
+    let (ownership, briefing) = service
+        .initial_seat_turn_context(&session)
+        .expect("initial context")
+        .expect("multi-seat context");
+
+    assert_eq!(ownership.seat_id, "seat-1");
+    assert_eq!(ownership.seat_index, 0);
+    assert_eq!(ownership.seat_mention, "架构师");
+    assert_eq!(ownership.depth, 1);
+    assert!(briefing.starts_with("你是架构师。"));
+    assert!(briefing.contains("@代码审查"));
+}
+
 /// A seat added mid-session has to act on work it never witnessed, so its first prompt carries the
 /// thread rather than starting from nothing.
 #[test]
@@ -185,13 +274,7 @@ fn a_seat_starting_its_turn_is_given_the_preceding_turns_attributed_by_speaker()
     let service = service(world.clone());
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 2,
-                depth: 2,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(2, 2))
         .expect("start seat turn");
 
     let requests = world.generation_requests.lock().expect("requests");
@@ -208,13 +291,7 @@ fn a_seat_turn_runs_the_seats_own_agent() {
     let service = service(world.clone());
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 1,
-                depth: 2,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(1, 2))
         .expect("start seat turn");
 
     let requests = world.generation_requests.lock().expect("requests");
@@ -230,13 +307,7 @@ fn a_seat_turn_carries_the_roster_and_the_handoff_rules() {
     let service = service(world.clone());
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 0,
-                depth: 1,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(0, 1))
         .expect("start seat turn");
 
     let requests = world.generation_requests.lock().expect("requests");
@@ -261,13 +332,7 @@ fn a_seat_turn_records_no_user_message() {
     let service = service(world.clone());
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 1,
-                depth: 2,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(1, 2))
         .expect("start seat turn");
 
     let created = world.created_messages.lock().expect("created messages");
@@ -276,7 +341,8 @@ fn a_seat_turn_records_no_user_message() {
         .iter()
         .find(|message| message.role == "assistant")
         .expect("an assistant message");
-    assert_eq!(assistant.seat_index, Some(1));
+    assert_eq!(assistant.speaker_seat_id.as_deref(), Some("seat-2"));
+    assert_eq!(assistant.seat_index, None);
 }
 
 /// Removing a seat has to stop it being invoked, including by a turn already queued for it.
@@ -285,13 +351,7 @@ fn starting_a_turn_for_a_removed_seat_is_rejected() {
     let world = seat_turn_world();
     let service = service(world.clone());
     assert!(service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 9,
-                depth: 2,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(9, 2),)
         .is_err());
 }
 
@@ -305,13 +365,7 @@ fn a_seat_turn_marks_its_agent_span_with_the_seat() {
     let (service, telemetry) = super::tests::service_with_telemetry(world);
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 1,
-                depth: 2,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(1, 2))
         .expect("start seat turn");
 
     let agent_span = telemetry
@@ -343,13 +397,7 @@ fn starting_a_seat_turn_announces_who_holds_it() {
     let service = service(world.clone());
 
     service
-        .start_seat_turn(
-            "session-1",
-            &SeatTurnAssignment {
-                seat_index: 1,
-                depth: 3,
-            },
-        )
+        .start_seat_turn("session-1", &assignment(1, 3))
         .expect("start seat turn");
 
     let events = world.events.lock().expect("events");
@@ -366,6 +414,7 @@ fn starting_a_seat_turn_announces_who_holds_it() {
     assert_eq!(
         status,
         SeatTurnStatus::Agent {
+            seat_id: "seat-2".to_string(),
             seat_index: 1,
             mention: "代码审查".to_string(),
             depth: 3,

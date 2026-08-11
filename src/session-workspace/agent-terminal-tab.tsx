@@ -205,7 +205,7 @@ export function AgentTerminalTab({ active, session, sessionActivationKey }: { ac
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[hsl(var(--panel-muted))]">
       <div className="flex items-center gap-2 border-b border-border p-2 text-xs">
         <span className="rounded-full border border-border px-2 py-1">{t(`sessionTabs.agentTerminal.state.${state}`)}</span>
         {simulated ? <span className="rounded-full bg-muted px-2 py-1 text-muted-foreground">{t("sessionTabs.agentTerminal.simulated")}</span> : null}

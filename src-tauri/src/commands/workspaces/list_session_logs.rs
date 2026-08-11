@@ -4,12 +4,13 @@ use crate::contexts::workspaces::api::WorkspaceApi;
 use tauri::State;
 
 #[tauri::command]
-pub(crate) fn list_session_logs(
+pub(crate) async fn list_session_logs(
     api: State<'_, WorkspaceApi>,
     input: dto::SessionLogQuery,
 ) -> Result<dto::SessionLogPage, CommandError> {
     let query = mapper::session_log_query_from_dto(input);
-    api.list_session_logs(&query)
+    api.list_session_logs_blocking(query)
+        .await
         .map(mapper::session_log_page_to_dto)
         .map_err(map_command_error)
 }

@@ -364,6 +364,8 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
         error: message.error,
         created_at: message.created_at,
         updated_at: message.updated_at,
+        session_sequence: message.session_sequence,
+        execution_run_id: message.execution_run_id,
     }
 }
 
@@ -603,6 +605,7 @@ mod tests {
         let value = serde_json::to_value(message_to_dto(AgentMessage {
             id: "message-1".to_string(),
             session_id: "session-1".to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "assistant".to_string(),
             content: "done".to_string(),
@@ -618,6 +621,8 @@ mod tests {
             error: None,
             created_at: "100".to_string(),
             updated_at: "101".to_string(),
+            session_sequence: 1,
+            execution_run_id: None,
         }))
         .expect("serialize message");
 

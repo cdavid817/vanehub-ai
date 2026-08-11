@@ -6,25 +6,24 @@ import {
   Brain,
   FolderGit2,
   Gauge,
-  PanelRightClose,
-  PanelRightOpen,
   Sparkles,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
 import { resolveModelLabel } from "../components/chat/models";
-import { Button } from "../components/ui/button";
 import { formatAppNumber } from "../i18n/format";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import { normalizeDisplayPath } from "../lib/session-path";
 import { cn } from "../lib/utils";
 import { agentService } from "../services/runtime-agent-client";
+import { seatsFromSession } from "../services/session-seats";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
 import { SessionCodeIndexPane } from "./session-code-index-pane";
+import { SessionRosterEditor } from "./session-roster-editor";
 
-export type InfoTab = "basic" | "usage" | "skills" | "codeIndex";
+export type InfoTab = "members" | "basic" | "usage" | "skills" | "codeIndex";
 
 const tabs: Array<{ key: InfoTab; labelKey: string }> = [
   { key: "basic", labelKey: "layout.infoTab.basic" },
@@ -32,8 +31,18 @@ const tabs: Array<{ key: InfoTab; labelKey: string }> = [
   { key: "skills", labelKey: "layout.infoTab.skills" },
 ];
 
-function Pane({ active, children }: { active: boolean; children: ReactNode }) {
-  return <div className={cn("h-full", active ? "block" : "hidden")}>{children}</div>;
+function Pane({ active, children, tab }: { active: boolean; children: ReactNode; tab: InfoTab }) {
+  return (
+    <div
+      aria-labelledby={`info-tab-${tab}`}
+      className={cn("h-full", active ? "block" : "hidden")}
+      data-testid={`info-pane-${tab}`}
+      id={`info-pane-${tab}`}
+      role="tabpanel"
+    >
+      {children}
+    </div>
+  );
 }
 
 function Field({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
@@ -111,13 +120,13 @@ function TokenUsagePane({ loading, summary }: { loading: boolean; summary: Sessi
 export function SessionInfoPanel({
   activeSession,
   collapsed,
-  onCollapsedChange,
+  currentSpeakerSeatId = null,
   requestedTab,
   onOpenSkillSettings,
 }: {
   activeSession: Session | null;
   collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
+  currentSpeakerSeatId?: string | null;
   requestedTab?: InfoTab | null;
   onOpenSkillSettings?: () => void;
 }) {
@@ -141,42 +150,68 @@ export function SessionInfoPanel({
     refetchInterval: activeSession?.lifecycleState === "running" ? 5000 : false,
   });
   const showCodeIndex = activeSession?.agentId === "onepiece" && Boolean(workspacePath);
-  const visibleTabs = showCodeIndex ? [...tabs, { key: "codeIndex" as const, labelKey: "layout.infoTab.codeIndex" }] : tabs;
+  const showSessionMembers = Boolean(activeSession && seatsFromSession(activeSession).length > 1);
+  const visibleTabs = [
+    ...(showSessionMembers ? [{ key: "members" as const, labelKey: "session.memberInfo" }] : []),
+    ...tabs,
+    ...(showCodeIndex ? [{ key: "codeIndex" as const, labelKey: "layout.infoTab.codeIndex" }] : []),
+  ];
+  const tabColumns = visibleTabs.length === 5 ? "grid-cols-5" : visibleTabs.length === 4 ? "grid-cols-4" : "grid-cols-3";
 
   useEffect(() => {
-    if (requestedTab) setActiveTab(requestedTab);
-    else if (!showCodeIndex) setActiveTab("basic");
-  }, [requestedTab, sessionId, showCodeIndex]);
+    if (requestedTab && (
+      (requestedTab !== "members" || showSessionMembers)
+      && (requestedTab !== "codeIndex" || showCodeIndex)
+    )) setActiveTab(requestedTab);
+    else setActiveTab(showSessionMembers ? "members" : "basic");
+  }, [requestedTab, sessionId, showCodeIndex, showSessionMembers]);
 
-  return <>
-    <aside className={cn("ucd-panel min-w-0 overflow-hidden rounded-lg transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
+  return (
+    <aside className={cn("min-w-0 overflow-hidden bg-[hsl(var(--panel-muted))] transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
       <div className="flex h-full min-h-0 flex-col p-3">
-        <div className="mb-3 flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2><Button className="h-7 px-2 text-xs" onClick={() => onCollapsedChange(true)} variant="outline"><PanelRightClose className="h-3.5 w-3.5" />{t("layout.collapse")}</Button></div>
-        <div className={cn("ucd-segmented mb-3 grid gap-1 rounded-md p-1", showCodeIndex ? "grid-cols-4" : "grid-cols-3")}>{visibleTabs.map((tab) => <button aria-pressed={activeTab === tab.key} className={cn("h-8 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")} key={tab.key} onClick={() => setActiveTab(tab.key)} title={t(tab.labelKey)} type="button">{t(tab.labelKey)}</button>)}</div>
+        <div className="mb-3 flex h-7 items-center"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2></div>
+        <div aria-label={t("layout.infoPanel")} className={cn("ucd-segmented mb-3 grid gap-1 rounded-md p-1", tabColumns)} role="tablist">
+          {visibleTabs.map((tab) => (
+            <button
+              aria-controls={`info-pane-${tab.key}`}
+              aria-selected={activeTab === tab.key}
+              className={cn("h-8 min-w-0 truncate rounded-md px-1 text-xs", activeTab === tab.key ? "bg-background font-semibold text-primary shadow-xs" : "text-muted-foreground hover:bg-muted")}
+              id={`info-tab-${tab.key}`}
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              role="tab"
+              tabIndex={activeTab === tab.key ? 0 : -1}
+              title={t(tab.labelKey)}
+              type="button"
+            >
+              {t(tab.labelKey)}
+            </button>
+          ))}
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <Pane active={activeTab === "basic"}>
-            <dl className="grid gap-3">
-              <section className="ucd-muted-panel grid gap-2 rounded-lg p-3">
-                <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
-                <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
-                <Field icon={<Activity className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.lifecycle")} value={activeSession ? t(`layout.lifecycle.${activeSession.lifecycleState}`) : t("layout.noSession")} />
-                <Field icon={<Brain className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.model")} value={modelLabel ?? t("layout.info.modelUnavailable")} />
-                <Field
-                  icon={<FolderGit2 className="h-3.5 w-3.5 text-primary" />}
-                  label={t("layout.info.workspace")}
-                  value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")}
-                />
-              </section>
+          {showSessionMembers && activeSession ? (
+            <Pane active={activeTab === "members"} tab="members"><SessionRosterEditor currentSpeakerSeatId={currentSpeakerSeatId} session={activeSession} /></Pane>
+          ) : null}
+          <Pane active={activeTab === "basic"} tab="basic">
+            <dl className="ucd-muted-panel grid gap-2 rounded-lg p-3">
+              <Field icon={<Bot className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.session")} value={activeSession?.title ?? t("layout.noSession")} />
+              <Field icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.cli")} value={<span className="flex min-w-0 items-center gap-2"><span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded border", identity.tone)}><AgentBrandIcon agentId={activeSession?.agentId} className="h-3.5 w-3.5" /></span><span className="truncate">{activeSession ? identity.label : t("layout.startChat")}</span></span>} />
+              <Field icon={<Activity className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.lifecycle")} value={activeSession ? t(`layout.lifecycle.${activeSession.lifecycleState}`) : t("layout.noSession")} />
+              <Field icon={<Brain className="h-3.5 w-3.5 text-primary" />} label={t("layout.info.model")} value={modelLabel ?? t("layout.info.modelUnavailable")} />
+              <Field
+                icon={<FolderGit2 className="h-3.5 w-3.5 text-primary" />}
+                label={t("layout.info.workspace")}
+                value={workspaceDisplayPath ? normalizeDisplayPath(workspaceDisplayPath) : t("layout.info.workspaceUnavailable")}
+              />
             </dl>
           </Pane>
-          <Pane active={activeTab === "usage"}><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
-          <Pane active={activeTab === "skills"}>
+          <Pane active={activeTab === "usage"} tab="usage"><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
+          <Pane active={activeTab === "skills"} tab="skills">
             <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
           </Pane>
-          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"}><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
+          {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
         </div>
       </div>
     </aside>
-    {collapsed ? <Button className="absolute right-2 top-1/2 h-9 w-9 -translate-y-1/2 px-0" onClick={() => onCollapsedChange(false)} size="icon" title={t("layout.expandInfo")} variant="outline"><PanelRightOpen className="h-4 w-4" /></Button> : null}
-  </>;
+  );
 }

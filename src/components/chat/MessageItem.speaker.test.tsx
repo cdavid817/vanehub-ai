@@ -18,11 +18,14 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
     status: "completed",
     createdAt: "2026-08-06T10:00:00Z",
     updatedAt: "2026-08-06T10:00:00Z",
+    sessionSequence: 1,
+    executionRunId: null,
     ...overrides,
   };
 }
 
 const reviewer: MessageSpeaker = {
+  agentId: "codex-cli",
   avatar: "🔍",
   color: "#C77D3A",
   roleName: "代码审查",
@@ -39,6 +42,12 @@ describe("MessageItem speaker identity", () => {
     renderWithAppProviders(<MessageItem message={message()} speaker={reviewer} />);
     expect(screen.getByText("代码审查")).toBeTruthy();
     expect(screen.getByText("· Codex CLI")).toBeTruthy();
+    expect(screen.getByTestId("message-role-color").getAttribute("fill")).toBe("#C77D3A");
+  });
+
+  it("falls back to the semantic text colour for an invalid captured role colour", () => {
+    renderWithAppProviders(<MessageItem message={message()} speaker={{ ...reviewer, color: "not-a-colour" }} />);
+    expect(screen.getByTestId("message-role-color").getAttribute("fill")).toBe("currentColor");
   });
 
   it("marks a cross-family reviewer", () => {

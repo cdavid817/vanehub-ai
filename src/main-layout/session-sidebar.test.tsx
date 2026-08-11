@@ -13,6 +13,11 @@ function session(agentId: string): Session {
     agentId,
     interactionMode: "cli",
     lifecycleState: "idle",
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
     folder: null,
     projectPath: null,
     worktreePath: null,
@@ -27,6 +32,18 @@ function session(agentId: string): Session {
     archived: false,
     createdAt: "2026-07-18T00:00:00.000Z",
     updatedAt: "2026-07-18T00:00:00.000Z",
+  };
+}
+
+function multiAgentSession(): Session {
+  return {
+    ...session("codex-cli"),
+    id: "session-multi-agent",
+    title: "shared review",
+    seats: [
+      { seatId: "seat-codex", agentId: "codex-cli", roleId: "architect", leftAt: null },
+      { seatId: "seat-gemini", agentId: "gemini-cli", roleId: "reviewer", leftAt: null },
+    ],
   };
 }
 
@@ -60,6 +77,33 @@ describe("SessionSidebar CLI icons", () => {
     expect(html).toContain("列表");
     expect(html).toContain("分类");
     expect(html).toContain("项目");
+    expect(html).toContain('data-testid="session-sidebar"');
+    expect(html).not.toContain('class="ucd-panel flex h-full');
+  });
+
+  it("labels only multi-Agent session cards", () => {
+    const html = renderToString(
+      <SessionSidebar
+        activeSessionId="session-multi-agent"
+        agentsAvailable
+        archivedSessions={[]}
+        categories={[]}
+        onAssignCategory={vi.fn()}
+        onBatchDelete={vi.fn()}
+        onContextMenu={vi.fn()}
+        onNew={vi.fn()}
+        onSearchChange={vi.fn()}
+        onSelect={vi.fn()}
+        searchQuery=""
+        searchResults={[]}
+        sessions={[session("claude-code"), multiAgentSession()]}
+      />,
+    );
+
+    expect(html).toContain('data-testid="multi-agent-session-badge"');
+    expect(html.match(/>多 Agent</g)).toHaveLength(1);
+    expect(html).toContain("ucd-agent-codex");
+    expect(html).not.toContain('data-role-icon="architect"');
   });
 });
 

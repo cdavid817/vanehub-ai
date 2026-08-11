@@ -22,6 +22,10 @@ pub(crate) const EDIT_TOOL_NAME: &str = "edit";
 pub(crate) const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
 pub(crate) const LOAD_SKILL_TOOL_NAME: &str = "load_skill";
 pub(crate) const READ_SKILL_RESOURCE_TOOL_NAME: &str = "read_skill_resource";
+pub(crate) const FIND_DEFINITION_TOOL_NAME: &str = "find_definition";
+pub(crate) const FIND_REFERENCES_TOOL_NAME: &str = "find_references";
+pub(crate) const GET_HOVER_TOOL_NAME: &str = "get_hover";
+pub(crate) const GET_DIAGNOSTICS_TOOL_NAME: &str = "get_diagnostics";
 /// Prefixes every MCP-sourced tool's catalog name (`mcp__<server-name>__<tool-name>`,
 /// `add-agent-mcp-tools`) — never collides with the fixed names above since MCP tool names are
 /// always prefixed before entering the catalog.
@@ -280,6 +284,65 @@ pub(crate) fn search_code_tool_definition() -> ToolDefinition {
             "additionalProperties": false
         }),
     }
+}
+
+pub(crate) fn code_intelligence_tool_definitions() -> Vec<ToolDefinition> {
+    vec![
+        positioned_code_intelligence_tool(
+            FIND_DEFINITION_TOOL_NAME,
+            "Find definitions for the symbol at a position in the current workspace.",
+        ),
+        positioned_code_intelligence_tool(
+            FIND_REFERENCES_TOOL_NAME,
+            "Find references to the symbol at a position in the current workspace.",
+        ),
+        positioned_code_intelligence_tool(
+            GET_HOVER_TOOL_NAME,
+            "Get bounded type and documentation information at a position in the current workspace.",
+        ),
+        ToolDefinition {
+            name: GET_DIAGNOSTICS_TOOL_NAME.to_owned(),
+            description: "Get the current bounded diagnostics snapshot for a file in the current workspace."
+                .to_owned(),
+            input_schema: document_schema(false),
+        },
+    ]
+}
+
+fn positioned_code_intelligence_tool(name: &str, description: &str) -> ToolDefinition {
+    ToolDefinition {
+        name: name.to_owned(),
+        description: description.to_owned(),
+        input_schema: document_schema(true),
+    }
+}
+
+fn document_schema(with_position: bool) -> serde_json::Value {
+    let mut properties = serde_json::Map::from_iter([(
+        "path".to_owned(),
+        json!({
+            "type": "string",
+            "description": "A normalized path relative to the current session workspace."
+        }),
+    )]);
+    let mut required = vec!["path"];
+    if with_position {
+        properties.insert(
+            "line".to_owned(),
+            json!({ "type": "integer", "minimum": 1, "description": "1-based line." }),
+        );
+        properties.insert(
+            "column".to_owned(),
+            json!({ "type": "integer", "minimum": 1, "description": "1-based Unicode scalar column." }),
+        );
+        required.extend(["line", "column"]);
+    }
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false
+    })
 }
 
 /// `grep` and `glob` are each offered from both `tool_catalog()` and `plan_mode_tool_catalog()`
@@ -649,6 +712,58 @@ mod tests {
         );
         assert_eq!(definition.input_schema["required"], json!(["query"]));
         assert_eq!(definition.input_schema["additionalProperties"], false);
+    }
+
+    #[test]
+    fn code_intelligence_tools_have_provider_neutral_workspace_implicit_schemas() {
+        let definitions = code_intelligence_tool_definitions();
+        assert_eq!(
+            definitions
+                .iter()
+                .map(|definition| definition.name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                FIND_DEFINITION_TOOL_NAME,
+                FIND_REFERENCES_TOOL_NAME,
+                GET_HOVER_TOOL_NAME,
+                GET_DIAGNOSTICS_TOOL_NAME,
+            ]
+        );
+
+        for definition in &definitions {
+            let properties = definition.input_schema["properties"]
+                .as_object()
+                .expect("properties");
+            assert!(properties.contains_key("path"), "{}", definition.name);
+            assert_eq!(definition.input_schema["additionalProperties"], false);
+            for forbidden in [
+                "workspace",
+                "workspace_id",
+                "root",
+                "server",
+                "server_path",
+                "uri",
+            ] {
+                assert!(
+                    !properties.contains_key(forbidden),
+                    "{} must not expose {forbidden}",
+                    definition.name
+                );
+            }
+        }
+
+        for definition in &definitions[..3] {
+            assert_eq!(
+                definition.input_schema["required"],
+                json!(["path", "line", "column"])
+            );
+            assert_eq!(definition.input_schema["properties"]["line"]["minimum"], 1);
+            assert_eq!(
+                definition.input_schema["properties"]["column"]["minimum"],
+                1
+            );
+        }
+        assert_eq!(definitions[3].input_schema["required"], json!(["path"]));
     }
 
     #[test]

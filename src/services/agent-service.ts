@@ -35,6 +35,7 @@ import type {
   SaveOnePieceProviderProfileInput,
   ValidateOnePieceProviderCredentialInput,
   UpdateApiAgentInput,
+  UpdateSessionSeatsInput,
   CreateScheduledTaskInput,
   SetScheduledTaskEnabledInput,
   Session,
@@ -152,6 +153,15 @@ import type {
   CodeIndexStatus,
   CodeIndexWorkspace,
 } from "../types/code-index";
+import type {
+  LspConfiguration,
+  LspLanguageId,
+  LspServerDiscovery,
+  LspServerStatus,
+  LspServerTestResult,
+  LspWorkspaceTrust,
+  LspWorkspaceTrustUpdate,
+} from "../types/lsp";
 
 export interface AgentService {
   openExternalUrl(url: string): Promise<void>;
@@ -202,6 +212,13 @@ export interface AgentService {
   rebuildCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
   disableCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
   deleteCodeIndexWorkspace(workspaceId: string): Promise<void>;
+  getLspConfiguration(): Promise<LspConfiguration>;
+  saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
+  listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
+  updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate): Promise<LspWorkspaceTrust>;
+  discoverLspServers(): Promise<LspServerDiscovery[]>;
+  testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
+  getLspServerStatus(): Promise<LspServerStatus[]>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;
@@ -230,6 +247,12 @@ export interface AgentService {
   listArchivedSessions(): Promise<Session[]>;
   searchSessions(input: SessionSearchInput): Promise<SessionSearchResult[]>;
   getSession(sessionId: string): Promise<Session>;
+  getSessionRecoverySummary(sessionId: string): Promise<SessionRecoverySummary>;
+  listSessionRecoveryReports(sessionId: string, limit?: number): Promise<SessionRecoveryReport[]>;
+  acknowledgeSessionRecovery(
+    sessionId: string,
+    expectedRecoveryRevision: number,
+  ): Promise<SessionRecoveryAcknowledgement>;
   getActiveSession(): Promise<Session | null>;
   listSessionCategories(): Promise<SessionCategory[]>;
   createSessionCategory(input: CreateSessionCategoryInput): Promise<SessionCategory>;
@@ -266,6 +289,7 @@ export interface AgentService {
   deleteSession(sessionId: string): Promise<void>;
   switchSession(sessionId: string): Promise<Session>;
   renameSession(sessionId: string, title: string): Promise<Session>;
+  updateSessionSeats(input: UpdateSessionSeatsInput): Promise<Session>;
   rebindRemoteSessionSshConnection(sessionId: string, connectionId: string): Promise<Session>;
   pinSession(sessionId: string): Promise<Session>;
   unpinSession(sessionId: string): Promise<Session>;
@@ -374,4 +398,76 @@ export interface AgentService {
 
 export type SessionStateEvent =
   | { kind: "active-session-changed"; sessionId: string | null }
-  | { kind: "configuration-changed"; sessionId: string };
+  | { kind: "configuration-changed"; sessionId: string }
+  | RecoverySessionStateEvent;
+
+export type RecoveryDecision =
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "interrupted_without_tool_ambiguity"
+  | "action_required"
+  | "quarantined"
+  | "retry_later"
+  | "acknowledged";
+
+export type RecoveryTrigger = "startup" | "explicit_retry" | "user_acknowledgement";
+
+export type RecoveryReasonCode =
+  | "confirmed_completed_message"
+  | "confirmed_failed_message"
+  | "confirmed_cancelled_operation"
+  | "interrupted_tool_free_response"
+  | "missing_execution_run"
+  | "missing_assistant_message"
+  | "unfinished_tool_activity"
+  | "opaque_provider_activity"
+  | "conflicting_execution_runs"
+  | "conflicting_terminal_outcomes"
+  | "invalid_message_sequence"
+  | "invalid_execution_correlation"
+  | "live_runtime_handle"
+  | "storage_temporarily_unavailable"
+  | "acknowledged_by_user";
+
+export type RecoveryEvidenceReference =
+  | { kind: "session"; sessionId: string; stateRevision: number; historyRevision: number }
+  | { kind: "message"; messageId: string; executionRunId: string | null; status: string }
+  | { kind: "operation"; operationId: string; executionRunId: string | null; status: string }
+  | { kind: "tool_activity"; toolUseId: string; executionRunId: string | null; status: string }
+  | { kind: "provider_resume_metadata"; present: boolean }
+  | { kind: "live_runtime_handle"; executionRunId: string | null; present: boolean };
+
+export interface SessionRecoveryReport {
+  reportId: string;
+  sessionId: string;
+  recoveryRevision: number;
+  trigger: RecoveryTrigger;
+  observedLifecycle: string;
+  observedExecutionRunId: string | null;
+  decision: RecoveryDecision;
+  reasonCodes: RecoveryReasonCode[];
+  evidenceRefs: RecoveryEvidenceReference[];
+  createdAt: string;
+}
+
+export interface SessionRecoverySummary {
+  session: Session;
+  latestReport: SessionRecoveryReport | null;
+}
+
+export interface SessionRecoveryAcknowledgement {
+  session: Session;
+  report: SessionRecoveryReport;
+}
+
+export type RecoverySessionStateEvent = {
+  kind:
+    | "recovery-started"
+    | "recovery-completed"
+    | "recovery-action-required"
+    | "recovery-quarantined"
+    | "recovery-acknowledged";
+  sessionId: string;
+  recoveryRevision: number;
+};

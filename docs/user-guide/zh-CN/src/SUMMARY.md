@@ -9,11 +9,13 @@
 # 功能详解
 
 - [多 Agent 群聊与 `@` 交接](multi-agent-workflow.md)
+  - [案例教程：验证多 Agent 协作](multi-agent-testing-tutorial.md)
 - [Loop 工程化](loop-engineering.md)
 - [权限审批](permissions.md)
 - [个性化配置](personalization.md)
 - [管理 Skill](skill-management.md)
 - [索引工作区代码](code-indexing.md)
+- [使用实时 LSP 代码智能](lsp-code-intelligence.md)
 - [工具与扩展](tooling.md)
 - [原生 API Agent](native-agent.md)
 - [可观测性与日志](observability.md)

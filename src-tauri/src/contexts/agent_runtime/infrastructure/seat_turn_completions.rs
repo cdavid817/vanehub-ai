@@ -70,9 +70,12 @@ mod tests {
         SeatTurnTerminal {
             session_id: "s1".to_string(),
             message_id: message_id.to_string(),
+            seat_id: format!("seat-{seat_index}"),
             seat_index,
             seat_mention: "架构师".to_string(),
             depth: 1,
+            round_id: "round-1".to_string(),
+            execution_run_id: "run-1".to_string(),
             reply: Some("@代码审查 看下".to_string()),
         }
     }

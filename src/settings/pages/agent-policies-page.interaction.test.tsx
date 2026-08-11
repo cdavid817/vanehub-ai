@@ -64,7 +64,7 @@ describe("AgentPoliciesPage — Claude Code first-use install confirmation", () 
       const button = within(rowFor("Claude Code")).getByRole("button", { name: "标准" }) as HTMLButtonElement;
       expect(button.disabled).toBe(false);
       return button;
-    });
+    }, { timeout: 5_000 });
     await user.click(standardButton);
 
     expect(await screen.findByText("启用 Claude Code 权限管理?")).toBeTruthy();

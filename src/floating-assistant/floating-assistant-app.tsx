@@ -136,19 +136,6 @@ export function FloatingAssistantApp() {
   }, [queryClient]);
 
   useEffect(() => {
-    let active = true;
-    let cleanup: (() => void) | undefined;
-    void floatingAssistantService.subscribeEvents(() => undefined).then((unsubscribe) => {
-      if (active) cleanup = unsubscribe;
-      else unsubscribe();
-    });
-    return () => {
-      active = false;
-      cleanup?.();
-    };
-  }, []);
-
-  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 

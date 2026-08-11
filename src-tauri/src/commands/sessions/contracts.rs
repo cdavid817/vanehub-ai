@@ -1,11 +1,12 @@
 use super::dto::{
-    ChatConfig, CreateSessionInput, InteractionMode, SessionExportFormat, UsageStatisticsRange,
+    ChatConfig, CreateSessionInput, InteractionMode, SessionExportFormat, UpdateSessionSeatsInput,
+    UsageStatisticsRange,
 };
 use crate::commands::error::{map_command_error, CommandErrorCategory};
 use crate::contexts::sessions::api::SessionsError;
 use serde_json::{json, Value};
 
-const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
+const MIGRATED_SESSION_COMMANDS: [(&str, &str); 26] = [
     ("create_session", include_str!("create_session.rs")),
     ("list_sessions", include_str!("list_sessions.rs")),
     (
@@ -46,6 +47,10 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
     ("switch_session", include_str!("switch_session.rs")),
     ("rename_session", include_str!("rename_session.rs")),
     (
+        "update_session_seats",
+        include_str!("update_session_seats.rs"),
+    ),
+    (
         "rebind_remote_session_ssh_connection",
         include_str!("rebind_remote_session_ssh_connection.rs"),
     ),
@@ -63,6 +68,21 @@ const MIGRATED_SESSION_COMMANDS: [(&str, &str); 25] = [
     (
         "get_usage_statistics",
         include_str!("get_usage_statistics.rs"),
+    ),
+];
+
+const RECOVERY_NATIVE_COMMANDS: [(&str, &str); 3] = [
+    (
+        "get_session_recovery_summary",
+        include_str!("get_session_recovery_summary.rs"),
+    ),
+    (
+        "list_session_recovery_reports",
+        include_str!("list_session_recovery_reports.rs"),
+    ),
+    (
+        "acknowledge_session_recovery",
+        include_str!("acknowledge_session_recovery.rs"),
     ),
 ];
 
@@ -85,6 +105,28 @@ fn every_migrated_session_command_keeps_registration_frontend_and_error_boundari
                 && handler.contains(&format!("fn {command}("))
                 && handler.contains("map_command_error"),
             "{command} must remain a Tauri adapter using the shared safe error mapper"
+        );
+    }
+}
+
+#[test]
+fn recovery_commands_are_registered_one_per_file_with_safe_errors() {
+    let native_registration = include_str!("../registry.rs");
+    let tauri_client = include_str!("../../../../src/services/tauri-agent-client.ts");
+    for (command, handler) in RECOVERY_NATIVE_COMMANDS {
+        assert!(
+            native_registration.contains(&format!("commands::sessions::{command}::{command}")),
+            "native command registration missing {command}"
+        );
+        assert!(
+            tauri_client.contains(&format!("\"{command}\"")),
+            "frontend invoke missing {command}"
+        );
+        assert!(
+            handler.contains("#[tauri::command]")
+                && handler.contains(&format!("fn {command}("))
+                && handler.contains("map_command_error"),
+            "{command} must keep the shared safe command error boundary"
         );
     }
 }
@@ -142,6 +184,14 @@ fn session_command_input_dtos_keep_existing_serde_shapes() {
         serde_json::from_value::<UsageStatisticsRange>(json!("last30Days")).expect("usage range"),
         UsageStatisticsRange::Last30Days
     );
+
+    let membership: UpdateSessionSeatsInput = serde_json::from_value(json!({
+        "sessionId": "session-1",
+        "expectedUpdatedAt": "2026-08-10T00:00:00Z",
+        "seats": [{ "seatId": "seat-1", "agentId": "codex-cli", "roleId": null }]
+    }))
+    .expect("membership input");
+    assert_eq!(membership.seats[0].seat_id.as_deref(), Some("seat-1"));
 }
 
 #[test]
@@ -183,9 +233,19 @@ fn session_command_errors_keep_legacy_safe_strings() {
             "validation error: Category name already exists.",
         ),
         (
-            SessionsError::Repository("secret database detail".to_string()),
+            SessionsError::SessionRevisionConflict("session-1".to_string()),
+            CommandErrorCategory::Conflict,
+            "validation error: Session participants changed since they were loaded.",
+        ),
+        (
+            SessionsError::Repository("database detail".to_string()),
             CommandErrorCategory::Infrastructure,
-            "database error: secret database detail",
+            "database error: database detail",
+        ),
+        (
+            SessionsError::Repository("token=abc secret value".to_string()),
+            CommandErrorCategory::Infrastructure,
+            "database error: token=[REDACTED] secret=[REDACTED]",
         ),
         (
             SessionsError::RuntimeLaunch("agent unavailable".to_string()),

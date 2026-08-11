@@ -1,8 +1,11 @@
 mod category;
 mod chat_configuration;
 mod error;
+pub(crate) mod evidence;
 mod identity;
 mod message;
+pub(crate) mod recovery;
+pub(crate) mod recovery_decision;
 mod session;
 mod session_seat;
 
@@ -16,8 +19,12 @@ pub(crate) use identity::{CategoryId, MessageId, SessionId};
 pub(crate) use message::{
     FileReference, FileReferenceSet, MessageRole, MessageStatus, SessionMessage,
 };
+pub(crate) use recovery::{
+    RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,
+    SessionRecoveryReport, SessionRecoveryStatus,
+};
 pub(crate) use session::{
     LoopSessionRole, SessionActivation, SessionAggregate, SessionLifecycle, SessionOwner,
     SessionTitle,
 };
-pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat};
+pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat, SessionSeatRoleSnapshot};

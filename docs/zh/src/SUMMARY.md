@@ -12,6 +12,7 @@
 
 - [技术栈与选型理由](02-architecture/tech-stack.md)
 - [十一个限界上下文](02-architecture/bounded-contexts.md)
+- [LSP 代码智能](02-architecture/lsp-code-intelligence.md)
 - [端口与适配器](02-architecture/ports-and-adapters.md)
 
 ---

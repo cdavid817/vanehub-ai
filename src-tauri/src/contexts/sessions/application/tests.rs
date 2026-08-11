@@ -1,11 +1,12 @@
 use super::*;
 use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
-    MessageStatus, SessionActivation, SessionAggregate, SessionCategory, SessionId,
-    SessionLifecycle, SessionMessage, SessionOwner, SessionSeat, SessionTitle,
+    MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
+    SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
+    SessionRecoveryReport, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -20,6 +21,8 @@ struct FakeStore {
     search_queries: Mutex<Vec<SessionSearchQuery>>,
     message_queries: Mutex<Vec<MessagePageQuery>>,
     usage_queries: Mutex<Vec<(UsageStatisticsRange, Option<String>, String)>>,
+    recovery_reports:
+        Mutex<Vec<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>>,
     fail_create: AtomicBool,
 }
 
@@ -140,17 +143,6 @@ impl SessionRepository for FakeStore {
         Ok(session.clone())
     }
 
-    fn recoverable_sessions(&self) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        Ok(self
-            .sessions
-            .lock()
-            .expect("sessions")
-            .values()
-            .filter(|session| session.aggregate.lifecycle().has_active_generation())
-            .cloned()
-            .collect())
-    }
-
     fn inactive_sessions(
         &self,
         _cutoff: &str,
@@ -168,6 +160,52 @@ impl SessionRepository for FakeStore {
             .filter(|(session_id, _)| ids.contains(*session_id))
             .map(|(_, session)| session.clone())
             .collect())
+    }
+}
+
+impl SessionRecoveryReportRepository for FakeStore {
+    fn insert_report(
+        &self,
+        report: &crate::contexts::sessions::domain::recovery::SessionRecoveryReport,
+    ) -> Result<(), SessionsApplicationError> {
+        self.recovery_reports
+            .lock()
+            .expect("recovery reports")
+            .push(report.clone());
+        Ok(())
+    }
+
+    fn list_reports(
+        &self,
+        session_id: &SessionId,
+        limit: usize,
+    ) -> Result<
+        Vec<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>,
+        SessionsApplicationError,
+    > {
+        Ok(self
+            .recovery_reports
+            .lock()
+            .expect("recovery reports")
+            .iter()
+            .filter(|report| report.session_id() == session_id.as_str())
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+}
+
+impl SessionRecoveryEventPort for FakeStore {
+    fn publish_recovery_event(
+        &self,
+        event: SessionRecoveryEvent,
+    ) -> Result<(), SessionsApplicationError> {
+        self.events.lock().expect("events").push(format!(
+            "recovery:{:?}:{}:{}",
+            event.kind, event.session_id, event.recovery_revision
+        ));
+        Ok(())
     }
 }
 
@@ -405,6 +443,41 @@ impl SessionUsageRepository for FakeStore {
 }
 
 impl SessionTransactionPort for FakeStore {
+    fn acknowledge_recovery(
+        &self,
+        request: &AcknowledgeRecoveryRequest,
+    ) -> Result<AcknowledgeRecoveryResult, SessionsApplicationError> {
+        let session = self
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get(&request.session_id)
+            .cloned()
+            .ok_or_else(|| SessionsApplicationError::SessionNotFound(request.session_id.clone()))?;
+        let revision = request.expected_recovery_revision + 1;
+        let report = SessionRecoveryReport::new(
+            format!("acknowledgement-{revision}"),
+            request.session_id.clone(),
+            revision,
+            RecoveryTrigger::UserAcknowledgement,
+            session.aggregate.lifecycle().as_str().to_string(),
+            session
+                .aggregate
+                .recovery()
+                .active_execution_run_id()
+                .map(str::to_string),
+            RecoveryDecision::Acknowledged,
+            vec![RecoveryReasonCode::AcknowledgedByUser],
+            Vec::new(),
+            request.acknowledged_at.clone(),
+        );
+        self.events
+            .lock()
+            .expect("events")
+            .push(format!("ack-commit:{revision}"));
+        Ok(AcknowledgeRecoveryResult { session, report })
+    }
+
     fn create_session(
         &self,
         session: &SessionRecord,
@@ -544,19 +617,6 @@ impl SessionTransactionPort for FakeStore {
             .map(|message| message.message.id().as_str().to_string())
             .collect())
     }
-
-    fn recover_orphaned_session(
-        &self,
-        session: &SessionRecord,
-        _recovered_at: &str,
-    ) -> Result<(), SessionsApplicationError> {
-        self.seed_session(session.clone());
-        self.events
-            .lock()
-            .expect("events")
-            .push(format!("recover:{}", session.id()));
-        Ok(())
-    }
 }
 
 struct FakeClock {
@@ -596,11 +656,21 @@ impl SessionClockPort for FakeClock {
     }
 }
 
-struct FakeIdentities;
+#[derive(Default)]
+struct FakeIdentities {
+    next_seat: AtomicUsize,
+}
 
 impl SessionIdentityPort for FakeIdentities {
     fn next_session_id(&self) -> String {
         "session-created".to_string()
+    }
+
+    fn next_seat_id(&self) -> String {
+        format!(
+            "seat-created-{}",
+            self.next_seat.fetch_add(1, Ordering::SeqCst) + 1
+        )
     }
 
     fn next_message_id(&self) -> String {
@@ -920,8 +990,10 @@ fn fixture() -> Fixture {
         configurations: store.clone(),
         usage: store.clone(),
         transactions: store.clone(),
+        recovery_reports: store.clone(),
+        recovery_events: store.clone(),
         clock: clock.clone(),
-        identities: Arc::new(FakeIdentities),
+        identities: Arc::new(FakeIdentities::default()),
         files: files.clone(),
         operations: operations.clone(),
         logging: logging.clone(),
@@ -986,7 +1058,10 @@ fn message_record(
             status,
             FileReferenceSet::default(),
         ),
+        speaker_seat_id: None,
         seat_index: None,
+        seat_round_id: None,
+        parent_execution_run_id: None,
         content: String::new(),
         thinking_content: None,
         tool_use: None,
@@ -1445,6 +1520,89 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
 }
 
 #[test]
+fn recovery_reads_are_session_scoped_bounded_and_latest_first() {
+    let fixture = fixture();
+    let session = session_record(
+        "session-recovery-read",
+        "codex-cli",
+        SessionLifecycle::Failed,
+        false,
+    );
+    fixture.store.seed_session(session.clone());
+    for revision in 1..=2 {
+        SessionRecoveryReportRepository::insert_report(
+            fixture.store.as_ref(),
+            &SessionRecoveryReport::new(
+                format!("report-{revision}"),
+                session.id().to_string(),
+                revision,
+                RecoveryTrigger::Startup,
+                "running".to_string(),
+                Some(format!("run-{revision}")),
+                RecoveryDecision::Failed,
+                vec![RecoveryReasonCode::ConfirmedFailedMessage],
+                Vec::new(),
+                format!("2026-08-09T00:00:0{revision}Z"),
+            ),
+        )
+        .expect("seed report");
+    }
+
+    let summary = fixture
+        .service
+        .recovery_summary(session.id())
+        .expect("summary");
+    assert_eq!(summary.session.id(), session.id());
+    assert_eq!(
+        summary
+            .latest_report
+            .as_ref()
+            .map(SessionRecoveryReport::recovery_revision),
+        Some(2)
+    );
+    let reports = fixture
+        .service
+        .list_recovery_reports(session.id(), 1)
+        .expect("bounded reports");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].recovery_revision(), 2);
+    assert!(matches!(
+        fixture.service.recovery_summary("missing-session"),
+        Err(SessionsApplicationError::SessionNotFound(_))
+    ));
+}
+
+#[test]
+fn acknowledgement_event_is_emitted_after_the_durable_result() {
+    let fixture = fixture();
+    let session = session_record(
+        "session-recovery-ack-event",
+        "codex-cli",
+        SessionLifecycle::Failed,
+        false,
+    );
+    fixture.store.seed_session(session.clone());
+
+    let result = fixture
+        .service
+        .acknowledge_recovery(session.id(), 4)
+        .expect("acknowledge");
+
+    assert_eq!(result.report.recovery_revision(), 5);
+    assert_eq!(
+        *fixture.store.events.lock().expect("events"),
+        vec![
+            "ack-commit:5".to_string(),
+            format!(
+                "recovery:{:?}:{}:5",
+                SessionRecoveryEventKind::Acknowledged,
+                session.id()
+            ),
+        ]
+    );
+}
+
+#[test]
 fn configuration_message_file_and_export_use_cases_use_only_ports() {
     let fixture = fixture();
     let session = session_record(
@@ -1503,6 +1661,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .service
         .create_message(CreateMessageRequest {
             session_id: session.id().to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
@@ -1847,7 +2006,7 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
             inactive_days: 10,
         })
         .expect("maintenance");
-    assert_eq!(result.recovered, 1);
+    assert_eq!(result.recovered, 0);
     assert_eq!(result.archived, 1);
     assert_eq!(
         SessionRepository::find(
@@ -1858,7 +2017,7 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
         .expect("running session")
         .aggregate
         .lifecycle(),
-        SessionLifecycle::Failed
+        SessionLifecycle::Running
     );
     assert!(fixture
         .clock
@@ -1940,6 +2099,7 @@ fn category_and_message_domain_failures_stop_before_persistence() {
         .service
         .create_message(CreateMessageRequest {
             session_id: "session-fixture".to_string(),
+            speaker_seat_id: None,
             seat_index: None,
             role: "user".to_string(),
             status: "completed".to_string(),
@@ -1963,12 +2123,20 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
     );
     session.seats = vec![
         SessionSeat {
+            seat_id: "seat-1".to_string(),
             agent_id: "gemini-cli".to_string(),
             role_id: Some("role-architect".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
         SessionSeat {
+            seat_id: "seat-2".to_string(),
             agent_id: "codex-cli".to_string(),
             role_id: Some("role-reviewer".to_string()),
+            role_snapshot: None,
+            joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+            left_at: None,
         },
     ];
     fixture.store.seed_session(session.clone());
@@ -2006,8 +2174,12 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
         false,
     );
     session.seats = vec![SessionSeat {
+        seat_id: "seat-1".to_string(),
         agent_id: "gemini-cli".to_string(),
         role_id: None,
+        role_snapshot: None,
+        joined_at: "2026-08-07T00:00:00+00:00".to_string(),
+        left_at: None,
     }];
     fixture.store.seed_session(session.clone());
 
@@ -2028,4 +2200,100 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
             },
         })
         .is_err());
+}
+
+fn active_seat(seat_id: &str, agent_id: &str, role_id: Option<&str>) -> SessionSeat {
+    SessionSeat {
+        seat_id: seat_id.to_string(),
+        agent_id: agent_id.to_string(),
+        role_id: role_id.map(str::to_string),
+        role_snapshot: None,
+        joined_at: "2026-07-01T00:00:00+00:00".to_string(),
+        left_at: None,
+    }
+}
+
+#[test]
+fn membership_update_reuses_active_ids_appends_new_participants_and_preserves_departures() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-members",
+        "codex-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![active_seat("seat-existing", "codex-cli", Some("reviewer"))];
+    fixture.store.seed_session(session.clone());
+
+    let expanded = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: vec![
+                active_seat("seat-existing", "codex-cli", Some("reviewer")),
+                active_seat("", "gemini-cli", Some("architect")),
+            ],
+        })
+        .expect("expand roster");
+    assert_eq!(expanded.seats[0].seat_id, "seat-existing");
+    assert_eq!(expanded.seats[1].seat_id, "seat-created-1");
+    assert_eq!(expanded.agent_id, "codex-cli");
+
+    let reduced = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: expanded.id().to_string(),
+            expected_updated_at: expanded.updated_at.clone(),
+            seats: vec![expanded.seats[1].clone()],
+        })
+        .expect("reduce roster");
+    assert_eq!(
+        reduced.seats[0].left_at.as_deref(),
+        Some("2026-07-18T10:00:00+00:00")
+    );
+    assert_eq!(reduced.seats[1].seat_id, "seat-created-1");
+    assert!(reduced.seats[1].left_at.is_none());
+    assert_eq!(reduced.agent_id, "gemini-cli");
+}
+
+#[test]
+fn membership_update_rejects_empty_and_stale_rosters_without_saving() {
+    let fixture = fixture();
+    let mut session = session_record(
+        "session-members",
+        "codex-cli",
+        SessionLifecycle::Idle,
+        false,
+    );
+    session.seats = vec![active_seat("seat-existing", "codex-cli", None)];
+    fixture.store.seed_session(session.clone());
+
+    let empty = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: session.updated_at.clone(),
+            seats: Vec::new(),
+        });
+    assert!(matches!(
+        empty,
+        Err(SessionsApplicationError::Validation(_))
+    ));
+
+    let stale = fixture
+        .service
+        .update_session_seats(UpdateSessionSeatsRequest {
+            session_id: session.id().to_string(),
+            expected_updated_at: "stale".to_string(),
+            seats: session.seats.clone(),
+        });
+    assert!(matches!(
+        stale,
+        Err(SessionsApplicationError::SessionRevisionConflict(_))
+    ));
+    assert_eq!(
+        SessionRepository::find(&*fixture.store, session.aggregate.id()).expect("find"),
+        Some(session)
+    );
 }

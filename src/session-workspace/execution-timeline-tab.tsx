@@ -87,7 +87,7 @@ function TimelineDetail({
   speakers,
   timeline,
 }: {
-  speakers: Map<number, MessageSpeaker>;
+  speakers: Map<string | number, MessageSpeaker>;
   timeline: Awaited<ReturnType<ExecutionObservabilityService["getTimeline"]>>;
 }) {
   const { i18n, t } = useTranslation();
@@ -140,16 +140,15 @@ export function spanTree(spans: ExecutionSpanSummary[]): SpanTreeNode[] {
   return roots;
 }
 
-function SpanNode({ node, speakers }: { node: SpanTreeNode; speakers: Map<number, MessageSpeaker> }) {
+function SpanNode({ node, speakers }: { node: SpanTreeNode; speakers: Map<string | number, MessageSpeaker> }) {
   const { t } = useTranslation();
   const gap = node.span.fidelity === "opaque" || node.span.status === "incomplete";
   const stage = node.span.name.includes("mcp") ? "MCP" : node.span.name.includes("tool") ? t("traces.toolStage") : null;
   const seat = traceSeat(node.span.attributes);
-  const speaker = seat ? speakers.get(seat.seatIndex) ?? null : null;
+  const speaker = seat ? speakers.get(seat.seatId ?? seat.seatIndex) ?? null : null;
   return (
     <div
-      className={cn("rounded-md border bg-[hsl(var(--panel-muted))] p-3", speaker ? "border-l-4" : "border-border")}
-      style={speaker ? { borderLeftColor: speaker.color } : undefined}
+      className={cn("rounded-md border bg-[hsl(var(--panel-muted))] p-3", speaker ? "border-l-4 border-l-primary" : "border-border")}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">

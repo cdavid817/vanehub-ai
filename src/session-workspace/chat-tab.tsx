@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
 import type { Session } from "../types/agent";
 import type { ChatMessage } from "../types/chat";
 import { MessageList } from "../components/chat/MessageList";
@@ -9,34 +8,20 @@ import { useSessionSpeakers } from "../hooks/use-session-speakers";
 export function ChatTab({
   activeSession,
   composer,
-  isStreaming,
   messages,
   onLoadEarlier,
   turnStatus = null,
 }: {
   activeSession: Session | null;
   composer: ReactNode;
-  isStreaming: boolean;
   messages: ChatMessage[];
   onLoadEarlier: () => void;
   turnStatus?: TurnStatus | null;
 }) {
-  const { t } = useTranslation();
   const speakers = useSessionSpeakers(activeSession);
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-[hsl(var(--panel-muted))] shadow-xs">
-        <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold">{activeSession?.title ?? t("layout.noSession")}</h3>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {activeSession ? `${activeSession.agentId} · ${activeSession.interactionMode}` : t("layout.startChat")}
-            </p>
-          </div>
-          <span className="shrink-0 rounded-full bg-[hsl(var(--success-soft))] px-2 py-1 text-xs text-[hsl(var(--success))]">
-            {isStreaming ? t("layout.generating") : t("layout.ready")}
-          </span>
-        </div>
+    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--panel-muted))]" data-testid="contiguous-chat-workspace">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {turnStatus ? <TurnStatusBar status={turnStatus} /> : null}
         <MessageList
           hasActiveSession={Boolean(activeSession)}
@@ -46,7 +31,7 @@ export function ChatTab({
           speakers={speakers}
         />
       </div>
-      <div className="mt-3">{composer}</div>
+      {composer ? <div className="shrink-0 border-t border-border/70 bg-[hsl(var(--panel))]" data-testid="attached-chat-composer">{composer}</div> : null}
     </div>
   );
 }

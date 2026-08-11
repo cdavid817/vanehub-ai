@@ -132,14 +132,18 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | add-gemini-cli-terminal-usage-tracking | usage-statistics | `openspec/changes/archive/2026-08-09-add-gemini-cli-terminal-usage-tracking/` |
 | 2026-08-09 | add-local-code-index-mode | workspace-code-indexing | `openspec/changes/archive/2026-08-09-add-local-code-index-mode/` |
 | 2026-08-09 | deduplicate-skill-spec-requirements | - | `openspec/changes/archive/2026-08-09-deduplicate-skill-spec-requirements/` |
+| 2026-08-09 | harden-runtime-concurrency-and-query-efficiency | frontend-runtime-architecture, native-runtime-architecture, runtime-performance-governance | `openspec/changes/archive/2026-08-09-harden-runtime-concurrency-and-query-efficiency/` |
 | 2026-08-09 | introduce-agent-provider-contract | agent-provider-runtime | `openspec/changes/archive/2026-08-09-introduce-agent-provider-contract/` |
 | 2026-08-09 | publish-github-preview-release | desktop-release-delivery, multilingual-readme, native-app-packaging | `openspec/changes/archive/2026-08-09-publish-github-preview-release/` |
 | 2026-08-09 | reconcile-builtin-skill-seeding | skill-management | `openspec/changes/archive/2026-08-09-reconcile-builtin-skill-seeding/` |
 | 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
+| 2026-08-10 | add-session-recovery-evidence-foundation | chat-experience, loop-engineering-runtime, native-runtime-architecture, plan-execution-runtime, session-management, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-10-add-session-recovery-evidence-foundation/` |
 | 2026-08-10 | establish-effective-skill-runtime | agent-chat-configuration, agent-skill-injection, agent-tool-execution, effective-skill-runtime, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-10-establish-effective-skill-runtime/` |
 | 2026-08-10 | refine-effective-skill-management-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-10-refine-effective-skill-management-ui/` |
+| 2026-08-11 | add-lsp-code-intelligence-foundation | agent-chat-configuration, agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui, unified-log-management, workspace-code-indexing | `openspec/changes/archive/2026-08-11-add-lsp-code-intelligence-foundation/` |
+| 2026-08-11 | complete-multi-agent-session-presence | chat-experience, main-layout-ui, multi-agent-group-chat, session-management | `openspec/changes/archive/2026-08-11-complete-multi-agent-session-presence/` |
 | 2026-08-12 | add-skill-overlay-governance | agent-skill-injection, settings-skill-management-ui, skill-management, skill-overlay-governance | `openspec/changes/archive/2026-08-12-add-skill-overlay-governance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

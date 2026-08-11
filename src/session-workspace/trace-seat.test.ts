@@ -10,7 +10,7 @@ describe("traceSeat", () => {
   it("reads the seat a span belongs to", () => {
     expect(
       traceSeat(attributes({ "vanehub.seat.index": "1", "vanehub.seat.mention": "代码审查" })),
-    ).toEqual({ seatIndex: 1, mention: "代码审查" });
+    ).toEqual({ seatId: null, seatIndex: 1, mention: "代码审查" });
   });
 
   // A single-Agent session's spans carry no seat, and the trace must render as it does today.
@@ -24,8 +24,17 @@ describe("traceSeat", () => {
 
   it("reads a seat with no mention", () => {
     expect(traceSeat(attributes({ "vanehub.seat.index": "0" }))).toEqual({
+      seatId: null,
       seatIndex: 0,
       mention: null,
     });
+  });
+
+  it("prefers a stable seat identity when traces provide one", () => {
+    expect(traceSeat(attributes({
+      "vanehub.seat.id": "seat-reviewer",
+      "vanehub.seat.index": "1",
+      "vanehub.seat.mention": "代码审查",
+    }))).toEqual({ seatId: "seat-reviewer", seatIndex: 1, mention: "代码审查" });
   });
 });
