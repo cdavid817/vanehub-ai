@@ -2,7 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AgentService, SessionStateEvent } from "./agent-service";
+import type {
+  AgentService,
+  SessionRecoveryAcknowledgement,
+  SessionRecoveryReport,
+  SessionRecoverySummary,
+  SessionStateEvent,
+} from "./agent-service";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -115,6 +121,11 @@ import { getCliConfigPresets } from "../config/cli-agent-provider-presets";
 import { requireHttpsExternalUrl } from "./external-url";
 import type { ExpertRole, SaveExpertRoleInput } from "../types/expert-role";
 import type { CodeIndexAutomaticMode, CodeIndexConfigurationInput } from "../types/code-index";
+import type {
+  LspConfiguration,
+  LspLanguageId,
+  LspWorkspaceTrustUpdate,
+} from "../types/lsp";
 import {
   normalizeCodeEmbeddingConfirmation,
   normalizeCodeIndexAuditEntries,
@@ -123,10 +134,43 @@ import {
   normalizeCodeIndexWorkspace,
   normalizeCodeIndexWorkspaces,
 } from "./code-index-contract";
+import {
+  normalizeLspConfiguration,
+  normalizeLspServerDiscoveries,
+  normalizeLspServerStatuses,
+  normalizeLspServerTestInput,
+  normalizeLspServerTestResult,
+  normalizeLspWorkspaceTrust,
+  normalizeLspWorkspaceTrustList,
+  normalizeLspWorkspaceTrustUpdate,
+} from "./lsp-contract";
 
 function requireCliConfigAgentId(agentId: string): CliConfigAgentId {
   if (cliConfigAgentIds.some((candidate) => candidate === agentId)) return agentId as CliConfigAgentId;
   throw new Error(`Unsupported CLI configuration Agent: ${agentId}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSessionStateEvent(value: unknown): value is SessionStateEvent {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "active-session-changed") {
+    return value.sessionId === null || typeof value.sessionId === "string";
+  }
+  if (value.kind === "configuration-changed") return typeof value.sessionId === "string";
+  return [
+    "recovery-started",
+    "recovery-completed",
+    "recovery-action-required",
+    "recovery-quarantined",
+    "recovery-acknowledged",
+  ].includes(value.kind)
+    && typeof value.sessionId === "string"
+    && typeof value.recoveryRevision === "number"
+    && Number.isSafeInteger(value.recoveryRevision)
+    && value.recoveryRevision >= 0;
 }
 
 export const tauriAgentClient: AgentService = {
@@ -290,6 +334,42 @@ export const tauriAgentClient: AgentService = {
     return invoke<void>("delete_code_index_workspace", { workspaceId });
   },
 
+  async getLspConfiguration() {
+    return normalizeLspConfiguration(await invoke<unknown>("get_lsp_configuration"));
+  },
+
+  async saveLspConfiguration(configuration: LspConfiguration) {
+    const normalized = normalizeLspConfiguration(configuration);
+    await invoke<void>("save_lsp_configuration", { configuration: normalized });
+  },
+
+  async listLspWorkspaceTrust() {
+    return normalizeLspWorkspaceTrustList(await invoke<unknown>("list_lsp_workspace_trust"));
+  },
+
+  async updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate) {
+    const normalized = normalizeLspWorkspaceTrustUpdate(update);
+    return normalizeLspWorkspaceTrust(await invoke<unknown>("update_lsp_workspace_trust", {
+      update: normalized,
+    }));
+  },
+
+  async discoverLspServers() {
+    return normalizeLspServerDiscoveries(await invoke<unknown>("discover_lsp_servers"));
+  },
+
+  async testLspServer(language: LspLanguageId) {
+    const input = normalizeLspServerTestInput({ language });
+    return normalizeLspServerTestResult(
+      await invoke<unknown>("test_lsp_server", { input }),
+      input.language,
+    );
+  },
+
+  async getLspServerStatus() {
+    return normalizeLspServerStatuses(await invoke<unknown>("list_lsp_server_status"));
+  },
+
   listCliTools() {
     return invoke<CliToolStatus[]>("list_cli_tools");
   },
@@ -419,6 +499,24 @@ export const tauriAgentClient: AgentService = {
 
   getSession(sessionId: string) {
     return invoke<Session>("get_session", { sessionId });
+  },
+
+  getSessionRecoverySummary(sessionId: string) {
+    return invoke<SessionRecoverySummary>("get_session_recovery_summary", { sessionId });
+  },
+
+  listSessionRecoveryReports(sessionId: string, limit?: number) {
+    return invoke<SessionRecoveryReport[]>("list_session_recovery_reports", {
+      sessionId,
+      limit: limit ?? null,
+    });
+  },
+
+  acknowledgeSessionRecovery(sessionId: string, expectedRecoveryRevision: number) {
+    return invoke<SessionRecoveryAcknowledgement>("acknowledge_session_recovery", {
+      sessionId,
+      expectedRecoveryRevision,
+    });
   },
 
   getActiveSession() {
@@ -682,7 +780,9 @@ export const tauriAgentClient: AgentService = {
 
   ...tauriSessionWorkspaceClient,
   async subscribeSessionEvents(handler) {
-    return listen<SessionStateEvent>("session:event", (event) => handler(event.payload));
+    return listen<unknown>("session:event", (event) => {
+      if (isSessionStateEvent(event.payload)) handler(event.payload);
+    });
   },
 
   listSkills(input: SkillScopeInput) {

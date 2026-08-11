@@ -43,6 +43,7 @@ export function SessionTabs({
   messagesPartial,
   onLoadEarlier = () => undefined,
   onOpenSettings,
+  recoveryNotice,
   requestedTab,
   sessionActivationKey,
   turnStatus = null,
@@ -57,6 +58,7 @@ export function SessionTabs({
   messagesPartial: boolean;
   onLoadEarlier?: () => void;
   onOpenSettings: () => void;
+  recoveryNotice?: ReactNode;
   requestedTab?: SessionTabId | null;
   sessionActivationKey: number;
   /** Null in a single-seat session, which has no turn to hand off. */
@@ -130,6 +132,7 @@ export function SessionTabs({
         isStreaming={isStreaming}
         session={activeSession}
       />
+      {recoveryNotice}
       {focusMode || workspaceTabsCollapsed ? null : (
         <div className="shrink-0 border-b border-border/70 bg-[hsl(var(--panel))] px-3 py-2">
           <SessionTabBar

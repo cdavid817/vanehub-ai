@@ -9,15 +9,16 @@ use super::{
     AgentOperation, AgentRuntimeApplicationError, AgentSession, AgentTerminalEvent,
     AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
     AgentToolCallOutcome, ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot,
-    CompleteAgentMessage, EffectivePrompt, GenerationCancellation, GenerationLease,
-    GenerationProcessEvent, GenerationProcessRequest, LoopEvidenceView, LoopGitStateView,
-    LoopIterationView, LoopLog, LoopOperationContext, LoopRoleGenerationTerminal,
-    LoopRoleSessionRequest, LoopRunView, LoopVerificationProcessRequest,
-    LoopVerificationProcessResult, MemorySource, NewAgentMessage, OnePieceDiscoveredModel,
-    OnePieceModelDiscoveryRequest, PersonalizationSettings, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest, StartedGenerationProcess,
-    StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition, ToolUseBlock,
-    UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    CompleteAgentMessage, DurableAgentGenerationMessages, DurableAgentGenerationStart,
+    EffectivePrompt, GenerationCancellation, GenerationLease, GenerationProcessEvent,
+    GenerationProcessRequest, LoopChildRecoveryProjection, LoopEvidenceView, LoopGitStateView,
+    LoopIterationView, LoopLog, LoopOperationContext, LoopOwnedRecoverySession,
+    LoopRoleGenerationTerminal, LoopRoleSessionRequest, LoopRunView,
+    LoopVerificationProcessRequest, LoopVerificationProcessResult, MemorySource, NewAgentMessage,
+    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, PersonalizationSettings,
+    RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopVerifierResultRequest,
+    StartedGenerationProcess, StopAgentTerminalRequest, ToolApprovalDecision, ToolDefinition,
+    ToolUseBlock, UpdateApiAgentInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
 };
 use crate::contexts::agent_runtime::domain::{
     AgentDefinition, AgentLifecycle, AgentWorkflow, AvailabilityAssessment, LoopDefinition,
@@ -25,6 +26,9 @@ use crate::contexts::agent_runtime::domain::{
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 /// Persistence contract for loop definitions, snapshots, and lifecycle transitions.
 pub(crate) trait LoopRepository: Send + Sync {
@@ -67,6 +71,12 @@ pub(crate) trait LoopRepository: Send + Sync {
         Err(AgentRuntimeApplicationError::Loop(
             "Loop run projection is unavailable.".to_string(),
         ))
+    }
+    fn recovery_owned_sessions(
+        &self,
+        _run_id: &str,
+    ) -> Result<Vec<LoopOwnedRecoverySession>, AgentRuntimeApplicationError> {
+        Ok(Vec::new())
     }
     fn attach_run_operation(
         &self,
@@ -149,6 +159,13 @@ pub(crate) trait LoopExecutionControlPort: Send + Sync {
 
 pub(crate) trait LoopExecutionLeasePort: Send + Sync {
     fn has_live_lease(&self, run_id: &str) -> Result<bool, AgentRuntimeApplicationError>;
+}
+
+pub(crate) trait LoopSessionRecoveryPort: Send + Sync {
+    fn recovery_projection(
+        &self,
+        session_id: &str,
+    ) -> Result<LoopChildRecoveryProjection, AgentRuntimeApplicationError>;
 }
 
 pub(crate) trait LoopIterationRepository: Send + Sync {
@@ -325,6 +342,15 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         &self,
         message: NewAgentMessage,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError>;
+
+    fn start_generation(
+        &self,
+        _request: DurableAgentGenerationStart,
+    ) -> Result<DurableAgentGenerationMessages, AgentRuntimeApplicationError> {
+        Err(AgentRuntimeApplicationError::Session(
+            "durable generation start is not implemented".to_string(),
+        ))
+    }
 
     fn find_message(
         &self,
@@ -1015,4 +1041,191 @@ pub(crate) trait AgentRetrievalPort: Send + Sync {
     fn code_retrieval(&self) -> Option<&dyn AgentCodeRetrievalPort> {
         None
     }
+}
+
+/// Session-owned scope for semantic code queries. Tool payloads never construct this value, so a
+/// model can select only a relative document and position, not another workspace or server.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeIntelligenceContext {
+    session_workspace: String,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl AgentCodeIntelligenceContext {
+    pub(crate) fn from_session_workspace(session_workspace: impl Into<String>) -> Self {
+        Self {
+            session_workspace: session_workspace.into(),
+        }
+    }
+
+    pub(crate) fn session_workspace(&self) -> &str {
+        &self.session_workspace
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentDocumentPositionInput {
+    pub(crate) relative_path: String,
+    pub(crate) line: u32,
+    pub(crate) column: u32,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentDocumentInput {
+    pub(crate) relative_path: String,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentCodeIntelligenceStatus {
+    Ready,
+    Warming,
+    Timeout,
+    Unavailable,
+    Failed,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeRange {
+    pub(crate) start_line: u32,
+    pub(crate) start_column: u32,
+    pub(crate) end_line: u32,
+    pub(crate) end_column: u32,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeLocation {
+    pub(crate) file: String,
+    pub(crate) range: AgentCodeRange,
+    pub(crate) preview: Option<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeHover {
+    pub(crate) signature: Option<String>,
+    pub(crate) documentation: Option<String>,
+    pub(crate) range: Option<AgentCodeRange>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeDiagnostic {
+    pub(crate) file: String,
+    pub(crate) range: AgentCodeRange,
+    pub(crate) severity: Option<String>,
+    pub(crate) message: String,
+    pub(crate) source: Option<String>,
+    pub(crate) code: Option<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeIntelligenceMetadata {
+    pub(crate) status: AgentCodeIntelligenceStatus,
+    pub(crate) server: Option<String>,
+    pub(crate) language: Option<String>,
+    pub(crate) document_version: Option<u64>,
+    pub(crate) stale: bool,
+    pub(crate) returned_count: usize,
+    pub(crate) total: usize,
+    pub(crate) truncated: bool,
+    pub(crate) filtered_count: usize,
+    pub(crate) reason_code: Option<String>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentCodeIntelligenceOutcome<T> {
+    pub(crate) metadata: AgentCodeIntelligenceMetadata,
+    pub(crate) value: Option<T>,
+}
+
+/// Synchronous consumer contract for the native Agent loop. Implementations bridge to the async
+/// code-intelligence runtime and must observe the generation cancellation flag.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait AgentCodeIntelligencePort: Send + Sync {
+    fn is_available(&self, context: &AgentCodeIntelligenceContext) -> bool;
+
+    fn find_definition(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>>;
+
+    fn find_references(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeLocation>>;
+
+    fn get_hover(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentPositionInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Option<AgentCodeHover>>;
+
+    fn get_diagnostics(
+        &self,
+        context: &AgentCodeIntelligenceContext,
+        input: &AgentDocumentInput,
+        cancelled: Arc<AtomicBool>,
+    ) -> AgentCodeIntelligenceOutcome<Vec<AgentCodeDiagnostic>>;
+}
+
+pub(crate) struct AgentCodeIntelligencePending<T> {
+    pub(crate) response: std::sync::mpsc::Receiver<AgentCodeIntelligenceOutcome<T>>,
+    pub(crate) cancel: Arc<dyn Fn() + Send + Sync>,
+}
+
+/// Producer-side boundary used by the synchronous Agent adapter. Implementations enqueue work on
+/// the asynchronous code-intelligence runtime and return immediately with a one-shot responder.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait AgentCodeIntelligenceResponderPort: Send + Sync {
+    fn is_available(&self, context: &AgentCodeIntelligenceContext) -> bool;
+
+    fn start_find_definition(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>>;
+
+    fn start_find_references(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeLocation>>;
+
+    fn start_get_hover(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentPositionInput,
+    ) -> AgentCodeIntelligencePending<Option<AgentCodeHover>>;
+
+    fn start_get_diagnostics(
+        &self,
+        context: AgentCodeIntelligenceContext,
+        input: AgentDocumentInput,
+    ) -> AgentCodeIntelligencePending<Vec<AgentCodeDiagnostic>>;
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentWorkspaceMutation {
+    pub(crate) canonical_workspace: PathBuf,
+    pub(crate) relative_path: String,
+}
+
+/// Best-effort, non-blocking signal emitted only after a workspace mutation succeeds.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) trait AgentWorkspaceMutationPort: Send + Sync {
+    fn publish(&self, mutation: AgentWorkspaceMutation);
 }

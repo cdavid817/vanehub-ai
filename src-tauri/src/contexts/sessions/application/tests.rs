@@ -1,8 +1,9 @@
 use super::*;
 use crate::contexts::sessions::domain::{
     CategoryId, CategoryName, FileReferenceSet, LoopSessionRole, MessageId, MessageRole,
-    MessageStatus, SessionActivation, SessionAggregate, SessionCategory, SessionId,
-    SessionLifecycle, SessionMessage, SessionOwner, SessionSeat, SessionTitle,
+    MessageStatus, RecoveryDecision, RecoveryReasonCode, RecoveryTrigger, SessionActivation,
+    SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
+    SessionRecoveryReport, SessionSeat, SessionTitle,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -20,6 +21,8 @@ struct FakeStore {
     search_queries: Mutex<Vec<SessionSearchQuery>>,
     message_queries: Mutex<Vec<MessagePageQuery>>,
     usage_queries: Mutex<Vec<(UsageStatisticsRange, Option<String>, String)>>,
+    recovery_reports:
+        Mutex<Vec<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>>,
     fail_create: AtomicBool,
 }
 
@@ -140,17 +143,6 @@ impl SessionRepository for FakeStore {
         Ok(session.clone())
     }
 
-    fn recoverable_sessions(&self) -> Result<Vec<SessionRecord>, SessionsApplicationError> {
-        Ok(self
-            .sessions
-            .lock()
-            .expect("sessions")
-            .values()
-            .filter(|session| session.aggregate.lifecycle().has_active_generation())
-            .cloned()
-            .collect())
-    }
-
     fn inactive_sessions(
         &self,
         _cutoff: &str,
@@ -168,6 +160,52 @@ impl SessionRepository for FakeStore {
             .filter(|(session_id, _)| ids.contains(*session_id))
             .map(|(_, session)| session.clone())
             .collect())
+    }
+}
+
+impl SessionRecoveryReportRepository for FakeStore {
+    fn insert_report(
+        &self,
+        report: &crate::contexts::sessions::domain::recovery::SessionRecoveryReport,
+    ) -> Result<(), SessionsApplicationError> {
+        self.recovery_reports
+            .lock()
+            .expect("recovery reports")
+            .push(report.clone());
+        Ok(())
+    }
+
+    fn list_reports(
+        &self,
+        session_id: &SessionId,
+        limit: usize,
+    ) -> Result<
+        Vec<crate::contexts::sessions::domain::recovery::SessionRecoveryReport>,
+        SessionsApplicationError,
+    > {
+        Ok(self
+            .recovery_reports
+            .lock()
+            .expect("recovery reports")
+            .iter()
+            .filter(|report| report.session_id() == session_id.as_str())
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect())
+    }
+}
+
+impl SessionRecoveryEventPort for FakeStore {
+    fn publish_recovery_event(
+        &self,
+        event: SessionRecoveryEvent,
+    ) -> Result<(), SessionsApplicationError> {
+        self.events.lock().expect("events").push(format!(
+            "recovery:{:?}:{}:{}",
+            event.kind, event.session_id, event.recovery_revision
+        ));
+        Ok(())
     }
 }
 
@@ -405,6 +443,41 @@ impl SessionUsageRepository for FakeStore {
 }
 
 impl SessionTransactionPort for FakeStore {
+    fn acknowledge_recovery(
+        &self,
+        request: &AcknowledgeRecoveryRequest,
+    ) -> Result<AcknowledgeRecoveryResult, SessionsApplicationError> {
+        let session = self
+            .sessions
+            .lock()
+            .expect("sessions")
+            .get(&request.session_id)
+            .cloned()
+            .ok_or_else(|| SessionsApplicationError::SessionNotFound(request.session_id.clone()))?;
+        let revision = request.expected_recovery_revision + 1;
+        let report = SessionRecoveryReport::new(
+            format!("acknowledgement-{revision}"),
+            request.session_id.clone(),
+            revision,
+            RecoveryTrigger::UserAcknowledgement,
+            session.aggregate.lifecycle().as_str().to_string(),
+            session
+                .aggregate
+                .recovery()
+                .active_execution_run_id()
+                .map(str::to_string),
+            RecoveryDecision::Acknowledged,
+            vec![RecoveryReasonCode::AcknowledgedByUser],
+            Vec::new(),
+            request.acknowledged_at.clone(),
+        );
+        self.events
+            .lock()
+            .expect("events")
+            .push(format!("ack-commit:{revision}"));
+        Ok(AcknowledgeRecoveryResult { session, report })
+    }
+
     fn create_session(
         &self,
         session: &SessionRecord,
@@ -543,19 +616,6 @@ impl SessionTransactionPort for FakeStore {
             .iter()
             .map(|message| message.message.id().as_str().to_string())
             .collect())
-    }
-
-    fn recover_orphaned_session(
-        &self,
-        session: &SessionRecord,
-        _recovered_at: &str,
-    ) -> Result<(), SessionsApplicationError> {
-        self.seed_session(session.clone());
-        self.events
-            .lock()
-            .expect("events")
-            .push(format!("recover:{}", session.id()));
-        Ok(())
     }
 }
 
@@ -930,6 +990,8 @@ fn fixture() -> Fixture {
         configurations: store.clone(),
         usage: store.clone(),
         transactions: store.clone(),
+        recovery_reports: store.clone(),
+        recovery_events: store.clone(),
         clock: clock.clone(),
         identities: Arc::new(FakeIdentities::default()),
         files: files.clone(),
@@ -998,6 +1060,8 @@ fn message_record(
         ),
         speaker_seat_id: None,
         seat_index: None,
+        seat_round_id: None,
+        parent_execution_run_id: None,
         content: String::new(),
         thinking_content: None,
         tool_use: None,
@@ -1456,6 +1520,89 @@ fn failed_creation_records_one_operation_failure_and_diagnostic() {
 }
 
 #[test]
+fn recovery_reads_are_session_scoped_bounded_and_latest_first() {
+    let fixture = fixture();
+    let session = session_record(
+        "session-recovery-read",
+        "codex-cli",
+        SessionLifecycle::Failed,
+        false,
+    );
+    fixture.store.seed_session(session.clone());
+    for revision in 1..=2 {
+        SessionRecoveryReportRepository::insert_report(
+            fixture.store.as_ref(),
+            &SessionRecoveryReport::new(
+                format!("report-{revision}"),
+                session.id().to_string(),
+                revision,
+                RecoveryTrigger::Startup,
+                "running".to_string(),
+                Some(format!("run-{revision}")),
+                RecoveryDecision::Failed,
+                vec![RecoveryReasonCode::ConfirmedFailedMessage],
+                Vec::new(),
+                format!("2026-08-09T00:00:0{revision}Z"),
+            ),
+        )
+        .expect("seed report");
+    }
+
+    let summary = fixture
+        .service
+        .recovery_summary(session.id())
+        .expect("summary");
+    assert_eq!(summary.session.id(), session.id());
+    assert_eq!(
+        summary
+            .latest_report
+            .as_ref()
+            .map(SessionRecoveryReport::recovery_revision),
+        Some(2)
+    );
+    let reports = fixture
+        .service
+        .list_recovery_reports(session.id(), 1)
+        .expect("bounded reports");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].recovery_revision(), 2);
+    assert!(matches!(
+        fixture.service.recovery_summary("missing-session"),
+        Err(SessionsApplicationError::SessionNotFound(_))
+    ));
+}
+
+#[test]
+fn acknowledgement_event_is_emitted_after_the_durable_result() {
+    let fixture = fixture();
+    let session = session_record(
+        "session-recovery-ack-event",
+        "codex-cli",
+        SessionLifecycle::Failed,
+        false,
+    );
+    fixture.store.seed_session(session.clone());
+
+    let result = fixture
+        .service
+        .acknowledge_recovery(session.id(), 4)
+        .expect("acknowledge");
+
+    assert_eq!(result.report.recovery_revision(), 5);
+    assert_eq!(
+        *fixture.store.events.lock().expect("events"),
+        vec![
+            "ack-commit:5".to_string(),
+            format!(
+                "recovery:{:?}:{}:5",
+                SessionRecoveryEventKind::Acknowledged,
+                session.id()
+            ),
+        ]
+    );
+}
+
+#[test]
 fn configuration_message_file_and_export_use_cases_use_only_ports() {
     let fixture = fixture();
     let session = session_record(
@@ -1859,7 +2006,7 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
             inactive_days: 10,
         })
         .expect("maintenance");
-    assert_eq!(result.recovered, 1);
+    assert_eq!(result.recovered, 0);
     assert_eq!(result.archived, 1);
     assert_eq!(
         SessionRepository::find(
@@ -1870,7 +2017,7 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
         .expect("running session")
         .aggregate
         .lifecycle(),
-        SessionLifecycle::Failed
+        SessionLifecycle::Running
     );
     assert!(fixture
         .clock

@@ -1,12 +1,13 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    AgentRetrievalPort, AgentRuntimeApplicationPorts, AgentRuntimeApplicationService,
-    AgentTerminalApplicationPorts, AgentTerminalApplicationService, ExpertRoleApplicationPorts,
-    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
-    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
-    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
-    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    AgentCodeIntelligenceResponderPort, AgentRetrievalPort, AgentRuntimeApplicationPorts,
+    AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
+    AgentWorkspaceMutationPort, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
+    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
+    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
+    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
+    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
     LoopVerificationApplicationService, LoopVerifierApplicationPorts,
     LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
 };
@@ -71,6 +72,8 @@ pub(crate) struct AgentRuntimeDependencies {
     /// this function's own output (`AgentRuntimeApi`), so the real `RetrievalApi` cannot exist
     /// yet; `runtime.rs`'s `setup` binds it right after `assemble_retrieval` returns.
     pub(crate) retrieval: Arc<dyn AgentRetrievalPort>,
+    pub(crate) code_intelligence: Arc<dyn AgentCodeIntelligenceResponderPort>,
+    pub(crate) workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     pub(crate) desktop_settings: DesktopSettingsApi,
 }
 
@@ -183,7 +186,12 @@ pub(crate) fn assemble_agent_runtime_api(
         api_credentials.clone(),
         repository.clone(),
     ));
-    let api_processes = Arc::new(RuntimeAgentApiAdapter::new(
+    let code_intelligence = Arc::new(
+        crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter::new(
+            dependencies.code_intelligence,
+        ),
+    );
+    let api_processes = Arc::new(RuntimeAgentApiAdapter::new_with_code_intelligence(
         api_credentials.clone(),
         repository.clone(),
         sessions.clone(),
@@ -195,6 +203,8 @@ pub(crate) fn assemble_agent_runtime_api(
         agent_mcp_tools,
         agent_permissions,
         dependencies.retrieval,
+        code_intelligence,
+        dependencies.workspace_mutations,
         agent_personalization.clone(),
     ));
     let tool_approvals = api_processes.clone();
@@ -296,6 +306,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let loop_recovery = LoopRecoveryApplicationService::new(LoopRecoveryApplicationPorts {
         loops: loop_repository.clone(),
         leases: loop_execution.clone(),
+        sessions: sessions.clone(),
         observer: loop_observer.clone(),
         clock: clock.clone(),
     });

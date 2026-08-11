@@ -79,7 +79,7 @@ test.describe("OnePiece retrieval configuration", () => {
     await createDialog.getByRole("button", { name: "创建", exact: true }).click();
 
     const infoPanel = page.locator("aside").filter({ hasText: /信息面板|Info Panel/ });
-    await infoPanel.getByRole("button", { name: "代码索引", exact: true }).click();
+    await infoPanel.getByRole("tab", { name: "代码索引", exact: true }).click();
     await expect(infoPanel.getByText("D:\\code\\automatic-local", { exact: true }).last()).toBeVisible();
     await expect(infoPanel.getByText("仅本地", { exact: true })).toBeVisible();
     await expect(infoPanel.getByText("扫描中", { exact: true })).toBeVisible();

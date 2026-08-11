@@ -8,6 +8,9 @@ export type AgentOrigin = "builtin" | "user";
 export type SessionLifecycleState =
   "idle" | "starting" | "running" | "failed" | "stopped";
 
+export type SessionRecoveryStatus =
+  "clean" | "reconciling" | "action_required" | "quarantined";
+
 export type ImSessionConnector =
   "feishu" | "telegram" | "dingtalk" | "wecom" | "weixin";
 
@@ -195,6 +198,11 @@ export interface Session {
   seats?: SessionSeat[];
   interactionMode: InteractionMode;
   lifecycleState: SessionLifecycleState;
+  recoveryStatus: SessionRecoveryStatus;
+  recoveryRevision: number;
+  stateRevision: number;
+  historyRevision: number;
+  activeExecutionRunId: string | null;
   folder: string | null;
   projectPath: string | null;
   worktreePath: string | null;

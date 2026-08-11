@@ -1,0 +1,142 @@
+use super::models::*;
+
+#[test]
+fn supported_languages_select_one_server_kind() {
+    assert_eq!(LanguageFamily::Rust.server_kind(), ServerKind::RustAnalyzer);
+    assert_eq!(
+        LanguageFamily::TypeScriptJavaScript.server_kind(),
+        ServerKind::TypeScriptLanguageServer
+    );
+    assert_eq!(LanguageFamily::Rust.as_id(), "rust");
+    assert_eq!(
+        LanguageFamily::TypeScriptJavaScript.as_id(),
+        "typescript_javascript"
+    );
+}
+
+#[test]
+fn fingerprints_are_opaque_and_compared_by_value() {
+    let first = ConfigurationFingerprint::new("sha256:first").expect("valid fingerprint");
+    let same = ConfigurationFingerprint::new("sha256:first").expect("valid fingerprint");
+    let changed = ConfigurationFingerprint::new("sha256:second").expect("valid fingerprint");
+
+    assert_eq!(first, same);
+    assert_ne!(first, changed);
+    assert!(ConfigurationFingerprint::new(" ").is_err());
+}
+
+#[test]
+fn workspace_trust_revision_changes_when_trust_changes() {
+    let trust = WorkspaceTrust::new("C:/code/project", true, 3).expect("valid trust");
+    let revoked = trust.with_trusted(false).expect("revision can advance");
+
+    assert!(trust.is_trusted());
+    assert!(!revoked.is_trusted());
+    assert_eq!(revoked.revision(), 4);
+    assert!(WorkspaceTrust::new("", true, 1).is_err());
+}
+
+#[test]
+fn process_states_distinguish_warming_ready_and_terminal_failure() {
+    assert!(!ProcessState::Absent.is_warming());
+    assert!(ProcessState::Starting.is_warming());
+    assert!(ProcessState::Initializing.is_warming());
+    assert!(ProcessState::Ready.is_ready());
+    assert!(!ProcessState::Stopping.is_ready());
+    assert!(!ProcessState::Backoff.is_ready());
+    assert!(ProcessState::Failed.is_terminal());
+}
+
+#[test]
+fn negotiated_capabilities_report_supported_queries() {
+    let supported_encodings = [PositionEncoding::Utf8, PositionEncoding::Utf16];
+    let supported_sync_modes = [
+        DocumentSyncMode::None,
+        DocumentSyncMode::Full,
+        DocumentSyncMode::Incremental,
+    ];
+    let capabilities = NegotiatedCapabilities {
+        position_encoding: PositionEncoding::Utf16,
+        document_sync: DocumentSyncMode::Incremental,
+        definition: true,
+        references: false,
+        hover: true,
+        diagnostics: true,
+    };
+
+    assert!(capabilities.supports(SemanticMethod::Definition));
+    assert!(!capabilities.supports(SemanticMethod::References));
+    assert!(capabilities.supports(SemanticMethod::Hover));
+    assert!(capabilities.supports(SemanticMethod::Diagnostics));
+    assert_eq!(supported_encodings.len(), 2);
+    assert_eq!(supported_sync_modes.len(), 3);
+}
+
+#[test]
+fn document_versions_advance_without_wrapping() {
+    let version = DocumentVersion::initial();
+    assert_eq!(version.value(), 1);
+    assert_eq!(version.next().expect("advance version").value(), 2);
+    assert!(DocumentVersion::new(u64::MAX).next().is_err());
+}
+
+#[test]
+fn diagnostic_snapshots_track_current_and_stale_document_versions() {
+    let current = DocumentVersion::new(7);
+    let range = NormalizedRange::new(1, 1, 1, 2).expect("valid range");
+    let diagnostics = [
+        DiagnosticSeverity::Error,
+        DiagnosticSeverity::Warning,
+        DiagnosticSeverity::Information,
+        DiagnosticSeverity::Hint,
+    ]
+    .into_iter()
+    .map(|severity| NormalizedDiagnostic {
+        range,
+        severity: Some(severity),
+        message: "bounded message".into(),
+        source: None,
+        code: None,
+        related_information: Vec::new(),
+    })
+    .collect();
+    let snapshot = DiagnosticSnapshot::new(Some(current), current, diagnostics, 1_000);
+
+    assert!(snapshot.is_current_for(current));
+    assert!(!snapshot.is_current_for(DocumentVersion::new(8)));
+    assert_eq!(snapshot.diagnostics().len(), 4);
+}
+
+#[test]
+fn normalized_locations_require_one_based_ordered_ranges() {
+    let range = NormalizedRange::new(2, 3, 2, 8).expect("valid range");
+    let location = NormalizedLocation::new("src/main.rs", range, Some("fn main() {}".into()))
+        .expect("valid location");
+
+    assert_eq!(location.file(), "src/main.rs");
+    assert!(NormalizedRange::new(0, 1, 1, 1).is_err());
+    assert!(NormalizedRange::new(3, 1, 2, 1).is_err());
+    assert!(NormalizedLocation::new("", range, None).is_err());
+}
+
+#[test]
+fn fail_soft_outcomes_keep_empty_ready_distinct_from_degradation() {
+    let ready: QueryOutcome<Vec<NormalizedLocation>> = QueryOutcome::ready(Vec::new(), 4);
+    let warming: QueryOutcome<Vec<NormalizedLocation>> =
+        QueryOutcome::degraded(QueryStatus::Warming, "server_starting")
+            .expect("valid degraded outcome");
+    for status in [
+        QueryStatus::Timeout,
+        QueryStatus::Unavailable,
+        QueryStatus::Failed,
+    ] {
+        assert!(QueryOutcome::<Vec<NormalizedLocation>>::degraded(status, "bounded").is_ok());
+    }
+
+    assert_eq!(ready.status(), QueryStatus::Ready);
+    assert_eq!(ready.document_version(), Some(DocumentVersion::new(4)));
+    assert_eq!(ready.value().expect("ready value").len(), 0);
+    assert_eq!(warming.status(), QueryStatus::Warming);
+    assert!(warming.value().is_none());
+    assert_eq!(warming.reason_code(), Some("server_starting"));
+}

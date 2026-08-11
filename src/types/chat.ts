@@ -227,6 +227,8 @@ export interface ChatMessage {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  sessionSequence: number;
+  executionRunId: string | null;
 }
 
 export type ChatStreamEvent =

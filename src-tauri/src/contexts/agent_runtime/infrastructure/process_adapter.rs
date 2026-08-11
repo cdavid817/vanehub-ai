@@ -695,10 +695,13 @@ impl ProcessMonitor {
                 }
             }
         }
-        let exit_status = child
-            .lock()
-            .map_err(|error| error.to_string())
-            .and_then(|mut child| child.wait().map_err(|error| error.to_string()));
+        // Reap the child *without* holding the `child` lock across the blocking wait.
+        // `stop_generation` locks the same `Arc<Mutex<Child>>` to kill the process, so
+        // holding the lock across `wait()` — which blocks until the process actually
+        // exits — deadlocks any user-initiated cancellation when a CLI closes stdout but
+        // keeps running (daemonized / detached grandchildren). Poll `try_wait()` with
+        // short holds of the lock so a concurrent `stop_generation` kill can proceed.
+        let exit_status = reap_without_holding_child_lock(&child);
         let stderr_output = stderr_handle.join().unwrap_or_default();
         if !stderr_output.trim().is_empty() {
             let _ = sink.handle(GenerationProcessEvent::Stderr(
@@ -903,6 +906,31 @@ fn launch_command(command: Option<&str>) -> Result<(), AgentRuntimeApplicationEr
 fn terminate_child(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Reaps a managed child process without holding the lock across the blocking wait.
+///
+/// `stop_generation` locks the same `Arc<Mutex<Child>>` to kill a runaway CLI, so a
+/// monitor that holds the lock across `wait()` — which blocks until the process
+/// actually exits — deadlocks cancellation whenever a CLI closes stdout but keeps
+/// running (daemonized / detached grandchildren). Polling `try_wait()` with short lock
+/// holds lets a concurrent `stop_generation` `kill()` proceed; once it has (or the
+/// process exits on its own), `try_wait()` returns the exit status.
+fn reap_without_holding_child_lock(
+    child: &Arc<Mutex<Child>>,
+) -> Result<std::process::ExitStatus, String> {
+    const POLL_INTERVAL: Duration = Duration::from_millis(50);
+    loop {
+        let status = child
+            .lock()
+            .map_err(|error| error.to_string())?
+            .try_wait()
+            .map_err(|error| error.to_string())?;
+        if let Some(status) = status {
+            return Ok(status);
+        }
+        thread::sleep(POLL_INTERVAL);
+    }
 }
 
 fn codex_output_capture_path(session_id: &str, operation_id: &str) -> PathBuf {

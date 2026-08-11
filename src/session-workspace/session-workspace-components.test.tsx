@@ -23,6 +23,16 @@ const message: ChatMessage = {
   tokenUsage: { input: 12, output: 8 },
   createdAt: "2026-07-17T00:00:00.000Z",
   updatedAt: "2026-07-17T00:00:01.000Z",
+  sessionSequence: 1,
+  executionRunId: null,
+};
+
+const cleanRecovery = {
+  recoveryStatus: "clean" as const,
+  recoveryRevision: 0,
+  stateRevision: 0,
+  historyRevision: 0,
+  activeExecutionRunId: null,
 };
 
 describe("session workspace components", () => {
@@ -60,6 +70,11 @@ describe("session workspace components", () => {
       agentId: "onepiece",
       interactionMode: "api",
       lifecycleState: "idle",
+      recoveryStatus: "clean",
+      recoveryRevision: 0,
+      stateRevision: 0,
+      historyRevision: 0,
+      activeExecutionRunId: null,
       folder: "D:/project",
       projectPath: "D:/project",
       worktreePath: null,
@@ -103,6 +118,7 @@ describe("session workspace components", () => {
 
   it("renders one structured thread for a multi-Agent CLI session", () => {
     const session: Session = {
+      ...cleanRecovery,
       id: "session-shared-cli", title: "Shared CLI session", agentId: "codex-cli", interactionMode: "cli",
       lifecycleState: "idle", folder: "D:/project", projectPath: "D:/project", worktreePath: null,
       worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
@@ -136,6 +152,7 @@ describe("session workspace components", () => {
   it("keeps every managed CLI identity out of the conversation header", () => {
     for (const agentId of managedCliAgentIds) {
       const session: Session = {
+        ...cleanRecovery,
         id: `session-${agentId}`, title: `${agentId} session`, agentId, interactionMode: "cli",
         lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
         worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
@@ -151,6 +168,7 @@ describe("session workspace components", () => {
 
   it("collapses workspace tabs without changing the focused conversation panel", () => {
     const session: Session = {
+      ...cleanRecovery,
       id: "session-focus", title: "Focused session", agentId: "onepiece", interactionMode: "api",
       lifecycleState: "idle", folder: null, projectPath: null, worktreePath: null, worktreeName: null,
       worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,

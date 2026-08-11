@@ -1,13 +1,31 @@
-use super::sqlite_repository::{compatibility_search_statement, indexed_search_statement};
+use super::sqlite_repository::{
+    allocate_message_sequences, compatibility_search_statement, indexed_search_statement,
+};
 use super::*;
+use crate::contexts::operations::api::OperationsApi;
+use crate::contexts::operations::domain::{OperationKind, OperationStatus};
+use crate::contexts::operations::infrastructure::persistent_operation_service;
 use crate::contexts::sessions::application::{
-    CategoryRecord, ChatConfigurationValues, FileReferenceInput, LoopSessionOwnership,
-    MessagePageQuery, MessageRecord, MessageTokenUsage, MessageUsageRecord,
-    SessionCategoryRepository, SessionConfigurationRepository, SessionListScope,
-    SessionMessageRepository, SessionRecord, SessionRemoteWorkspace, SessionRepository,
-    SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult, SessionSshBinding,
-    SessionTransactionPort, SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit,
-    SessionWorkspace, UsageStatisticsRange,
+    AcknowledgeRecoveryRequest, CategoryRecord, ChatConfigurationValues,
+    ClaimRecoveryCandidateRequest, FileReferenceInput, GenerationStartRequest,
+    GenerationTerminalRequest, GenerationTerminalStatus, LoopSessionOwnership, MessagePageQuery,
+    MessageRecord, MessageTokenUsage, MessageUsageRecord, PublishRecoveryRequest,
+    SessionApplicationLog, SessionCategoryRepository, SessionConfigurationRepository,
+    SessionListScope, SessionLoggingPort, SessionMessageRepository, SessionRecord,
+    SessionRecoveryCoordinator, SessionRecoveryEvent, SessionRecoveryEventKind,
+    SessionRecoveryEventPort, SessionRecoveryReportRepository, SessionRemoteWorkspace,
+    SessionRepository, SessionSearchMatchKind, SessionSearchQuery, SessionSearchResult,
+    SessionSshBinding, SessionTerminalEvidencePort, SessionTransactionPort,
+    SessionUsageAccountingKind, SessionUsageRepository, SessionUsageUnit, SessionWorkspace,
+    SessionsApplicationError, UsageStatisticsRange,
+};
+use crate::contexts::sessions::domain::evidence::{
+    ExecutionEvidenceFidelity, LiveHandleEvidence, OperationTerminalEvidence,
+    OperationTerminalStatus, ToolActivityEvidence, MAX_RECOVERY_EVIDENCE_OPERATIONS,
+};
+use crate::contexts::sessions::domain::recovery::{
+    RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,
+    SessionRecoveryReport,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, CategoryId, CategoryName, ChatConfigurationRequest, FileReference,
@@ -19,11 +37,160 @@ use crate::platform::database::{migrate, NativeDatabase};
 use crate::test_support::TempDirectory;
 use rusqlite::params;
 use serde_json::json;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier, Mutex};
 
 struct Fixture {
     _directory: TempDirectory,
     database: NativeDatabase,
     repository: SqliteSessionsRepository,
+}
+
+#[derive(Clone)]
+struct AbsentHandleEvidence {
+    repository: SqliteSessionsRepository,
+}
+
+struct SequencedHandleEvidence {
+    repository: SqliteSessionsRepository,
+    reads: AtomicUsize,
+}
+
+struct NoopSessionLogging;
+
+#[derive(Default)]
+struct CapturingRecoveryEvents {
+    events: Mutex<Vec<SessionRecoveryEvent>>,
+}
+
+impl SessionRecoveryEventPort for CapturingRecoveryEvents {
+    fn publish_recovery_event(
+        &self,
+        event: SessionRecoveryEvent,
+    ) -> Result<(), SessionsApplicationError> {
+        self.events.lock().expect("recovery events").push(event);
+        Ok(())
+    }
+}
+
+impl SessionLoggingPort for NoopSessionLogging {
+    fn write(&self, _log: SessionApplicationLog) -> Result<(), SessionsApplicationError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct CapturingSessionLogging {
+    entries: Mutex<Vec<SessionApplicationLog>>,
+}
+
+impl SessionLoggingPort for CapturingSessionLogging {
+    fn write(&self, log: SessionApplicationLog) -> Result<(), SessionsApplicationError> {
+        self.entries.lock().expect("recovery logs").push(log);
+        Ok(())
+    }
+}
+
+struct SensitiveUnavailableEvidence;
+
+#[derive(Clone)]
+struct ReopenedOperationEvidence {
+    repository: SqliteSessionsRepository,
+    operations: OperationsApi,
+}
+
+impl SessionTerminalEvidencePort for ReopenedOperationEvidence {
+    fn read_terminal_evidence(
+        &self,
+        session_id: &SessionId,
+        execution_run_id: Option<&str>,
+    ) -> Result<
+        crate::contexts::sessions::domain::evidence::SessionTerminalEvidence,
+        SessionsApplicationError,
+    > {
+        let mut evidence = self
+            .repository
+            .read_terminal_evidence(session_id, execution_run_id)?;
+        if let Some(run_id) = execution_run_id {
+            let operations = self
+                .operations
+                .list_recovery_evidence(run_id, MAX_RECOVERY_EVIDENCE_OPERATIONS + 1)
+                .map_err(|error| SessionsApplicationError::Runtime(error.to_string()))?
+                .into_iter()
+                .map(|operation| OperationTerminalEvidence {
+                    operation_id: operation.operation_id,
+                    execution_run_id: Some(operation.execution_run_id),
+                    status: match operation.status {
+                        OperationStatus::Queued | OperationStatus::Running => {
+                            OperationTerminalStatus::Running
+                        }
+                        OperationStatus::Succeeded => OperationTerminalStatus::Succeeded,
+                        OperationStatus::Failed => OperationTerminalStatus::Failed,
+                        OperationStatus::Cancelled => OperationTerminalStatus::Cancelled,
+                    },
+                })
+                .collect();
+            evidence.replace_operations(operations).map_err(|error| {
+                SessionsApplicationError::Runtime(format!(
+                    "operation evidence exceeded its bounded read: {error:?}"
+                ))
+            })?;
+        }
+        evidence.live_handle = LiveHandleEvidence::Absent;
+        Ok(evidence)
+    }
+}
+
+impl SessionTerminalEvidencePort for SensitiveUnavailableEvidence {
+    fn read_terminal_evidence(
+        &self,
+        _session_id: &SessionId,
+        _execution_run_id: Option<&str>,
+    ) -> Result<
+        crate::contexts::sessions::domain::evidence::SessionTerminalEvidence,
+        SessionsApplicationError,
+    > {
+        Err(SessionsApplicationError::Repository(
+            "prompt=secret command=rm credential=token path=D:\\private tool_payload=secret provider=raw"
+                .to_string(),
+        ))
+    }
+}
+
+impl SessionTerminalEvidencePort for AbsentHandleEvidence {
+    fn read_terminal_evidence(
+        &self,
+        session_id: &SessionId,
+        execution_run_id: Option<&str>,
+    ) -> Result<
+        crate::contexts::sessions::domain::evidence::SessionTerminalEvidence,
+        SessionsApplicationError,
+    > {
+        let mut evidence = self
+            .repository
+            .read_terminal_evidence(session_id, execution_run_id)?;
+        evidence.live_handle = LiveHandleEvidence::Absent;
+        Ok(evidence)
+    }
+}
+
+impl SessionTerminalEvidencePort for SequencedHandleEvidence {
+    fn read_terminal_evidence(
+        &self,
+        session_id: &SessionId,
+        execution_run_id: Option<&str>,
+    ) -> Result<
+        crate::contexts::sessions::domain::evidence::SessionTerminalEvidence,
+        SessionsApplicationError,
+    > {
+        let mut evidence = self
+            .repository
+            .read_terminal_evidence(session_id, execution_run_id)?;
+        if self.reads.fetch_add(1, Ordering::SeqCst) > 0 {
+            evidence.live_handle = LiveHandleEvidence::Absent;
+        }
+        Ok(evidence)
+    }
 }
 
 fn fixture(name: &str) -> Fixture {
@@ -75,6 +242,137 @@ fn session_record(
     }
 }
 
+#[test]
+fn message_sequence_allocator_reserves_consecutive_ranges_atomically() {
+    let fixture = fixture("sessions-message-sequence-allocation");
+    let session = session_record(
+        "session-sequence",
+        SessionLifecycle::Idle,
+        "Sequence",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+
+    let mut connection = fixture.database.connection().expect("connection");
+    let transaction = connection.transaction().expect("transaction");
+    let first = allocate_message_sequences(
+        &transaction,
+        &SessionId::parse("session-sequence").expect("session id"),
+        2,
+    )
+    .expect("first range");
+    let second = allocate_message_sequences(
+        &transaction,
+        &SessionId::parse("session-sequence").expect("session id"),
+        3,
+    )
+    .expect("second range");
+    transaction.commit().expect("commit ranges");
+
+    let persisted: (i64, i64) = connection
+        .query_row(
+            "SELECT next_message_sequence, history_revision FROM sessions WHERE id = ?1",
+            ["session-sequence"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("persisted allocator");
+    assert_eq!((first, second), (1, 3));
+    assert_eq!(persisted, (6, 5));
+    assert!(allocate_message_sequences(
+        &connection,
+        &SessionId::parse("session-sequence").expect("session id"),
+        0,
+    )
+    .is_err());
+}
+
+#[test]
+fn recovery_reports_are_session_owned_and_legacy_run_ids_remain_null() {
+    let fixture = fixture("sessions-recovery-report-ownership");
+    let session = session_record(
+        "session-recovery-report",
+        SessionLifecycle::Running,
+        "Recovery report",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            r#"
+            INSERT INTO messages (
+                id, session_id, role, status, content, created_at, updated_at, session_sequence
+            ) VALUES (?1, ?2, 'assistant', 'completed', 'legacy', ?3, ?3, 1)
+            "#,
+            params![
+                "legacy-message",
+                "session-recovery-report",
+                "2026-07-01T00:00:00+00:00"
+            ],
+        )
+        .expect("insert legacy message");
+    let legacy = SessionMessageRepository::find(
+        &fixture.repository,
+        &MessageId::parse("legacy-message").expect("message id"),
+    )
+    .expect("find legacy message")
+    .expect("legacy message");
+    assert_eq!(legacy.message.execution_run_id(), None);
+
+    let report = SessionRecoveryReport::new(
+        "report-1".to_string(),
+        "session-recovery-report".to_string(),
+        1,
+        RecoveryTrigger::Startup,
+        "running".to_string(),
+        None,
+        RecoveryDecision::ActionRequired,
+        vec![RecoveryReasonCode::MissingExecutionRun],
+        vec![RecoveryEvidenceReference::Message {
+            message_id: "legacy-message".to_string(),
+            execution_run_id: None,
+            status: "completed".to_string(),
+        }],
+        "2026-07-01T00:00:01+00:00".to_string(),
+    );
+    fixture
+        .repository
+        .insert_report(&report)
+        .expect("insert report");
+    assert_eq!(
+        fixture
+            .repository
+            .list_reports(
+                &SessionId::parse("session-recovery-report").expect("session id"),
+                10,
+            )
+            .expect("list reports"),
+        vec![report]
+    );
+
+    fixture
+        .repository
+        .delete_session(&SessionId::parse("session-recovery-report").expect("session id"))
+        .expect("delete session");
+    assert!(fixture
+        .repository
+        .list_reports(
+            &SessionId::parse("session-recovery-report").expect("session id"),
+            10,
+        )
+        .expect("list reports after delete")
+        .is_empty());
+}
+
 fn message_record(
     id: &str,
     session_id: &str,
@@ -100,6 +398,8 @@ fn message_record(
         ),
         speaker_seat_id: None,
         seat_index: None,
+        seat_round_id: None,
+        parent_execution_run_id: None,
         content: content.to_string(),
         thinking_content: Some("thinking".to_string()),
         tool_use: Some(vec![json!({"id": "tool-1", "name": "read"})]),
@@ -109,6 +409,2229 @@ fn message_record(
         created_at: "2026-07-18T10:00:00+00:00".to_string(),
         updated_at: "2026-07-18T10:00:00+00:00".to_string(),
     }
+}
+
+fn correlated_message_record(
+    id: &str,
+    session_id: &str,
+    execution_run_id: &str,
+    role: MessageRole,
+    status: MessageStatus,
+    content: &str,
+) -> MessageRecord {
+    let mut record = message_record(id, session_id, role, status, content);
+    record.message = SessionMessage::rehydrate_with_correlation(
+        MessageId::parse(id).expect("message id"),
+        SessionId::parse(session_id).expect("session id"),
+        role,
+        status,
+        FileReferenceSet::default(),
+        0,
+        Some(execution_run_id.to_string()),
+    );
+    record
+}
+
+#[test]
+fn generation_start_claims_session_and_persists_correlated_messages_atomically() {
+    let fixture = fixture("sessions-generation-start");
+    let session = session_record(
+        "session-generation-start",
+        SessionLifecycle::Idle,
+        "Generation",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut assistant_message = correlated_message_record(
+        "message-generation-assistant",
+        session.id(),
+        "run-generation-start",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "",
+    );
+    assistant_message.seat_round_id = Some("seat-round-1".to_string());
+    assistant_message.parent_execution_run_id = Some("run-previous-seat".to_string());
+    let request = GenerationStartRequest {
+        session_id: session.id().to_string(),
+        execution_run_id: "run-generation-start".to_string(),
+        user_message: Some(correlated_message_record(
+            "message-generation-user",
+            session.id(),
+            "run-generation-start",
+            MessageRole::User,
+            MessageStatus::Completed,
+            "request",
+        )),
+        assistant_message,
+        started_at: "2026-07-18T10:00:00+00:00".to_string(),
+    };
+
+    let started = SessionTransactionPort::start_generation(&fixture.repository, &request)
+        .expect("start generation");
+
+    assert_eq!(
+        started.session.aggregate.lifecycle(),
+        SessionLifecycle::Starting
+    );
+    assert_eq!(
+        started
+            .session
+            .aggregate
+            .recovery()
+            .active_execution_run_id(),
+        Some("run-generation-start")
+    );
+    assert_eq!(started.session.aggregate.recovery().state_revision(), 1);
+    assert_eq!(started.session.aggregate.recovery().history_revision(), 2);
+    assert_eq!(
+        started.session.aggregate.recovery().next_message_sequence(),
+        3
+    );
+    let user = started.user_message.expect("user message");
+    assert_eq!(user.message.session_sequence(), 1);
+    assert_eq!(
+        user.message.execution_run_id(),
+        Some("run-generation-start")
+    );
+    assert_eq!(started.assistant_message.message.session_sequence(), 2);
+    assert_eq!(
+        started.assistant_message.message.execution_run_id(),
+        Some("run-generation-start")
+    );
+    assert_eq!(
+        started.assistant_message.seat_round_id.as_deref(),
+        Some("seat-round-1")
+    );
+    assert_eq!(
+        started.assistant_message.parent_execution_run_id.as_deref(),
+        Some("run-previous-seat")
+    );
+
+    let competing = SessionTransactionPort::start_generation(&fixture.repository, &request);
+    assert!(matches!(
+        competing,
+        Err(SessionsApplicationError::Transaction(_))
+    ));
+    assert_eq!(
+        SessionMessageRepository::list_all(
+            &fixture.repository,
+            &SessionId::parse(session.id()).expect("session id"),
+        )
+        .expect("messages")
+        .len(),
+        2
+    );
+}
+
+#[test]
+fn generation_start_rejects_recovery_gates_before_writing_messages() {
+    let fixture = fixture("sessions-generation-start-gates");
+    let session = session_record(
+        "session-generation-gated",
+        SessionLifecycle::Failed,
+        "Gated",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            "UPDATE sessions SET recovery_status = 'action_required' WHERE id = ?1",
+            [session.id()],
+        )
+        .expect("gate session");
+    let request = GenerationStartRequest {
+        session_id: session.id().to_string(),
+        execution_run_id: "run-gated".to_string(),
+        user_message: None,
+        assistant_message: correlated_message_record(
+            "message-gated-assistant",
+            session.id(),
+            "run-gated",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "",
+        ),
+        started_at: "2026-07-18T10:00:00+00:00".to_string(),
+    };
+
+    assert!(matches!(
+        SessionTransactionPort::start_generation(&fixture.repository, &request),
+        Err(SessionsApplicationError::Transaction(_))
+    ));
+    let persisted = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    assert_eq!(persisted.aggregate.lifecycle(), SessionLifecycle::Failed);
+    assert_eq!(
+        persisted.aggregate.recovery().active_execution_run_id(),
+        None
+    );
+    assert!(
+        SessionMessageRepository::list_all(&fixture.repository, session.aggregate.id())
+            .expect("messages")
+            .is_empty()
+    );
+}
+
+#[test]
+fn generation_terminal_updates_message_usage_and_matching_claim_once() {
+    let fixture = fixture("sessions-generation-terminal");
+    let session = session_record(
+        "session-generation-terminal",
+        SessionLifecycle::Idle,
+        "Generation terminal",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let started = SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-terminal".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-terminal",
+                session.id(),
+                "run-terminal",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "partial",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let mut terminal_message = started.assistant_message;
+    terminal_message
+        .message
+        .transition_to(MessageStatus::Completed)
+        .expect("complete message");
+    terminal_message.content = "complete".to_string();
+    terminal_message.updated_at = "2026-07-18T10:01:00+00:00".to_string();
+    let usage = MessageUsageRecord {
+        message_id: terminal_message.message.id().as_str().to_string(),
+        session_id: session.id().to_string(),
+        agent_id: session.agent_id.clone(),
+        provider_id: Some("provider".to_string()),
+        model_id: Some("model".to_string()),
+        accounting_kind: SessionUsageAccountingKind::Reported,
+        unit: SessionUsageUnit::Tokens,
+        input_count: 12,
+        output_count: 7,
+        cache_read_count: 0,
+        cache_creation_count: 0,
+        source: "provider".to_string(),
+        occurred_at: "2026-07-18T10:01:00+00:00".to_string(),
+    };
+    let request = GenerationTerminalRequest {
+        execution_run_id: "run-terminal".to_string(),
+        message: terminal_message,
+        terminal_status: GenerationTerminalStatus::Completed,
+        usage: Some(usage),
+        finished_at: "2026-07-18T10:01:00+00:00".to_string(),
+    };
+
+    let terminal = SessionTransactionPort::terminalize_generation(&fixture.repository, &request)
+        .expect("terminalize generation");
+
+    assert_eq!(terminal.message.message.status(), MessageStatus::Completed);
+    assert_eq!(terminal.message.content, "complete");
+    assert_eq!(
+        terminal.session.aggregate.lifecycle(),
+        SessionLifecycle::Idle
+    );
+    assert_eq!(
+        terminal
+            .session
+            .aggregate
+            .recovery()
+            .active_execution_run_id(),
+        None
+    );
+    assert_eq!(terminal.session.aggregate.recovery().state_revision(), 2);
+    assert_eq!(terminal.session.aggregate.recovery().history_revision(), 2);
+    let usage_count: i64 = fixture
+        .database
+        .connection()
+        .expect("connection")
+        .query_row(
+            "SELECT COUNT(*) FROM usage_records WHERE message_id = 'message-terminal'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("usage count");
+    assert_eq!(usage_count, 1);
+    assert!(matches!(
+        SessionTransactionPort::terminalize_generation(&fixture.repository, &request),
+        Err(SessionsApplicationError::Transaction(_))
+    ));
+}
+
+#[test]
+fn generation_terminal_rolls_back_when_the_active_claim_does_not_match() {
+    let fixture = fixture("sessions-generation-terminal-stale");
+    let session = session_record(
+        "session-generation-terminal-stale",
+        SessionLifecycle::Idle,
+        "Stale generation terminal",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let started = SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-stale".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-stale-terminal",
+                session.id(),
+                "run-stale",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "partial",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            "UPDATE sessions SET active_execution_run_id = 'run-newer' WHERE id = ?1",
+            [session.id()],
+        )
+        .expect("replace claim");
+    let mut message = started.assistant_message;
+    message
+        .message
+        .transition_to(MessageStatus::Failed)
+        .expect("fail message");
+    message.error = Some("failure".to_string());
+    let request = GenerationTerminalRequest {
+        execution_run_id: "run-stale".to_string(),
+        message,
+        terminal_status: GenerationTerminalStatus::Failed,
+        usage: None,
+        finished_at: "2026-07-18T10:01:00+00:00".to_string(),
+    };
+
+    assert!(matches!(
+        SessionTransactionPort::terminalize_generation(&fixture.repository, &request),
+        Err(SessionsApplicationError::Transaction(_))
+    ));
+    let persisted = SessionMessageRepository::find(
+        &fixture.repository,
+        &MessageId::parse("message-stale-terminal").expect("message id"),
+    )
+    .expect("find message")
+    .expect("message");
+    assert_eq!(persisted.message.status(), MessageStatus::Streaming);
+}
+
+#[test]
+fn concurrent_generation_claims_allow_one_winner_per_session() {
+    let fixture = fixture("sessions-generation-concurrent-claim");
+    let session = session_record(
+        "session-generation-concurrent",
+        SessionLifecycle::Idle,
+        "Concurrent generation",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let barrier = Arc::new(Barrier::new(3));
+    let results = std::thread::scope(|scope| {
+        let handles = (1..=2)
+            .map(|attempt| {
+                let repository = fixture.repository.clone();
+                let barrier = barrier.clone();
+                let session_id = session.id().to_string();
+                scope.spawn(move || {
+                    let run_id = format!("run-concurrent-{attempt}");
+                    let request = GenerationStartRequest {
+                        session_id: session_id.clone(),
+                        execution_run_id: run_id.clone(),
+                        user_message: None,
+                        assistant_message: correlated_message_record(
+                            &format!("message-concurrent-{attempt}"),
+                            &session_id,
+                            &run_id,
+                            MessageRole::Assistant,
+                            MessageStatus::Streaming,
+                            "",
+                        ),
+                        started_at: "2026-07-18T10:00:00+00:00".to_string(),
+                    };
+                    barrier.wait();
+                    SessionTransactionPort::start_generation(&repository, &request)
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("claim thread"))
+            .collect::<Vec<_>>()
+    });
+
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(SessionsApplicationError::Transaction(_))))
+            .count(),
+        1
+    );
+    let persisted = SessionMessageRepository::list_all(
+        &fixture.repository,
+        &SessionId::parse(session.id()).expect("session id"),
+    )
+    .expect("messages");
+    assert_eq!(persisted.len(), 1);
+}
+
+#[test]
+fn concurrent_generation_claims_for_unrelated_sessions_are_isolated() {
+    let fixture = fixture("sessions-generation-concurrent-isolation");
+    for session_id in ["session-isolated-one", "session-isolated-two"] {
+        fixture
+            .repository
+            .create_session(
+                &session_record(
+                    session_id,
+                    SessionLifecycle::Idle,
+                    "Isolated generation",
+                    "2026-07-01T00:00:00+00:00",
+                ),
+                SessionActivation::PreserveActive,
+            )
+            .expect("create session");
+    }
+    let barrier = Arc::new(Barrier::new(3));
+    let results = std::thread::scope(|scope| {
+        let handles = ["one", "two"]
+            .into_iter()
+            .map(|suffix| {
+                let repository = fixture.repository.clone();
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    let session_id = format!("session-isolated-{suffix}");
+                    let run_id = format!("run-isolated-{suffix}");
+                    let request = GenerationStartRequest {
+                        session_id: session_id.clone(),
+                        execution_run_id: run_id.clone(),
+                        user_message: None,
+                        assistant_message: correlated_message_record(
+                            &format!("message-isolated-{suffix}"),
+                            &session_id,
+                            &run_id,
+                            MessageRole::Assistant,
+                            MessageStatus::Streaming,
+                            "",
+                        ),
+                        started_at: "2026-07-18T10:00:00+00:00".to_string(),
+                    };
+                    barrier.wait();
+                    SessionTransactionPort::start_generation(&repository, &request)
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("claim thread"))
+            .collect::<Vec<_>>()
+    });
+
+    assert!(results.into_iter().all(|result| result.is_ok()));
+}
+
+#[test]
+fn failed_generation_start_leaves_no_partial_writes_after_database_reopen() {
+    let fixture = fixture("sessions-generation-start-reopen-rollback");
+    let session = session_record(
+        "session-start-reopen-rollback",
+        SessionLifecycle::Idle,
+        "Start rollback",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute_batch(
+            r#"
+            CREATE TRIGGER reject_generation_assistant
+            BEFORE INSERT ON messages
+            WHEN NEW.role = 'assistant'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected generation start failure');
+            END;
+            "#,
+        )
+        .expect("failure trigger");
+    let request = GenerationStartRequest {
+        session_id: session.id().to_string(),
+        execution_run_id: "run-start-rollback".to_string(),
+        user_message: Some(correlated_message_record(
+            "message-start-rollback-user",
+            session.id(),
+            "run-start-rollback",
+            MessageRole::User,
+            MessageStatus::Completed,
+            "request",
+        )),
+        assistant_message: correlated_message_record(
+            "message-start-rollback-assistant",
+            session.id(),
+            "run-start-rollback",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "",
+        ),
+        started_at: "2026-07-18T10:00:00+00:00".to_string(),
+    };
+    assert!(SessionTransactionPort::start_generation(&fixture.repository, &request).is_err());
+
+    let reopened_database =
+        NativeDatabase::new(fixture._directory.path().to_path_buf()).expect("reopen database");
+    let reopened = SqliteSessionsRepository::new(reopened_database);
+    let persisted = SessionRepository::find(&reopened, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    assert_eq!(persisted.aggregate.lifecycle(), SessionLifecycle::Idle);
+    assert_eq!(
+        persisted.aggregate.recovery().active_execution_run_id(),
+        None
+    );
+    assert_eq!(persisted.aggregate.recovery().state_revision(), 0);
+    assert_eq!(persisted.aggregate.recovery().history_revision(), 0);
+    assert!(
+        SessionMessageRepository::list_all(&reopened, session.aggregate.id())
+            .expect("messages")
+            .is_empty()
+    );
+}
+
+#[test]
+fn failed_generation_terminal_leaves_no_partial_writes_after_database_reopen() {
+    let fixture = fixture("sessions-generation-terminal-reopen-rollback");
+    let session = session_record(
+        "session-terminal-reopen-rollback",
+        SessionLifecycle::Idle,
+        "Terminal rollback",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let started = SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-terminal-rollback".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-terminal-rollback",
+                session.id(),
+                "run-terminal-rollback",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "partial",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute_batch(
+            r#"
+            CREATE TRIGGER reject_generation_terminal
+            BEFORE UPDATE OF active_execution_run_id ON sessions
+            WHEN NEW.active_execution_run_id IS NULL
+            BEGIN
+                SELECT RAISE(ABORT, 'injected generation terminal failure');
+            END;
+            "#,
+        )
+        .expect("failure trigger");
+    let mut message = started.assistant_message;
+    message
+        .message
+        .transition_to(MessageStatus::Completed)
+        .expect("complete message");
+    message.content = "complete".to_string();
+    let usage = MessageUsageRecord {
+        message_id: message.message.id().as_str().to_string(),
+        session_id: session.id().to_string(),
+        agent_id: session.agent_id.clone(),
+        provider_id: None,
+        model_id: None,
+        accounting_kind: SessionUsageAccountingKind::Reported,
+        unit: SessionUsageUnit::Tokens,
+        input_count: 1,
+        output_count: 1,
+        cache_read_count: 0,
+        cache_creation_count: 0,
+        source: "provider".to_string(),
+        occurred_at: "2026-07-18T10:01:00+00:00".to_string(),
+    };
+    assert!(SessionTransactionPort::terminalize_generation(
+        &fixture.repository,
+        &GenerationTerminalRequest {
+            execution_run_id: "run-terminal-rollback".to_string(),
+            message,
+            terminal_status: GenerationTerminalStatus::Completed,
+            usage: Some(usage),
+            finished_at: "2026-07-18T10:01:00+00:00".to_string(),
+        },
+    )
+    .is_err());
+
+    let reopened_database =
+        NativeDatabase::new(fixture._directory.path().to_path_buf()).expect("reopen database");
+    let reopened = SqliteSessionsRepository::new(reopened_database);
+    let persisted = SessionRepository::find(&reopened, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    assert_eq!(persisted.aggregate.lifecycle(), SessionLifecycle::Starting);
+    assert_eq!(
+        persisted.aggregate.recovery().active_execution_run_id(),
+        Some("run-terminal-rollback")
+    );
+    let message = SessionMessageRepository::find(
+        &reopened,
+        &MessageId::parse("message-terminal-rollback").expect("message id"),
+    )
+    .expect("find message")
+    .expect("message");
+    assert_eq!(message.message.status(), MessageStatus::Streaming);
+    let usage_count: i64 = reopened
+        .connection()
+        .expect("connection")
+        .query_row("SELECT COUNT(*) FROM usage_records", [], |row| row.get(0))
+        .expect("usage count");
+    assert_eq!(usage_count, 0);
+}
+
+#[test]
+fn terminal_evidence_read_is_ordered_bounded_and_run_keyed() {
+    let fixture = fixture("sessions-terminal-evidence-read");
+    let mut session = session_record(
+        "session-terminal-evidence",
+        SessionLifecycle::Running,
+        "Terminal evidence",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.runtime_session_id = Some("provider-resume".to_string());
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut first = correlated_message_record(
+        "message-evidence-first",
+        session.id(),
+        "run-evidence",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial",
+    );
+    first.message = SessionMessage::rehydrate_with_correlation(
+        first.message.id().clone(),
+        session.aggregate.id().clone(),
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        FileReferenceSet::default(),
+        1,
+        Some("run-evidence".to_string()),
+    );
+    first.tool_use = Some(vec![json!({
+        "id": "tool-1",
+        "status": "running"
+    })]);
+    let mut second = correlated_message_record(
+        "message-evidence-second",
+        session.id(),
+        "run-evidence",
+        MessageRole::Assistant,
+        MessageStatus::Completed,
+        "done",
+    );
+    second.message = SessionMessage::rehydrate_with_correlation(
+        second.message.id().clone(),
+        session.aggregate.id().clone(),
+        MessageRole::Assistant,
+        MessageStatus::Completed,
+        FileReferenceSet::default(),
+        2,
+        Some("run-evidence".to_string()),
+    );
+    SessionMessageRepository::insert(&fixture.repository, &first).expect("insert first");
+    SessionMessageRepository::insert(&fixture.repository, &second).expect("insert second");
+
+    let evidence = SessionTerminalEvidencePort::read_terminal_evidence(
+        &fixture.repository,
+        session.aggregate.id(),
+        Some("run-evidence"),
+    )
+    .expect("read evidence");
+
+    assert_eq!(
+        evidence.observed_execution_run_id.as_deref(),
+        Some("run-evidence")
+    );
+    assert_eq!(
+        evidence.session.execution_fidelity,
+        ExecutionEvidenceFidelity::InteractiveOpaque
+    );
+    assert_eq!(evidence.live_handle, LiveHandleEvidence::Unavailable);
+    assert!(evidence.provider_resume.metadata_present);
+    assert_eq!(evidence.messages().len(), 2);
+    assert_eq!(evidence.messages()[0].session_sequence, 1);
+    assert!(matches!(
+        evidence.messages()[0].tool_activity,
+        ToolActivityEvidence::Incomplete { count: 1, .. }
+    ));
+    assert_eq!(evidence.messages()[1].session_sequence, 2);
+    assert!(evidence.operations().is_empty());
+}
+
+#[test]
+fn terminal_evidence_ignores_long_history_and_reports_unfinished_cross_run_work() {
+    let fixture = fixture("sessions-terminal-evidence-long-history");
+    let session = session_record(
+        "session-terminal-evidence-long",
+        SessionLifecycle::Running,
+        "Long terminal evidence",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    for index in 0..300 {
+        let historical = correlated_message_record(
+            &format!("message-history-{index:03}"),
+            session.id(),
+            &format!("run-history-{index:03}"),
+            MessageRole::Assistant,
+            MessageStatus::Completed,
+            "historical",
+        );
+        SessionMessageRepository::insert(&fixture.repository, &historical)
+            .expect("insert historical message");
+    }
+    let active = correlated_message_record(
+        "message-active-run",
+        session.id(),
+        "run-active",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial",
+    );
+    SessionMessageRepository::insert(&fixture.repository, &active).expect("insert active message");
+
+    let evidence = SessionTerminalEvidencePort::read_terminal_evidence(
+        &fixture.repository,
+        session.aggregate.id(),
+        Some("run-active"),
+    )
+    .expect("read active-run evidence");
+    assert_eq!(evidence.messages().len(), 1);
+    assert_eq!(evidence.messages()[0].message_id, "message-active-run");
+    assert!(evidence.conflicting_message().is_none());
+
+    let conflicting = correlated_message_record(
+        "message-conflicting-run",
+        session.id(),
+        "run-conflicting",
+        MessageRole::Assistant,
+        MessageStatus::Pending,
+        "",
+    );
+    SessionMessageRepository::insert(&fixture.repository, &conflicting)
+        .expect("insert conflicting message");
+    let evidence = SessionTerminalEvidencePort::read_terminal_evidence(
+        &fixture.repository,
+        session.aggregate.id(),
+        Some("run-active"),
+    )
+    .expect("read conflicting evidence");
+    assert_eq!(
+        evidence
+            .conflicting_message()
+            .map(|message| message.message_id.as_str()),
+        Some("message-conflicting-run")
+    );
+}
+
+#[test]
+fn structurally_oversized_active_run_evidence_is_quarantined() {
+    let fixture = fixture("sessions-terminal-evidence-structural-bound");
+    let mut session = session_record(
+        "session-structural-bound",
+        SessionLifecycle::Idle,
+        "Structural recovery evidence",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let assistant = correlated_message_record(
+        "message-structural-active",
+        session.id(),
+        "run-structural-bound",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial",
+    );
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-structural-bound".to_string(),
+            user_message: None,
+            assistant_message: assistant,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    for index in 0..256 {
+        let duplicate = correlated_message_record(
+            &format!("message-structural-{index:03}"),
+            session.id(),
+            "run-structural-bound",
+            MessageRole::Assistant,
+            MessageStatus::Completed,
+            "duplicate",
+        );
+        SessionMessageRepository::insert(&fixture.repository, &duplicate)
+            .expect("insert structural evidence");
+    }
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository.clone(),
+        repository,
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let result = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("publish structural quarantine");
+    let persisted = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    let reports = SessionRecoveryReportRepository::list_reports(
+        &fixture.repository,
+        session.aggregate.id(),
+        10,
+    )
+    .expect("reports");
+
+    assert_eq!(result.published, 1);
+    assert_eq!(
+        persisted.aggregate.recovery().status().as_str(),
+        "quarantined"
+    );
+    assert_eq!(
+        persisted.aggregate.recovery().active_execution_run_id(),
+        Some("run-structural-bound")
+    );
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].decision(), RecoveryDecision::Quarantined);
+    assert_eq!(
+        reports[0].reason_codes(),
+        &[RecoveryReasonCode::InvalidExecutionCorrelation]
+    );
+}
+
+#[test]
+fn malformed_persisted_message_evidence_is_quarantined_without_exposing_payload() {
+    let fixture = fixture("sessions-terminal-evidence-malformed-row");
+    let mut session = session_record(
+        "session-malformed-evidence",
+        SessionLifecycle::Idle,
+        "Malformed recovery evidence",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let assistant = correlated_message_record(
+        "message-malformed-evidence",
+        session.id(),
+        "run-malformed-evidence",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "private malformed payload",
+    );
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-malformed-evidence".to_string(),
+            user_message: None,
+            assistant_message: assistant,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let connection = fixture.database.connection().expect("database connection");
+    connection
+        .execute_batch("PRAGMA ignore_check_constraints = ON")
+        .expect("allow malformed fixture row");
+    connection
+        .execute(
+            "UPDATE messages SET status = 'malformed-status' WHERE id = ?1",
+            ["message-malformed-evidence"],
+        )
+        .expect("corrupt message status");
+    let logging = Arc::new(CapturingSessionLogging::default());
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        logging.clone(),
+    );
+
+    let result = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("quarantine malformed evidence");
+    let persisted = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    let reports = SessionRecoveryReportRepository::list_reports(
+        &fixture.repository,
+        session.aggregate.id(),
+        10,
+    )
+    .expect("reports");
+    let logs = logging.entries.lock().expect("recovery logs");
+
+    assert_eq!(result.published, 1);
+    assert_eq!(
+        persisted.aggregate.recovery().status().as_str(),
+        "quarantined"
+    );
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].decision(), RecoveryDecision::Quarantined);
+    assert!(logs
+        .iter()
+        .all(|entry| !entry.message.contains("malformed-status")
+            && !entry.message.contains("private malformed payload")));
+}
+
+#[test]
+fn malformed_candidate_revisions_are_normalized_and_do_not_block_later_sessions() {
+    let fixture = fixture("sessions-recovery-malformed-candidate");
+    for (session_id, run_id) in [
+        ("session-candidate-a-malformed", "run-candidate-a-malformed"),
+        ("session-candidate-b-healthy", "run-candidate-b-healthy"),
+    ] {
+        let mut session = session_record(
+            session_id,
+            SessionLifecycle::Idle,
+            "Recovery candidate",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        fixture
+            .repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+        let mut assistant = correlated_message_record(
+            &format!("message-{session_id}"),
+            session_id,
+            run_id,
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "partial response",
+        );
+        assistant.tool_use = None;
+        SessionTransactionPort::start_generation(
+            &fixture.repository,
+            &GenerationStartRequest {
+                session_id: session_id.to_string(),
+                execution_run_id: run_id.to_string(),
+                user_message: None,
+                assistant_message: assistant,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("start generation");
+    }
+    let connection = fixture.database.connection().expect("database connection");
+    connection
+        .execute_batch("PRAGMA ignore_check_constraints = ON")
+        .expect("allow malformed fixture row");
+    connection
+        .execute(
+            r#"UPDATE sessions
+               SET recovery_revision = -1, state_revision = -2, history_revision = -3
+               WHERE id = ?1"#,
+            ["session-candidate-a-malformed"],
+        )
+        .expect("corrupt candidate revisions");
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let result = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("recover all candidates");
+    let malformed = SessionRepository::find(
+        &fixture.repository,
+        &SessionId::parse("session-candidate-a-malformed").expect("session id"),
+    )
+    .expect("find malformed session")
+    .expect("malformed session");
+    let healthy = SessionRepository::find(
+        &fixture.repository,
+        &SessionId::parse("session-candidate-b-healthy").expect("session id"),
+    )
+    .expect("find healthy session")
+    .expect("healthy session");
+
+    assert_eq!(result.published, 2);
+    assert_eq!(
+        malformed.aggregate.recovery().status().as_str(),
+        "quarantined"
+    );
+    assert_eq!(malformed.aggregate.recovery().recovery_revision(), 1);
+    assert_eq!(healthy.aggregate.recovery().status().as_str(), "clean");
+    assert_eq!(healthy.aggregate.lifecycle(), SessionLifecycle::Failed);
+}
+
+#[test]
+fn recovery_candidate_scan_is_bounded_and_claim_is_revision_guarded() {
+    let fixture = fixture("sessions-recovery-candidate-claim");
+    for session_id in [
+        "session-recovery-candidate-a",
+        "session-recovery-candidate-b",
+    ] {
+        fixture
+            .repository
+            .create_session(
+                &session_record(
+                    session_id,
+                    SessionLifecycle::Running,
+                    "Recovery candidate",
+                    "2026-07-01T00:00:00+00:00",
+                ),
+                SessionActivation::PreserveActive,
+            )
+            .expect("create candidate");
+    }
+    let candidates =
+        SessionRepository::recovery_candidates(&fixture.repository, 1).expect("scan candidates");
+    assert_eq!(candidates.len(), 1);
+    let request = ClaimRecoveryCandidateRequest {
+        candidate: candidates[0].clone(),
+        claimed_at: "2026-07-18T10:00:00+00:00".to_string(),
+    };
+
+    let claimed = SessionTransactionPort::claim_recovery_candidate(&fixture.repository, &request)
+        .expect("claim candidate")
+        .expect("claim won");
+
+    assert_eq!(claimed.state_revision, 1);
+    assert_eq!(claimed.history_revision, 0);
+    let session = SessionRepository::find(
+        &fixture.repository,
+        &SessionId::parse(&claimed.session_id).expect("session id"),
+    )
+    .expect("find session")
+    .expect("session");
+    assert_eq!(
+        session.aggregate.recovery().status(),
+        crate::contexts::sessions::domain::SessionRecoveryStatus::Reconciling
+    );
+    assert!(
+        SessionTransactionPort::claim_recovery_candidate(&fixture.repository, &request)
+            .expect("stale claim")
+            .is_none()
+    );
+}
+
+#[test]
+fn recovery_publication_applies_projection_and_report_once_under_claim_revisions() {
+    let fixture = fixture("sessions-recovery-publication");
+    let session = session_record(
+        "session-recovery-publication",
+        SessionLifecycle::Idle,
+        "Recovery publication",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-publication".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-recovery-publication",
+                session.id(),
+                "run-recovery-publication",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "partial response",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let candidate = SessionRepository::recovery_candidates(&fixture.repository, 10)
+        .expect("candidates")
+        .into_iter()
+        .find(|candidate| candidate.session_id == session.id())
+        .expect("candidate");
+    let claim = SessionTransactionPort::claim_recovery_candidate(
+        &fixture.repository,
+        &ClaimRecoveryCandidateRequest {
+            candidate,
+            claimed_at: "2026-07-18T10:01:00+00:00".to_string(),
+        },
+    )
+    .expect("claim")
+    .expect("claim won");
+    let report = SessionRecoveryReport::new(
+        "report-recovery-publication".to_string(),
+        session.id().to_string(),
+        claim.recovery_revision + 1,
+        RecoveryTrigger::Startup,
+        "starting".to_string(),
+        Some("run-recovery-publication".to_string()),
+        RecoveryDecision::InterruptedWithoutToolAmbiguity,
+        vec![RecoveryReasonCode::InterruptedToolFreeResponse],
+        vec![RecoveryEvidenceReference::Message {
+            message_id: "message-recovery-publication".to_string(),
+            execution_run_id: Some("run-recovery-publication".to_string()),
+            status: "streaming".to_string(),
+        }],
+        "2026-07-18T10:02:00+00:00".to_string(),
+    );
+    let request = PublishRecoveryRequest {
+        claim,
+        assistant_message_id: Some("message-recovery-publication".to_string()),
+        report,
+        published_at: "2026-07-18T10:02:00+00:00".to_string(),
+    };
+
+    assert!(
+        SessionTransactionPort::publish_recovery(&fixture.repository, &request)
+            .expect("publish recovery")
+    );
+    assert!(
+        !SessionTransactionPort::publish_recovery(&fixture.repository, &request)
+            .expect("duplicate publication")
+    );
+    let persisted = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    assert_eq!(persisted.aggregate.lifecycle(), SessionLifecycle::Failed);
+    assert_eq!(
+        persisted.aggregate.recovery().status(),
+        crate::contexts::sessions::domain::SessionRecoveryStatus::Clean
+    );
+    assert_eq!(persisted.aggregate.recovery().recovery_revision(), 1);
+    assert_eq!(
+        persisted.aggregate.recovery().active_execution_run_id(),
+        None
+    );
+    let message = SessionMessageRepository::find(
+        &fixture.repository,
+        &MessageId::parse("message-recovery-publication").expect("message id"),
+    )
+    .expect("find message")
+    .expect("message");
+    assert_eq!(message.message.status(), MessageStatus::Failed);
+    assert_eq!(message.content, "partial response");
+    let reports = SessionRecoveryReportRepository::list_reports(
+        &fixture.repository,
+        session.aggregate.id(),
+        10,
+    )
+    .expect("reports");
+    assert_eq!(reports.len(), 1);
+}
+
+#[test]
+fn recovery_coordinator_repeated_pass_is_idempotent() {
+    let fixture = fixture("sessions-recovery-coordinator-idempotent");
+    let mut session = session_record(
+        "session-recovery-coordinator",
+        SessionLifecycle::Idle,
+        "Recovery coordinator",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut assistant_message = correlated_message_record(
+        "message-recovery-coordinator",
+        session.id(),
+        "run-recovery-coordinator",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial response",
+    );
+    assistant_message.tool_use = None;
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-coordinator".to_string(),
+            user_message: None,
+            assistant_message,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let repository = Arc::new(fixture.repository.clone());
+    let logging = Arc::new(CapturingSessionLogging::default());
+    let events = Arc::new(CapturingRecoveryEvents::default());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        logging.clone(),
+    )
+    .with_events(events.clone());
+
+    let first = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("first pass");
+    let second = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("second pass");
+
+    assert_eq!(first.published, 1);
+    assert_eq!(second.published, 0);
+    assert_eq!(second.scanned, 0);
+    assert_eq!(
+        *events.events.lock().expect("recovery events"),
+        vec![
+            SessionRecoveryEvent {
+                kind: SessionRecoveryEventKind::Started,
+                session_id: session.id().to_string(),
+                recovery_revision: 0,
+            },
+            SessionRecoveryEvent {
+                kind: SessionRecoveryEventKind::Completed,
+                session_id: session.id().to_string(),
+                recovery_revision: 1,
+            },
+        ]
+    );
+    let entries = logging.entries.lock().expect("recovery logs");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].session_id.as_deref(),
+        Some("session-recovery-coordinator")
+    );
+    assert_eq!(
+        entries[0].execution_run_id.as_deref(),
+        Some("run-recovery-coordinator")
+    );
+    assert!(entries[0].recovery_report_id.is_some());
+    assert_eq!(
+        SessionRecoveryReportRepository::list_reports(
+            &fixture.repository,
+            session.aggregate.id(),
+            10,
+        )
+        .expect("reports")
+        .len(),
+        1
+    );
+}
+
+#[test]
+fn startup_recovery_drains_more_than_one_bounded_batch() {
+    let fixture = fixture("sessions-recovery-multiple-batches");
+    for index in 0..105 {
+        let session_id = format!("session-recovery-batch-{index:03}");
+        let run_id = format!("run-recovery-batch-{index:03}");
+        let mut session = session_record(
+            &session_id,
+            SessionLifecycle::Idle,
+            "Recovery batch",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        fixture
+            .repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+        let mut assistant_message = correlated_message_record(
+            &format!("message-recovery-batch-{index:03}"),
+            &session_id,
+            &run_id,
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "partial response",
+        );
+        assistant_message.tool_use = None;
+        SessionTransactionPort::start_generation(
+            &fixture.repository,
+            &GenerationStartRequest {
+                session_id,
+                execution_run_id: run_id,
+                user_message: None,
+                assistant_message,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("start generation");
+    }
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let result = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("drain startup candidates");
+
+    assert_eq!(result.published, 105);
+    assert_eq!(
+        SessionRepository::recovery_candidate_count(&fixture.repository)
+            .expect("remaining candidates"),
+        0
+    );
+}
+
+#[test]
+fn startup_recovery_defers_each_retry_later_candidate_once_per_pass() {
+    let fixture = fixture("sessions-recovery-retry-later-batches");
+    for index in 0..105 {
+        let session_id = format!("session-recovery-deferred-{index:03}");
+        let run_id = format!("run-recovery-deferred-{index:03}");
+        let mut session = session_record(
+            &session_id,
+            SessionLifecycle::Idle,
+            "Deferred recovery batch",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        fixture
+            .repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+        let mut assistant_message = correlated_message_record(
+            &format!("message-recovery-deferred-{index:03}"),
+            &session_id,
+            &run_id,
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "partial response",
+        );
+        assistant_message.tool_use = None;
+        SessionTransactionPort::start_generation(
+            &fixture.repository,
+            &GenerationStartRequest {
+                session_id,
+                execution_run_id: run_id,
+                user_message: None,
+                assistant_message,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("start generation");
+    }
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository.clone(),
+        repository,
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let result = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("defer startup candidates");
+
+    assert_eq!(result.scanned, 105);
+    assert_eq!(result.deferred, 105);
+    assert_eq!(result.published, 0);
+    assert_eq!(
+        SessionRepository::recovery_candidate_count(&fixture.repository)
+            .expect("remaining candidates"),
+        105
+    );
+}
+
+#[test]
+fn startup_recovery_runs_explicit_retry_before_returning_to_dependents() {
+    let fixture = fixture("sessions-recovery-explicit-retry");
+    let mut session = session_record(
+        "session-recovery-explicit-retry",
+        SessionLifecycle::Idle,
+        "Explicit recovery retry",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut assistant = correlated_message_record(
+        "message-recovery-explicit-retry",
+        session.id(),
+        "run-recovery-explicit-retry",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial response",
+    );
+    assistant.tool_use = None;
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-explicit-retry".to_string(),
+            user_message: None,
+            assistant_message: assistant,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(SequencedHandleEvidence {
+            repository: fixture.repository.clone(),
+            reads: AtomicUsize::new(0),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let final_pass = coordinator
+        .run_startup_with_retry(100)
+        .expect("run startup recovery and explicit retry");
+    let persisted = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+    let reports = SessionRecoveryReportRepository::list_reports(
+        &fixture.repository,
+        session.aggregate.id(),
+        10,
+    )
+    .expect("reports");
+
+    assert_eq!(final_pass.published, 1);
+    assert_eq!(final_pass.deferred, 0);
+    assert_eq!(persisted.aggregate.recovery().status().as_str(), "clean");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].trigger(), RecoveryTrigger::ExplicitRetry);
+}
+
+#[test]
+fn startup_recovery_defers_database_contention_without_failing_the_pass() {
+    let fixture = fixture("sessions-recovery-database-contention");
+    let mut session = session_record(
+        "session-recovery-contention",
+        SessionLifecycle::Idle,
+        "Recovery contention",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut assistant = correlated_message_record(
+        "message-recovery-contention",
+        session.id(),
+        "run-recovery-contention",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial response",
+    );
+    assistant.tool_use = None;
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-contention".to_string(),
+            user_message: None,
+            assistant_message: assistant,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let blocker =
+        rusqlite::Connection::open(&fixture.database.db_path).expect("blocking connection");
+    blocker
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("hold writer lock");
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let deferred = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("defer contended recovery");
+    let unchanged = SessionRepository::find(&fixture.repository, session.aggregate.id())
+        .expect("find session")
+        .expect("session");
+
+    assert_eq!(deferred.deferred, 1);
+    assert_eq!(deferred.published, 0);
+    assert_eq!(unchanged.aggregate.recovery().status().as_str(), "clean");
+    assert_eq!(
+        unchanged.aggregate.recovery().active_execution_run_id(),
+        Some("run-recovery-contention")
+    );
+
+    blocker
+        .execute_batch("ROLLBACK")
+        .expect("release writer lock");
+    let recovered = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("retry recovery after contention");
+    assert_eq!(recovered.published, 1);
+}
+
+#[test]
+fn crash_reopen_recovery_uses_persisted_operation_terminal_evidence() {
+    let directory = TempDirectory::new("sessions-operation-evidence-crash-reopen");
+    let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+    let repository = SqliteSessionsRepository::new(database.clone());
+    let mut session = session_record(
+        "session-operation-evidence-reopen",
+        SessionLifecycle::Idle,
+        "Operation evidence reopen",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    let mut assistant_message = correlated_message_record(
+        "message-operation-evidence-reopen",
+        session.id(),
+        "run-operation-evidence-reopen",
+        MessageRole::Assistant,
+        MessageStatus::Streaming,
+        "partial response",
+    );
+    assistant_message.tool_use = None;
+    SessionTransactionPort::start_generation(
+        &repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-operation-evidence-reopen".to_string(),
+            user_message: None,
+            assistant_message,
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let operations = OperationsApi::new(persistent_operation_service(database.clone()));
+    let operation = operations
+        .start(OperationKind::Agent, Some("codex-cli".to_string()), None)
+        .expect("start operation");
+    operations
+        .correlate_execution(
+            &operation.id,
+            "run-operation-evidence-reopen".to_string(),
+            "trace-operation-evidence-reopen".to_string(),
+        )
+        .expect("correlate operation");
+    operations
+        .complete(&operation.id, None)
+        .expect("complete operation");
+    drop(operations);
+    drop(repository);
+    drop(database);
+
+    let reopened_database =
+        NativeDatabase::new(directory.path().to_path_buf()).expect("reopen database");
+    let reopened_repository = SqliteSessionsRepository::new(reopened_database.clone());
+    let reopened_operations =
+        OperationsApi::new(persistent_operation_service(reopened_database.clone()));
+    let repository = Arc::new(reopened_repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(ReopenedOperationEvidence {
+            repository: reopened_repository.clone(),
+            operations: reopened_operations,
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let result = coordinator
+        .run_until_drained(100, RecoveryTrigger::Startup)
+        .expect("recover reopened session");
+
+    assert_eq!(result.published, 1);
+    let recovered = SessionRepository::find(
+        &reopened_repository,
+        &SessionId::parse("session-operation-evidence-reopen").expect("session id"),
+    )
+    .expect("find recovered session")
+    .expect("recovered session");
+    assert_eq!(recovered.aggregate.lifecycle(), SessionLifecycle::Idle);
+    assert_eq!(
+        recovered.aggregate.recovery().active_execution_run_id(),
+        None
+    );
+    let reports = SessionRecoveryReportRepository::list_reports(
+        &reopened_repository,
+        recovered.aggregate.id(),
+        10,
+    )
+    .expect("recovery reports");
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].decision(), RecoveryDecision::Completed);
+}
+
+#[test]
+fn file_backed_recovery_preserves_partial_stream_and_duplicate_pass_is_noop() {
+    let directory = TempDirectory::new("sessions-recovery-reopen-partial");
+    let session_id = SessionId::parse("session-recovery-reopen-partial").expect("session id");
+    {
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let repository = SqliteSessionsRepository::new(database);
+        let mut session = session_record(
+            session_id.as_str(),
+            SessionLifecycle::Idle,
+            "Reopen partial recovery",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+        let mut assistant_message = correlated_message_record(
+            "message-recovery-reopen-partial",
+            session.id(),
+            "run-recovery-reopen-partial",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "",
+        );
+        assistant_message.tool_use = None;
+        let started = SessionTransactionPort::start_generation(
+            &repository,
+            &GenerationStartRequest {
+                session_id: session.id().to_string(),
+                execution_run_id: "run-recovery-reopen-partial".to_string(),
+                user_message: None,
+                assistant_message,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("claim generation");
+        let mut partial = started.assistant_message;
+        partial.content = "durable partial stream".to_string();
+        partial.updated_at = "2026-07-18T10:00:01+00:00".to_string();
+        SessionMessageRepository::save_stream_fields(&repository, &partial)
+            .expect("persist partial stream");
+    }
+
+    let reopened_database =
+        NativeDatabase::new(directory.path().to_path_buf()).expect("reopen database");
+    let reopened = Arc::new(SqliteSessionsRepository::new(reopened_database));
+    let coordinator = SessionRecoveryCoordinator::new(
+        reopened.clone(),
+        reopened.clone(),
+        Arc::new(AbsentHandleEvidence {
+            repository: reopened.as_ref().clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+
+    let first = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("first recovery pass");
+    let second = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("duplicate recovery pass");
+    let message = SessionMessageRepository::find(
+        reopened.as_ref(),
+        &MessageId::parse("message-recovery-reopen-partial").expect("message id"),
+    )
+    .expect("find message")
+    .expect("message");
+    let reports = SessionRecoveryReportRepository::list_reports(reopened.as_ref(), &session_id, 10)
+        .expect("reports");
+
+    assert_eq!(first.published, 1);
+    assert_eq!(second.scanned, 0);
+    assert_eq!(
+        reports[0].reason_codes(),
+        &[RecoveryReasonCode::InterruptedToolFreeResponse]
+    );
+    assert_eq!(
+        reports[0].decision(),
+        RecoveryDecision::InterruptedWithoutToolAmbiguity
+    );
+    assert_eq!(message.content, "durable partial stream");
+    assert_eq!(message.message.status(), MessageStatus::Failed);
+    assert_eq!(reports.len(), 1);
+}
+
+#[test]
+fn file_backed_recovery_interrupts_only_the_active_seat_run() {
+    let directory = TempDirectory::new("sessions-recovery-active-seat");
+    let session_id = SessionId::parse("session-recovery-active-seat").expect("session id");
+    {
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let repository = SqliteSessionsRepository::new(database);
+        let mut session = session_record(
+            session_id.as_str(),
+            SessionLifecycle::Idle,
+            "Active seat recovery",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+
+        let mut first_message = correlated_message_record(
+            "message-seat-first",
+            session.id(),
+            "run-seat-first",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "first reply",
+        );
+        first_message.tool_use = None;
+        first_message.seat_round_id = Some("seat-round-1".to_string());
+        let first = SessionTransactionPort::start_generation(
+            &repository,
+            &GenerationStartRequest {
+                session_id: session.id().to_string(),
+                execution_run_id: "run-seat-first".to_string(),
+                user_message: None,
+                assistant_message: first_message,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("start first seat");
+        let mut completed_first = first.assistant_message;
+        completed_first
+            .message
+            .transition_to(MessageStatus::Completed)
+            .expect("complete first message");
+        SessionTransactionPort::terminalize_generation(
+            &repository,
+            &GenerationTerminalRequest {
+                execution_run_id: "run-seat-first".to_string(),
+                message: completed_first,
+                terminal_status: GenerationTerminalStatus::Completed,
+                usage: None,
+                finished_at: "2026-07-18T10:00:01+00:00".to_string(),
+            },
+        )
+        .expect("terminalize first seat");
+
+        let mut second_message = correlated_message_record(
+            "message-seat-second",
+            session.id(),
+            "run-seat-second",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "partial second reply",
+        );
+        second_message.tool_use = None;
+        second_message.seat_round_id = Some("seat-round-1".to_string());
+        second_message.parent_execution_run_id = Some("run-seat-first".to_string());
+        SessionTransactionPort::start_generation(
+            &repository,
+            &GenerationStartRequest {
+                session_id: session.id().to_string(),
+                execution_run_id: "run-seat-second".to_string(),
+                user_message: None,
+                assistant_message: second_message,
+                started_at: "2026-07-18T10:00:02+00:00".to_string(),
+            },
+        )
+        .expect("start second seat");
+    }
+
+    let reopened_database =
+        NativeDatabase::new(directory.path().to_path_buf()).expect("reopen database");
+    let reopened = Arc::new(SqliteSessionsRepository::new(reopened_database));
+    let coordinator = SessionRecoveryCoordinator::new(
+        reopened.clone(),
+        reopened.clone(),
+        Arc::new(AbsentHandleEvidence {
+            repository: reopened.as_ref().clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+    let outcome = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("recover active seat");
+    let repeated = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("repeat active seat recovery");
+    let first = SessionMessageRepository::find(
+        reopened.as_ref(),
+        &MessageId::parse("message-seat-first").expect("first id"),
+    )
+    .expect("find first")
+    .expect("first message");
+    let second = SessionMessageRepository::find(
+        reopened.as_ref(),
+        &MessageId::parse("message-seat-second").expect("second id"),
+    )
+    .expect("find second")
+    .expect("second message");
+    let reports = SessionRecoveryReportRepository::list_reports(reopened.as_ref(), &session_id, 10)
+        .expect("reports");
+
+    assert_eq!(outcome.published, 1);
+    assert_eq!(repeated.scanned, 0);
+    assert_eq!(first.message.status(), MessageStatus::Completed);
+    assert_eq!(first.content, "first reply");
+    assert_eq!(second.message.status(), MessageStatus::Failed);
+    assert_eq!(second.content, "partial second reply");
+    assert_eq!(second.seat_round_id.as_deref(), Some("seat-round-1"));
+    assert_eq!(
+        second.parent_execution_run_id.as_deref(),
+        Some("run-seat-first")
+    );
+    assert_eq!(
+        reports[0].observed_execution_run_id(),
+        Some("run-seat-second")
+    );
+    assert_eq!(reports.len(), 1);
+}
+
+#[test]
+fn file_backed_recovery_honors_terminal_message_and_rejects_stale_publication() {
+    let directory = TempDirectory::new("sessions-recovery-reopen-terminal-stale");
+    let session_id = SessionId::parse("session-recovery-reopen-terminal").expect("session id");
+    let stale_claim = {
+        let database = NativeDatabase::new(directory.path().to_path_buf()).expect("database");
+        let repository = SqliteSessionsRepository::new(database.clone());
+        let mut session = session_record(
+            session_id.as_str(),
+            SessionLifecycle::Idle,
+            "Reopen terminal recovery",
+            "2026-07-01T00:00:00+00:00",
+        );
+        session.interaction_mode = "api".to_string();
+        repository
+            .create_session(&session, SessionActivation::PreserveActive)
+            .expect("create session");
+        let mut assistant_message = correlated_message_record(
+            "message-recovery-reopen-terminal",
+            session.id(),
+            "run-recovery-reopen-terminal",
+            MessageRole::Assistant,
+            MessageStatus::Streaming,
+            "final response",
+        );
+        assistant_message.tool_use = None;
+        SessionTransactionPort::start_generation(
+            &repository,
+            &GenerationStartRequest {
+                session_id: session.id().to_string(),
+                execution_run_id: "run-recovery-reopen-terminal".to_string(),
+                user_message: None,
+                assistant_message,
+                started_at: "2026-07-18T10:00:00+00:00".to_string(),
+            },
+        )
+        .expect("start generation");
+        database
+            .connection()
+            .expect("connection")
+            .execute(
+                "UPDATE messages SET status = 'completed' WHERE id = ?1",
+                ["message-recovery-reopen-terminal"],
+            )
+            .expect("simulate terminal message crash point");
+        let candidate = SessionRepository::recovery_candidates(&repository, 10)
+            .expect("candidates")
+            .into_iter()
+            .find(|candidate| candidate.session_id == session.id())
+            .expect("candidate");
+        let claim = SessionTransactionPort::claim_recovery_candidate(
+            &repository,
+            &ClaimRecoveryCandidateRequest {
+                candidate,
+                claimed_at: "2026-07-18T10:01:00+00:00".to_string(),
+            },
+        )
+        .expect("claim")
+        .expect("claim won");
+        database
+            .connection()
+            .expect("connection")
+            .execute(
+                "UPDATE sessions SET state_revision = state_revision + 1 WHERE id = ?1",
+                [session.id()],
+            )
+            .expect("advance revision after claim");
+        claim
+    };
+
+    let reopened_database =
+        NativeDatabase::new(directory.path().to_path_buf()).expect("reopen database");
+    let reopened = Arc::new(SqliteSessionsRepository::new(reopened_database));
+    let stale_report = SessionRecoveryReport::new(
+        "report-recovery-reopen-stale".to_string(),
+        session_id.as_str().to_string(),
+        stale_claim.recovery_revision + 1,
+        RecoveryTrigger::Startup,
+        "starting".to_string(),
+        Some("run-recovery-reopen-terminal".to_string()),
+        RecoveryDecision::Completed,
+        vec![RecoveryReasonCode::ConfirmedCompletedMessage],
+        Vec::new(),
+        "2026-07-18T10:02:00+00:00".to_string(),
+    );
+    assert!(!SessionTransactionPort::publish_recovery(
+        reopened.as_ref(),
+        &PublishRecoveryRequest {
+            claim: stale_claim,
+            assistant_message_id: Some("message-recovery-reopen-terminal".to_string()),
+            report: stale_report,
+            published_at: "2026-07-18T10:02:00+00:00".to_string(),
+        },
+    )
+    .expect("stale publication"));
+    let coordinator = SessionRecoveryCoordinator::new(
+        reopened.clone(),
+        reopened.clone(),
+        Arc::new(AbsentHandleEvidence {
+            repository: reopened.as_ref().clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+    let result = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("recovery after stale publication");
+    let session = SessionRepository::find(reopened.as_ref(), &session_id)
+        .expect("find session")
+        .expect("session");
+    let reports = SessionRecoveryReportRepository::list_reports(reopened.as_ref(), &session_id, 10)
+        .expect("reports");
+
+    assert_eq!(result.published, 1);
+    assert_eq!(
+        reports[0].reason_codes(),
+        &[RecoveryReasonCode::ConfirmedCompletedMessage]
+    );
+    assert_eq!(reports[0].decision(), RecoveryDecision::Completed);
+    assert_eq!(session.aggregate.lifecycle(), SessionLifecycle::Idle);
+    assert_eq!(reports.len(), 1);
+}
+
+#[test]
+fn recovery_diagnostics_keep_correlation_and_exclude_raw_evidence_errors() {
+    let fixture = fixture("sessions-recovery-safe-diagnostics");
+    let mut session = session_record(
+        "session-recovery-safe-log",
+        SessionLifecycle::Idle,
+        "Recovery diagnostics",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-safe-log".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-recovery-safe-log",
+                session.id(),
+                "run-recovery-safe-log",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "private prompt and tool payload",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let repository = Arc::new(fixture.repository.clone());
+    let logging = Arc::new(CapturingSessionLogging::default());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(SensitiveUnavailableEvidence),
+        Arc::new(SystemSessionClock),
+        logging.clone(),
+    );
+
+    let result = coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("deferred recovery");
+    let entries = logging.entries.lock().expect("recovery logs");
+
+    assert_eq!(result.deferred, 1);
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].category, "session.recovery");
+    assert_eq!(
+        entries[0].message,
+        "Recovery evidence was temporarily unavailable; candidate deferred."
+    );
+    assert_eq!(
+        entries[0].session_id.as_deref(),
+        Some("session-recovery-safe-log")
+    );
+    assert_eq!(
+        entries[0].execution_run_id.as_deref(),
+        Some("run-recovery-safe-log")
+    );
+    assert_eq!(entries[0].recovery_report_id, None);
+    let serialized = format!("{entries:?}");
+    for forbidden in [
+        "private prompt",
+        "tool_payload",
+        "rm",
+        "credential",
+        "D:\\private",
+        "provider=raw",
+    ] {
+        assert!(!serialized.contains(forbidden), "leaked {forbidden}");
+    }
+}
+
+#[test]
+fn recovery_acknowledgement_is_revision_checked_and_preserves_ambiguous_evidence() {
+    let fixture = fixture("sessions-recovery-acknowledgement");
+    let mut session = session_record(
+        "session-recovery-acknowledgement",
+        SessionLifecycle::Idle,
+        "Recovery acknowledgement",
+        "2026-07-01T00:00:00+00:00",
+    );
+    session.interaction_mode = "api".to_string();
+    session.runtime_session_id = Some("provider-resume-id".to_string());
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    SessionTransactionPort::start_generation(
+        &fixture.repository,
+        &GenerationStartRequest {
+            session_id: session.id().to_string(),
+            execution_run_id: "run-recovery-acknowledgement".to_string(),
+            user_message: None,
+            assistant_message: correlated_message_record(
+                "message-recovery-acknowledgement",
+                session.id(),
+                "run-recovery-acknowledgement",
+                MessageRole::Assistant,
+                MessageStatus::Streaming,
+                "ambiguous partial response",
+            ),
+            started_at: "2026-07-18T10:00:00+00:00".to_string(),
+        },
+    )
+    .expect("start generation");
+    let repository = Arc::new(fixture.repository.clone());
+    let coordinator = SessionRecoveryCoordinator::new(
+        repository.clone(),
+        repository,
+        Arc::new(AbsentHandleEvidence {
+            repository: fixture.repository.clone(),
+        }),
+        Arc::new(SystemSessionClock),
+        Arc::new(NoopSessionLogging),
+    );
+    coordinator
+        .run_batch(10, RecoveryTrigger::Startup)
+        .expect("publish action required");
+
+    let acknowledged = SessionTransactionPort::acknowledge_recovery(
+        &fixture.repository,
+        &AcknowledgeRecoveryRequest {
+            session_id: session.id().to_string(),
+            expected_recovery_revision: 1,
+            acknowledged_at: "2026-07-18T10:02:00+00:00".to_string(),
+        },
+    )
+    .expect("acknowledge recovery");
+    let message = SessionMessageRepository::find(
+        &fixture.repository,
+        &MessageId::parse("message-recovery-acknowledgement").expect("message id"),
+    )
+    .expect("find message")
+    .expect("message");
+
+    assert_eq!(
+        acknowledged.session.aggregate.lifecycle(),
+        SessionLifecycle::Starting
+    );
+    assert_eq!(
+        acknowledged.session.aggregate.recovery().status(),
+        crate::contexts::sessions::domain::SessionRecoveryStatus::Clean
+    );
+    assert_eq!(
+        acknowledged
+            .session
+            .aggregate
+            .recovery()
+            .active_execution_run_id(),
+        None
+    );
+    assert_eq!(
+        acknowledged.session.runtime_session_id.as_deref(),
+        Some("provider-resume-id")
+    );
+    assert_eq!(
+        acknowledged.report.decision(),
+        RecoveryDecision::Acknowledged
+    );
+    assert_eq!(acknowledged.report.recovery_revision(), 2);
+    assert_eq!(message.message.status(), MessageStatus::Streaming);
+    assert_eq!(message.content, "ambiguous partial response");
+    assert!(message.tool_use.is_some());
+    assert!(matches!(
+        SessionTransactionPort::acknowledge_recovery(
+            &fixture.repository,
+            &AcknowledgeRecoveryRequest {
+                session_id: session.id().to_string(),
+                expected_recovery_revision: 1,
+                acknowledged_at: "2026-07-18T10:03:00+00:00".to_string(),
+            }
+        ),
+        Err(SessionsApplicationError::RecoveryRevisionConflict {
+            current_revision: 2,
+            ref current_status,
+            ..
+        }) if current_status == "clean"
+    ));
+    assert_eq!(
+        SessionRecoveryReportRepository::list_reports(
+            &fixture.repository,
+            session.aggregate.id(),
+            10,
+        )
+        .expect("reports")
+        .len(),
+        2
+    );
+}
+
+#[test]
+fn quarantined_recovery_cannot_be_acknowledged() {
+    let fixture = fixture("sessions-recovery-quarantined-acknowledgement");
+    let session = session_record(
+        "session-recovery-quarantined",
+        SessionLifecycle::Failed,
+        "Quarantined recovery",
+        "2026-07-01T00:00:00+00:00",
+    );
+    fixture
+        .repository
+        .create_session(&session, SessionActivation::PreserveActive)
+        .expect("create session");
+    fixture
+        .database
+        .connection()
+        .expect("connection")
+        .execute(
+            "UPDATE sessions SET recovery_status = 'quarantined', recovery_revision = 4 WHERE id = ?1",
+            [session.id()],
+        )
+        .expect("quarantine session");
+
+    assert!(matches!(
+        SessionTransactionPort::acknowledge_recovery(
+            &fixture.repository,
+            &AcknowledgeRecoveryRequest {
+                session_id: session.id().to_string(),
+                expected_recovery_revision: 4,
+                acknowledged_at: "2026-07-18T10:03:00+00:00".to_string(),
+            }
+        ),
+        Err(SessionsApplicationError::RecoveryActionNotAllowed {
+            current_revision: 4,
+            ref current_status,
+            ..
+        }) if current_status == "quarantined"
+    ));
 }
 
 #[test]
@@ -752,7 +3275,7 @@ fn short_query_plan_seeks_the_session_index_instead_of_ranking_every_match() {
 
     assert!(
         plan.iter()
-            .any(|detail| detail.contains("idx_messages_session_created")),
+            .any(|detail| detail.contains("idx_messages_session_sequence")),
         "expected a per-session index seek, got {plan:?}"
     );
     assert!(
@@ -1244,59 +3767,6 @@ fn runtime_stream_updates_cannot_resurrect_cancelled_messages_and_sync_active_li
 }
 
 #[test]
-fn orphan_recovery_rolls_back_message_failure_when_session_update_fails() {
-    let fixture = fixture("sessions-recovery-rollback");
-    let repository = &fixture.repository;
-    let session = session_record(
-        "session-recovery",
-        SessionLifecycle::Running,
-        "Recovery",
-        "2026-07-18T10:00:00+00:00",
-    );
-    SessionTransactionPort::create_session(repository, &session, SessionActivation::PreserveActive)
-        .expect("create session");
-    let streaming = message_record(
-        "message-recovery",
-        session.id(),
-        MessageRole::Assistant,
-        MessageStatus::Streaming,
-        "",
-    );
-    SessionMessageRepository::insert(repository, &streaming).expect("insert message");
-    fixture
-        .database
-        .connection()
-        .expect("connection")
-        .execute_batch(
-            "CREATE TRIGGER reject_recovery BEFORE UPDATE OF lifecycle_state ON sessions BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
-        )
-        .expect("failure trigger");
-    let mut failed = session.clone();
-    failed
-        .aggregate
-        .transition_to(SessionLifecycle::Failed)
-        .expect("failed lifecycle");
-
-    assert!(SessionTransactionPort::recover_orphaned_session(
-        repository,
-        &failed,
-        "2026-07-18T11:00:00+00:00",
-    )
-    .is_err());
-    let status: String = fixture
-        .database
-        .connection()
-        .expect("connection")
-        .query_row(
-            "SELECT status FROM messages WHERE id = ?1",
-            ["message-recovery"],
-            |row| row.get(0),
-        )
-        .expect("message status");
-    assert_eq!(status, "streaming");
-}
-
-#[test]
 fn usage_schema_backfills_positive_legacy_message_counts_idempotently() {
     let fixture = fixture("sessions-usage-backfill");
     let repository = &fixture.repository;
@@ -1547,21 +4017,8 @@ fn a_message_records_the_seat_that_spoke_it() {
 }
 
 #[test]
-fn message_inserts_allocate_unique_sequences_in_an_additive_shared_schema() {
+fn message_inserts_allocate_unique_sequences_in_the_current_shared_schema() {
     let fixture = fixture("messages-additive-session-sequence");
-    fixture
-        .database
-        .connection()
-        .expect("connection")
-        .execute_batch(
-            r#"
-            ALTER TABLE messages ADD COLUMN session_sequence INTEGER NOT NULL DEFAULT 0;
-            CREATE UNIQUE INDEX idx_messages_session_sequence
-                ON messages(session_id, session_sequence);
-            ALTER TABLE sessions ADD COLUMN next_message_sequence INTEGER NOT NULL DEFAULT 1;
-            "#,
-        )
-        .expect("additive recovery schema");
     let session = session_record(
         "session-sequences",
         SessionLifecycle::Idle,

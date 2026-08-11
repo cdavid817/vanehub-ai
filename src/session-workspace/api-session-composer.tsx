@@ -3,6 +3,7 @@ import type { MainLayoutModel } from "../main-layout/use-main-layout-model";
 import { useSessionRoles } from "../hooks/use-session-speakers";
 import { activeSeatsFromSession } from "../services/session-seats";
 import { seatMentionOptions } from "../services/seat-mention-options";
+import { canSendToSession } from "../services/session-admission";
 
 export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
   const isMultiSeat = Boolean(model.activeSession && activeSeatsFromSession(model.activeSession).length > 1);
@@ -15,7 +16,7 @@ export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
       availableModels={model.chatConfig.availableModels}
       availableReasoning={model.chatConfig.availableReasoning}
       config={model.chatConfig.config}
-      disabled={!model.activeSession || model.activeSession.archived || model.isSending}
+      disabled={!canSendToSession(model.activeSession) || model.isSending}
       fileReferenceCandidates={model.fileReferenceCandidates}
       fileReferences={model.fileReferences}
       isStreaming={model.isStreaming}

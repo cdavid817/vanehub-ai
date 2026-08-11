@@ -43,7 +43,10 @@ impl SqliteExecutionTimelineRepository {
                     |row| row.get::<_, Option<f64>>(0),
                 )
                 .map_err(|error| storage_error(error.to_string()))?
-                .unwrap_or_default();
+                // NULL means `last_run` is not a parseable date (corrupt/legacy row). Treat it
+                // as "long overdue" rather than 0 days, otherwise a bad `last_retention_at`
+                // would permanently suppress retention and let stale runs accumulate forever.
+                .unwrap_or(f64::MAX);
             if elapsed_days < MAINTENANCE_INTERVAL_DAYS {
                 return Ok(RetentionOutcome {
                     ran: false,

@@ -1,17 +1,21 @@
 use crate::contexts::agent_runtime::application::{
     AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
     AgentSession, AgentSessionGateway, AgentUsageAccountingKind, AgentUsageRecord,
-    CompleteAgentMessage, ConversationHistoryPort, LoopRoleSessionPort, LoopRoleSessionRequest,
-    MessageTokenUsage, NewAgentMessage, ToolUseBlock,
+    CompleteAgentMessage, ConversationHistoryPort, DurableAgentGenerationMessages,
+    DurableAgentGenerationStart, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
+    LoopRoleSessionPort, LoopRoleSessionRequest, LoopSessionRecoveryPort, MessageTokenUsage,
+    NewAgentMessage, ToolUseBlock,
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use crate::contexts::sessions::api::{
-    ChatConfigurationValues, CompleteMessageRequest, CreateMessageRequest, FailMessageRequest,
-    FileReferenceInput, LoopRoleSessionRequest as SessionLoopRoleRequest, LoopSessionRole,
-    MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord, RuntimeMessageSnapshot,
-    SessionChatConfiguration, SessionLifecycle, SessionUsageAccountingKind, SessionUsageUnit,
-    SessionsApi, SessionsError,
+    ChatConfigurationValues, CompleteMessageRequest, CreateMessageRequest,
+    DurableGenerationStartRequest, DurableGenerationTerminalRequest, FailMessageRequest,
+    FileReferenceInput, GenerationTerminalStatus, LoopRoleSessionRequest as SessionLoopRoleRequest,
+    LoopSessionRole, MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord,
+    RuntimeMessageSnapshot, SessionChatConfiguration, SessionLifecycle, SessionUsageAccountingKind,
+    SessionUsageUnit, SessionsApi, SessionsError,
 };
+use crate::contexts::sessions::domain::recovery::RecoveryDecision;
 use serde_json::{json, Value};
 
 #[derive(Clone)]
@@ -22,6 +26,38 @@ pub(crate) struct SessionsAgentRuntimeAdapter {
 impl SessionsAgentRuntimeAdapter {
     pub(crate) fn new(sessions: SessionsApi) -> Self {
         Self { sessions }
+    }
+}
+
+impl LoopSessionRecoveryPort for SessionsAgentRuntimeAdapter {
+    fn recovery_projection(
+        &self,
+        session_id: &str,
+    ) -> Result<LoopChildRecoveryProjection, AgentRuntimeApplicationError> {
+        let projection = self
+            .sessions
+            .recovery_projection(session_id, None)
+            .map_err(session_error)?;
+        let decision = match projection.decision {
+            Some(RecoveryDecision::Completed) => LoopChildRecoveryDecision::Completed,
+            Some(RecoveryDecision::Failed | RecoveryDecision::InterruptedWithoutToolAmbiguity) => {
+                LoopChildRecoveryDecision::Failed
+            }
+            Some(RecoveryDecision::Cancelled) => LoopChildRecoveryDecision::Cancelled,
+            Some(
+                RecoveryDecision::ActionRequired
+                | RecoveryDecision::Quarantined
+                | RecoveryDecision::RetryLater
+                | RecoveryDecision::Acknowledged,
+            )
+            | None => LoopChildRecoveryDecision::Ambiguous,
+        };
+        Ok(LoopChildRecoveryProjection {
+            session_id: projection.session_id,
+            execution_run_id: projection.execution_run_id,
+            recovery_revision: projection.recovery_revision,
+            decision,
+        })
     }
 }
 
@@ -222,6 +258,32 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             .map_err(session_error)
     }
 
+    fn start_generation(
+        &self,
+        request: DurableAgentGenerationStart,
+    ) -> Result<DurableAgentGenerationMessages, AgentRuntimeApplicationError> {
+        self.sessions
+            .start_generation(DurableGenerationStartRequest {
+                session_id: request.session_id,
+                execution_run_id: request.execution_run_id,
+                seat_round_id: request.seat_round_id,
+                parent_execution_run_id: request.parent_execution_run_id,
+                user_message: request.user_message.map(create_message_request),
+                assistant_message: create_message_request(request.assistant_message),
+            })
+            .map(|started| DurableAgentGenerationMessages {
+                user_message: started
+                    .user_message
+                    .as_ref()
+                    .map(RuntimeMessageSnapshot::from_record)
+                    .map(agent_message),
+                assistant_message: agent_message(RuntimeMessageSnapshot::from_record(
+                    &started.assistant_message,
+                )),
+            })
+            .map_err(session_error)
+    }
+
     fn find_message(
         &self,
         message_id: &str,
@@ -289,6 +351,32 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         let tool_use = (!message.tool_use.is_empty())
             .then(|| message.tool_use.iter().map(tool_use_value).collect());
         let rich_blocks = (!message.rich_blocks.is_empty()).then_some(message.rich_blocks);
+        let current = self
+            .sessions
+            .runtime_message(&message.message_id)
+            .map_err(session_error)?;
+        if let Some(execution_run_id) = current
+            .as_ref()
+            .and_then(|record| record.execution_run_id.clone())
+        {
+            return self
+                .sessions
+                .terminalize_generation(DurableGenerationTerminalRequest {
+                    session_id: message.session_id,
+                    message_id: message.message_id,
+                    execution_run_id,
+                    terminal_status: GenerationTerminalStatus::Completed,
+                    content: message.content,
+                    thinking_content: message.thinking_content,
+                    tool_use,
+                    rich_blocks,
+                    token_usage: message.token_usage.map(session_token_usage),
+                    usage: message.usage.map(session_usage),
+                    error: None,
+                })
+                .map(|result| agent_message(RuntimeMessageSnapshot::from_record(&result.message)))
+                .map_err(session_error);
+        }
         self.sessions
             .complete_message(CompleteMessageRequest {
                 message_id: message.message_id,
@@ -310,6 +398,34 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         session_id: &str,
         error: &str,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
+        if let Some(current) = self
+            .sessions
+            .runtime_message(message_id)
+            .map_err(session_error)?
+        {
+            if let Some(execution_run_id) = current.execution_run_id {
+                return self
+                    .sessions
+                    .terminalize_generation(DurableGenerationTerminalRequest {
+                        session_id: session_id.to_string(),
+                        message_id: message_id.to_string(),
+                        execution_run_id,
+                        terminal_status: GenerationTerminalStatus::Failed,
+                        content: current.content,
+                        thinking_content: current.thinking_content,
+                        tool_use: (!current.tool_use.is_empty()).then_some(current.tool_use),
+                        rich_blocks: (!current.rich_blocks.is_empty())
+                            .then_some(current.rich_blocks),
+                        token_usage: current.token_usage,
+                        usage: None,
+                        error: Some(error.to_string()),
+                    })
+                    .map(|result| {
+                        agent_message(RuntimeMessageSnapshot::from_record(&result.message))
+                    })
+                    .map_err(session_error);
+            }
+        }
         self.sessions
             .fail_message(FailMessageRequest {
                 message_id: message_id.to_string(),
@@ -324,6 +440,38 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         &self,
         session_id: &str,
     ) -> Result<Vec<String>, AgentRuntimeApplicationError> {
+        let messages = self
+            .sessions
+            .list_messages(session_id, Some(200), None)
+            .map_err(session_error)?;
+        if let Some(current) = messages.iter().rev().find(|record| {
+            record.message.status().as_str() == "streaming"
+                && record.message.execution_run_id().is_some()
+        }) {
+            let Some(execution_run_id) = current.message.execution_run_id().map(str::to_string)
+            else {
+                return Err(AgentRuntimeApplicationError::Generation(
+                    "correlated streaming message lost its execution run".to_string(),
+                ));
+            };
+            let message_id = current.message.id().as_str().to_string();
+            self.sessions
+                .terminalize_generation(DurableGenerationTerminalRequest {
+                    session_id: session_id.to_string(),
+                    message_id: message_id.clone(),
+                    execution_run_id,
+                    terminal_status: GenerationTerminalStatus::Cancelled,
+                    content: current.content.clone(),
+                    thinking_content: current.thinking_content.clone(),
+                    tool_use: current.tool_use.clone(),
+                    rich_blocks: current.rich_blocks.clone(),
+                    token_usage: current.token_usage.clone(),
+                    usage: None,
+                    error: None,
+                })
+                .map_err(session_error)?;
+            return Ok(vec![message_id]);
+        }
         self.sessions
             .cancel_streaming_messages(session_id)
             .map_err(session_error)
@@ -413,6 +561,24 @@ fn agent_message(message: RuntimeMessageSnapshot) -> AgentMessage {
         error: message.error,
         created_at: message.created_at,
         updated_at: message.updated_at,
+        session_sequence: message.session_sequence,
+        execution_run_id: message.execution_run_id,
+    }
+}
+
+fn create_message_request(message: NewAgentMessage) -> CreateMessageRequest {
+    CreateMessageRequest {
+        session_id: message.session_id,
+        speaker_seat_id: message.speaker_seat_id,
+        seat_index: message.seat_index,
+        role: message.role,
+        status: message.status,
+        content: message.content,
+        file_references: message
+            .file_references
+            .iter()
+            .map(file_reference_input)
+            .collect(),
     }
 }
 
@@ -514,7 +680,13 @@ fn session_error(error: SessionsError) -> AgentRuntimeApplicationError {
                 "Session participants changed since they were loaded: {session_id}"
             ))
         }
+        error @ (SessionsError::RecoveryRevisionConflict { .. }
+        | SessionsError::RecoveryActionNotAllowed { .. }) => {
+            AgentRuntimeApplicationError::Session(error.to_string())
+        }
         SessionsError::Repository(message)
+        | SessionsError::RetryableStorage(message)
+        | SessionsError::StructuralRecoveryEvidence(message)
         | SessionsError::Transaction(message)
         | SessionsError::FileContent(message)
         | SessionsError::Operation(message)

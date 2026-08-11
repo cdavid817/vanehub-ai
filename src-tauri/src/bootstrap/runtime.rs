@@ -112,7 +112,16 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .map(|view| view.settings.application_language().as_str().to_string())
         .unwrap_or_else(|| "zh-CN".to_string());
 
-    let operations_api = super::assemble_operations_api();
+    let operations_api = super::assemble_operations_api(database.clone());
+    let code_intelligence_api =
+        super::assemble_code_intelligence_api(database.clone(), fallback_log_directory.clone());
+    code_intelligence_api.start_maintenance();
+    let code_intelligence_responder = Arc::new(super::NativeCodeIntelligenceResponder::new(
+        code_intelligence_api.clone(),
+    ));
+    let workspace_mutations = Arc::new(super::WorkspaceMutationFanout::new(
+        code_intelligence_api.clone(),
+    ));
     let cli_parameters_api =
         super::assemble_cli_parameters_api(database.clone(), fallback_log_directory.clone());
     let cli_config_api =
@@ -159,10 +168,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let native_config_reader = Arc::new(NativeConfigReader::new(Arc::new(
         UnifiedLoggingAdapter::active(fallback_log_directory.clone()),
     )));
-    let (sessions_api, session_runtime_adapter) = super::assemble_sessions_api(
+    let (sessions_api, session_runtime_adapter, session_recovery) = super::assemble_sessions_api(
         database.clone(),
-        operations_api.clone(),
-        workspace_api.clone(),
+        super::SessionRuntimeDependencies {
+            app: app.handle().clone(),
+            operations: operations_api.clone(),
+            workspaces: workspace_api.clone(),
+        },
         cli_parameters_api.clone(),
         native_config_reader,
         shared_agent_registry.registry.clone(),
@@ -194,17 +206,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         permissions: permissions_api.clone(),
         shared_registry: shared_agent_registry,
         retrieval: deferred_retrieval.clone(),
+        code_intelligence: code_intelligence_responder,
+        workspace_mutations: workspace_mutations.clone(),
         desktop_settings: desktop_settings_api.clone(),
     })
-    .map_err(boxed_message)?;
-    let task_orchestration_api = super::assemble_task_orchestration_api(
-        database.clone(),
-        sessions_api.clone(),
-        agent_runtime_api.clone(),
-        workspace_api.clone(),
-        operations_api.clone(),
-        fallback_log_directory.clone(),
-    )
     .map_err(boxed_message)?;
     super::start_permission_timeout_sweep_job(permissions_api.clone(), agent_runtime_api.clone());
     let execution_observability_api = super::assemble_execution_observability_api(database.clone());
@@ -221,13 +226,27 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     );
     deferred_retrieval.bind(retrieval_api.clone());
     deferred_retrieval.bind_code(code_retrieval);
-    agent_runtime_api
-        .reconcile_loop_startup()
+    workspace_mutations
+        .bind_code_index(code_index_api.clone())
         .map_err(boxed_message)?;
     session_runtime_adapter
         .attach_agent_runtime(agent_runtime_api.clone())
         .map_err(boxed_message)?;
-
+    session_recovery
+        .run_startup_with_retry(100)
+        .map_err(boxed_message)?;
+    let task_orchestration_api = super::assemble_task_orchestration_api(
+        database.clone(),
+        sessions_api.clone(),
+        agent_runtime_api.clone(),
+        workspace_api.clone(),
+        operations_api.clone(),
+        fallback_log_directory.clone(),
+    )
+    .map_err(boxed_message)?;
+    agent_runtime_api
+        .reconcile_loop_startup()
+        .map_err(boxed_message)?;
     let scheduled_task_database = database.clone();
     let execution_retention_database = database.clone();
     let communications_maintenance_database = database.clone();
@@ -251,6 +270,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let wechat_authorization_api = communications.wechat_authorization;
 
     app.manage(operations_api);
+    app.manage(code_intelligence_api.clone());
     app.manage(cli_api.clone());
     app.manage(cli_config_api);
     app.manage(cli_parameters_api);
@@ -297,6 +317,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         &tray_language,
         agent_runtime_api.clone(),
         communications_api.clone(),
+        code_intelligence_api,
         desktop_locale_bridge,
         fallback_log_directory.clone(),
     )

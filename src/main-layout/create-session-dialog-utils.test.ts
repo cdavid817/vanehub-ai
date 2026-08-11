@@ -261,6 +261,11 @@ describe("resolveCreatedSession", () => {
     source: { kind: "desktop", connector: null },
     pinned: false,
     archived: false,
+    recoveryStatus: "clean",
+    recoveryRevision: 0,
+    stateRevision: 0,
+    historyRevision: 0,
+    activeExecutionRunId: null,
     createdAt: "2026-08-10T00:00:00Z",
     updatedAt: "2026-08-10T00:00:00Z",
   } satisfies Session;

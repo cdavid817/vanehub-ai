@@ -1,4 +1,11 @@
-import type { ChatFileReference, ChatMessage } from "../types/chat";
+import type { ChatConfig, ChatFileReference, ChatMessage } from "../types/chat";
+
+export interface SendMessageMutationInput {
+  config: ChatConfig;
+  content: string;
+  fileReferences: ChatFileReference[];
+  sessionId: string;
+}
 
 export function createOptimisticUserMessage({
   content,
@@ -21,8 +28,10 @@ export function createOptimisticUserMessage({
     id,
     role: "user",
     sessionId,
+    sessionSequence: 0,
     status: "completed",
     updatedAt: timestamp,
+    executionRunId: null,
   };
 }
 

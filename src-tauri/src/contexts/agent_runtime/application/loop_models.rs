@@ -4,6 +4,28 @@ use crate::contexts::agent_runtime::domain::{
 };
 use serde_json::Value;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopChildRecoveryDecision {
+    Completed,
+    Failed,
+    Cancelled,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopChildRecoveryProjection {
+    pub(crate) session_id: String,
+    pub(crate) execution_run_id: Option<String>,
+    pub(crate) recovery_revision: u64,
+    pub(crate) decision: LoopChildRecoveryDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopOwnedRecoverySession {
+    pub(crate) iteration_id: String,
+    pub(crate) session_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoopVerificationCommandView {
     pub(crate) id: String,

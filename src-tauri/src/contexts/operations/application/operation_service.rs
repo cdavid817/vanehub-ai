@@ -1,5 +1,7 @@
 use super::ApplicationError;
-use crate::contexts::operations::domain::{OperationKind, OperationTask};
+use crate::contexts::operations::domain::{
+    OperationKind, OperationRecoveryEvidence, OperationTask,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +20,24 @@ pub(crate) trait OperationRepository: Send + Sync {
     fn get(&self, operation_id: &str) -> Result<OperationTask, ApplicationError>;
 
     fn list(&self) -> Result<Vec<OperationTask>, ApplicationError>;
+
+    fn list_recovery_evidence(
+        &self,
+        execution_run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<OperationRecoveryEvidence>, ApplicationError> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|operation| operation.execution_run_id.as_deref() == Some(execution_run_id))
+            .take(limit)
+            .map(|operation| OperationRecoveryEvidence {
+                operation_id: operation.id,
+                execution_run_id: execution_run_id.to_string(),
+                status: operation.status,
+            })
+            .collect())
+    }
 }
 
 pub(crate) trait OperationClock: Send + Sync {
@@ -160,6 +180,15 @@ impl OperationService {
 
     pub(crate) fn list(&self) -> Result<Vec<OperationTask>, ApplicationError> {
         self.repository.list()
+    }
+
+    pub(crate) fn list_recovery_evidence(
+        &self,
+        execution_run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<OperationRecoveryEvidence>, ApplicationError> {
+        self.repository
+            .list_recovery_evidence(execution_run_id, limit)
     }
 
     fn remove_cancellation(&self, operation_id: &str) -> Result<(), ApplicationError> {

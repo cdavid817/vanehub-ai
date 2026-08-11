@@ -6,9 +6,37 @@ use crate::contexts::sessions::api::{
     CategoryRecord, ChatConfigurationValues, MessageRecord, NewRemoteWorkspace, NewSessionRequest,
     NewSessionWorkspace, NewWorktree, SessionActivation, SessionChatConfiguration,
     SessionCreationOperation, SessionExportFormat, SessionExportResult, SessionLifecycle,
-    SessionOwner, SessionRecord, SessionSearchMatchKind, SessionSearchResult, SessionSeat,
-    SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsError, UsageStatisticsRange,
+    SessionOwner, SessionRecord, SessionRecoveryReport as DomainSessionRecoveryReport,
+    SessionRecoveryStatus, SessionRecoverySummary, SessionSearchMatchKind, SessionSearchResult,
+    SessionSeat, SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsError,
+    UsageStatisticsRange,
 };
+
+pub(super) fn recovery_report_to_dto(
+    report: &DomainSessionRecoveryReport,
+) -> dto::SessionRecoveryReport {
+    dto::SessionRecoveryReport {
+        report_id: report.report_id().to_string(),
+        session_id: report.session_id().to_string(),
+        recovery_revision: report.recovery_revision(),
+        trigger: report.trigger(),
+        observed_lifecycle: report.observed_lifecycle().to_string(),
+        observed_execution_run_id: report.observed_execution_run_id().map(str::to_string),
+        decision: report.decision(),
+        reason_codes: report.reason_codes().to_vec(),
+        evidence_refs: report.evidence_refs().to_vec(),
+        created_at: report.created_at().to_string(),
+    }
+}
+
+pub(super) fn recovery_summary_to_dto(
+    summary: SessionRecoverySummary,
+) -> Result<dto::SessionRecoverySummary, SessionsError> {
+    Ok(dto::SessionRecoverySummary {
+        session: session_to_dto(summary.session)?,
+        latest_report: summary.latest_report.as_ref().map(recovery_report_to_dto),
+    })
+}
 
 pub(super) fn creation_request(input: dto::CreateSessionInput) -> NewSessionRequest {
     NewSessionRequest {
@@ -84,6 +112,15 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
             .collect(),
         interaction_mode: interaction_mode(&session.interaction_mode)?,
         lifecycle_state: lifecycle_state(session.aggregate.lifecycle()),
+        recovery_status: recovery_status(session.aggregate.recovery().status()),
+        recovery_revision: session.aggregate.recovery().recovery_revision(),
+        state_revision: session.aggregate.recovery().state_revision(),
+        history_revision: session.aggregate.recovery().history_revision(),
+        active_execution_run_id: session
+            .aggregate
+            .recovery()
+            .active_execution_run_id()
+            .map(str::to_string),
         folder: session.workspace.folder,
         project_path: session.workspace.project_path,
         worktree_path: session.workspace.worktree_path,
@@ -253,6 +290,8 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
         error: record.error,
         created_at: record.created_at,
         updated_at: record.updated_at,
+        session_sequence: record.message.session_sequence(),
+        execution_run_id: record.message.execution_run_id().map(str::to_string),
     }
 }
 
@@ -441,6 +480,15 @@ fn lifecycle_state(value: SessionLifecycle) -> dto::SessionLifecycleState {
     }
 }
 
+fn recovery_status(value: SessionRecoveryStatus) -> dto::SessionRecoveryStatus {
+    match value {
+        SessionRecoveryStatus::Clean => dto::SessionRecoveryStatus::Clean,
+        SessionRecoveryStatus::Reconciling => dto::SessionRecoveryStatus::Reconciling,
+        SessionRecoveryStatus::ActionRequired => dto::SessionRecoveryStatus::ActionRequired,
+        SessionRecoveryStatus::Quarantined => dto::SessionRecoveryStatus::Quarantined,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,6 +597,8 @@ mod tests {
             ),
             speaker_seat_id: None,
             seat_index: None,
+            seat_round_id: None,
+            parent_execution_run_id: None,
             content: "done".to_string(),
             thinking_content: Some("reasoning".to_string()),
             tool_use: Some(vec![serde_json::json!({

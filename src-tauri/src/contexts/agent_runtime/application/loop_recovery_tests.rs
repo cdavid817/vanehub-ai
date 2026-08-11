@@ -2,7 +2,7 @@ use super::*;
 use crate::contexts::agent_runtime::domain::{
     LoopDefinition, LoopRun, LoopRunStatus, LoopTerminalReason,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 struct RecoveryWorld {
@@ -11,6 +11,9 @@ struct RecoveryWorld {
     evidence: Mutex<Vec<LoopEvidenceView>>,
     operations: Mutex<Vec<LoopOperationContext>>,
     logs: Mutex<Vec<LoopLog>>,
+    owned_sessions: Mutex<BTreeMap<String, Vec<LoopOwnedRecoverySession>>>,
+    projections: Mutex<BTreeMap<String, LoopChildRecoveryProjection>>,
+    projection_reads: Mutex<Vec<String>>,
 }
 
 impl RecoveryWorld {
@@ -21,6 +24,9 @@ impl RecoveryWorld {
             evidence: Mutex::new(Vec::new()),
             operations: Mutex::new(Vec::new()),
             logs: Mutex::new(Vec::new()),
+            owned_sessions: Mutex::new(BTreeMap::new()),
+            projections: Mutex::new(BTreeMap::new()),
+            projection_reads: Mutex::new(Vec::new()),
         })
     }
 
@@ -28,6 +34,7 @@ impl RecoveryWorld {
         LoopRecoveryApplicationService::new(LoopRecoveryApplicationPorts {
             loops: self.clone(),
             leases: self.clone(),
+            sessions: self.clone(),
             observer: LoopOperationObserver::new(self.clone(), self.clone(), self.clone()),
             clock: self.clone(),
         })
@@ -77,6 +84,18 @@ impl LoopRepository for RecoveryWorld {
             .iter()
             .find(|run| run.id() == run_id)
             .cloned())
+    }
+    fn recovery_owned_sessions(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<LoopOwnedRecoverySession>, AgentRuntimeApplicationError> {
+        Ok(self
+            .owned_sessions
+            .lock()
+            .expect("owned sessions")
+            .get(run_id)
+            .cloned()
+            .unwrap_or_default())
     }
     fn attach_run_operation(
         &self,
@@ -152,6 +171,26 @@ impl LoopRepository for RecoveryWorld {
 impl LoopExecutionLeasePort for RecoveryWorld {
     fn has_live_lease(&self, run_id: &str) -> Result<bool, AgentRuntimeApplicationError> {
         Ok(self.live_leases.contains(run_id))
+    }
+}
+
+impl LoopSessionRecoveryPort for RecoveryWorld {
+    fn recovery_projection(
+        &self,
+        session_id: &str,
+    ) -> Result<LoopChildRecoveryProjection, AgentRuntimeApplicationError> {
+        self.projection_reads
+            .lock()
+            .expect("projection reads")
+            .push(session_id.to_string());
+        self.projections
+            .lock()
+            .expect("projections")
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| {
+                AgentRuntimeApplicationError::Loop("missing session projection".to_string())
+            })
     }
 }
 
@@ -256,4 +295,96 @@ fn startup_recovery_pauses_only_runs_without_live_leases() {
             .status(),
         LoopRunStatus::Queued
     );
+}
+
+#[test]
+fn startup_recovery_projects_conclusive_child_failure_to_owning_iteration() {
+    let world = RecoveryWorld::new(vec![queued("failed-child")], &[]);
+    world.owned_sessions.lock().expect("owned sessions").insert(
+        "failed-child".to_string(),
+        vec![LoopOwnedRecoverySession {
+            iteration_id: "iteration-failed-child".to_string(),
+            session_id: "worker-failed-child".to_string(),
+        }],
+    );
+    world.projections.lock().expect("projections").insert(
+        "worker-failed-child".to_string(),
+        LoopChildRecoveryProjection {
+            session_id: "worker-failed-child".to_string(),
+            execution_run_id: Some("execution-failed-child".to_string()),
+            recovery_revision: 3,
+            decision: LoopChildRecoveryDecision::Failed,
+        },
+    );
+
+    let recovered = world.service().reconcile_startup().expect("reconcile");
+    let repeated = world
+        .service()
+        .reconcile_startup()
+        .expect("repeat reconcile");
+    let evidence = world.evidence.lock().expect("evidence");
+
+    assert_eq!(recovered[0].status(), LoopRunStatus::Failed);
+    assert_eq!(
+        evidence[0].iteration_id.as_deref(),
+        Some("iteration-failed-child")
+    );
+    assert_eq!(evidence[0].status, "failed");
+    assert!(repeated.is_empty());
+    assert_eq!(
+        *world.projection_reads.lock().expect("projection reads"),
+        vec!["worker-failed-child".to_string()]
+    );
+    assert_eq!(
+        evidence[0].details.as_ref().expect("details")["sessions"][0]["executionRunId"],
+        "execution-failed-child"
+    );
+}
+
+#[test]
+fn startup_recovery_keeps_conflicting_child_projections_behind_pause_gate() {
+    let world = RecoveryWorld::new(vec![queued("conflicting-child")], &[]);
+    world.owned_sessions.lock().expect("owned sessions").insert(
+        "conflicting-child".to_string(),
+        vec![
+            LoopOwnedRecoverySession {
+                iteration_id: "iteration-conflicting-child".to_string(),
+                session_id: "worker-completed".to_string(),
+            },
+            LoopOwnedRecoverySession {
+                iteration_id: "iteration-conflicting-child".to_string(),
+                session_id: "verifier-failed".to_string(),
+            },
+        ],
+    );
+    let mut projections = world.projections.lock().expect("projections");
+    projections.insert(
+        "worker-completed".to_string(),
+        LoopChildRecoveryProjection {
+            session_id: "worker-completed".to_string(),
+            execution_run_id: Some("execution-worker".to_string()),
+            recovery_revision: 1,
+            decision: LoopChildRecoveryDecision::Completed,
+        },
+    );
+    projections.insert(
+        "verifier-failed".to_string(),
+        LoopChildRecoveryProjection {
+            session_id: "verifier-failed".to_string(),
+            execution_run_id: Some("execution-verifier".to_string()),
+            recovery_revision: 2,
+            decision: LoopChildRecoveryDecision::Failed,
+        },
+    );
+    drop(projections);
+
+    let recovered = world.service().reconcile_startup().expect("reconcile");
+    let evidence = world.evidence.lock().expect("evidence");
+
+    assert_eq!(recovered[0].status(), LoopRunStatus::Paused);
+    assert_eq!(
+        recovered[0].terminal_reason(),
+        Some(LoopTerminalReason::RecoveryRequired)
+    );
+    assert_eq!(evidence[0].status, "blocked");
 }

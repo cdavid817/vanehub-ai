@@ -4,6 +4,12 @@ mod api_process_adapter;
 mod availability;
 mod builtin_expert_roles;
 mod cli_profile;
+mod code_intelligence_adapter;
+#[cfg(test)]
+mod code_intelligence_adapter_tests;
+mod code_intelligence_tool_output;
+#[cfg(test)]
+mod code_intelligence_tool_output_tests;
 mod composite_process_gateway;
 mod core_instructions;
 mod credential_aware_registry;
@@ -52,6 +58,9 @@ pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;
 pub(crate) use builtin_expert_roles::builtin_expert_roles;
 pub(crate) use cli_profile::RuntimeAgentCliProfileAdapter;
+pub(crate) use code_intelligence_adapter::{
+    RuntimeAgentCodeIntelligenceAdapter, UnavailableAgentCodeIntelligenceResponder,
+};
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;

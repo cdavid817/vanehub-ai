@@ -60,9 +60,10 @@ test.describe("OnePiece native Agent", () => {
     await dialog.getByRole("button", { name: "创建", exact: true }).click();
 
     const conversationHeader = page.getByTestId("session-conversation-header");
-    await expect(conversationHeader.getByText("OnePiece", { exact: true })).toBeVisible();
-    await expect(conversationHeader.getByText("onepiece", { exact: true })).toBeVisible();
+    await expect(conversationHeader.getByText("OnePiece", { exact: true })).toHaveCount(0);
+    await expect(conversationHeader.getByText("onepiece", { exact: true })).toHaveCount(0);
     await expect(conversationHeader.getByText("api", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("info-pane-basic").getByText("OnePiece", { exact: true }).first()).toBeVisible();
     await expect(page.getByPlaceholder("输入指令，下发任务给当前 Agent...")).toBeVisible();
     await expect(page.getByLabel("Agent CLI 工作区")).toHaveCount(0);
   });

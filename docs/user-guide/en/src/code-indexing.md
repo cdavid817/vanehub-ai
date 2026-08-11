@@ -24,3 +24,9 @@ Confirmation is bound to the workspace generation, provider profile, and model. 
 Disabling an index retains its configuration and stored index for reuse. **Rebuild** removes that workspace's file manifests, chunks, symbols, and vectors, then scans it again. **Delete** permanently removes its configuration, index data, and local audit records without changing other workspace indexes or agent memories.
 
 Closing a workspace does not delete its index. If its root is moved or unavailable, the status shows **Root unavailable**; register the new path and rebuild rather than assuming the old identity follows the folder.
+
+## Tree-sitter index and live LSP
+
+The persistent Tree-sitter index powers the `search_code` tool for structural, keyword, and optional semantic retrieval. It does not provide compiler-aware types, references, or current diagnostics. Live LSP code intelligence is an independent desktop capability that starts a trusted language server and exposes position-based semantic tools. You may enable either capability without enabling the other.
+
+See [Use live LSP code intelligence](lsp-code-intelligence.md) for supported servers, setup, trust, and troubleshooting.

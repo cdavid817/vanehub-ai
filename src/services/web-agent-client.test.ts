@@ -3,7 +3,9 @@ import {
   resetWebAgentMemoriesForTest,
   resetWebLoopsForTest,
   resetWebRetrievalForTest,
+  resetWebRecoverySessionsForTest,
   seedWebImSessionForTest,
+  seedWebRecoverySessionForTest,
   simulateWebLoopRestartForTest,
   webAgentClient,
 } from "./web-agent-client";
@@ -22,6 +24,7 @@ afterEach(() => {
   resetWebLoopsForTest();
   resetWebRetrievalForTest();
   resetWebAgentMemoriesForTest();
+  resetWebRecoverySessionsForTest();
   vi.useRealTimers();
 });
 
@@ -825,6 +828,42 @@ describe("webAgentClient", () => {
     await expect(webAgentClient.sendMessage({ sessionId: session.id, content: "second", config }))
       .rejects.toThrow("already active");
     await webAgentClient.stopGeneration(session.id);
+  });
+
+  it("presents deterministic recovery, rejects stale acknowledgement, and releases only the gate", async () => {
+    const session = seedWebRecoverySessionForTest("action_required");
+    const events: string[] = [];
+    const unsubscribe = await webAgentClient.subscribeSessionEvents((event) => events.push(event.kind));
+    const summary = await webAgentClient.getSessionRecoverySummary(session.id);
+
+    expect(summary.session.recoveryStatus).toBe("action_required");
+    expect(summary.latestReport?.decision).toBe("action_required");
+    expect(await webAgentClient.listSessionRecoveryReports(session.id, 1)).toHaveLength(1);
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    await expect(webAgentClient.sendMessage({ sessionId: session.id, content: "blocked", config }))
+      .rejects.toThrow("blocks new messages");
+    await expect(webAgentClient.acknowledgeSessionRecovery(session.id, 0))
+      .rejects.toThrow("current revision is 1");
+
+    const acknowledged = await webAgentClient.acknowledgeSessionRecovery(session.id, 1);
+    expect(acknowledged.session).toMatchObject({
+      lifecycleState: "failed",
+      recoveryStatus: "clean",
+      recoveryRevision: 2,
+      activeExecutionRunId: null,
+    });
+    expect(acknowledged.report.decision).toBe("acknowledged");
+    expect(events).toEqual(["recovery-acknowledged"]);
+    expect(await webAgentClient.listSessionRecoveryReports(session.id)).toHaveLength(2);
+    unsubscribe();
+  });
+
+  it("keeps quarantined Web recovery read-only", async () => {
+    const session = seedWebRecoverySessionForTest("quarantined");
+    const summary = await webAgentClient.getSessionRecoverySummary(session.id);
+    expect(summary.latestReport?.decision).toBe("quarantined");
+    await expect(webAgentClient.acknowledgeSessionRecovery(session.id, 1))
+      .rejects.toThrow("not allowed for quarantined");
   });
 
   it("aggregates mock usage statistics from completed assistant messages", async () => {

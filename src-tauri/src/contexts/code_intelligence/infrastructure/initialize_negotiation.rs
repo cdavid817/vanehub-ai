@@ -1,0 +1,175 @@
+use super::json_rpc_actor::{JsonRpcClient, JsonRpcError};
+use crate::contexts::code_intelligence::domain::models::{
+    DocumentSyncMode, NegotiatedCapabilities, PositionEncoding, SemanticMethod,
+};
+use lsp_types::{
+    HoverProviderCapability, InitializeResult, OneOf, PositionEncodingKind,
+    TextDocumentSyncCapability, TextDocumentSyncKind,
+};
+use serde_json::{json, Value};
+use thiserror::Error;
+
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InitializeNegotiationError {
+    #[error("initialize transport failed")]
+    Transport(#[from] JsonRpcError),
+    #[error("initialize result is malformed")]
+    MalformedResult,
+    #[error("server selected an unsupported position encoding")]
+    UnsupportedPositionEncoding,
+    #[error("server selected an unsupported synchronization mode")]
+    UnsupportedSynchronization,
+}
+
+pub(crate) async fn initialize_and_notify(
+    client: &JsonRpcClient,
+    params: Value,
+) -> Result<NegotiatedCapabilities, InitializeNegotiationError> {
+    let result: Value = client.request("initialize", params).await?;
+    let negotiated = negotiate_initialize_result(result)?;
+    client.notify("initialized", json!({})).await?;
+    Ok(negotiated)
+}
+
+pub(crate) fn build_initialize_params(
+    canonical_root_uri: &str,
+    initialization_options: Value,
+    process_id: Option<u32>,
+) -> Value {
+    json!({
+        "processId": process_id,
+        "clientInfo": {"name": "VaneHub AI", "version": env!("CARGO_PKG_VERSION")},
+        "rootUri": canonical_root_uri,
+        "workspaceFolders": [{"uri": canonical_root_uri, "name": "workspace"}],
+        "capabilities": {
+            "general": {"positionEncodings": ["utf-8", "utf-16"]},
+            "window": {"workDoneProgress": true},
+            "workspace": {
+                "configuration": true,
+                "didChangeConfiguration": {"dynamicRegistration": true},
+                "workspaceFolders": true
+            },
+            "textDocument": {
+                "synchronization": {
+                    "dynamicRegistration": true,
+                    "willSave": false,
+                    "willSaveWaitUntil": false,
+                    "didSave": true
+                },
+                "definition": {"dynamicRegistration": true, "linkSupport": true},
+                "references": {"dynamicRegistration": true},
+                "hover": {
+                    "dynamicRegistration": true,
+                    "contentFormat": ["markdown", "plaintext"]
+                },
+                "publishDiagnostics": {
+                    "relatedInformation": true,
+                    "versionSupport": true
+                }
+            }
+        },
+        "initializationOptions": initialization_options
+    })
+}
+
+pub(crate) fn negotiate_initialize_result(
+    value: Value,
+) -> Result<NegotiatedCapabilities, InitializeNegotiationError> {
+    let result: InitializeResult =
+        serde_json::from_value(value).map_err(|_| InitializeNegotiationError::MalformedResult)?;
+    let capabilities = result.capabilities;
+    let position_encoding = match capabilities.position_encoding {
+        None => PositionEncoding::Utf16,
+        Some(encoding) if encoding == PositionEncodingKind::UTF8 => PositionEncoding::Utf8,
+        Some(encoding) if encoding == PositionEncodingKind::UTF16 => PositionEncoding::Utf16,
+        Some(_) => return Err(InitializeNegotiationError::UnsupportedPositionEncoding),
+    };
+    let document_sync = normalize_sync(capabilities.text_document_sync)?;
+    Ok(NegotiatedCapabilities {
+        position_encoding,
+        document_sync,
+        definition: one_of_enabled(capabilities.definition_provider),
+        references: one_of_enabled(capabilities.references_provider),
+        hover: hover_enabled(capabilities.hover_provider),
+        diagnostics: true,
+    })
+}
+
+fn normalize_sync(
+    capability: Option<TextDocumentSyncCapability>,
+) -> Result<DocumentSyncMode, InitializeNegotiationError> {
+    let kind = match capability {
+        None => TextDocumentSyncKind::NONE,
+        Some(TextDocumentSyncCapability::Kind(kind)) => kind,
+        Some(TextDocumentSyncCapability::Options(options)) => {
+            options.change.unwrap_or(TextDocumentSyncKind::NONE)
+        }
+    };
+    if kind == TextDocumentSyncKind::NONE {
+        Ok(DocumentSyncMode::None)
+    } else if kind == TextDocumentSyncKind::FULL {
+        Ok(DocumentSyncMode::Full)
+    } else if kind == TextDocumentSyncKind::INCREMENTAL {
+        Ok(DocumentSyncMode::Incremental)
+    } else {
+        Err(InitializeNegotiationError::UnsupportedSynchronization)
+    }
+}
+
+fn one_of_enabled<T>(capability: Option<OneOf<bool, T>>) -> bool {
+    capability.is_some_and(|value| match value {
+        OneOf::Left(enabled) => enabled,
+        OneOf::Right(_) => true,
+    })
+}
+
+fn hover_enabled(capability: Option<HoverProviderCapability>) -> bool {
+    capability.is_some_and(|value| match value {
+        HoverProviderCapability::Simple(enabled) => enabled,
+        HoverProviderCapability::Options(_) => true,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IndexingProgress {
+    Idle,
+    Running,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeReadiness {
+    protocol_ready: bool,
+    indexing_progress: IndexingProgress,
+}
+
+impl RuntimeReadiness {
+    pub(crate) const fn protocol_ready() -> Self {
+        Self {
+            protocol_ready: true,
+            indexing_progress: IndexingProgress::Idle,
+        }
+    }
+
+    pub(crate) const fn is_protocol_ready(self) -> bool {
+        self.protocol_ready
+    }
+
+    pub(crate) const fn indexing_progress(self) -> IndexingProgress {
+        self.indexing_progress
+    }
+
+    pub(crate) fn observe_indexing(&mut self, running: bool) {
+        self.indexing_progress = if running {
+            IndexingProgress::Running
+        } else {
+            IndexingProgress::Idle
+        };
+    }
+}
+
+pub(crate) fn supports_method(
+    capabilities: &NegotiatedCapabilities,
+    method: SemanticMethod,
+) -> bool {
+    capabilities.supports(method)
+}

@@ -8,6 +8,7 @@ use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
 use crate::contexts::task_orchestration::api::PlanApplicationError;
 use crate::contexts::tooling::cli::api::CliError;
+use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
 use crate::contexts::tooling::extensions::api::ExtensionError;
 use crate::contexts::tooling::mcp::api::McpError;
@@ -61,6 +62,19 @@ impl CommandError {
             message: format!("storage error: {}", message.into()),
         }
     }
+
+    /// For lower-layer messages forwarded verbatim that may carry absolute filesystem paths
+    /// or provider diagnostics (e.g. `CliError::Internal`, `SdkError::Package`,
+    /// `SessionsError::Repository`). Applied at the `From` boundary rather than at the
+    /// `Serialize` boundary so category-level error codes (`connector-credentials-required`
+    /// etc.) — which are safe, structured, and matched by the frontend — are not mangled by
+    /// `redact_text`'s heuristic key detection.
+    fn redacted(category: CommandErrorCategory, message: impl AsRef<str>) -> Self {
+        Self {
+            category,
+            message: redact_text(message.as_ref()),
+        }
+    }
 }
 
 impl std::fmt::Display for CommandError {
@@ -91,14 +105,12 @@ impl From<ApplicationError> for CommandError {
                 category: CommandErrorCategory::NotFound,
                 message,
             },
-            ApplicationError::Infrastructure { message, .. } => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message,
-            },
-            ApplicationError::Internal(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
+            ApplicationError::Infrastructure { message, .. } => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            ApplicationError::Internal(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
         }
     }
 }
@@ -111,14 +123,12 @@ impl From<PermissionsApplicationError> for CommandError {
                 message,
             },
             PermissionsApplicationError::Domain(error) => Self::validation(error.to_string()),
-            PermissionsApplicationError::Infrastructure { message, .. } => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message,
-            },
-            PermissionsApplicationError::Internal(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
+            PermissionsApplicationError::Infrastructure { message, .. } => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            PermissionsApplicationError::Internal(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
         }
     }
 }
@@ -384,10 +394,21 @@ impl From<SessionsError> for CommandError {
                 message: "validation error: Session participants changed since they were loaded."
                     .to_string(),
             },
-            SessionsError::Repository(message) | SessionsError::Transaction(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
+            error @ (SessionsError::RecoveryRevisionConflict { .. }
+            | SessionsError::RecoveryActionNotAllowed { .. }) => Self {
+                category: CommandErrorCategory::Conflict,
+                message: error.to_string(),
             },
+            SessionsError::Repository(message)
+            | SessionsError::Transaction(message)
+            | SessionsError::StructuralRecoveryEvidence(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("database error: {message}"),
+            ),
+            SessionsError::RetryableStorage(message) => Self::redacted(
+                CommandErrorCategory::Unavailable,
+                format!("storage temporarily unavailable: {message}"),
+            ),
             SessionsError::WorkspaceLaunch(message) | SessionsError::RuntimeLaunch(message) => {
                 Self {
                     category: CommandErrorCategory::Unavailable,
@@ -512,10 +533,10 @@ impl From<McpError> for CommandError {
                 category: CommandErrorCategory::Validation,
                 message: "validation error: limit_exceeded".to_string(),
             },
-            McpError::Database(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("database error: {message}"),
-            },
+            McpError::Database(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("database error: {message}"),
+            ),
             McpError::Storage(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
@@ -539,17 +560,55 @@ impl From<CliError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-            CliError::Detection(message) | CliError::Package(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
+            CliError::Detection(message) | CliError::Package(message) => {
+                Self::redacted(CommandErrorCategory::Internal, message)
+            }
+            CliError::Operation(message) | CliError::Logging(message) => {
+                Self::redacted(CommandErrorCategory::Infrastructure, message)
+            }
+            CliError::Internal(message) => Self::redacted(CommandErrorCategory::Internal, message),
+        }
+    }
+}
+
+impl From<CliConfigError> for CommandError {
+    fn from(error: CliConfigError) -> Self {
+        match error {
+            CliConfigError::Validation(message) => Self::validation(message),
+            CliConfigError::NotFound => Self {
+                category: CommandErrorCategory::NotFound,
+                message: "CLI configuration profile not found.".to_string(),
             },
-            CliError::Operation(message) | CliError::Logging(message) => Self {
+            // These variants carry an absolute filesystem path (profile JSON / auth.json
+            // location) in their Display output. Routing that through `to_string()` would
+            // leak the local file layout to the frontend, so they map to a fixed
+            // category-level message; the path itself is preserved for diagnostics via
+            // logging at the service boundary, not the command return value.
+            CliConfigError::Parse { .. } | CliConfigError::Filesystem { .. } => Self {
                 category: CommandErrorCategory::Infrastructure,
-                message,
+                message: "storage error: CLI configuration file is missing or unreadable."
+                    .to_string(),
             },
-            CliError::Internal(message) => Self {
+            CliConfigError::Repository => Self {
+                category: CommandErrorCategory::Infrastructure,
+                message: "storage error: CLI configuration repository is unavailable."
+                    .to_string(),
+            },
+            CliConfigError::Credential | CliConfigError::CredentialRequired => Self {
+                category: CommandErrorCategory::Unavailable,
+                message: "launch failed: secure CLI credential operation failed.".to_string(),
+            },
+            CliConfigError::DriftConflict => Self {
+                category: CommandErrorCategory::Conflict,
+                message: "validation error: live configuration changed during the operation; retry the switch.".to_string(),
+            },
+            CliConfigError::AuthConfirmationRequired => Self {
+                category: CommandErrorCategory::Validation,
+                message: "validation error: explicit auth.json replacement confirmation is required.".to_string(),
+            },
+            CliConfigError::RollbackIncomplete => Self {
                 category: CommandErrorCategory::Internal,
-                message,
+                message: "storage error: CLI configuration rollback was incomplete.".to_string(),
             },
         }
     }
@@ -566,14 +625,11 @@ impl From<SdkError> for CommandError {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("storage error: {message}"),
             },
-            SdkError::Package(message) => Self {
-                category: CommandErrorCategory::Internal,
-                message,
-            },
-            SdkError::Operation(message) | SdkError::Logging(message) => Self {
-                category: CommandErrorCategory::Infrastructure,
-                message: format!("storage error: {message}"),
-            },
+            SdkError::Package(message) => Self::redacted(CommandErrorCategory::Internal, message),
+            SdkError::Operation(message) | SdkError::Logging(message) => Self::redacted(
+                CommandErrorCategory::Infrastructure,
+                format!("storage error: {message}"),
+            ),
         }
     }
 }

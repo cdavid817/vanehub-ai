@@ -3,6 +3,7 @@ use crate::contexts::sessions::application::{
     MessageRecord, MessageTokenUsage, SessionRecord, SessionRemoteWorkspace, SessionWorkspace,
     SessionsApplicationError,
 };
+use crate::contexts::sessions::domain::recovery::{SessionRecoveryMetadata, SessionRecoveryStatus};
 use crate::contexts::sessions::domain::{
     decode_seats, CategoryId, CategoryName, FileReference, FileReferenceSet, LoopSessionRole,
     MessageId, MessageRole, MessageStatus, SessionAggregate, SessionCategory, SessionId,
@@ -11,9 +12,9 @@ use crate::contexts::sessions::domain::{
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value;
 
-pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats FROM sessions";
-pub(super) const SESSION_SEARCH_SELECT: &str = "SELECT sessions.id, sessions.title, sessions.agent_id, sessions.interaction_mode, sessions.lifecycle_state, sessions.folder, sessions.project_path, sessions.worktree_path, sessions.worktree_name, sessions.worktree_branch, sessions.remote_workspace_host, sessions.remote_workspace_port, sessions.remote_workspace_user, sessions.remote_workspace_path, sessions.remote_workspace_display_name, sessions.remote_workspace_uri, sessions.remote_ssh_connection_id, sessions.remote_ssh_connection_revision, sessions.runtime_session_id, sessions.category_id, sessions.source_kind, sessions.source_connector, sessions.pinned, sessions.archived, sessions.created_at, sessions.updated_at, sessions.loop_run_id, sessions.loop_iteration_id, sessions.loop_role, sessions.seats, message_matches.id, message_matches.content FROM sessions";
-pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at, seat_index, speaker_seat_id FROM messages";
+pub(super) const SESSION_SELECT: &str = "SELECT id, title, agent_id, interaction_mode, lifecycle_state, folder, project_path, worktree_path, worktree_name, worktree_branch, remote_workspace_host, remote_workspace_port, remote_workspace_user, remote_workspace_path, remote_workspace_display_name, remote_workspace_uri, remote_ssh_connection_id, remote_ssh_connection_revision, runtime_session_id, category_id, source_kind, source_connector, pinned, archived, created_at, updated_at, loop_run_id, loop_iteration_id, loop_role, seats, recovery_status, recovery_revision, state_revision, history_revision, active_execution_run_id, next_message_sequence FROM sessions";
+pub(super) const SESSION_SEARCH_SELECT: &str = "SELECT sessions.id, sessions.title, sessions.agent_id, sessions.interaction_mode, sessions.lifecycle_state, sessions.folder, sessions.project_path, sessions.worktree_path, sessions.worktree_name, sessions.worktree_branch, sessions.remote_workspace_host, sessions.remote_workspace_port, sessions.remote_workspace_user, sessions.remote_workspace_path, sessions.remote_workspace_display_name, sessions.remote_workspace_uri, sessions.remote_ssh_connection_id, sessions.remote_ssh_connection_revision, sessions.runtime_session_id, sessions.category_id, sessions.source_kind, sessions.source_connector, sessions.pinned, sessions.archived, sessions.created_at, sessions.updated_at, sessions.loop_run_id, sessions.loop_iteration_id, sessions.loop_role, sessions.seats, sessions.recovery_status, sessions.recovery_revision, sessions.state_revision, sessions.history_revision, sessions.active_execution_run_id, sessions.next_message_sequence, message_matches.id, message_matches.content FROM sessions";
+pub(super) const MESSAGE_SELECT: &str = "SELECT id, session_id, role, status, content, thinking_content, tool_use, rich_blocks, token_input, token_output, metadata, file_references, created_at, updated_at, seat_index, speaker_seat_id, session_sequence, execution_run_id, seat_round_id, parent_execution_run_id FROM messages";
 pub(super) const CATEGORY_SELECT: &str =
     "SELECT id, name, sort_order, created_at, updated_at FROM session_categories";
 
@@ -49,6 +50,12 @@ pub(super) struct SessionRow {
     loop_iteration_id: Option<String>,
     loop_role: Option<String>,
     seats: String,
+    recovery_status: String,
+    recovery_revision: i64,
+    state_revision: i64,
+    history_revision: i64,
+    active_execution_run_id: Option<String>,
+    next_message_sequence: i64,
 }
 
 impl SessionRow {
@@ -84,6 +91,12 @@ impl SessionRow {
             loop_iteration_id: row.get(27)?,
             loop_role: row.get(28)?,
             seats: row.get(29)?,
+            recovery_status: row.get(30)?,
+            recovery_revision: row.get(31)?,
+            state_revision: row.get(32)?,
+            history_revision: row.get(33)?,
+            active_execution_run_id: row.get(34)?,
+            next_message_sequence: row.get(35)?,
         })
     }
 
@@ -109,7 +122,14 @@ impl SessionRow {
             _ => None,
         };
         let session_id = self.id.clone();
-        let aggregate = SessionAggregate::rehydrate(
+        let recovery_status = SessionRecoveryStatus::from_storage(&self.recovery_status)
+            .ok_or_else(|| {
+                SessionsApplicationError::Repository(format!(
+                    "invalid session recovery status: {}",
+                    self.recovery_status
+                ))
+            })?;
+        let aggregate = SessionAggregate::rehydrate_with_recovery(
             SessionId::parse(self.id)?,
             SessionTitle::for_creation(Some(&self.title)),
             SessionLifecycle::from_storage_lossy(&self.lifecycle_state),
@@ -117,6 +137,14 @@ impl SessionRow {
             self.category_id.map(CategoryId::parse).transpose()?,
             self.pinned,
             self.archived,
+            SessionRecoveryMetadata::rehydrate(
+                recovery_status,
+                non_negative_revision(self.recovery_revision, "recovery_revision")?,
+                non_negative_revision(self.state_revision, "state_revision")?,
+                non_negative_revision(self.history_revision, "history_revision")?,
+                self.active_execution_run_id,
+                positive_sequence(self.next_message_sequence, "next_message_sequence")?,
+            ),
         );
         let loop_ownership = match (self.loop_run_id, self.loop_iteration_id, self.loop_role) {
             (Some(run_id), Some(iteration_id), Some(role)) => Some(LoopSessionOwnership {
@@ -189,6 +217,10 @@ pub(super) struct MessageRow {
     updated_at: String,
     seat_index: Option<i64>,
     speaker_seat_id: Option<String>,
+    session_sequence: i64,
+    execution_run_id: Option<String>,
+    seat_round_id: Option<String>,
+    parent_execution_run_id: Option<String>,
 }
 
 impl MessageRow {
@@ -210,6 +242,10 @@ impl MessageRow {
             updated_at: row.get(13)?,
             seat_index: row.get(14)?,
             speaker_seat_id: row.get(15)?,
+            session_sequence: row.get(16)?,
+            execution_run_id: row.get(17)?,
+            seat_round_id: row.get(18)?,
+            parent_execution_run_id: row.get(19)?,
         })
     }
 
@@ -230,12 +266,14 @@ impl MessageRow {
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let message = SessionMessage::rehydrate(
+        let message = SessionMessage::rehydrate_with_correlation(
             MessageId::parse(self.id)?,
             SessionId::parse(self.session_id)?,
             MessageRole::parse(&self.role)?,
             MessageStatus::parse(&self.status)?,
             FileReferenceSet::new(references)?,
+            non_negative_revision(self.session_sequence, "session_sequence")?,
+            self.execution_run_id,
         );
         let token_usage =
             (self.token_input > 0 || self.token_output > 0).then_some(MessageTokenUsage {
@@ -248,6 +286,8 @@ impl MessageRow {
             seat_index: self
                 .seat_index
                 .and_then(|index| usize::try_from(index).ok()),
+            seat_round_id: self.seat_round_id,
+            parent_execution_run_id: self.parent_execution_run_id,
             content: self.content,
             thinking_content: self.thinking_content,
             tool_use: parse_json_values(self.tool_use.as_deref()),
@@ -387,8 +427,42 @@ fn parse_json_values(raw: Option<&str>) -> Option<Vec<Value>> {
     raw.and_then(|value| serde_json::from_str(value).ok())
 }
 
+fn non_negative_revision(value: i64, field: &str) -> Result<u64, SessionsApplicationError> {
+    u64::try_from(value).map_err(|_| {
+        SessionsApplicationError::Repository(format!("invalid negative {field}: {value}"))
+    })
+}
+
+fn positive_sequence(value: i64, field: &str) -> Result<u64, SessionsApplicationError> {
+    let value = non_negative_revision(value, field)?;
+    if value == 0 {
+        Err(SessionsApplicationError::Repository(format!(
+            "invalid zero {field}"
+        )))
+    } else {
+        Ok(value)
+    }
+}
+
 pub(super) fn repository_error(error: rusqlite::Error) -> SessionsApplicationError {
     SessionsApplicationError::Repository(error.to_string())
+}
+
+pub(super) fn recovery_repository_error(error: rusqlite::Error) -> SessionsApplicationError {
+    if matches!(
+        error,
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked,
+                ..
+            },
+            _
+        )
+    ) {
+        SessionsApplicationError::RetryableStorage(error.to_string())
+    } else {
+        SessionsApplicationError::Repository(error.to_string())
+    }
 }
 
 fn serialization_error(error: serde_json::Error) -> SessionsApplicationError {

@@ -1,10 +1,18 @@
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApplicationError};
-use crate::contexts::operations::api::{DiagnosticLog, DiagnosticLogPort, LogSeverity};
+use crate::contexts::operations::api::{
+    DiagnosticLog, DiagnosticLogPort, LogSeverity, OperationsApi,
+};
+use crate::contexts::operations::domain::OperationStatus;
 use crate::contexts::sessions::application::{
     SessionApplicationLog, SessionApplicationLogLevel, SessionClockPort, SessionFileContentPort,
-    SessionIdentityPort, SessionLoggingPort, SessionRuntimePort, SessionsApplicationError,
-    UsageStatisticsRange,
+    SessionIdentityPort, SessionLoggingPort, SessionRuntimePort, SessionTerminalEvidencePort,
+    SessionsApplicationError, UsageStatisticsRange,
 };
+use crate::contexts::sessions::domain::evidence::{
+    LiveHandleEvidence, OperationTerminalEvidence, OperationTerminalStatus,
+    SessionTerminalEvidence, MAX_RECOVERY_EVIDENCE_OPERATIONS,
+};
+use crate::contexts::sessions::domain::SessionId;
 use crate::contexts::workspaces::api::{WorkspaceApi, WorkspaceError};
 use crate::platform::clock::SystemClock;
 use crate::platform::filesystem::BoundedFilesystem;
@@ -174,6 +182,12 @@ impl SessionLoggingPort for UnifiedSessionLoggingAdapter {
         if let Some(operation_id) = log.operation_id {
             context.insert("operationId".to_string(), operation_id);
         }
+        if let Some(execution_run_id) = log.execution_run_id {
+            context.insert("executionRunId".to_string(), execution_run_id);
+        }
+        if let Some(recovery_report_id) = log.recovery_report_id {
+            context.insert("recoveryReportId".to_string(), recovery_report_id);
+        }
         self.logging
             .write_diagnostic(DiagnosticLog {
                 severity: match log.level {
@@ -194,14 +208,26 @@ impl SessionLoggingPort for UnifiedSessionLoggingAdapter {
 pub(crate) struct AgentSessionRuntimeAdapter {
     workspaces: WorkspaceApi,
     agent_runtime: Arc<RwLock<Option<AgentRuntimeApi>>>,
+    evidence: Arc<dyn SessionTerminalEvidencePort>,
+    operations: Option<OperationsApi>,
 }
 
 impl AgentSessionRuntimeAdapter {
-    pub(crate) fn new(workspaces: WorkspaceApi) -> Self {
+    pub(crate) fn new(
+        workspaces: WorkspaceApi,
+        evidence: Arc<dyn SessionTerminalEvidencePort>,
+    ) -> Self {
         Self {
             workspaces,
             agent_runtime: Arc::new(RwLock::new(None)),
+            evidence,
+            operations: None,
         }
+    }
+
+    pub(crate) fn with_operations(mut self, operations: OperationsApi) -> Self {
+        self.operations = Some(operations);
+        self
     }
 
     pub(crate) fn attach_agent_runtime(
@@ -226,6 +252,70 @@ impl AgentSessionRuntimeAdapter {
                     )
                 })
             })
+    }
+}
+
+impl SessionTerminalEvidencePort for AgentSessionRuntimeAdapter {
+    fn read_terminal_evidence(
+        &self,
+        session_id: &SessionId,
+        execution_run_id: Option<&str>,
+    ) -> Result<SessionTerminalEvidence, SessionsApplicationError> {
+        let mut evidence = self
+            .evidence
+            .read_terminal_evidence(session_id, execution_run_id)?;
+        if let (Some(operations), Some(execution_run_id)) = (&self.operations, execution_run_id) {
+            let correlated = operations
+                .list_recovery_evidence(execution_run_id, MAX_RECOVERY_EVIDENCE_OPERATIONS + 1)
+                .map_err(|error| {
+                    match error {
+                    crate::contexts::operations::application::ApplicationError::Infrastructure {
+                        ..
+                    } => SessionsApplicationError::RetryableStorage(error.to_string()),
+                    _ => SessionsApplicationError::StructuralRecoveryEvidence(error.to_string()),
+                }
+                })?
+                .into_iter()
+                .map(|operation| OperationTerminalEvidence {
+                    operation_id: operation.operation_id,
+                    execution_run_id: Some(operation.execution_run_id),
+                    status: operation_terminal_status(operation.status),
+                })
+                .collect();
+            evidence.replace_operations(correlated).map_err(|error| {
+                SessionsApplicationError::StructuralRecoveryEvidence(format!(
+                    "operation evidence exceeded its bounded read: {error:?}"
+                ))
+            })?;
+        }
+        let runtime = match self.published_agent_runtime() {
+            Ok(runtime) => runtime,
+            Err(_) => {
+                evidence.live_handle = LiveHandleEvidence::Unavailable;
+                return Ok(evidence);
+            }
+        };
+        let correlation = runtime
+            .active_generation_correlation(session_id.as_str())
+            .map_err(agent_runtime_error)?;
+        evidence.live_handle = if correlation.is_some_and(|correlation| {
+            execution_run_id.is_none()
+                || correlation.execution_run_id.as_deref() == execution_run_id
+        }) {
+            LiveHandleEvidence::Present
+        } else {
+            LiveHandleEvidence::Absent
+        };
+        Ok(evidence)
+    }
+}
+
+fn operation_terminal_status(status: OperationStatus) -> OperationTerminalStatus {
+    match status {
+        OperationStatus::Queued | OperationStatus::Running => OperationTerminalStatus::Running,
+        OperationStatus::Succeeded => OperationTerminalStatus::Succeeded,
+        OperationStatus::Failed => OperationTerminalStatus::Failed,
+        OperationStatus::Cancelled => OperationTerminalStatus::Cancelled,
     }
 }
 
@@ -395,6 +485,8 @@ mod tests {
                     message: "fixture".to_string(),
                     session_id: Some("session-1".to_string()),
                     operation_id: Some("operation-1".to_string()),
+                    execution_run_id: Some("run-1".to_string()),
+                    recovery_report_id: Some("report-1".to_string()),
                 })
                 .expect("session diagnostic");
             assert_eq!(

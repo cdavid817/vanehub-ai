@@ -584,6 +584,8 @@ mod tests {
 
     #[test]
     fn timed_out_command_terminates_its_descendants() {
+        // A full parallel test run can take more than 500 ms to start the nested test
+        // executable on Windows; keep the timeout well below the 30-second fixture lifetime.
         let request = ProcessRequest::new(std::env::current_exe().expect("test executable"))
             .args([
                 "--ignored",
@@ -591,7 +593,7 @@ mod tests {
                 "platform::process::tests::process_tree_parent_fixture",
                 "--nocapture",
             ])
-            .timeout(Duration::from_millis(500));
+            .timeout(Duration::from_secs(5));
 
         let error = ProcessAdapter.execute(&request).expect_err("timeout");
 

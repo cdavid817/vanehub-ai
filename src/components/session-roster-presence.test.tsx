@@ -15,6 +15,8 @@ const session: Session = {
   worktreeName: null, worktreeBranch: null, remoteWorkspace: null, remoteSshConnectionId: null,
   remoteSshConnectionRevision: null, runtimeSessionId: null, categoryId: null,
   source: { kind: "desktop", connector: null }, pinned: false, archived: false,
+  recoveryStatus: "clean", recoveryRevision: 0, stateRevision: 0, historyRevision: 0,
+  activeExecutionRunId: null,
   createdAt: "2026-08-10T00:00:00Z", updatedAt: "2026-08-10T00:00:00Z",
   seats: [
     { seatId: "seat-1", agentId: "codex-cli", roleId: null, roleSnapshot: { roleName: "Reviewer", avatar: "🔍", color: "#111111", responsibility: null, agentName: "Codex", modelFamily: "openai", crossFamilyReviewer: false }, leftAt: null },

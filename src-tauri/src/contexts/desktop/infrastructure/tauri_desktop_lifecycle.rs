@@ -14,7 +14,7 @@ use crate::contexts::desktop::domain::{
 use crate::contexts::operations::application::DiagnosticLogPort;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Window, WindowEvent};
@@ -274,8 +274,9 @@ fn lifecycle_error(code: &str) -> DesktopLifecycleApplicationError {
 }
 
 async fn shutdown_with_timeout(shutdown: &dyn DesktopShutdownPort, duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
     matches!(
-        tokio::time::timeout(duration, shutdown.shutdown()).await,
+        tokio::time::timeout_at(deadline.into(), shutdown.shutdown(deadline)).await,
         Ok(Ok(()))
     )
 }
@@ -360,7 +361,7 @@ mod tests {
 
     #[async_trait]
     impl DesktopShutdownPort for ImmediateShutdown {
-        async fn shutdown(&self) -> Result<(), String> {
+        async fn shutdown(&self, _deadline: Instant) -> Result<(), String> {
             self.0.clone()
         }
     }
@@ -369,7 +370,7 @@ mod tests {
 
     #[async_trait]
     impl DesktopShutdownPort for DelayedShutdown {
-        async fn shutdown(&self) -> Result<(), String> {
+        async fn shutdown(&self, _deadline: Instant) -> Result<(), String> {
             tokio::time::sleep(Duration::from_millis(50)).await;
             Ok(())
         }

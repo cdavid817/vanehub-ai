@@ -13,6 +13,8 @@ pub(crate) enum SessionsApplicationError {
     CategoryNameConflict(String),
     SessionRevisionConflict(String),
     Repository(String),
+    RetryableStorage(String),
+    StructuralRecoveryEvidence(String),
     Transaction(String),
     FileContent(String),
     Operation(String),
@@ -22,6 +24,17 @@ pub(crate) enum SessionsApplicationError {
     WorkspaceLaunch(String),
     Runtime(String),
     RuntimeLaunch(String),
+    RecoveryRevisionConflict {
+        session_id: String,
+        expected_revision: u64,
+        current_revision: u64,
+        current_status: String,
+    },
+    RecoveryActionNotAllowed {
+        session_id: String,
+        current_revision: u64,
+        current_status: String,
+    },
 }
 
 impl fmt::Display for SessionsApplicationError {
@@ -52,6 +65,12 @@ impl fmt::Display for SessionsApplicationError {
                 )
             }
             Self::Repository(message) => write!(formatter, "session repository error: {message}"),
+            Self::RetryableStorage(message) => {
+                write!(formatter, "session storage is temporarily unavailable: {message}")
+            }
+            Self::StructuralRecoveryEvidence(message) => {
+                write!(formatter, "session recovery evidence is structurally invalid: {message}")
+            }
             Self::Transaction(message) => {
                 write!(formatter, "session transaction error: {message}")
             }
@@ -71,6 +90,23 @@ impl fmt::Display for SessionsApplicationError {
             Self::RuntimeLaunch(message) => {
                 write!(formatter, "session runtime launch error: {message}")
             }
+            Self::RecoveryRevisionConflict {
+                session_id,
+                expected_revision,
+                current_revision,
+                current_status,
+            } => write!(
+                formatter,
+                "Recovery revision conflict for session {session_id}: expected {expected_revision}, current {current_revision} ({current_status})"
+            ),
+            Self::RecoveryActionNotAllowed {
+                session_id,
+                current_revision,
+                current_status,
+            } => write!(
+                formatter,
+                "Recovery acknowledgement is not allowed for session {session_id} at revision {current_revision} ({current_status})"
+            ),
         }
     }
 }
