@@ -322,6 +322,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-and-code-index-reconciliation",
         apply_plan_and_code_index_reconciliation,
     )?;
+    apply_migration(
+        conn,
+        54,
+        "lsp-code-intelligence-foundation",
+        crate::contexts::code_intelligence::api::apply_schema,
+    )?;
 
     Ok(())
 }
@@ -967,7 +973,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (52, 53));
+        assert_eq!(migration_state, (53, 54));
 
         migrate(&connection).expect("upgrade migration");
 

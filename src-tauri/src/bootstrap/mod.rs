@@ -4,6 +4,7 @@ mod agent_runtime;
 mod cli;
 mod cli_config;
 mod cli_parameters;
+mod code_intelligence;
 mod communications;
 mod desktop;
 mod execution_observability;
@@ -32,6 +33,9 @@ pub(crate) use agent_runtime::{
 pub(crate) use cli::{assemble_cli_api, start_initial_cli_refresh};
 pub(crate) use cli_config::assemble_cli_config_api;
 pub(crate) use cli_parameters::assemble_cli_parameters_api;
+pub(crate) use code_intelligence::{
+    assemble_code_intelligence_api, NativeCodeIntelligenceResponder, WorkspaceMutationFanout,
+};
 pub(crate) use communications::{assemble_communications, CommunicationsDependencies};
 pub(crate) use desktop::{
     assemble_desktop_lifecycle_api, assemble_desktop_settings_api, assemble_floating_assistant_api,

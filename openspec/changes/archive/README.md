@@ -137,5 +137,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | refuse-missing-permission-hook-binary | claude-code-permission-hook | `openspec/changes/archive/2026-08-09-refuse-missing-permission-hook-binary/` |
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
+| 2026-08-11 | add-lsp-code-intelligence-foundation | agent-chat-configuration, agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui, unified-log-management, workspace-code-indexing | `openspec/changes/archive/2026-08-11-add-lsp-code-intelligence-foundation/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

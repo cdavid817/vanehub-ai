@@ -127,6 +127,15 @@ import type {
   CodeIndexStatus,
   CodeIndexWorkspace,
 } from "../types/code-index";
+import type {
+  LspConfiguration,
+  LspLanguageId,
+  LspServerDiscovery,
+  LspServerStatus,
+  LspServerTestResult,
+  LspWorkspaceTrust,
+  LspWorkspaceTrustUpdate,
+} from "../types/lsp";
 
 export interface AgentService {
   openExternalUrl(url: string): Promise<void>;
@@ -177,6 +186,13 @@ export interface AgentService {
   rebuildCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
   disableCodeIndexWorkspace(workspaceId: string): Promise<CodeIndexWorkspace>;
   deleteCodeIndexWorkspace(workspaceId: string): Promise<void>;
+  getLspConfiguration(): Promise<LspConfiguration>;
+  saveLspConfiguration(configuration: LspConfiguration): Promise<void>;
+  listLspWorkspaceTrust(): Promise<LspWorkspaceTrust[]>;
+  updateLspWorkspaceTrust(update: LspWorkspaceTrustUpdate): Promise<LspWorkspaceTrust>;
+  discoverLspServers(): Promise<LspServerDiscovery[]>;
+  testLspServer(language: LspLanguageId): Promise<LspServerTestResult>;
+  getLspServerStatus(): Promise<LspServerStatus[]>;
   listCliTools(): Promise<CliToolStatus[]>;
   refreshCliDetections(agentId?: string): Promise<OperationTask>;
   installCliVersion(input: CliPackageOperationInput): Promise<OperationTask>;

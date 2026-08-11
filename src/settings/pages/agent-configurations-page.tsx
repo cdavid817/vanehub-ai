@@ -9,6 +9,10 @@ import { AgentGlobalConfigPanel } from "./agents/agent-global-config-panel";
 import { OnePieceConfigurationPanel } from "./agents/onepiece-configuration-panel";
 import { useEffect, useState } from "react";
 import type { AgentService } from "../../services/agent-service";
+import { LspConfigurationSection } from "./agents/lsp-configuration-section";
+import { LspRuntimeStatusPanel } from "./agents/lsp-runtime-status-panel";
+import { LspServerTestPanel } from "./agents/lsp-server-test-panel";
+import { LspWorkspaceTrustPanel } from "./agents/lsp-workspace-trust-panel";
 
 type ConfigurableAgentId = CliConfigAgentId | "onepiece";
 
@@ -74,6 +78,10 @@ export function AgentConfigurationsPage({ navigationTarget, searchTerm, service 
           <AgentGlobalConfigPanel agentId={agentId} searchTerm={searchTerm} service={service} />
         )}
       </div>
+      <LspConfigurationSection service={service} />
+      <LspWorkspaceTrustPanel service={service} />
+      <LspServerTestPanel service={service} />
+      <LspRuntimeStatusPanel service={service} />
     </div>
   );
 }

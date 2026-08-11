@@ -266,6 +266,14 @@ pub(crate) fn invoke_handler(
         crate::commands::tooling::plugin_integrations::get_plugin_integration_overview::get_plugin_integration_overview,
         crate::commands::tooling::plugin_integrations::refresh_plugin_integrations::refresh_plugin_integrations,
         crate::commands::tooling::plugin_integrations::test_plugin_integration::test_plugin_integration,
+        // Code Intelligence
+        crate::commands::code_intelligence::get_lsp_configuration::get_lsp_configuration,
+        crate::commands::code_intelligence::save_lsp_configuration::save_lsp_configuration,
+        crate::commands::code_intelligence::list_lsp_workspace_trust::list_lsp_workspace_trust,
+        crate::commands::code_intelligence::update_lsp_workspace_trust::update_lsp_workspace_trust,
+        crate::commands::code_intelligence::discover_lsp_servers::discover_lsp_servers,
+        crate::commands::code_intelligence::test_lsp_server::test_lsp_server,
+        crate::commands::code_intelligence::list_lsp_server_status::list_lsp_server_status,
         // Retrieval
         crate::commands::retrieval::get_retrieval_configuration::get_retrieval_configuration,
         crate::commands::retrieval::save_retrieval_configuration::save_retrieval_configuration,

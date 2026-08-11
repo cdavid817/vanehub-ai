@@ -1,4 +1,5 @@
 use crate::contexts::agent_runtime::api::AgentRuntimeApi;
+use crate::contexts::code_intelligence::api::CodeIntelligenceApi;
 use crate::contexts::communications::api::CommunicationsApi;
 use crate::contexts::desktop::api::{
     DesktopLifecycleApi, DesktopSettingsApi, FloatingAssistantApi,
@@ -21,6 +22,7 @@ use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::AppHandle;
 
 pub(crate) fn assemble_desktop_settings_api(
@@ -86,6 +88,7 @@ pub(crate) fn assemble_desktop_lifecycle_api(
     language: &str,
     agents: AgentRuntimeApi,
     communications: CommunicationsApi,
+    code_intelligence: CodeIntelligenceApi,
     locale_bridge: DesktopLocaleBridge,
     fallback_log_directory: PathBuf,
 ) -> Result<DesktopLifecycleApi, String> {
@@ -97,6 +100,7 @@ pub(crate) fn assemble_desktop_lifecycle_api(
         Arc::new(RuntimeShutdownAdapter {
             agents,
             communications,
+            code_intelligence,
         }),
         logging,
     ));
@@ -128,18 +132,23 @@ pub(crate) fn initialize_desktop_runtime(
 struct RuntimeShutdownAdapter {
     agents: AgentRuntimeApi,
     communications: CommunicationsApi,
+    code_intelligence: CodeIntelligenceApi,
 }
 
 #[async_trait]
 impl DesktopShutdownPort for RuntimeShutdownAdapter {
-    async fn shutdown(&self) -> Result<(), String> {
-        self.agents
+    async fn shutdown(&self, deadline: Instant) -> Result<(), String> {
+        let agents = self
+            .agents
             .shutdown_agent_terminals()
-            .map_err(|_| "agent-terminal-shutdown-failed".to_string())?;
-        self.communications
-            .shutdown()
-            .await
-            .map_err(|error| error.safe_code().to_string())
+            .map_err(|_| "agent-terminal-shutdown-failed".to_string());
+        let (communications, code_intelligence) = tokio::join!(
+            self.communications.shutdown(),
+            self.code_intelligence.shutdown(deadline),
+        );
+        agents?;
+        communications.map_err(|error| error.safe_code().to_string())?;
+        code_intelligence.map_err(|_| "lsp-shutdown-failed".to_string())
     }
 }
 

@@ -6,10 +6,10 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 53. Migration 53 reconciles databases that may identify versions 49-51 as
+/// Contiguous through 54. Migration 53 reconciles databases that may identify versions 49-51 as
 /// either Plan execution from main or workspace code indexing from the concurrent worktree.
 fn expected_versions() -> Vec<i64> {
-    (1..=53).collect()
+    (1..=54).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -160,6 +160,65 @@ fn empty_fixture_migrates_to_latest_schema() {
         table_has_column(&conn, "cli_config_applied_state", "managed_keys_json")
             .expect("CLI configuration ownership snapshot")
     );
+}
+
+#[test]
+fn current_schema_adds_disabled_lsp_configuration_and_empty_workspace_trust() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("migrate current schema");
+
+    let master_enabled: i64 = conn
+        .query_row(
+            "SELECT enabled FROM lsp_configuration WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("LSP master configuration");
+    let languages = conn
+        .prepare(
+            "SELECT language_id, enabled, startup_arguments_json, initialization_options_json \
+             FROM lsp_language_configurations ORDER BY language_id",
+        )
+        .expect("prepare LSP language configuration")
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .expect("query LSP language configuration")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect LSP language configuration");
+    let trusted_workspaces: i64 = conn
+        .query_row("SELECT COUNT(*) FROM lsp_workspace_trust", [], |row| {
+            row.get(0)
+        })
+        .expect("workspace trust count");
+    let migration_name: String = conn
+        .query_row(
+            "SELECT name FROM schema_migrations WHERE version = 54",
+            [],
+            |row| row.get(0),
+        )
+        .expect("LSP foundation migration");
+
+    assert_eq!(master_enabled, 0);
+    assert_eq!(
+        languages,
+        vec![
+            ("rust".into(), 0, "[]".into(), "{}".into()),
+            (
+                "typescript_javascript".into(),
+                0,
+                "[\"--stdio\"]".into(),
+                "{}".into()
+            ),
+        ]
+    );
+    assert_eq!(trusted_workspaces, 0);
+    assert_eq!(migration_name, "lsp-code-intelligence-foundation");
 }
 
 #[test]
