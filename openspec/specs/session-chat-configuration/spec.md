@@ -4,10 +4,10 @@
 Defines validated session-level chat configuration persistence, backward-compatible defaults, shared configuration across chat surfaces, and parity between desktop and Web/mock service adapters.
 ## Requirements
 ### Requirement: Session-level chat configuration persistence
-The system SHALL persist validated chat preferences per session and SHALL compose them with the session's authoritative stable agent id and interaction mode to produce the effective `ChatConfig`.
+The system SHALL persist validated chat preferences per session, including `executionMode`, and SHALL compose them with the session's authoritative stable agent id and interaction mode to produce the effective `ChatConfig`.
 
 #### Scenario: Save configuration from the main chat
-- **WHEN** a user changes provider, model, permission, reasoning, streaming, thinking, or long-context preferences for the active session
+- **WHEN** a user changes provider, model, execution mode, reasoning, streaming, thinking, or long-context preferences for the active session
 - **THEN** the frontend SHALL save the validated preferences through `AgentService` and the active session SHALL retain them across window and application restarts
 
 #### Scenario: Keep session identity authoritative
@@ -15,24 +15,29 @@ The system SHALL persist validated chat preferences per session and SHALL compos
 - **THEN** `agentId` and `interactionMode` SHALL come from the referenced session's stable persisted fields rather than an independently writable configuration snapshot
 
 #### Scenario: Reject invalid configuration
-- **WHEN** a configuration contains an unsupported provider/model combination, permission mode, reasoning depth, or value type
-- **THEN** the service SHALL reject or normalize it before it can reach CLI launch argument construction
+- **WHEN** a configuration contains an unsupported provider/model combination, execution mode, reasoning depth, or value type
+- **THEN** the service SHALL reject it before it can reach runtime execution or CLI launch argument construction
 
-### Requirement: Backward-compatible configuration defaults
-The system SHALL keep existing sessions usable when they do not yet contain a persisted chat-configuration snapshot. When the native model discovery module provides a discovered model from the CLI's native config file, that discovered model SHALL serve as the initial model for sessions without an explicit persisted override.
+### Requirement: Configuration defaults reset the removed permission model
+The system SHALL initialize sessions without a valid new-format chat-configuration snapshot with `executionMode: "inherit"`. It SHALL NOT translate legacy `permissionMode` values into execution modes. When native model discovery provides a discovered model, that model SHALL remain the initial model for sessions without an explicit new-format model override.
 
-#### Scenario: Load an existing session without a snapshot
-- **WHEN** an existing session is opened after the additive migration
-- **THEN** the service SHALL derive a valid effective configuration from the session's agent, interaction mode, supported model catalog, existing CLI profile, native-discovered model (if available), and defined defaults
+#### Scenario: Load a session after the breaking migration
+- **WHEN** a session has no new-format configuration because its legacy snapshot was removed
+- **THEN** the service SHALL derive a valid configuration with `executionMode: "inherit"`
+- **AND** it SHALL preserve the session identity and history
+
+#### Scenario: Reject the removed field
+- **WHEN** a client submits `permissionMode` or `permission_mode`
+- **THEN** the service SHALL reject the request rather than translating the value
 
 #### Scenario: Native-discovered model takes precedence over hardcoded default
-- **WHEN** a session without a persisted configuration override is opened and the CLI's native config contains a model value
+- **WHEN** a session without an explicit new-format model override is opened and the CLI's native config contains a model value
 - **THEN** the native-discovered model SHALL be the effective model for that session
 - **AND** the hardcoded agent default SHALL serve as a fallback only when no native model is discovered
 
 #### Scenario: Persist the first explicit update
-- **WHEN** a user explicitly changes a derived preference for a session without a snapshot
-- **THEN** the service SHALL persist the normalized snapshot without changing the session id, agent id, interaction mode, or history
+- **WHEN** a user explicitly changes a derived preference for a session without a new-format snapshot
+- **THEN** the service SHALL persist the validated snapshot without changing the session id, agent id, interaction mode, or history
 
 #### Scenario: Delete a configured session
 - **WHEN** a session is deleted
@@ -65,14 +70,18 @@ The Tauri and Web/mock agent-service adapters SHALL implement the same session c
 - **THEN** the Web/mock adapter SHALL provide deterministic per-session persistence compatible with the same TypeScript interface
 
 ### Requirement: Reject invalid configuration
-The system SHALL validate chat configuration before it can reach CLI launch argument construction. Provider mismatch, unsupported permission modes, and unsupported reasoning depths SHALL be rejected. Unknown model IDs SHALL be accepted as valid custom models.
+The system SHALL validate chat configuration before it can reach runtime execution or CLI launch argument construction. Provider mismatch, execution modes outside `inherit`, `plan`, and `execute`, and unsupported reasoning depths SHALL be rejected. Unknown model IDs SHALL be accepted as valid custom models.
 
 #### Scenario: Reject provider mismatch
 - **WHEN** a configuration pairs a `gemini-cli` session with `providerId: "openai"`
 - **THEN** the service SHALL reject the configuration with a provider mismatch error
 
+#### Scenario: Reject unsupported execution mode
+- **WHEN** a configuration supplies an execution mode outside `inherit`, `plan`, and `execute`
+- **THEN** the service SHALL reject the configuration
+
 #### Scenario: Reject unsupported permission mode
-- **WHEN** a configuration supplies a permission mode not in the recognized set (`default`, `plan`, `agent`, `auto`)
+- **WHEN** a configuration supplies any legacy permission mode such as `default`, `agent`, or `auto`
 - **THEN** the service SHALL reject the configuration
 
 #### Scenario: Reject unsupported reasoning depth
@@ -80,7 +89,7 @@ The system SHALL validate chat configuration before it can reach CLI launch argu
 - **THEN** the service SHALL reject the configuration
 
 #### Scenario: Accept valid custom model ID
-- **WHEN** a configuration supplies a model ID not in the hardcoded catalog (e.g., `deepseek-chat` for `claude-code`) but the provider matches the agent's expected provider
+- **WHEN** a configuration supplies a model ID not in the hardcoded catalog but the provider matches the agent's expected provider
 - **THEN** the service SHALL accept the configuration with the unknown model ID preserved
 
 #### Scenario: Accept known catalog model ID
@@ -124,4 +133,3 @@ When a model ID is not in the hardcoded catalog, the system SHALL apply conserva
 #### Scenario: Known model capabilities are unchanged
 - **WHEN** `clamp_reasoning_for_model("claude-opus-4-8", Some("high"))` is called
 - **THEN** the function SHALL return `Some("high")` as before
-

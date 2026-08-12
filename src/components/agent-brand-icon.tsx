@@ -1,6 +1,5 @@
 import type { SVGProps } from "react";
 import { Bot } from "lucide-react";
-import type { ManagedCliAgentId } from "../types/agent";
 
 type AgentBrandIconProps = {
   agentId?: string;
@@ -10,7 +9,7 @@ type AgentBrandIconProps = {
 
 export function AgentBrandIcon({ agentId, className = "h-4 w-4", title }: AgentBrandIconProps) {
   const props = { className, "aria-hidden": title ? undefined : true } as SVGProps<SVGSVGElement>;
-  switch (agentId as ManagedCliAgentId | undefined) {
+  switch (agentId) {
     case "claude-code":
       return <ClaudeIcon {...props} title={title ?? "Claude Code"} />;
     case "codex-cli":
@@ -24,9 +23,20 @@ export function AgentBrandIcon({ agentId, className = "h-4 w-4", title }: AgentB
       // favicon.ico carries 16/32/48px bitmap frames only. The 48px frame is the source here,
       // which still oversamples the 16-20px sizes this component renders at, including on HiDPI.
       return <AntigravityIcon className={className} title={title} />;
+    case "onepiece":
+      return <OnePieceIcon {...props} title={title} />;
     default:
       return <Bot className={className} aria-hidden="true" />;
   }
+}
+
+function OnePieceIcon({ title, ...props }: SVGProps<SVGSVGElement> & { title?: string }) {
+  return <svg data-agent-icon="onepiece" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+    {title ? <title>{title}</title> : null}
+    <path d="M4 12.5h16l-1.7 6.1a2 2 0 0 1-1.93 1.47H7.63A2 2 0 0 1 5.7 18.6L4 12.5Z" fill="currentColor" opacity=".2" />
+    <path d="M4 12.5h16l-1.7 6.1a2 2 0 0 1-1.93 1.47H7.63A2 2 0 0 1 5.7 18.6L4 12.5Zm8-9v9m0-8.25 5.5 6.25H12V4.25Zm0 2.2L7.2 10.5H12V6.45ZM2.5 12.5h19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M8.25 20.07c.85.95 2.2 1.43 3.75 1.43s2.9-.48 3.75-1.43" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>;
 }
 
 function AntigravityIcon({ className, title }: { className?: string; title?: string }) {

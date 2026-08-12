@@ -6,6 +6,7 @@ import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
+import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { buildCliParameterPreviewFromDefinitions } from "../../services/cli-parameter-catalog";
 import { agentService } from "../../services/runtime-agent-client";
 import type {
@@ -35,7 +36,10 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
     queryKey: profilesQueryKey,
     queryFn: () => agentService.listCliParameterProfiles(),
   });
-  const profiles = profilesQuery.data ?? emptyProfiles;
+  const profiles = useMemo(
+    () => orderByAgentPriority(profilesQuery.data ?? emptyProfiles, (profile) => profile.agentId),
+    [profilesQuery.data],
+  );
 
   useEffect(() => {
     if (profiles.length === 0) return;
@@ -158,7 +162,7 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
           {activeAgentId === "onepiece" ? <OnePieceParametersPanel /> : <>
           {errorMessage ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{errorMessage}</div> : null}
           {notice ? <div className="rounded-md border p-3 text-sm ucd-status-success">{notice}</div> : null}
-          {activeProfile && activeProfile.agentId !== "claude-code" ? <p className="text-xs leading-5 text-muted-foreground">{t("cliParameters.policyPrecedenceNotice")}</p> : null}
+          {activeProfile ? <p className="text-xs leading-5 text-muted-foreground">{t("cliParameters.policyPrecedenceNotice")}</p> : null}
           {visibleDefinitions.map((definition) => (
             <section className="ucd-panel ucd-interactive rounded-lg p-4" key={definition.id}>
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] md:items-start">

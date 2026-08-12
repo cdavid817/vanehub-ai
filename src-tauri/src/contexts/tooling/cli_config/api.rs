@@ -1191,6 +1191,25 @@ fn cli_probe_request<'a>(
                 credential,
             }
         }
+        CliConfigPayload::GeminiCli {
+            base_url,
+            model,
+            auth_strategy,
+            ..
+        } => {
+            if *auth_strategy == super::domain::GeminiAuthStrategy::PreserveOfficial {
+                return Err(CliConfigError::Validation(
+                    "the selected authentication mode does not use an API key".into(),
+                ));
+            }
+            ProviderCredentialProbeRequest {
+                base_url,
+                model,
+                protocol: ProviderCredentialProbeProtocol::GeminiGenerateContent,
+                authentication: ProviderCredentialProbeAuthentication::GeminiApiKey,
+                credential,
+            }
+        }
     };
     Ok(request)
 }

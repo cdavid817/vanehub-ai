@@ -24,6 +24,7 @@ const agentNameKeys: Record<ConfigurableAgentId, string> = {
   opencode: "agentConfigurations.agent.openCode",
   "codex-cli": "agentConfigurations.agent.codex",
   "antigravity-cli": "agentConfigurations.agent.antigravity",
+  "gemini-cli": "agentConfigurations.agent.gemini",
 };
 
 export function AgentConfigurationsPage({ navigationTarget, searchTerm, service }: SettingsPageContext & { service?: AgentService }) {

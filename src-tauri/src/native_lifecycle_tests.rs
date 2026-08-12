@@ -539,7 +539,7 @@ impl SessionChatProfilePort for LifecycleDoubles {
         _workspace_path: Option<&str>,
     ) -> Result<ChatConfigurationValues, SessionsApplicationError> {
         Ok(ChatConfigurationValues {
-            permission_mode: "agent".to_string(),
+            execution_mode: "execute".to_string(),
             provider_id: Some("openai".to_string()),
             model_id: Some("gpt-test".to_string()),
             reasoning_depth: None,

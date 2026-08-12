@@ -6,7 +6,6 @@ use crate::contexts::permissions::api::PermissionsApplicationError;
 use crate::contexts::sessions::api::SessionsError;
 use crate::contexts::ssh_connections::api::SshConnectionsError;
 use crate::contexts::ssh_connections::api::SshRuntimeError;
-use crate::contexts::task_orchestration::api::PlanApplicationError;
 use crate::contexts::tooling::cli::api::CliError;
 use crate::contexts::tooling::cli_config::domain::CliConfigError;
 use crate::contexts::tooling::cli_parameters::CliParametersError;
@@ -242,23 +241,6 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,
                 message: format!("credential error: {}", redact_text(&message)),
-            },
-        }
-    }
-}
-
-impl From<PlanApplicationError> for CommandError {
-    fn from(error: PlanApplicationError) -> Self {
-        match error {
-            PlanApplicationError::Validation(message) => Self::validation(message),
-            PlanApplicationError::Storage(message) => Self::storage(message),
-            PlanApplicationError::NotFound => Self {
-                category: CommandErrorCategory::NotFound,
-                message: "Plan was not found".to_string(),
-            },
-            PlanApplicationError::Conflict => Self {
-                category: CommandErrorCategory::Conflict,
-                message: "Plan state changed before the operation completed".to_string(),
             },
         }
     }

@@ -222,7 +222,7 @@ pub(super) fn chat_configuration_request(
         agent_id: config.agent_id,
         interaction_mode: config.interaction_mode.as_str().to_string(),
         values: ChatConfigurationValues {
-            permission_mode: config.permission_mode,
+            execution_mode: config.execution_mode,
             provider_id: config.provider_id,
             model_id: config.model_id,
             reasoning_depth: config.reasoning_depth,
@@ -235,11 +235,21 @@ pub(super) fn chat_configuration_request(
 
 pub(super) fn chat_configuration_to_dto(
     configuration: SessionChatConfiguration,
+    template: crate::contexts::permissions::api::PolicyTemplateName,
 ) -> Result<dto::ChatConfig, SessionsError> {
+    let mode = crate::contexts::agent_runtime::application::SessionExecutionMode::parse(
+        &configuration.values.execution_mode,
+    )
+    .ok_or_else(|| SessionsError::Validation("Unsupported execution mode.".to_string()))?;
+    let effective = crate::contexts::agent_runtime::application::resolve_effective_execution_policy(
+        template, mode,
+    );
     Ok(dto::ChatConfig {
         agent_id: configuration.agent_id,
         interaction_mode: interaction_mode(&configuration.interaction_mode)?,
-        permission_mode: configuration.values.permission_mode,
+        execution_mode: configuration.values.execution_mode,
+        agent_policy: Some(template.as_str().to_string()),
+        effective_execution_policy: Some(effective.as_str().to_string()),
         provider_id: configuration.values.provider_id,
         model_id: configuration.values.model_id,
         reasoning_depth: configuration.values.reasoning_depth,
@@ -545,7 +555,7 @@ mod tests {
 
         assert_eq!(value["interactionMode"], "native-desktop");
         assert_eq!(value["lifecycleState"], "running");
-        assert_eq!(value["source"]["connector"], "ding-talk");
+        assert_eq!(value["source"]["connector"], "dingtalk");
         assert_eq!(value["remoteWorkspace"]["displayName"], "App");
         assert_eq!(value["remoteSshConnectionId"], "ssh-fixture");
         assert_eq!(value["remoteSshConnectionRevision"], 4);
@@ -733,5 +743,32 @@ mod tests {
         assert_eq!(value["status"], "exported");
         assert_eq!(value["path"], "D:\\exports\\fixture.md");
         assert!(value["content"].is_null());
+    }
+
+    #[test]
+    fn chat_configuration_reports_the_effective_policy() {
+        let configuration = SessionChatConfiguration {
+            session_id: "session-1".to_string(),
+            agent_id: "codex-cli".to_string(),
+            interaction_mode: "cli".to_string(),
+            values: ChatConfigurationValues {
+                execution_mode: "execute".to_string(),
+                provider_id: Some("openai".to_string()),
+                model_id: Some("gpt-5-5".to_string()),
+                reasoning_depth: Some("high".to_string()),
+                streaming: true,
+                thinking: true,
+                long_context: true,
+            },
+        };
+
+        let dto = chat_configuration_to_dto(
+            configuration,
+            crate::contexts::permissions::api::PolicyTemplateName::Readonly,
+        )
+        .expect("configuration DTO");
+
+        assert_eq!(dto.agent_policy.as_deref(), Some("readonly"));
+        assert_eq!(dto.effective_execution_policy.as_deref(), Some("readonly"));
     }
 }

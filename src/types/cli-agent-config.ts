@@ -1,8 +1,9 @@
 export const cliConfigAgentIds = [
   "claude-code",
-  "opencode",
   "codex-cli",
+  "opencode",
   "antigravity-cli",
+  "gemini-cli",
 ] as const;
 
 export type CliConfigAgentId = (typeof cliConfigAgentIds)[number];
@@ -73,11 +74,20 @@ export interface AntigravityConfigPayload {
   advancedSettings: Record<string, string | number | boolean>;
 }
 
+export interface GeminiCliConfigPayload {
+  kind: "gemini-cli";
+  baseUrl: string;
+  model: string;
+  authStrategy: "preserve-official" | "api-key";
+  advancedEnv: Record<string, string>;
+}
+
 export type CliConfigPayload =
   | ClaudeCodeConfigPayload
   | CodexCliConfigPayload
   | OpenCodeConfigPayload
-  | AntigravityConfigPayload;
+  | AntigravityConfigPayload
+  | GeminiCliConfigPayload;
 
 /**
  * Capability declarations, so credential fields, validation actions, and the `needs-credential`

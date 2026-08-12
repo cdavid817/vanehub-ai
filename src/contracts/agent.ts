@@ -353,9 +353,9 @@ export interface CliPackageOperationInput {
 export const managedCliAgentIds = [
   "claude-code",
   "codex-cli",
-  "gemini-cli",
   "opencode",
   "antigravity-cli",
+  "gemini-cli",
 ] as const;
 export type ManagedCliAgentId = (typeof managedCliAgentIds)[number];
 export type CliParameterControl = "enum" | "boolean" | "multi-enum" | "custom-text";

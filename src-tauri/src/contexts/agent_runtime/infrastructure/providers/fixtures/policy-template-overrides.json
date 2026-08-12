@@ -1,5 +1,29 @@
 [
   {
+    "agentId": "claude-code",
+    "template": "readonly",
+    "base": {"permissionMode": "acceptEdits", "model": "sonnet"},
+    "expected": {"permissionMode": "plan", "model": "sonnet"}
+  },
+  {
+    "agentId": "claude-code",
+    "template": "standard",
+    "base": {"permissionMode": "plan", "model": "sonnet"},
+    "expected": {"permissionMode": "default", "model": "sonnet"}
+  },
+  {
+    "agentId": "claude-code",
+    "template": "trusted",
+    "base": {"permissionMode": "plan", "model": "sonnet"},
+    "expected": {"permissionMode": "acceptEdits", "model": "sonnet"}
+  },
+  {
+    "agentId": "claude-code",
+    "template": "yolo",
+    "base": {"permissionMode": "default", "model": "sonnet"},
+    "expected": {"permissionMode": "acceptEdits", "model": "sonnet"}
+  },
+  {
     "agentId": "codex-cli",
     "template": "readonly",
     "base": {"sandbox": "workspace-write", "approvalPolicy": "untrusted", "model": "gpt-5.5"},

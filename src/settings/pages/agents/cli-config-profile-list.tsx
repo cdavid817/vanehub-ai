@@ -32,6 +32,7 @@ function profileUsesCredential(profile: CliConfigProfile) {
   if (!payloadSupportsCredential(payload)) return false;
   if (payload.kind === "claude-code") return payload.authMode !== "none";
   if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
+  if (payload.kind === "gemini-cli") return payload.authStrategy !== "preserve-official";
   return true;
 }
 

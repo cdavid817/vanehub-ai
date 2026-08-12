@@ -72,33 +72,6 @@ impl WorkspaceGitPort for WorkspaceGitAdapter {
         Ok((!repository_root.is_empty()).then_some(repository_root))
     }
 
-    fn resolve_commit_oid(
-        &self,
-        project_path: &str,
-        reference: &str,
-    ) -> Result<String, WorkspaceApplicationError> {
-        let root = Path::new(project_path);
-        let output = self
-            .git
-            .execute(
-                root,
-                &[
-                    "rev-parse".to_string(),
-                    "--verify".to_string(),
-                    format!("{reference}^{{commit}}"),
-                ],
-                GIT_TIMEOUT,
-            )
-            .map_err(|error| WorkspaceApplicationError::Validation(error.to_string()))?;
-        let oid = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !output.status.success() || oid.is_empty() {
-            return Err(WorkspaceApplicationError::Validation(
-                "Plan base reference does not resolve to a commit.".to_string(),
-            ));
-        }
-        Ok(oid)
-    }
-
     fn create_worktree(
         &self,
         project_path: &str,

@@ -1,8 +1,8 @@
 pub(crate) use super::application::{
     CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
     GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult,
-    KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree, ResizeShellRequest,
-    SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
+    KnownProject, KnownRemoteWorkspace, ResizeShellRequest, SessionLogExportResult, SessionLogPage,
+    SessionLogQuery, SessionWorkspaceContext, ShellSession,
     WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
 };
 use super::application::{
@@ -87,16 +87,6 @@ impl WorkspaceApi {
     ) -> Result<CreatedWorktree, WorkspaceError> {
         self.service
             .create_guarded_loop_worktree(project_path, name, base_branch)
-    }
-
-    pub(crate) fn create_guarded_plan_worktree(
-        &self,
-        project_path: &str,
-        name: &str,
-        base_ref: &str,
-    ) -> Result<PreparedPlanWorktree, WorkspaceError> {
-        self.service
-            .create_guarded_plan_worktree(project_path, name, base_ref)
     }
 
     pub(crate) fn list_session_directory(

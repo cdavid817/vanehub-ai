@@ -236,7 +236,7 @@ pub(crate) struct CategoryRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ChatConfigurationValues {
-    pub(crate) permission_mode: String,
+    pub(crate) execution_mode: String,
     pub(crate) provider_id: Option<String>,
     pub(crate) model_id: Option<String>,
     pub(crate) reasoning_depth: Option<String>,
@@ -248,7 +248,7 @@ pub(crate) struct ChatConfigurationValues {
 impl ChatConfigurationValues {
     pub(super) fn as_domain_request(&self) -> ChatConfigurationRequest<'_> {
         ChatConfigurationRequest {
-            permission_mode: &self.permission_mode,
+            execution_mode: &self.execution_mode,
             provider_id: self.provider_id.as_deref(),
             model_id: self.model_id.as_deref(),
             reasoning_depth: self.reasoning_depth.as_deref(),
@@ -260,7 +260,7 @@ impl ChatConfigurationValues {
 
     pub(crate) fn from_preferences(preferences: &ChatPreferences) -> Self {
         Self {
-            permission_mode: preferences.permission_mode().to_string(),
+            execution_mode: preferences.execution_mode().to_string(),
             provider_id: Some(preferences.provider_id().to_string()),
             model_id: Some(preferences.model_id().to_string()),
             reasoning_depth: preferences.reasoning_depth().map(str::to_string),

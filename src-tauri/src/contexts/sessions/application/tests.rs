@@ -799,7 +799,7 @@ impl SessionChatProfilePort for FakeChatProfiles {
             _ => ("anthropic", "claude-opus-4-8"),
         };
         Ok(ChatConfigurationValues {
-            permission_mode: "agent".to_string(),
+            execution_mode: "execute".to_string(),
             provider_id: Some(provider_id.to_string()),
             model_id: Some(model_id.to_string()),
             reasoning_depth: Some("max".to_string()),
@@ -1620,7 +1620,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
         .insert(
             session.id().to_string(),
             ChatConfigurationValues {
-                permission_mode: "invalid".to_string(),
+                execution_mode: "invalid".to_string(),
                 provider_id: Some("openai".to_string()),
                 model_id: Some("gpt-5-5".to_string()),
                 reasoning_depth: None,
@@ -2148,7 +2148,7 @@ fn a_seat_configuration_normalizes_against_the_seats_own_agent() {
             agent_id: "codex-cli".to_string(),
             interaction_mode: "cli".to_string(),
             values: ChatConfigurationValues {
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -2190,7 +2190,7 @@ fn a_configuration_for_an_agent_holding_no_seat_is_rejected() {
             agent_id: "codex-cli".to_string(),
             interaction_mode: "cli".to_string(),
             values: ChatConfigurationValues {
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,

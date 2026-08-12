@@ -1,16 +1,15 @@
-import type { ModelInfo, PermissionMode, ReasoningDepth } from "../../types/chat";
+import type { ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 
 export const REASONING_DEPTHS: ReasoningDepth[] = ["low", "medium", "high", "max"];
 
-export const PERMISSION_MODES: Array<{
-  id: PermissionMode;
+export const EXECUTION_MODES: Array<{
+  id: SessionExecutionMode;
   label: string;
   description: string;
 }> = [
-  { id: "default", label: "Default", description: "Use the Agent default permission mode" },
-  { id: "plan", label: "Plan", description: "Plan first, then wait for confirmation" },
-  { id: "agent", label: "Agent", description: "Allow the Agent to continue autonomously" },
-  { id: "auto", label: "Auto", description: "Automatically choose the right execution mode" },
+  { id: "inherit", label: "Inherit", description: "Use the Agent policy without widening it" },
+  { id: "plan", label: "Plan", description: "Analyze in read-only mode" },
+  { id: "execute", label: "Execute", description: "Execute within the Agent policy ceiling" },
 ];
 
 export const PROVIDER_LABELS: Record<string, string> = {

@@ -8,7 +8,14 @@ import type {
 } from "./agent-service";
 import { mockAgents, mockWorkflowState } from "./mock-agent-data";
 import { i18n } from "../i18n";
-import { createWebPendingApproval, isAgentAutoApproved, webPendingApprovals } from "./web-permissions-mock-state";
+import {
+  createWebPendingApproval,
+  getWebDefaultPolicyTemplate,
+  isAgentAutoApproved,
+  webPendingApprovals,
+  webPrincipalTemplates,
+} from "./web-permissions-mock-state";
+import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -136,7 +143,11 @@ import {
 import { aggregateSessionUsageRecords, aggregateUsageRecords, type UsageRecord } from "./usage-statistics";
 import { webSessionWorkspaceClient } from "./web-session-workspace-client";
 import { webLspClient } from "./web-lsp-client";
-import { defaultChatConfigForSession, normalizeChatConfigForSession } from "./chat-configuration";
+import {
+  defaultChatConfigForSession,
+  normalizeChatConfigForSession,
+  withEffectiveExecutionPolicy,
+} from "./chat-configuration";
 import { computeNextScheduledRun, validateScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import type {
   CliConfigAgentId,
@@ -202,7 +213,8 @@ function cloneCliConfigPayload(payload: CliConfigPayload): CliConfigPayload {
 function cliConfigNeedsCredential(payload: CliConfigPayload): boolean {
   if (payload.kind === "claude-code") return payload.authMode !== "none";
   if (payload.kind === "codex-cli") return payload.authStrategy !== "preserve-official";
-  return true;
+  if (payload.kind === "gemini-cli") return payload.authStrategy !== "preserve-official";
+  return payload.kind !== "antigravity";
 }
 
 function validateWebCliConfigInput(input: SaveCliConfigProfileInput) {
@@ -222,6 +234,7 @@ function validateWebCliConfigInput(input: SaveCliConfigProfileInput) {
   if (input.payload.kind === "codex-cli" && (!input.payload.providerId.trim() || !input.payload.model.trim())) {
     throw new Error("Provider and model are required.");
   }
+  if (input.payload.kind === "gemini-cli" && !input.payload.model.trim()) throw new Error("Model is required.");
   if (input.payload.kind === "opencode") {
     if (!input.payload.providerId.trim() || input.payload.models.length === 0) throw new Error("Provider and models are required.");
     const defaultModel = input.payload.defaultModel;
@@ -1848,7 +1861,7 @@ function applyStreamEvent(event: ChatStreamEvent) {
       updatedAt: timestamp,
     });
   } else if (event.type === "tool_use") {
-    upsertMessage({ ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt: timestamp });
+    upsertMessage({ ...message, toolUse: upsertToolUse(message.toolUse ?? [], event.toolUse), updatedAt: timestamp });
   } else if (event.type === "rich_block") {
     const blocks = message.richBlocks ?? [];
     const blockIndex = blocks.findIndex((block) => block.id === event.block.id);
@@ -1976,7 +1989,8 @@ function validateScheduledTaskInput(input: CreateScheduledTaskInput) {
   const content = input.content.trim();
   if (!name) throw new Error("Scheduled task name is required.");
   if (!content) throw new Error("Scheduled task content is required.");
-  if (!mockAgents.some((agent) => agent.id === input.agentId)) {
+  const agent = mockAgents.find((candidate) => candidate.id === input.agentId);
+  if (!agent || (agent.id !== "onepiece" && !agent.supportedInteractionModes.includes("cli"))) {
     throw new Error(`Unsupported Agent: ${input.agentId}`);
   }
   validateScheduledTaskFrequency(input.frequency);
@@ -3477,7 +3491,11 @@ export const webAgentClient: AgentService = {
   async getSessionChatConfig(sessionId) {
     const session = findSession(sessionId);
     const stored = readChatConfigs()[sessionId];
-    return stored ? normalizeChatConfigForSession(session, stored) : defaultChatConfigForSession(session);
+    const normalized = stored
+      ? normalizeChatConfigForSession(session, stored)
+      : defaultChatConfigForSession(session);
+    const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
+    return withEffectiveExecutionPolicy(normalized, policy);
   },
 
   async saveSessionChatConfig(sessionId, config) {
@@ -3485,7 +3503,8 @@ export const webAgentClient: AgentService = {
     const normalized = normalizeChatConfigForSession(session, config);
     writeChatConfigs({ ...readChatConfigs(), [sessionId]: normalized });
     emitSessionEvent({ kind: "configuration-changed", sessionId });
-    return normalized;
+    const policy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
+    return withEffectiveExecutionPolicy(normalized, policy);
   },
 
   async listKnownProjects() {
@@ -3779,6 +3798,11 @@ export const webAgentClient: AgentService = {
       throw new Error("A generation is already active for this session.");
     }
     const config = normalizeChatConfigForSession(session, input.config);
+    const agentPolicy = webPrincipalTemplates.get(session.agentId) ?? getWebDefaultPolicyTemplate();
+    const effectiveExecutionPolicy = withEffectiveExecutionPolicy(
+      config,
+      agentPolicy,
+    ).effectiveExecutionPolicy;
     if (activeStreams.has(input.sessionId)) {
       throw new Error("A generation is already active for this session.");
     }
@@ -4010,7 +4034,7 @@ export const webAgentClient: AgentService = {
     }, 210);
     timeoutIds.push(toolUseTimeoutId);
     const agent = mockAgents.find((candidate) => candidate.id === session.agentId);
-    if (agent?.launch.kind === "api") {
+    if (agent?.launch.kind === "api" && effectiveExecutionPolicy !== "readonly") {
       // Trusted agents (`add-agent-tool-trust`) skip the simulated approval step for shell,
       // mirroring the real backend's `requires_approval` short-circuit exactly.
       const isTrusted = isAgentAutoApproved(session.agentId);

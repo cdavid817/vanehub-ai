@@ -101,7 +101,7 @@ struct ParameterFixture {
     agent_id: String,
     model_id: Option<String>,
     reasoning_depth: Option<String>,
-    permission_mode: String,
+    execution_mode: String,
     thinking: bool,
     base: BTreeMap<String, Value>,
     expected: BTreeMap<String, Value>,
@@ -154,7 +154,7 @@ fn parameter_mapping_fixtures_cover_every_stable_provider() {
         let configuration = AgentChatConfiguration {
             agent_id: fixture.agent_id.clone(),
             interaction_mode: InteractionMode::Cli,
-            permission_mode: fixture.permission_mode,
+            execution_mode: fixture.execution_mode,
             provider_id: None,
             model_id: fixture.model_id,
             reasoning_depth: fixture.reasoning_depth,

@@ -164,7 +164,7 @@ fn session_command_input_dtos_keep_existing_serde_shapes() {
     let config: ChatConfig = serde_json::from_value(json!({
         "agentId": "codex-cli",
         "interactionMode": "native-desktop",
-        "permissionMode": "agent",
+        "executionMode": "execute",
         "providerId": "openai",
         "modelId": "gpt-5.1-codex",
         "reasoningDepth": "high",
@@ -175,6 +175,16 @@ fn session_command_input_dtos_keep_existing_serde_shapes() {
     .expect("deserialize chat config");
     assert_eq!(config.interaction_mode, InteractionMode::NativeDesktop);
     assert_eq!(config.reasoning_depth.as_deref(), Some("high"));
+    assert!(serde_json::from_value::<ChatConfig>(json!({
+        "agentId": "codex-cli",
+        "interactionMode": "cli",
+        "executionMode": "inherit",
+        "permissionMode": "agent",
+        "streaming": true,
+        "thinking": true,
+        "longContext": false
+    }))
+    .is_err());
 
     assert_eq!(
         serde_json::from_value::<SessionExportFormat>(json!("markdown")).expect("export format"),

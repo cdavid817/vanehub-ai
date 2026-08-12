@@ -6,22 +6,25 @@ test.describe("CLI parameter settings", () => {
     await page.getByRole("button", { name: /设置|Settings/ }).click();
     await page.getByText(/^(CLI 参数|CLI Parameters)$/).click();
     await page.getByRole("button", { name: "Codex CLI" }).click();
-    await page.getByRole("combobox", { name: /沙箱|Sandbox/ }).selectOption("read-only");
-    await expect(page.getByText(/--sandbox read-only/)).toBeVisible();
+    const reasoningEffort = page.getByRole("combobox", { name: /推理强度|Reasoning effort/ });
+    await reasoningEffort.selectOption("high");
+    await expect(page.getByText(/--config model_reasoning_effort="high"/)).toBeVisible();
+    await expect(page.getByRole("combobox", { name: /沙箱|Sandbox/ })).toHaveCount(0);
+    await expect(page.getByText(/沙箱、审批和自动批准由|Sandbox, approval, and auto-approve behavior/)).toBeVisible();
     await page.getByRole("button", { name: "Claude Code" }).click();
     await page.getByRole("button", { name: "Codex CLI" }).click();
-    await expect(page.getByRole("combobox", { name: /沙箱|Sandbox/ })).toHaveValue("read-only");
+    await expect(reasoningEffort).toHaveValue("high");
     await page.getByRole("button", { name: /保存更改|Save changes/ }).click();
     await expect(page.getByText(/CLI 参数已保存|CLI parameters saved/)).toBeVisible();
 
     await page.reload();
     await page.getByText(/^(CLI 参数|CLI Parameters)$/).click();
     await page.getByRole("button", { name: "Codex CLI" }).click();
-    await expect(page.getByRole("combobox", { name: /沙箱|Sandbox/ })).toHaveValue("read-only");
+    await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("high");
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /恢复默认值|Restore defaults/ }).click();
-    await expect(page.getByRole("combobox", { name: /沙箱|Sandbox/ })).toHaveValue("default");
+    await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("default");
     await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeDisabled();
 
     await page.evaluate(() => {
@@ -32,7 +35,7 @@ test.describe("CLI parameter settings", () => {
     });
     await page.reload();
     await page.getByText(/^(CLI 参数|CLI Parameters)$/).click();
-    await expect(page.getByText(/参数 sandbox 的值无效|The value for parameter sandbox is invalid/)).toBeVisible();
+    await expect(page.getByText(/不支持参数 sandbox|Parameter sandbox is not supported/)).toBeVisible();
   });
 
   test("supports English minimal theme at a narrow viewport", async ({ page }) => {
@@ -52,13 +55,16 @@ test.describe("CLI parameter settings", () => {
     await codexButton.focus();
     await expect(codexButton).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("combobox", { name: "Sandbox" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Reasoning effort" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Sandbox" })).toHaveCount(0);
+    await expect(page.getByText(/Sandbox, approval, and auto-approve behavior/)).toBeVisible();
     await page.getByRole("button", { name: "OpenCode" }).click();
-    const automaticApproval = page.getByRole("switch", { name: "Automatic approval" });
-    await expect(automaticApproval).toHaveAttribute("aria-checked", "false");
-    await automaticApproval.focus();
+    const thinking = page.getByRole("switch", { name: "Thinking output" });
+    await expect(thinking).toHaveAttribute("aria-checked", "false");
+    await thinking.focus();
     await page.keyboard.press("Space");
-    await expect(automaticApproval).toHaveAttribute("aria-checked", "true");
+    await expect(thinking).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("switch", { name: "Automatic approval" })).toHaveCount(0);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "minimal");
     const layout = await page.evaluate(() => ({
       bodyOverflow: document.body.scrollWidth > window.innerWidth,

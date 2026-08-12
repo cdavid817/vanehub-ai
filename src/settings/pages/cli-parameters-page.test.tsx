@@ -7,11 +7,11 @@ import { createCliParameterProfile } from "../../services/cli-parameter-catalog"
 import { CliParametersPage } from "./cli-parameters-page";
 
 describe("CliParametersPage", () => {
-  it("renders the four managed CLIs, OnePiece, and a safe preview", () => {
+  it("renders all managed CLIs and OnePiece in the shared settings order", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(
       ["cli-parameter-profiles"],
-      managedCliAgentIds.map((agentId) => createCliParameterProfile(agentId)),
+      [...managedCliAgentIds].reverse().map((agentId) => createCliParameterProfile(agentId)),
     );
 
     const html = renderToString(
@@ -25,7 +25,11 @@ describe("CliParametersPage", () => {
     expect(html).toContain("Codex CLI");
     expect(html).toContain("Gemini CLI");
     expect(html).toContain("OpenCode");
+    expect(html).toContain("Antigravity CLI");
     expect(html).toContain("OnePiece");
+    const positions = ["Claude Code", "Codex CLI", "OpenCode", "Antigravity CLI", "Gemini CLI", "OnePiece"]
+      .map((label) => html.indexOf(`>${label}<`));
+    expect(positions).toEqual([...positions].sort((left, right) => left - right));
     expect(html).toContain("安全参数预览");
     expect(html).not.toContain("prompt=");
   });

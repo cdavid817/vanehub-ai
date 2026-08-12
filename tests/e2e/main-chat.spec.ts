@@ -49,4 +49,26 @@ test.describe("main Agent workspace experience", () => {
     await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toHaveValue("");
     await expect(page.getByLabel("Agent CLI 工作区")).not.toContainText("session one marker");
   });
+
+  test("keeps the last selection after a rapid session-switch burst", async ({ page }) => {
+    await page.goto("/");
+    await createSession(page, "快速切换一");
+    await createSession(page, "快速切换二");
+    await createSession(page, "快速切换三");
+    const cards = ["快速切换一", "快速切换二", "快速切换三"].map((title) => (
+      page.locator("[data-session-id]").filter({ hasText: title })
+    ));
+    const sessionIds = await Promise.all(cards.map((card) => card.getAttribute("data-session-id")));
+
+    await page.evaluate((ids) => {
+      for (const id of ids) {
+        document.querySelector<HTMLElement>(`[data-session-id="${id}"]`)?.click();
+      }
+    }, sessionIds);
+
+    await expect(cards[2]).toHaveAttribute("aria-pressed", "true");
+    await expect(cards[0]).toHaveAttribute("aria-pressed", "false");
+    await expect(cards[1]).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("textbox", { name: "工作区命令输入" })).toBeEnabled();
+  });
 });

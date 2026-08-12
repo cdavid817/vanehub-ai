@@ -10,7 +10,9 @@ import { anchoredScrollTop } from "./MessageList";
 const config: ChatConfig = {
   agentId: "codex-cli",
   interactionMode: "cli",
-  permissionMode: "default",
+  executionMode: "inherit",
+  agentPolicy: "readonly",
+  effectiveExecutionPolicy: "readonly",
   streaming: true,
   thinking: false,
   longContext: false,
@@ -74,7 +76,7 @@ describe("chat Mermaid and file references", () => {
     const html = renderToString(
       <ChatInputBox
         agents={[agent]}
-        availableModes={["default"]}
+        availableModes={["inherit"]}
         availableModels={[]}
         availableReasoning={["low", "medium", "high", "max"]}
         config={config}
@@ -106,13 +108,14 @@ describe("chat Mermaid and file references", () => {
     expect(html).toContain("docs/notes.txt");
     expect(html).toContain('data-testid="wechat-style-composer"');
     expect(html).toContain('data-testid="composer-toolbar"');
+    expect(html).toContain('data-testid="effective-execution-policy"');
   });
 
   it("distinguishes participant mentions from file completions", () => {
     const html = renderToString(
       <ChatInputBox
         agents={[agent]}
-        availableModes={["default"]}
+        availableModes={["inherit"]}
         availableModels={[]}
         availableReasoning={["medium"]}
         config={config}

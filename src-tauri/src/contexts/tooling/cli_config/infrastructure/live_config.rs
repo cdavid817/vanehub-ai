@@ -4,7 +4,7 @@ use super::super::application::{
 };
 use super::super::domain::{
     AppliedStateRecord, ClaudeAuthMode, CliConfigDriftState, CliConfigError, CliConfigPayload,
-    CodexAuthStrategy, CodexWireApi, OpenCodeModelDefinition, ProfileRecord,
+    CodexAuthStrategy, CodexWireApi, GeminiAuthStrategy, OpenCodeModelDefinition, ProfileRecord,
     ANTIGRAVITY_MANAGED_KEYS, SUPPORTED_AGENT_IDS,
 };
 use serde_json::{json, Map, Value};
@@ -28,6 +28,7 @@ const CLAUDE_CORE_KEYS: [&str; 7] = [
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
 ];
+const GEMINI_CORE_KEYS: [&str; 3] = ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"];
 
 #[derive(Clone)]
 pub(crate) struct NativeCliGlobalConfigAdapter {
@@ -71,6 +72,7 @@ impl NativeCliGlobalConfigAdapter {
                 .join(".gemini")
                 .join("antigravity-cli")
                 .join("settings.json")),
+            "gemini-cli" => Ok(self.home_dir.join(".gemini").join(".env")),
             _ => Err(CliConfigError::Validation(format!(
                 "unsupported CLI agent id: {agent_id}"
             ))),
@@ -158,6 +160,7 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             "claude-code" => import_claude(&path, &bytes),
             "codex-cli" => import_codex(&path, &bytes),
             "opencode" => import_opencode(&path, &bytes),
+            "gemini-cli" => import_gemini(&path, &bytes),
             _ => Err(CliConfigError::Validation(format!(
                 "unsupported CLI agent id: {agent_id}"
             ))),
@@ -187,6 +190,10 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
                 vec![],
             ),
             "opencode" => discover_opencode(&path, &bytes)?,
+            "gemini-cli" => (
+                vec![discover_exclusive(import_gemini(&path, &bytes)?, true)],
+                vec![],
+            ),
             _ => {
                 return Err(CliConfigError::Validation(format!(
                     "unsupported CLI agent id: {agent_id}"
@@ -259,6 +266,10 @@ impl CliGlobalConfigPort for NativeCliGlobalConfigAdapter {
             CliConfigPayload::Antigravity { .. } => vec![(
                 primary.clone(),
                 project_antigravity(&primary, &current_bytes, profile)?,
+            )],
+            CliConfigPayload::GeminiCli { .. } => vec![(
+                primary.clone(),
+                project_gemini(&primary, &current_bytes, profile, previous, credential)?,
             )],
         };
 
@@ -426,10 +437,32 @@ fn managed_fragment(
         "codex-cli" => codex_fragment(bytes, profile),
         "opencode" => opencode_fragment(bytes, profile),
         "antigravity-cli" => antigravity_fragment(bytes, profile),
+        "gemini-cli" => gemini_fragment(bytes, profile),
         _ => Err(CliConfigError::Validation(format!(
             "unsupported CLI agent id: {agent_id}"
         ))),
     }
+}
+
+fn gemini_fragment(
+    bytes: &[u8],
+    profile: Option<&ProfileRecord>,
+) -> Result<Vec<u8>, CliConfigError> {
+    let values = parse_dotenv(bytes, Path::new("Gemini .env"))?;
+    let mut keys = GEMINI_CORE_KEYS
+        .iter()
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    if let Some(profile) = profile {
+        keys.extend(profile.managed_keys.iter().cloned());
+    }
+    keys.sort();
+    keys.dedup();
+    let fragment = keys
+        .into_iter()
+        .filter_map(|key| values.get(&key).cloned().map(|value| (key, value)))
+        .collect::<BTreeMap<_, _>>();
+    serde_json::to_vec(&fragment).map_err(|_| CliConfigError::Repository)
 }
 
 /// Antigravity's settings live at the document root rather than under an `env` table, so the
@@ -762,6 +795,45 @@ fn project_antigravity(
     serde_json::to_vec_pretty(&document).map_err(|_| CliConfigError::Repository)
 }
 
+fn project_gemini(
+    path: &Path,
+    bytes: &[u8],
+    profile: &ProfileRecord,
+    previous: Option<&ProfileRecord>,
+    credential: Option<&str>,
+) -> Result<Vec<u8>, CliConfigError> {
+    let mut values = parse_dotenv(bytes, path)?;
+    if let Some(previous) = previous {
+        for key in &previous.managed_keys {
+            values.remove(key);
+        }
+    }
+    for key in GEMINI_CORE_KEYS {
+        values.remove(key);
+    }
+    let CliConfigPayload::GeminiCli {
+        base_url,
+        model,
+        auth_strategy,
+        advanced_env,
+    } = &profile.payload
+    else {
+        return Err(CliConfigError::Validation("invalid Gemini payload".into()));
+    };
+    values.insert("GOOGLE_GEMINI_BASE_URL".into(), base_url.clone());
+    values.insert("GEMINI_MODEL".into(), model.clone());
+    if *auth_strategy == GeminiAuthStrategy::ApiKey {
+        values.insert(
+            "GEMINI_API_KEY".into(),
+            credential
+                .ok_or(CliConfigError::CredentialRequired)?
+                .to_string(),
+        );
+    }
+    values.extend(advanced_env.clone());
+    render_dotenv(&values)
+}
+
 fn import_claude(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
     let document = parse_json_or_empty_at(bytes, path)?;
     let env = document
@@ -941,6 +1013,33 @@ fn import_opencode(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliC
     })
 }
 
+fn import_gemini(path: &Path, bytes: &[u8]) -> Result<ImportedLiveConfig, CliConfigError> {
+    let values = parse_dotenv(bytes, path)?;
+    let credential = values
+        .get("GEMINI_API_KEY")
+        .map(|secret| Zeroizing::new(secret.clone()));
+    Ok(ImportedLiveConfig {
+        payload: CliConfigPayload::GeminiCli {
+            base_url: values
+                .get("GOOGLE_GEMINI_BASE_URL")
+                .cloned()
+                .unwrap_or_else(|| "https://generativelanguage.googleapis.com".into()),
+            model: values
+                .get("GEMINI_MODEL")
+                .cloned()
+                .unwrap_or_else(|| "auto".into()),
+            auth_strategy: if credential.is_some() {
+                GeminiAuthStrategy::ApiKey
+            } else {
+                GeminiAuthStrategy::PreserveOfficial
+            },
+            advanced_env: BTreeMap::new(),
+        },
+        credential,
+        source_fingerprint: String::new(),
+    })
+}
+
 fn discover_exclusive(imported: ImportedLiveConfig, is_default: bool) -> DiscoveredLiveConfig {
     let (suggested_name, provider_name, endpoint, model) = match &imported.payload {
         CliConfigPayload::ClaudeCode {
@@ -968,6 +1067,14 @@ fn discover_exclusive(imported: ImportedLiveConfig, is_default: bool) -> Discove
         CliConfigPayload::Antigravity { .. } => {
             unreachable!("exclusive discovery is not Antigravity")
         }
+        CliConfigPayload::GeminiCli {
+            base_url, model, ..
+        } => (
+            "Local Gemini CLI".to_string(),
+            endpoint_provider_name(base_url, "Google Gemini"),
+            base_url.clone(),
+            model.clone(),
+        ),
     };
     DiscoveredLiveConfig {
         candidate_key: "current".to_string(),
@@ -1162,6 +1269,56 @@ fn parse_toml_or_empty(bytes: &[u8], label: &str) -> Result<DocumentMut, CliConf
 
 fn parse_toml_or_empty_at(bytes: &[u8], path: &Path) -> Result<DocumentMut, CliConfigError> {
     parse_toml_or_empty(bytes, &path.display().to_string())
+}
+
+fn parse_dotenv(bytes: &[u8], path: &Path) -> Result<BTreeMap<String, String>, CliConfigError> {
+    let content = std::str::from_utf8(bytes)
+        .map_err(|_| parse_error(path, "environment file must be UTF-8"))?;
+    let mut values = BTreeMap::new();
+    for (index, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let (key, raw_value) = line.split_once('=').ok_or_else(|| {
+            parse_error(
+                path,
+                &format!("invalid environment entry on line {}", index + 1),
+            )
+        })?;
+        let key = key.trim();
+        if key.is_empty()
+            || !key
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            return Err(parse_error(path, "invalid environment key"));
+        }
+        let raw_value = raw_value.trim();
+        let value = if raw_value.starts_with('"') {
+            serde_json::from_str::<String>(raw_value)
+                .map_err(|_| parse_error(path, "invalid quoted environment value"))?
+        } else if raw_value.starts_with('\'') && raw_value.ends_with('\'') && raw_value.len() >= 2 {
+            raw_value[1..raw_value.len() - 1].to_string()
+        } else {
+            raw_value.to_string()
+        };
+        values.insert(key.to_string(), value);
+    }
+    Ok(values)
+}
+
+fn render_dotenv(values: &BTreeMap<String, String>) -> Result<Vec<u8>, CliConfigError> {
+    let mut content = String::new();
+    for (key, value) in values {
+        let encoded = serde_json::to_string(value).map_err(|_| CliConfigError::Repository)?;
+        content.push_str(key);
+        content.push('=');
+        content.push_str(&encoded);
+        content.push('\n');
+    }
+    Ok(content.into_bytes())
 }
 
 fn json_value_to_toml(entry: &Value) -> Result<Item, CliConfigError> {
@@ -1757,6 +1914,61 @@ mod tests {
     }
 
     #[test]
+    fn gemini_projection_preserves_unmanaged_values_and_is_discoverable() {
+        let directory = TempDirectory::new("cli-config-gemini");
+        let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
+        let path = adapter.primary_path("gemini-cli").expect("path");
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(&path, "UNRELATED=kept\nOLD_MANAGED=old\n").expect("fixture");
+        let previous = profile(
+            "gemini-cli",
+            CliConfigPayload::GeminiCli {
+                base_url: "https://old.example.com".into(),
+                model: "old".into(),
+                auth_strategy: GeminiAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::from([("OLD_MANAGED".into(), "old".into())]),
+            },
+        );
+        let current = profile(
+            "gemini-cli",
+            CliConfigPayload::GeminiCli {
+                base_url: "https://generativelanguage.googleapis.com".into(),
+                model: "pro".into(),
+                auth_strategy: GeminiAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::new(),
+            },
+        );
+        let before = fs::read(&path).expect("read");
+        let expected = fingerprint(
+            &managed_fragment("gemini-cli", &before, Some(&previous)).expect("fragment"),
+        );
+
+        adapter
+            .apply(
+                &current,
+                Some(&previous),
+                Some("gemini-secret"),
+                false,
+                &expected,
+            )
+            .expect("apply");
+
+        let written = parse_dotenv(&fs::read(&path).expect("written"), &path).expect("dotenv");
+        assert_eq!(written.get("UNRELATED").map(String::as_str), Some("kept"));
+        assert!(!written.contains_key("OLD_MANAGED"));
+        assert_eq!(written.get("GEMINI_MODEL").map(String::as_str), Some("pro"));
+        assert_eq!(
+            written.get("GEMINI_API_KEY").map(String::as_str),
+            Some("gemini-secret")
+        );
+
+        let discovery = adapter.discover_current("gemini-cli").expect("discovery");
+        assert_eq!(discovery.candidates.len(), 1);
+        assert_eq!(discovery.candidates[0].model, "pro");
+        assert!(discovery.candidates[0].credential.is_some());
+    }
+
+    #[test]
     fn malformed_live_documents_are_reported_without_modification() {
         for (agent_id, relative, body) in [
             ("claude-code", ".claude/settings.json", "{broken"),
@@ -1867,7 +2079,7 @@ mod tests {
         let directory = TempDirectory::new("cli-config-discovery-missing");
         let adapter = NativeCliGlobalConfigAdapter::with_home(directory.path().to_path_buf());
 
-        for agent_id in ["claude-code", "opencode", "codex-cli"] {
+        for agent_id in ["claude-code", "opencode", "codex-cli", "gemini-cli"] {
             let discovery = adapter.discover_current(agent_id).expect("discovery");
             assert!(discovery.candidates.is_empty());
         }

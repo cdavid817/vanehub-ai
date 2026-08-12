@@ -163,7 +163,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                 agent_id: configuration.agent_id,
                 interaction_mode: configuration.interaction_mode.as_str().to_string(),
                 values: ChatConfigurationValues {
-                    permission_mode: configuration.permission_mode,
+                    execution_mode: configuration.execution_mode,
                     provider_id: configuration.provider_id,
                     model_id: configuration.model_id,
                     reasoning_depth: configuration.reasoning_depth,
@@ -176,7 +176,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         Ok(AgentChatConfiguration {
             agent_id: validated.agent_id,
             interaction_mode: InteractionMode::parse(&validated.interaction_mode)?,
-            permission_mode: validated.values.permission_mode,
+            execution_mode: validated.values.execution_mode,
             provider_id: validated.values.provider_id,
             model_id: validated.values.model_id,
             reasoning_depth: validated.values.reasoning_depth,
@@ -198,7 +198,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                 agent_id: configuration.agent_id,
                 interaction_mode: configuration.interaction_mode.as_str().to_string(),
                 values: ChatConfigurationValues {
-                    permission_mode: configuration.permission_mode,
+                    execution_mode: configuration.execution_mode,
                     provider_id: configuration.provider_id,
                     model_id: configuration.model_id,
                     reasoning_depth: configuration.reasoning_depth,
@@ -211,7 +211,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
         Ok(AgentChatConfiguration {
             agent_id: validated.agent_id,
             interaction_mode: InteractionMode::parse(&validated.interaction_mode)?,
-            permission_mode: validated.values.permission_mode,
+            execution_mode: validated.values.execution_mode,
             provider_id: validated.values.provider_id,
             model_id: validated.values.model_id,
             reasoning_depth: validated.values.reasoning_depth,

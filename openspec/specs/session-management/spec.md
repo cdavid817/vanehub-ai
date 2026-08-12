@@ -547,7 +547,7 @@ The create-session UI SHALL derive candidate Agents from service-backed registry
 - **WHEN** the UI renders built-in OnePiece, built-in CLI Agents, and user-created API Agents
 - **THEN** it SHALL present OnePiece in the VaneHub-native group, CLI Agents in the built-in CLI group, and user API Agents in a custom API group
 - **AND** it SHALL order those groups as built-in CLI, VaneHub native, then custom API
-- **AND** the built-in CLI group SHALL order Codex CLI, Claude Code, Gemini CLI, then OpenCode and use the first selectable built-in CLI as the default
+- **AND** the built-in CLI group SHALL order Claude Code, Codex CLI, OpenCode, Antigravity CLI, then Gemini CLI and use the first selectable built-in CLI as the default
 - **AND** grouping SHALL NOT change the stable id submitted for the selected Agent
 
 ### Requirement: Service-backed participant membership
@@ -578,6 +578,7 @@ The desktop session repository SHALL remain writable when the shared SQLite data
 #### Scenario: Insert into the current message schema
 - **WHEN** the additive message sequence column is absent
 - **THEN** message insertion SHALL preserve the current schema behavior
+
 ### Requirement: Durable session recovery metadata
 The system SHALL persist recovery status, recovery revision, state revision, history revision, and the optional active execution run identifier with each session without replacing its existing lifecycle state.
 

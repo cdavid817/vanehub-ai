@@ -78,20 +78,22 @@ describe("create-session agent discovery", () => {
       .toEqual(["codex-cli", "onepiece", "custom-api"]);
   });
 
-  it("orders built-in CLIs before OnePiece and defaults to Codex CLI", () => {
+  it("uses the requested five-CLI order before OnePiece and defaults to Claude Code", () => {
     const claude = { ...agent, id: "claude-code", displayName: "Claude Code" };
     const gemini = { ...agent, id: "gemini-cli", displayName: "Gemini CLI" };
     const opencode = { ...agent, id: "opencode", displayName: "OpenCode" };
-    const candidates = selectSessionAgents([onepiece, opencode, gemini, claude, agent]);
+    const antigravity = { ...agent, id: "antigravity-cli", displayName: "Antigravity" };
+    const candidates = selectSessionAgents([onepiece, opencode, gemini, antigravity, claude, agent]);
 
     expect(candidates.map((value) => value.id)).toEqual([
-      "codex-cli",
       "claude-code",
-      "gemini-cli",
+      "codex-cli",
       "opencode",
+      "antigravity-cli",
+      "gemini-cli",
       "onepiece",
     ]);
-    expect(defaultSessionAgent(candidates, null)?.id).toBe("codex-cli");
+    expect(defaultSessionAgent(candidates, null)?.id).toBe("claude-code");
   });
 
   it("keeps Claude Code and Codex CLI selectable when only their optional SDK is missing", () => {

@@ -2810,7 +2810,7 @@ fn repositories_round_trip_rows_and_preserve_bounded_query_contracts() {
     let preferences = normalize_chat_preferences(
         "codex-cli",
         ChatConfigurationRequest {
-            permission_mode: "agent",
+            execution_mode: "execute",
             provider_id: Some("openai"),
             model_id: Some("gpt-5-5"),
             reasoning_depth: Some("high"),
@@ -3848,7 +3848,7 @@ fn invalid_configuration_json_maps_to_no_persisted_snapshot() {
 #[test]
 fn persisted_configuration_shape_is_separate_from_domain_preferences() {
     let values = ChatConfigurationValues {
-        permission_mode: "agent".to_string(),
+        execution_mode: "execute".to_string(),
         provider_id: Some("openai".to_string()),
         model_id: Some("gpt-5-5".to_string()),
         reasoning_depth: Some("high".to_string()),
@@ -3857,7 +3857,7 @@ fn persisted_configuration_shape_is_separate_from_domain_preferences() {
         long_context: true,
     };
     let raw = serde_json::to_value(&values).expect("serialize values");
-    assert_eq!(raw["permissionMode"], "agent");
+    assert_eq!(raw["executionMode"], "execute");
     let reference = FileReferenceInput {
         id: "reference".to_string(),
         path: "src/main.rs".to_string(),

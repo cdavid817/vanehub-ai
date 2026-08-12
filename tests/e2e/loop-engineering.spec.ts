@@ -29,9 +29,9 @@ test.describe("Loop engineering", () => {
     const loopCenter = page.locator("#loop-center");
     await createAndRunLoop(page, "Playwright 接受循环");
     await expect(loopCenter.getByText("运行中", { exact: true }).first()).toBeVisible();
-    await loopCenter.getByRole("button", { name: "暂停", exact: true }).click();
+    await loopCenter.getByRole("button", { name: "暂停", exact: true }).click({ force: true });
     await expect(loopCenter.getByText("暂停此循环？")).toBeVisible();
-    await loopCenter.getByRole("button", { name: "确认", exact: true }).click();
+    await loopCenter.getByRole("button", { name: "确认", exact: true }).click({ force: true });
     await expect(loopCenter.getByText("已暂停", { exact: true }).first()).toBeVisible();
     await loopCenter.getByRole("button", { name: "恢复", exact: true }).click();
 

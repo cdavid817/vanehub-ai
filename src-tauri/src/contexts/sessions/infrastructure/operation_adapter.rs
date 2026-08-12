@@ -171,8 +171,8 @@ fn transport_connector(connector: &str) -> Option<&'static str> {
     match connector {
         "feishu" => Some("feishu"),
         "telegram" => Some("telegram"),
-        "dingtalk" => Some("ding-talk"),
-        "wecom" => Some("we-com"),
+        "dingtalk" => Some("dingtalk"),
+        "wecom" => Some("wecom"),
         "weixin" | "wechat" => Some("weixin"),
         _ => None,
     }
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(value["interactionMode"], "cli");
         assert_eq!(value["lifecycleState"], "idle");
         assert_eq!(value["source"]["kind"], "im");
-        assert_eq!(value["source"]["connector"], "ding-talk");
+        assert_eq!(value["source"]["connector"], "dingtalk");
         assert_eq!(value["remoteWorkspace"]["user"], "dev");
         assert!(value.get("interaction_mode").is_none());
     }

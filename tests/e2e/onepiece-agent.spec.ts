@@ -64,24 +64,89 @@ test.describe("OnePiece native Agent", () => {
     await expect(conversationHeader.getByText("onepiece", { exact: true })).toHaveCount(0);
     await expect(conversationHeader.getByText("api", { exact: true })).toBeVisible();
     await expect(page.getByTestId("info-pane-basic").getByText("OnePiece", { exact: true }).first()).toBeVisible();
-    await expect(page.getByPlaceholder("输入指令，下发任务给当前 Agent...")).toBeVisible();
+    const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
+    await expect(composer).toBeVisible();
     await expect(page.getByLabel("Agent CLI 工作区")).toHaveCount(0);
+    await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
+
+    await page.getByTitle("运行模式：继承").click();
+    await page.getByRole("button", { name: /规划.*只读分析/ }).click();
+    await expect(page.getByTitle("运行模式：规划")).toBeVisible();
+    await expect(page.getByTestId("effective-execution-policy")).toContainText("最终行为：只读");
+
+    await page.getByTitle("运行模式：规划").click();
+    await page.getByRole("button", { name: /继承.*Agent 权限策略/ }).click();
+    await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
+
+    await composer.fill("检查项目并总结当前状态");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    const toolActivity = page.getByRole("region", { name: "工具活动" });
+    await expect(toolActivity).toBeVisible();
+    await expect(toolActivity.getByText(/待确认 \d+/)).toBeVisible();
+    await expect(toolActivity.getByText(/^完成 \d+$/)).toBeVisible();
+    await expect(toolActivity.getByText("该工具调用需要你的确认才能执行").first()).toBeVisible();
+    await expect(toolActivity.getByText("Shell 命令").first()).toBeVisible();
+    await expect(toolActivity.getByText("echo mock").first()).toBeVisible();
+
+    const completedHistory = toolActivity.getByTestId("completed-tool-history");
+    await expect(completedHistory).not.toHaveAttribute("open", "");
+    await completedHistory.locator(":scope > summary").click();
+    await expect(completedHistory).toHaveAttribute("open", "");
+    await expect(completedHistory.getByText("读取文件")).toBeVisible();
+
+    await toolActivity.getByRole("button", { name: "拒绝", exact: true }).first().click();
+    await expect(toolActivity.getByText(/^失败 1$/)).toBeVisible();
+    const failedHistory = toolActivity.getByTestId("failed-tool-history");
+    await expect(failedHistory).not.toHaveAttribute("open", "");
+    await expect(failedHistory.locator(":scope > summary")).toContainText("Shell 命令");
+    await expect(failedHistory.locator(":scope > summary")).toContainText("echo mock");
+    await failedHistory.locator(":scope > summary").click();
+    await expect(failedHistory).toHaveAttribute("open", "");
+    await expect(failedHistory.getByText("失败", { exact: true })).toBeVisible();
+
+    await toolActivity.getByRole("button", { name: "拒绝", exact: true }).click();
+    const activityToggle = toolActivity.getByRole("button", { name: "展开工具活动" });
+    await expect(activityToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toolActivity.getByText(/^失败 2$/)).toBeVisible();
+    await expect(toolActivity.getByTestId("tool-activity-content")).toBeHidden();
+    await activityToggle.click();
+    await expect(toolActivity.getByTestId("tool-activity-content")).toBeVisible();
   });
 
   test("keeps Agent Configuration free of registered-Agent management and all built-in CLIs selectable", async ({ page }) => {
     await openAgentConfigurations(page);
     await expect(page.getByRole("heading", { name: "已注册 Agent" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "注册 API Agent" })).toHaveCount(0);
+    const expectedTabs = [
+      "Claude Code",
+      "Codex CLI",
+      "OpenCode",
+      "Antigravity CLI",
+      "Gemini CLI",
+      "OnePiece",
+    ];
+    const tabs = page.getByRole("tablist").getByRole("tab");
+    for (let index = 0; index < expectedTabs.length; index += 1) {
+      await expect(tabs.nth(index)).toContainText(expectedTabs[index]);
+    }
 
     await page.getByRole("button", { name: "返回", exact: true }).click();
     await page.getByRole("button", { name: /新建/ }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("内置 CLI")).toBeVisible();
-    for (const name of ["Claude Code", "Gemini CLI", "Codex CLI", "OpenCode"]) {
+    const cliNames = ["Claude Code", "Codex CLI", "OpenCode", "Antigravity", "Gemini CLI"];
+    for (const name of cliNames) {
       const button = agentButton(dialog, name);
       await expect(button).toBeVisible();
       await expect(button).not.toHaveAttribute("aria-disabled", "true");
     }
+    const renderedCliNames = await dialog.locator("button").evaluateAll((buttons, expected) => (
+      buttons.flatMap((button) => {
+        const text = button.textContent ?? "";
+        return expected.filter((name) => text.includes(name));
+      })
+    ), cliNames);
+    expect(renderedCliNames).toEqual(cliNames);
   });
 
   test("keeps the API provider dialog usable at narrow width", async ({ page }) => {

@@ -19,7 +19,7 @@ describe("CLI Agent provider presets", () => {
       // Endpoint-capable Agents get one preset per provider endpoint. Antigravity accepts no
       // third-party endpoint, so a per-provider catalog would be a menu of unusable choices; it
       // ships exactly one official settings preset instead.
-      const minimum = agentId === "antigravity-cli" ? 1 : 8;
+      const minimum = agentId === "antigravity-cli" || agentId === "gemini-cli" ? 1 : 8;
       expect(getCliConfigPresets(agentId).length).toBeGreaterThanOrEqual(minimum);
       expect(getCliConfigPresets(agentId).every((preset) => preset.agentId === agentId)).toBe(true);
     }
@@ -40,8 +40,8 @@ describe("CLI Agent provider presets", () => {
     expect(getCliConfigPresets("claude-code").every((preset) => preset.endpointType === "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("codex-cli").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
     expect(getCliConfigPresets("opencode").every((preset) => preset.endpointType !== "anthropic-messages")).toBe(true);
-    // 25 from the shared endpoint directory, plus Antigravity's own single non-directory provider.
-    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(26);
+    // 25 from the shared endpoint directory, plus dedicated Antigravity and Gemini providers.
+    expect(new Set(cliAgentProviderPresets.map((preset) => preset.providerId)).size).toBe(27);
   });
 
   it("returns editable copies instead of mutating the catalog", () => {

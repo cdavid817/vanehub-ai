@@ -286,17 +286,21 @@ pub(crate) struct SessionDetails {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ChatConfig {
     pub(crate) agent_id: String,
     pub(crate) interaction_mode: InteractionMode,
-    pub(crate) permission_mode: String,
+    pub(crate) execution_mode: String,
     pub(crate) provider_id: Option<String>,
     pub(crate) model_id: Option<String>,
     pub(crate) reasoning_depth: Option<String>,
     pub(crate) streaming: bool,
     pub(crate) thinking: bool,
     pub(crate) long_context: bool,
+    #[serde(default)]
+    pub(crate) agent_policy: Option<String>,
+    #[serde(default)]
+    pub(crate) effective_execution_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

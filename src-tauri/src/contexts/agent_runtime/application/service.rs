@@ -15,9 +15,8 @@ use super::{
     MessageTokenUsage, NewAgentMessage, OnePieceModelDiscoveryPort, OnePieceModelDiscoveryRequest,
     OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    OrchestrationExecutionProfile, PendingPromptExecution, PersonalizationSettings,
-    PromptExecutionOutcome, PromptExecutionReport, PromptVersionReference,
-    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    PendingPromptExecution, PersonalizationSettings, PromptExecutionOutcome, PromptExecutionReport,
+    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult, ReadinessView,
     RegisterApiAgentInput, ReportedUsageTotals, SaveOnePieceProviderConfigInput,
     SaveOnePieceProviderProfileInput, SeatTurnCompletionPort, SeatTurnTerminal, SendMessageRequest,
@@ -118,7 +117,6 @@ pub(super) struct MessageGenerationInput {
     /// A handoff prompt is written by the runtime, not by the user. Recording it as a user message
     /// would put words the human never typed into the thread under their name.
     pub(super) record_user_message: bool,
-    pub(super) orchestration_profile: Option<OrchestrationExecutionProfile>,
 }
 
 struct GenerationFailure {
@@ -133,73 +131,6 @@ fn generation_failure(
     GenerationFailure {
         safe_error: safe_error.into(),
         diagnostic: diagnostic.into(),
-    }
-}
-
-fn orchestration_attributes(
-    profile: Option<&OrchestrationExecutionProfile>,
-) -> Vec<(String, SafeAttributeValue)> {
-    let Some(profile) = profile else {
-        return Vec::new();
-    };
-    [
-        (
-            "vanehub.plan.run.id",
-            profile.correlation.plan_run_id.as_ref(),
-        ),
-        (
-            "vanehub.plan.subtask_run.id",
-            profile.correlation.subtask_run_id.as_ref(),
-        ),
-        (
-            "vanehub.plan.attempt.id",
-            profile.correlation.attempt_id.as_ref(),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(key, value)| {
-        value.map(|value| (key.to_string(), SafeAttributeValue::String(value.clone())))
-    })
-    .collect()
-}
-
-#[cfg(test)]
-mod orchestration_attribute_tests {
-    use super::*;
-
-    #[test]
-    fn correlation_attributes_include_only_safe_plan_identities() {
-        let profile = OrchestrationExecutionProfile {
-            bounded_root: Some("C:/secret/worktree".into()),
-            tool_mode: super::super::ExecutionToolMode::Standard,
-            permitted_tools: vec!["shell".into()],
-            tool_call_limit: Some(10),
-            token_budget: Some(2_000),
-            timeout_seconds: Some(300),
-            correlation: super::super::OrchestrationCorrelation {
-                plan_run_id: Some("run-1".into()),
-                subtask_run_id: Some("task-1".into()),
-                attempt_id: Some("attempt-1".into()),
-            },
-        };
-
-        assert_eq!(
-            orchestration_attributes(Some(&profile)),
-            vec![
-                (
-                    "vanehub.plan.run.id".into(),
-                    SafeAttributeValue::String("run-1".into()),
-                ),
-                (
-                    "vanehub.plan.subtask_run.id".into(),
-                    SafeAttributeValue::String("task-1".into()),
-                ),
-                (
-                    "vanehub.plan.attempt.id".into(),
-                    SafeAttributeValue::String("attempt-1".into()),
-                ),
-            ]
-        );
     }
 }
 
@@ -291,7 +222,7 @@ impl AgentRuntimeApplicationService {
             configuration: AgentChatConfiguration {
                 agent_id: session.agent_id,
                 interaction_mode,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -1440,7 +1371,7 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<AgentMessage, AgentRuntimeApplicationError> {
-        self.send_message_internal(request, false, None)
+        self.send_message_internal(request, false)
             .map(|(message, _)| message)
     }
 
@@ -1448,24 +1379,10 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true, None)?;
+        let (message, terminal) = self.send_message_internal(request, true)?;
         let terminal = terminal.ok_or_else(|| {
             AgentRuntimeApplicationError::Generation(
                 "message completion registration was not created".to_string(),
-            )
-        })?;
-        Ok(StartedAgentMessage { message, terminal })
-    }
-
-    pub(crate) fn send_message_with_execution_profile(
-        &self,
-        request: SendMessageRequest,
-        profile: OrchestrationExecutionProfile,
-    ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        let (message, terminal) = self.send_message_internal(request, true, Some(profile))?;
-        let terminal = terminal.ok_or_else(|| {
-            AgentRuntimeApplicationError::Generation(
-                "orchestration completion registration was not created".to_string(),
             )
         })?;
         Ok(StartedAgentMessage { message, terminal })
@@ -1482,7 +1399,6 @@ impl AgentRuntimeApplicationService {
         &self,
         request: SendMessageRequest,
         register_completion: bool,
-        orchestration_profile: Option<OrchestrationExecutionProfile>,
     ) -> Result<
         (AgentMessage, Option<super::AgentMessageTerminalReceiver>),
         AgentRuntimeApplicationError,
@@ -1494,11 +1410,6 @@ impl AgentRuntimeApplicationService {
             ));
         }
         let session = self.require_session(&request.session_id)?;
-        if let Some(profile) = &orchestration_profile {
-            profile
-                .validate_for_session(&session)
-                .map_err(|message| AgentRuntimeApplicationError::Validation(message.to_string()))?;
-        }
         if session.archived {
             return Err(AgentRuntimeApplicationError::Validation(
                 "Archived sessions cannot accept messages.".to_string(),
@@ -1509,7 +1420,7 @@ impl AgentRuntimeApplicationService {
             .sessions
             .validate_configuration(&session, request.configuration)?;
         if session.read_only {
-            configuration.permission_mode = "plan".to_string();
+            configuration.execution_mode = "plan".to_string();
         }
         let agent = self.require_agent(&session.agent_id)?;
         if !agent.supports(configuration.interaction_mode) {
@@ -1535,7 +1446,6 @@ impl AgentRuntimeApplicationService {
                 role_briefing,
                 seat_ownership,
                 record_user_message: true,
-                orchestration_profile,
             },
         );
         if result.is_err() && terminal.is_some() {
@@ -1558,7 +1468,6 @@ impl AgentRuntimeApplicationService {
             role_briefing,
             seat_ownership,
             record_user_message,
-            orchestration_profile,
         } = input;
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
@@ -1601,7 +1510,6 @@ impl AgentRuntimeApplicationService {
                 ));
             }
         }
-        root_attributes.extend(orchestration_attributes(orchestration_profile.as_ref()));
         let mut run = ExecutionRun {
             context: root_context.clone(),
             source: execution_source(source),
@@ -2044,7 +1952,6 @@ impl AgentRuntimeApplicationService {
                 SafeAttributeValue::String(ownership.seat_mention.clone()),
             ));
         }
-        agent_attributes.extend(orchestration_attributes(orchestration_profile.as_ref()));
         let agent_span = ExecutionSpan {
             context: agent_context.clone(),
             parent_span_id: Some(root_context.span_id.clone()),
@@ -2072,7 +1979,6 @@ impl AgentRuntimeApplicationService {
                 // Single-Agent sessions carry no briefing, so their invocation is unchanged.
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,
-                orchestration_profile,
             }) {
             Ok(started) => started,
             Err(error) => {

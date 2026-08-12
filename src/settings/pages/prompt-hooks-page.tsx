@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import type { AgentService } from "../../services/agent-service";
 import { agentService } from "../../services/runtime-agent-client";
 import { managedCliAgentIds, type AgentRegistryEntry, type ManagedCliAgentId } from "../../types/agent";
+import { orderByAgentPriority } from "../../lib/agent-display-order";
 import type { PromptHook, PromptHookMutationInput } from "../../types/prompt-hook";
 import { PageHeader } from "./page-parts";
 import { PromptHookCardList } from "./prompt-hooks/prompt-hook-card-list";
@@ -119,7 +120,10 @@ export function PromptHooksPage({ searchTerm, service = agentService }: { search
     });
   }, [lifecycleQueries, rawHooks, userHookIds]);
   const stats = hooksQuery.data?.stats ?? { total: 0, enabled: 0, builtin: 0, user: 0 };
-  const agents = useMemo(() => (agentsQuery.data ?? []).filter(isManagedAgent), [agentsQuery.data]);
+  const agents = useMemo(
+    () => orderByAgentPriority((agentsQuery.data ?? []).filter(isManagedAgent), (item) => item.id),
+    [agentsQuery.data],
+  );
   const categories = useMemo(() => ["__all__", ...Array.from(new Set(hooks.map((hook) => hook.category)))], [hooks]);
   const visibleHooks = useMemo(() => {
     const needle = `${query} ${searchTerm}`.trim().toLowerCase();
@@ -244,7 +248,8 @@ function isManagedCliAgentId(agentId: string): agentId is ManagedCliAgentId {
 }
 
 function firstAgentId(agents: AgentRegistryEntry[] | undefined): ManagedCliAgentId {
-  return agents?.find(isManagedAgent)?.id ?? "codex-cli";
+  return orderByAgentPriority(agents?.filter(isManagedAgent) ?? [], (item) => item.id)[0]?.id
+    ?? "claude-code";
 }
 
 function errorMessage(error: unknown) {

@@ -7,12 +7,14 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 
-/// The three managed CLI agents whose interactive launches `apply_policy_template_overrides`
-/// governs — `claude-code` is deliberately excluded, since its policy template is already
-/// enforced dynamically through `claude-code-permission-hook`'s per-call hook, not a launch flag
-/// (`add-cli-agent-permission-launch-flags` design.md).
-pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 4] =
-    ["codex-cli", "gemini-cli", "opencode", "antigravity-cli"];
+/// Managed CLI agents whose chat and terminal launches receive a final policy projection.
+pub(crate) const POLICY_TEMPLATE_GOVERNED_AGENT_IDS: [&str; 5] = [
+    "claude-code",
+    "codex-cli",
+    "gemini-cli",
+    "opencode",
+    "antigravity-cli",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderInvocationError {
@@ -275,72 +277,6 @@ pub(crate) fn apply_configuration_overrides(
         }
     }
 
-    match (agent_id, configuration.permission_mode.as_str()) {
-        ("claude-code", "plan") => {
-            selections.insert(
-                "permissionMode".to_string(),
-                Value::String("plan".to_string()),
-            );
-        }
-        ("claude-code", "agent" | "auto") => {
-            selections.insert(
-                "permissionMode".to_string(),
-                Value::String("acceptEdits".to_string()),
-            );
-        }
-        ("codex-cli", "plan") => {
-            selections.insert(
-                "sandbox".to_string(),
-                Value::String("read-only".to_string()),
-            );
-            selections.insert(
-                "approvalPolicy".to_string(),
-                Value::String("on-request".to_string()),
-            );
-        }
-        ("codex-cli", "agent" | "auto") => {
-            selections.insert(
-                "sandbox".to_string(),
-                Value::String("workspace-write".to_string()),
-            );
-            selections.insert(
-                "approvalPolicy".to_string(),
-                Value::String("on-request".to_string()),
-            );
-        }
-        ("gemini-cli", "plan") => {
-            selections.insert(
-                "approvalMode".to_string(),
-                Value::String("plan".to_string()),
-            );
-        }
-        ("gemini-cli", "agent" | "auto") => {
-            selections.insert(
-                "approvalMode".to_string(),
-                Value::String("auto_edit".to_string()),
-            );
-        }
-        ("opencode", "plan") => {
-            selections.insert("agent".to_string(), Value::String("plan".to_string()));
-        }
-        ("opencode", "agent") => {
-            selections.insert("agent".to_string(), Value::String("build".to_string()));
-        }
-        ("opencode", "auto") => {
-            selections.insert("autoApprove".to_string(), Value::Bool(true));
-        }
-        ("antigravity-cli", "plan") => {
-            selections.insert("mode".to_string(), Value::String("plan".to_string()));
-        }
-        ("antigravity-cli", "agent" | "auto") => {
-            selections.insert(
-                "mode".to_string(),
-                Value::String("accept-edits".to_string()),
-            );
-        }
-        _ => {}
-    }
-
     if agent_id == "opencode" {
         selections.insert("thinking".to_string(), Value::Bool(configuration.thinking));
     }
@@ -354,7 +290,7 @@ pub(crate) fn apply_configuration_overrides(
 /// keys it governs (`add-cli-agent-permission-launch-flags` design.md's mapping table). Every
 /// other selection is left untouched — this mirrors `apply_configuration_overrides`'s own
 /// override-only-what-you-govern shape, just driven by the launch-time policy template instead
-/// of the per-message chat `permission_mode`.
+/// of the per-message chat `execution_mode`.
 ///
 /// `trusted` and `yolo` deliberately resolve identically here, matching the established
 /// `permissions-core` precedent that the two templates already resolve identically in
@@ -372,6 +308,24 @@ pub(crate) fn apply_policy_template_overrides(
     template: PolicyTemplateName,
 ) -> BTreeMap<String, Value> {
     match (agent_id, template) {
+        ("claude-code", PolicyTemplateName::Readonly) => {
+            selections.insert(
+                "permissionMode".to_string(),
+                Value::String("plan".to_string()),
+            );
+        }
+        ("claude-code", PolicyTemplateName::Standard) => {
+            selections.insert(
+                "permissionMode".to_string(),
+                Value::String("default".to_string()),
+            );
+        }
+        ("claude-code", PolicyTemplateName::Trusted | PolicyTemplateName::Yolo) => {
+            selections.insert(
+                "permissionMode".to_string(),
+                Value::String("acceptEdits".to_string()),
+            );
+        }
         ("codex-cli", PolicyTemplateName::Readonly) => {
             selections.insert(
                 "sandbox".to_string(),

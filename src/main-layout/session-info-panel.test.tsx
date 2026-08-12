@@ -86,7 +86,7 @@ function renderPanel(
   queryClient.setQueryData(["session-chat-config", activeSession.id], {
     agentId: "codex-cli",
     interactionMode: "cli",
-    permissionMode: "agent",
+    executionMode: "execute",
     providerId: "openai",
     modelId: "gpt-5-5",
     reasoningDepth: "high",

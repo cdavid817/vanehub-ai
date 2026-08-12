@@ -167,6 +167,25 @@ fn custom_text_definition(
     }
 }
 
+fn custom_text_definition_with_scopes(
+    agent_id: &str,
+    id: &str,
+    flag: &str,
+    known_values: &[&str],
+    scopes: Vec<CliParameterLaunchScope>,
+) -> CliParameterDefinition {
+    let mut definition = custom_text_definition(
+        agent_id,
+        id,
+        flag,
+        known_values,
+        "default",
+        CliParameterRisk::Normal,
+    );
+    definition.launch_scopes = scopes;
+    definition
+}
+
 fn boolean_definition(
     agent_id: &str,
     id: &str,
@@ -287,7 +306,7 @@ pub(crate) fn catalog_for(
                 agent_id,
                 "model",
                 "--model",
-                &["default", "gemini-2.5-pro", "gemini-2.5-flash"],
+                &["default", "auto", "pro", "flash", "flash-lite"],
                 "default",
                 normal.clone(),
             ),
@@ -302,6 +321,21 @@ pub(crate) fn catalog_for(
             boolean_definition(agent_id, "sandbox", "--sandbox", both(), normal),
         ],
         "opencode" => vec![
+            custom_text_definition(
+                agent_id,
+                "model",
+                "--model",
+                &["default"],
+                "default",
+                normal.clone(),
+            ),
+            custom_text_definition_with_scopes(
+                agent_id,
+                "variant",
+                "--variant",
+                &["default", "low", "medium", "high", "max"],
+                vec![CliParameterLaunchScope::Chat],
+            ),
             enum_definition(
                 agent_id,
                 "agent",
@@ -364,6 +398,24 @@ pub(crate) fn catalog_for(
         }
     };
     Ok(definitions)
+}
+
+fn is_policy_governed(agent_id: &str, parameter_id: &str) -> bool {
+    matches!(
+        (agent_id, parameter_id),
+        ("claude-code", "permissionMode")
+            | ("codex-cli", "sandbox" | "approvalPolicy")
+            | ("gemini-cli", "approvalMode" | "sandbox")
+            | ("opencode", "agent" | "autoApprove")
+            | ("antigravity-cli", "mode" | "sandbox")
+    )
+}
+
+fn editable_catalog_for(agent_id: &str) -> Result<Vec<CliParameterDefinition>, CliParametersError> {
+    Ok(catalog_for(agent_id)?
+        .into_iter()
+        .filter(|definition| !is_policy_governed(agent_id, &definition.id))
+        .collect())
 }
 
 fn default_selections(definitions: &[CliParameterDefinition]) -> BTreeMap<String, Value> {
@@ -429,6 +481,14 @@ pub(crate) fn normalize_selections(
     input: &BTreeMap<String, Value>,
 ) -> Result<BTreeMap<String, Value>, CliParametersError> {
     let definitions = catalog_for(agent_id)?;
+    normalize_with_definitions(agent_id, input, definitions)
+}
+
+fn normalize_with_definitions(
+    agent_id: &str,
+    input: &BTreeMap<String, Value>,
+    definitions: Vec<CliParameterDefinition>,
+) -> Result<BTreeMap<String, Value>, CliParametersError> {
     let definition_ids = definitions
         .iter()
         .map(|definition| definition.id.as_str())
@@ -460,18 +520,13 @@ pub(crate) fn normalize_selections(
         .collect()
 }
 
-fn scope_matches(definition: &CliParameterDefinition, scope: &CliParameterLaunchScope) -> bool {
-    definition.launch_scopes.contains(scope)
-}
-
-pub(crate) fn preview_args(
-    agent_id: &str,
-    selections: &BTreeMap<String, Value>,
+fn render_args(
+    definitions: Vec<CliParameterDefinition>,
+    normalized: &BTreeMap<String, Value>,
     scope: CliParameterLaunchScope,
-) -> Result<Vec<String>, CliParametersError> {
-    let normalized = normalize_selections(agent_id, selections)?;
+) -> Vec<String> {
     let mut args = Vec::new();
-    for definition in catalog_for(agent_id)? {
+    for definition in definitions {
         if !scope_matches(&definition, &scope) {
             continue;
         }
@@ -503,7 +558,20 @@ pub(crate) fn preview_args(
             }
         }
     }
-    Ok(args)
+    args
+}
+
+fn scope_matches(definition: &CliParameterDefinition, scope: &CliParameterLaunchScope) -> bool {
+    definition.launch_scopes.contains(scope)
+}
+
+pub(crate) fn preview_args(
+    agent_id: &str,
+    selections: &BTreeMap<String, Value>,
+    scope: CliParameterLaunchScope,
+) -> Result<Vec<String>, CliParametersError> {
+    let normalized = normalize_selections(agent_id, selections)?;
+    Ok(render_args(catalog_for(agent_id)?, &normalized, scope))
 }
 
 pub(crate) fn apply_schema(conn: &Connection) -> Result<(), CliParametersError> {
@@ -615,9 +683,14 @@ pub(crate) fn load_profile(
     conn: &Connection,
     agent_id: &str,
 ) -> Result<CliParameterProfile, CliParametersError> {
-    let definitions = catalog_for(agent_id)?;
-    let selections = load_selections(conn, agent_id)?;
-    let preview_args = preview_args(agent_id, &selections, CliParameterLaunchScope::Chat)?;
+    let definitions = editable_catalog_for(agent_id)?;
+    let mut selections = load_selections(conn, agent_id)?;
+    selections.retain(|parameter_id, _| !is_policy_governed(agent_id, parameter_id));
+    let preview_args = render_args(
+        definitions.clone(),
+        &selections,
+        CliParameterLaunchScope::Chat,
+    );
     Ok(CliParameterProfile {
         agent_id: agent_id.to_string(),
         definitions,
@@ -631,9 +704,14 @@ fn load_profile_with_logging(
     agent_id: &str,
     logging: Option<&dyn DiagnosticLogPort>,
 ) -> Result<CliParameterProfile, CliParametersError> {
-    let definitions = catalog_for(agent_id)?;
-    let selections = load_selections_with_logging(conn, agent_id, logging)?;
-    let preview_args = preview_args(agent_id, &selections, CliParameterLaunchScope::Chat)?;
+    let definitions = editable_catalog_for(agent_id)?;
+    let mut selections = load_selections_with_logging(conn, agent_id, logging)?;
+    selections.retain(|parameter_id, _| !is_policy_governed(agent_id, parameter_id));
+    let preview_args = render_args(
+        definitions.clone(),
+        &selections,
+        CliParameterLaunchScope::Chat,
+    );
     Ok(CliParameterProfile {
         agent_id: agent_id.to_string(),
         definitions,
@@ -646,7 +724,8 @@ fn save_profile_to_conn(
     conn: &mut Connection,
     input: &SaveCliParameterProfileInput,
 ) -> Result<CliParameterProfile, CliParametersError> {
-    let selections = normalize_selections(&input.agent_id, &input.selections)?;
+    let definitions = editable_catalog_for(&input.agent_id)?;
+    let selections = normalize_with_definitions(&input.agent_id, &input.selections, definitions)?;
     let now = Utc::now().to_rfc3339();
     let transaction = conn.transaction()?;
     transaction.execute(
@@ -806,15 +885,13 @@ mod tests {
         let input = SaveCliParameterProfileInput {
             agent_id: "codex-cli".to_string(),
             selections: BTreeMap::from([
-                (
-                    "sandbox".to_string(),
-                    Value::String("read-only".to_string()),
-                ),
+                ("ephemeral".to_string(), Value::Bool(true)),
                 ("strictConfig".to_string(), Value::Bool(true)),
             ]),
         };
         let saved = save_profile_to_conn(&mut conn, &input).expect("save");
-        assert_eq!(saved.selections["sandbox"], "read-only");
+        assert_eq!(saved.selections["ephemeral"], true);
+        assert!(!saved.selections.contains_key("sandbox"));
         assert!(saved.preview_args.contains(&"--strict-config".to_string()));
         assert_eq!(
             load_profile(&conn, "claude-code")
@@ -824,7 +901,7 @@ mod tests {
         );
 
         let reset = reset_profile_in_conn(&conn, "codex-cli").expect("reset");
-        assert_eq!(reset.selections["sandbox"], "default");
+        assert_eq!(reset.selections["ephemeral"], false);
     }
 
     #[test]
@@ -846,23 +923,20 @@ mod tests {
         let mut conn = connection();
         let valid = SaveCliParameterProfileInput {
             agent_id: "codex-cli".to_string(),
-            selections: BTreeMap::from([(
-                "sandbox".to_string(),
-                Value::String("read-only".to_string()),
-            )]),
+            selections: BTreeMap::from([("strictConfig".to_string(), Value::Bool(true))]),
         };
         save_profile_to_conn(&mut conn, &valid).expect("initial save");
         let invalid = SaveCliParameterProfileInput {
             agent_id: "codex-cli".to_string(),
             selections: BTreeMap::from([(
                 "sandbox".to_string(),
-                Value::String("danger-full-access".to_string()),
+                Value::String("read-only".to_string()),
             )]),
         };
         assert!(save_profile_to_conn(&mut conn, &invalid).is_err());
         assert_eq!(
-            load_profile(&conn, "codex-cli").expect("load").selections["sandbox"],
-            "read-only"
+            load_profile(&conn, "codex-cli").expect("load").selections["strictConfig"],
+            true
         );
         assert!(normalize_selections("unknown-agent", &BTreeMap::new()).is_err());
         assert!(normalize_selections(
@@ -978,7 +1052,7 @@ mod tests {
                     "strictConfig",
                 ],
                 "gemini-cli" => &["model", "approvalMode", "sandbox"],
-                "opencode" => &["agent", "thinking", "autoApprove"],
+                "opencode" => &["model", "variant", "agent", "thinking", "autoApprove"],
                 "antigravity-cli" => &["model", "effort", "mode", "agent", "sandbox"],
                 _ => unreachable!(),
             };
@@ -1005,6 +1079,34 @@ mod tests {
                 .iter()
                 .all(|entry| !entry.flag.contains("--conversation")));
         }
+    }
+
+    #[test]
+    fn editable_catalog_matches_the_shared_frontend_contract() {
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../../src/contracts/fixtures/cli-parameter-editable-catalog.json"
+        ))
+        .expect("shared catalog contract");
+        let actual = MANAGED_CLI_AGENT_IDS
+            .into_iter()
+            .map(|agent_id| {
+                let definitions = editable_catalog_for(agent_id).expect("editable catalog");
+                let entries = definitions
+                    .into_iter()
+                    .map(|definition| {
+                        serde_json::json!({
+                            "id": definition.id,
+                            "flag": definition.flag,
+                            "launchScopes": definition.launch_scopes,
+                            "options": definition.options.into_iter().map(|entry| entry.value).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                (agent_id.to_string(), Value::Array(entries))
+            })
+            .collect::<serde_json::Map<_, _>>();
+
+        assert_eq!(Value::Object(actual), expected);
     }
 
     #[test]

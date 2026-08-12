@@ -1,4 +1,5 @@
 import type { ChatMessage, ChatStreamEvent } from "../types/chat";
+import { upsertToolUse } from "./tool-use";
 
 function mergeRichBlock(message: ChatMessage, block: NonNullable<ChatMessage["richBlocks"]>[number]) {
   const blocks = message.richBlocks ?? [];
@@ -58,7 +59,7 @@ function applyEventToMessage(message: ChatMessage, event: ChatStreamEvent): Chat
     case "thinking":
       return { ...message, thinkingContent: `${message.thinkingContent ?? ""}${event.contentDelta}`, updatedAt };
     case "tool_use":
-      return { ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt };
+      return { ...message, toolUse: upsertToolUse(message.toolUse ?? [], event.toolUse), updatedAt };
     case "rich_block":
       return { ...message, richBlocks: mergeRichBlock(message, event.block), updatedAt };
     case "completed":

@@ -68,17 +68,16 @@ pub(crate) fn create_scheduled_task(
         )
         .optional()
         .map_err(command_error)?;
-    // The runner (`bootstrap::scheduled_tasks::run_one_task`) always fires with a hardcoded
-    // CLI interaction mode, so a task saved against a non-CLI agent would fail every time it
-    // runs — reject it here rather than let it silently never work once scheduled.
-    match launch_kind.as_deref() {
-        Some("cli") => {}
-        Some(_) => {
+    // Scheduled execution has an explicit API route only for OnePiece. Other API agents have no
+    // runner contract, so reject them before persisting a task that could never run.
+    match (input.agent_id.as_str(), launch_kind.as_deref()) {
+        ("onepiece", Some("api")) | (_, Some("cli")) => {}
+        (_, Some(_)) => {
             return Err(CommandError::validation(
-                "Scheduled tasks currently only support CLI Agents.",
+                "Scheduled tasks support CLI Agents and OnePiece.",
             ));
         }
-        None => {
+        (_, None) => {
             return Err(CommandError::validation(
                 "Scheduled task references an unsupported Agent.",
             ));
@@ -524,11 +523,30 @@ mod tests {
     }
 
     #[test]
+    fn create_scheduled_task_persists_onepiece() {
+        let (_directory, database) = database();
+
+        let task = create_scheduled_task(
+            &database,
+            dto::CreateScheduledTaskInput {
+                name: "OnePiece task".to_string(),
+                content: "Run it".to_string(),
+                agent_id: "onepiece".to_string(),
+                frequency: dto::ScheduledTaskFrequency::Minutes { interval: 5 },
+            },
+        )
+        .expect("create");
+
+        assert_eq!(task.agent_id, "onepiece");
+        assert_eq!(
+            list_scheduled_tasks(&database).expect("list")[0].agent_id,
+            "onepiece"
+        );
+    }
+
+    #[test]
     fn create_scheduled_task_rejects_an_agent_that_does_not_support_cli() {
-        // The runner (`bootstrap::scheduled_tasks::run_one_task`) always fires with a
-        // hardcoded `InteractionMode::Cli` — a task saved against a non-CLI agent (e.g. a
-        // registered API agent) would fail every single time it runs, silently forever, since
-        // nothing previously stopped it from being created this way.
+        // Registered API agents do not inherit OnePiece's dedicated scheduled-task route.
         let (_directory, database) = database();
         let connection = database.connection().expect("connection");
         connection

@@ -32,9 +32,6 @@ const defaultSessionSidebarWidth = 220;
 type LoopCenterProps = { onInspect?: (target: LoopInspectionTarget) => void };
 const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop-center/loop-center")
   .then((module) => ({ default: module.LoopCenter }));
-type PlanCenterProps = Record<string, never>;
-const loadPlanCenter: LazyFeatureLoader<PlanCenterProps> = () => import("../plan-center/plan-center")
-  .then((module) => ({ default: module.PlanCenter }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -106,14 +103,14 @@ export function MainLayout({
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [destination, setDestination] = useState<"sessions" | "loops" | "plans">("sessions");
+  const [destination, setDestination] = useState<"sessions" | "loops">("sessions");
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
-  const [planCenterVisited, setPlanCenterVisited] = useState(false);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
   const sessionSidebarRef = useRef<HTMLDivElement>(null);
   const workspaceGridRef = useRef<HTMLDivElement>(null);
   const inspectionRequestRef = useRef(0);
+  const activatedSessionIdRef = useRef<string | null>(null);
   const effectiveInfoPanelCollapsed = conversationFocusMode || infoPanelCollapsed;
   const effectiveSessionSidebarCollapsed = conversationFocusMode || sessionSidebarCollapsed;
 
@@ -131,6 +128,14 @@ export function MainLayout({
   useEffect(() => {
     if (openCreateSession) setCreateSessionOpen(true);
   }, [openCreateSession]);
+
+  useEffect(() => {
+    const previous = activatedSessionIdRef.current;
+    activatedSessionIdRef.current = model.activeSessionId;
+    if (previous && model.activeSessionId && previous !== model.activeSessionId) {
+      setSessionActivationKey((value) => value + 1);
+    }
+  }, [model.activeSessionId]);
 
   function startSessionSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
     if (effectiveSessionSidebarCollapsed) return;
@@ -214,7 +219,6 @@ export function MainLayout({
               expandSessions: t("layout.activityBar.expandSessions"),
               collapseSessions: t("layout.activityBar.collapseSessions"),
               loops: t("layout.activityBar.loops"),
-              plans: t("layout.activityBar.plans"),
               scheduledTasks: t("layout.activityBar.scheduledTasks"),
               settings: t("layout.activityBar.settings"),
               help: t("layout.activityBar.help"),
@@ -223,10 +227,6 @@ export function MainLayout({
             onLoops={() => {
               setLoopCenterVisited(true);
               setDestination("loops");
-            }}
-            onPlans={() => {
-              setPlanCenterVisited(true);
-              setDestination("plans");
             }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
             onSessions={() => {
@@ -266,7 +266,6 @@ export function MainLayout({
                 onSelect={(session) => {
                   setContextPanel(null);
                   setLoopInspection(null);
-                  setSessionActivationKey((value) => value + 1);
                   model.switchSession(session);
                 }}
                 searchQuery={model.sessionSearchQuery}
@@ -365,13 +364,6 @@ export function MainLayout({
                 loader={loadLoopCenter}
               />
             ) : null}
-          </section>
-          <section
-            aria-label={t("layout.activityBar.plans")}
-            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "plans" ? "flex" : "hidden")}
-            id="plan-center"
-          >
-            {planCenterVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadPlanCenter} /> : null}
           </section>
           <div
             aria-hidden="true"

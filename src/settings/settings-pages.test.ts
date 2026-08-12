@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { settingsPages } from "./settings-pages";
 
 describe("settingsPages", () => {
+  it("orders destinations by the primary settings workflow", () => {
+    expect(settingsPages.map((page) => page.id)).toEqual([
+      "basic",
+      "agent-configurations",
+      "agent-policies",
+      "cli-parameters",
+      "mcp",
+      "skills",
+      "personalization",
+      "prompt-hooks",
+      "expert-roles",
+      "providers",
+      "extensions",
+      "plugins",
+      "im",
+      "ssh-connections",
+      "observability",
+      "usage",
+      "about",
+    ]);
+  });
   it("registers every page as a lazy first-visit module", () => {
     expect(settingsPages).toHaveLength(17);
     expect(settingsPages.every((page) => typeof page.loader === "function")).toBe(true);
@@ -24,13 +45,13 @@ describe("settingsPages", () => {
     expect(settingsPages[configurationsIndex].loader).toBeTypeOf("function");
   });
 
-  it("registers Personalization after Agent configurations/Agent policies and before Skills", () => {
+  it("registers Personalization after Skills and before Prompt Hooks", () => {
     const configurationsIndex = settingsPages.findIndex((page) => page.id === "agent-configurations");
     const personalizationIndex = settingsPages.findIndex((page) => page.id === "personalization");
     const skillsIndex = settingsPages.findIndex((page) => page.id === "skills");
 
-    expect(personalizationIndex).toBeGreaterThan(configurationsIndex);
-    expect(skillsIndex).toBe(personalizationIndex + 1);
+    expect(skillsIndex).toBeGreaterThan(configurationsIndex);
+    expect(personalizationIndex).toBe(skillsIndex + 1);
     expect(settingsPages[personalizationIndex]).toMatchObject({
       labelKey: "settings.pages.personalization",
       searchPlaceholderKey: "settings.search.personalization",
@@ -48,7 +69,7 @@ describe("settingsPages", () => {
 
     expect(imIndex).toBeGreaterThan(-1);
     expect(sshIndex).toBe(imIndex + 1);
-    expect(extensionsIndex).toBe(sshIndex + 1);
+    expect(extensionsIndex).toBeLessThan(imIndex);
     expect(settingsPages[imIndex]).toMatchObject({
       labelKey: "settings.pages.im",
       searchPlaceholderKey: "settings.search.im",
@@ -77,14 +98,14 @@ describe("settingsPages", () => {
     expect(settingsPages[pluginsIndex].badge).toBeUndefined();
   });
 
-  it("registers Prompt Hooks after Skills", () => {
-    const skillsIndex = settingsPages.findIndex((page) => page.id === "skills");
+  it("registers Prompt Hooks after Personalization", () => {
+    const personalizationIndex = settingsPages.findIndex((page) => page.id === "personalization");
     const promptHooksIndex = settingsPages.findIndex(
       (page) => page.id === "prompt-hooks",
     );
 
-    expect(skillsIndex).toBeGreaterThan(-1);
-    expect(promptHooksIndex).toBe(skillsIndex + 1);
+    expect(personalizationIndex).toBeGreaterThan(-1);
+    expect(promptHooksIndex).toBe(personalizationIndex + 1);
     expect(settingsPages[promptHooksIndex]).toMatchObject({
       labelKey: "settings.pages.promptHooks",
       searchPlaceholderKey: "settings.search.promptHooks",
@@ -108,7 +129,7 @@ describe("settingsPages", () => {
       (page) => page.id === "observability",
     );
     expect(observabilityIndex).toBe(usageIndex - 1);
-    expect(pluginsIndex).toBe(observabilityIndex - 1);
+    expect(pluginsIndex).toBeLessThan(observabilityIndex);
     expect(usageIndex).toBe(aboutIndex - 1);
     expect(settingsPages[usageIndex]).toMatchObject({
       labelKey: "settings.pages.usage",

@@ -63,7 +63,7 @@ export function ScheduledTasksDialog({
   const [error, setError] = useState<string | null>(null);
 
   const selectableAgents = useMemo(
-    () => agents.filter((agent) => agent.supportedInteractionModes.includes("cli")),
+    () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
     [agents],
   );
 

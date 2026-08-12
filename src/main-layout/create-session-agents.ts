@@ -1,4 +1,5 @@
 import type { AgentRegistryEntry } from "../types/agent";
+import { createSessionCliPriority, orderByAgentPriority } from "../lib/agent-display-order";
 
 /**
  * Which Agents the create-session dialog offers, and in what order.
@@ -6,7 +7,6 @@ import type { AgentRegistryEntry } from "../types/agent";
  * Split out of `create-session-dialog-utils` when that file outgrew the 300-line limit; these four
  * answer one question — who can hold a seat — and `session-seat-assignment` needs the same answer.
  */
-const defaultCliOrder = ["codex-cli", "claude-code", "gemini-cli", "antigravity-cli", "opencode"];
 export const previousSessionAgentStorageKey = "vanehub.create-session.agent.v1";
 
 export function isSessionAgentSelectable(agent: AgentRegistryEntry): boolean {
@@ -21,21 +21,13 @@ export function isSessionAgentSelectable(agent: AgentRegistryEntry): boolean {
 }
 
 export function selectSessionAgents(agents: AgentRegistryEntry[]): AgentRegistryEntry[] {
-  return agents
-    .filter((agent) =>
+  return orderByAgentPriority(
+    agents.filter((agent) =>
       agent.supportedInteractionModes.some((mode) => mode === "cli" || mode === "api"),
-    )
-    .sort((left, right) => {
-      const leftCli = defaultCliOrder.indexOf(left.id);
-      const rightCli = defaultCliOrder.indexOf(right.id);
-      if (leftCli !== -1 || rightCli !== -1) {
-        return (leftCli === -1 ? Number.MAX_SAFE_INTEGER : leftCli)
-          - (rightCli === -1 ? Number.MAX_SAFE_INTEGER : rightCli);
-      }
-      if (left.id === "onepiece") return -1;
-      if (right.id === "onepiece") return 1;
-      return left.displayName.localeCompare(right.displayName);
-    });
+    ),
+    (agent) => agent.id,
+    [...createSessionCliPriority, "onepiece"],
+  );
 }
 
 export function defaultSessionAgent(
@@ -50,7 +42,8 @@ export function defaultSessionAgent(
     if (onepiece) return onepiece;
   }
   return agents.find((agent) =>
-    defaultCliOrder.includes(agent.id) && isSessionAgentSelectable(agent),
+    createSessionCliPriority.includes(agent.id as (typeof createSessionCliPriority)[number])
+      && isSessionAgentSelectable(agent),
   ) ?? agents.find(isSessionAgentSelectable) ?? agents[0] ?? null;
 }
 

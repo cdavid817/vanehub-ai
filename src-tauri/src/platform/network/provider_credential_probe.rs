@@ -13,6 +13,7 @@ pub(crate) enum ProviderCredentialProbeProtocol {
     AnthropicMessages,
     OpenAiChatCompletions,
     OpenAiResponses,
+    GeminiGenerateContent,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub(crate) enum ProviderCredentialProbeProtocol {
 pub(crate) enum ProviderCredentialProbeAuthentication {
     AnthropicApiKey,
     Bearer,
+    GeminiApiKey,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -63,7 +65,7 @@ pub(crate) fn probe_provider_credential(
 ) -> Result<ProviderCredentialValidationResult, NetworkError> {
     validate_probe_value("model", request.model)?;
     validate_probe_value("credential", request.credential)?;
-    let endpoint = probe_endpoint(request.base_url, request.protocol)?;
+    let endpoint = probe_endpoint(request.base_url, request.protocol, request.model)?;
     let client = blocking_no_redirect_http_client(PROBE_TIMEOUT)?;
     let started = Instant::now();
     let response = authenticated_request(
@@ -104,6 +106,7 @@ fn validate_probe_value(label: &str, value: &str) -> Result<(), NetworkError> {
 fn probe_endpoint(
     base_url: &str,
     protocol: ProviderCredentialProbeProtocol,
+    model: &str,
 ) -> Result<Url, NetworkError> {
     let mut url = Url::parse(base_url.trim()).map_err(|_| {
         NetworkError::Validation("provider credential probe URL is invalid".to_string())
@@ -124,6 +127,13 @@ fn probe_endpoint(
         ProviderCredentialProbeProtocol::AnthropicMessages => "v1/messages",
         ProviderCredentialProbeProtocol::OpenAiChatCompletions => "chat/completions",
         ProviderCredentialProbeProtocol::OpenAiResponses => "responses",
+        ProviderCredentialProbeProtocol::GeminiGenerateContent => {
+            return url
+                .join(&format!("v1beta/models/{model}:generateContent"))
+                .map_err(|_| {
+                    NetworkError::Validation("provider credential probe URL is invalid".to_string())
+                });
+        }
     };
     let current_path = url.path().trim_end_matches('/');
     if !current_path.ends_with(suffix) {
@@ -147,6 +157,9 @@ fn authenticated_request(
             .header("x-api-key", credential)
             .header("anthropic-version", "2023-06-01"),
         ProviderCredentialProbeAuthentication::Bearer => request.bearer_auth(credential),
+        ProviderCredentialProbeAuthentication::GeminiApiKey => {
+            request.header("x-goog-api-key", credential)
+        }
     }
 }
 
@@ -169,6 +182,10 @@ fn probe_body(protocol: ProviderCredentialProbeProtocol, model: &str) -> Value {
             "input": "Reply OK.",
             "max_output_tokens": 1,
             "stream": false
+        }),
+        ProviderCredentialProbeProtocol::GeminiGenerateContent => json!({
+            "contents": [{ "parts": [{ "text": "Reply OK." }] }],
+            "generationConfig": { "maxOutputTokens": 1 }
         }),
     }
 }
@@ -196,6 +213,7 @@ mod tests {
             probe_endpoint(
                 "https://api.openai.com/v1",
                 ProviderCredentialProbeProtocol::OpenAiChatCompletions,
+                "unused",
             )
             .expect("chat endpoint")
             .as_str(),
@@ -205,6 +223,7 @@ mod tests {
             probe_endpoint(
                 "https://api.anthropic.com/v1/messages",
                 ProviderCredentialProbeProtocol::AnthropicMessages,
+                "unused",
             )
             .expect("anthropic endpoint")
             .as_str(),
@@ -217,11 +236,13 @@ mod tests {
         assert!(probe_endpoint(
             "https://user@example.com/v1",
             ProviderCredentialProbeProtocol::OpenAiResponses,
+            "unused",
         )
         .is_err());
         assert!(probe_endpoint(
             "https://example.com/v1?redirect=https://attacker.invalid",
             ProviderCredentialProbeProtocol::OpenAiResponses,
+            "unused",
         )
         .is_err());
     }

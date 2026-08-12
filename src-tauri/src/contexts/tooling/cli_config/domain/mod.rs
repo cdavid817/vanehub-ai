@@ -5,8 +5,13 @@ use thiserror::Error;
 use url::Url;
 
 pub(crate) const PAYLOAD_VERSION: i64 = 1;
-pub(crate) const SUPPORTED_AGENT_IDS: [&str; 4] =
-    ["claude-code", "opencode", "codex-cli", "antigravity-cli"];
+pub(crate) const SUPPORTED_AGENT_IDS: [&str; 5] = [
+    "claude-code",
+    "opencode",
+    "codex-cli",
+    "antigravity-cli",
+    "gemini-cli",
+];
 
 /// Keys VaneHub owns inside Antigravity's settings document. Everything else in that file belongs
 /// to the user and is preserved on apply.
@@ -98,6 +103,13 @@ pub(crate) enum CodexAuthStrategy {
     ReplaceAuth,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum GeminiAuthStrategy {
+    PreserveOfficial,
+    ApiKey,
+}
+
 /// Antigravity CLI's graduated tool-approval modes, which live in its settings document rather
 /// than in launch flags.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -152,6 +164,12 @@ pub(crate) enum CliConfigPayload {
         verbosity: String,
         model: String,
         advanced_settings: BTreeMap<String, Value>,
+    },
+    GeminiCli {
+        base_url: String,
+        model: String,
+        auth_strategy: GeminiAuthStrategy,
+        advanced_env: BTreeMap<String, String>,
     },
 }
 
@@ -518,6 +536,7 @@ impl CliConfigPayload {
             Self::CodexCli { .. } => "codex-cli",
             Self::Opencode { .. } => "opencode",
             Self::Antigravity { .. } => "antigravity-cli",
+            Self::GeminiCli { .. } => "gemini-cli",
         }
         .to_string()
     }
@@ -537,6 +556,9 @@ impl CliConfigPayload {
             }
             Self::Opencode { .. } => true,
             Self::Antigravity { .. } => false,
+            Self::GeminiCli { auth_strategy, .. } => {
+                *auth_strategy != GeminiAuthStrategy::PreserveOfficial
+            }
         }
     }
 
@@ -577,6 +599,16 @@ impl CliConfigPayload {
                     .map(|key| (*key).to_string())
                     .collect::<Vec<_>>();
                 keys.extend(advanced_settings.keys().cloned());
+                keys.sort();
+                keys.dedup();
+                keys
+            }
+            Self::GeminiCli { advanced_env, .. } => {
+                let mut keys = vec!["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"]
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                keys.extend(advanced_env.keys().cloned());
                 keys.sort();
                 keys.dedup();
                 keys
@@ -723,6 +755,26 @@ impl CliConfigPayload {
                     ));
                 }
             }
+            Self::GeminiCli {
+                base_url,
+                model,
+                advanced_env,
+                ..
+            } => {
+                validate_url(base_url)?;
+                validate_text(model, "model")?;
+                validate_string_map(advanced_env, "advanced environment")?;
+                let reserved = ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"];
+                if advanced_env
+                    .keys()
+                    .any(|key| reserved.contains(&key.as_str()) || looks_like_secret_key(key))
+                {
+                    return Err(CliConfigError::Validation(
+                        "advanced environment cannot replace managed keys or contain credentials"
+                            .into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -772,6 +824,24 @@ mod tests {
         }
     }
 
+    fn gemini_input() -> SaveCliConfigProfileInput {
+        SaveCliConfigProfileInput {
+            id: None,
+            agent_id: "gemini-cli".into(),
+            name: "Google Gemini".into(),
+            payload: CliConfigPayload::GeminiCli {
+                base_url: "https://generativelanguage.googleapis.com".into(),
+                model: "auto".into(),
+                auth_strategy: GeminiAuthStrategy::ApiKey,
+                advanced_env: BTreeMap::new(),
+            },
+            source_preset_id: None,
+            source_preset_version: None,
+            credential: Some("secret".into()),
+            remove_credential: false,
+        }
+    }
+
     /// A credential-free kind must refuse a submitted secret before anything touches a config
     /// file, so a mis-wired caller cannot persist a credential the CLI would never read.
     #[test]
@@ -803,9 +873,29 @@ mod tests {
     #[test]
     fn validates_supported_tagged_payloads() {
         assert!(validate_profile_input(&claude_input()).is_ok());
+        assert!(validate_profile_input(&gemini_input()).is_ok());
         let mut mismatched = claude_input();
         mismatched.agent_id = "codex-cli".into();
         assert!(validate_profile_input(&mismatched).is_err());
+    }
+
+    #[test]
+    fn gemini_rejects_reserved_or_secret_advanced_environment_keys() {
+        let mut reserved = gemini_input();
+        let CliConfigPayload::GeminiCli { advanced_env, .. } = &mut reserved.payload else {
+            panic!("fixture must be a Gemini payload");
+        };
+        advanced_env.insert("GEMINI_API_KEY".into(), "leak".into());
+        assert!(validate_profile_input(&reserved).is_err());
+
+        let mut official = gemini_input();
+        let CliConfigPayload::GeminiCli { auth_strategy, .. } = &mut official.payload else {
+            panic!("fixture must be a Gemini payload");
+        };
+        *auth_strategy = GeminiAuthStrategy::PreserveOfficial;
+        official.credential = None;
+        assert!(validate_profile_input(&official).is_ok());
+        assert!(!official.payload.requires_credential());
     }
 
     #[test]

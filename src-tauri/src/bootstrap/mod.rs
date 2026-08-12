@@ -22,7 +22,6 @@ mod sdk;
 mod sessions;
 mod skills;
 mod ssh_connections;
-mod task_orchestration;
 mod workspaces;
 
 pub(crate) use crate::contexts::sessions::infrastructure::scheduled_tasks::ScheduledTaskLogDirectory;
@@ -61,5 +60,4 @@ pub(crate) use sessions::{
 };
 pub(crate) use skills::assemble_skill_api;
 pub(crate) use ssh_connections::assemble_ssh_connections_api;
-pub(crate) use task_orchestration::assemble_task_orchestration_api;
 pub(crate) use workspaces::assemble_workspace_api;

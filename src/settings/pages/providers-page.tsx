@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpCircle, CheckCircle2, RefreshCw, Stethoscope, TerminalSquare, XCircle } from "lucide-react";
+import { ArrowUpCircle, CheckCircle2, RefreshCw, Stethoscope, TerminalSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
+import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { agentService } from "../../services/runtime-agent-client";
 import { operationService } from "../../services/runtime-operation-client";
 import { settingsService } from "../../services/runtime-settings-client";
@@ -49,7 +50,10 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
   const [pendingPackageAction, setPendingPackageAction] = useState<PendingPackageAction | null>(null);
 
   const toolsQuery = useQuery({ queryKey: cliToolsQueryKey, queryFn: () => agentService.listCliTools() });
-  const tools = useMemo(() => toolsQuery.data ?? [], [toolsQuery.data]);
+  const tools = useMemo(
+    () => orderByAgentPriority(toolsQuery.data ?? [], (tool) => tool.agentId),
+    [toolsQuery.data],
+  );
 
   useEffect(() => {
     setSelectedVersions((current) => {
@@ -141,7 +145,6 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
     return tools.filter((tool) => [tool.displayName, tool.provider, tool.executableName, tool.packageName].some((value) => value?.toLowerCase().includes(query)));
   }, [searchTerm, tools]);
   const installedCount = tools.filter((tool) => tool.installed === true).length;
-  const missingCount = tools.filter((tool) => tool.installed === false).length;
   const bulkEligibleCount = tools.filter(isBulkCliUpgradeEligible).length;
   const refreshOperation = refreshOperationId ? operationsById[refreshOperationId] : undefined;
   const refreshState = refreshButtonState(refreshMutation.isPending && refreshMutation.variables === null, refreshOperation);
@@ -191,9 +194,8 @@ export function ProvidersPage({ searchTerm }: { searchTerm: string }) {
         <h2 className="text-sm font-semibold">{t("cli.localEnvironmentCheck")}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{t("cli.localEnvironmentHint")}</p>
       </section>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div data-testid="cli-installation-summary">
         <StatCard icon={CheckCircle2} label={t("cli.stats.installed")} value={`${installedCount} / ${tools.length}`} hint={t("cli.stats.installedHint")} />
-        <StatCard icon={XCircle} label={t("cli.stats.missing")} value={`${missingCount} / ${tools.length}`} hint={t("cli.stats.missingHint")} />
       </div>
       {toolsQuery.error ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{String(toolsQuery.error)}</div> : null}
       <div className="grid gap-4 xl:grid-cols-2">

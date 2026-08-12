@@ -10,6 +10,5 @@ pub(crate) mod permissions;
 pub(crate) mod retrieval;
 pub(crate) mod sessions;
 pub(crate) mod ssh_connections;
-pub(crate) mod task_orchestration;
 pub(crate) mod tooling;
 pub(crate) mod workspaces;

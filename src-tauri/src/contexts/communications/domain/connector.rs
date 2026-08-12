@@ -7,7 +7,9 @@ use serde_json::Value;
 pub(crate) enum ConnectorKind {
     Feishu,
     Telegram,
+    #[serde(rename = "dingtalk")]
     DingTalk,
+    #[serde(rename = "wecom")]
     WeCom,
     #[serde(rename = "weixin", alias = "wechat")]
     WeChat,
@@ -219,6 +221,18 @@ mod tests {
             serde_json::from_str::<ConnectorKind>("\"wechat\"").expect("legacy alias"),
             ConnectorKind::WeChat
         );
+    }
+
+    #[test]
+    fn every_connector_identity_round_trips_through_its_stable_wire_id() {
+        for kind in ConnectorKind::ALL {
+            let expected = format!("\"{}\"", kind.as_str());
+            assert_eq!(serde_json::to_string(&kind).expect("serialize"), expected);
+            assert_eq!(
+                serde_json::from_str::<ConnectorKind>(&expected).expect("deserialize"),
+                kind
+            );
+        }
     }
 
     #[test]

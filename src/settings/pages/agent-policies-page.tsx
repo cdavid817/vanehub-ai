@@ -5,6 +5,7 @@ import { ShieldCheck } from "lucide-react";
 import { agentService } from "../../services/runtime-agent-client";
 import { permissionsService } from "../../services/runtime-permissions-client";
 import { Button } from "../../components/ui/button";
+import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { ApplicationDialog } from "../../components/ui/application-dialog";
 import { PageHeader, SectionPanel, SettingsRow } from "./page-parts";
 import {
@@ -76,7 +77,10 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
   });
 
   const policyEligibleAgents = useMemo(
-    () => (agentsQuery.data ?? []).filter((agent) => agent.agentOrigin === "user" || agent.id === "onepiece"),
+    () => orderByAgentPriority(
+      (agentsQuery.data ?? []).filter((agent) => agent.agentOrigin === "user" || agent.id === "onepiece"),
+      (agent) => agent.id,
+    ),
     [agentsQuery.data],
   );
 
@@ -89,7 +93,7 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
     );
   }, [policyEligibleAgents, query]);
 
-  // The four managed CLI ids are stable CLI principals, not registered AgentRegistryEntry rows,
+  // The managed CLI ids are stable CLI principals, not registered AgentRegistryEntry rows,
   // so they're rendered independently of agentService.listAgents()'s results — but they still
   // participate in the same search filter and empty-state logic as every other row.
   const visibleManagedCliAgents = useMemo(
@@ -176,16 +180,6 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
           <div className="px-5 py-6 text-sm text-muted-foreground sm:px-6">{t("settings.agentPolicies.empty")}</div>
         ) : (
           <>
-            {visibleAgents.map((agent) => (
-              <AgentPolicyRow
-                description={agent.id}
-                disabled={assignMutation.isPending}
-                key={agent.id}
-                onSelect={(template) => selectTemplate(agent.id, template)}
-                principal={principals?.get(agent.id)}
-                title={agent.displayName}
-              />
-            ))}
             {visibleManagedCliAgents.map(({ agentId, displayName }) => (
               <AgentPolicyRow
                 description={agentId}
@@ -194,6 +188,16 @@ export function AgentPoliciesPage({ searchTerm }: { searchTerm: string }) {
                 onSelect={(template) => selectTemplate(agentId, template)}
                 principal={principals?.get(agentId)}
                 title={displayName}
+              />
+            ))}
+            {visibleAgents.map((agent) => (
+              <AgentPolicyRow
+                description={agent.id}
+                disabled={assignMutation.isPending}
+                key={agent.id}
+                onSelect={(template) => selectTemplate(agent.id, template)}
+                principal={principals?.get(agent.id)}
+                title={agent.displayName}
               />
             ))}
           </>
