@@ -21,11 +21,11 @@ use crate::contexts::agent_runtime::infrastructure::{
     PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter, RuntimeAgentAvailabilityAdapter,
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
     RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
-    RuntimeEffectivePromptAdapter, RuntimeOnePiecePlanningAdapter, SessionsAgentRuntimeAdapter,
-    SqliteAgentMemoryRepository, SqliteAgentRuntimeRepository, SqliteExpertRoleRepository,
-    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
+    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
+    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
+    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -179,10 +179,6 @@ pub(crate) fn assemble_agent_runtime_api(
         dependencies.desktop_settings,
     ));
     let agent_memory_extraction = Arc::new(RuntimeAgentMemoryExtractionAdapter::new(
-        api_credentials.clone(),
-        repository.clone(),
-    ));
-    let onepiece_planning = Arc::new(RuntimeOnePiecePlanningAdapter::new(
         api_credentials.clone(),
         repository.clone(),
     ));
@@ -360,8 +356,6 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_scheduler,
             expert_roles,
             seat_turns,
-            guarded_validation,
-            onepiece_planning,
         }),
         telemetry_lifecycle,
     })

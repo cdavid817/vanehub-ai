@@ -25,9 +25,10 @@ describe("AgentConfigurationsPage", () => {
     await waitFor(() => expect(getStatus).toHaveBeenCalledWith("codex-cli"));
     expect(within(screen.getByRole("tablist")).getAllByRole("tab")).toEqual([
       screen.getByRole("tab", { name: "Claude Code" }),
-      screen.getByRole("tab", { name: "OpenCode" }),
       screen.getByRole("tab", { name: "Codex CLI" }),
+      screen.getByRole("tab", { name: "OpenCode" }),
       screen.getByRole("tab", { name: "Antigravity CLI" }),
+      screen.getByRole("tab", { name: "Gemini CLI" }),
       screen.getByRole("tab", { name: "OnePiece" }),
     ]);
     // The tab strip must not hard-code a desktop column count. A fixed `sm:grid-cols-4` matched the

@@ -296,7 +296,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         conn,
         49,
         "plan-execution-foundation",
-        crate::contexts::task_orchestration::infrastructure::apply_schema,
+        super::legacy_plan_schema::apply_legacy_plan_schema,
     )?;
     apply_migration(
         conn,
@@ -361,13 +361,19 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "stable-session-participants",
         crate::contexts::sessions::infrastructure::apply_stable_participant_schema,
     )?;
-    repair_missing_stable_participant_schema(conn)?;
     apply_transactional_migration(
         conn,
         60,
         "effective-skill-runtime",
         crate::contexts::tooling::skills::infrastructure::apply_effective_runtime_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        61,
+        "session-execution-policy",
+        apply_session_execution_policy_migration,
+    )?;
+    repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -435,6 +441,20 @@ fn apply_session_recovery_performance_migration(conn: &Connection) -> Result<(),
                 OR recovery_status = 'reconciling'
               );
         "#,
+    )?;
+    Ok(())
+}
+
+fn apply_session_execution_policy_migration(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute("UPDATE sessions SET chat_preferences = NULL", [])?;
+    conn.execute(
+        "DELETE FROM cli_parameter_settings WHERE \
+         (agent_id = 'claude-code' AND parameter_id = 'permissionMode') OR \
+         (agent_id = 'codex-cli' AND parameter_id IN ('sandbox', 'approvalPolicy')) OR \
+         (agent_id = 'gemini-cli' AND parameter_id IN ('approvalMode', 'sandbox')) OR \
+         (agent_id = 'opencode' AND parameter_id IN ('agent', 'autoApprove')) OR \
+         (agent_id = 'antigravity-cli' AND parameter_id IN ('mode', 'sandbox'))",
+        [],
     )?;
     Ok(())
 }
@@ -646,6 +666,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (58, "lsp-code-intelligence-foundation"),
     (59, "stable-session-participants"),
     (60, "effective-skill-runtime"),
+    (61, "session-execution-policy"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -704,7 +725,7 @@ fn repair_missing_stable_participant_schema(conn: &Connection) -> Result<(), Dat
 // Versions 49-51 existed in two histories: Plan execution on main, or workspace code indexing in
 // a concurrent worktree. Version 53 is unclaimed by both and makes their idempotent schemas meet.
 fn apply_plan_and_code_index_reconciliation(conn: &Connection) -> Result<(), DatabaseError> {
-    crate::contexts::task_orchestration::infrastructure::apply_schema(conn)?;
+    super::legacy_plan_schema::apply_legacy_plan_schema(conn)?;
     crate::contexts::retrieval::infrastructure::apply_code_index_schema(conn)
 }
 
@@ -1876,6 +1897,64 @@ mod tests {
             recorded, expected,
             "EXPECTED_MIGRATIONS drifted from migrate()"
         );
+    }
+
+    #[test]
+    fn session_execution_policy_migration_resets_legacy_security_configuration() {
+        let connection = Connection::open_in_memory().expect("database");
+        migrate(&connection).expect("migrate");
+        connection
+            .execute(
+                "INSERT INTO agents (id, display_name, provider, launch_kind) \
+                 VALUES ('codex-cli', 'Codex CLI', 'OpenAI', 'cli')",
+                [],
+            )
+            .expect("agent fixture");
+        connection
+            .execute(
+                "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, \
+                 pinned, archived, created_at, updated_at, chat_preferences) \
+                 VALUES ('execution-policy-session', 'legacy', 'codex-cli', 'cli', 'idle', \
+                 0, 0, 't', 't', '{\"permissionMode\":\"auto\"}')",
+                [],
+            )
+            .expect("legacy session");
+        for (parameter_id, value) in [
+            ("sandbox", "\"workspace-write\""),
+            ("approvalPolicy", "\"never\""),
+            ("ephemeral", "true"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO cli_parameter_settings \
+                     (agent_id, parameter_id, enabled, value_json, updated_at) \
+                     VALUES ('codex-cli', ?1, 1, ?2, 't')",
+                    params![parameter_id, value],
+                )
+                .expect("legacy CLI selection");
+        }
+
+        apply_session_execution_policy_migration(&connection).expect("policy migration");
+
+        let preferences: Option<String> = connection
+            .query_row(
+                "SELECT chat_preferences FROM sessions WHERE id = 'execution-policy-session'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("preferences");
+        assert_eq!(preferences, None);
+        let remaining: Vec<String> = connection
+            .prepare(
+                "SELECT parameter_id FROM cli_parameter_settings \
+                 WHERE agent_id = 'codex-cli' ORDER BY parameter_id",
+            )
+            .expect("prepare")
+            .query_map([], |row| row.get(0))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows");
+        assert_eq!(remaining, vec!["ephemeral".to_string()]);
     }
 
     /// A non-dense history (a missing row, as a mid-migration failure + unrecorded version

@@ -3,6 +3,7 @@ import { managedCliAgentIds } from "../types/agent";
 import type { CliParameterDefinition } from "../types/agent";
 import en from "../i18n/locales/en.json";
 import zhCN from "../i18n/locales/zh-CN.json";
+import editableCatalogContract from "../contracts/fixtures/cli-parameter-editable-catalog.json";
 import {
   buildCliParameterPreview,
   buildCliParameterPreviewFromDefinitions,
@@ -13,21 +14,33 @@ import {
 
 const reservedFlags = new Set(["--output-format", "--resume", "--session", "--json", "--format", "--prompt"]);
 const expectedParameterIds = {
-  "claude-code": ["model", "effort", "permissionMode", "chrome"],
-  "codex-cli": ["model", "reasoningEffort", "sandbox", "approvalPolicy", "ephemeral", "strictConfig"],
-  "gemini-cli": ["model", "approvalMode", "sandbox"],
-  opencode: ["agent", "thinking", "autoApprove"],
-  "antigravity-cli": ["model", "effort", "mode", "agent", "sandbox"],
+  "claude-code": ["model", "effort", "chrome"],
+  "codex-cli": ["model", "reasoningEffort", "ephemeral", "strictConfig"],
+  "gemini-cli": ["model"],
+  opencode: ["model", "variant", "thinking"],
+  "antigravity-cli": ["model", "effort", "agent"],
 } as const;
 
 describe("CLI parameter catalog", () => {
+  it("matches the shared frontend/native editable catalog contract", () => {
+    const actual = Object.fromEntries(managedCliAgentIds.map((agentId) => [
+      agentId,
+      cliParameterCatalog[agentId].map((definition) => ({
+        id: definition.id,
+        flag: definition.flag,
+        launchScopes: definition.launchScopes,
+        options: definition.options.map((optionEntry) => optionEntry.value),
+      })),
+    ]));
+    expect(actual).toEqual(editableCatalogContract);
+  });
+
   it("defines safe typed controls for all managed CLIs", () => {
     expect(Object.keys(cliParameterCatalog)).toEqual(managedCliAgentIds);
     for (const agentId of managedCliAgentIds) {
       const definitions = cliParameterCatalog[agentId];
       expect(definitions.map((definition) => definition.id)).toEqual(expectedParameterIds[agentId]);
-      expect(definitions.some((entry) => entry.control === "enum" || entry.control === "custom-text")).toBe(true);
-      expect(definitions.some((entry) => entry.control === "boolean")).toBe(true);
+      expect(definitions.length).toBeGreaterThan(0);
       expect(new Set(definitions.map((entry) => entry.id)).size).toBe(definitions.length);
       for (const definition of definitions) {
         expect(definition.agentId).toBe(agentId);
@@ -45,20 +58,40 @@ describe("CLI parameter catalog", () => {
 
   it("normalizes defaults and rejects unknown or invalid values atomically", () => {
     const baseline = createCliParameterProfile("codex-cli");
-    expect(baseline.selections.sandbox).toBe("default");
+    expect(baseline.selections.ephemeral).toBe(false);
     expect(() => normalizeCliParameterSelections("codex-cli", { unknown: true })).toThrow("Unknown CLI parameter");
-    expect(() => normalizeCliParameterSelections("codex-cli", { sandbox: "danger-full-access" })).toThrow("Invalid value");
+    expect(() => normalizeCliParameterSelections("codex-cli", { sandbox: "read-only" })).toThrow("Unknown CLI parameter");
+    expect(() => normalizeCliParameterSelections("codex-cli", { reasoningEffort: "impossible" })).toThrow("Invalid value");
   });
 
   it("builds tokenized previews without runtime-owned or secret content", () => {
     const preview = buildCliParameterPreview("claude-code", {
       model: "sonnet",
       effort: "high",
-      permissionMode: "plan",
       chrome: false,
     });
-    expect(preview).toEqual(["--model", "sonnet", "--effort", "high", "--permission-mode", "plan"]);
+    expect(preview).toEqual(["--model", "sonnet", "--effort", "high"]);
     expect(preview.join(" ")).not.toMatch(/prompt|resume|session|token|secret/i);
+  });
+
+  it("uses the audited Gemini aliases and scopes OpenCode variants to chat runs", () => {
+    expect(cliParameterCatalog["gemini-cli"][0].options.map((entry) => entry.value))
+      .toEqual(["default", "auto", "pro", "flash", "flash-lite"]);
+    expect(cliParameterCatalog.opencode.find((entry) => entry.id === "model")?.launchScopes)
+      .toEqual(["interactive", "chat"]);
+    expect(cliParameterCatalog.opencode.find((entry) => entry.id === "variant")?.launchScopes)
+      .toEqual(["chat"]);
+    expect(buildCliParameterPreview("opencode", {
+      model: "anthropic/claude-sonnet-4-5",
+      variant: "high",
+      thinking: true,
+    }, "chat")).toEqual([
+      "--model",
+      "anthropic/claude-sonnet-4-5",
+      "--variant",
+      "high",
+      "--thinking",
+    ]);
   });
 
   it("names every managed CLI in each Agent-keyed copy namespace", () => {

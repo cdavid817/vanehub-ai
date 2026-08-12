@@ -3,7 +3,7 @@ import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { SessionDocument } from "../../types/session-workspace";
-import type { ChatConfig, ChatFileReference, ModelInfo, PermissionMode, ReasoningDepth } from "../../types/chat";
+import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
 
@@ -36,7 +36,7 @@ export function ChatInputBox({
   value,
 }: {
   agents: AgentRegistryEntry[];
-  availableModes: PermissionMode[];
+  availableModes: SessionExecutionMode[];
   availableModels: ModelInfo[];
   availableReasoning: ReasoningDepth[];
   config: ChatConfig;
@@ -50,7 +50,7 @@ export function ChatInputBox({
   onClear: () => void;
   onConfigAgentChange: (value: string) => void;
   onConfigLongContextChange: (value: boolean) => void;
-  onConfigModeChange: (value: PermissionMode) => void;
+  onConfigModeChange: (value: SessionExecutionMode) => void;
   onConfigModelChange: (value: string) => void;
   onConfigProviderChange: (value: string) => void;
   onConfigReasoningChange: (value: ReasoningDepth) => void;

@@ -25,7 +25,7 @@ describe("Web CLI global configuration", () => {
     const serialized = JSON.stringify(presets).toLowerCase();
     expect(serialized).not.toContain("credentialref");
     expect(serialized).not.toContain("authorization\":");
-    await expect(webAgentClient.listCliConfigPresets("gemini-cli")).rejects.toThrow("Unsupported");
+    expect(await webAgentClient.listCliConfigPresets("gemini-cli")).toHaveLength(1);
   });
 
   it("creates, applies, duplicates, and deletes profiles without changing workflow state", async () => {
@@ -90,6 +90,33 @@ describe("Web CLI global configuration", () => {
       agentId: "codex-cli",
       profileId: repaired.id,
     })).rejects.toThrow("Credential");
+  });
+
+  it("supports the Gemini profile lifecycle without returning its credential", async () => {
+    const preset = (await webAgentClient.listCliConfigPresets("gemini-cli"))[0];
+    if (!preset || preset.payload.kind !== "gemini-cli") throw new Error("Gemini preset missing");
+    const secret = "gemini-secret-not-for-dto";
+    const profile = await webAgentClient.saveCliConfigProfile({
+      agentId: "gemini-cli",
+      name: `Gemini ${Date.now()}`,
+      payload: { ...preset.payload, authStrategy: "api-key" },
+      credential: secret,
+    });
+
+    expect(profile).toMatchObject({ agentId: "gemini-cli", credentialConfigured: true });
+    expect(JSON.stringify(profile)).not.toContain(secret);
+    await expect(webAgentClient.applyCliConfigProfile({
+      agentId: "gemini-cli",
+      profileId: profile.id,
+    })).resolves.toMatchObject({ status: "succeeded", simulated: true });
+
+    const duplicate = await webAgentClient.duplicateCliConfigProfile("gemini-cli", profile.id);
+    expect(duplicate.payload.kind).toBe("gemini-cli");
+    await webAgentClient.deleteCliConfigProfile({
+      agentId: "gemini-cli",
+      profileId: profile.id,
+      detachApplied: true,
+    });
   });
 
   it("validates transient and stored CLI credentials without retaining the transient value", async () => {

@@ -8,6 +8,7 @@ import {
   payloadSupportsEndpointOverride,
   type AntigravityConfigPayload,
   type ClaudeCodeConfigPayload,
+  type GeminiCliConfigPayload,
 } from "../../../types/cli-agent-config";
 import { CliConfigPayloadFields } from "./cli-config-payload-fields";
 
@@ -31,6 +32,14 @@ const claude: ClaudeCodeConfigPayload = {
   advancedEnv: {},
 };
 
+const gemini: GeminiCliConfigPayload = {
+  kind: "gemini-cli",
+  baseUrl: "https://generativelanguage.googleapis.com",
+  model: "auto",
+  authStrategy: "api-key",
+  advancedEnv: {},
+};
+
 describe("CliConfigPayloadFields", () => {
   // Antigravity authenticates through the OS keyring with Google Sign-In and accepts no
   // third-party endpoint, so rendering either control would offer the user a setting the CLI
@@ -51,6 +60,16 @@ describe("CliConfigPayloadFields", () => {
     renderWithAppProviders(<CliConfigPayloadFields onChange={vi.fn()} payload={claude} />);
 
     expect(screen.getByLabelText(/Base URL/i)).toBeTruthy();
+  });
+
+  it("renders Gemini endpoint, model, and authentication controls", () => {
+    renderWithAppProviders(<CliConfigPayloadFields onChange={vi.fn()} payload={gemini} />);
+
+    expect(screen.getByLabelText(/Base URL/i)).toBeTruthy();
+    expect(screen.getByLabelText(/模型|Model/)).toBeTruthy();
+    expect(screen.getByLabelText(/鉴权|Authentication/i)).toBeTruthy();
+    expect(payloadSupportsCredential(gemini)).toBe(true);
+    expect(payloadSupportsEndpointOverride(gemini)).toBe(true);
   });
 
   // The dialog branches on these declarations rather than on the Agent id, so the declarations

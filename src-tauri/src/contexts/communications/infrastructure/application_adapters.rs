@@ -97,7 +97,7 @@ impl CommunicationsAgentExecutionPort for CommunicationsAgentExecutionAdapter {
                     )
                 },
             )?,
-            permission_mode: configuration.values.permission_mode,
+            execution_mode: configuration.values.execution_mode,
             provider_id: configuration.values.provider_id,
             model_id: configuration.values.model_id,
             reasoning_depth: configuration.values.reasoning_depth,

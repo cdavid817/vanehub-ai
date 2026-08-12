@@ -15,9 +15,9 @@ use crate::contexts::agent_runtime::application::{
     AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
     AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
-    ExecutionToolMode, GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
-    MemorySource, OrchestrationExecutionProfile, PersonalizationSettings, ProcessStopInitiator,
-    StartedGenerationProcess, ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
+    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
+    PersonalizationSettings, ProcessStopInitiator, StartedGenerationProcess,
+    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME,
     FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
     GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
@@ -436,11 +436,9 @@ fn generation_options_from_configuration(
     }
 }
 
-/// Whether the session's permission mode is plan mode (`add-agent-chat-configuration`) — the
-/// only `permission_mode` value this native-agent path currently changes behavior for; `"agent"`
-/// and `"auto"` are deliberately left inert this phase (design.md Decision 5).
+/// Whether the session narrows the durable Agent policy to read-only planning behavior.
 fn is_plan_mode(configuration: &AgentChatConfiguration) -> bool {
-    configuration.permission_mode == "plan"
+    configuration.execution_mode == "plan"
 }
 
 /// The wire-protocol-specific pieces `execute` needs: where to send the request, what body to
@@ -694,18 +692,7 @@ fn execute_with_code_intelligence(
     }
 
     let mut emitted_visible_content = false;
-    let started_at = std::time::Instant::now();
-    let mut executed_tool_calls = 0_u32;
-    let mut estimated_token_usage = 0_u32;
     for _round_trip in 0..MAX_TOOL_ROUND_TRIPS {
-        if let Some(message) = orchestration_limit_failure(
-            request.orchestration_profile.as_ref(),
-            started_at.elapsed(),
-            executed_tool_calls,
-            estimated_token_usage,
-        ) {
-            return failed_non_retryable(message);
-        }
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
         }
@@ -716,16 +703,6 @@ fn execute_with_code_intelligence(
             system.as_deref(),
             &generation_options,
         );
-        estimated_token_usage = estimated_token_usage
-            .saturating_add(estimated_round_input_tokens(&turns, system.as_deref()));
-        if let Some(message) = orchestration_limit_failure(
-            request.orchestration_profile.as_ref(),
-            started_at.elapsed(),
-            executed_tool_calls,
-            estimated_token_usage,
-        ) {
-            return failed_non_retryable(message);
-        }
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
         let response = match request_builder
@@ -809,27 +786,8 @@ fn execute_with_code_intelligence(
         }
 
         let tool_calls = accumulator.take_completed();
-        estimated_token_usage =
-            estimated_token_usage.saturating_add(estimated_tokens(&assistant_text));
-        if let Some(message) = orchestration_limit_failure(
-            request.orchestration_profile.as_ref(),
-            started_at.elapsed(),
-            executed_tool_calls,
-            estimated_token_usage,
-        ) {
-            return failed_non_retryable(message);
-        }
         if tool_calls.is_empty() {
             return GenerationProcessEvent::Completed(None);
-        }
-        executed_tool_calls = executed_tool_calls.saturating_add(tool_calls.len() as u32);
-        if let Some(message) = orchestration_limit_failure(
-            request.orchestration_profile.as_ref(),
-            started_at.elapsed(),
-            executed_tool_calls,
-            estimated_token_usage,
-        ) {
-            return failed_non_retryable(message);
         }
 
         let mut executed: Vec<ExecutedToolCall> = Vec::with_capacity(tool_calls.len());
@@ -1068,12 +1026,6 @@ fn resolve_tool_catalog_with_code_intelligence(
     code_search_available: bool,
     code_intelligence_available: bool,
 ) -> Vec<ToolDefinition> {
-    if let Some(profile) = &request.orchestration_profile {
-        match profile.tool_mode {
-            ExecutionToolMode::Disabled => return Vec::new(),
-            ExecutionToolMode::Standard => {}
-        }
-    }
     if plan_mode {
         let mut tools = plan_mode_tool_catalog();
         if retrieval_available {
@@ -1116,11 +1068,6 @@ fn resolve_tool_catalog_with_code_intelligence(
     }
     if code_intelligence_available {
         tools.extend(code_intelligence_tool_definitions());
-    }
-    if let Some(profile) = &request.orchestration_profile {
-        if !profile.permitted_tools.is_empty() {
-            tools.retain(|tool| profile.permitted_tools.contains(&tool.name));
-        }
     }
     tools
 }
@@ -2475,47 +2422,6 @@ fn failed_non_retryable(message: &str) -> GenerationProcessEvent {
     GenerationProcessEvent::Failed(GenerationProcessFailure::non_retryable(message.to_string()))
 }
 
-fn estimated_round_input_tokens(turns: &[Value], system: Option<&str>) -> u32 {
-    let characters = turns
-        .iter()
-        .map(Value::to_string)
-        .map(|turn| turn.chars().count())
-        .sum::<usize>()
-        .saturating_add(system.map(|value| value.chars().count()).unwrap_or(0));
-    u32::try_from(characters.div_ceil(4)).unwrap_or(u32::MAX)
-}
-
-fn estimated_tokens(value: &str) -> u32 {
-    u32::try_from(value.chars().count().div_ceil(4)).unwrap_or(u32::MAX)
-}
-
-fn orchestration_limit_failure(
-    profile: Option<&OrchestrationExecutionProfile>,
-    elapsed: Duration,
-    tool_call_count: u32,
-    token_usage: u32,
-) -> Option<&'static str> {
-    let profile = profile?;
-    if profile
-        .timeout_seconds
-        .is_some_and(|seconds| elapsed >= Duration::from_secs(seconds))
-    {
-        Some("Generation reached its orchestration timeout.")
-    } else if profile
-        .tool_call_limit
-        .is_some_and(|limit| tool_call_count > limit)
-    {
-        Some("Generation reached its orchestration tool-call limit.")
-    } else if profile
-        .token_budget
-        .is_some_and(|limit| token_usage > limit)
-    {
-        Some("Generation reached its orchestration token budget.")
-    } else {
-        None
-    }
-}
-
 fn failed_configuration(agent_id: &str, diagnostic: &str) -> GenerationProcessEvent {
     let failure = GenerationProcessFailure::non_retryable(diagnostic.to_string());
     let failure = if agent_id == "onepiece" {
@@ -2538,8 +2444,7 @@ mod tests {
         AgentCodeIntelligenceOutcome, AgentCodeIntelligenceStatus, AgentCodeLocation,
         AgentCodeRetrievalHit, AgentCodeRetrievalPort, AgentLaunchView, AgentRetrievalHit,
         AgentSession, AgentView, AgentWorkspaceMutation, CliProfileSnapshot,
-        GenerationProcessFailureKind, OrchestrationCorrelation, OrchestrationExecutionProfile,
-        INTERFACE_FORMAT_ANTHROPIC,
+        GenerationProcessFailureKind, INTERFACE_FORMAT_ANTHROPIC,
     };
     use crate::contexts::agent_runtime::domain::{
         AgentAvailability, AgentDefinition, AgentLifecycle, InteractionMode,
@@ -3263,7 +3168,7 @@ mod tests {
             configuration: AgentChatConfiguration {
                 agent_id: "my-claude-agent".to_string(),
                 interaction_mode: InteractionMode::Api,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -3279,7 +3184,6 @@ mod tests {
                 managed_args: Vec::new(),
                 env: BTreeMap::new(),
             },
-            orchestration_profile: None,
         }
     }
 
@@ -3769,7 +3673,7 @@ mod tests {
     /// actually handing a non-plan session the plan-mode catalog (no `shell`) and a plan-mode
     /// session the full catalog (including `shell`) plus a dropped/spurious `recall`. Driving a
     /// real generation with retrieval configured and `plan_mode` left at its default `false`
-    /// (`sample_request`'s `permission_mode: "default"`), then asserting the request body's
+    /// (`sample_request`'s `execution_mode: "inherit"`), then asserting the request body's
     /// declared tools contain both `shell` (only ever offered outside plan mode) and `recall`
     /// (only ever offered when retrieval is configured) kills that mutation.
     #[test]
@@ -4183,10 +4087,10 @@ mod tests {
         let mut configuration = sample_request("api").configuration;
         assert!(!is_plan_mode(&configuration));
 
-        configuration.permission_mode = "plan".to_string();
+        configuration.execution_mode = "plan".to_string();
         assert!(is_plan_mode(&configuration));
 
-        configuration.permission_mode = "agent".to_string();
+        configuration.execution_mode = "execute".to_string();
         assert!(!is_plan_mode(&configuration));
     }
 
@@ -5369,103 +5273,6 @@ mod tests {
             "plan mode should skip the MCP catalog lookup entirely"
         );
         assert!(logging.logs.lock().expect("logs").is_empty());
-    }
-
-    #[test]
-    fn orchestration_tool_mode_can_disable_every_tool() {
-        let mut request = sample_request("api");
-        request.orchestration_profile = Some(OrchestrationExecutionProfile {
-            bounded_root: None,
-            tool_mode: ExecutionToolMode::Disabled,
-            permitted_tools: Vec::new(),
-            tool_call_limit: None,
-            token_budget: Some(1_000),
-            timeout_seconds: Some(60),
-            correlation: OrchestrationCorrelation {
-                plan_run_id: None,
-                subtask_run_id: None,
-                attempt_id: None,
-            },
-        });
-
-        let tools = resolve_tool_catalog(
-            &request,
-            &NoopMcp,
-            &NoopLogging,
-            &FixedClock,
-            false,
-            true,
-            false,
-        );
-
-        assert!(tools.is_empty());
-    }
-
-    #[test]
-    fn orchestration_profile_filters_standard_tools() {
-        let mut request = sample_request("api");
-        request.orchestration_profile = Some(OrchestrationExecutionProfile {
-            bounded_root: None,
-            tool_mode: ExecutionToolMode::Standard,
-            permitted_tools: vec![FILE_TOOL_NAME.to_string(), GREP_TOOL_NAME.to_string()],
-            tool_call_limit: Some(2),
-            token_budget: None,
-            timeout_seconds: Some(60),
-            correlation: OrchestrationCorrelation {
-                plan_run_id: Some("run-1".into()),
-                subtask_run_id: Some("task-1".into()),
-                attempt_id: Some("attempt-1".into()),
-            },
-        });
-
-        let tools = resolve_tool_catalog(
-            &request,
-            &NoopMcp,
-            &NoopLogging,
-            &FixedClock,
-            false,
-            false,
-            false,
-        );
-
-        assert_eq!(
-            tools.into_iter().map(|tool| tool.name).collect::<Vec<_>>(),
-            vec![FILE_TOOL_NAME, GREP_TOOL_NAME]
-        );
-    }
-
-    #[test]
-    fn orchestration_limits_stop_at_safe_round_boundaries() {
-        let profile = OrchestrationExecutionProfile {
-            bounded_root: Some("C:/worktree".into()),
-            tool_mode: ExecutionToolMode::Standard,
-            permitted_tools: vec![FILE_TOOL_NAME.into()],
-            tool_call_limit: Some(2),
-            token_budget: Some(100),
-            timeout_seconds: Some(60),
-            correlation: OrchestrationCorrelation {
-                plan_run_id: Some("run-1".into()),
-                subtask_run_id: Some("task-1".into()),
-                attempt_id: Some("attempt-1".into()),
-            },
-        };
-        assert_eq!(
-            orchestration_limit_failure(Some(&profile), Duration::from_secs(60), 0, 0),
-            Some("Generation reached its orchestration timeout.")
-        );
-        assert_eq!(
-            orchestration_limit_failure(Some(&profile), Duration::ZERO, 3, 0),
-            Some("Generation reached its orchestration tool-call limit.")
-        );
-        assert_eq!(
-            orchestration_limit_failure(Some(&profile), Duration::ZERO, 2, 101),
-            Some("Generation reached its orchestration token budget.")
-        );
-        assert_eq!(
-            orchestration_limit_failure(Some(&profile), Duration::ZERO, 2, 100),
-            None
-        );
-        assert_eq!(estimated_tokens("12345678"), 2);
     }
 
     #[test]

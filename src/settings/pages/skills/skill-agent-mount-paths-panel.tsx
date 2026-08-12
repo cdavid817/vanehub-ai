@@ -1,6 +1,7 @@
 import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../../components/ui/button";
+import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import type { SkillAgentMountPath, SkillCompatibleAgent, SkillMountMigrationReport } from "../../../types/skill";
 
 export function SkillAgentMountPathsPanel({
@@ -24,10 +25,11 @@ export function SkillAgentMountPathsPanel({
 }) {
   const { t } = useTranslation();
   const pathFor = (agentId: string) => mountPaths.find((path) => path.agentId === agentId);
+  const orderedAgents = orderByAgentPriority(agents, (agent) => agent.id);
   return (
     <div>
       <div className="grid gap-3 lg:grid-cols-2">
-        {agents.map((agent) => {
+        {orderedAgents.map((agent) => {
           const saved = pathFor(agent.id);
           const value = drafts[agent.id] ?? saved?.mountPath ?? "";
           return (

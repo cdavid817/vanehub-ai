@@ -63,4 +63,20 @@ test.describe("Agent global CLI configuration", () => {
     const bodyOverflows = await page.evaluate(() => document.body.scrollWidth > window.innerWidth);
     expect(bodyOverflows).toBe(false);
   });
+
+  test("creates and applies a Gemini CLI API-key profile", async ({ page }) => {
+    await openAgentConfigurations(page);
+    await page.getByRole("tab", { name: "Gemini CLI", exact: true }).click();
+    await page.getByRole("button", { name: /新增配置|Add configuration/ }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /^Google Gemini/ }).click();
+    await dialog.getByLabel(/鉴权方式|Authentication/).selectOption("api-key");
+    await dialog.getByLabel(/API Key 或 Token|API key or token/).fill("gemini-e2e-secret");
+    await dialog.getByRole("textbox", { name: /配置名称|Profile name/ }).fill("Gemini Official");
+    await dialog.getByRole("button", { name: /保存修改|Save changes/ }).click();
+
+    const profile = page.locator("article").filter({ hasText: "Gemini Official" });
+    await expect(profile).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("gemini-e2e-secret");
+  });
 });

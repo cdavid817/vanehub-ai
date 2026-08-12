@@ -1731,8 +1731,8 @@ fn export_connector(connector: &str) -> Option<&'static str> {
     match connector {
         "feishu" => Some("feishu"),
         "telegram" => Some("telegram"),
-        "dingtalk" => Some("ding-talk"),
-        "wecom" => Some("we-com"),
+        "dingtalk" => Some("dingtalk"),
+        "wecom" => Some("wecom"),
         "weixin" | "wechat" => Some("weixin"),
         _ => None,
     }

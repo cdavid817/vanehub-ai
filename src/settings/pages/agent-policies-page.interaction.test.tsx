@@ -100,6 +100,33 @@ describe("AgentPoliciesPage — Claude Code first-use install confirmation", () 
 });
 
 describe("AgentPoliciesPage — other managed CLI agents skip the install confirmation", () => {
+  it("renders managed CLIs before OnePiece using the shared settings priority", async () => {
+    agentServiceMocks.listAgents.mockResolvedValue([{
+      id: "onepiece",
+      displayName: "OnePiece",
+      provider: "VaneHub",
+      launch: { kind: "api" },
+      supportedInteractionModes: ["api"],
+      availabilityState: "available",
+      capabilityTags: ["api"],
+      agentOrigin: "builtin",
+    }]);
+    renderPage();
+
+    const rows = await waitFor(() => [
+      rowFor("Claude Code"),
+      rowFor("Codex CLI"),
+      rowFor("OpenCode"),
+      rowFor("Antigravity CLI"),
+      rowFor("Gemini CLI"),
+      rowFor("OnePiece"),
+    ]);
+    for (let index = 1; index < rows.length; index += 1) {
+      expect(rows[index - 1].compareDocumentPosition(rows[index]) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+    }
+  });
+
   it("codex-cli applies standard immediately, with no install-confirmation dialog", async () => {
     permissionsServiceMocks.applyPolicyTemplate.mockResolvedValue(
       principalFor("codex-cli", { hasExplicitAssignment: true }),
@@ -136,10 +163,10 @@ describe("AgentPoliciesPage — other managed CLI agents skip the install confir
     expect(permissionsServiceMocks.applyPolicyTemplate).toHaveBeenCalledWith("codex-cli", "trusted");
   });
 
-  it("all four managed CLI principals render as their own row with a working Standard button", async () => {
+  it("all five managed CLI principals render as their own row with a working Standard button", async () => {
     renderPage();
 
-    for (const title of ["Claude Code", "Codex CLI", "Gemini CLI", "OpenCode"]) {
+    for (const title of ["Claude Code", "Codex CLI", "OpenCode", "Antigravity CLI", "Gemini CLI"]) {
       await waitFor(() => {
         const button = within(rowFor(title)).getByRole("button", { name: "标准" }) as HTMLButtonElement;
         expect(button.disabled).toBe(false);

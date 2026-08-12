@@ -211,9 +211,9 @@ describe("session workspace components", () => {
     expect(managedCliAgentIds).toEqual([
       "claude-code",
       "codex-cli",
-      "gemini-cli",
       "opencode",
       "antigravity-cli",
+      "gemini-cli",
     ]);
     expect(sessionTabsSource).toContain('<AgentTerminalTab active={activeTab === "chat"}');
     expect(source).toContain("requestAnimationFrame");

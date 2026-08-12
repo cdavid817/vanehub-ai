@@ -27,6 +27,26 @@ const antigravityPreset: CliConfigPreset = {
   },
 };
 
+const geminiPreset: CliConfigPreset = {
+  id: "gemini-cli-google-official",
+  catalogVersion: 1,
+  displayName: "Google Gemini",
+  description: "Google Gemini · Gemini CLI",
+  category: "official",
+  agentId: "gemini-cli",
+  deprecated: false,
+  providerId: "google-gemini",
+  endpointType: "openai-chat-completions",
+  iconKey: "google",
+  payload: {
+    kind: "gemini-cli",
+    baseUrl: "https://generativelanguage.googleapis.com",
+    model: "auto",
+    authStrategy: "preserve-official",
+    advancedEnv: {},
+  },
+};
+
 function basePreset(provider: OnePieceProviderPreset, endpoint: OnePieceProviderEndpoint, agentId: CliConfigAgentId) {
   const agentLabel = agentId === "claude-code" ? "Claude Code" : agentId === "codex-cli" ? "Codex" : "OpenCode";
   return {
@@ -64,7 +84,7 @@ function buildPresets(): CliConfigPreset[] {
       models: provider.fallbackModels.map((id) => ({ id, name: id })), defaultModel: provider.defaultModelId,
     }};
     return [codex, opencode];
-  })).concat(antigravityPreset);
+  })).concat(antigravityPreset, geminiPreset);
 }
 
 export const cliAgentProviderPresets: readonly CliConfigPreset[] = buildPresets();
@@ -78,5 +98,6 @@ export function createCustomCliConfigPayload(agentId: CliConfigAgentId): CliConf
   if (agentId === "claude-code") return { kind: "claude-code", baseUrl: "https://", authMode: "auth-token", model: "", haikuModel: "", sonnetModel: "", opusModel: "", advancedEnv: {} };
   if (agentId === "codex-cli") return { kind: "codex-cli", providerId: "custom", baseUrl: "https://", model: "", wireApi: "responses", reasoningEffort: "medium", authStrategy: "bearer-token", advancedToml: {} };
   if (agentId === "antigravity-cli") return { kind: "antigravity", toolPermission: "request-review", enableTerminalSandbox: false, verbosity: "high", model: "", advancedSettings: {} };
+  if (agentId === "gemini-cli") return { kind: "gemini-cli", baseUrl: "https://generativelanguage.googleapis.com", model: "auto", authStrategy: "api-key", advancedEnv: {} };
   return { kind: "opencode", providerId: "custom", providerName: "Custom provider", npm: "@ai-sdk/openai-compatible", baseUrl: "https://", headers: {}, models: [], defaultModel: "" };
 }

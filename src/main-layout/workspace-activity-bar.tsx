@@ -1,4 +1,4 @@
-import { CalendarClock, CircleHelp, ListTree, MessagesSquare, Repeat2, Settings } from "lucide-react";
+import { CalendarClock, CircleHelp, MessagesSquare, Repeat2, Settings } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface WorkspaceActivityBarLabels {
@@ -7,18 +7,16 @@ export interface WorkspaceActivityBarLabels {
   expandSessions: string;
   collapseSessions: string;
   loops: string;
-  plans: string;
   scheduledTasks: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "plans";
+  activeDestination: "sessions" | "loops";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
   onLoops: () => void;
-  onPlans: () => void;
   onSessions: () => void;
   onScheduledTasks: () => void;
   sessionSidebarExpanded: boolean;
@@ -32,7 +30,6 @@ export function WorkspaceActivityBar({
   labels,
   onOpenSettings,
   onLoops,
-  onPlans,
   onSessions,
   onScheduledTasks,
   sessionSidebarExpanded,
@@ -52,16 +49,6 @@ export function WorkspaceActivityBar({
           type="button"
         >
           <MessagesSquare aria-hidden="true" className="h-5 w-5" />
-        </button>
-        <button
-          aria-controls="plan-center"
-          aria-label={labels.plans}
-          className={cn(activityButtonClass, activeDestination === "plans" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")}
-          onClick={onPlans}
-          title={labels.plans}
-          type="button"
-        >
-          <ListTree aria-hidden="true" className="h-5 w-5" />
         </button>
         <button
           aria-controls="loop-center"

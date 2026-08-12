@@ -8,7 +8,17 @@ test.describe("CLI local environment management", () => {
     await page.getByRole("button", { name: /^CLI 管理/ }).click();
 
     await expect(page.getByRole("heading", { name: "CLI 管理", level: 2 })).toBeVisible();
-    await expect(page.locator("[data-cli-agent]")).toHaveCount(5);
+    await expect(page.getByTestId("cli-installation-summary")).toHaveCount(1);
+    await expect(page.getByText("CLI 未安装", { exact: true })).toHaveCount(0);
+    const cards = page.locator("[data-cli-agent]");
+    await expect(cards).toHaveCount(5);
+    expect(await cards.evaluateAll((items) => items.map((item) => item.getAttribute("data-cli-agent")))).toEqual([
+      "claude-code",
+      "codex-cli",
+      "opencode",
+      "antigravity-cli",
+      "gemini-cli",
+    ]);
     await expect(page.locator('[data-cli-agent="claude-code"]')).toContainText("Anthropic Claude Code CLI");
     await expect(page.getByText("不支持").first()).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "futuristic");

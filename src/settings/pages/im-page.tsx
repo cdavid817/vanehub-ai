@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
 import type { ImConnectorHealth, ImConnectorKind, ImConnectorView, WeChatAuthorization } from "../../contracts/im";
 import { normalizeDisplayPath } from "../../lib/session-path";
+import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { agentService } from "../../services/runtime-agent-client";
 import { imService } from "../../services/runtime-im-client";
 import { detectRuntimeKind } from "../../services/runtime-adapter";
@@ -55,10 +56,13 @@ export function ImPage({ searchTerm }: { searchTerm: string }) {
         setSavedRouting(null);
       }
       const agentList = agentListResult.status === "fulfilled" ? agentListResult.value : [];
-      setAgents(agentList.filter((agent) => (
-        agent.supportedInteractionModes.includes("cli")
-        && (agent.availabilityState === "available" || isWebRuntime)
-      )));
+      setAgents(orderByAgentPriority(
+        agentList.filter((agent) => (
+          agent.supportedInteractionModes.includes("cli")
+          && (agent.availabilityState === "available" || isWebRuntime)
+        )),
+        (agent) => agent.id,
+      ));
       setProjects(knownProjectsResult.status === "fulfilled"
         ? knownProjectsResult.value.map((project) => ({ ...project, path: normalizeDisplayPath(project.path) }))
         : []);

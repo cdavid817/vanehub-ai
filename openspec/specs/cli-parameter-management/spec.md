@@ -112,16 +112,21 @@ The system SHALL keep provider subcommands, structured output flags, prompt tran
 - **AND** it SHALL NOT rely on last-argument-wins behavior
 
 ### Requirement: Deterministic configuration precedence
-For a logical parameter supported by the active provider, the native runtime SHALL resolve an explicit per-message chat value before a persisted CLI profile value and SHALL resolve a persisted value before the VaneHub/provider default.
+For an ordinary logical parameter supported by the active provider, the native runtime SHALL resolve an explicit per-message value before a persisted CLI profile value and SHALL resolve a persisted value before the provider default. Policy-governed execution, approval, and sandbox values SHALL instead be resolved exclusively from the Agent policy and session execution mode and SHALL take final precedence.
 
 #### Scenario: Message value overrides persisted default
-- **WHEN** a chat message supplies a supported logical value that is also saved in the CLI profile
+- **WHEN** a chat message supplies a supported non-security value that is also saved in the CLI profile
 - **THEN** the provider invocation SHALL use the message value for that process
 - **AND** the persisted profile SHALL remain unchanged
 
 #### Scenario: No message override
-- **WHEN** a chat message does not supply a supported logical value
+- **WHEN** a chat message does not supply a supported non-security value
 - **THEN** the provider invocation SHALL use the saved profile value when present or the default otherwise
+
+#### Scenario: Policy overrides a security parameter
+- **WHEN** a launch resolves an effective execution policy
+- **THEN** its execution, approval, and sandbox arguments SHALL come from that policy
+- **AND** neither a message nor a saved profile SHALL override them
 
 ### Requirement: Saved changes affect only future processes
 Saving or resetting a CLI profile SHALL affect child processes spawned after the successful mutation and SHALL NOT restart, signal, or mutate an already running CLI process.
@@ -161,26 +166,25 @@ The CLI parameter management settings page SHALL show the branded icon for each 
 - **THEN** each profile entry SHALL render the corresponding branded CLI icon from the stable agent id.
 
 ### Requirement: Agent Terminal uses interactive profile only
-The Agent Terminal runtime SHALL use the selected Agent's saved CLI Parameter profile projected with the `interactive` launch scope and SHALL NOT accept first-version session-page configuration overrides. For `codex-cli`, `gemini-cli`, and `opencode`, the parameters governed by that agent's assigned policy template (see `cli-agent-permission-launch-flags`) SHALL take precedence over the saved profile's value for those specific parameters only; every other parameter SHALL continue to come from the saved profile alone.
+The Agent Terminal runtime SHALL use the selected Agent's saved CLI Parameter profile projected with the `interactive` launch scope for all non-security parameters. It SHALL resolve execution, approval, and sandbox behavior from the Agent policy rather than the saved profile or session-page controls.
 
 #### Scenario: Start terminal with interactive profile
 - **WHEN** an Agent Terminal process starts for a managed CLI stable agent id
 - **THEN** the native runtime SHALL load that agent id's saved profile
-- **AND** it SHALL inject only arguments whose launch scope includes `interactive`
+- **AND** it SHALL inject only non-security arguments whose launch scope includes `interactive`
 
 #### Scenario: Ignore removed chat controls
-- **WHEN** the Agent Terminal process is built
-- **THEN** the runtime SHALL NOT read session-page model, provider, permission, reasoning, thinking, or streaming selector values as launch overrides
-- **AND** the persisted CLI Parameter profile SHALL remain the argument source for every parameter not governed by an assigned policy template
+- **WHEN** an Agent Terminal process is built
+- **THEN** it SHALL use the Agent policy directly and SHALL NOT read a session execution mode
 
 #### Scenario: Profile changes affect next terminal process
 - **WHEN** a CLI Parameter profile is saved while a retained Agent Terminal process is live
-- **THEN** the live process SHALL continue with its original arguments
-- **AND** the next fresh or resume Agent Terminal process for that Agent SHALL use the newly saved profile
+- **THEN** the live process SHALL continue with its original ordinary arguments
+- **AND** the next process SHALL use the newly saved ordinary profile values
 
 #### Scenario: Policy template overrides a governed parameter
-- **WHEN** an Agent Terminal starts for `codex-cli`, `gemini-cli`, or `opencode` and its assigned policy template governs a parameter also present in the saved CLI Parameter profile
-- **THEN** the launch SHALL use the value the policy template projects for that parameter, not the saved profile's value
+- **WHEN** an Agent Terminal starts for any managed CLI
+- **THEN** the launch SHALL use values projected from the Agent policy for every execution, approval, or sandbox parameter
 
 ### Requirement: Custom-text parameter control kind
 The parameter catalog SHALL support a `custom-text` control kind that combines a dropdown of known values with an optional free-text input. This control kind SHALL be used for parameters where the provider accepts both known values and arbitrary identifiers.
@@ -243,22 +247,50 @@ When a `custom-text` parameter has a value that is not in the known enum list, t
 - **THEN** the argument preview SHALL omit the `--model` flag entirely
 
 ### Requirement: Antigravity CLI parameter catalog
-The backend-authoritative catalog SHALL define `antigravity-cli` parameters for model selection (`--model`, composite custom-text control), reasoning effort (`--effort`, enum over `low`, `medium`, `high`), execution mode (`--mode`, enum over `plan` and `accept-edits`), agent selection (`--agent`, composite custom-text control), and terminal sandbox (`--sandbox`, boolean). The catalog SHALL NOT expose `-p`, `--output-format`, or `--conversation`, which the provider invocation builder owns, and SHALL NOT expose `--dangerously-skip-permissions`, which the existing prohibition on bypass flags excludes.
+The backend-authoritative editable catalog SHALL define Antigravity CLI parameters for model selection (`--model`), reasoning effort (`--effort`), and agent selection (`--agent`). Execution mode, terminal sandbox, prompt transport, output format, conversation identity, and dangerous bypass flags SHALL remain runtime-owned and SHALL NOT be editable profile parameters.
 
 #### Scenario: Load the Antigravity parameter catalog
-- **WHEN** the `antigravity-cli` parameter catalog is loaded
-- **THEN** it SHALL contain entries for `--model`, `--effort`, `--mode`, `--agent`, and `--sandbox`
+- **WHEN** the `antigravity-cli` parameter catalog is loaded for settings
+- **THEN** it SHALL contain entries for `--model`, `--effort`, and `--agent`
+- **AND** it SHALL NOT contain editable entries for `--mode` or `--sandbox`
 
 #### Scenario: Managed invocation arguments are absent from the catalog
-- **WHEN** the `antigravity-cli` parameter catalog is loaded
-- **THEN** it SHALL NOT contain an entry whose literal flag is `-p`, `--output-format`, or `--conversation`
+- **WHEN** the `antigravity-cli` editable catalog is loaded
+- **THEN** it SHALL NOT contain `-p`, `--output-format`, or `--conversation`
 
 #### Scenario: The permission bypass flag is absent from the catalog
-- **WHEN** the `antigravity-cli` parameter catalog is loaded
-- **THEN** it SHALL NOT contain an entry whose flag contains `dangerously`
-- **AND** a permissive tool-approval posture SHALL be reachable only through the agent's CLI configuration profile, not through a launch parameter
+- **WHEN** the `antigravity-cli` editable catalog is loaded
+- **THEN** it SHALL NOT contain a flag whose name contains `dangerously`
 
 #### Scenario: Preview reflects saved selections
-- **WHEN** a user saves `antigravity-cli` selections including a non-default `--effort` value
+- **WHEN** a user saves a non-default Antigravity reasoning-effort value
 - **THEN** the returned safe argument preview SHALL include `--effort` with that value
 
+### Requirement: Audited user-editable CLI parameter catalog
+The user-editable CLI parameter catalog SHALL match the current supported launch arguments and meanings for Claude Code, Codex CLI, OpenCode, Antigravity CLI, and Gemini CLI, while policy-governed arguments remain managed only by Agent Policies.
+
+#### Scenario: Compare frontend and native catalogs
+- **WHEN** a managed CLI parameter profile is loaded in desktop or Web mode
+- **THEN** both runtimes SHALL expose the same parameter ids, controls, launch scopes, defaults, flags, known values, and risk semantics
+
+#### Scenario: Describe a managed parameter
+- **WHEN** a managed parameter is displayed in any supported locale
+- **THEN** its label and description SHALL state the effect of the actual emitted CLI argument
+- **AND** known values SHALL reflect current supported aliases or choices without preventing a valid custom model value
+
+#### Scenario: Keep policy controls single-sourced
+- **WHEN** an argument controls approval, sandboxing, or another Agent policy
+- **THEN** the CLI Parameters page SHALL omit that argument
+- **AND** the effective argument preview SHALL continue to receive it from the Agent policy mapping when applicable
+
+### Requirement: Policy-governed controls are not user-editable CLI profile fields
+Editable CLI profiles SHALL exclude every field that directly selects execution permission, approval behavior, automatic approval, or sandbox posture for `claude-code`, `codex-cli`, `gemini-cli`, `opencode`, and `antigravity-cli`.
+
+#### Scenario: Load any managed profile
+- **WHEN** the CLI Parameter Management page loads a managed CLI profile
+- **THEN** its editable definitions SHALL omit policy-governed security controls
+- **AND** the page SHALL direct users to Agent Policies to change that behavior
+
+#### Scenario: Submit a removed security field
+- **WHEN** a client submits a removed execution, approval, automatic-approval, or sandbox field
+- **THEN** the service SHALL reject the complete save atomically as an unknown parameter

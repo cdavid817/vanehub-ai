@@ -296,7 +296,7 @@ pub(super) fn send_message_request(
         configuration: AgentChatConfiguration {
             agent_id: configuration.agent_id,
             interaction_mode: interaction_mode_from_dto(configuration.interaction_mode),
-            permission_mode: configuration.permission_mode,
+            execution_mode: configuration.execution_mode,
             provider_id: configuration.provider_id,
             model_id: configuration.model_id,
             reasoning_depth: configuration.reasoning_depth,

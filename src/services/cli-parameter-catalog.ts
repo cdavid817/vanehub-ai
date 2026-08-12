@@ -97,35 +97,28 @@ export const cliParameterCatalog: Record<ManagedCliAgentId, CliParameterDefiniti
   "claude-code": [
     customTextDefinition("claude-code", "model", "--model", ["default", "sonnet", "opus", "haiku"]),
     enumDefinition("claude-code", "effort", "--effort", ["default", "low", "medium", "high", "xhigh", "max"]),
-    enumDefinition("claude-code", "permissionMode", "--permission-mode", ["default", "plan", "acceptEdits", "auto", "dontAsk"]),
     booleanDefinition("claude-code", "chrome", "--chrome", ["interactive"]),
   ],
   "codex-cli": [
     customTextDefinition("codex-cli", "model", "--model", ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"]),
     enumDefinition("codex-cli", "reasoningEffort", "--config", ["default", "low", "medium", "high", "xhigh", "max"]),
-    enumDefinition("codex-cli", "sandbox", "--sandbox", ["default", "read-only", "workspace-write"]),
-    enumDefinition("codex-cli", "approvalPolicy", "--ask-for-approval", ["default", "untrusted", "on-request", "never"]),
     booleanDefinition("codex-cli", "ephemeral", "--ephemeral", ["chat"]),
     booleanDefinition("codex-cli", "strictConfig", "--strict-config", ["interactive", "chat"]),
   ],
-  "gemini-cli": [
-    customTextDefinition("gemini-cli", "model", "--model", ["default", "gemini-2.5-pro", "gemini-2.5-flash"]),
-    enumDefinition("gemini-cli", "approvalMode", "--approval-mode", ["default", "auto_edit", "plan", "yolo"], ["interactive", "chat"], "yolo", "warning"),
-    booleanDefinition("gemini-cli", "sandbox", "--sandbox", ["interactive", "chat"]),
-  ],
   opencode: [
-    enumDefinition("opencode", "agent", "--agent", ["default", "build", "plan"]),
+    customTextDefinition("opencode", "model", "--model", ["default"]),
+    customTextDefinition("opencode", "variant", "--variant", ["default", "low", "medium", "high", "max"], ["chat"]),
     booleanDefinition("opencode", "thinking", "--thinking", ["chat"]),
-    booleanDefinition("opencode", "autoApprove", "--auto", ["interactive", "chat"], "warning"),
   ],
   // No bypass-flag entry: Antigravity's graduated approval modes live in its settings document,
   // so a permissive posture is reached through the CLI configuration profile instead.
   "antigravity-cli": [
     customTextDefinition("antigravity-cli", "model", "--model", ["default"]),
     enumDefinition("antigravity-cli", "effort", "--effort", ["default", "low", "medium", "high"]),
-    enumDefinition("antigravity-cli", "mode", "--mode", ["default", "plan", "accept-edits"]),
     customTextDefinition("antigravity-cli", "agent", "--agent", ["default"]),
-    booleanDefinition("antigravity-cli", "sandbox", "--sandbox", ["interactive", "chat"]),
+  ],
+  "gemini-cli": [
+    customTextDefinition("gemini-cli", "model", "--model", ["default", "auto", "pro", "flash", "flash-lite"]),
   ],
 };
 

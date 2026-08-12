@@ -1,5 +1,6 @@
 import { Bot } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import type { UsageAgentBreakdown as AgentUsage } from "../../../types/chat";
 import { SectionPanel } from "../page-parts";
 
@@ -9,13 +10,14 @@ interface UsageAgentBreakdownProps {
 
 export function UsageAgentBreakdown({ agents }: UsageAgentBreakdownProps) {
   const { t } = useTranslation();
+  const orderedAgents = orderByAgentPriority(agents, (agent) => agent.agentId);
   return (
     <SectionPanel description={t("usage.agents.description")} title={t("usage.agents.title")} variant="plain">
       {agents.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">{t("usage.agents.empty")}</p>
       ) : (
         <div className="space-y-2">
-          {agents.map((agent) => (
+          {orderedAgents.map((agent) => (
             <article className="rounded-md border border-border bg-[hsl(var(--panel-muted))] p-3" key={agent.agentId}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">

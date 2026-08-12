@@ -1,5 +1,6 @@
 import type { Session } from "../types/agent";
-import type { ChatConfig, PermissionMode, ReasoningDepth } from "../types/chat";
+import type { ChatConfig, SessionExecutionMode, ReasoningDepth } from "../types/chat";
+import type { PolicyTemplateName } from "../types/permissions";
 
 const agentDefaults: Record<string, { providerId: string; modelId: string; reasoning: ReasoningDepth | undefined }> = {
   "claude-code": { providerId: "anthropic", modelId: "claude-opus-4-8", reasoning: "high" },
@@ -12,7 +13,7 @@ const agentDefaults: Record<string, { providerId: string; modelId: string; reaso
   onepiece: { providerId: "onepiece", modelId: "onepiece-active", reasoning: undefined },
 };
 
-const permissionModes: readonly PermissionMode[] = ["default", "plan", "agent", "auto"];
+const executionModes: readonly SessionExecutionMode[] = ["inherit", "plan", "execute"];
 const reasoningDepths: readonly ReasoningDepth[] = ["low", "medium", "high", "max"];
 
 const maxReasoningByModel: Record<string, ReasoningDepth | null> = {
@@ -47,7 +48,7 @@ export function defaultChatConfigForSession(session: Session): ChatConfig {
   return {
     agentId: session.agentId,
     interactionMode: session.interactionMode,
-    permissionMode: "default",
+    executionMode: "inherit",
     providerId: defaults.providerId,
     modelId: defaults.modelId,
     reasoningDepth: defaults.reasoning,
@@ -65,12 +66,12 @@ export function normalizeChatConfigForSession(session: Session, input: ChatConfi
   const modelId = input.providerId === defaults.providerId && requestedModelId && requestedModelId.trim().length > 0
     ? requestedModelId
     : defaults.modelId;
-  const permissionMode = permissionModes.includes(input.permissionMode) ? input.permissionMode : "default";
+  const executionMode = executionModes.includes(input.executionMode) ? input.executionMode : "inherit";
   const reasoningDepth = normalizeReasoningDepth(modelId, input.reasoningDepth, defaults.reasoning);
   return {
     agentId: session.agentId,
     interactionMode: session.interactionMode,
-    permissionMode,
+    executionMode,
     providerId: defaults.providerId,
     modelId,
     reasoningDepth,
@@ -78,4 +79,14 @@ export function normalizeChatConfigForSession(session: Session, input: ChatConfi
     thinking: Boolean(input.thinking),
     longContext: session.agentId !== "opencode" && Boolean(input.longContext),
   };
+}
+
+export function withEffectiveExecutionPolicy(
+  config: ChatConfig,
+  agentPolicy: PolicyTemplateName,
+): ChatConfig {
+  const effectiveExecutionPolicy = config.executionMode === "plan" || agentPolicy === "readonly"
+    ? "readonly"
+    : agentPolicy === "standard" ? "ask" : "allow";
+  return { ...config, agentPolicy, effectiveExecutionPolicy };
 }

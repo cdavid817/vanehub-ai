@@ -57,7 +57,7 @@ fn serial_handoff_keeps_one_round_and_allocates_a_new_child_run() {
             configuration: AgentChatConfiguration {
                 agent_id: "claude-code".to_string(),
                 interaction_mode: InteractionMode::Cli,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,

@@ -52,6 +52,23 @@ const operation: OperationTask = {
 };
 
 describe("ProvidersPage CLI management rendering", () => {
+  it("sorts service-backed cards with the shared settings priority", () => {
+    const queryClient = new QueryClient();
+    const tools = [
+      ["gemini-cli", "Google Gemini CLI"],
+      ["antigravity-cli", "Antigravity CLI"],
+      ["opencode", "OpenCode CLI"],
+      ["codex-cli", "OpenAI Codex CLI"],
+      ["claude-code", "Anthropic Claude Code CLI"],
+    ].map(([agentId, displayName]) => ({ ...cliTool, agentId, displayName }));
+    queryClient.setQueryData(["cli-tools"], tools);
+
+    const html = renderToString(<QueryClientProvider client={queryClient}><ProvidersPage searchTerm="" /></QueryClientProvider>);
+    const positions = tools.map((tool) => html.indexOf(`data-cli-agent="${tool.agentId}"`));
+
+    expect(positions).toEqual([...positions].sort((left, right) => right - left));
+  });
+
   it("renders cached CLI status and card-local operation state", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(["cli-tools"], [cliTool]);
@@ -65,6 +82,9 @@ describe("ProvidersPage CLI management rendering", () => {
 
     expect(html).toContain("CLI 管理");
     expect(html).toContain("本地环境检查");
+    expect(html).toContain('data-testid="cli-installation-summary"');
+    expect(html).toContain("CLI 已安装");
+    expect(html).not.toContain("CLI 未安装");
     expect(html).toContain("诊断安装冲突");
     expect(html).toContain("全部升级 1");
     expect(html).toContain("Anthropic Claude Code CLI");

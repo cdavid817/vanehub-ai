@@ -18,6 +18,7 @@ import type { ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/c
 import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
 import { useSessionRecoverySync } from "./use-session-recovery-sync";
+import { useSessionSwitch } from "./use-session-switch";
 export function useMainLayoutModel() {
   const { t } = useTranslation();
   const { notify } = useNotifications();
@@ -85,10 +86,7 @@ export function useMainLayoutModel() {
     ),
     [reportChatFailure],
   );
-  const recoverySync = useSessionRecoverySync({
-    activeSession,
-    onAcknowledgementError: reportRecoveryFailure,
-  });
+  const recoverySync = useSessionRecoverySync({ activeSession, onAcknowledgementError: reportRecoveryFailure });
   const chatConfig = useChatConfig({
     activeSession,
     agents,
@@ -103,7 +101,7 @@ export function useMainLayoutModel() {
     invalidateSessions();
     if (activeSessionId) void queryClient.invalidateQueries({ queryKey: ["messages", activeSessionId] });
   }, [activeSessionId, invalidateSessions, queryClient]);
-  const switchSession = useMutation({ mutationFn: (sessionId: string) => agentService.switchSession(sessionId), onSuccess: invalidateSessions });
+  const switchSession = useSessionSwitch({ activeSessionId, onError: (reason, sessionId) => reportChatFailure("MainLayout.switchSession", reason, sessionId) });
   const renameSession = useMutation({ mutationFn: ({ sessionId, title }: { sessionId: string; title: string }) => agentService.renameSession(sessionId, title), onSuccess: invalidateSessions });
   const pinSession = useMutation({ mutationFn: (session: Session) => session.pinned ? agentService.unpinSession(session.id) : agentService.pinSession(session.id), onSuccess: invalidateSessions });
   const archiveSession = useMutation({ mutationFn: (session: Session) => session.archived ? agentService.unarchiveSession(session.id) : agentService.archiveSession(session.id), onSuccess: invalidateSessions });
@@ -293,7 +291,7 @@ export function useMainLayoutModel() {
     removeFileReference: (path: string) => setFileReferences((current) => current.filter((reference) => reference.path !== path)),
     setSessionSearchQuery,
     stop, submit,
-    switchSession: (session: Session) => { if (!session.archived) switchSession.mutate(session.id); },
+    switchSession,
   };
 }
 

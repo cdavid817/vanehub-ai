@@ -36,7 +36,7 @@ pub(crate) enum SessionsDomainError {
     DuplicateFileReferencePath(String),
     TooManyFileReferences,
     UnsupportedChatAgent(String),
-    UnsupportedPermissionMode,
+    UnsupportedExecutionMode,
     ProviderMismatch {
         provider_id: String,
         agent_id: String,
@@ -105,8 +105,8 @@ impl fmt::Display for SessionsDomainError {
             Self::UnsupportedChatAgent(agent_id) => {
                 write!(formatter, "Unsupported chat agent: {agent_id}.")
             }
-            Self::UnsupportedPermissionMode => {
-                formatter.write_str("Unsupported permission mode.")
+            Self::UnsupportedExecutionMode => {
+                formatter.write_str("Unsupported execution mode.")
             }
             Self::ProviderMismatch {
                 provider_id,

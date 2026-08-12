@@ -4,6 +4,7 @@ import type {
   ClaudeCodeConfigPayload,
   CliConfigPayload,
   CodexCliConfigPayload,
+  GeminiCliConfigPayload,
   OpenCodeConfigPayload,
 } from "../../../types/cli-agent-config";
 import { useTranslation } from "react-i18next";
@@ -132,6 +133,26 @@ function OpenCodeFields({
   );
 }
 
+function GeminiFields({ payload, onChange }: {
+  payload: GeminiCliConfigPayload;
+  onChange: (payload: GeminiCliConfigPayload) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <TextField label={t("agents.globalConfig.field.baseUrl")} value={payload.baseUrl} onChange={(baseUrl) => onChange({ ...payload, baseUrl })} />
+      <TextField label={t("agents.globalConfig.field.model")} value={payload.model} onChange={(model) => onChange({ ...payload, model })} />
+      <label className="flex flex-col gap-1 text-sm">
+        {t("agents.globalConfig.field.authentication")}
+        <select className={inputClass} value={payload.authStrategy} onChange={(event) => onChange({ ...payload, authStrategy: event.target.value as GeminiCliConfigPayload["authStrategy"] })}>
+          <option value="preserve-official">{t("agents.globalConfig.field.preserveOfficial")}</option>
+          <option value="api-key">{t("agents.globalConfig.field.apiKey")}</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
 export function CliConfigPayloadFields({
   payload,
   onChange,
@@ -142,6 +163,7 @@ export function CliConfigPayloadFields({
   if (payload.kind === "claude-code") return <ClaudeFields payload={payload} onChange={onChange} />;
   if (payload.kind === "codex-cli") return <CodexFields payload={payload} onChange={onChange} />;
   if (payload.kind === "antigravity") return <AntigravityFields payload={payload} onChange={onChange} />;
+  if (payload.kind === "gemini-cli") return <GeminiFields payload={payload} onChange={onChange} />;
   return <OpenCodeFields payload={payload} onChange={onChange} />;
 }
 

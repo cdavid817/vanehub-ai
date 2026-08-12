@@ -1,0 +1,26 @@
+{
+  "claude-code": [
+    { "id": "model", "flag": "--model", "launchScopes": ["interactive", "chat"], "options": ["default", "sonnet", "opus", "haiku"] },
+    { "id": "effort", "flag": "--effort", "launchScopes": ["interactive", "chat"], "options": ["default", "low", "medium", "high", "xhigh", "max"] },
+    { "id": "chrome", "flag": "--chrome", "launchScopes": ["interactive"], "options": [] }
+  ],
+  "codex-cli": [
+    { "id": "model", "flag": "--model", "launchScopes": ["interactive", "chat"], "options": ["default", "gpt-5.5", "gpt-5.4", "gpt-5.2-codex", "gpt-5.1-codex-max"] },
+    { "id": "reasoningEffort", "flag": "--config", "launchScopes": ["interactive", "chat"], "options": ["default", "low", "medium", "high", "xhigh", "max"] },
+    { "id": "ephemeral", "flag": "--ephemeral", "launchScopes": ["chat"], "options": [] },
+    { "id": "strictConfig", "flag": "--strict-config", "launchScopes": ["interactive", "chat"], "options": [] }
+  ],
+  "opencode": [
+    { "id": "model", "flag": "--model", "launchScopes": ["interactive", "chat"], "options": ["default"] },
+    { "id": "variant", "flag": "--variant", "launchScopes": ["chat"], "options": ["default", "low", "medium", "high", "max"] },
+    { "id": "thinking", "flag": "--thinking", "launchScopes": ["chat"], "options": [] }
+  ],
+  "antigravity-cli": [
+    { "id": "model", "flag": "--model", "launchScopes": ["interactive", "chat"], "options": ["default"] },
+    { "id": "effort", "flag": "--effort", "launchScopes": ["interactive", "chat"], "options": ["default", "low", "medium", "high"] },
+    { "id": "agent", "flag": "--agent", "launchScopes": ["interactive", "chat"], "options": ["default"] }
+  ],
+  "gemini-cli": [
+    { "id": "model", "flag": "--model", "launchScopes": ["interactive", "chat"], "options": ["default", "auto", "pro", "flash", "flash-lite"] }
+  ]
+}

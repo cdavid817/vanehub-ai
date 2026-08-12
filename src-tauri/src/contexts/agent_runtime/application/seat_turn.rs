@@ -324,7 +324,7 @@ impl AgentRuntimeApplicationService {
             AgentChatConfiguration {
                 agent_id: seat.agent_id.clone(),
                 interaction_mode,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -375,7 +375,6 @@ impl AgentRuntimeApplicationService {
                     parent_execution_run_id: assignment.parent_execution_run_id.clone(),
                 }),
                 record_user_message: false,
-                orchestration_profile: None,
             },
         );
         result.map(|_| ())

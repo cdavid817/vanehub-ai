@@ -1,14 +1,13 @@
-import { Bot, CheckCircle2, ListChecks, Wand2 } from "lucide-react";
+import { CheckCircle2, ListChecks, Play } from "lucide-react";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import type { PermissionMode } from "../../../types/chat";
+import type { SessionExecutionMode } from "../../../types/chat";
 import { SelectorButton, SelectorDropdown } from "./SelectorDropdown";
 
-const modeIcons: Record<PermissionMode, ReactElement> = {
-  default: <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />,
+const modeIcons: Record<SessionExecutionMode, ReactElement> = {
+  inherit: <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />,
   plan: <ListChecks className="h-3.5 w-3.5" aria-hidden="true" />,
-  agent: <Bot className="h-3.5 w-3.5" aria-hidden="true" />,
-  auto: <Wand2 className="h-3.5 w-3.5" aria-hidden="true" />,
+  execute: <Play className="h-3.5 w-3.5" aria-hidden="true" />,
 };
 
 export function ModeSelect({
@@ -19,18 +18,18 @@ export function ModeSelect({
   open,
   value,
 }: {
-  availableModes: PermissionMode[];
-  onChange: (value: PermissionMode) => void;
+  availableModes: SessionExecutionMode[];
+  onChange: (value: SessionExecutionMode) => void;
   onClose: () => void;
   onOpen: () => void;
   open: boolean;
-  value: PermissionMode;
+  value: SessionExecutionMode;
 }) {
   const { t } = useTranslation();
-  const permissionModes = availableModes.concat(["default", "plan", "agent", "auto"] as PermissionMode[])
+  const executionModes = availableModes.concat(["inherit", "plan", "execute"] as SessionExecutionMode[])
     .filter((mode, index, modes) => modes.indexOf(mode) === index);
-  const labelFor = (mode: PermissionMode) => t(`chat.config.permission.${mode}`);
-  const descriptionFor = (mode: PermissionMode) => t(`chat.config.permission.${mode}Desc`);
+  const labelFor = (mode: SessionExecutionMode) => t(`chat.config.execution.${mode}`);
+  const descriptionFor = (mode: SessionExecutionMode) => t(`chat.config.execution.${mode}Desc`);
   return (
     <div className="relative">
       <SelectorButton icon={modeIcons[value]} label={labelFor(value)} onClick={onOpen} open={open} title={t("chat.config.modeTitle", { label: labelFor(value) })} />
@@ -38,7 +37,7 @@ export function ModeSelect({
         <SelectorDropdown
           onClose={onClose}
           onSelect={onChange}
-          options={permissionModes.map((mode) => ({
+          options={executionModes.map((mode) => ({
             value: mode,
             label: labelFor(mode),
             description: descriptionFor(mode),

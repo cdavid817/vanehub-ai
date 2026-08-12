@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../../../components/agent-brand-icon";
 import { Button } from "../../../components/ui/button";
 import { getAgentVisualIdentity } from "../../../lib/agent-visual-identity";
+import { orderByAgentPriority } from "../../../lib/agent-display-order";
 import type { SkillInventoryView } from "../../../lib/skill-management";
 import type { SkillCompatibleAgent } from "../../../types/skill";
 import { SectionPanel } from "../page-parts";
@@ -20,8 +21,8 @@ export function SkillAgentNavigation({
   onSelect: (view: SkillInventoryView) => void;
 }) {
   const { t } = useTranslation();
-  const cliAgents = agents.filter((agent) => agent.kind === "cli");
-  const apiAgents = agents.filter((agent) => agent.kind === "api");
+  const cliAgents = orderByAgentPriority(agents.filter((agent) => agent.kind === "cli"), (agent) => agent.id);
+  const apiAgents = orderByAgentPriority(agents.filter((agent) => agent.kind === "api"), (agent) => agent.id);
   const selectedKey = selected.kind === "agent" ? `agent:${selected.agentId}` : selected.kind;
 
   function navigationButton(key: string, label: string, icon: ReactNode, view: SkillInventoryView) {

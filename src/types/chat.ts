@@ -1,5 +1,6 @@
 import type { TurnStatusEvent } from "../services/turn-status";
 import type { InteractionMode } from "./agent";
+import type { PolicyTemplateName } from "./permissions";
 
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
@@ -7,7 +8,8 @@ export type MessageStatus = "pending" | "streaming" | "completed" | "failed" | "
 
 export type ReasoningDepth = "low" | "medium" | "high" | "max";
 
-export type PermissionMode = "default" | "plan" | "agent" | "auto";
+export type SessionExecutionMode = "inherit" | "plan" | "execute";
+export type EffectiveExecutionPolicy = "readonly" | "ask" | "allow";
 
 export interface ModelInfo {
   id: string;
@@ -22,7 +24,9 @@ export interface ModelInfo {
 export interface ChatConfig {
   agentId: string;
   interactionMode: InteractionMode;
-  permissionMode: PermissionMode;
+  executionMode: SessionExecutionMode;
+  agentPolicy?: PolicyTemplateName;
+  effectiveExecutionPolicy?: EffectiveExecutionPolicy;
   providerId?: string;
   modelId?: string;
   reasoningDepth?: ReasoningDepth;

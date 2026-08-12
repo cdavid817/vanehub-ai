@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRegistryEntry, Session } from "../../../types/agent";
-import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../../types/chat";
+import type { ChatConfig, ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../../types/chat";
 import { agentService } from "../../../services/runtime-agent-client";
-import { PERMISSION_MODES, PROVIDER_MODELS, REASONING_DEPTHS, resolveModelLabel } from "../models";
+import { EXECUTION_MODES, PROVIDER_MODELS, REASONING_DEPTHS, resolveModelLabel } from "../models";
 
 function providerIdFromAgent(agent?: AgentRegistryEntry | null) {
   if (agent?.id === "onepiece") return "onepiece";
@@ -25,12 +25,8 @@ function clampReasoningDepth(model: ModelInfo, depth: ReasoningDepth) {
   return REASONING_DEPTHS[Math.min(depthIndex, maxIndex)] ?? "low";
 }
 
-function modesForProvider(providerId: string) {
-  const modeIds = PERMISSION_MODES.map((mode) => mode.id);
-  if (providerId === "openai") {
-    return modeIds.filter((mode) => mode !== "plan");
-  }
-  return modeIds;
+function modesForProvider() {
+  return EXECUTION_MODES.map((mode) => mode.id);
 }
 
 export function useChatConfig({
@@ -54,7 +50,9 @@ export function useChatConfig({
   const [providerId, setProviderId] = useState(initialProviderId);
   const [agentId, setAgentId] = useState(sessionAgent?.id ?? "");
   const [modelId, setModelId] = useState(initialModel.id);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("default");
+  const [executionMode, setSessionExecutionMode] = useState<SessionExecutionMode>("inherit");
+  const [agentPolicy, setAgentPolicy] = useState<ChatConfig["agentPolicy"]>();
+  const [effectiveExecutionPolicy, setEffectiveExecutionPolicy] = useState<ChatConfig["effectiveExecutionPolicy"]>();
   const [reasoningDepth, setReasoningDepth] = useState<ReasoningDepth>("high");
   const [streaming, setStreaming] = useState(true);
   const [thinking, setThinking] = useState(true);
@@ -71,7 +69,7 @@ export function useChatConfig({
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, "high"));
     setLongContext(nextModel.supportsLongContext);
-    setPermissionMode(modesForProvider(nextProviderId)[0] ?? "default");
+    setSessionExecutionMode(modesForProvider()[0] ?? "inherit");
     if (!activeSessionId || !activeSessionAgentId) return () => {
       cancelled = true;
     };
@@ -80,7 +78,9 @@ export function useChatConfig({
       setProviderId(persisted.providerId ?? nextProviderId);
       setAgentId(activeSessionAgentId);
       setModelId(persisted.modelId ?? nextModel.id);
-      setPermissionMode(persisted.permissionMode);
+      setSessionExecutionMode(persisted.executionMode);
+      setAgentPolicy(persisted.agentPolicy);
+      setEffectiveExecutionPolicy(persisted.effectiveExecutionPolicy);
       setReasoningDepth(persisted.reasoningDepth ?? "low");
       setStreaming(persisted.streaming);
       setThinking(persisted.thinking);
@@ -116,7 +116,7 @@ export function useChatConfig({
     return [customModel, ...catalogModels];
   }, [providerId, modelId]);
   const selectedModel = availableModels.find((model) => model.id === modelId) ?? availableModels[0];
-  const availableModes = modesForProvider(providerId);
+  const availableModes = modesForProvider();
   const availableReasoning = REASONING_DEPTHS.filter((depth) => {
     if (!selectedModel.supportsReasoning) return false;
     return REASONING_DEPTHS.indexOf(depth) <= REASONING_DEPTHS.indexOf(selectedModel.maxReasoningDepth);
@@ -125,14 +125,14 @@ export function useChatConfig({
   function changeProvider(nextProviderId: string) {
     const nextModel = defaultModelForProvider(nextProviderId);
     const nextAgent = agents.find((agent) => providerIdFromAgent(agent) === nextProviderId);
-    const nextModes = modesForProvider(nextProviderId);
+    const nextModes = modesForProvider();
     setProviderId(nextProviderId);
     setAgentId(nextAgent?.id ?? "");
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
     setLongContext(nextModel.supportsLongContext);
-    if (!nextModes.includes(permissionMode)) {
-      setPermissionMode(nextModes[0] ?? "default");
+    if (!nextModes.includes(executionMode)) {
+      setSessionExecutionMode(nextModes[0] ?? "inherit");
     }
   }
 
@@ -140,14 +140,14 @@ export function useChatConfig({
     const nextAgent = agents.find((agent) => agent.id === nextAgentId);
     const nextProviderId = providerIdFromAgent(nextAgent);
     const nextModel = defaultModelForProvider(nextProviderId);
-    const nextModes = modesForProvider(nextProviderId);
+    const nextModes = modesForProvider();
     setAgentId(nextAgentId);
     setProviderId(nextProviderId);
     setModelId(nextModel.id);
     setReasoningDepth(clampReasoningDepth(nextModel, reasoningDepth));
     setLongContext(nextModel.supportsLongContext);
-    if (!nextModes.includes(permissionMode)) {
-      setPermissionMode(nextModes[0] ?? "default");
+    if (!nextModes.includes(executionMode)) {
+      setSessionExecutionMode(nextModes[0] ?? "inherit");
     }
   }
 
@@ -166,21 +166,28 @@ export function useChatConfig({
   const config = useMemo<ChatConfig>(() => ({
     agentId,
     interactionMode: activeInteractionMode,
-    permissionMode,
+    executionMode,
+    agentPolicy,
+    effectiveExecutionPolicy,
     providerId,
     modelId,
     reasoningDepth: selectedModel.supportsReasoning ? reasoningDepth : undefined,
     streaming,
     thinking,
     longContext,
-  }), [activeInteractionMode, agentId, longContext, modelId, permissionMode, providerId, reasoningDepth, selectedModel.supportsReasoning, streaming, thinking]);
+  }), [activeInteractionMode, agentId, agentPolicy, effectiveExecutionPolicy, executionMode, longContext, modelId, providerId, reasoningDepth, selectedModel.supportsReasoning, streaming, thinking]);
 
   useEffect(() => {
     if (!activeSessionId || loadedSessionRef.current !== activeSessionId) return;
     const timeoutId = window.setTimeout(() => {
-      void agentService.saveSessionChatConfig(activeSessionId, config).catch((error: unknown) => {
-        onPersistError?.(error);
-      });
+      void agentService.saveSessionChatConfig(activeSessionId, config)
+        .then((saved) => {
+          setAgentPolicy(saved.agentPolicy);
+          setEffectiveExecutionPolicy(saved.effectiveExecutionPolicy);
+        })
+        .catch((error: unknown) => {
+          onPersistError?.(error);
+        });
     }, 120);
     return () => window.clearTimeout(timeoutId);
   }, [activeSessionId, config, onPersistError]);
@@ -192,7 +199,7 @@ export function useChatConfig({
     availableReasoning,
     config,
     selectedModel,
-    setPermissionMode,
+    setSessionExecutionMode,
     setReasoningDepth,
     setStreaming,
     setThinking,

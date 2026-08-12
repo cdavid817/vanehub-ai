@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Send, Sparkles, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
-import type { ChatConfig, ModelInfo, PermissionMode, ReasoningDepth } from "../../types/chat";
+import type { ChatConfig, ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../types/chat";
 import { Button } from "../ui/button";
 import { ConfigSelect, ModelSelect, ModeSelect, ProviderSelect, ReasoningSelect } from "./selectors";
 
@@ -31,7 +31,7 @@ export function ButtonArea({
   onThinkingChange,
 }: {
   agents: AgentRegistryEntry[];
-  availableModes: PermissionMode[];
+  availableModes: SessionExecutionMode[];
   availableModels: ModelInfo[];
   availableReasoning: ReasoningDepth[];
   canSubmit: boolean;
@@ -42,7 +42,7 @@ export function ButtonArea({
   onAgentChange: (value: string) => void;
   onEnhance?: () => void;
   onLongContextChange: (value: boolean) => void;
-  onModeChange: (value: PermissionMode) => void;
+  onModeChange: (value: SessionExecutionMode) => void;
   onModelChange: (value: string) => void;
   onProviderChange: (value: string) => void;
   onReasoningChange: (value: ReasoningDepth) => void;
@@ -87,8 +87,16 @@ export function ButtonArea({
           onClose={close}
           onOpen={() => open("mode")}
           open={openDropdown === "mode"}
-          value={config.permissionMode}
+          value={config.executionMode}
         />
+        {config.agentPolicy && config.effectiveExecutionPolicy ? (
+          <span className="max-w-64 truncate text-[11px] text-muted-foreground" data-testid="effective-execution-policy">
+            {t("chat.config.execution.effective", {
+              effective: t(`chat.config.execution.effective.${config.effectiveExecutionPolicy}`),
+              policy: t(`settings.agentPolicies.template.${config.agentPolicy}`),
+            })}
+          </span>
+        ) : null}
         <ModelSelect
           disabled={lockRuntimeIdentity}
           models={availableModels}

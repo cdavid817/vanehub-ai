@@ -1,4 +1,5 @@
 mod error;
+mod execution_policy;
 mod expert_role;
 mod loop_control;
 mod loop_models;
@@ -29,6 +30,7 @@ mod tool_catalog;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use error::AgentRuntimeApplicationError;
+pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use expert_role::{
     ExpertRoleApplicationPorts, ExpertRoleApplicationService, ExpertRoleClockPort,
     ExpertRoleIdPort, ExpertRolePort,
@@ -36,6 +38,7 @@ pub(crate) use expert_role::{
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 #[cfg(test)]
 pub(crate) use loop_models::LoopLimitsView;
+#[cfg(test)]
 pub(crate) use loop_models::LoopVerificationCommandView;
 pub(crate) use loop_models::{
     ContinueLoopRequest, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
@@ -76,14 +79,12 @@ pub(crate) use models::{
     LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
     LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
     LoopVerificationProcessResult, LoopVerificationProcessStatus, MemorySource, MessageTokenUsage,
-    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
-    OnePiecePlanningRequest, OnePiecePlanningResult, OnePieceProviderConfig,
+    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, OnePieceProviderConfig,
     OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
     OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, OrchestrationCorrelation, OrchestrationExecutionProfile,
-    PendingPromptExecution, PersonalizationSettings, ProcessStopInitiator, PromptExecutionOutcome,
-    PromptExecutionReport, PromptTrace, PromptVersionReference,
-    ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
+    OpenAgentTerminalRequest, PendingPromptExecution, PersonalizationSettings,
+    ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
+    PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
     ProviderCredentialValidationStatus, ReadinessView, RegisterApiAgentInput, ReportedUsageTotals,
     ResizeAgentTerminalRequest, SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput,
@@ -113,7 +114,7 @@ pub(crate) use ports::{
     LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
     LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
     LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
-    OnePiecePlanningPort, ToolApprovalPort,
+    ToolApprovalPort,
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{

@@ -134,10 +134,11 @@ fn run_one_task(
     agents: &AgentRuntimeApi,
     task: &scheduled_tasks::ScheduledTask,
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let interaction_mode = scheduled_task_interaction_mode(&task.agent_id);
     let prepared = sessions.prepare_creation(NewSessionRequest {
         agent_id: task.agent_id.clone(),
         seats: Vec::new(),
-        interaction_mode: "cli".to_string(),
+        interaction_mode: interaction_mode.as_str().to_string(),
         title: Some(task.name.clone()),
         workspace: NewSessionWorkspace::default(),
         owner: SessionOwner::desktop(),
@@ -152,8 +153,8 @@ fn run_one_task(
         content: task.content.clone(),
         configuration: AgentChatConfiguration {
             agent_id: task.agent_id.clone(),
-            interaction_mode: InteractionMode::Cli,
-            permission_mode: "default".to_string(),
+            interaction_mode,
+            execution_mode: "inherit".to_string(),
             provider_id: None,
             model_id: None,
             reasoning_depth: None,
@@ -164,6 +165,14 @@ fn run_one_task(
         file_references: Vec::new(),
     })?;
     Ok(session.id().to_string())
+}
+
+fn scheduled_task_interaction_mode(agent_id: &str) -> InteractionMode {
+    if agent_id == "onepiece" {
+        InteractionMode::Api
+    } else {
+        InteractionMode::Cli
+    }
 }
 
 fn log_scheduled_task(
@@ -185,4 +194,21 @@ fn log_scheduled_task(
         message: message.to_string(),
         context,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scheduled_task_interaction_mode, InteractionMode};
+
+    #[test]
+    fn onepiece_scheduled_tasks_use_api_and_cli_agents_keep_cli_mode() {
+        assert_eq!(
+            scheduled_task_interaction_mode("onepiece"),
+            InteractionMode::Api
+        );
+        assert_eq!(
+            scheduled_task_interaction_mode("codex-cli"),
+            InteractionMode::Cli
+        );
+    }
 }

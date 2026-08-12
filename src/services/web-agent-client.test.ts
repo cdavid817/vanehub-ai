@@ -261,17 +261,21 @@ describe("webAgentClient", () => {
 
   it("persists and resets structured CLI parameter profiles", async () => {
     const initial = await webAgentClient.listCliParameterProfiles();
-    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "gemini-cli", "opencode", "antigravity-cli"]);
+    expect(initial.map((profile) => profile.agentId)).toEqual(["claude-code", "codex-cli", "opencode", "antigravity-cli", "gemini-cli"]);
 
     const saved = await webAgentClient.saveCliParameterProfile({
       agentId: "codex-cli",
-      selections: { ...initial[1].selections, sandbox: "read-only", ephemeral: true },
+      selections: { ...initial[1].selections, ephemeral: true },
     });
     expect(saved.previewArgs).toContain("--ephemeral");
-    expect((await webAgentClient.listCliParameterProfiles())[1].selections.sandbox).toBe("read-only");
+    expect((await webAgentClient.listCliParameterProfiles())[1].selections.ephemeral).toBe(true);
+
+    await expect(webAgentClient.saveCliParameterProfile({
+      agentId: "codex-cli",
+      selections: { ...initial[1].selections, sandbox: "read-only" },
+    })).rejects.toThrow("Unknown CLI parameter");
 
     const reset = await webAgentClient.resetCliParameterProfile("codex-cli");
-    expect(reset.selections.sandbox).toBe("default");
     expect(reset.selections.ephemeral).toBe(false);
   });
 
@@ -485,6 +489,14 @@ describe("webAgentClient", () => {
     });
     expect(created.nextRunAt).toBeTruthy();
     expect((await webAgentClient.listScheduledTasks()).some((task) => task.id === created.id)).toBe(true);
+
+    const onepiece = await webAgentClient.createScheduledTask({
+      name: "Native summary",
+      content: "Summarize with OnePiece",
+      agentId: "onepiece",
+      frequency: { kind: "hours", interval: 2 },
+    });
+    expect(onepiece.agentId).toBe("onepiece");
 
     const disabled = await webAgentClient.setScheduledTaskEnabled({ taskId: created.id, enabled: false });
     expect(disabled.enabled).toBe(false);
@@ -714,7 +726,7 @@ describe("webAgentClient", () => {
       config: {
         agentId: session.agentId,
         interactionMode: session.interactionMode,
-        permissionMode: "default",
+        executionMode: "inherit",
         streaming: true,
         thinking: true,
         longContext: false,
@@ -798,7 +810,7 @@ describe("webAgentClient", () => {
     const saved = await webAgentClient.saveSessionChatConfig(first.id, {
       agentId: "claude-code",
       interactionMode: "browser",
-      permissionMode: "agent",
+      executionMode: "execute",
       providerId: "openai",
       modelId: "gpt-5-4",
       reasoningDepth: "medium",
@@ -811,7 +823,7 @@ describe("webAgentClient", () => {
       agentId: "codex-cli",
       interactionMode: "cli",
       modelId: "gpt-5-4",
-      permissionMode: "agent",
+      executionMode: "execute",
     });
     expect(await webAgentClient.getSessionChatConfig(first.id)).toEqual(saved);
     expect((await webAgentClient.getSessionChatConfig(second.id)).agentId).toBe("gemini-cli");
@@ -881,7 +893,7 @@ describe("webAgentClient", () => {
       config: {
         agentId: session.agentId,
         interactionMode: session.interactionMode,
-        permissionMode: "default",
+        executionMode: "inherit",
         streaming: true,
         thinking: false,
         longContext: false,
@@ -914,7 +926,7 @@ describe("webAgentClient", () => {
       config: {
         agentId: session.agentId,
         interactionMode: session.interactionMode,
-        permissionMode: "default",
+        executionMode: "inherit",
         streaming: true,
         thinking: false,
         longContext: false,
@@ -944,7 +956,7 @@ describe("webAgentClient", () => {
       config: {
         agentId: session.agentId,
         interactionMode: session.interactionMode,
-        permissionMode: "default",
+        executionMode: "inherit",
         streaming: true,
         thinking: false,
         longContext: false,
@@ -1448,6 +1460,41 @@ describe("webAgentClient", () => {
     expect(
       events.some((event) => event.type === "tool_use" && event.toolUse.name === "shell" && event.toolUse.status === "completed"),
     ).toBe(true);
+    unsubscribe();
+  });
+
+  it("narrows a trusted API agent to read-only tools in plan mode", async () => {
+    vi.useFakeTimers();
+    const agent = await webAgentClient.registerApiAgent({
+      displayName: "Trusted Planning Agent",
+      provider: "Anthropic",
+      apiKey: "sk-test",
+      modelId: "claude-opus-4-8",
+      interfaceFormat: "anthropic",
+      baseUrl: null,
+    });
+    webPrincipalTemplates.set(agent.id, "trusted");
+    const session = await createMockSession({ agentId: agent.id, interactionMode: "api", title: "Trusted plan" });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => {
+      events.push(event);
+    });
+
+    await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "plan only",
+      config: { ...config, executionMode: "plan" },
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const tools = events
+      .filter((event) => event.type === "tool_use")
+      .map((event) => event.toolUse.name);
+    expect(tools).toContain("read_file");
+    expect(tools).not.toContain("shell");
+    expect(tools).not.toContain("remember");
+    expect(tools.some((name) => name.startsWith("mcp__"))).toBe(false);
     unsubscribe();
   });
 

@@ -35,7 +35,7 @@ describe("session chat configuration boundary", () => {
     const input: ChatConfig = {
       agentId: "codex-cli",
       interactionMode: "cli",
-      permissionMode: "agent",
+      executionMode: "execute",
       providerId: "openai",
       modelId: "gpt-5-5",
       reasoningDepth: "max",
@@ -49,7 +49,7 @@ describe("session chat configuration boundary", () => {
       interactionMode: "browser",
       providerId: "google",
       modelId: "gemini-2-5-pro",
-      permissionMode: "agent",
+      executionMode: "execute",
       reasoningDepth: "high",
     });
   });
@@ -59,7 +59,7 @@ describe("session chat configuration boundary", () => {
     const input: ChatConfig = {
       agentId: "onepiece",
       interactionMode: "api",
-      permissionMode: "default",
+      executionMode: "inherit",
       providerId: "onepiece",
       modelId: "deepseek-chat",
       streaming: true,

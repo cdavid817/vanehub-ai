@@ -21,7 +21,7 @@ The settings center SHALL replace the provider management page with a `CLI ÁÆ°Áê
 
 #### Scenario: Open CLI management page
 - **WHEN** a user opens the CLI management settings page
-- **THEN** the page SHALL display Anthropic Claude Code CLI, OpenAI Codex CLI, Google Gemini CLI, and OpenCode CLI in that fixed order
+- **THEN** the page SHALL display Anthropic Claude Code CLI, OpenAI Codex CLI, OpenCode CLI, Antigravity CLI, and Google Gemini CLI in that fixed order
 - **AND** the page SHALL use service-backed CLI status data rather than frontend-local provider demo data
 
 #### Scenario: Render CLI summary
@@ -329,4 +329,12 @@ The CLI management page SHALL present `antigravity-cli` as a managed CLI alongsi
 #### Scenario: Antigravity counts toward page summaries
 - **WHEN** the CLI management page computes installed and attention summary counts
 - **THEN** `antigravity-cli` SHALL be included in those counts
+
+### Requirement: Non-duplicative CLI installation summary
+The CLI Management page SHALL summarize installation coverage with one installed-CLI metric and SHALL NOT render a second missing-CLI metric that repeats the inverse value.
+
+#### Scenario: Render CLI installation summary
+- **WHEN** CLI statuses have loaded
+- **THEN** the page SHALL display the installed count against the total managed CLI count
+- **AND** it SHALL NOT display a separate uninstalled-count summary card
 

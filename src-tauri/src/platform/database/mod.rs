@@ -1,5 +1,6 @@
 //! App-owned SQLite location, pooled connections, and migration orchestration.
 
+mod legacy_plan_schema;
 mod migrations;
 
 use r2d2::{Pool, PooledConnection};

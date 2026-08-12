@@ -3,22 +3,26 @@
 ## Purpose
 Projects an agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) into `gemini-cli`, `codex-cli`, and `opencode`'s own native launch-time approval and sandbox controls, reusing each tool's existing graduated modes rather than raw bypass flags, and takes precedence over the user's persisted CLI Parameter selections for the specific keys it governs.
 ## Requirements
-### Requirement: Policy template governs interactive launch parameters for gemini-cli, codex-cli, and opencode
-The system SHALL project an agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) into `gemini-cli`, `codex-cli`, and `opencode`'s own native approval and sandbox launch parameters whenever that agent's Agent Terminal starts interactively.
+### Requirement: Policy template governs managed CLI launch parameters
+The system SHALL combine an agent principal's assigned policy template with the session execution mode and project the resolved effective policy into `claude-code`, `gemini-cli`, `codex-cli`, `opencode`, and `antigravity-cli` whenever a chat process or Agent Terminal process starts.
 
-#### Scenario: Readonly template projects to a silent-deny launch
-- **WHEN** an agent principal with the `readonly` template starts an Agent Terminal for `codex-cli`, `gemini-cli`, or `opencode`
-- **THEN** the launch SHALL use that tool's most restrictive available sandbox/approval combination, denying risky actions without prompting
+#### Scenario: Readonly effective policy projects to a silent-deny launch
+- **WHEN** the resolved effective policy is `readonly`
+- **THEN** the launch SHALL use that tool's most restrictive available execution, sandbox, and approval combination
+- **AND** a chat or terminal launch SHALL NOT gain write capability from saved CLI settings
 
-#### Scenario: Standard template enables native ask-every-time prompting
-- **WHEN** an agent principal with the `standard` template starts an Agent Terminal for `codex-cli`, `gemini-cli`, or `opencode`
-- **THEN** the launch SHALL use that tool's own native interactive approval prompting for risky actions
-- **AND** the tool's prompt SHALL render in the terminal and be answerable by the user, since the process is always launched through a real interactive PTY
+#### Scenario: Ask effective policy uses the provider's supported approval posture
+- **WHEN** the resolved effective policy is `ask`
+- **THEN** the launch SHALL use that tool's supported approval behavior for risky actions
+- **AND** an interactive Agent Terminal SHALL keep any native prompt answerable through its PTY
 
-#### Scenario: Trusted and yolo templates project identically
-- **WHEN** an agent principal with the `trusted` or `yolo` template starts an Agent Terminal for `codex-cli`, `gemini-cli`, or `opencode`
-- **THEN** both templates SHALL project to the same launch parameters for that tool
-- **AND** those parameters SHALL be the most permissive combination available within the tool's existing non-bypass catalog
+#### Scenario: Allow effective policy uses non-bypass permissive controls
+- **WHEN** the resolved effective policy is `allow`
+- **THEN** the launch SHALL use the most permissive combination available within the tool's existing non-bypass controls
+
+#### Scenario: Chat and terminal resolve consistently
+- **WHEN** chat and Agent Terminal launches use the same stable agent id and effective policy
+- **THEN** both launch scopes SHALL enforce the same safety posture even when provider grammar requires different argument placement
 
 ### Requirement: Only catalog-legal, non-bypass parameter values are used
 The system SHALL express every policy-template projection using values already defined in that tool's existing CLI parameter catalog and SHALL NOT introduce a raw bypass flag (for example, any flag whose name contains "dangerously") to reach a template's intended behavior.
@@ -45,45 +49,49 @@ The system SHALL explicitly emit `--approval-mode default` when the `standard` t
 - **AND** this SHALL hold regardless of the general convention that a `default`-valued selection omits its flag
 
 ### Requirement: Template reassignment affects only future launches
-Reassigning an agent's policy template SHALL NOT alter the launch parameters of an Agent Terminal process already running for that agent.
+Reassigning an Agent policy template SHALL NOT alter a chat generation or Agent Terminal process already running for that Agent.
 
 #### Scenario: Already-running terminal keeps its original parameters
-- **WHEN** an agent's policy template is reassigned while its Agent Terminal process is already running
+- **WHEN** an Agent policy template is reassigned while a managed CLI process is already running
 - **THEN** the running process SHALL continue with the parameters it was launched with
-- **AND** the next launch of that agent's Agent Terminal SHALL use the newly assigned template
+- **AND** the next chat generation or Agent Terminal launch SHALL use the newly assigned template
 
 ### Requirement: Template resolution failure fails the launch
-If the system cannot resolve an agent's policy template when starting an interactive launch for `codex-cli`, `gemini-cli`, or `opencode`, it SHALL fail the launch with an error rather than proceed with an unresolved or default-guessed template.
+If the system cannot resolve an Agent policy template when starting any managed CLI chat or interactive launch, it SHALL fail the launch rather than proceed with an unresolved or guessed template.
 
 #### Scenario: Lookup failure surfaces an error
-- **WHEN** the policy template lookup fails while starting an Agent Terminal for a managed CLI agent
+- **WHEN** policy-template lookup fails while starting a managed CLI process
 - **THEN** the launch SHALL fail with an error
-- **AND** the system SHALL NOT silently substitute a template to keep the launch proceeding
+- **AND** the system SHALL NOT silently substitute a template
 
-### Requirement: Policy template governs interactive launch parameters for antigravity-cli
-The system SHALL project an agent principal's assigned policy template (`readonly`, `standard`, `trusted`, or `yolo`) into Antigravity CLI's own native execution-mode and sandbox launch controls whenever that agent's Agent Terminal starts interactively, using `--mode` and `--sandbox`.
+### Requirement: Policy template governs launch parameters for antigravity-cli
+The system SHALL project Antigravity CLI's resolved effective policy into its native execution-mode and sandbox controls for chat and Agent Terminal launches, using `--mode` and `--sandbox` without a bypass flag.
 
-#### Scenario: Readonly template plans without applying changes
-- **WHEN** an agent principal with the `readonly` template starts an Agent Terminal for `antigravity-cli`
-- **THEN** the launch SHALL use the `plan` execution mode and enable the terminal sandbox
+#### Scenario: Readonly policy plans without applying changes
+- **WHEN** the resolved effective policy is `readonly`
+- **THEN** the launch SHALL use `--mode plan` and enable the sandbox
 
-#### Scenario: Standard template leaves the CLI's own ask-before-acting default in charge
-- **WHEN** an agent principal with the `standard` template starts an Agent Terminal for `antigravity-cli`
-- **THEN** the launch SHALL NOT override the execution mode
-- **AND** it SHALL NOT enable the sandbox, so the tool's own configured approval prompting governs risky actions
+#### Scenario: Ask policy uses the CLI default approval posture
+- **WHEN** the resolved effective policy is `ask`
+- **THEN** the launch SHALL use the CLI's default execution mode without enabling a permissive bypass
 
-#### Scenario: Trusted and yolo templates project identically
-- **WHEN** an agent principal with the `trusted` or `yolo` template starts an Agent Terminal for `antigravity-cli`
-- **THEN** both templates SHALL use the `accept-edits` execution mode
-- **AND** both SHALL produce the same launch parameters
+#### Scenario: Allow policy accepts edits
+- **WHEN** the resolved effective policy is `allow`
+- **THEN** the launch SHALL use `--mode accept-edits` without enabling a raw bypass flag
 
-#### Scenario: The bypass flag is never introduced by a template
-- **WHEN** any policy template is projected for `antigravity-cli`
+#### Scenario: The bypass flag is never introduced
+- **WHEN** any effective policy is projected for `antigravity-cli`
 - **THEN** the resulting launch parameters SHALL NOT include `--dangerously-skip-permissions`
-- **AND** because that flag is also absent from the parameter catalog, no launch path SHALL be able to introduce it
 
-#### Scenario: Template resolution failure fails the Antigravity launch
-- **WHEN** the policy template lookup fails while starting an Agent Terminal for `antigravity-cli`
-- **THEN** the launch SHALL fail with an error
-- **AND** the system SHALL NOT silently substitute a template to keep the launch proceeding
+### Requirement: Claude Code keeps hook enforcement as the action-level boundary
+Claude Code SHALL combine its effective launch mode with the existing authenticated permission hook, and the hook SHALL remain authoritative for every mapped action it intercepts.
 
+#### Scenario: Claude Code launches under readonly policy
+- **WHEN** Claude Code resolves to a read-only effective policy
+- **THEN** its launch mode SHALL be `plan`
+- **AND** mapped tool calls SHALL continue through the permission-hook decision pipeline
+
+#### Scenario: Claude Code launches under ask or allow policy
+- **WHEN** Claude Code resolves to `ask` or `allow`
+- **THEN** its launch parameters SHALL NOT disable the existing permission hook
+- **AND** hook-mapped MCP actions SHALL retain the permissions-core Ask floor

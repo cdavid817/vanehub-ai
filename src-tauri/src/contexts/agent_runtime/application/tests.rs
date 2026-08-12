@@ -1368,7 +1368,7 @@ fn chat_configuration() -> AgentChatConfiguration {
     AgentChatConfiguration {
         agent_id: "codex-cli".to_string(),
         interaction_mode: InteractionMode::Cli,
-        permission_mode: "default".to_string(),
+        execution_mode: "inherit".to_string(),
         provider_id: Some("openai".to_string()),
         model_id: Some("gpt-5-5".to_string()),
         reasoning_depth: Some("high".to_string()),
@@ -1481,7 +1481,7 @@ impl LoopRoleGenerationCompletionPort for FakeWorld {
 }
 
 #[test]
-fn verifier_generation_forces_read_only_permission_mode() {
+fn verifier_generation_forces_read_only_execution_mode() {
     let world = test_world();
     world
         .sessions
@@ -1507,7 +1507,7 @@ fn verifier_generation_forces_read_only_permission_mode() {
         .lock()
         .expect("generation requests");
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].configuration.permission_mode, "plan");
+    assert_eq!(requests[0].configuration.execution_mode, "plan");
 }
 
 /// A four-seat session, which is enough to exercise the two-mention cap and self-mention
@@ -3502,7 +3502,7 @@ fn send_message_skips_prompt_hook_assembly_for_non_cli_agents() {
             configuration: AgentChatConfiguration {
                 agent_id: "my-api-agent".to_string(),
                 interaction_mode: InteractionMode::Api,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -3734,7 +3734,7 @@ fn send_message_does_not_prepend_custom_instructions_for_non_cli_agents() {
             configuration: AgentChatConfiguration {
                 agent_id: "my-api-agent".to_string(),
                 interaction_mode: InteractionMode::Api,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,
@@ -4089,7 +4089,7 @@ fn generation_completed_does_not_trigger_memory_extraction_for_non_cli_agents() 
             configuration: AgentChatConfiguration {
                 agent_id: "my-api-agent".to_string(),
                 interaction_mode: InteractionMode::Api,
-                permission_mode: "default".to_string(),
+                execution_mode: "inherit".to_string(),
                 provider_id: None,
                 model_id: None,
                 reasoning_depth: None,

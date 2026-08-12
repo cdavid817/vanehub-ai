@@ -99,7 +99,7 @@ test.describe("multi-Agent session", () => {
 
     const sessionCard = page.locator("[data-session-id]").filter({ hasText: "共享成员会话" });
     await expect(sessionCard.getByTestId("multi-agent-session-badge")).toHaveText("多 Agent");
-    await expect(sessionCard.locator(".ucd-agent-codex")).toBeVisible();
+    await expect(sessionCard.locator(".ucd-agent-claude")).toBeVisible();
     await expect(sessionCard.locator("[data-role-icon]")).toHaveCount(0);
     const titleBox = await sessionCard.getByText("共享成员会话", { exact: true }).boundingBox();
     const badgeBox = await sessionCard.getByTestId("multi-agent-session-badge").boundingBox();

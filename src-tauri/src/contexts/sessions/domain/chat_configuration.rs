@@ -53,30 +53,27 @@ impl ChatAgent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PermissionMode {
-    Default,
+enum SessionExecutionMode {
+    Inherit,
     Plan,
-    Agent,
-    Auto,
+    Execute,
 }
 
-impl PermissionMode {
+impl SessionExecutionMode {
     fn parse(value: &str) -> Result<Self, SessionsDomainError> {
         match value {
-            "default" => Ok(Self::Default),
+            "inherit" => Ok(Self::Inherit),
             "plan" => Ok(Self::Plan),
-            "agent" => Ok(Self::Agent),
-            "auto" => Ok(Self::Auto),
-            _ => Err(SessionsDomainError::UnsupportedPermissionMode),
+            "execute" => Ok(Self::Execute),
+            _ => Err(SessionsDomainError::UnsupportedExecutionMode),
         }
     }
 
     fn as_str(self) -> &'static str {
         match self {
-            Self::Default => "default",
+            Self::Inherit => "inherit",
             Self::Plan => "plan",
-            Self::Agent => "agent",
-            Self::Auto => "auto",
+            Self::Execute => "execute",
         }
     }
 }
@@ -112,7 +109,7 @@ impl ReasoningDepth {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ChatConfigurationRequest<'a> {
-    pub(crate) permission_mode: &'a str,
+    pub(crate) execution_mode: &'a str,
     pub(crate) provider_id: Option<&'a str>,
     pub(crate) model_id: Option<&'a str>,
     pub(crate) reasoning_depth: Option<&'a str>,
@@ -123,7 +120,7 @@ pub(crate) struct ChatConfigurationRequest<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChatPreferences {
-    permission_mode: String,
+    execution_mode: String,
     provider_id: String,
     model_id: String,
     reasoning_depth: Option<String>,
@@ -133,8 +130,8 @@ pub(crate) struct ChatPreferences {
 }
 
 impl ChatPreferences {
-    pub(crate) fn permission_mode(&self) -> &str {
-        &self.permission_mode
+    pub(crate) fn execution_mode(&self) -> &str {
+        &self.execution_mode
     }
 
     pub(crate) fn provider_id(&self) -> &str {
@@ -216,7 +213,7 @@ pub(crate) fn normalize_chat_preferences(
     request: ChatConfigurationRequest<'_>,
 ) -> Result<ChatPreferences, SessionsDomainError> {
     let agent = ChatAgent::parse(agent_id)?;
-    let permission_mode = PermissionMode::parse(request.permission_mode)?;
+    let execution_mode = SessionExecutionMode::parse(request.execution_mode)?;
     let expected_provider = agent.provider();
     let provider_id = request.provider_id.unwrap_or(expected_provider);
     if provider_id != expected_provider {
@@ -239,7 +236,7 @@ pub(crate) fn normalize_chat_preferences(
         return Err(SessionsDomainError::UnsupportedReasoningDepth);
     }
     Ok(ChatPreferences {
-        permission_mode: permission_mode.as_str().to_string(),
+        execution_mode: execution_mode.as_str().to_string(),
         provider_id: expected_provider.to_string(),
         model_id: model_id.to_string(),
         reasoning_depth: clamp_reasoning_for_model(model_id, request.reasoning_depth),
@@ -251,7 +248,7 @@ pub(crate) fn normalize_chat_preferences(
 
 pub(crate) fn is_valid_chat_snapshot(
     agent_id: &str,
-    permission_mode: &str,
+    execution_mode: &str,
     provider_id: &str,
     model_id: &str,
     reasoning_depth: Option<&str>,
@@ -261,7 +258,7 @@ pub(crate) fn is_valid_chat_snapshot(
     };
     provider_id == agent.provider()
         && agent.supports(model_id)
-        && PermissionMode::parse(permission_mode).is_ok()
+        && SessionExecutionMode::parse(execution_mode).is_ok()
         && reasoning_depth.is_none_or(|depth| ReasoningDepth::parse(depth).is_ok())
 }
 
@@ -273,7 +270,7 @@ pub(crate) fn restore_chat_preferences(
     let model_id = request.model_id?;
     if !is_valid_chat_snapshot(
         agent_id,
-        request.permission_mode,
+        request.execution_mode,
         provider_id,
         model_id,
         request.reasoning_depth,
@@ -281,7 +278,7 @@ pub(crate) fn restore_chat_preferences(
         return None;
     }
     Some(ChatPreferences {
-        permission_mode: request.permission_mode.to_string(),
+        execution_mode: request.execution_mode.to_string(),
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
         reasoning_depth: request.reasoning_depth.map(str::to_string),
@@ -297,7 +294,7 @@ mod tests {
 
     fn request<'a>() -> ChatConfigurationRequest<'a> {
         ChatConfigurationRequest {
-            permission_mode: "agent",
+            execution_mode: "execute",
             provider_id: Some("google"),
             model_id: Some("gemini-2-5-flash"),
             reasoning_depth: Some("max"),
@@ -311,7 +308,7 @@ mod tests {
     fn configuration_identity_and_reasoning_rules_are_agent_authoritative() {
         let preferences = normalize_chat_preferences("gemini-cli", request()).expect("preferences");
 
-        assert_eq!(preferences.permission_mode(), "agent");
+        assert_eq!(preferences.execution_mode(), "execute");
         assert_eq!(preferences.provider_id(), "google");
         assert_eq!(preferences.model_id(), "gemini-2-5-flash");
         assert_eq!(preferences.reasoning_depth(), Some("medium"));
@@ -323,7 +320,7 @@ mod tests {
         let onepiece = normalize_chat_preferences(
             "onepiece",
             ChatConfigurationRequest {
-                permission_mode: "default",
+                execution_mode: "inherit",
                 provider_id: Some("onepiece"),
                 model_id: Some("deepseek-chat"),
                 reasoning_depth: None,
@@ -350,10 +347,10 @@ mod tests {
     #[test]
     fn invalid_permission_provider_model_and_reasoning_are_rejected() {
         let mut invalid = request();
-        invalid.permission_mode = "unrestricted";
+        invalid.execution_mode = "unrestricted";
         assert_eq!(
             normalize_chat_preferences("gemini-cli", invalid),
-            Err(SessionsDomainError::UnsupportedPermissionMode)
+            Err(SessionsDomainError::UnsupportedExecutionMode)
         );
 
         let mut invalid = request();

@@ -9,7 +9,6 @@ use crate::contexts::tooling::cli_parameters::CliParametersApi;
 use crate::platform::database::NativeDatabase;
 use rusqlite::OptionalExtension;
 use serde_json::Value;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -79,7 +78,7 @@ impl SessionChatProfilePort for SqliteSessionChatProfileAdapter {
             }
         });
         Ok(ChatConfigurationValues {
-            permission_mode: permission_from_cli(agent_id, &selections),
+            execution_mode: "inherit".to_string(),
             provider_id: Some(
                 provider_for_agent(agent_id)
                     .map_err(SessionsApplicationError::from)?
@@ -116,7 +115,7 @@ impl SqliteSessionChatProfileAdapter {
                 )
             })?;
         Ok(ChatConfigurationValues {
-            permission_mode: "default".to_string(),
+            execution_mode: "inherit".to_string(),
             provider_id: Some("onepiece".to_string()),
             model_id: Some(model_id),
             reasoning_depth: None,
@@ -125,36 +124,6 @@ impl SqliteSessionChatProfileAdapter {
             long_context: true,
         })
     }
-}
-
-fn permission_from_cli(agent_id: &str, selections: &BTreeMap<String, Value>) -> String {
-    match agent_id {
-        "claude-code" => match selections.get("permissionMode").and_then(Value::as_str) {
-            Some("plan") => "plan",
-            Some("acceptEdits" | "dontAsk") => "agent",
-            Some("auto") => "auto",
-            _ => "default",
-        },
-        "codex-cli" => match (
-            selections.get("sandbox").and_then(Value::as_str),
-            selections.get("approvalPolicy").and_then(Value::as_str),
-        ) {
-            (Some("read-only"), _) => "plan",
-            (Some("workspace-write"), _) => "agent",
-            (_, Some("never")) => "auto",
-            _ => "default",
-        },
-        "gemini-cli" => match selections.get("approvalMode").and_then(Value::as_str) {
-            Some("plan") => "plan",
-            Some("auto_edit") => "agent",
-            _ => "default",
-        },
-        "opencode" if selections.get("autoApprove").and_then(Value::as_bool) == Some(true) => {
-            "auto"
-        }
-        _ => "default",
-    }
-    .to_string()
 }
 
 fn profile_error(error: impl std::fmt::Display) -> SessionsApplicationError {

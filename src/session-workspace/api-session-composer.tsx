@@ -27,7 +27,7 @@ export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
       onClear={() => model.setDraft("")}
       onConfigAgentChange={model.chatConfig.changeAgent}
       onConfigLongContextChange={model.chatConfig.setLongContext}
-      onConfigModeChange={model.chatConfig.setPermissionMode}
+      onConfigModeChange={model.chatConfig.setSessionExecutionMode}
       onConfigModelChange={model.chatConfig.changeModel}
       onConfigProviderChange={model.chatConfig.changeProvider}
       onConfigReasoningChange={model.chatConfig.setReasoningDepth}
