@@ -1532,14 +1532,9 @@ fn extract_memories(
     }
 }
 
-/// Maps a tool call to the `permissions` domain's `(Action, Resource)` pair, mirroring
-/// `risk_tier_for`'s exact classification (design.md/tasks.md 6.2a): `file` + `operation ==
-/// "read"` is the only case that isn't treated as a mutating write, matching `risk_tier_for`'s
-/// `Some("read") => AutoApprove, _ => RequiresApproval` fail-closed default for a missing or
-/// unrecognized operation. A tool name outside the fixed catalog (a hallucinated call) maps to a
-/// synthetic action no template declares a rule for, so it always falls through to the default
-/// `Ask` — it can never be silently `Allow`ed under a `trusted`/`yolo` template the way `shell_exec`
-/// or `file_write` legitimately can be.
+/// Maps every built-in tool to the established permission action whose policy behavior matches
+/// that tool. A name outside the built-in catalog maps to a synthetic action no template declares
+/// a rule for, so hallucinated calls still fail closed to `Ask`.
 fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Resource) {
     match tool_name {
         SHELL_TOOL_NAME => (Action::shell_exec(), Resource::workspace()),
@@ -1551,6 +1546,13 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
                 _ => (Action::file_write(), resource),
             }
         }
+        GREP_TOOL_NAME | GLOB_TOOL_NAME | SEARCH_CODE_TOOL_NAME => {
+            (Action::file_read(), Resource::workspace())
+        }
+        EDIT_TOOL_NAME => {
+            let path = input.get("path").and_then(Value::as_str).unwrap_or("");
+            (Action::file_write(), Resource::file_path(path))
+        }
         FIND_DEFINITION_TOOL_NAME
         | FIND_REFERENCES_TOOL_NAME
         | GET_HOVER_TOOL_NAME
@@ -1559,6 +1561,7 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
             (Action::file_read(), Resource::file_path(path))
         }
         REMEMBER_TOOL_NAME => (Action::memory_write(), Resource::memory()),
+        RECALL_TOOL_NAME => (Action::file_read(), Resource::memory()),
         LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME => {
             (Action::file_read(), Resource::new(tool_name))
         }
@@ -4342,6 +4345,99 @@ mod tests {
             assert!(outcome.output.contains(reason));
             assert_eq!(skills.requests.lock().expect("requests").len(), 1);
         }
+    }
+
+    #[test]
+    fn every_onepiece_builtin_tool_has_an_explicit_permission_mapping() {
+        let cases = [
+            (SHELL_TOOL_NAME, json!({}), Action::shell_exec(), Resource::workspace()),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "read", "path": "src/lib.rs"}),
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (
+                FILE_TOOL_NAME,
+                json!({"operation": "write", "path": "src/lib.rs"}),
+                Action::file_write(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (GREP_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
+            (GLOB_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
+            (SEARCH_CODE_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
+            (
+                EDIT_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                Action::file_write(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (
+                FIND_DEFINITION_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (
+                FIND_REFERENCES_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (
+                GET_HOVER_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (
+                GET_DIAGNOSTICS_TOOL_NAME,
+                json!({"path": "src/lib.rs"}),
+                Action::file_read(),
+                Resource::file_path("src/lib.rs"),
+            ),
+            (REMEMBER_TOOL_NAME, json!({}), Action::memory_write(), Resource::memory()),
+            (RECALL_TOOL_NAME, json!({}), Action::file_read(), Resource::memory()),
+            (
+                LIST_SKILLS_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::new(LIST_SKILLS_TOOL_NAME),
+            ),
+            (
+                LOAD_SKILL_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::new(LOAD_SKILL_TOOL_NAME),
+            ),
+            (
+                READ_SKILL_RESOURCE_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::new(READ_SKILL_RESOURCE_TOOL_NAME),
+            ),
+        ];
+
+        for (tool_name, input, expected_action, expected_resource) in cases {
+            let (action, resource) = permission_action_and_resource(tool_name, &input);
+            assert_eq!(action, expected_action, "action for {tool_name}");
+            assert_eq!(resource, expected_resource, "resource for {tool_name}");
+        }
+    }
+
+    #[test]
+    fn mcp_and_unknown_tools_keep_their_fail_closed_permission_mappings() {
+        let (mcp_action, mcp_resource) = permission_action_and_resource(
+            "mcp__filesystem-tools__search",
+            &json!({"query": "needle"}),
+        );
+        assert_eq!(mcp_action, Action::mcp_tool());
+        assert_eq!(mcp_resource, Resource::new("mcp__filesystem-tools__search"));
+
+        let (unknown_action, unknown_resource) =
+            permission_action_and_resource("invented_tool", &json!({}));
+        assert_eq!(unknown_action, Action::new("unknown:invented_tool"));
+        assert_eq!(unknown_resource, Resource::new("invented_tool"));
     }
 
     #[test]
