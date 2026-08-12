@@ -18,6 +18,42 @@ test.describe("Skills management", () => {
     await expect(page.getByRole("button", { name: /^Global$/ })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Workspace$/ })).toHaveCount(0);
 
+    const systemSkill = page.locator('article[data-skill-id="tdd-discipline"]');
+    await expect(systemSkill).toContainText("System");
+    await expect(systemSkill).toContainText("Role");
+    await expect(systemSkill).toContainText("Read-only");
+    await expect(systemSkill).not.toContainText("On demand");
+    await expect(systemSkill.getByRole("button", { name: "Edit Skill" })).toHaveCount(0);
+    await expect(systemSkill.getByRole("button", { name: "Delete Skill" })).toHaveCount(0);
+
+    const migratedOverride = page.locator('article[data-skill-id="readme-generation"]');
+    await expect(migratedOverride).toHaveCount(1);
+    const detailsToggle = migratedOverride.getByRole("button", { name: /View details for/ });
+    await expect(detailsToggle).toHaveAttribute("aria-expanded", "false");
+    await detailsToggle.click();
+    await expect(detailsToggle).toHaveAttribute("aria-expanded", "true");
+    const inspector = page.getByRole("complementary", { name: /details/ });
+    await expect(inspector).toContainText("Project > User > Registry > System");
+    await expect(inspector.getByRole("heading", { name: "Definition precedence" })).toBeVisible();
+    await expect(inspector.locator('[data-definition-state="effective"]')).toHaveCount(1);
+    await expect(inspector.locator('[data-definition-state="shadowed"]')).toHaveCount(1);
+    const inspectorBox = await inspector.boundingBox();
+    const selectedRowBox = await migratedOverride.boundingBox();
+    expect(inspectorBox).not.toBeNull();
+    expect(selectedRowBox).not.toBeNull();
+    expect(inspectorBox!.x).toBeGreaterThan(selectedRowBox!.x);
+    await inspector.getByRole("button", { name: "Close Skill details" }).click();
+    await expect(detailsToggle).toBeFocused();
+
+    const previewButton = systemSkill.getByRole("button", { name: "Preview Skill" });
+    await previewButton.click();
+    const previewDialog = page.getByRole("dialog");
+    await expect(previewDialog).toContainText("indexed resources");
+    await expect(previewDialog).toContainText("read-only");
+    await page.keyboard.press("Escape");
+    await expect(previewDialog).toBeHidden();
+    await expect(previewButton).toBeFocused();
+
     await page.getByRole("button", { name: /Codex CLI/ }).click();
     const board = page.getByTestId("skill-selection-board");
     const assigned = board.locator('[data-skill-group="assigned"]');
@@ -36,6 +72,9 @@ test.describe("Skills management", () => {
     await expect(page.getByText("Globally enabled").first()).toBeVisible();
 
     const assignmentAction = page.getByRole("button", { name: /Assign to Codex CLI|Unassign from Codex CLI/ }).first();
+    const assignmentRow = assignmentAction.locator("xpath=ancestor::article");
+    await expect(assignmentRow.getByRole("button", { name: /View details for/ })).toBeVisible();
+    await expect(assignmentRow.getByRole("button", { name: "Preview Skill" })).toBeVisible();
     const actionName = await assignmentAction.getAttribute("aria-label");
     const skillId = await assignmentAction.locator("xpath=ancestor::article").getAttribute("data-skill-id");
     await assignmentAction.focus();
@@ -78,12 +117,26 @@ test.describe("Skills management", () => {
     expect(availableBox!.y).toBeGreaterThan(assignedBox!.y + assignedBox!.height - 2);
     expect(Math.abs(availableBox!.x - assignedBox!.x)).toBeLessThan(8);
 
-    await page.getByRole("button", { name: /Restore Built-in/ }).click();
+    await page.getByRole("button", { name: /^All Skills/ }).click();
+    await page.setViewportSize({ width: 375, height: 780 });
+    const narrowDetailsButton = page.locator("article[data-skill-id]").first().getByRole("button", { name: /View details for/ });
+    await narrowDetailsButton.click();
+    const detailsDialog = page.getByRole("dialog", { name: /details/ });
+    await expect(detailsDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(detailsDialog).toBeHidden();
+    await expect(narrowDetailsButton).toBeFocused();
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(hasHorizontalOverflow).toBe(false);
+
+    const restoreButton = page.getByRole("button", { name: /Restore Built-in/ });
+    await restoreButton.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog.locator("select")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+    await expect(restoreButton).toBeFocused();
   });
 
   test("exposes Effective, Global, and Project Skill views in session information", async ({ page }) => {

@@ -56,7 +56,7 @@ pub(crate) fn deletion_policy(source: SkillSource) -> SkillDeletionPolicy {
     SkillDeletionPolicy {
         record_builtin_tombstone: source == SkillSource::Builtin,
         remove_bindings: true,
-        remove_source: true,
+        remove_source: source != SkillSource::Builtin,
     }
 }
 
@@ -114,6 +114,7 @@ mod tests {
             Err(SkillDomainError::InvalidUserSource(source)) if source == "imported"
         ));
         assert!(deletion_policy(SkillSource::Builtin).record_builtin_tombstone);
+        assert!(!deletion_policy(SkillSource::Builtin).remove_source);
         assert!(!deletion_policy(SkillSource::User).record_builtin_tombstone);
         assert!(!deletion_policy(SkillSource::Imported).record_builtin_tombstone);
     }

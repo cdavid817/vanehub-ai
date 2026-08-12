@@ -1,16 +1,19 @@
 import { Plus, Puzzle, RotateCcw, Upload } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../components/ui/button";
-import { filterGlobalSkillInventory, isSkillAssigned, isSkillAssignedToAgent, type SkillInventoryFilters, type SkillInventoryView } from "../../lib/skill-management";
+import { effectiveSkillInventory, filterGlobalSkillInventory, isSkillAssigned, isSkillAssignedToAgent, skillIdentity, type SkillInventoryFilters, type SkillInventoryView } from "../../lib/skill-management";
+import { useMediaQuery } from "../../hooks/use-media-query";
 import { agentService } from "../../services/runtime-agent-client";
 import type { SkillCompatibleAgent, SkillOverview, SkillScopeInput } from "../../types/skill";
+import type { SkillOverlayTargetInput } from "../../types/skill-overlay";
 import { PageHeader, SettingsDisclosure } from "./page-parts";
 import { SkillAgentMountPathsPanel } from "./skills/skill-agent-mount-paths-panel";
 import { SkillAgentNavigation } from "./skills/skill-agent-navigation";
 import { SkillCardList } from "./skills/skill-card-list";
 import { SkillDialogs, closedSkillDialog } from "./skills/skill-dialogs";
+import { SkillDetailsSurface } from "./skills/skill-details-surface";
 import { SkillDriftBanner } from "./skills/skill-drift-banner";
 import { SkillFilterToolbar } from "./skills/skill-filter-toolbar";
 import { SkillInventorySummary } from "./skills/skill-inventory-summary";
@@ -25,6 +28,9 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const [view, setView] = useState<SkillInventoryView>({ kind: "all" });
   const [filters, setFilters] = useState<SkillInventoryFilters>(defaultFilters);
   const [mountDrafts, setMountDrafts] = useState<Record<string, string>>({});
+  const [selectedSkillKey, setSelectedSkillKey] = useState<string | null>(null);
+  const [detailsReturnFocus, setDetailsReturnFocus] = useState<HTMLElement | null>(null);
+  const wideDetails = useMediaQuery("(min-width: 1280px)");
   const overview = manager.overviewQuery.data;
   const activeAgent = view.kind === "agent" ? overview?.agents.find((agent) => agent.id === view.agentId) ?? null : null;
   const sourceLabels = useMemo(() => ({ builtin: t("skills.source.builtin"), user: t("skills.source.user"), imported: t("skills.source.imported") }), [t]);
@@ -32,12 +38,32 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
   const visibleSkills = useMemo(() => overview
     ? filterGlobalSkillInventory(overview, view.kind === "agent" ? { kind: "all" } : view, effectiveFilters, sourceLabels)
     : [], [effectiveFilters, overview, sourceLabels, view]);
-  const categories = useMemo(() => ["all", ...new Set((overview?.skills ?? []).map((skill) => skill.metadata.category))], [overview?.skills]);
+  const selectedSkill = useMemo(() => visibleSkills.find((skill) => skillIdentity(skill) === selectedSkillKey) ?? null, [selectedSkillKey, visibleSkills]);
+  const categories = useMemo(() => ["all", ...new Set(effectiveSkillInventory(overview?.skills ?? []).map((skill) => skill.metadata.category))], [overview?.skills]);
   const counts = useMemo(() => overview ? buildCounts(overview) : {}, [overview]);
   const mountMutation = useMutation({
     mutationFn: ({ agentId, mountPath }: { agentId: string; mountPath: string }) => agentService.updateSkillMountPath(agentId, mountPath),
     onSuccess: () => void manager.overviewQuery.refetch(),
   });
+  const detailQuery = useQuery({
+    enabled: Boolean(selectedSkill),
+    queryKey: ["skill-runtime-details", selectedSkill?.id ?? "", selectedSkill?.contentHash ?? ""],
+    queryFn: () => agentService.loadSkill({ idOrAlias: selectedSkill!.id, workspacePath: selectedSkill!.workspacePath }),
+    staleTime: 30_000,
+  });
+  const overlayTarget = useMemo(() => selectedSkill ? skillOverlayTarget(selectedSkill.id, selectedSkill.workspacePath) : null, [selectedSkill]);
+  const overlayQuery = useQuery({
+    enabled: Boolean(overlayTarget),
+    queryKey: ["skill-overlay-details", overlayTarget?.skillId ?? "", selectedSkill?.contentHash ?? "", overlayTarget?.workspacePath ?? ""],
+    queryFn: () => agentService.getSkillOverlayDetail(overlayTarget!),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (selectedSkillKey && !selectedSkill) {
+      setSelectedSkillKey(null);
+      setDetailsReturnFocus(null);
+    }
+  }, [selectedSkill, selectedSkillKey]);
   const activeMigration = activeAgent && mountMutation.data?.agentId === activeAgent.id ? mountMutation.data : null;
   const mountError = activeAgent && mountMutation.variables?.agentId === activeAgent.id ? mountMutation.error?.message ?? null : null;
   const filtered = Boolean(effectiveFilters.query || filters.category !== "all" || filters.source !== "all" || filters.status !== "all");
@@ -53,7 +79,10 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
         <section className="ucd-panel rounded-lg p-4"><div><h3 className="text-base font-semibold">{viewTitle(view, activeAgent, t)}</h3><p className="mt-1 text-xs text-muted-foreground">{activeAgent ? t(activeAgent.kind === "api" ? "skills.assignment.apiExplanation" : "skills.assignment.cliExplanation") : t("skills.enablementExplanation")}</p></div><div className="mt-3 border-t border-border pt-3"><SkillInventorySummary overview={overview} view={view} /></div></section>
         <SkillFilterToolbar categories={categories} filters={filters} onChange={setFilters} resultCount={visibleSkills.length} />
         <SkillDriftBanner drift={overview.drift} onDismiss={() => manager.syncMutation.reset()} onSync={() => manager.syncMutation.mutate()} syncError={manager.syncMutation.error?.message} syncResult={manager.syncMutation.data ?? null} syncing={manager.syncMutation.isPending} />
-        <SkillCardList activeAgent={activeAgent} apiBindingsBySkillId={overview.apiAgentBindings} bindingSkillId={manager.bindingSkillId} busySkillId={manager.busySkillId} filtered={filtered} onDelete={(skill) => manager.setDialog({ mode: "delete", skill, preview: null })} onEdit={(skill) => manager.editPreviewMutation.mutate(skill)} onPreview={(skill) => manager.previewMutation.mutate(skill)} onToggleAgent={(skill, assigned) => activeAgent && manager.bindingMutation.mutate({ skill, agent: activeAgent, bound: assigned })} onToggleEnabled={(skill, enabled) => manager.enabledMutation.mutate({ skill, enabled })} operationError={manager.rowOperationError} operationSkillId={manager.rowOperationSkillId} skills={visibleSkills} />
+        <div className={selectedSkill && wideDetails ? "grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]" : "min-w-0"}>
+          <SkillCardList activeAgent={activeAgent} apiBindingsBySkillId={overview.apiAgentBindings} bindingSkillId={manager.bindingSkillId} busySkillId={manager.busySkillId} filtered={filtered} onDelete={(skill) => manager.setDialog({ mode: "delete", skill, preview: null })} onDetails={(skill, trigger) => { setSelectedSkillKey(skillIdentity(skill)); setDetailsReturnFocus(trigger); }} onEdit={(skill) => manager.editPreviewMutation.mutate(skill)} onPreview={(skill) => manager.previewMutation.mutate(skill)} onToggleAgent={(skill, assigned) => activeAgent && manager.bindingMutation.mutate({ skill, agent: activeAgent, bound: assigned })} onToggleEnabled={(skill, enabled) => manager.enabledMutation.mutate({ skill, enabled })} operationError={manager.rowOperationError} operationSkillId={manager.rowOperationSkillId} selectedSkillKey={selectedSkillKey} skills={visibleSkills} />
+          {selectedSkill && overlayTarget ? <SkillDetailsSurface loadOutcome={detailQuery.data} loading={detailQuery.isLoading || detailQuery.isFetching} onClose={() => { setSelectedSkillKey(null); setDetailsReturnFocus(null); }} onOverlayCommitted={() => void overlayQuery.refetch()} onRetryOverlay={() => overlayQuery.refetch()} overlayDetail={overlayQuery.data} overlayError={overlayQuery.error?.message} overlayLoading={overlayQuery.isLoading || overlayQuery.isFetching} overlayTarget={overlayTarget} returnFocus={detailsReturnFocus} skill={selectedSkill} wide={wideDetails} /> : null}
+        </div>
         {activeAgent?.kind === "cli" && (mountError || activeMigration?.failed.length) ? <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{mountError ?? t("skills.mountPaths.failed", { count: activeMigration?.failed.length ?? 0 })}</div> : null}
         {activeAgent?.kind === "cli" ? <SettingsDisclosure description={t("skills.mountPaths.description")} title={t("skills.mountPaths.title")}><SkillAgentMountPathsPanel agents={[activeAgent]} drafts={mountDrafts} error={mountError} migration={activeMigration} mountPaths={overview.mountPaths} onDraftChange={(agentId, value) => setMountDrafts((current) => ({ ...current, [agentId]: value }))} onSave={(agentId) => mountMutation.mutate({ agentId, mountPath: mountDrafts[agentId] ?? overview.mountPaths.find((path) => path.agentId === agentId)?.mountPath ?? "" })} savingAgentId={mountMutation.isPending ? mountMutation.variables?.agentId ?? null : null} /></SettingsDisclosure> : null}
       </div>
@@ -63,9 +92,16 @@ export function SkillsPage({ searchTerm }: { searchTerm: string }) {
 }
 
 function buildCounts(overview: SkillOverview) {
-  const counts: Record<string, number> = { all: overview.skills.length, unassigned: overview.skills.filter((skill) => !isSkillAssigned(skill, overview)).length };
-  for (const agent of overview.agents) counts[`agent:${agent.id}`] = overview.skills.filter((skill) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings)).length;
+  const skills = effectiveSkillInventory(overview.skills);
+  const counts: Record<string, number> = { all: skills.length, unassigned: skills.filter((skill) => !isSkillAssigned(skill, overview)).length };
+  for (const agent of overview.agents) counts[`agent:${agent.id}`] = skills.filter((skill) => isSkillAssignedToAgent(skill, agent, overview.apiAgentBindings)).length;
   return counts;
+}
+
+function skillOverlayTarget(skillId: string, workspacePath: string | null): SkillOverlayTargetInput {
+  return workspacePath
+    ? { skillId, scope: "project", workspacePath }
+    : { skillId, scope: "user", workspacePath: null };
 }
 
 function viewTitle(view: SkillInventoryView, agent: SkillCompatibleAgent | null, t: (key: string, options?: Record<string, unknown>) => string) {

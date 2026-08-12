@@ -423,6 +423,30 @@ pub(crate) struct AgentToolCallOutcome {
     pub(crate) is_error: bool,
 }
 
+/// The complete authority surface exposed by the fixed read-only Skill tools. Keeping this as a
+/// closed enum prevents the native Agent runtime from acquiring package mutation or generic
+/// filesystem capabilities through the cross-context port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentSkillReadRequest {
+    List {
+        workspace_path: Option<String>,
+        query: Option<String>,
+        skill_type: Option<String>,
+        delivery: Option<String>,
+        availability: Option<String>,
+        limit: Option<usize>,
+    },
+    Load {
+        workspace_path: Option<String>,
+        id_or_alias: String,
+    },
+    ReadResource {
+        workspace_path: Option<String>,
+        uri: String,
+        revision: String,
+    },
+}
+
 /// The user's resolution of a tool call that was awaiting approval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolApprovalDecision {

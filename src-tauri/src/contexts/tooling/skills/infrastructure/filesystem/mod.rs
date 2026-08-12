@@ -1,19 +1,54 @@
 mod document;
+mod overlay_history;
+mod overlay_import;
+mod overlay_layout;
+mod overlay_manifest;
+mod overlay_payload;
+mod overlay_transaction;
 mod paths;
+mod provider;
 mod transaction;
+mod usage;
+
+#[cfg(test)]
+mod overlay_history_tests;
+#[cfg(test)]
+mod overlay_layout_tests;
+#[cfg(test)]
+mod overlay_manifest_tests;
+#[cfg(test)]
+mod overlay_payload_tests;
+#[cfg(test)]
+mod overlay_transaction_tests;
+
+pub(crate) use document::{
+    compose as compose_document, content_hash as document_content_hash, parse_document,
+    read_import_document as read_bounded_document,
+};
+pub(super) use paths::default_home_root;
+
+pub(crate) use overlay_history::FilesystemOverlayHistoryRepository;
+pub(crate) use overlay_import::FilesystemOverlayImportParser;
+pub(crate) use overlay_manifest::FilesystemOverlayManifestRepository;
+pub(crate) use overlay_payload::OverlayPayloadStore;
+pub(crate) use overlay_transaction::FilesystemOverlayTransactionExecutor;
+pub(crate) use provider::{EmptyRegistrySkillProvider, FilesystemSkillLayerProvider};
+pub(crate) use usage::FilesystemSkillUsageRepository;
 
 use self::paths::{SkillPathResolver, SKILL_FILE};
 use self::transaction::{path_exists, FileTransactions};
 use crate::contexts::tooling::skills::application::{
     AgentMountConfiguration, ManagedSkillSource, SkillAgentBinding, SkillApplicationError,
     SkillBackupEntry, SkillDocument, SkillFilesystemPort, SkillFilesystemTransaction,
-    SkillImportedSource, SkillMountRepair, SkillRecord, SkillSourceProbe, SkillSourceRefresh,
+    SkillImportedSource, SkillLegacySourcePort, SkillMountRepair, SkillRecord, SkillSourceProbe,
+    SkillSourceRefresh,
 };
 use crate::contexts::tooling::skills::domain::{
     SkillBindingInspection, SkillBindingPlan, SkillDriftInspection, SkillDriftIssue, SkillId,
-    SkillLocation, SkillMountObservation, SkillMountPath, SkillSourceInspection,
-    UnregisteredSkillInspection,
+    SkillLocation, SkillMetadata, SkillMountObservation, SkillMountPath, SkillSource,
+    SkillSourceInspection, UnregisteredSkillInspection,
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -57,10 +92,10 @@ impl ManagedSkillFilesystem {
             }
         };
         match document::parse(&content) {
-            Ok(metadata) => Ok(SkillSourceProbe::Present(SkillImportedSource {
+            Ok(metadata) => Ok(SkillSourceProbe::Present(Box::new(SkillImportedSource {
                 metadata,
                 source: managed_source(directory, skill_file, &content),
-            })),
+            }))),
             Err(error) => Ok(SkillSourceProbe::Unusable(format!(
                 "source directory exists but its SKILL.md could not be parsed: {error}"
             ))),
@@ -112,6 +147,108 @@ impl ManagedSkillFilesystem {
         Ok(managed_source(directory, skill_file, &content))
     }
 
+    fn record_source_paths(
+        &self,
+        record: &SkillRecord,
+    ) -> Result<(PathBuf, PathBuf), SkillApplicationError> {
+        let persisted_dir = PathBuf::from(&record.managed_source.skill_dir);
+        let persisted_file = PathBuf::from(&record.managed_source.skill_md_path);
+        if record.resolved_metadata.is_some() && persisted_file.is_file() {
+            let global = SkillLocation::new(
+                crate::contexts::tooling::skills::domain::SkillScope::Global,
+                None,
+            )?;
+            let cache_candidate = self
+                .paths
+                .scope_root(&global)?
+                .join(".vanehub")
+                .join("cache")
+                .join("skills")
+                .join("effective");
+            if cache_candidate.is_dir() {
+                let directory = persisted_dir.canonicalize().map_err(filesystem_error)?;
+                let skill_file = persisted_file.canonicalize().map_err(filesystem_error)?;
+                let cache_root = cache_candidate.canonicalize().map_err(filesystem_error)?;
+                let expected_parent = cache_root.join(record.key.id.as_str());
+                if path_is_descendant(&directory, &cache_root)
+                    && directory.parent() == Some(expected_parent.as_path())
+                    && skill_file == directory.join(SKILL_FILE)
+                    && directory.file_name().and_then(|value| value.to_str())
+                        == Some(record.managed_source.content_hash.as_str())
+                {
+                    return Ok((directory, skill_file));
+                }
+                if path_is_descendant(&directory, &cache_root) {
+                    return Err(SkillApplicationError::Filesystem(
+                        "Effective Skill cache source failed boundary validation".to_string(),
+                    ));
+                }
+            }
+        }
+        if let Some(effective) = &record.resolved_metadata {
+            if matches!(
+                effective.layer,
+                crate::contexts::tooling::skills::domain::SkillLayer::User
+                    | crate::contexts::tooling::skills::domain::SkillLayer::Project
+            ) && persisted_file.is_file()
+            {
+                let directory = persisted_dir.canonicalize().map_err(filesystem_error)?;
+                let skill_file = persisted_file.canonicalize().map_err(filesystem_error)?;
+                let boundary_location = if effective.layer
+                    == crate::contexts::tooling::skills::domain::SkillLayer::User
+                {
+                    SkillLocation::new(
+                        crate::contexts::tooling::skills::domain::SkillScope::Global,
+                        None,
+                    )?
+                } else {
+                    record.key.location.clone()
+                };
+                let root = self.paths.source_root(&boundary_location)?;
+                if path_is_descendant(&directory, &root) && skill_file == directory.join(SKILL_FILE)
+                {
+                    return Ok((directory, skill_file));
+                }
+                return Err(SkillApplicationError::Filesystem(
+                    "Effective Skill source failed boundary validation".to_string(),
+                ));
+            }
+        }
+        if record.source == SkillSource::Builtin && persisted_file.is_file() {
+            let global = SkillLocation::new(
+                crate::contexts::tooling::skills::domain::SkillScope::Global,
+                None,
+            )?;
+            let cache_candidate = self
+                .paths
+                .scope_root(&global)?
+                .join(".vanehub")
+                .join("cache")
+                .join("skills")
+                .join("system");
+            if !cache_candidate.is_dir() {
+                return self
+                    .paths
+                    .source_paths(&record.key.location, &record.key.id);
+            }
+            let directory = persisted_dir.canonicalize().map_err(filesystem_error)?;
+            let skill_file = persisted_file.canonicalize().map_err(filesystem_error)?;
+            let cache_root = cache_candidate.canonicalize().map_err(filesystem_error)?;
+            if path_is_descendant(&directory, &cache_root)
+                && skill_file == directory.join(SKILL_FILE)
+                && directory.file_name().and_then(|value| value.to_str())
+                    == Some(record.managed_source.content_hash.as_str())
+            {
+                return Ok((directory, skill_file));
+            }
+            return Err(SkillApplicationError::Filesystem(
+                "System Skill cache source failed boundary validation".to_string(),
+            ));
+        }
+        self.paths
+            .source_paths(&record.key.location, &record.key.id)
+    }
+
     fn mount(
         &self,
         transaction: &SkillFilesystemTransaction,
@@ -121,9 +258,7 @@ impl ManagedSkillFilesystem {
     ) -> Result<SkillMountRepair, SkillApplicationError> {
         let checkpoint = self.transactions.checkpoint(transaction)?;
         let result = (|| {
-            let (source, skill_file) = self
-                .paths
-                .source_paths(&record.key.location, &record.key.id)?;
+            let (source, skill_file) = self.record_source_paths(record)?;
             if !source.is_dir() || !skill_file.is_file() {
                 return Err(SkillApplicationError::Filesystem(format!(
                     "Skill source is missing: {}",
@@ -196,9 +331,7 @@ impl ManagedSkillFilesystem {
         record: &SkillRecord,
         mount_path: &SkillMountPath,
     ) -> Result<Option<String>, SkillApplicationError> {
-        let (source, _) = self
-            .paths
-            .source_paths(&record.key.location, &record.key.id)?;
+        let (source, _) = self.record_source_paths(record)?;
         let target = self
             .paths
             .mount_target(&record.key.location, &record.key.id, mount_path)?;
@@ -266,6 +399,60 @@ impl ManagedSkillFilesystem {
     }
 }
 
+impl SkillLegacySourcePort for ManagedSkillFilesystem {
+    fn read_legacy_document(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+    ) -> Result<SkillDocument, SkillApplicationError> {
+        let (_, skill_file) = self.paths.source_paths(location, id)?;
+        let content = document::read_import_document(&skill_file)?;
+        document::parse_document(&content)
+    }
+
+    fn archive_legacy_source(
+        &self,
+        location: &SkillLocation,
+        id: &SkillId,
+        reconciliation_version: u32,
+    ) -> Result<Option<String>, SkillApplicationError> {
+        let (source, _) = self.paths.source_paths(location, id)?;
+        let skills_root = source.parent().ok_or_else(|| {
+            SkillApplicationError::Filesystem("Invalid legacy Skill source".to_string())
+        })?;
+        let vane_root = skills_root.parent().ok_or_else(|| {
+            SkillApplicationError::Filesystem("Invalid legacy Skill root".to_string())
+        })?;
+        let backup = vane_root
+            .join("skill-migration-backups")
+            .join(format!("v{reconciliation_version}"))
+            .join(id.as_str());
+        if !path_exists(&source) {
+            return Ok(path_exists(&backup).then(|| normalize_path(&backup)));
+        }
+
+        let transaction = self.transactions.begin();
+        let staged = if path_exists(&backup) {
+            self.transactions
+                .stage_remove(&transaction, &source)
+                .map(|_| ())
+        } else {
+            self.transactions
+                .stage_permanent_replacement(&transaction, &source, &backup)
+        };
+        match staged {
+            Ok(()) => {
+                self.transactions.commit(transaction);
+                Ok(Some(normalize_path(&backup)))
+            }
+            Err(error) => {
+                self.transactions.rollback(transaction);
+                Err(error)
+            }
+        }
+    }
+}
+
 impl SkillFilesystemPort for ManagedSkillFilesystem {
     fn begin_mutation(&self) -> Result<SkillFilesystemTransaction, SkillApplicationError> {
         Ok(self.transactions.begin())
@@ -309,6 +496,21 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         expected_content_hash: &str,
     ) -> Result<ManagedSkillSource, SkillApplicationError> {
         self.replace_document(transaction, record, document, expected_content_hash)
+    }
+
+    fn inspect_import_metadata(
+        &self,
+        source_path: &str,
+    ) -> Result<SkillMetadata, SkillApplicationError> {
+        let source = PathBuf::from(source_path)
+            .canonicalize()
+            .map_err(|error| invalid_import(error.to_string()))?;
+        if !source.is_dir() {
+            return Err(invalid_import("source is not a directory"));
+        }
+        let content = document::read_import_document(&source.join(SKILL_FILE))
+            .map_err(|error| invalid_import(error.to_string()))?;
+        document::parse(&content)
     }
 
     fn import_source(
@@ -357,14 +559,17 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         &self,
         transaction: &SkillFilesystemTransaction,
         record: &SkillRecord,
+        remove_source: bool,
     ) -> Result<(), SkillApplicationError> {
         for binding in &record.bindings {
             self.remove_managed_mount(transaction, record, &binding.mount_path)?;
         }
-        let (source, _) = self
-            .paths
-            .source_paths(&record.key.location, &record.key.id)?;
-        self.transactions.stage_remove(transaction, &source)?;
+        if remove_source {
+            let (source, _) = self
+                .paths
+                .source_paths(&record.key.location, &record.key.id)?;
+            self.transactions.stage_remove(transaction, &source)?;
+        }
         Ok(())
     }
 
@@ -432,17 +637,13 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
     }
 
     fn read_source(&self, record: &SkillRecord) -> Result<String, SkillApplicationError> {
-        let (_, skill_file) = self
-            .paths
-            .source_paths(&record.key.location, &record.key.id)?;
+        let (_, skill_file) = self.record_source_paths(record)?;
         std::fs::read_to_string(skill_file).map_err(filesystem_error)
     }
 
     fn observe_bindings(&self, records: &mut [SkillRecord]) -> Result<(), SkillApplicationError> {
         for record in records {
-            let (source, _) = self
-                .paths
-                .source_paths(&record.key.location, &record.key.id)?;
+            let (source, _) = self.record_source_paths(record)?;
             for binding in &mut record.bindings {
                 let target = self.paths.mount_target(
                     &record.key.location,
@@ -468,14 +669,15 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
             .map(|record| record.key.id.as_str().to_string())
             .collect::<BTreeSet<_>>();
         for record in records {
-            let (source, skill_file) = self
-                .paths
-                .source_paths(&record.key.location, &record.key.id)?;
+            let (source, skill_file) = self.record_source_paths(record)?;
             let source_inspection = if skill_file.is_file() {
                 let content = std::fs::read_to_string(&skill_file).map_err(filesystem_error)?;
                 SkillSourceInspection::Present {
                     path: skill_file.to_string_lossy().to_string(),
-                    content_hash: document::content_hash(&content),
+                    content_hash: observed_content_hash(
+                        &content,
+                        &record.managed_source.content_hash,
+                    ),
                 }
             } else {
                 SkillSourceInspection::Missing {
@@ -563,9 +765,7 @@ impl SkillFilesystemPort for ManagedSkillFilesystem {
         record: &SkillRecord,
         _issue: &SkillDriftIssue,
     ) -> Result<SkillSourceRefresh, SkillApplicationError> {
-        let (_, skill_file) = self
-            .paths
-            .source_paths(&record.key.location, &record.key.id)?;
+        let (_, skill_file) = self.record_source_paths(record)?;
         let content = std::fs::read_to_string(skill_file).map_err(filesystem_error)?;
         Ok(SkillSourceRefresh {
             metadata: document::parse(&content)?,
@@ -625,6 +825,16 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
     }
 }
 
+fn path_is_descendant(path: &Path, root: &Path) -> bool {
+    if cfg!(windows) {
+        path.to_string_lossy()
+            .to_lowercase()
+            .starts_with(&root.to_string_lossy().to_lowercase())
+    } else {
+        path.starts_with(root)
+    }
+}
+
 fn paths_overlap(left: &Path, right: &Path) -> bool {
     let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
     let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
@@ -634,6 +844,22 @@ fn paths_overlap(left: &Path, right: &Path) -> bool {
         left.starts_with(&right) || right.starts_with(&left)
     } else {
         left.starts_with(&right) || right.starts_with(&left)
+    }
+}
+
+fn normalize_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    value.strip_prefix(r"\\?\").unwrap_or(&value).to_string()
+}
+
+fn observed_content_hash(content: &str, expected: &str) -> String {
+    if expected.len() == 64 && expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Sha256::digest(content.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    } else {
+        document::content_hash(content)
     }
 }
 
@@ -752,6 +978,7 @@ mod tests {
             bindings: Vec::new(),
             created_at: "2026-07-18T00:00:00Z".to_string(),
             updated_at: "2026-07-18T00:00:00Z".to_string(),
+            resolved_metadata: None,
         }
     }
 
@@ -817,7 +1044,7 @@ mod tests {
 
         let remove = filesystem.begin_mutation().expect("remove transaction");
         filesystem
-            .remove_skill(&remove, &existing)
+            .remove_skill(&remove, &existing, true)
             .expect("stage removal");
         assert!(!Path::new(&source.skill_dir).exists());
         filesystem.rollback_mutation(remove);
@@ -1110,6 +1337,45 @@ mod tests {
             .observe_bindings(std::slice::from_mut(&mut stored))
             .expect("mounted binding observation");
         assert!(stored.bindings[0].mounted);
+    }
+
+    #[test]
+    fn effective_derived_cache_is_an_accepted_cli_mount_source() {
+        let home = TempDirectory::new("Skill effective cache mount");
+        let revision = "a".repeat(64);
+        let relative_root = format!(".vanehub/cache/skills/effective/effective-mounted/{revision}");
+        let skill_file = home.write(
+            &format!("{relative_root}/SKILL.md"),
+            "---\nid: effective-mounted\nname: Effective Mounted\ndescription: Fixture\ncategory: testing\nversion: 1.0.0\n---\n\nEffective",
+        );
+        home.write(
+            &format!("{relative_root}/references/guide.md"),
+            "Effective resource",
+        );
+        let source_root = skill_file.parent().expect("cache source").to_path_buf();
+        let source = ManagedSkillSource {
+            skill_dir: source_root.to_string_lossy().to_string(),
+            skill_md_path: skill_file.to_string_lossy().to_string(),
+            content_hash: revision,
+        };
+        let filesystem = ManagedSkillFilesystem::with_home_root(home.path().to_path_buf());
+        let mut stored = record("effective-mounted", source);
+        stored.resolved_metadata = Some(stored.effective_metadata());
+        let mount_path = SkillMountPath::parse(".codex/skills").expect("mount path");
+        let transaction = filesystem.begin_mutation().expect("mount transaction");
+
+        let repair = filesystem
+            .repair_binding(&transaction, &stored, "codex-cli", &mount_path)
+            .expect("effective cache mount");
+        filesystem.commit_mutation(transaction);
+
+        assert!(repair.binding.mounted);
+        let mounted = Path::new(&repair.binding.mounted_path);
+        assert!(is_managed_link(mounted, &source_root));
+        assert_eq!(
+            std::fs::read_to_string(mounted.join("references/guide.md")).expect("mounted resource"),
+            "Effective resource"
+        );
     }
 
     #[test]

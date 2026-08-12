@@ -4,6 +4,8 @@ import type * as ChatContracts from "./chat";
 import type * as McpContracts from "./mcp";
 import type * as SdkContracts from "./sdk";
 import type * as SkillContracts from "./skill";
+import type * as SkillOverlayContracts from "./skill-overlay";
+import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
@@ -19,6 +21,22 @@ import {
 } from "../types/mcp";
 import type * as SdkTypes from "../types/sdk";
 import type * as SkillTypes from "../types/skill";
+import type * as SkillOverlayTypes from "../types/skill-overlay";
+import type * as SkillOverlayReconciliationTypes from "../types/skill-overlay-reconciliation";
+import {
+  SKILL_FIXED_READ_TOOLS as contractSkillReadTools,
+  SKILL_LEGACY_COMPATIBILITY_DEFAULTS as contractSkillDefaults,
+  SKILL_LOGICAL_URI_PREFIX as contractSkillUriPrefix,
+  SKILL_MANAGEMENT_SCOPES as contractSkillScopes,
+  SKILL_RUNTIME_LAYERS as contractSkillLayers,
+} from "./skill";
+import {
+  SKILL_FIXED_READ_TOOLS as frontendSkillReadTools,
+  SKILL_LEGACY_COMPATIBILITY_DEFAULTS as frontendSkillDefaults,
+  SKILL_LOGICAL_URI_PREFIX as frontendSkillUriPrefix,
+  SKILL_MANAGEMENT_SCOPES as frontendSkillScopes,
+  SKILL_RUNTIME_LAYERS as frontendSkillLayers,
+} from "../types/skill";
 import type * as OperationTypes from "../types/operation";
 import type * as ObservabilityTypes from "../types/execution-observability";
 import type * as LoopContracts from "./loop";
@@ -148,6 +166,51 @@ type SdkAssertions = [
   Assert<Equal<SdkContracts.SdkVersionAction, SdkTypes.SdkVersionAction>>,
 ];
 
+type SkillOverlayAssertions = [
+  Assert<Equal<SkillOverlayContracts.SkillOverlayScope, SkillOverlayTypes.SkillOverlayScope>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayStatus, SkillOverlayTypes.SkillOverlayStatus>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayScopeStatus, SkillOverlayTypes.SkillOverlayScopeStatus>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayMutationKind, SkillOverlayTypes.SkillOverlayMutationKind>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayMutationState, SkillOverlayTypes.SkillOverlayMutationState>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayTargetInput, SkillOverlayTypes.SkillOverlayTargetInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayWitnesses, SkillOverlayTypes.SkillOverlayWitnesses>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlaySummary, SkillOverlayTypes.SkillOverlaySummary>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayDetail, SkillOverlayTypes.SkillOverlayDetail>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayDiff, SkillOverlayTypes.SkillOverlayDiff>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayScopeDiff, SkillOverlayTypes.SkillOverlayScopeDiff>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayPreviewInput, SkillOverlayTypes.SkillOverlayPreviewInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayPreview, SkillOverlayTypes.SkillOverlayPreview>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayPatchInput, SkillOverlayTypes.SkillOverlayPatchInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayGuidanceInput, SkillOverlayTypes.SkillOverlayGuidanceInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayFileInput, SkillOverlayTypes.SkillOverlayFileInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayMutationStateInput, SkillOverlayTypes.SkillOverlayMutationStateInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayMutationOutcome, SkillOverlayTypes.SkillOverlayMutationOutcome>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayImportInput, SkillOverlayTypes.SkillOverlayImportInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayImportReview, SkillOverlayTypes.SkillOverlayImportReview>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayPromotionInput, SkillOverlayTypes.SkillOverlayPromotionInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayHistoryInput, SkillOverlayTypes.SkillOverlayHistoryInput>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayHistoryPage, SkillOverlayTypes.SkillOverlayHistoryPage>>,
+  Assert<Equal<SkillOverlayContracts.SkillOverlayScanResult, SkillOverlayTypes.SkillOverlayScanResult>>,
+  Assert<
+    Equal<
+      SkillOverlayReconciliationContracts.SkillOverlayReconciliationInput,
+      SkillOverlayReconciliationTypes.SkillOverlayReconciliationInput
+    >
+  >,
+  Assert<
+    Equal<
+      SkillOverlayReconciliationContracts.SkillOverlayReconciliationPreview,
+      SkillOverlayReconciliationTypes.SkillOverlayReconciliationPreview
+    >
+  >,
+  Assert<
+    Equal<
+      SkillOverlayReconciliationContracts.SkillOverlayServiceError,
+      SkillOverlayReconciliationTypes.SkillOverlayServiceError
+    >
+  >,
+];
+
 type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationKind, OperationTypes.OperationKind>>,
   Assert<Equal<OperationContracts.OperationStatus, OperationTypes.OperationStatus>>,
@@ -195,10 +258,24 @@ type LoopAssertions = [
 ];
 
 type SkillAssertions = [
+  Assert<Equal<typeof contractSkillScopes, typeof frontendSkillScopes>>,
+  Assert<Equal<typeof contractSkillLayers, typeof frontendSkillLayers>>,
+  Assert<Equal<typeof contractSkillReadTools, typeof frontendSkillReadTools>>,
+  Assert<Equal<typeof contractSkillUriPrefix, typeof frontendSkillUriPrefix>>,
+  Assert<Equal<typeof contractSkillDefaults, typeof frontendSkillDefaults>>,
   Assert<Equal<SkillContracts.SkillScope, SkillTypes.SkillScope>>,
   Assert<Equal<SkillContracts.SkillSource, SkillTypes.SkillSource>>,
+  Assert<Equal<SkillContracts.SkillType, SkillTypes.SkillType>>,
+  Assert<Equal<SkillContracts.SkillDelivery, SkillTypes.SkillDelivery>>,
+  Assert<Equal<SkillContracts.SkillLayer, SkillTypes.SkillLayer>>,
+  Assert<Equal<SkillContracts.SkillOrigin, SkillTypes.SkillOrigin>>,
+  Assert<Equal<SkillContracts.SkillTrust, SkillTypes.SkillTrust>>,
+  Assert<Equal<SkillContracts.SkillAvailability, SkillTypes.SkillAvailability>>,
   Assert<Equal<SkillContracts.SkillScopeInput, SkillTypes.SkillScopeInput>>,
   Assert<Equal<SkillContracts.SkillMetadata, SkillTypes.SkillMetadata>>,
+  Assert<Equal<SkillContracts.SkillCompatibilityDefaults, SkillTypes.SkillCompatibilityDefaults>>,
+  Assert<Equal<SkillContracts.SkillShadowSummary, SkillTypes.SkillShadowSummary>>,
+  Assert<Equal<SkillContracts.SkillUsageSummary, SkillTypes.SkillUsageSummary>>,
   Assert<Equal<SkillContracts.SkillAgentBinding, SkillTypes.SkillAgentBinding>>,
   Assert<Equal<SkillContracts.Skill, SkillTypes.Skill>>,
   Assert<Equal<SkillContracts.SkillStats, SkillTypes.SkillStats>>,
@@ -208,6 +285,16 @@ type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillUpdateInput, SkillTypes.SkillUpdateInput>>,
   Assert<Equal<SkillContracts.SkillImportInput, SkillTypes.SkillImportInput>>,
   Assert<Equal<SkillContracts.SkillPreview, SkillTypes.SkillPreview>>,
+  Assert<Equal<SkillContracts.SkillLoadInput, SkillTypes.SkillLoadInput>>,
+  Assert<Equal<SkillContracts.SkillResourceReadInput, SkillTypes.SkillResourceReadInput>>,
+  Assert<Equal<SkillContracts.SkillResourceEntry, SkillTypes.SkillResourceEntry>>,
+  Assert<Equal<SkillContracts.SkillResourceIndex, SkillTypes.SkillResourceIndex>>,
+  Assert<Equal<SkillContracts.SkillLoadResult, SkillTypes.SkillLoadResult>>,
+  Assert<Equal<SkillContracts.SkillResourceReadResult, SkillTypes.SkillResourceReadResult>>,
+  Assert<Equal<SkillContracts.SkillAccessRefusalReason, SkillTypes.SkillAccessRefusalReason>>,
+  Assert<Equal<SkillContracts.SkillAccessRefusal, SkillTypes.SkillAccessRefusal>>,
+  Assert<Equal<SkillContracts.SkillLoadOutcome, SkillTypes.SkillLoadOutcome>>,
+  Assert<Equal<SkillContracts.SkillResourceReadOutcome, SkillTypes.SkillResourceReadOutcome>>,
   Assert<Equal<SkillContracts.SkillDriftIssueType, SkillTypes.SkillDriftIssueType>>,
   Assert<Equal<SkillContracts.SkillDriftIssue, SkillTypes.SkillDriftIssue>>,
   Assert<Equal<SkillContracts.SkillDriftReport, SkillTypes.SkillDriftReport>>,
@@ -237,6 +324,7 @@ void (0 as unknown as OperationAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
+void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
 
 describe("contract conformance", () => {
@@ -278,5 +366,18 @@ describe("contract conformance", () => {
     expect(frontendMcpErrorCodes).toEqual(expectedErrorCodes);
     expect(contractMcpLimits).toEqual(expectedLimits);
     expect(frontendMcpLimits).toEqual(expectedLimits);
+  });
+
+  it("keeps effective Skill protocol fixtures aligned", () => {
+    expect(contractSkillScopes).toEqual(["global", "workspace"]);
+    expect(frontendSkillScopes).toEqual(contractSkillScopes);
+    expect(contractSkillLayers).toEqual(["project", "user", "registry", "system"]);
+    expect(frontendSkillLayers).toEqual(contractSkillLayers);
+    expect(contractSkillReadTools).toEqual(["list_skills", "load_skill", "read_skill_resource"]);
+    expect(frontendSkillReadTools).toEqual(contractSkillReadTools);
+    expect(contractSkillUriPrefix).toBe("skill://");
+    expect(frontendSkillUriPrefix).toBe(contractSkillUriPrefix);
+    expect(contractSkillDefaults).toEqual({ type: "role", delivery: "eager" });
+    expect(frontendSkillDefaults).toEqual(contractSkillDefaults);
   });
 });

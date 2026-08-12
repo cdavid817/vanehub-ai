@@ -130,7 +130,7 @@ pub(crate) fn detect_drift(inspection: &SkillDriftInspection) -> Vec<SkillDriftI
                 SkillDriftIssueType::DeletedBuiltin,
                 None,
                 None,
-                "Built-in Skill is deleted and can be restored",
+                "System Skill is intentionally hidden and can be explicitly restored",
             ));
         }
     }

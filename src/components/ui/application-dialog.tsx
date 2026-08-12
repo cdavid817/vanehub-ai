@@ -7,6 +7,7 @@ export function ApplicationDialog({
   onClose,
   closeDisabled = false,
   maxWidth = "max-w-2xl",
+  returnFocus,
 }: {
   title: string;
   description?: string;
@@ -14,6 +15,7 @@ export function ApplicationDialog({
   onClose: () => void;
   closeDisabled?: boolean;
   maxWidth?: string;
+  returnFocus?: HTMLElement | null;
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -53,9 +55,9 @@ export function ApplicationDialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousFocus?.focus();
+      (returnFocus ?? previousFocus)?.focus();
     };
-  }, []);
+  }, [returnFocus]);
 
   return (
     <div

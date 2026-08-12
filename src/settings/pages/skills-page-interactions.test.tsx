@@ -12,8 +12,10 @@ const serviceMocks = vi.hoisted(() => ({
   bindSkillToCliAgent: vi.fn(),
   createSkill: vi.fn(),
   deleteSkill: vi.fn(),
+  getSkillOverlayDetail: vi.fn(),
   getSkillOverview: vi.fn(),
   importSkill: vi.fn(),
+  loadSkill: vi.fn(),
   previewSkill: vi.fn(),
   restoreBuiltinSkill: vi.fn(),
   setSkillEnabled: vi.fn(),
@@ -49,6 +51,13 @@ const skill: Skill = {
   bindings: [],
   createdAt: "now",
   updatedAt: "now",
+  layer: "user",
+  origin: "created",
+  trust: "trusted",
+  availability: "available",
+  immutable: false,
+  shadowedDefinitions: [],
+  usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
 };
 
 const overview: SkillOverview = {
@@ -79,6 +88,23 @@ function renderPage() {
   );
 }
 
+function setWideDetailsLayout(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation(() => ({
+      matches,
+      media: "(min-width: 1280px)",
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 function modalFor(title: string): HTMLElement {
   const modal = screen.getByRole("heading", { level: 3, name: title }).closest("section");
   if (!modal) throw new Error(`Modal not found: ${title}`);
@@ -86,11 +112,49 @@ function modalFor(title: string): HTMLElement {
 }
 
 function resolvedSkillMocks() {
+  serviceMocks.getSkillOverlayDetail.mockResolvedValue({
+    summary: {
+      canonicalSkillId: skill.id,
+      baseLayer: skill.layer,
+      status: "none",
+      needsReconcile: false,
+      pinned: false,
+      baseInstructionHash: "base-instructions",
+      basePackageHash: "base-package",
+      effectiveHash: "base-instructions",
+      lastHealthyScope: null,
+      scopes: [],
+      scopesTruncated: false,
+    },
+    baseInstructions: { content: "Current body", totalCharacters: 12, truncated: false },
+    effectiveInstructions: { content: "Current body", totalCharacters: 12, truncated: false },
+    diff: { baseHash: "base-instructions", effectiveHash: "base-instructions", addedCharacters: 0, removedCharacters: 0, hunks: [], hunksTruncated: false },
+    scopeDiffs: [], scopeDiffsTruncated: false,
+    mutations: [], mutationsTruncated: false, resources: [], resourcesTruncated: false, conflicts: [], conflictsTruncated: false,
+  });
   serviceMocks.setSkillEnabled.mockResolvedValue(skill);
   serviceMocks.bindSkillToCliAgent.mockResolvedValue(skill);
   serviceMocks.bindSkillToApiAgent.mockResolvedValue(undefined);
   serviceMocks.createSkill.mockResolvedValue(skill);
   serviceMocks.importSkill.mockResolvedValue(skill);
+  serviceMocks.loadSkill.mockResolvedValue({
+    status: "loaded",
+    result: {
+      id: skill.id,
+      name: skill.metadata.name,
+      content: "Current body",
+      truncated: false,
+      revision: skill.contentHash,
+      baseUri: `skill://${skill.id}/`,
+      resources: {
+        scripts: [],
+        references: [{ uri: `skill://${skill.id}/references/guide.md`, relativePath: "references/guide.md", sizeBytes: 20 }],
+        templates: [],
+        assets: [],
+        truncated: false,
+      },
+    },
+  });
   serviceMocks.restoreBuiltinSkill.mockResolvedValue(skill);
   serviceMocks.updateSkill.mockResolvedValue(skill);
   serviceMocks.deleteSkill.mockResolvedValue(undefined);
@@ -102,6 +166,7 @@ function resolvedSkillMocks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setWideDetailsLayout(false);
   serviceMocks.getSkillOverview.mockResolvedValue(overview);
   serviceMocks.previewSkill.mockResolvedValue({
     id: skill.id,
@@ -109,6 +174,11 @@ beforeEach(() => {
     workspacePath: null,
     path: skill.skillMdPath,
     content: "---\nid: reliable-skill\n---\n# Reliable Skill\n\nCurrent body",
+    layer: "user",
+    origin: "created",
+    availability: "available",
+    immutable: false,
+    shadowedDefinitions: [],
   });
   resolvedSkillMocks();
 });
@@ -257,12 +327,12 @@ describe("SkillsPage interactions", () => {
     expect((screen.getByRole("button", { name: /Claude Code/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("separates Agent types and shows the Skill source", async () => {
+  it("separates Agent types and shows the compact effective layer", async () => {
     const user = userEvent.setup();
     renderPage();
 
     expect(await screen.findByText("Reliable Skill")).toBeTruthy();
-    expect(screen.getAllByText("用户").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("用户层").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: /Codex CLI/ }));
     const mountPanel = screen.getByText("Agent 挂载路径").closest("details");
     if (!mountPanel) throw new Error("Mount panel not found");
@@ -280,6 +350,171 @@ describe("SkillsPage interactions", () => {
     await user.click(screen.getByRole("button", { name: /API Agent/ }));
     expect(screen.getByRole("button", { name: "分配给 API Agent" })).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: "已启用" })).toBeNull();
+  });
+
+  it("moves effective metadata into details while keeping immutable and Utility rows concise", async () => {
+    const systemSkill = {
+      ...skill,
+      id: "system-role",
+      source: "builtin" as const,
+      metadata: {
+        ...skill.metadata,
+        id: "system-role",
+        name: "System Role",
+        type: "role" as const,
+        delivery: "on-demand" as const,
+        compatibilityDefaults: { skillType: false, delivery: false },
+      },
+      layer: "system" as const,
+      origin: "shipped" as const,
+      immutable: true,
+      usage: { ...skill.usage, viewCount: 7, useCount: 3 },
+    } satisfies Skill;
+    const migratedOverride = {
+      ...skill,
+      id: "migrated-override",
+      metadata: {
+        ...skill.metadata,
+        id: "migrated-override",
+        name: "Migrated Override",
+        type: "role" as const,
+        delivery: "eager" as const,
+        compatibilityDefaults: { skillType: true, delivery: true },
+      },
+      origin: "migrated" as const,
+      shadowedDefinitions: [{ layer: "system" as const, origin: "shipped" as const, version: "1.0.0", availability: "available" as const }],
+    } satisfies Skill;
+    const utilitySkill = {
+      ...skill,
+      id: "utility-skill",
+      metadata: { ...skill.metadata, id: "utility-skill", name: "Utility Skill", type: "utility" as const, delivery: "on-demand" as const },
+      availability: "unsupported" as const,
+    } satisfies Skill;
+    serviceMocks.getSkillOverview.mockResolvedValue({
+      ...overview,
+      skills: [systemSkill, migratedOverride, utilitySkill],
+      apiAgentBindings: { "system-role": [], "migrated-override": [], "utility-skill": [] },
+    });
+    serviceMocks.previewSkill.mockResolvedValue({
+      id: systemSkill.id,
+      scope: "global",
+      workspacePath: null,
+      path: `skill://${systemSkill.id}/`,
+      content: "# System Role\n\nRead only.",
+      layer: "system",
+      origin: "shipped",
+      availability: "available",
+      immutable: true,
+      shadowedDefinitions: [],
+    });
+    serviceMocks.loadSkill.mockResolvedValue({
+      status: "loaded",
+      result: {
+        id: systemSkill.id,
+        name: systemSkill.metadata.name,
+        content: "Read only.",
+        truncated: false,
+        revision: systemSkill.contentHash,
+        baseUri: `skill://${systemSkill.id}/`,
+        resources: {
+          scripts: [], references: [{ uri: `skill://${systemSkill.id}/references/guide.md`, relativePath: "references/guide.md", sizeBytes: 20 }], templates: [], assets: [], truncated: false,
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const systemRow = (await screen.findByText("System Role")).closest("article");
+    if (!systemRow) throw new Error("System row not found");
+    expect(within(systemRow).getByText("系统层")).toBeTruthy();
+    expect(within(systemRow).getByText("角色")).toBeTruthy();
+    expect(within(systemRow).getByText("只读")).toBeTruthy();
+    expect(within(systemRow).queryByText("按需加载")).toBeNull();
+    expect(within(systemRow).queryByText("查看 7 次 · 使用 3 次")).toBeNull();
+    expect(within(systemRow).queryByRole("button", { name: "编辑 Skill" })).toBeNull();
+    expect(within(systemRow).queryByRole("button", { name: "删除 Skill" })).toBeNull();
+
+    const systemDetailsButton = within(systemRow).getByRole("button", { name: "查看 System Role 详情" });
+    await user.click(systemDetailsButton);
+    const systemDetails = await screen.findByRole("dialog", { name: "System Role 详情" });
+    expect(within(systemDetails).getByText("按需加载")).toBeTruthy();
+    expect(within(systemDetails).getByText("查看 7 次 · 使用 3 次")).toBeTruthy();
+    expect(await within(systemDetails).findByText(/已索引 1 个资源/)).toBeTruthy();
+    expect(within(systemDetails).getByRole("heading", { name: "Overlay 治理" })).toBeTruthy();
+    expect(serviceMocks.getSkillOverlayDetail).toHaveBeenCalledWith({ skillId: "system-role", scope: "user", workspacePath: null });
+    expect(within(systemDetails).getByText(/系统包为只读内容/)).toBeTruthy();
+    expect(serviceMocks.previewSkill).not.toHaveBeenCalled();
+    await user.click(within(systemDetails).getByRole("button", { name: "关闭" }));
+    expect(document.activeElement).toBe(systemDetailsButton);
+
+    const overrideRow = screen.getByText("Migrated Override").closest("article");
+    if (!overrideRow) throw new Error("Override row not found");
+    const detailsButton = within(overrideRow).getByRole("button", { name: "查看 Migrated Override 详情" });
+    expect(detailsButton.getAttribute("aria-expanded")).toBe("false");
+    await user.click(detailsButton);
+    expect(detailsButton.getAttribute("aria-expanded")).toBe("true");
+    const details = await screen.findByRole("dialog", { name: "Migrated Override 详情" });
+    expect(within(details).getByText("项目 > 用户 > 注册表 > 系统")).toBeTruthy();
+    expect(within(details).getByRole("heading", { name: "定义优先级" })).toBeTruthy();
+    expect(within(details).getByText("当前生效")).toBeTruthy();
+    expect(within(details).getByText("已被遮蔽")).toBeTruthy();
+    expect(within(details).getByText(/本地修改已保留为用户层覆盖/)).toBeTruthy();
+    await user.click(within(details).getByRole("button", { name: "关闭" }));
+
+    const utilityRow = screen.getByText("Utility Skill").closest("article");
+    if (!utilityRow) throw new Error("Utility row not found");
+    expect(within(utilityRow).getByText("暂不可委托")).toBeTruthy();
+    expect(within(utilityRow).queryByText(/委托执行尚未开放/)).toBeNull();
+    await user.click(within(utilityRow).getByRole("button", { name: "查看 Utility Skill 详情" }));
+    expect(await screen.findByText(/委托执行尚未开放/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    await user.click(screen.getByRole("button", { name: /API Agent/ }));
+    const agentUtilityRow = screen.getByText("Utility Skill").closest("article");
+    if (!agentUtilityRow) throw new Error("Agent Utility row not found");
+    expect(within(agentUtilityRow).queryByRole("button", { name: "分配给 API Agent" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /^全部 Skill/ }));
+    const previewButton = within(screen.getByText("System Role").closest("article")!).getByRole("button", { name: "预览 Skill" });
+    await user.click(previewButton);
+    const dialog = await screen.findByRole("dialog", { name: "system-role" });
+    expect(within(dialog).getByText(/已索引 1 个资源/)).toBeTruthy();
+    expect(within(dialog).getByText(/系统包为只读内容/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    expect(document.activeElement).toBe(previewButton);
+  }, 10_000);
+
+  it("switches the wide inspector and clears stale selection after filtering", async () => {
+    setWideDetailsLayout(true);
+    const otherSkill = {
+      ...skill,
+      id: "other-skill",
+      metadata: { ...skill.metadata, id: "other-skill", name: "Other Skill" },
+    } satisfies Skill;
+    serviceMocks.getSkillOverview.mockResolvedValue({
+      ...overview,
+      skills: [skill, otherSkill],
+      stats: { total: 2, enabled: 2, mounted: 0 },
+      apiAgentBindings: { [skill.id]: [], [otherSkill.id]: [] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const reliableRow = (await screen.findByText("Reliable Skill")).closest("article");
+    const otherRow = screen.getByText("Other Skill").closest("article");
+    if (!reliableRow || !otherRow) throw new Error("Skill rows not found");
+    await user.click(within(reliableRow).getByRole("button", { name: "查看 Reliable Skill 详情" }));
+    expect(await screen.findByRole("complementary", { name: "Reliable Skill 详情" })).toBeTruthy();
+    expect(reliableRow.getAttribute("data-selected")).toBe("true");
+
+    await user.click(within(otherRow).getByRole("button", { name: "查看 Other Skill 详情" }));
+    expect(screen.getByRole("complementary", { name: "Other Skill 详情" })).toBeTruthy();
+    expect(reliableRow.getAttribute("data-selected")).toBe("false");
+    expect(otherRow.getAttribute("data-selected")).toBe("true");
+
+    await user.type(screen.getByPlaceholderText("按 ID、名称、分类、触发词或来源搜索"), "reliable-skill");
+    await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+    expect(serviceMocks.setSkillEnabled).not.toHaveBeenCalled();
+    expect(serviceMocks.bindSkillToCliAgent).not.toHaveBeenCalled();
   });
 
   it("shows deterministic panel counts and both focused empty states", async () => {
@@ -395,6 +630,7 @@ describe("SkillsPage interactions", () => {
       body: "New body",
       scope: "global",
       workspacePath: null,
+      metadata: expect.objectContaining({ type: "role", delivery: "on-demand" }),
     })));
   });
 

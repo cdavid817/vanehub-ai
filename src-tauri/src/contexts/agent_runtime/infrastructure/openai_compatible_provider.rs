@@ -313,7 +313,7 @@ mod tests {
         let tools = crate::contexts::agent_runtime::application::tool_catalog();
         let body = build_request_body("deepseek-chat", &[], &tools, None, &no_options());
         let declared = body["tools"].as_array().expect("tools array");
-        assert_eq!(declared.len(), 6);
+        assert_eq!(declared.len(), 9);
         assert_eq!(declared[0]["type"], "function");
         assert_eq!(declared[0]["function"]["name"], "shell");
         assert_eq!(declared[1]["function"]["name"], "file");
@@ -321,6 +321,13 @@ mod tests {
         assert_eq!(declared[3]["function"]["name"], "glob");
         assert_eq!(declared[4]["function"]["name"], "edit");
         assert_eq!(declared[5]["function"]["name"], "remember");
+        assert_eq!(declared[6]["function"]["name"], "list_skills");
+        assert_eq!(declared[7]["function"]["name"], "load_skill");
+        assert_eq!(declared[8]["function"]["name"], "read_skill_resource");
+        assert_eq!(
+            declared[8]["function"]["parameters"]["additionalProperties"],
+            false
+        );
     }
 
     #[test]

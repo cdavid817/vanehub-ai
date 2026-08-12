@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SkillDomainError {
     InvalidId,
+    InvalidMetadataValue(String),
     MissingMetadataFields,
     WorkspacePathRequired,
     CreateIdMismatch,
@@ -11,6 +12,9 @@ pub(crate) enum SkillDomainError {
     UnknownAgent(String),
     InvalidUserSource(String),
     UnknownBuiltin(String),
+    InvalidOverlayValue(String),
+    InvalidOverlayTransition(String),
+    OverlayRevisionOverflow,
 }
 
 impl fmt::Display for SkillDomainError {
@@ -19,6 +23,7 @@ impl fmt::Display for SkillDomainError {
             Self::InvalidId => {
                 formatter.write_str("Skill id must be kebab-case letters, digits, and hyphens")
             }
+            Self::InvalidMetadataValue(message) => formatter.write_str(message),
             Self::MissingMetadataFields => formatter
                 .write_str("Skill metadata requires name, description, category, and version"),
             Self::WorkspacePathRequired => formatter.write_str("Workspace path is required"),
@@ -37,6 +42,11 @@ impl fmt::Display for SkillDomainError {
             }
             Self::UnknownBuiltin(skill_id) => {
                 write!(formatter, "Unknown built-in Skill: {skill_id}")
+            }
+            Self::InvalidOverlayValue(message) => formatter.write_str(message),
+            Self::InvalidOverlayTransition(message) => formatter.write_str(message),
+            Self::OverlayRevisionOverflow => {
+                formatter.write_str("Overlay revision cannot advance beyond the supported range")
             }
         }
     }

@@ -999,6 +999,74 @@ describe("webAgentClient", () => {
     await webAgentClient.restoreBuiltinSkill("code-review");
   });
 
+  it("models effective layers, shadowing, unavailable Utility Skills, and usage", async () => {
+    const global = await webAgentClient.listSkills({ scope: "global" });
+    const system = global.skills.find((skill) => skill.id === "tdd-discipline");
+    const userOverride = global.skills.find((skill) => skill.id === "readme-generation");
+    const utility = global.skills.find((skill) => skill.id === "code-security-scan");
+    const project = await webAgentClient.listSkills({
+      scope: "workspace",
+      workspacePath: "D:/example/project",
+    });
+
+    expect(system).toMatchObject({ layer: "system", origin: "shipped", immutable: true });
+    expect(userOverride).toMatchObject({
+      layer: "user",
+      immutable: false,
+      shadowedDefinitions: [{ layer: "system", origin: "shipped" }],
+    });
+    expect(utility).toMatchObject({
+      metadata: { type: "utility" },
+      availability: "unsupported",
+      immutable: true,
+    });
+    expect(project.skills).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "project-conventions", layer: "project", immutable: false }),
+    ]));
+
+    await expect(webAgentClient.loadSkill({ idOrAlias: "code-security-scan" })).resolves.toEqual({
+      status: "refused",
+      refusal: {
+        requested: "code-security-scan",
+        canonicalId: "code-security-scan",
+        reason: "utility-not-loadable",
+        conflictingIds: [],
+      },
+    });
+  });
+
+  it("models truncated Skill loading and revision-bound resource reads", async () => {
+    const before = (await webAgentClient.listSkills({ scope: "global" })).skills
+      .find((skill) => skill.id === "tdd-discipline")?.usage.viewCount ?? 0;
+    const loaded = await webAgentClient.loadSkill({ idOrAlias: "tdd-discipline" });
+    expect(loaded.status).toBe("loaded");
+    if (loaded.status !== "loaded") return;
+
+    expect(loaded.result).toMatchObject({
+      id: "tdd-discipline",
+      truncated: true,
+      baseUri: "skill://tdd-discipline/",
+      resources: {
+        references: [expect.objectContaining({ relativePath: "references/testing-cycle.md" })],
+      },
+    });
+    expect(loaded.result.content).toContain("skill://tdd-discipline/");
+    expect([...loaded.result.content]).toHaveLength(12_000);
+    const after = (await webAgentClient.listSkills({ scope: "global" })).skills
+      .find((skill) => skill.id === "tdd-discipline")?.usage.viewCount;
+    expect(after).toBe(before + 1);
+
+    const uri = loaded.result.resources.references[0]?.uri ?? "";
+    await expect(webAgentClient.readSkillResource({ uri, revision: loaded.result.revision })).resolves.toMatchObject({
+      status: "read",
+      result: { id: "tdd-discipline", uri, content: expect.stringContaining("Red, green, refactor") },
+    });
+    await expect(webAgentClient.readSkillResource({ uri, revision: "stale" })).resolves.toMatchObject({
+      status: "refused",
+      refusal: { reason: "stale-revision" },
+    });
+  });
+
   it("binds and unbinds mock Skills to API agents independently of CLI mount bindings", async () => {
     const scope = { scope: "global" as const };
     const apiAgent =

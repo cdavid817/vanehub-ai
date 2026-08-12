@@ -64,7 +64,11 @@ impl SkillLoggingPort for UnifiedSkillLoggingAdapter {
 mod tests {
     use super::*;
     use crate::contexts::operations::infrastructure::UnifiedLoggingAdapter;
-    use crate::contexts::tooling::skills::application::{SkillLogAction, SkillLogEvent};
+    use crate::contexts::tooling::skills::application::{
+        OverlayValidationDiagnostic, OverlayValidationReason, OverlayValidationTarget,
+        SkillLogAction, SkillLogEvent,
+    };
+    use crate::contexts::tooling::skills::domain::OverlayTextRuleId;
     use crate::platform::logging;
     use crate::test_support::TempDirectory;
     use std::collections::BTreeMap;
@@ -96,5 +100,39 @@ mod tests {
         assert!(raw.contains("[REDACTED]"));
         assert!(!raw.contains("private-token"));
         assert!(!raw.contains("private-password"));
+    }
+
+    #[test]
+    fn overlay_validation_diagnostics_reach_unified_logs_without_raw_inputs() {
+        let directory = TempDirectory::new("overlay-validation-log");
+        let adapter = UnifiedSkillLoggingAdapter::new(Arc::new(UnifiedLoggingAdapter::new(
+            directory.path().to_path_buf(),
+        )));
+        let raw_identity = "sensitive-skill-identity";
+        let raw_path = "references/private-customer.md";
+        let raw_content = b"password=sensitive-customer-value";
+
+        adapter
+            .record_overlay_validation(&OverlayValidationDiagnostic::refused(
+                OverlayValidationTarget::SupportingFile,
+                raw_identity,
+                Some(raw_path),
+                Some(raw_content),
+                OverlayValidationReason::TextRule,
+                &[OverlayTextRuleId::CredentialStructure],
+                "2026-08-11T00:00:00Z",
+            ))
+            .expect("Overlay validation diagnostic");
+
+        let raw = std::fs::read_to_string(directory.path().join(logging::LOG_FILE_NAME))
+            .expect("unified log");
+        assert!(raw.contains("skill.overlay-validation"));
+        assert!(raw.contains("overlay.credential-structure"));
+        assert!(raw.contains("identityHash"));
+        assert!(raw.contains("pathHash"));
+        assert!(raw.contains("contentHash"));
+        assert!(!raw.contains(raw_identity));
+        assert!(!raw.contains(raw_path));
+        assert!(!raw.contains("sensitive-customer-value"));
     }
 }

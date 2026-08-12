@@ -19,6 +19,9 @@ pub(crate) const SEARCH_CODE_TOOL_NAME: &str = "search_code";
 pub(crate) const GREP_TOOL_NAME: &str = "grep";
 pub(crate) const GLOB_TOOL_NAME: &str = "glob";
 pub(crate) const EDIT_TOOL_NAME: &str = "edit";
+pub(crate) const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
+pub(crate) const LOAD_SKILL_TOOL_NAME: &str = "load_skill";
+pub(crate) const READ_SKILL_RESOURCE_TOOL_NAME: &str = "read_skill_resource";
 pub(crate) const FIND_DEFINITION_TOOL_NAME: &str = "find_definition";
 pub(crate) const FIND_REFERENCES_TOOL_NAME: &str = "find_references";
 pub(crate) const GET_HOVER_TOOL_NAME: &str = "get_hover";
@@ -82,6 +85,9 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         glob_tool_definition(),
         edit_tool_definition(),
         remember_tool_definition(),
+        list_skills_tool_definition(),
+        load_skill_tool_definition(),
+        read_skill_resource_tool_definition(),
     ]
 }
 
@@ -124,7 +130,96 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         grep_tool_definition(),
         glob_tool_definition(),
         remember_tool_definition(),
+        list_skills_tool_definition(),
+        load_skill_tool_definition(),
+        read_skill_resource_tool_definition(),
     ]
+}
+
+fn list_skills_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: LIST_SKILLS_TOOL_NAME.to_string(),
+        description: "List bounded metadata for effective Skills available to this session. Instruction bodies are never returned by this tool.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Optional text matched against Skill id, name, description, and aliases."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["role", "utility"],
+                    "description": "Optional Skill type filter."
+                },
+                "delivery": {
+                    "type": "string",
+                    "enum": ["eager", "on-demand"],
+                    "description": "Optional delivery filter."
+                },
+                "availability": {
+                    "type": "string",
+                    "enum": ["available", "disabled", "invalid", "conflicting", "unsupported"],
+                    "description": "Optional availability filter."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Maximum number of results. Defaults to 50."
+                }
+            },
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn load_skill_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: LOAD_SKILL_TOOL_NAME.to_string(),
+        description: "Load bounded instructions and a logical resource index for one effective Role Skill by canonical id or alias.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "description": "Canonical Skill id or unambiguous alias."
+                }
+            },
+            "required": ["id"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn read_skill_resource_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: READ_SKILL_RESOURCE_TOOL_NAME.to_string(),
+        description: "Read one bounded text resource using a logical URI and revision returned by load_skill. This tool never accepts host filesystem paths.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^skill://",
+                    "description": "Logical skill:// resource URI returned by load_skill."
+                },
+                "revision": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Effective package revision returned by load_skill."
+                }
+            },
+            "required": ["uri", "revision"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 fn remember_tool_definition() -> ToolDefinition {
@@ -352,7 +447,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_declares_the_six_native_tools_in_a_stable_order() {
+    fn catalog_declares_native_and_fixed_skill_tools_in_a_stable_order() {
         let catalog = tool_catalog();
         let names: Vec<&str> = catalog.iter().map(|tool| tool.name.as_str()).collect();
         assert_eq!(
@@ -364,6 +459,9 @@ mod tests {
                 GLOB_TOOL_NAME,
                 EDIT_TOOL_NAME,
                 REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
             ]
         );
     }
@@ -379,6 +477,9 @@ mod tests {
                 GREP_TOOL_NAME,
                 GLOB_TOOL_NAME,
                 REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
             ]
         );
         assert_eq!(
@@ -395,6 +496,64 @@ mod tests {
             .collect();
         assert!(!names.contains(&SHELL_TOOL_NAME.to_string()));
         assert!(!names.contains(&EDIT_TOOL_NAME.to_string()));
+    }
+
+    #[test]
+    fn fixed_skill_schemas_are_closed_bounded_and_identical_in_plan_mode() {
+        let full = tool_catalog();
+        let plan = plan_mode_tool_catalog();
+        for name in [
+            LIST_SKILLS_TOOL_NAME,
+            LOAD_SKILL_TOOL_NAME,
+            READ_SKILL_RESOURCE_TOOL_NAME,
+        ] {
+            let full_tool = full
+                .iter()
+                .find(|tool| tool.name == name)
+                .expect("full tool");
+            let plan_tool = plan
+                .iter()
+                .find(|tool| tool.name == name)
+                .expect("plan tool");
+            assert_eq!(full_tool, plan_tool);
+            assert_eq!(full_tool.input_schema["additionalProperties"], false);
+        }
+        let list = full
+            .iter()
+            .find(|tool| tool.name == LIST_SKILLS_TOOL_NAME)
+            .expect("list_skills");
+        assert_eq!(list.input_schema["properties"]["limit"]["maximum"], 100);
+        let read = full
+            .iter()
+            .find(|tool| tool.name == READ_SKILL_RESOURCE_TOOL_NAME)
+            .expect("read_skill_resource");
+        assert_eq!(read.input_schema["required"], json!(["uri", "revision"]));
+        assert!(read.input_schema["properties"].get("path").is_none());
+    }
+
+    #[test]
+    fn fixed_skill_schemas_do_not_depend_on_inventory_contents() {
+        let schemas = || {
+            tool_catalog()
+                .into_iter()
+                .filter(|tool| {
+                    matches!(
+                        tool.name.as_str(),
+                        LIST_SKILLS_TOOL_NAME
+                            | LOAD_SKILL_TOOL_NAME
+                            | READ_SKILL_RESOURCE_TOOL_NAME
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let baseline = schemas();
+        for simulated_inventory in [
+            Vec::<&str>::new(),
+            vec!["code-review"],
+            vec!["code-review", "shadowed-review", "disabled-skill"],
+        ] {
+            assert_eq!(schemas(), baseline, "inventory was {simulated_inventory:?}");
+        }
     }
 
     /// Pins the exact argument surface the model is told about for `grep`, cross-checked against

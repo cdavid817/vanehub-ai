@@ -5,6 +5,16 @@ import { describe, expect, it } from "vitest";
 import "../../i18n";
 import { SkillsPage } from "./skills-page";
 
+const systemRuntimeFields = {
+  layer: "system",
+  origin: "shipped",
+  trust: "trusted",
+  availability: "available",
+  immutable: true,
+  shadowedDefinitions: [],
+  usage: { viewCount: 1, useCount: 2, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
+} as const;
+
 describe("SkillsPage", () => {
   it("renders only the explicit loading state before the overview is available", () => {
     const queryClient = new QueryClient();
@@ -50,6 +60,7 @@ describe("SkillsPage", () => {
           bindings: [],
           createdAt: "now",
           updatedAt: "now",
+          ...systemRuntimeFields,
         },
       ],
     });
@@ -81,6 +92,7 @@ describe("SkillsPage", () => {
         skillDir: "builtin-match", skillMdPath: "builtin-match/SKILL.md", contentHash: "hash",
         metadata: { id: "builtin-match", name: "Localized source result", description: "fixture", category: "test", version: "1", triggers: [] },
         boundAgentIds: [], bindings: [], createdAt: "now", updatedAt: "now",
+        ...systemRuntimeFields,
       }],
     });
     const html = renderToString(<QueryClientProvider client={queryClient}><SkillsPage searchTerm="内置" /></QueryClientProvider>);
@@ -119,6 +131,7 @@ describe("SkillsPage", () => {
           bindings: [],
           createdAt: "now",
           updatedAt: "now",
+          ...systemRuntimeFields,
         },
       ],
     });

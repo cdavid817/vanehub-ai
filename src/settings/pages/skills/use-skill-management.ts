@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { skillOverviewQueryKey } from "../../../lib/skill-management";
+import { effectiveSkillInventory, skillOverviewQueryKey } from "../../../lib/skill-management";
 import { agentService } from "../../../services/runtime-agent-client";
 import type { Skill, SkillCompatibleAgent, SkillMetadata, SkillScopeInput, SkillSource } from "../../../types/skill";
 import { closedSkillDialog, type SkillDialogState } from "./skill-dialogs";
@@ -53,8 +53,15 @@ export function useSkillManagement(scopeInput: SkillScopeInput, enabled = true) 
     onSuccess: () => { closeDialog(); void invalidate(); },
   });
   const previewMutation = useMutation({
-    mutationFn: (skill: Skill) => agentService.previewSkill(skill.id, scopeInput),
-    onSuccess: (preview) => setDialog({ mode: null, skill: null, preview }),
+    mutationFn: async (skill: Skill) => {
+      const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const [preview, loadOutcome] = await Promise.all([
+        agentService.previewSkill(skill.id, scopeInput),
+        agentService.loadSkill({ idOrAlias: skill.id, workspacePath: scopeInput.workspacePath }),
+      ]);
+      return { preview, loadOutcome, returnFocus };
+    },
+    onSuccess: ({ preview, loadOutcome, returnFocus }) => setDialog({ mode: null, skill: null, preview, loadOutcome, returnFocus }),
   });
   const editPreviewMutation = useMutation({
     mutationFn: async (skill: Skill) => ({ skill, preview: await agentService.previewSkill(skill.id, scopeInput) }),
@@ -67,7 +74,8 @@ export function useSkillManagement(scopeInput: SkillScopeInput, enabled = true) 
     mutationFn: async (skill: Skill) => {
       const overview = await overviewQuery.refetch();
       if (overview.isError) throw overview.error;
-      const current = overview.data?.skills.find((candidate) => candidate.id === skill.id);
+      const current = effectiveSkillInventory(overview.data?.skills ?? [])
+        .find((candidate) => candidate.id === skill.id);
       if (!current) throw new Error(`Skill no longer exists: ${skill.id}`);
       const preview = await agentService.previewSkill(current.id, scopeInput);
       return { skill: current, body: extractSkillBody(preview.content, current.metadata.name) };

@@ -1,5 +1,7 @@
 use crate::contexts::tooling::skills::domain::{
-    SkillDriftIssue, SkillId, SkillKey, SkillLocation, SkillMetadata, SkillMountPath, SkillSource,
+    SkillAvailability, SkillCompatibilityDefaults, SkillDelivery, SkillDriftIssue, SkillId,
+    SkillKey, SkillLayer, SkillLocation, SkillMetadata, SkillMountPath, SkillOrigin, SkillSource,
+    SkillTrust, SkillType,
 };
 use std::collections::BTreeMap;
 
@@ -12,6 +14,278 @@ pub(crate) struct SkillScopeQuery {
 pub(crate) struct SkillDocument {
     pub(crate) metadata: SkillMetadata,
     pub(crate) body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillPackageDescriptor {
+    pub(crate) package_key: String,
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) metadata: SkillMetadata,
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) trust: SkillTrust,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) revision: String,
+    pub(crate) source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectiveSkill {
+    pub(crate) effective: SkillPackageDescriptor,
+    pub(crate) shadowed: Vec<SkillPackageDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillPackagePreview {
+    pub(crate) id: SkillId,
+    pub(crate) document: SkillDocument,
+    pub(crate) layer: SkillLayer,
+    pub(crate) revision: String,
+    pub(crate) immutable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillPackageResource {
+    pub(crate) relative_path: String,
+    pub(crate) media_type: String,
+    pub(crate) size_bytes: u64,
+    pub(crate) content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillResourceDocument {
+    pub(crate) content: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillDiscoveryRequest {
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) query: Option<String>,
+    pub(crate) skill_type: Option<SkillType>,
+    pub(crate) delivery: Option<SkillDelivery>,
+    pub(crate) availability: Option<SkillAvailability>,
+    pub(crate) limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillDiscoveryEntry {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) aliases: Vec<String>,
+    pub(crate) skill_type: SkillType,
+    pub(crate) delivery: SkillDelivery,
+    pub(crate) layer: SkillLayer,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillDiscoveryResult {
+    pub(crate) skills: Vec<SkillDiscoveryEntry>,
+    pub(crate) truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillLoadRequest {
+    pub(crate) id_or_alias: String,
+    pub(crate) workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillResourceReadRequest {
+    pub(crate) uri: String,
+    pub(crate) revision: String,
+    pub(crate) workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillResourceEntry {
+    pub(crate) uri: String,
+    pub(crate) relative_path: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillResourceIndex {
+    pub(crate) scripts: Vec<SkillResourceEntry>,
+    pub(crate) references: Vec<SkillResourceEntry>,
+    pub(crate) templates: Vec<SkillResourceEntry>,
+    pub(crate) assets: Vec<SkillResourceEntry>,
+    pub(crate) truncated: bool,
+}
+
+impl SkillResourceIndex {
+    pub(crate) fn entry(&self, relative_path: &str) -> Option<&SkillResourceEntry> {
+        self.scripts
+            .iter()
+            .chain(&self.references)
+            .chain(&self.templates)
+            .chain(&self.assets)
+            .find(|entry| entry.relative_path == relative_path)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillLoadResult {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) content: String,
+    pub(crate) truncated: bool,
+    pub(crate) revision: String,
+    pub(crate) base_uri: String,
+    pub(crate) resources: SkillResourceIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillAccessRefusalReason {
+    NotFound,
+    AmbiguousAlias,
+    Disabled,
+    Invalid,
+    Conflicting,
+    Unsupported,
+    UtilityNotLoadable,
+    InvalidUri,
+    UnindexedResource,
+    StaleRevision,
+    EscapingResource,
+    BinaryResource,
+    OversizedResource,
+    Unreadable,
+}
+
+impl SkillAccessRefusalReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not-found",
+            Self::AmbiguousAlias => "ambiguous-alias",
+            Self::Disabled => "disabled",
+            Self::Invalid => "invalid",
+            Self::Conflicting => "conflicting",
+            Self::Unsupported => "unsupported",
+            Self::UtilityNotLoadable => "utility-not-loadable",
+            Self::InvalidUri => "invalid-uri",
+            Self::UnindexedResource => "unindexed-resource",
+            Self::StaleRevision => "stale-revision",
+            Self::EscapingResource => "escaping-resource",
+            Self::BinaryResource => "binary-resource",
+            Self::OversizedResource => "oversized-resource",
+            Self::Unreadable => "unreadable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillAccessRefusal {
+    pub(crate) requested: String,
+    pub(crate) canonical_id: Option<String>,
+    pub(crate) reason: SkillAccessRefusalReason,
+    pub(crate) conflicting_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SkillLoadOutcome {
+    Loaded(SkillLoadResult),
+    Refused(SkillAccessRefusal),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillResourceReadResult {
+    pub(crate) id: String,
+    pub(crate) uri: String,
+    pub(crate) revision: String,
+    pub(crate) content: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SkillResourceReadOutcome {
+    Read(SkillResourceReadResult),
+    Refused(SkillAccessRefusal),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct EffectiveCatalogCacheKey {
+    pub(crate) workspace_path: Option<String>,
+    pub(crate) inventory_fingerprint: String,
+    pub(crate) state_revision: u64,
+}
+
+pub(crate) const BUILTIN_RECONCILIATION_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuiltinReconciliationOutcome {
+    System,
+    MigratedOverride,
+    Deleted,
+    Invalid,
+}
+
+impl BuiltinReconciliationOutcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::MigratedOverride => "migrated-override",
+            Self::Deleted => "deleted",
+            Self::Invalid => "invalid",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "system" => Some(Self::System),
+            "migrated-override" => Some(Self::MigratedOverride),
+            "deleted" => Some(Self::Deleted),
+            "invalid" => Some(Self::Invalid),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuiltinCleanupStatus {
+    NotRequired,
+    Pending,
+    Complete,
+}
+
+impl BuiltinCleanupStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRequired => "not-required",
+            Self::Pending => "pending",
+            Self::Complete => "complete",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "not-required" => Some(Self::NotRequired),
+            "pending" => Some(Self::Pending),
+            "complete" => Some(Self::Complete),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BuiltinReconciliationState {
+    pub(crate) skill_id: SkillId,
+    pub(crate) reconciliation_version: u32,
+    pub(crate) outcome: BuiltinReconciliationOutcome,
+    pub(crate) system_revision: String,
+    pub(crate) legacy_revision: Option<String>,
+    pub(crate) cleanup_status: BuiltinCleanupStatus,
+    pub(crate) backup_path: Option<String>,
+    pub(crate) error_code: Option<String>,
+    pub(crate) enabled: bool,
+    pub(crate) deletion_intent: bool,
+    pub(crate) effective_layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) updated_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +319,7 @@ pub(crate) struct SkillRecord {
     pub(crate) bindings: Vec<SkillAgentBinding>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+    pub(crate) resolved_metadata: Option<SkillEffectiveMetadata>,
 }
 
 impl SkillRecord {
@@ -54,6 +329,103 @@ impl SkillRecord {
             .map(|binding| binding.agent_id.clone())
             .collect()
     }
+
+    pub(crate) fn effective_metadata(&self) -> SkillEffectiveMetadata {
+        if let Some(metadata) = &self.resolved_metadata {
+            return metadata.clone();
+        }
+        let layer = match self.key.location.scope {
+            crate::contexts::tooling::skills::domain::SkillScope::Workspace => SkillLayer::Project,
+            crate::contexts::tooling::skills::domain::SkillScope::Global => match self.source {
+                SkillSource::Builtin => SkillLayer::System,
+                SkillSource::User | SkillSource::Imported => SkillLayer::User,
+            },
+        };
+        let origin = match self.source {
+            SkillSource::Builtin => SkillOrigin::Shipped,
+            SkillSource::User => SkillOrigin::Created,
+            SkillSource::Imported => SkillOrigin::Imported,
+        };
+        let trust = if self.source == SkillSource::Imported {
+            SkillTrust::Untrusted
+        } else {
+            SkillTrust::Trusted
+        };
+        let availability = if !self.enabled {
+            SkillAvailability::Disabled
+        } else if self.metadata.skill_type == SkillType::Utility {
+            SkillAvailability::Unsupported
+        } else {
+            SkillAvailability::Available
+        };
+        SkillEffectiveMetadata {
+            layer,
+            origin,
+            trust,
+            availability,
+            skill_type: self.metadata.skill_type,
+            delivery: self.metadata.delivery,
+            compatibility_defaults: self.metadata.compatibility_defaults,
+            immutable: layer == SkillLayer::System,
+            shadowed: Vec::new(),
+            usage: SkillUsageSummary::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillShadowSummary {
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) version: String,
+    pub(crate) availability: SkillAvailability,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillEffectiveMetadata {
+    pub(crate) layer: SkillLayer,
+    pub(crate) origin: SkillOrigin,
+    pub(crate) trust: SkillTrust,
+    pub(crate) availability: SkillAvailability,
+    pub(crate) skill_type: SkillType,
+    pub(crate) delivery: SkillDelivery,
+    pub(crate) compatibility_defaults: SkillCompatibilityDefaults,
+    pub(crate) immutable: bool,
+    pub(crate) shadowed: Vec<SkillShadowSummary>,
+    pub(crate) usage: SkillUsageSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillUsageSummary {
+    pub(crate) view_count: u64,
+    pub(crate) use_count: u64,
+    pub(crate) last_viewed_at: Option<String>,
+    pub(crate) last_used_at: Option<String>,
+    pub(crate) revision_witness: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SkillUsageIdentity {
+    pub(crate) id: SkillId,
+    pub(crate) layer: SkillLayer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SkillUsageActivity {
+    View,
+    Use,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct SkillUsageRead {
+    pub(crate) summaries: BTreeMap<SkillUsageIdentity, SkillUsageSummary>,
+    pub(crate) recovered_corrupt_state: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillUsageMutation {
+    pub(crate) summary: SkillUsageSummary,
+    pub(crate) recovered_corrupt_state: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -148,6 +520,7 @@ pub(crate) struct SkillPreview {
     pub(crate) key: SkillKey,
     pub(crate) content: String,
     pub(crate) path: String,
+    pub(crate) effective: SkillEffectiveMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,9 +598,15 @@ pub(crate) enum SkillLogAction {
     UnbindCliAgent,
     SetApiAgentBinding,
     ResolveApiPrompt,
+    ListAgentSkills,
+    LoadSkill,
+    ReadSkillResource,
+    TrackView,
+    TrackUse,
     Import,
     DetectDrift,
     SyncDrift,
+    OverlayValidation,
 }
 
 impl SkillLogAction {
@@ -245,10 +624,31 @@ impl SkillLogAction {
             Self::UnbindCliAgent => "unbind-cli-agent",
             Self::SetApiAgentBinding => "set-api-agent-binding",
             Self::ResolveApiPrompt => "resolve-api-prompt",
+            Self::ListAgentSkills => "list-agent-skills",
+            Self::LoadSkill => "load-skill",
+            Self::ReadSkillResource => "read-skill-resource",
+            Self::TrackView => "track-view",
+            Self::TrackUse => "track-use",
             Self::Import => "import",
             Self::DetectDrift => "detect-drift",
             Self::SyncDrift => "sync-drift",
+            Self::OverlayValidation => "overlay-validation",
         }
+    }
+
+    pub(crate) fn invalidates_effective_catalog(self) -> bool {
+        !matches!(
+            self,
+            Self::ResolveApiPrompt
+                | Self::ListAgentSkills
+                | Self::LoadSkill
+                | Self::ReadSkillResource
+                | Self::TrackView
+                | Self::TrackUse
+                | Self::DetectDrift
+                | Self::SeedBuiltins
+                | Self::OverlayValidation
+        )
     }
 }
 

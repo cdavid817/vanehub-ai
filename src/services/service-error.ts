@@ -1,3 +1,6 @@
+import type { SkillOverlayServiceError } from "../types/skill-overlay-reconciliation";
+import { isSkillOverlayServiceError } from "./skill-overlay-error";
+
 export type ServiceErrorCode = "validation" | "not-found" | "unsupported-runtime" | "runtime" | "unknown";
 
 export class ServiceError extends Error {
@@ -16,8 +19,9 @@ export function unsupportedRuntimeError(message: string) {
   return new ServiceError("unsupported-runtime", message);
 }
 
-export function normalizeServiceError(error: unknown): ServiceError {
+export function normalizeServiceError(error: unknown): ServiceError | SkillOverlayServiceError {
   if (error instanceof ServiceError) return error;
+  if (isSkillOverlayServiceError(error)) return error;
 
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "packageSetVersion": "1",
+  "packages": [
+    {
+      "id": "api-doc-generation",
+      "version": "1.0.0",
+      "documentSha256": "9ef00fa245adc628f1dceddf6570b89e9cd33efc596cebb5519c19363e06245e",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    },
+    {
+      "id": "code-review",
+      "version": "1.0.0",
+      "documentSha256": "ea13e094a415203b9225794d31a31061af481fd2f2754d9e8a5b1618f69ec992",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    },
+    {
+      "id": "code-security-scan",
+      "version": "1.0.0",
+      "documentSha256": "62b6c5a637995c26bc0ee4a1e644578393589da0d4bc78270546644afb89ad58",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    },
+    {
+      "id": "readme-generation",
+      "version": "1.0.0",
+      "documentSha256": "c844b8e47596cf1f782c8308ab786cf7f89b89bb9157f8c54d66b4a9e7e39fc4",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    },
+    {
+      "id": "tdd-discipline",
+      "version": "1.0.0",
+      "documentSha256": "c58a12780251f15259c6368901b527b8b3ae145983ad48665efba98d64591b16",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    },
+    {
+      "id": "unit-test-generation",
+      "version": "1.0.0",
+      "documentSha256": "1683f81c7d650ebed25f149db71aec4e4ef8bacad9647633b4cd4cc5ab2dab5b",
+      "aliases": [],
+      "type": "role",
+      "delivery": "eager",
+      "resources": []
+    }
+  ]
+}

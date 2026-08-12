@@ -12,6 +12,7 @@ import type { Skill, SkillOverview, SkillScopeInput } from "../types/skill";
 const service = vi.hoisted(() => ({
   bindSkillToApiAgent: vi.fn(), bindSkillToCliAgent: vi.fn(), createSkill: vi.fn(), deleteSkill: vi.fn(),
   getSkillOverview: vi.fn(), importSkill: vi.fn(), previewSkill: vi.fn(), restoreBuiltinSkill: vi.fn(),
+  loadSkill: vi.fn(),
   setSkillEnabled: vi.fn(), syncSkillDrift: vi.fn(), unbindSkillFromApiAgent: vi.fn(),
   unbindSkillFromCliAgent: vi.fn(), updateSkill: vi.fn(),
 }));
@@ -37,6 +38,9 @@ function makeSkill(id: string, scope: Skill["scope"]): Skill {
     skillDir: id, skillMdPath: `${id}/SKILL.md`, contentHash: "hash", boundAgentIds: [], bindings: [],
     metadata: { id, name: id, description: `${id} description`, category: "testing", version: "1.0.0", triggers: [] },
     createdAt: "now", updatedAt: "now",
+    layer: scope === "workspace" ? "project" : "user", origin: "created", trust: "trusted",
+    availability: "available", immutable: false, shadowedDefinitions: [],
+    usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
   };
 }
 
@@ -66,7 +70,14 @@ beforeEach(async () => {
   vi.clearAllMocks();
   await activateAppLanguage("en");
   service.getSkillOverview.mockImplementation(async (scope: SkillScopeInput) => overview(scope));
-  service.previewSkill.mockResolvedValue({ id: projectSkill.id, scope: "workspace", workspacePath: projectPath, path: projectSkill.skillMdPath, content: "# project-api\n\nBody" });
+  service.previewSkill.mockResolvedValue({
+    id: projectSkill.id, scope: "workspace", workspacePath: projectPath, path: projectSkill.skillMdPath,
+    content: "# project-api\n\nBody", layer: "project", origin: "created", availability: "available",
+    immutable: false, shadowedDefinitions: [],
+  });
+  service.loadSkill.mockResolvedValue({ status: "refused", refusal: {
+    requested: projectSkill.id, canonicalId: projectSkill.id, reason: "not-found", conflictingIds: [],
+  } });
   service.setSkillEnabled.mockResolvedValue(projectSkill);
   service.bindSkillToApiAgent.mockResolvedValue(undefined);
   service.createSkill.mockResolvedValue(projectSkill);

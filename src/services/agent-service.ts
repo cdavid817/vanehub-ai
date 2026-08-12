@@ -78,14 +78,39 @@ import type {
   SkillDriftReport,
   SkillImportInput,
   SkillListResult,
+  SkillLoadInput,
+  SkillLoadOutcome,
   SkillMountMigrationReport,
   SkillMutationInput,
   SkillOverview,
   SkillPreview,
+  SkillResourceReadInput,
+  SkillResourceReadOutcome,
   SkillScopeInput,
   SkillSyncResult,
   SkillUpdateInput,
 } from "../types/skill";
+import type {
+  SkillOverlayDetail,
+  SkillOverlayFileInput,
+  SkillOverlayGuidanceInput,
+  SkillOverlayHistoryInput,
+  SkillOverlayHistoryPage,
+  SkillOverlayImportInput,
+  SkillOverlayImportReview,
+  SkillOverlayMutationOutcome,
+  SkillOverlayMutationStateInput,
+  SkillOverlayPatchInput,
+  SkillOverlayPreview,
+  SkillOverlayPreviewInput,
+  SkillOverlayPromotionInput,
+  SkillOverlaySummary,
+  SkillOverlayTargetInput,
+} from "../types/skill-overlay";
+import type {
+  SkillOverlayReconciliationInput,
+  SkillOverlayReconciliationPreview,
+} from "../types/skill-overlay-reconciliation";
 import type {
   PromptAssemblyPreviewInput,
   PromptHook,
@@ -327,9 +352,33 @@ export interface AgentService {
   unbindSkillFromApiAgent(skillId: string, input: SkillScopeInput, agentId: string): Promise<void>;
   listSkillApiAgentBindings(skillId: string, input: SkillScopeInput): Promise<string[]>;
   previewSkill(skillId: string, input: SkillScopeInput): Promise<SkillPreview>;
+  loadSkill(input: SkillLoadInput): Promise<SkillLoadOutcome>;
+  readSkillResource(input: SkillResourceReadInput): Promise<SkillResourceReadOutcome>;
   importSkill(input: SkillImportInput): Promise<Skill>;
   detectSkillDrift(input: SkillScopeInput): Promise<SkillDriftReport>;
   syncSkillDrift(input: SkillScopeInput): Promise<SkillSyncResult>;
+  getSkillOverlaySummary(input: SkillOverlayTargetInput): Promise<SkillOverlaySummary>;
+  getSkillOverlayDetail(input: SkillOverlayTargetInput): Promise<SkillOverlayDetail>;
+  previewSkillOverlay(input: SkillOverlayPreviewInput): Promise<SkillOverlayPreview>;
+  getSkillOverlayHistory(input: SkillOverlayHistoryInput): Promise<SkillOverlayHistoryPage>;
+  createSkillOverlayPatch(input: SkillOverlayPatchInput): Promise<SkillOverlayMutationOutcome>;
+  createSkillOverlayGuidance(input: SkillOverlayGuidanceInput): Promise<SkillOverlayMutationOutcome>;
+  addSkillOverlayFile(input: SkillOverlayFileInput): Promise<SkillOverlayMutationOutcome>;
+  replaceSkillOverlayFile(input: SkillOverlayFileInput): Promise<SkillOverlayMutationOutcome>;
+  importSkillOverlay(input: SkillOverlayImportInput): Promise<SkillOverlayImportReview>;
+  promoteSkillOverlay(input: SkillOverlayPromotionInput): Promise<SkillOverlayMutationOutcome>;
+  disableSkillOverlayMutation(
+    input: SkillOverlayMutationStateInput,
+  ): Promise<SkillOverlayMutationOutcome>;
+  revertSkillOverlayMutation(
+    input: SkillOverlayMutationStateInput,
+  ): Promise<SkillOverlayMutationOutcome>;
+  previewSkillOverlayReconciliation(
+    input: SkillOverlayReconciliationInput,
+  ): Promise<SkillOverlayReconciliationPreview>;
+  reconcileSkillOverlay(
+    input: SkillOverlayReconciliationInput,
+  ): Promise<SkillOverlayMutationOutcome>;
   listPromptHooks(): Promise<PromptHookListResult>;
   createPromptHook(input: PromptHookMutationInput): Promise<PromptHook>;
   updatePromptHook(hookId: string, input: PromptHookUpdateInput): Promise<PromptHook>;

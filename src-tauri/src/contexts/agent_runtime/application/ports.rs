@@ -874,6 +874,14 @@ pub(crate) trait AgentSkillPort: Send + Sync {
         agent_id: &str,
         workspace_path: Option<&str>,
     ) -> Result<Vec<BoundSkillPrompt>, AgentRuntimeApplicationError>;
+
+    fn execute_read(&self, request: super::AgentSkillReadRequest) -> AgentToolCallOutcome {
+        let _ = request;
+        AgentToolCallOutcome {
+            output: "Skill discovery is unavailable in this runtime.".to_string(),
+            is_error: true,
+        }
+    }
 }
 
 pub(crate) trait AgentCoreInstructionsPort: Send + Sync {

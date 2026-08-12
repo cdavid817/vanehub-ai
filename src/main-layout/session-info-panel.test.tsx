@@ -66,6 +66,13 @@ function skill(id: string, enabled: boolean, boundAgentIds: string[], scope: "gl
     })),
     createdAt: "2026-07-20T00:00:00.000Z",
     updatedAt: "2026-07-20T00:00:00.000Z",
+    layer: scope === "workspace" ? "project" : "user",
+    origin: "created",
+    trust: "trusted",
+    availability: "available",
+    immutable: false,
+    shadowedDefinitions: [],
+    usage: { viewCount: 0, useCount: 0, lastViewedAt: null, lastUsedAt: null, revisionWitness: null },
   };
 }
 

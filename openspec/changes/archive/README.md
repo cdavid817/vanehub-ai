@@ -140,7 +140,10 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-09 | scope-readme-guides-per-language | multilingual-readme | `openspec/changes/archive/2026-08-09-scope-readme-guides-per-language/` |
 | 2026-08-09 | suppress-probe-console-windows | native-runtime-architecture | `openspec/changes/archive/2026-08-09-suppress-probe-console-windows/` |
 | 2026-08-10 | add-session-recovery-evidence-foundation | chat-experience, loop-engineering-runtime, native-runtime-architecture, plan-execution-runtime, session-management, session-recovery, session-runtime-management | `openspec/changes/archive/2026-08-10-add-session-recovery-evidence-foundation/` |
+| 2026-08-10 | establish-effective-skill-runtime | agent-chat-configuration, agent-skill-injection, agent-tool-execution, effective-skill-runtime, settings-skill-management-ui, skill-management | `openspec/changes/archive/2026-08-10-establish-effective-skill-runtime/` |
+| 2026-08-10 | refine-effective-skill-management-ui | settings-skill-management-ui | `openspec/changes/archive/2026-08-10-refine-effective-skill-management-ui/` |
 | 2026-08-11 | add-lsp-code-intelligence-foundation | agent-chat-configuration, agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui, unified-log-management, workspace-code-indexing | `openspec/changes/archive/2026-08-11-add-lsp-code-intelligence-foundation/` |
 | 2026-08-11 | complete-multi-agent-session-presence | chat-experience, main-layout-ui, multi-agent-group-chat, session-management | `openspec/changes/archive/2026-08-11-complete-multi-agent-session-presence/` |
+| 2026-08-12 | add-skill-overlay-governance | agent-skill-injection, settings-skill-management-ui, skill-management, skill-overlay-governance | `openspec/changes/archive/2026-08-12-add-skill-overlay-governance/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

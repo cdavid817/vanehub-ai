@@ -362,6 +362,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         crate::contexts::sessions::infrastructure::apply_stable_participant_schema,
     )?;
     repair_missing_stable_participant_schema(conn)?;
+    apply_transactional_migration(
+        conn,
+        60,
+        "effective-skill-runtime",
+        crate::contexts::tooling::skills::infrastructure::apply_effective_runtime_schema,
+    )?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
     assert_migration_history_is_dense(conn)?;
@@ -639,6 +645,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (57, "session-recovery-performance-hardening"),
     (58, "lsp-code-intelligence-foundation"),
     (59, "stable-session-participants"),
+    (60, "effective-skill-runtime"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1543,7 +1550,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (58, 59));
+        assert_eq!(migration_state, (59, 60));
 
         migrate(&connection).expect("upgrade migration");
 
