@@ -162,6 +162,16 @@ jobs:
       - name: Verify documentation screenshots
         run: npm run docs:screenshots:check
 
+      - name: Upload documentation screenshot failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: documentation-screenshot-failures-${{ github.run_id }}
+          path: .docs-screenshots/test-results/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
       - name: Build documentation site
         run: npm run docs:build
 
