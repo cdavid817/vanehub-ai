@@ -37,6 +37,11 @@ The system SHALL provide the exact 28-package first-party catalog defined by `bu
 - **THEN** the system SHALL treat it as an idempotent success rather than an error
 - **AND** any diagnostic SHALL be attributed to catalog reconciliation
 
+#### Scenario: Unchanged legacy source cleanup
+- **WHEN** a legacy mutable built-in source exactly matches its shipped System package and its state has been migrated successfully
+- **THEN** the system SHALL stop treating that source as authoritative
+- **AND** SHALL remove it only through a recoverable, idempotent migration step after retaining the state needed for rollback
+
 #### Scenario: Expanded catalog preserves existing state
 - **WHEN** a user upgrades from the six-package catalog to the 28-package catalog
 - **THEN** the six existing canonical ids SHALL retain bindings, enabled state, deletion intent, usage, aliases, and Overlay association
@@ -69,4 +74,3 @@ Skill detail and preview responses SHALL expose first-party category, type, deli
 #### Scenario: Package unavailable by dependency
 - **WHEN** a package has an unmet declared dependency
 - **THEN** detail responses SHALL identify the dependency and setup guidance without exposing credentials or triggering the dependency
-
