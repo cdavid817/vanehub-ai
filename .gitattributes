@@ -1,3 +1,7 @@
 # husky hooks are executed by Git's sh.exe; CRLF in these files breaks
 # execution. This repo uses core.autocrlf=true on Windows, so pin LF here.
 .husky/* text eol=lf
+
+# System Skill package hashes are computed from canonical LF bytes. Keep checkout
+# bytes stable on Windows so embedded documents verify against the manifest.
+src-tauri/resources/skills/system/** text eol=lf

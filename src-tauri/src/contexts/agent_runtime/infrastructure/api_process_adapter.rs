@@ -16,14 +16,13 @@ use crate::contexts::agent_runtime::application::{
     AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
     GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    PersonalizationSettings, ProcessStopInitiator, StartedGenerationProcess,
-    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
-    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
-    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
-    SHELL_TOOL_NAME,
+    PersonalizationSettings, ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision,
+    ToolApprovalPort, ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
+    EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
+    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::platform::filesystem::BoundedFilesystem;
@@ -4175,7 +4174,7 @@ mod tests {
         let (address, server) =
             http_fixture_sequence("200 OK", vec![first_response, second_response]);
         let mut request = sample_request("api");
-        request.configuration.permission_mode = "plan".to_string();
+        request.configuration.execution_mode = "plan".to_string();
         request.session.folder = Some("D:/code/project".to_string());
         let sink = CapturingSink::default();
         let skills = RecordingSkills::returning(
@@ -4350,7 +4349,12 @@ mod tests {
     #[test]
     fn every_onepiece_builtin_tool_has_an_explicit_permission_mapping() {
         let cases = [
-            (SHELL_TOOL_NAME, json!({}), Action::shell_exec(), Resource::workspace()),
+            (
+                SHELL_TOOL_NAME,
+                json!({}),
+                Action::shell_exec(),
+                Resource::workspace(),
+            ),
             (
                 FILE_TOOL_NAME,
                 json!({"operation": "read", "path": "src/lib.rs"}),
@@ -4363,9 +4367,24 @@ mod tests {
                 Action::file_write(),
                 Resource::file_path("src/lib.rs"),
             ),
-            (GREP_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
-            (GLOB_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
-            (SEARCH_CODE_TOOL_NAME, json!({}), Action::file_read(), Resource::workspace()),
+            (
+                GREP_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::workspace(),
+            ),
+            (
+                GLOB_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::workspace(),
+            ),
+            (
+                SEARCH_CODE_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::workspace(),
+            ),
             (
                 EDIT_TOOL_NAME,
                 json!({"path": "src/lib.rs"}),
@@ -4396,8 +4415,18 @@ mod tests {
                 Action::file_read(),
                 Resource::file_path("src/lib.rs"),
             ),
-            (REMEMBER_TOOL_NAME, json!({}), Action::memory_write(), Resource::memory()),
-            (RECALL_TOOL_NAME, json!({}), Action::file_read(), Resource::memory()),
+            (
+                REMEMBER_TOOL_NAME,
+                json!({}),
+                Action::memory_write(),
+                Resource::memory(),
+            ),
+            (
+                RECALL_TOOL_NAME,
+                json!({}),
+                Action::file_read(),
+                Resource::memory(),
+            ),
             (
                 LIST_SKILLS_TOOL_NAME,
                 json!({}),
