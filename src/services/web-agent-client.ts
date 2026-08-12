@@ -15,6 +15,7 @@ import {
   webPendingApprovals,
   webPrincipalTemplates,
 } from "./web-permissions-mock-state";
+import { upsertToolUse } from "./tool-use";
 import type {
   AgentMemory,
   AgentRegistryEntry,
@@ -1860,7 +1861,7 @@ function applyStreamEvent(event: ChatStreamEvent) {
       updatedAt: timestamp,
     });
   } else if (event.type === "tool_use") {
-    upsertMessage({ ...message, toolUse: [...(message.toolUse ?? []), event.toolUse], updatedAt: timestamp });
+    upsertMessage({ ...message, toolUse: upsertToolUse(message.toolUse ?? [], event.toolUse), updatedAt: timestamp });
   } else if (event.type === "rich_block") {
     const blocks = message.richBlocks ?? [];
     const blockIndex = blocks.findIndex((block) => block.id === event.block.id);

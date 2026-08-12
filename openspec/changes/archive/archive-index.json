@@ -2085,6 +2085,114 @@
                                               "skill-management",
                                               "skill-overlay-governance"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "compact-chat-tool-activity",
+                         "path":  "openspec/changes/archive/2026-08-12-compact-chat-tool-activity/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "chat-experience"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "fix-onepiece-tool-permission-mapping",
+                         "path":  "openspec/changes/archive/2026-08-12-fix-onepiece-tool-permission-mapping/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "optimize-session-switching-performance",
+                         "path":  "openspec/changes/archive/2026-08-12-optimize-session-switching-performance/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "polish-settings-and-agent-integrations",
+                         "path":  "openspec/changes/archive/2026-08-12-polish-settings-and-agent-integrations/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "cli-agent-config-management",
+                                              "cli-parameter-management",
+                                              "im-connector-management",
+                                              "main-layout-ui",
+                                              "scheduled-task-management",
+                                              "settings-center-ui",
+                                              "settings-cli-management-ui",
+                                              "visual-design-system"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "remove-plan-execution",
+                         "path":  "openspec/changes/archive/2026-08-12-remove-plan-execution/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "frontend-runtime-architecture",
+                                              "onepiece-native-agent",
+                                              "plan-execution-runtime",
+                                              "plan-management",
+                                              "project-worktree-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "standardize-cli-ui-order",
+                         "path":  "openspec/changes/archive/2026-08-12-standardize-cli-ui-order/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-ui-ordering",
+                                              "session-management",
+                                              "settings-cli-management-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-12",
+                         "changeName":  "unify-agent-session-execution-policy",
+                         "path":  "openspec/changes/archive/2026-08-12-unify-agent-session-execution-policy/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "cli-agent-permission-launch-flags",
+                                              "cli-parameter-management",
+                                              "session-chat-configuration",
+                                              "session-execution-policy"
+                                          ]
                      }
                  ]
 }

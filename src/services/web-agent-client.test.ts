@@ -1670,6 +1670,15 @@ describe("webAgentClient", () => {
     if (completedEvent?.type === "tool_use") {
       expect(completedEvent.toolUse.output).toBe("mock MCP result");
     }
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+    const assistant = messages.find((message) => message.role === "assistant");
+    expect(assistant?.toolUse?.filter((tool) => tool.id === callId)).toEqual([{
+      id: callId,
+      name: "mcp__mock-server__search",
+      input: { query: "mock" },
+      output: "mock MCP result",
+      status: "completed",
+    }]);
     unsubscribe();
   });
 

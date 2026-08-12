@@ -145,5 +145,12 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-11 | add-lsp-code-intelligence-foundation | agent-chat-configuration, agent-tool-execution, lsp-code-intelligence, lsp-server-management, settings-center-ui, unified-log-management, workspace-code-indexing | `openspec/changes/archive/2026-08-11-add-lsp-code-intelligence-foundation/` |
 | 2026-08-11 | complete-multi-agent-session-presence | chat-experience, main-layout-ui, multi-agent-group-chat, session-management | `openspec/changes/archive/2026-08-11-complete-multi-agent-session-presence/` |
 | 2026-08-12 | add-skill-overlay-governance | agent-skill-injection, settings-skill-management-ui, skill-management, skill-overlay-governance | `openspec/changes/archive/2026-08-12-add-skill-overlay-governance/` |
+| 2026-08-12 | compact-chat-tool-activity | chat-experience | `openspec/changes/archive/2026-08-12-compact-chat-tool-activity/` |
+| 2026-08-12 | fix-onepiece-tool-permission-mapping | - | `openspec/changes/archive/2026-08-12-fix-onepiece-tool-permission-mapping/` |
+| 2026-08-12 | optimize-session-switching-performance | main-layout-ui | `openspec/changes/archive/2026-08-12-optimize-session-switching-performance/` |
+| 2026-08-12 | polish-settings-and-agent-integrations | cli-agent-config-management, cli-parameter-management, im-connector-management, main-layout-ui, scheduled-task-management, settings-center-ui, settings-cli-management-ui, visual-design-system | `openspec/changes/archive/2026-08-12-polish-settings-and-agent-integrations/` |
+| 2026-08-12 | remove-plan-execution | agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management, project-worktree-management | `openspec/changes/archive/2026-08-12-remove-plan-execution/` |
+| 2026-08-12 | standardize-cli-ui-order | agent-ui-ordering, session-management, settings-cli-management-ui | `openspec/changes/archive/2026-08-12-standardize-cli-ui-order/` |
+| 2026-08-12 | unify-agent-session-execution-policy | cli-agent-permission-launch-flags, cli-parameter-management, session-chat-configuration, session-execution-policy | `openspec/changes/archive/2026-08-12-unify-agent-session-execution-policy/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -78,6 +78,39 @@ test.describe("OnePiece native Agent", () => {
     await page.getByRole("button", { name: /继承.*Agent 权限策略/ }).click();
     await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
 
+    await composer.fill("检查项目并总结当前状态");
+    await page.getByRole("button", { name: "发送", exact: true }).click();
+    const toolActivity = page.getByRole("region", { name: "工具活动" });
+    await expect(toolActivity).toBeVisible();
+    await expect(toolActivity.getByText(/待确认 \d+/)).toBeVisible();
+    await expect(toolActivity.getByText(/^完成 \d+$/)).toBeVisible();
+    await expect(toolActivity.getByText("该工具调用需要你的确认才能执行").first()).toBeVisible();
+    await expect(toolActivity.getByText("Shell 命令").first()).toBeVisible();
+    await expect(toolActivity.getByText("echo mock").first()).toBeVisible();
+
+    const completedHistory = toolActivity.getByTestId("completed-tool-history");
+    await expect(completedHistory).not.toHaveAttribute("open", "");
+    await completedHistory.locator(":scope > summary").click();
+    await expect(completedHistory).toHaveAttribute("open", "");
+    await expect(completedHistory.getByText("读取文件")).toBeVisible();
+
+    await toolActivity.getByRole("button", { name: "拒绝", exact: true }).first().click();
+    await expect(toolActivity.getByText(/^失败 1$/)).toBeVisible();
+    const failedHistory = toolActivity.getByTestId("failed-tool-history");
+    await expect(failedHistory).not.toHaveAttribute("open", "");
+    await expect(failedHistory.locator(":scope > summary")).toContainText("Shell 命令");
+    await expect(failedHistory.locator(":scope > summary")).toContainText("echo mock");
+    await failedHistory.locator(":scope > summary").click();
+    await expect(failedHistory).toHaveAttribute("open", "");
+    await expect(failedHistory.getByText("失败", { exact: true })).toBeVisible();
+
+    await toolActivity.getByRole("button", { name: "拒绝", exact: true }).click();
+    const activityToggle = toolActivity.getByRole("button", { name: "展开工具活动" });
+    await expect(activityToggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toolActivity.getByText(/^失败 2$/)).toBeVisible();
+    await expect(toolActivity.getByTestId("tool-activity-content")).toBeHidden();
+    await activityToggle.click();
+    await expect(toolActivity.getByTestId("tool-activity-content")).toBeVisible();
   });
 
   test("keeps Agent Configuration free of registered-Agent management and all built-in CLIs selectable", async ({ page }) => {

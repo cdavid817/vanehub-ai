@@ -45,6 +45,29 @@ describe("applyChatEvent", () => {
     expect(message?.richBlocks).toEqual([{ id: "card-1", kind: "card", v: 1, title: "After", tone: "success" }]);
   });
 
+  it("updates a tool status snapshot by stable id instead of duplicating it", () => {
+    const [message] = applyChatEvent(
+      [{
+        ...baseMessage,
+        toolUse: [{ id: "shell-1", name: "shell", input: { command: "npm test" }, status: "running" }],
+      }],
+      {
+        type: "tool_use",
+        sessionId: "session-1",
+        messageId: "assistant-1",
+        toolUse: { id: "shell-1", name: "shell", output: "passed", status: "completed" },
+      },
+    );
+
+    expect(message?.toolUse).toEqual([{
+      id: "shell-1",
+      name: "shell",
+      input: { command: "npm test" },
+      output: "passed",
+      status: "completed",
+    }]);
+  });
+
   it("preserves references for non-target messages so memoized rows skip re-render", () => {
     const earlier: ChatMessage = { ...baseMessage, id: "assistant-0", content: "earlier" };
     const target: ChatMessage = { ...baseMessage, id: "assistant-1" };
