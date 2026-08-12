@@ -83,10 +83,16 @@ async function fillCreateSessionDialog(page: Page, locale: Locale): Promise<Loca
   await expect(
     dialog.getByRole("heading", { name: text(locale, "创建会话", "Create Session") }),
   ).toBeVisible();
+  await expect(
+    dialog.getByText(text(locale, "会话类型", "Session Type"), { exact: true }),
+  ).toBeVisible();
   await dialog.locator('input[placeholder*="code"]').fill("D:\\VaneHub-Demo");
   await dialog
     .getByPlaceholder(text(locale, "新会话", "New session"))
     .fill(text(locale, "文档演示", "Documentation demo"));
+  await dialog
+    .locator(":scope > .min-h-0.overflow-y-auto")
+    .evaluate((scrollRegion) => scrollRegion.scrollTo({ top: 0 }));
   return dialog;
 }
 
