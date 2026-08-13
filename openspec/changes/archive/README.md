@@ -155,5 +155,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-13 | complete-onepiece-plan-agent-loop | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management | `openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/` |
 | 2026-08-13 | establish-fine-grained-token-accounting | agent-terminal-runtime, api-agent-runtime, onepiece-native-agent, settings-usage-statistics-ui, token-accounting, usage-statistics | `openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/` |
 | 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
+| 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.
