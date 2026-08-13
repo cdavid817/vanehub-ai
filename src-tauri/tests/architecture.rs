@@ -115,6 +115,66 @@ fn provider_neutral_layers_do_not_select_concrete_cli_providers() {
 }
 
 #[test]
+fn token_accounting_keeps_parsing_policy_storage_and_ui_at_their_boundaries() {
+    let native_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let application = fs::read_to_string(
+        native_root.join("contexts/sessions/application/usage_accounting_ports.rs"),
+    )
+    .expect("read token accounting ports");
+    let storage = fs::read_to_string(
+        native_root.join("contexts/sessions/infrastructure/usage_accounting.rs"),
+    )
+    .expect("read token accounting storage");
+    let runtime_infrastructure = native_root.join("contexts/agent_runtime/infrastructure");
+
+    assert!(application.contains("trait TokenAccountingPort"));
+    assert!(application.contains("trait TokenAccountingQueryPort"));
+    assert!(!application.contains("rusqlite"));
+    assert!(storage.contains("impl TokenAccountingRepository for SqliteSessionsRepository"));
+    assert!(storage.contains("rusqlite"));
+    for parser in [
+        "anthropic_provider.rs",
+        "openai_compatible_provider.rs",
+        "terminal_usage_ledger.rs",
+    ] {
+        assert!(
+            runtime_infrastructure.join(parser).is_file(),
+            "{parser} must remain infrastructure"
+        );
+    }
+}
+
+#[test]
+fn accounting_invocation_contract_carries_the_complete_correlation_snapshot() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/contexts/sessions/application/usage_accounting.rs"),
+    )
+    .expect("read accounting contract");
+    for field in [
+        "generation_id",
+        "run_id",
+        "operation_id",
+        "session_id",
+        "message_id",
+        "agent_id",
+        "provider_id",
+        "profile_id",
+        "endpoint_id",
+        "model_id",
+        "interaction_kind",
+        "purpose",
+        "request_sequence",
+        "attempt",
+    ] {
+        assert!(
+            source.contains(&format!("pub(crate) {field}:")),
+            "missing invocation field {field}"
+        );
+    }
+}
+
+#[test]
 fn release_profile_guard_rejects_every_enabled_debug_information_form() {
     let enabled_debug_values = [
         toml::Value::Boolean(true),

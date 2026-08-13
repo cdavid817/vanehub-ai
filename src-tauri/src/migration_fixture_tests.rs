@@ -6,13 +6,14 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 63. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 64. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
-/// migrations 62-63 complete the OnePiece Plan-Agent loop and session association.
+/// migrations 62-63 complete the OnePiece Plan-Agent loop and session association, and migration
+/// 64 introduces invocation-grained Token accounting.
 fn expected_versions() -> Vec<i64> {
-    (1..=63).collect()
+    (1..=64).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -181,7 +182,17 @@ fn empty_fixture_migrates_to_latest_schema() {
     assert!(table_has_column(&conn, "messages", "rich_blocks").expect("rich block column"));
     assert!(table_has_column(&conn, "messages", "speaker_seat_id")
         .expect("stable message speaker column"));
-    assert!(table_has_column(&conn, "usage_records", "message_id").expect("usage record table"));
+    assert!(!table_has_column(&conn, "usage_records", "message_id").expect("retired usage table"));
+    assert!(
+        table_has_column(&conn, "model_invocations", "purpose").expect("model invocation ledger")
+    );
+    assert!(
+        table_has_column(&conn, "token_usage_observations", "normalization_version")
+            .expect("usage observation ledger")
+    );
+    assert!(
+        table_has_column(&conn, "usage_ingestion_cursors", "epoch").expect("usage cursor table")
+    );
     assert!(
         table_has_column(&conn, "scheduled_tasks", "next_run_at").expect("scheduled task table")
     );
@@ -225,6 +236,81 @@ fn empty_fixture_migrates_to_latest_schema() {
         table_has_column(&conn, "operation_recovery_evidence", "execution_run_id")
             .expect("operation recovery evidence table")
     );
+}
+
+#[test]
+fn token_accounting_migration_does_not_import_pre_release_usage() {
+    let conn = Connection::open_in_memory().expect("in-memory sqlite");
+    migrate(&conn).expect("initial migration");
+    conn.execute_batch(
+        r#"
+        INSERT INTO agents (id, display_name, provider, launch_kind)
+        VALUES ('legacy-agent', 'Legacy Agent', 'test', 'cli');
+        INSERT INTO sessions
+            (id, title, agent_id, interaction_mode, lifecycle_state, created_at, updated_at)
+        VALUES
+            ('legacy-session', 'Legacy Session', 'legacy-agent', 'chat', 'idle',
+             '2026-08-12T00:00:00Z', '2026-08-12T00:00:00Z');
+        INSERT INTO messages
+            (id, session_id, role, content, status, created_at, updated_at)
+        VALUES
+            ('legacy-message', 'legacy-session', 'assistant', '', 'completed',
+             '2026-08-12T00:00:01Z', '2026-08-12T00:00:01Z');
+        CREATE TABLE usage_records (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            provider_id TEXT,
+            model_id TEXT,
+            input_count INTEGER NOT NULL,
+            output_count INTEGER NOT NULL,
+            cache_read_count INTEGER NOT NULL,
+            cache_creation_count INTEGER NOT NULL,
+            accounting_kind TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            source TEXT NOT NULL,
+            occurred_at TEXT NOT NULL
+        );
+        INSERT INTO usage_records
+            (message_id, session_id, agent_id, provider_id, model_id,
+             input_count, output_count, cache_read_count, cache_creation_count,
+             accounting_kind, unit, source, occurred_at)
+        VALUES
+            ('legacy-message', 'legacy-session', 'legacy-agent', 'legacy-provider', 'legacy-model',
+             10, 4, 3, 2, 'reported', 'tokens', 'cli-result',
+             '2026-08-12T00:00:02Z');
+        DROP TABLE token_usage_observations;
+        DROP TABLE usage_ingestion_cursors;
+        DROP TABLE model_invocations;
+        DELETE FROM schema_migrations WHERE version = 64;
+        "#,
+    )
+    .expect("prepare pre-ledger database");
+
+    migrate(&conn).expect("apply token accounting migration");
+    migrate(&conn).expect("repeat migration");
+
+    let invocation_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM model_invocations", [], |row| {
+            row.get(0)
+        })
+        .expect("invocation count");
+    assert_eq!(invocation_count, 0);
+    let observation_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM token_usage_observations", [], |row| {
+            row.get(0)
+        })
+        .expect("observation count");
+    assert_eq!(observation_count, 0);
+    assert!(!table_has_column(&conn, "usage_records", "message_id").expect("retired usage table"));
+    let preserved_messages: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM messages WHERE id = 'legacy-message'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("preserved message count");
+    assert_eq!(preserved_messages, 1);
 }
 
 #[test]

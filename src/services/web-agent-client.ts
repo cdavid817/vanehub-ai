@@ -69,6 +69,7 @@ import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/sessio
 import { snapshotSeat } from "./seat-presentation";
 import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
 import type { UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import { queryWebTokenUsageDetails, queryWebTokenUsageSummary } from "./web-token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
   ContinueLoopInput,
@@ -1581,26 +1582,7 @@ function serializeWebSessionExport(input: ExportSessionInput): SessionExportResu
 }
 
 function aggregateWebUsageStatistics(range: UsageStatisticsRange): UsageStatistics {
-  const records: UsageRecord[] = [...representativeUsageRecords];
-  for (const [sessionId, messages] of messagesBySession.entries()) {
-    const session = sessions.find((candidate) => candidate.id === sessionId);
-    if (!session) continue;
-    for (const message of messages) {
-      if (message.role !== "assistant" || !message.tokenUsage) continue;
-      records.push({
-        messageId: message.id,
-        sessionId,
-        agentId: session.agentId,
-        accountingKind: "estimated",
-        inputCount: message.tokenUsage.input,
-        outputCount: message.tokenUsage.output,
-        cacheReadCount: 0,
-        cacheCreationCount: 0,
-        occurredAt: message.createdAt,
-      });
-    }
-  }
-  return aggregateUsageRecords(records, range);
+  return aggregateUsageRecords(representativeUsageRecords, range);
 }
 
 function findSession(sessionId: string) {
@@ -4221,7 +4203,6 @@ export const webAgentClient: AgentService = {
         type: "completed",
         sessionId: input.sessionId,
         messageId: assistantMessage.id,
-        tokenUsage: { input: userMessage.content.length, output: responseText.length },
       });
     }, 320 + tokens.length * 90);
     timeoutIds.push(completeTimeoutId);
@@ -4247,22 +4228,25 @@ export const webAgentClient: AgentService = {
   async getSessionUsageSummary(sessionId: string) {
     findSession(sessionId);
     const generated = aggregateSessionUsageRecords(representativeUsageRecords, sessionId);
-    if (generated.responseCount > 0) return generated;
-    const messages = getSessionMessages(sessionId);
-    const records: UsageRecord[] = messages
-      .filter((message) => message.role === "assistant" && message.status === "completed" && message.tokenUsage)
-      .map((message) => ({
-        messageId: message.id,
-        sessionId,
-        agentId: findSession(sessionId).agentId,
-        accountingKind: "reported",
-        inputCount: message.tokenUsage?.input ?? 0,
-        outputCount: message.tokenUsage?.output ?? 0,
-        cacheReadCount: 0,
-        cacheCreationCount: 0,
-        occurredAt: message.updatedAt,
-      }));
-    return aggregateSessionUsageRecords(records, sessionId);
+    return generated;
+  },
+
+  async getTokenUsageSummary(input) {
+    if (!input.sessionId) return queryWebTokenUsageSummary(input);
+    const session = findSession(input.sessionId);
+    return queryWebTokenUsageSummary({
+      ...input,
+      sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
+    });
+  },
+
+  async getTokenUsageDetails(input) {
+    if (!input.sessionId) return queryWebTokenUsageDetails(input);
+    const session = findSession(input.sessionId);
+    return queryWebTokenUsageDetails({
+      ...input,
+      sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
+    });
   },
 
   async stopGeneration(sessionId: string) {

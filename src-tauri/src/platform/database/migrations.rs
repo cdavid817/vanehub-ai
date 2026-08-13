@@ -385,6 +385,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "plan-session-association",
         crate::contexts::task_orchestration::infrastructure::apply_plan_session_association_schema,
     )?;
+    apply_transactional_migration(
+        conn,
+        64,
+        "fine-grained-token-accounting",
+        crate::contexts::sessions::infrastructure::apply_usage_accounting_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -681,6 +687,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (61, "session-execution-policy"),
     (62, "onepiece-plan-agent-loop"),
     (63, "plan-session-association"),
+    (64, "fine-grained-token-accounting"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1585,7 +1592,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (62, 63));
+        assert_eq!(migration_state, (63, 64));
 
         migrate(&connection).expect("upgrade migration");
 

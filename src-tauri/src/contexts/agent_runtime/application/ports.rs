@@ -338,6 +338,7 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         file_references: &[AgentFileReference],
     ) -> Result<String, AgentRuntimeApplicationError>;
 
+    #[allow(dead_code)]
     fn create_message(
         &self,
         message: NewAgentMessage,
@@ -356,14 +357,6 @@ pub(crate) trait AgentSessionGateway: Send + Sync {
         &self,
         message_id: &str,
     ) -> Result<Option<AgentMessage>, AgentRuntimeApplicationError>;
-
-    fn find_terminal_usage_message(
-        &self,
-        _session_id: &str,
-        _agent_id: &str,
-    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
-        Ok(None)
-    }
 
     fn append_content(
         &self,

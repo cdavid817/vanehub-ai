@@ -220,7 +220,7 @@ mod tests {
             )
             .expect("effective Skill migration");
 
-        assert_eq!(migration_count, 63);
+        assert_eq!(migration_count, 64);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -274,7 +274,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 63);
+        assert_eq!(migration_count, 64);
     }
 
     #[test]

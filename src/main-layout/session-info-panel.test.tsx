@@ -6,6 +6,7 @@ import "../i18n";
 import { activateAppLanguage } from "../i18n";
 import type { Session } from "../types/agent";
 import type { SessionUsageSummary } from "../types/chat";
+import type { TokenUsageSummary, UsageMeasure, UsageQualityTotals } from "../types/token-usage";
 import type { Skill } from "../types/skill";
 import { SessionInfoPanel } from "./session-info-panel";
 
@@ -94,7 +95,7 @@ function renderPanel(
     thinking: true,
     longContext: false,
   });
-  queryClient.setQueryData(["session-usage-summary", activeSession.id], usage);
+  queryClient.setQueryData(["token-usage-summary", "session", activeSession.id], ledgerSummary(usage));
   queryClient.setQueryData(["skill-overview", { scope: "global", workspacePath: null }], {
     skills: [skill("global-codex", true, ["codex-cli"], "global")],
     stats: { total: 1, enabled: 1, mounted: 1 },
@@ -122,6 +123,36 @@ function renderPanel(
       <SessionInfoPanel activeSession={activeSession} collapsed={false} currentSpeakerSeatId={currentSpeakerSeatId} />
     </QueryClientProvider>,
   );
+}
+
+function ledgerMeasure(unit: "tokens" | "characters", total: number, calls: number): UsageMeasure {
+  return { unit, dimensions: { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0, reasoningOutput: 0, providerTotal: total }, headlineTotal: total, callCount: calls, observationCount: calls };
+}
+
+function ledgerQuality(usage: SessionUsageSummary): UsageQualityTotals {
+  return {
+    reported: ledgerMeasure("tokens", usage.reported.totalTokens, usage.coverage.reportedResponses),
+    reportedDerived: ledgerMeasure("tokens", 0, 0),
+    estimated: ledgerMeasure("characters", usage.estimated.totalCharacters, usage.coverage.estimatedResponses),
+  };
+}
+
+function ledgerSummary(usage: SessionUsageSummary): TokenUsageSummary {
+  const totals = ledgerQuality(usage);
+  return {
+    schemaVersion: 1,
+    totals,
+    userResponse: totals,
+    internal: {
+      reported: ledgerMeasure("tokens", 0, 0),
+      reportedDerived: ledgerMeasure("tokens", 0, 0),
+      estimated: ledgerMeasure("characters", 0, 0),
+    },
+    counts: { calls: usage.responseCount, generations: usage.responseCount, sessions: usage.responseCount > 0 ? 1 : 0 },
+    daily: [],
+    breakdowns: [{ dimension: "purpose", entries: usage.responseCount > 0 ? [{ key: "assistant-initial", totals, counts: { calls: usage.responseCount, generations: usage.responseCount, sessions: 1 } }] : [] }],
+    generatedAt: usage.generatedAt,
+  };
 }
 
 describe("SessionInfoPanel", () => {
@@ -195,8 +226,8 @@ describe("SessionInfoPanel", () => {
       generatedAt: "2026-07-20T00:00:00.000Z",
     });
 
-    expect(html).toContain("No reported tokens yet");
-    expect(html).toContain("Estimated Responses");
+    expect(html).toContain("Estimated characters");
+    expect(html).toContain("Invocation details");
     expect(html).not.toContain("Code Index");
     expect(html).toContain("2,000");
   });
@@ -242,8 +273,6 @@ describe("SessionInfoPanel", () => {
       generatedAt: "2026-07-20T00:00:00.000Z",
     });
 
-    expect(html).toContain("12");
-    expect(html).toContain("34");
     expect(html).toContain("46");
   });
 

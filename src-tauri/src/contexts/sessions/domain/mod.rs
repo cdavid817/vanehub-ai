@@ -8,6 +8,7 @@ pub(crate) mod recovery;
 pub(crate) mod recovery_decision;
 mod session;
 mod session_seat;
+mod usage_accounting;
 
 pub(crate) use category::{CategoryName, SessionCategory};
 pub(crate) use chat_configuration::{
@@ -28,3 +29,8 @@ pub(crate) use session::{
     SessionTitle,
 };
 pub(crate) use session_seat::{decode_seats, encode_seats, SessionSeat, SessionSeatRoleSnapshot};
+pub(crate) use usage_accounting::{
+    reconcile_cumulative_usage, AccountingUnit, CumulativeReconciliation, MeasurementKind,
+    MeasurementQuality, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose,
+    UsageStatus,
+};

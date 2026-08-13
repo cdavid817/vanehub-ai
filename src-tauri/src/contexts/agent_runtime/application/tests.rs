@@ -106,7 +106,7 @@ pub(super) struct FakeWorld {
     active_generation: Mutex<Option<ActiveGeneration>>,
     streaming_message_ids: Mutex<Vec<String>>,
     next_message_id: AtomicUsize,
-    completed_usage: Mutex<Vec<AgentUsageRecord>>,
+    completed_invocation_usage: Mutex<Vec<AgentInvocationUsage>>,
     resolved_approvals: Mutex<Vec<(String, String, ToolApprovalDecision)>>,
     memories: Mutex<Vec<AgentMemory>>,
     /// `add-cli-memory-support` — lets a test simulate `AgentMemoryPort::list_all` failing
@@ -220,7 +220,7 @@ impl FakeWorld {
             active_generation: Mutex::new(None),
             streaming_message_ids: Mutex::new(Vec::new()),
             next_message_id: AtomicUsize::new(0),
-            completed_usage: Mutex::new(Vec::new()),
+            completed_invocation_usage: Mutex::new(Vec::new()),
             resolved_approvals: Mutex::new(Vec::new()),
             memories: Mutex::new(Vec::new()),
             memories_list_failure: AtomicBool::new(false),
@@ -513,10 +513,10 @@ impl AgentSessionGateway for FakeWorld {
         message.tool_use = completed.tool_use;
         message.rich_blocks = completed.rich_blocks;
         message.token_usage = completed.token_usage;
-        if let Some(usage) = completed.usage {
-            self.completed_usage
+        if let Some(usage) = completed.invocation_usage {
+            self.completed_invocation_usage
                 .lock()
-                .expect("completed usage")
+                .expect("completed invocation usage")
                 .push(usage);
         }
         Ok(message.clone())
@@ -2688,23 +2688,47 @@ fn completion_with_reported_usage_persists_reported_accounting() {
             output_tokens: 340,
             cache_read_tokens: 900,
             cache_creation_tokens: 50,
+            provider_total_tokens: Some(1410),
+            cache_overlap: AgentUsageOverlap::Exclusive,
+            reasoning_overlap: AgentUsageOverlap::Subset,
+            normalization_version: "claude-code-result-usage-v1",
+            source_identity: Some("provider-step-1".to_string()),
+            source_revision: Some("1720000000123".to_string()),
+            ..ReportedUsageTotals::default()
         },
     )))
     .expect("complete");
 
     let usage = world
-        .completed_usage
+        .completed_invocation_usage
         .lock()
-        .expect("completed usage")
+        .expect("completed invocation usage")
         .last()
         .cloned()
         .expect("usage record");
-    assert_eq!(usage.accounting_kind, AgentUsageAccountingKind::Reported);
-    assert_eq!(usage.input_count, 120);
-    assert_eq!(usage.output_count, 340);
-    assert_eq!(usage.cache_read_count, 900);
-    assert_eq!(usage.cache_creation_count, 50);
-    assert_eq!(usage.source, "cli-reported");
+    assert_eq!(
+        usage.usage.accounting_kind,
+        AgentUsageAccountingKind::Reported
+    );
+    assert_eq!(usage.usage.input_count, 120);
+    assert_eq!(usage.usage.output_count, 340);
+    assert_eq!(usage.usage.cache_read_count, 900);
+    assert_eq!(usage.usage.cache_creation_count, 50);
+    assert_eq!(usage.usage.reasoning_output_count, 0);
+    assert_eq!(usage.usage.provider_total_count, Some(1410));
+    assert_eq!(usage.usage.cache_overlap, AgentUsageOverlap::Exclusive);
+    assert_eq!(usage.usage.reasoning_overlap, AgentUsageOverlap::Subset);
+    assert_eq!(
+        usage.usage.normalization_version,
+        "claude-code-result-usage-v1"
+    );
+    assert_eq!(usage.usage.source, "cli-reported");
+    assert_eq!(usage.generation_id, usage.usage.message_id);
+    assert_eq!(usage.operation_id, "generation-operation-1");
+    assert_eq!(usage.source_identity.as_deref(), Some("provider-step-1"));
+    assert_eq!(usage.source_revision.as_deref(), Some("1720000000123"));
+    assert!(usage.invocation_id.contains("provider-step-1"));
+    assert!(usage.observation_id.contains("1720000000123"));
 }
 
 #[test]
@@ -2732,16 +2756,19 @@ fn completion_without_reported_usage_falls_back_to_character_count_estimate() {
         .expect("complete");
 
     let usage = world
-        .completed_usage
+        .completed_invocation_usage
         .lock()
-        .expect("completed usage")
+        .expect("completed invocation usage")
         .last()
         .cloned()
         .expect("usage record");
-    assert_eq!(usage.accounting_kind, AgentUsageAccountingKind::Estimated);
-    assert_eq!(usage.source, "character-count");
-    assert_eq!(usage.cache_read_count, 0);
-    assert_eq!(usage.cache_creation_count, 0);
+    assert_eq!(
+        usage.usage.accounting_kind,
+        AgentUsageAccountingKind::Estimated
+    );
+    assert_eq!(usage.usage.source, "character-count");
+    assert_eq!(usage.usage.cache_read_count, 0);
+    assert_eq!(usage.usage.cache_creation_count, 0);
 }
 
 #[test]

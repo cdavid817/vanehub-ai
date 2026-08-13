@@ -17,13 +17,13 @@ use super::{
     SessionRecoverySummary, SessionRepository, SessionRuntimePort, SessionSearchQuery,
     SessionSearchResult, SessionSshBinding, SessionTransactionPort, SessionUsageRepository,
     SessionUsageStatistics, SessionUsageSummary, SessionWorkspace, SessionsApplicationError,
-    UpdateSessionSeatsRequest, UsageStatisticsRange,
+    TokenAccountingPort, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
     normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
     FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
     SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat,
-    SessionSeatRoleSnapshot, SessionTitle,
+    SessionSeatRoleSnapshot, SessionTitle, UsageStatus,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -36,6 +36,8 @@ pub(crate) struct SessionApplicationPorts {
     pub(crate) categories: Arc<dyn SessionCategoryRepository>,
     pub(crate) configurations: Arc<dyn SessionConfigurationRepository>,
     pub(crate) usage: Arc<dyn SessionUsageRepository>,
+    #[allow(dead_code)]
+    pub(crate) accounting: Arc<dyn TokenAccountingPort>,
     pub(crate) transactions: Arc<dyn SessionTransactionPort>,
     pub(crate) recovery_reports: Arc<dyn SessionRecoveryReportRepository>,
     pub(crate) recovery_events: Arc<dyn SessionRecoveryEventPort>,
@@ -64,6 +66,74 @@ struct GenerationMessageCorrelation<'a> {
 }
 
 impl SessionsApplicationService {
+    #[allow(dead_code)]
+    pub(crate) fn start_model_invocation(
+        &self,
+        invocation: &super::NewModelInvocation,
+    ) -> Result<super::ModelInvocationRecord, SessionsApplicationError> {
+        self.ports.accounting.start_invocation(invocation)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn finalize_model_invocation(
+        &self,
+        invocation_id: &str,
+        status: UsageStatus,
+        completed_at: &str,
+    ) -> Result<super::ModelInvocationRecord, SessionsApplicationError> {
+        self.ports
+            .accounting
+            .finalize_invocation(invocation_id, status, completed_at)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_token_observation(
+        &self,
+        observation: &super::NewUsageObservation,
+    ) -> Result<super::TokenUsageObservation, SessionsApplicationError> {
+        self.ports.accounting.record_observation(observation)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn advance_usage_cursor(
+        &self,
+        advance: &super::UsageCursorAdvance,
+    ) -> Result<super::UsageCursor, SessionsApplicationError> {
+        self.ports.accounting.advance_cursor(advance)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn find_usage_cursor(
+        &self,
+        source_id: &str,
+    ) -> Result<Option<super::UsageCursor>, SessionsApplicationError> {
+        self.ports.accounting.find_cursor(source_id)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn invocation_usage_details(
+        &self,
+        query: &super::InvocationDetailQuery,
+    ) -> Result<super::UsageDetailPage, SessionsApplicationError> {
+        if let Some(session_id) = query.session_id.as_deref() {
+            self.load_session(session_id)?;
+        }
+        self.ports.accounting.invocation_details(query)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn token_usage_summary(
+        &self,
+        query: &super::UsageSummaryQuery,
+    ) -> Result<super::UsageAccountingSummary, SessionsApplicationError> {
+        if let Some(session_id) = query.session_id.as_deref() {
+            self.load_session(session_id)?;
+        }
+        let mut query = query.clone();
+        query.generated_at = self.ports.clock.now();
+        self.ports.accounting.usage_summary(&query)
+    }
+
     pub(crate) fn recovery_summary(
         &self,
         session_id: &str,
@@ -882,6 +952,7 @@ impl SessionsApplicationService {
         self.ports.messages.find(&message_id)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn create_message(
         &self,
         request: CreateMessageRequest,
@@ -978,6 +1049,7 @@ impl SessionsApplicationService {
             .message
             .transition_to(request.terminal_status.message_status())?;
         validate_usage(request.usage.as_ref(), &message_id, &session_id)?;
+        validate_invocation_usage(request.invocation_usage.as_ref(), &message_id, &session_id)?;
         record.content = request.content;
         record.thinking_content = request.thinking_content;
         record.tool_use = request.tool_use;
@@ -993,6 +1065,7 @@ impl SessionsApplicationService {
                 message: record,
                 terminal_status: request.terminal_status,
                 usage: request.usage,
+                invocation_usage: request.invocation_usage,
                 finished_at,
             })
     }
@@ -1104,6 +1177,7 @@ impl SessionsApplicationService {
         record.message.ensure_owned_by(&session_id)?;
         record.message.transition_to(MessageStatus::Completed)?;
         validate_usage(request.usage.as_ref(), &message_id, &session_id)?;
+        validate_invocation_usage(request.invocation_usage.as_ref(), &message_id, &session_id)?;
         record.content = request.content;
         record.thinking_content = request.thinking_content;
         record.tool_use = request.tool_use;
@@ -1111,9 +1185,11 @@ impl SessionsApplicationService {
         record.token_usage = request.token_usage;
         record.error = None;
         record.updated_at = self.ports.clock.now();
-        self.ports
-            .transactions
-            .complete_message(&record, request.usage.as_ref())
+        self.ports.transactions.complete_message(
+            &record,
+            request.usage.as_ref(),
+            request.invocation_usage.as_ref(),
+        )
     }
 
     pub(crate) fn fail_message(
@@ -1306,20 +1382,6 @@ impl SessionsApplicationService {
             .summary_for_session(session.id(), &self.ports.clock.now())
     }
 
-    pub(crate) fn terminal_usage_message_id(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-    ) -> Result<Option<String>, SessionsApplicationError> {
-        let session = self.load_session(session_id)?;
-        if session.agent_id != agent_id {
-            return Ok(None);
-        }
-        self.ports
-            .usage
-            .terminal_usage_message_id(session.id(), agent_id)
-    }
-
     pub(crate) fn run_maintenance(
         &self,
         policy: ArchivalPolicy,
@@ -1491,6 +1553,26 @@ fn validate_usage(
     {
         return Err(SessionsApplicationError::Validation(
             "Usage counts must be non-negative.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_invocation_usage(
+    usage: Option<&super::CompletedInvocationAccounting>,
+    message_id: &MessageId,
+    session_id: &SessionId,
+) -> Result<(), SessionsApplicationError> {
+    let Some(usage) = usage else {
+        return Ok(());
+    };
+    if usage.invocation.message_id.as_deref() != Some(message_id.as_str())
+        || usage.invocation.session_id != session_id.as_str()
+        || usage.observation.invocation_id != usage.invocation.id
+        || usage.status == UsageStatus::Running
+    {
+        return Err(SessionsApplicationError::Validation(
+            "Invocation usage must belong to the completed message and session.".to_string(),
         ));
     }
     Ok(())

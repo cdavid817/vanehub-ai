@@ -64,6 +64,7 @@ impl LifecycleHarness {
             categories: repository.clone(),
             configurations: repository.clone(),
             usage: repository.clone(),
+            accounting: repository.clone(),
             transactions: repository.clone(),
             recovery_reports: repository,
             recovery_events: doubles.clone(),

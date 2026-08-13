@@ -2211,6 +2211,25 @@
                                               "plan-execution-runtime",
                                               "plan-management"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "establish-fine-grained-token-accounting",
+                         "path":  "openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-terminal-runtime",
+                                              "api-agent-runtime",
+                                              "onepiece-native-agent",
+                                              "settings-usage-statistics-ui",
+                                              "token-accounting",
+                                              "usage-statistics"
+                                          ]
                      }
                  ]
 }
