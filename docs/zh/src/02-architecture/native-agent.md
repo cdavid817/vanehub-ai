@@ -278,6 +278,14 @@ flowchart LR
 
 创建会话时选择 Agent `onepiece`，交互模式为 `api`。未完成 provider 配置时该 Agent 显示为不可用——`src/services/mock-agent-data.ts:52-53` 给出的不可用理由即 "OnePiece requires provider configuration."
 
+## 原生 Plan 执行闭环
+
+OnePiece 将权限模式与任务编排状态分开建模。`plan` 权限只暴露项目根目录内的只读发现工具；用户批准后，`task_orchestration` 将任务图、证据绑定、重试策略、最终验证命令和非敏感 Profile 标识固化到 `PlanRun` 快照，再由原生单例驱动串行推进。
+
+驱动遵循 `claim → Attempt 会话 → 受保护验证 → 状态投影` 循环。SQLite 中的执行意图和 compare-and-set 领取是事实来源，进程内注册表只避免重复 worker。可修复失败创建新的不可变 Attempt，并只注入有界的失败命令、脱敏输出和变更文件摘要。全部子任务成功后进入独立 finalization，最终命令证据通过后才投影为 `awaiting_acceptance`。
+
+前端经 `PlanService` 读取投影和提交控制，不参与调度。Tauri adapter 使用真实工作树和会话；Web/mock adapter 保持相同的数据形状，但必须标记为模拟。诊断日志仅记录运行、子任务、Attempt、会话与执行拓扑标识以及状态/错误分类，不记录目标、描述、提示词、凭据、完整路径、原始工具载荷或未脱敏命令输出。
+
 ## 边界与限制
 
 - **仅桌面可用** —— provider 调用、SQLite 索引与记忆均依赖原生运行时。

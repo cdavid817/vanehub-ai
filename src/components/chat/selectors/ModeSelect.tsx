@@ -12,6 +12,7 @@ const modeIcons: Record<SessionExecutionMode, ReactElement> = {
 
 export function ModeSelect({
   availableModes,
+  emphasizeCapabilities = false,
   onChange,
   onClose,
   onOpen,
@@ -19,6 +20,7 @@ export function ModeSelect({
   value,
 }: {
   availableModes: SessionExecutionMode[];
+  emphasizeCapabilities?: boolean;
   onChange: (value: SessionExecutionMode) => void;
   onClose: () => void;
   onOpen: () => void;
@@ -28,8 +30,13 @@ export function ModeSelect({
   const { t } = useTranslation();
   const executionModes = availableModes.concat(["inherit", "plan", "execute"] as SessionExecutionMode[])
     .filter((mode, index, modes) => modes.indexOf(mode) === index);
-  const labelFor = (mode: SessionExecutionMode) => t(`chat.config.execution.${mode}`);
-  const descriptionFor = (mode: SessionExecutionMode) => t(`chat.config.execution.${mode}Desc`);
+  const onePieceKey = (mode: SessionExecutionMode) => mode === "execute" ? "agent" : mode;
+  const labelFor = (mode: SessionExecutionMode) => emphasizeCapabilities && (mode === "plan" || mode === "execute")
+    ? t(`chat.config.permission.onepiece.${onePieceKey(mode)}`)
+    : t(`chat.config.execution.${mode}`);
+  const descriptionFor = (mode: SessionExecutionMode) => emphasizeCapabilities && (mode === "plan" || mode === "execute")
+    ? t(`chat.config.permission.onepiece.${onePieceKey(mode)}Desc`)
+    : t(`chat.config.execution.${mode}Desc`);
   return (
     <div className="relative">
       <SelectorButton icon={modeIcons[value]} label={labelFor(value)} onClick={onOpen} open={open} title={t("chat.config.modeTitle", { label: labelFor(value) })} />

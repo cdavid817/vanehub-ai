@@ -119,3 +119,44 @@ The native telemetry infrastructure SHALL emit a pinned OpenTelemetry semantic-c
 - **WHEN** a required product concept has no applicable pinned convention
 - **THEN** the exporter SHALL use a documented `vanehub.*` attribute with bounded values
 
+### Requirement: Plan execution trace correlation
+The observability system SHALL correlate PlanRun, SubTaskRun, and SubTaskAttempt identities with their Agent sessions, provider generations, tool operations, validation operations, and state transitions while preserving the existing execution-run and trace topology.
+
+#### Scenario: Inspect a SubTask attempt timeline
+- **WHEN** a user opens the evidence for a SubTask attempt
+- **THEN** the service boundary SHALL return a bounded timeline whose safe correlation fields connect the attempt to its session, generation, operations, and verification result
+
+#### Scenario: Trace a PlanRun summary
+- **WHEN** a PlanRun contains multiple serial attempts
+- **THEN** the runtime SHALL expose their parent-child correlation and durations without embedding full session transcripts in the PlanRun summary
+
+### Requirement: Redacted Plan telemetry
+Plan execution diagnostics SHALL allow stable IDs, state names, durations, counts, safe filenames, exit classifications, and non-reversible fingerprints, and SHALL exclude user goals, generated task descriptions, prompts, credentials, raw tool arguments, raw tool results, and unredacted command output by default.
+
+#### Scenario: Record an orchestration failure
+- **WHEN** planning, dispatch, execution, verification, or recovery fails
+- **THEN** the unified observability path SHALL persist a redacted classified event that remains useful for correlation without persisting prohibited content
+
+#### Scenario: Preserve user-facing output separately
+- **WHEN** a user inspects allowed Agent or validation output in the Plan UI
+- **THEN** the frontend SHALL obtain it through the bounded session or operation presentation service rather than from diagnostic telemetry
+
+### Requirement: Autonomous Plan loop trace correlation
+The observability system SHALL correlate Plan driver activation, scheduling cycles, discovery sessions, original and repair Attempts, SubTask verification, final verification, pause and cancellation boundaries, and user recovery actions while preserving metadata-only diagnostic defaults.
+
+#### Scenario: Trace an automatic repair chain
+- **WHEN** one SubTask has multiple original or repair Attempts
+- **THEN** the execution topology SHALL retain their sequence, parent PlanRun and SubTask identities, safe failure classes, durations, and terminal states without storing prompts or raw validation output in diagnostics
+
+#### Scenario: Trace background continuation
+- **WHEN** the native driver advances a PlanRun while no Plan view is open
+- **THEN** unified logging SHALL record bounded lifecycle and correlation events sufficient to distinguish activation, claim, execution, verification, repair, and stop boundaries
+
+#### Scenario: Correlate originating session navigation safely
+- **WHEN** a PlanRun is associated with its originating OnePiece session
+- **THEN** diagnostics MAY correlate non-secret session and PlanRun ids while excluding session titles, prompts, goals, and message content
+
+#### Scenario: Inspect final verification evidence
+- **WHEN** a user requests final verification details through the Plan service
+- **THEN** the user-facing bounded evidence path MAY return allowed command summaries while persistent diagnostics SHALL continue excluding unredacted command output
+

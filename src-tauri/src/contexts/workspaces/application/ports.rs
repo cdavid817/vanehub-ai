@@ -44,6 +44,17 @@ pub(crate) trait WorkspaceGitPort: Send + Sync {
         project_path: &str,
     ) -> Result<Option<String>, WorkspaceApplicationError>;
 
+    fn resolve_commit_oid(
+        &self,
+        project_path: &str,
+        reference: &str,
+    ) -> Result<String, WorkspaceApplicationError> {
+        let _ = (project_path, reference);
+        Err(WorkspaceApplicationError::Validation(
+            "Git commit resolution is unavailable.".to_string(),
+        ))
+    }
+
     fn create_worktree(
         &self,
         project_path: &str,

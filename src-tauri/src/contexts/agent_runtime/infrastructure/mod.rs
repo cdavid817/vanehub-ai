@@ -32,6 +32,8 @@ mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
 mod onepiece_model_discovery;
+#[cfg(test)]
+mod onepiece_planning;
 mod openai_compatible_provider;
 mod permission_adapter;
 mod personalization_gateway;
