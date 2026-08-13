@@ -25,6 +25,4 @@ pub(crate) use recovery_repository::NativeRecoveryEvidenceGateway;
 #[cfg(test)]
 pub(crate) use recovery_repository::{RecoveryEvidence, RecoveryEvidenceGateway, RecoveryTerminal};
 pub(crate) use repository::{PlanRunWorktree, SqlitePlanRepository};
-pub(crate) use schema::{
-    apply_plan_agent_loop_schema, apply_plan_session_association_schema,
-};
+pub(crate) use schema::{apply_plan_agent_loop_schema, apply_plan_session_association_schema};
