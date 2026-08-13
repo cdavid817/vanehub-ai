@@ -85,7 +85,7 @@ export function ButtonArea({
         />
         <ModeSelect
           availableModes={availableModes}
-          emphasizeCapabilities={config.providerId === "onepiece"}
+          emphasizeCapabilities={config.agentId === "onepiece" || config.providerId === "onepiece"}
           onChange={onModeChange}
           onClose={close}
           onOpen={() => open("mode")}

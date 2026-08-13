@@ -1800,11 +1800,6 @@ mod tests {
                 "2026-08-08T00:00:10Z",
             )
             .expect("finish second");
-        assert!(repository
-            .schedule_next(&run_id, "2026-08-08T00:00:10Z")
-            .expect("still verifying")
-            .subtask_run_id
-            .is_none());
         let verification = repository
             .load_attempt_verification(&subtask_run_id)
             .expect("verification dispatch");

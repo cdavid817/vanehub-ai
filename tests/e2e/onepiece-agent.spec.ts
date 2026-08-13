@@ -70,12 +70,12 @@ test.describe("OnePiece native Agent", () => {
     await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
 
     await page.getByTitle("运行模式：继承").click();
-    await page.getByRole("button", { name: /规划.*只读分析/ }).click();
-    await expect(page.getByTitle("运行模式：规划")).toBeVisible();
+    await page.getByRole("menuitemradio", { name: /计划.*只读/ }).click();
+    await expect(page.getByTitle(/运行模式：计划.*只读/)).toBeVisible();
     await expect(page.getByTestId("effective-execution-policy")).toContainText("最终行为：只读");
 
-    await page.getByTitle("运行模式：规划").click();
-    await page.getByRole("button", { name: /继承.*Agent 权限策略/ }).click();
+    await page.getByTitle(/运行模式：计划.*只读/).click();
+    await page.getByRole("menuitemradio", { name: /继承.*Agent 权限策略/ }).click();
     await expect(page.getByTestId("effective-execution-policy")).toContainText("危险操作需要审批");
 
     await composer.fill("检查项目并总结当前状态");
