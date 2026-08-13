@@ -5,7 +5,8 @@
 use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
-    AgentMessage, GenerationProcessEvent, GenerationProcessFailure, ToolDefinition, ToolUseBlock,
+    AgentMessage, AgentUsageOverlap, GenerationProcessEvent, GenerationProcessFailure,
+    ReportedUsageTotals, ToolDefinition, ToolUseBlock,
 };
 use serde_json::{json, Value};
 
@@ -120,6 +121,14 @@ pub(crate) fn translate_sse_data(
         .and_then(Value::as_str)
         .unwrap_or_default();
     match event_type {
+        "message_start" => {
+            update_anthropic_usage(&value, accumulator, "/message/usage");
+            None
+        }
+        "message_delta" => {
+            update_anthropic_usage(&value, accumulator, "/usage");
+            None
+        }
         "content_block_start" => {
             translate_content_block_start(&value, accumulator);
             None
@@ -131,10 +140,44 @@ pub(crate) fn translate_sse_data(
             }
             None
         }
-        "message_stop" => Some(GenerationProcessEvent::Completed(None)),
+        "message_stop" => Some(GenerationProcessEvent::Completed(accumulator.take_usage())),
         "error" => Some(GenerationProcessEvent::Failed(translate_error(&value))),
         _ => None,
     }
+}
+
+fn update_anthropic_usage(value: &Value, accumulator: &mut ToolCallAccumulator, pointer: &str) {
+    let Some(usage) = value.pointer(pointer) else {
+        return;
+    };
+    let previous = accumulator.take_usage().unwrap_or_default();
+    accumulator.update_usage(ReportedUsageTotals {
+        input_tokens: usage
+            .get("input_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(previous.input_tokens)
+            .max(0),
+        output_tokens: usage
+            .get("output_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(previous.output_tokens)
+            .max(0),
+        cache_read_tokens: usage
+            .get("cache_read_input_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(previous.cache_read_tokens)
+            .max(0),
+        cache_creation_tokens: usage
+            .get("cache_creation_input_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(previous.cache_creation_tokens)
+            .max(0),
+        provider_total_tokens: None,
+        cache_overlap: AgentUsageOverlap::Exclusive,
+        reasoning_overlap: AgentUsageOverlap::Subset,
+        normalization_version: "anthropic-messages-stream-usage-v1",
+        ..previous
+    });
 }
 
 fn block_index(value: &Value) -> Option<u32> {
@@ -359,6 +402,7 @@ mod tests {
         let options = GenerationOptions {
             thinking: true,
             reasoning_depth: None,
+            include_stream_usage: false,
         };
         let body = build_request_body("claude-opus-4-8", &[], &[], None, &options);
         assert_eq!(body["thinking"], json!({ "type": "adaptive" }));
@@ -375,6 +419,7 @@ mod tests {
         let options = GenerationOptions {
             thinking: false,
             reasoning_depth: Some("high"),
+            include_stream_usage: false,
         };
         let body = build_request_body("claude-opus-4-8", &[], &[], None, &options);
         assert!(body.get("thinking").is_none());
@@ -459,6 +504,35 @@ mod tests {
             translate(data),
             Some(GenerationProcessEvent::Completed(None))
         );
+    }
+
+    #[test]
+    fn stream_usage_accumulates_start_and_delta_without_folding_dimensions() {
+        let mut accumulator = ToolCallAccumulator::default();
+        assert_eq!(
+            translate_sse_data(
+                r#"{"type":"message_start","message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":3,"cache_read_input_tokens":7,"output_tokens":1}}}"#,
+                &mut accumulator,
+            ),
+            None
+        );
+        assert_eq!(
+            translate_sse_data(
+                r#"{"type":"message_delta","usage":{"output_tokens":9}}"#,
+                &mut accumulator,
+            ),
+            None
+        );
+        let Some(GenerationProcessEvent::Completed(Some(usage))) =
+            translate_sse_data(r#"{"type":"message_stop"}"#, &mut accumulator)
+        else {
+            panic!("expected completed usage");
+        };
+        assert_eq!(usage.input_tokens, 12);
+        assert_eq!(usage.output_tokens, 9);
+        assert_eq!(usage.cache_creation_tokens, 3);
+        assert_eq!(usage.cache_read_tokens, 7);
+        assert_eq!(usage.cache_overlap, AgentUsageOverlap::Exclusive);
     }
 
     #[test]

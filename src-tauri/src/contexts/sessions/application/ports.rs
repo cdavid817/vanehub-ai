@@ -183,14 +183,6 @@ pub(crate) trait SessionUsageRepository: Send + Sync {
         session_id: &str,
         generated_at: &str,
     ) -> Result<SessionUsageSummary, SessionsApplicationError>;
-
-    fn terminal_usage_message_id(
-        &self,
-        _session_id: &str,
-        _agent_id: &str,
-    ) -> Result<Option<String>, SessionsApplicationError> {
-        Ok(None)
-    }
 }
 
 pub(crate) trait SessionTransactionPort: Send + Sync {
@@ -275,6 +267,7 @@ pub(crate) trait SessionTransactionPort: Send + Sync {
         &self,
         message: &MessageRecord,
         usage: Option<&MessageUsageRecord>,
+        invocation_usage: Option<&super::CompletedInvocationAccounting>,
     ) -> Result<MessageRecord, SessionsApplicationError>;
 
     fn save_runtime_session(

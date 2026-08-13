@@ -38,7 +38,6 @@ pub(crate) use expert_role::{
 pub(crate) use loop_control::{LoopControlApplicationPorts, LoopControlApplicationService};
 #[cfg(test)]
 pub(crate) use loop_models::LoopLimitsView;
-#[cfg(test)]
 pub(crate) use loop_models::LoopVerificationCommandView;
 pub(crate) use loop_models::{
     ContinueLoopRequest, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
@@ -65,24 +64,26 @@ pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationSe
 pub(crate) use models::AgentLaunchView;
 pub(crate) use models::{
     format_memory_section, ActiveGenerationCorrelation, AgentChatConfiguration,
-    AgentCoreInstructions, AgentEvent, AgentFileReference, AgentLog, AgentLogLevel, AgentMemory,
-    AgentMessage, AgentMessageSource, AgentMessageTerminal, AgentMessageTerminalOutcome,
-    AgentMessageTerminalReceiver, AgentOperation, AgentSession, AgentSessionDetails,
-    AgentSessionSeat, AgentSkillReadRequest, AgentTerminalCapability, AgentTerminalEvent,
-    AgentTerminalInputRequest, AgentTerminalProcessRequest, AgentTerminalSession,
-    AgentTerminalSize, AgentTerminalState, AgentToolCallOutcome, AgentUsageAccountingKind,
-    AgentUsageRecord, AgentView, ApiProviderConfig, BoundSkillPrompt, CliProfileSnapshot,
-    CompleteAgentMessage, DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
-    DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, GenerationCancellation,
-    GenerationLease, GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest,
-    LaunchWorkflowResult, LoopLog, LoopOperationContext, LoopOperationKind,
-    LoopRoleGenerationOutcome, LoopRoleGenerationOwnership, LoopRoleGenerationTerminal,
-    LoopVerificationCancellation, LoopVerificationProcessRequest, LoopVerificationProcessResult,
-    LoopVerificationProcessStatus, MemorySource, MessageTokenUsage, NewAgentMessage,
-    OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest, OnePieceProviderConfig,
-    OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
-    OnePieceProviderPreset, OnePieceProviderProfile, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, PendingPromptExecution, PersonalizationSettings,
+    AgentCoreInstructions, AgentEvent, AgentFileReference, AgentInvocationUsage, AgentLog,
+    AgentLogLevel, AgentMemory, AgentMessage, AgentMessageSource, AgentMessageTerminal,
+    AgentMessageTerminalOutcome, AgentMessageTerminalReceiver, AgentOperation, AgentSession,
+    AgentSessionDetails, AgentSessionSeat, AgentSkillReadRequest, AgentTerminalCapability,
+    AgentTerminalEvent, AgentTerminalInputRequest, AgentTerminalProcessRequest,
+    AgentTerminalSession, AgentTerminalSize, AgentTerminalState, AgentToolCallOutcome,
+    AgentUsageAccountingKind, AgentUsageOverlap, AgentUsageRecord, AgentView, ApiProviderConfig,
+    BoundSkillPrompt, CliProfileSnapshot, CompleteAgentMessage,
+    DiscoverOnePieceProviderModelsInput, DurableAgentGenerationMessages,
+    DurableAgentGenerationStart, EffectivePrompt, EmbeddingEndpointView, ExecutionToolMode,
+    GenerationCancellation, GenerationLease, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, LaunchWorkflowResult, LoopLog, LoopOperationContext,
+    LoopOperationKind, LoopRoleGenerationOutcome, LoopRoleGenerationOwnership,
+    LoopRoleGenerationTerminal, LoopVerificationCancellation, LoopVerificationProcessRequest,
+    LoopVerificationProcessResult, LoopVerificationProcessStatus, MemorySource, MessageTokenUsage,
+    NewAgentMessage, OnePieceDiscoveredModel, OnePieceModelDiscoveryRequest,
+    OnePieceProviderConfig, OnePieceProviderEndpoint, OnePieceProviderModelDiscoveryResult,
+    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfile,
+    OnePieceProviderProfiles, OpenAgentTerminalRequest, OrchestrationCorrelation,
+    OrchestrationExecutionProfile, PendingPromptExecution, PersonalizationSettings,
     ProcessStopInitiator, PromptExecutionOutcome, PromptExecutionReport, PromptTrace,
     PromptVersionReference, ProviderCredentialProbeAuthentication, ProviderCredentialProbeProtocol,
     ProviderCredentialProbeRequest, ProviderCredentialValidationResult,
@@ -97,8 +98,13 @@ pub(crate) use models::{
 };
 
 #[cfg(test)]
+pub(crate) use models::{OnePiecePlanningRequest, OnePiecePlanningResult};
+
+#[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use models::SeatTurnStatus;
+#[cfg(test)]
+pub(crate) use ports::OnePiecePlanningPort;
 pub(crate) use ports::SeatTurnCompletionPort;
 pub(crate) use ports::{
     AgentAvailabilityGateway, AgentCliProfileGateway, AgentClockPort, AgentCodeRetrievalHit,

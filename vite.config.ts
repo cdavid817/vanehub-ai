@@ -27,7 +27,11 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     warmup: {
-      clientFiles: ["./src/main.tsx"],
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/settings/pages/basic-settings-page.tsx",
+        "./src/settings/pages/agent-configurations-page.tsx",
+      ],
     },
     watch: {
       ignored: [

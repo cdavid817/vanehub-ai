@@ -878,7 +878,7 @@ describe("webAgentClient", () => {
       .rejects.toThrow("not allowed for quarantined");
   });
 
-  it("aggregates mock usage statistics from completed assistant messages", async () => {
+  it("does not relabel completed message character counts as usage", async () => {
     vi.useFakeTimers();
     const session = await createMockSession({
       agentId: "codex-cli",
@@ -903,14 +903,14 @@ describe("webAgentClient", () => {
     await vi.advanceTimersByTimeAsync(3_000);
     const after = await webAgentClient.getUsageStatistics({ range: "all" });
 
-    expect(after.estimated.inputCharacters - before.estimated.inputCharacters).toBe(content.length);
-    expect(after.estimated.outputCharacters).toBeGreaterThan(before.estimated.outputCharacters);
-    expect(after.estimated.totalCharacters).toBe(
-      after.estimated.inputCharacters + after.estimated.outputCharacters,
+    const { generatedAt: beforeGeneratedAt, ...beforeUsage } = before;
+    const { generatedAt: afterGeneratedAt, ...afterUsage } = after;
+    expect(afterUsage).toEqual(beforeUsage);
+    expect(new Date(afterGeneratedAt).getTime()).toBeGreaterThanOrEqual(
+      new Date(beforeGeneratedAt).getTime(),
     );
-    expect(after.reported.totalTokens).toBe(before.reported.totalTokens);
-    expect(after.coverage.estimatedResponses).toBe(before.coverage.estimatedResponses + 1);
-    expect(after.countedSessions).toBeGreaterThanOrEqual(before.countedSessions);
+    const messages = await webAgentClient.listMessages({ sessionId: session.id });
+    expect(messages.find((message) => message.role === "assistant")?.tokenUsage).toBeUndefined();
   });
 
   it("cancels active mock generation and preserves partial content", async () => {

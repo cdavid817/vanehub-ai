@@ -1,10 +1,11 @@
 use super::providers::{
     add_codex_output_capture_args, output_parser_for_format, ProviderOutputEvent,
     ProviderPromptDelivery, ProviderReportedUsage, ProviderToolEvent, ProviderToolPhase,
+    ProviderUsageOverlap,
 };
 use crate::contexts::agent_runtime::application::{
     AgentClockPort, AgentLog, AgentLogLevel, AgentLoggingPort, AgentProcessEventSink,
-    AgentProcessGateway, AgentRuntimeApplicationError, GenerationProcessEvent,
+    AgentProcessGateway, AgentRuntimeApplicationError, AgentUsageOverlap, GenerationProcessEvent,
     GenerationProcessFailure, GenerationProcessRequest, ProviderGenerationInvocationRequest,
     ProviderOutputFormat, ProviderRegistry, ReportedUsageTotals, StartedGenerationProcess,
     ToolLifecycleEvent, ToolLifecyclePhase, ToolUseBlock, WorkflowLaunchOutcome,
@@ -663,6 +664,24 @@ impl ProcessMonitor {
                         None
                     }
                     ProviderOutputEvent::Completed(usage) => {
+                        if let Some(reason) = usage_degradation_reason(usage.as_ref()) {
+                            let adapter_version = usage.as_ref().map_or_else(
+                                || output_adapter_name(output_format),
+                                |value| value.normalization_version,
+                            );
+                            let _ = logging.record(AgentLog {
+                                level: AgentLogLevel::Warn,
+                                category: "token.accounting.ingestion".to_string(),
+                                message: usage_degradation_message(reason, adapter_version),
+                                agent_id: Some(agent_id.clone()),
+                                session_id: Some(session_id.clone()),
+                                operation_id: Some(operation_id.clone()),
+                                run_id: Some(execution_context.run_id.as_str().to_string()),
+                                trace_id: Some(execution_context.trace_id.as_str().to_string()),
+                                span_id: Some(execution_context.span_id.as_str().to_string()),
+                                occurred_at: clock.now(),
+                            });
+                        }
                         reported_usage = usage.map(normalize_provider_usage);
                         None
                     }
@@ -796,12 +815,60 @@ impl ProcessMonitor {
 /// converts `ProviderToolEvent` — keeping `agent_runtime::application` free of a
 /// concrete infrastructure type. See `add-reported-usage-ingestion` design.md Decision 0.
 fn normalize_provider_usage(usage: ProviderReportedUsage) -> ReportedUsageTotals {
+    let overlap = |value| match value {
+        ProviderUsageOverlap::Subset => AgentUsageOverlap::Subset,
+        ProviderUsageOverlap::Exclusive => AgentUsageOverlap::Exclusive,
+        ProviderUsageOverlap::Unknown => AgentUsageOverlap::Unknown,
+    };
     ReportedUsageTotals {
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cache_read_tokens: usage.cache_read_tokens,
         cache_creation_tokens: usage.cache_creation_tokens,
+        reasoning_output_tokens: usage.reasoning_output_tokens,
+        provider_total_tokens: usage.provider_total_tokens,
+        cache_overlap: overlap(usage.cache_overlap),
+        reasoning_overlap: overlap(usage.reasoning_overlap),
+        normalization_version: usage.normalization_version,
+        model_id: usage.model_id,
+        source_identity: usage.source_identity,
+        source_revision: usage.source_revision,
     }
+}
+
+fn output_adapter_name(format: ProviderOutputFormat) -> &'static str {
+    match format {
+        ProviderOutputFormat::ClaudeStreamJson => "claude-stream-json",
+        ProviderOutputFormat::StructuredJsonLines => "structured-json-lines",
+        ProviderOutputFormat::AntigravityStreamJson => "antigravity-stream-json",
+    }
+}
+
+fn provider_usage_diagnostic_reason(usage: Option<&ProviderReportedUsage>) -> Option<&'static str> {
+    let usage = usage?;
+    let mut derived = usage.input_tokens.checked_add(usage.output_tokens)?;
+    if usage.cache_overlap == ProviderUsageOverlap::Exclusive {
+        derived = derived.checked_add(usage.cache_read_tokens)?;
+        derived = derived.checked_add(usage.cache_creation_tokens)?;
+    }
+    if usage.reasoning_overlap == ProviderUsageOverlap::Exclusive {
+        derived = derived.checked_add(usage.reasoning_output_tokens)?;
+    }
+    usage
+        .provider_total_tokens
+        .filter(|total| *total != derived)
+        .map(|_| "semantic_mismatch")
+}
+
+fn usage_degradation_reason(usage: Option<&ProviderReportedUsage>) -> Option<&'static str> {
+    usage
+        .is_none()
+        .then_some("missing_or_unsupported_schema")
+        .or_else(|| provider_usage_diagnostic_reason(usage))
+}
+
+fn usage_degradation_message(reason: &str, adapter_version: &str) -> String {
+    format!("CLI usage degraded reason={reason} adapter={adapter_version}")
 }
 
 fn normalize_provider_tool(tool: ProviderToolEvent, sequence: u64) -> ToolLifecycleEvent {
@@ -1140,6 +1207,52 @@ mod terminal_event_tests {
     fn a_successful_exit_completes_with_its_usage() {
         let terminal = compose_terminal_event(None, Ok(ProcessExitOutcome::Success), "", None);
         assert!(matches!(terminal, GenerationProcessEvent::Completed(None)));
+    }
+
+    #[test]
+    fn usage_diagnostics_are_bounded_and_exclude_provider_content() {
+        let usage = ProviderReportedUsage {
+            input_tokens: 5,
+            output_tokens: 3,
+            provider_total_tokens: Some(99),
+            cache_overlap: ProviderUsageOverlap::Subset,
+            reasoning_overlap: ProviderUsageOverlap::Subset,
+            normalization_version: "fixture-adapter-v1",
+            model_id: Some("prompt=private response=private token=credential".to_string()),
+            source_identity: Some("C:\\private\\raw-event.jsonl".to_string()),
+            source_revision: Some("--api-key secret argument".to_string()),
+            ..ProviderReportedUsage::default()
+        };
+        let reason = usage_degradation_reason(Some(&usage)).expect("diagnostic reason");
+        let message = usage_degradation_message(reason, usage.normalization_version);
+
+        assert_eq!(reason, "semantic_mismatch");
+        assert!(message.len() <= 128);
+        for secret in [
+            "prompt=private",
+            "response=private",
+            "credential",
+            "private\\raw-event",
+            "api-key",
+            "secret argument",
+        ] {
+            assert!(!message.contains(secret), "diagnostic leaked {secret}");
+        }
+    }
+
+    #[test]
+    fn absent_usage_reports_an_unsupported_schema_without_raw_event_data() {
+        assert_eq!(
+            usage_degradation_reason(None),
+            Some("missing_or_unsupported_schema")
+        );
+        assert_eq!(
+            usage_degradation_message(
+                "missing_or_unsupported_schema",
+                output_adapter_name(ProviderOutputFormat::StructuredJsonLines)
+            ),
+            "CLI usage degraded reason=missing_or_unsupported_schema adapter=structured-json-lines"
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { createSession } from "./session-helpers";
 
 test.describe("Loop engineering", () => {
   test("runs a Loop through pause, inspection, feedback, and acceptance while preserving session state", async ({ page }) => {
+    test.setTimeout(120_000);
     await page.goto("/");
     await createSession(page, "Loop 导航保留测试");
     // The session-created toast auto-dismisses after ~5s (see notification-reducer.ts's
@@ -27,6 +28,10 @@ test.describe("Loop engineering", () => {
     await openLoops(page);
 
     const loopCenter = page.locator("#loop-center");
+    await page.evaluate(async () => {
+      const module = await import("/src/services/web-agent-client.ts");
+      module.setWebLoopPhaseDelayForTest(1_000);
+    });
     await createAndRunLoop(page, "Playwright 接受循环");
     await expect(loopCenter.getByText("运行中", { exact: true }).first()).toBeVisible();
     await loopCenter.getByRole("button", { name: "暂停", exact: true }).click({ force: true });

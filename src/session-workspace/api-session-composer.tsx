@@ -5,7 +5,7 @@ import { activeSeatsFromSession } from "../services/session-seats";
 import { seatMentionOptions } from "../services/seat-mention-options";
 import { canSendToSession } from "../services/session-admission";
 
-export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
+export function ApiSessionComposer({ model, onOpenPlan }: { model: MainLayoutModel; onOpenPlan?: () => void }) {
   const isMultiSeat = Boolean(model.activeSession && activeSeatsFromSession(model.activeSession).length > 1);
   const roles = useSessionRoles(isMultiSeat);
   const participantMentions = seatMentionOptions(model.activeSession, model.agents, roles);
@@ -33,6 +33,7 @@ export function ApiSessionComposer({ model }: { model: MainLayoutModel }) {
       onConfigReasoningChange={model.chatConfig.setReasoningDepth}
       onConfigStreamingChange={model.chatConfig.setStreaming}
       onConfigThinkingChange={model.chatConfig.setThinking}
+      onOpenPlan={model.chatConfig.associatedPlanRun ? onOpenPlan : undefined}
       onRemoveFileReference={model.removeFileReference}
       onStop={model.stop}
       onSubmit={model.submit}

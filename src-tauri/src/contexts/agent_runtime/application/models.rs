@@ -515,16 +515,32 @@ pub(crate) enum AgentUsageAccountingKind {
     Estimated,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum AgentUsageOverlap {
+    Subset,
+    Exclusive,
+    #[default]
+    Unknown,
+}
+
 /// Reported token usage normalized to the application layer's own shape — kept
 /// separate from `agent_runtime::infrastructure::ProviderReportedUsage` (the raw
 /// per-CLI shape) so this layer never depends on an infrastructure-defined type.
 /// See `add-reported-usage-ingestion` design.md Decision 0/2.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ReportedUsageTotals {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_read_tokens: i64,
     pub(crate) cache_creation_tokens: i64,
+    pub(crate) reasoning_output_tokens: i64,
+    pub(crate) provider_total_tokens: Option<i64>,
+    pub(crate) cache_overlap: AgentUsageOverlap,
+    pub(crate) reasoning_overlap: AgentUsageOverlap,
+    pub(crate) normalization_version: &'static str,
+    pub(crate) model_id: Option<String>,
+    pub(crate) source_identity: Option<String>,
+    pub(crate) source_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -539,8 +555,25 @@ pub(crate) struct AgentUsageRecord {
     pub(crate) output_count: i64,
     pub(crate) cache_read_count: i64,
     pub(crate) cache_creation_count: i64,
+    pub(crate) reasoning_output_count: i64,
+    pub(crate) provider_total_count: Option<i64>,
+    pub(crate) cache_overlap: AgentUsageOverlap,
+    pub(crate) reasoning_overlap: AgentUsageOverlap,
+    pub(crate) normalization_version: String,
     pub(crate) source: String,
     pub(crate) occurred_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentInvocationUsage {
+    pub(crate) invocation_id: String,
+    pub(crate) observation_id: String,
+    pub(crate) generation_id: String,
+    pub(crate) run_id: String,
+    pub(crate) operation_id: String,
+    pub(crate) source_identity: Option<String>,
+    pub(crate) source_revision: Option<String>,
+    pub(crate) usage: AgentUsageRecord,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -553,6 +586,7 @@ pub(crate) struct CompleteAgentMessage {
     pub(crate) rich_blocks: Vec<Value>,
     pub(crate) token_usage: Option<MessageTokenUsage>,
     pub(crate) usage: Option<AgentUsageRecord>,
+    pub(crate) invocation_usage: Option<AgentInvocationUsage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -626,6 +660,55 @@ pub(crate) struct WorkflowLaunchRequest {
 pub(crate) struct WorkflowLaunchOutcome {
     pub(crate) adapter: String,
     pub(crate) message: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ExecutionToolMode {
+    Standard,
+    #[allow(dead_code)]
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OrchestrationCorrelation {
+    pub(crate) plan_run_id: Option<String>,
+    pub(crate) subtask_run_id: Option<String>,
+    pub(crate) attempt_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OrchestrationExecutionProfile {
+    pub(crate) bounded_root: Option<String>,
+    pub(crate) tool_mode: ExecutionToolMode,
+    pub(crate) permitted_tools: Vec<String>,
+    pub(crate) tool_call_limit: Option<u32>,
+    pub(crate) token_budget: Option<u32>,
+    pub(crate) timeout_seconds: Option<u64>,
+    pub(crate) correlation: OrchestrationCorrelation,
+}
+
+#[allow(dead_code)]
+impl OrchestrationExecutionProfile {
+    pub(crate) fn validate_for_session(&self, session: &AgentSession) -> Result<(), &'static str> {
+        if self.tool_call_limit == Some(0)
+            || self.token_budget == Some(0)
+            || self.timeout_seconds == Some(0)
+        {
+            return Err("orchestration execution limits must be positive");
+        }
+        if self
+            .bounded_root
+            .as_deref()
+            .is_some_and(|root| session.folder.as_deref() != Some(root))
+        {
+            return Err("orchestration bounded root does not match the session root");
+        }
+        if matches!(self.tool_mode, ExecutionToolMode::Disabled) && !self.permitted_tools.is_empty()
+        {
+            return Err("a tool-less orchestration request cannot permit tools");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1051,6 +1134,7 @@ pub(crate) struct OnePieceProviderEndpoint {
     pub(crate) source: String,
     pub(crate) model_discovery_strategy: String,
     pub(crate) model_discovery_url: Option<String>,
+    pub(crate) stream_usage_strategy: String,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -1144,6 +1228,26 @@ pub(crate) struct OnePieceProviderModelDiscoveryResult {
 pub(crate) struct OnePieceProviderProfiles {
     pub(crate) profiles: Vec<OnePieceProviderProfile>,
     pub(crate) active_profile_id: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningRequest {
+    pub(crate) instruction_version: u32,
+    pub(crate) prompt: String,
+    pub(crate) bounded_root: String,
+    pub(crate) permitted_tools: Vec<String>,
+    pub(crate) tool_call_limit: u32,
+    pub(crate) token_budget: u32,
+    pub(crate) timeout_seconds: u64,
+}
+
+#[cfg(test)]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningResult {
+    pub(crate) content: String,
+    pub(crate) profile_id: String,
+    pub(crate) model_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,6 +9,12 @@ describe("frontend feature module boundaries", () => {
     expect(source).not.toMatch(/from "\.\/pages\//);
   });
 
+  it("warms the settings modules used by reload-heavy browser tests", () => {
+    const viteConfig = read("../vite.config.ts");
+    expect(viteConfig).toContain('"./src/settings/pages/basic-settings-page.tsx"');
+    expect(viteConfig).toContain('"./src/settings/pages/agent-configurations-page.tsx"');
+  });
+
   it("keeps Loop Center and non-default session tabs behind dynamic imports", () => {
     const mainLayout = read("main-layout/main-layout.tsx");
     const sessionTabs = read("session-workspace/session-tabs.tsx");

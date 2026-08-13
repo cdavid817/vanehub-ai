@@ -442,6 +442,75 @@ impl SessionUsageRepository for FakeStore {
     }
 }
 
+impl TokenAccountingRepository for FakeStore {
+    fn start_invocation(
+        &self,
+        _invocation: &NewModelInvocation,
+    ) -> Result<ModelInvocationRecord, SessionsApplicationError> {
+        Err(SessionsApplicationError::Repository(
+            "accounting is not configured in this unit fixture".to_string(),
+        ))
+    }
+
+    fn finalize_invocation(
+        &self,
+        _invocation_id: &str,
+        _status: crate::contexts::sessions::domain::UsageStatus,
+        _completed_at: &str,
+    ) -> Result<ModelInvocationRecord, SessionsApplicationError> {
+        Err(SessionsApplicationError::Repository(
+            "accounting is not configured in this unit fixture".to_string(),
+        ))
+    }
+
+    fn record_observation(
+        &self,
+        _observation: &NewUsageObservation,
+    ) -> Result<TokenUsageObservation, SessionsApplicationError> {
+        Err(SessionsApplicationError::Repository(
+            "accounting is not configured in this unit fixture".to_string(),
+        ))
+    }
+
+    fn advance_cursor(
+        &self,
+        _advance: &UsageCursorAdvance,
+    ) -> Result<UsageCursor, SessionsApplicationError> {
+        Err(SessionsApplicationError::Repository(
+            "accounting is not configured in this unit fixture".to_string(),
+        ))
+    }
+
+    fn find_cursor(
+        &self,
+        _source_id: &str,
+    ) -> Result<Option<UsageCursor>, SessionsApplicationError> {
+        Ok(None)
+    }
+}
+
+impl TokenAccountingQueryPort for FakeStore {
+    fn usage_summary(
+        &self,
+        _query: &UsageSummaryQuery,
+    ) -> Result<UsageAccountingSummary, SessionsApplicationError> {
+        Err(SessionsApplicationError::Repository(
+            "accounting is not configured in this unit fixture".to_string(),
+        ))
+    }
+
+    fn invocation_details(
+        &self,
+        _query: &InvocationDetailQuery,
+    ) -> Result<UsageDetailPage, SessionsApplicationError> {
+        Ok(UsageDetailPage {
+            invocations: Vec::new(),
+            observations: Vec::new(),
+            next_cursor: None,
+        })
+    }
+}
+
 impl SessionTransactionPort for FakeStore {
     fn acknowledge_recovery(
         &self,
@@ -579,6 +648,7 @@ impl SessionTransactionPort for FakeStore {
         &self,
         message: &MessageRecord,
         usage: Option<&MessageUsageRecord>,
+        _invocation_usage: Option<&CompletedInvocationAccounting>,
     ) -> Result<MessageRecord, SessionsApplicationError> {
         self.seed_message(message.clone());
         self.events.lock().expect("events").push(format!(
@@ -989,6 +1059,7 @@ fn fixture() -> Fixture {
         categories: store.clone(),
         configurations: store.clone(),
         usage: store.clone(),
+        accounting: store.clone(),
         transactions: store.clone(),
         recovery_reports: store.clone(),
         recovery_events: store.clone(),
@@ -1711,6 +1782,7 @@ fn configuration_message_file_and_export_use_cases_use_only_ports() {
                 source: "provider".to_string(),
                 occurred_at: "2026-07-18T10:00:00+00:00".to_string(),
             }),
+            invocation_usage: None,
         })
         .expect("complete message");
     assert_eq!(completed.message.status(), MessageStatus::Completed);
@@ -1997,6 +2069,29 @@ fn search_usage_and_maintenance_use_bounded_queries_and_deterministic_clock() {
             .expect("usage queries")
             .len(),
         before_unknown_query_count
+    );
+
+    let accounting_error = fixture
+        .service
+        .token_usage_summary(&UsageSummaryQuery {
+            session_id: Some("session-missing".to_string()),
+            message_id: None,
+            generation_id: None,
+            agent_id: None,
+            provider_id: None,
+            model_id: None,
+            purpose: None,
+            quality: None,
+            status: None,
+            range_start: None,
+            range_end: None,
+            breakdown_limit: 10,
+            generated_at: String::new(),
+        })
+        .expect_err("missing accounting session");
+    assert_eq!(
+        accounting_error,
+        SessionsApplicationError::SessionNotFound("session-missing".to_string())
     );
 
     let result = fixture

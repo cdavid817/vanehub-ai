@@ -10,3 +10,12 @@ export function UsageLoadError({ error }: { error: unknown }) {
     </div>
   );
 }
+
+export function UsageEmptyState() {
+  const { t } = useTranslation();
+  return (
+    <div className="ucd-panel rounded-lg p-8 text-center text-sm text-muted-foreground" role="status">
+      {t("usage.empty")}
+    </div>
+  );
+}
