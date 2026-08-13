@@ -111,6 +111,19 @@ test.describe("OnePiece native Agent", () => {
     await expect(toolActivity.getByTestId("tool-activity-content")).toBeHidden();
     await activityToggle.click();
     await expect(toolActivity.getByTestId("tool-activity-content")).toBeVisible();
+
+    const feedback = page.getByTestId("message-feedback-controls").last();
+    await expect(feedback).toBeVisible();
+    await feedback.getByRole("button", { name: "有帮助", exact: true }).click();
+    await expect(feedback.getByRole("button", { name: "有帮助", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await feedback.getByRole("button", { name: "提出纠正" }).click();
+    await feedback.getByLabel("需要纠正什么？").fill("请先概括风险，再请求工具审批。");
+    page.once("dialog", (dialog) => dialog.accept());
+    await feedback.getByRole("button", { name: "保存" }).click();
+    await expect(feedback.getByRole("button", { name: "提出纠正" })).toHaveAttribute("aria-pressed", "true");
+    page.once("dialog", (dialog) => dialog.accept());
+    await feedback.getByRole("button", { name: "清除反馈" }).click();
+    await expect(feedback.getByRole("button", { name: "清除反馈" })).toHaveCount(0);
   });
 
   test("keeps Agent Configuration free of registered-Agent management and all built-in CLIs selectable", async ({ page }) => {

@@ -37,6 +37,10 @@ pub(crate) fn invoke_handler(
         crate::commands::agent_runtime::send_agent_terminal_input::send_agent_terminal_input,
         crate::commands::agent_runtime::resize_agent_terminal::resize_agent_terminal,
         crate::commands::agent_runtime::stop_agent_terminal::stop_agent_terminal,
+        crate::commands::skill_evolution_evidence::save_message_feedback::save_message_feedback,
+        crate::commands::skill_evolution_evidence::query_evidence::query_skill_evolution_evidence,
+        crate::commands::skill_evolution_evidence::query_evidence::get_skill_evolution_seed_lineage,
+        crate::commands::skill_evolution_evidence::purge_evidence::purge_skill_evolution_evidence,
         // Execution Observability
         crate::commands::execution_observability::get_observability_settings::get_observability_settings,
         crate::commands::execution_observability::update_observability_settings::update_observability_settings,

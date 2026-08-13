@@ -6,12 +6,13 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 61. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 62. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections.
+/// Migration 62 adds the privacy-bounded Skill evolution evidence store.
 fn expected_versions() -> Vec<i64> {
-    (1..=61).collect()
+    (1..=62).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

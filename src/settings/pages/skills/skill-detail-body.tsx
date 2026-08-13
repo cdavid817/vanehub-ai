@@ -4,6 +4,7 @@ import { Badge } from "../../../components/ui/badge";
 import type { Skill, SkillLoadOutcome, SkillShadowSummary } from "../../../types/skill";
 import type { SkillOverlayDetail, SkillOverlayTargetInput } from "../../../types/skill-overlay";
 import { SkillOverlayOverview } from "./skill-overlay-overview";
+import { SkillEvolutionEvidence } from "./skill-evolution-evidence";
 
 export function SkillDetailBody({
   skill,
@@ -55,6 +56,8 @@ export function SkillDetailBody({
       </p>
     </section>
 
+    <SkillEvolutionEvidence skill={skill} />
+
     <SkillOverlayOverview
       detail={overlayDetail}
       error={overlayError}
@@ -86,7 +89,8 @@ function Guidance({ skill, compatibilityDefaulted }: { skill: Skill; compatibili
   const { t } = useTranslation();
   const items = [
     skill.immutable ? { icon: LockKeyhole, text: t("skills.immutable.explanation") } : null,
-    skill.metadata.type === "utility" && skill.availability === "unsupported" ? { icon: TriangleAlert, text: t("skills.utility.unavailable") } : null,
+    skill.metadata.type === "utility" && skill.delegationCapability?.supported ? { icon: CircleCheck, text: t("skills.utility.available") } : null,
+    skill.metadata.type === "utility" && !skill.delegationCapability?.supported ? { icon: TriangleAlert, text: t("skills.utility.unavailable") } : null,
     compatibilityDefaulted ? { icon: Info, text: t("skills.compatibility.explanation") } : null,
     skill.origin === "migrated" ? { icon: Info, text: t("skills.migration.preservedOverride") } : null,
   ].filter((item): item is { icon: typeof Info; text: string } => item !== null);

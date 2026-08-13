@@ -14,6 +14,7 @@ mod composite_process_gateway;
 mod core_instructions;
 mod credential_aware_registry;
 mod events;
+mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
 mod loop_execution_coordinator;
@@ -51,6 +52,7 @@ mod terminal_usage_ingestion;
 mod terminal_wrapper;
 mod tool_call_accumulator;
 mod tools;
+mod utility_delegation;
 
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
@@ -64,6 +66,7 @@ pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::TauriAgentRuntimeEventAdapter;
+pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
@@ -83,6 +86,7 @@ pub(crate) use permission_adapter::PermissionsPortAdapter;
 pub(crate) use personalization_gateway::RuntimeAgentPersonalizationAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
+    RuntimeProcessEvidenceDependencies,
 };
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
@@ -102,6 +106,7 @@ pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
+pub(crate) use utility_delegation::{NativeUtilityChildExecutor, RuntimeUtilityLifecycleProjector};
 
 #[cfg(test)]
 mod tests;

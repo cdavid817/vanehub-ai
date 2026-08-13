@@ -5,6 +5,20 @@ import type { PolicyTemplateName } from "./permissions";
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 export type MessageStatus = "pending" | "streaming" | "completed" | "failed" | "cancelled";
+export type MessageFeedbackState = "helpful" | "unhelpful" | "corrected";
+
+export interface MessageFeedback {
+  state: MessageFeedbackState | null;
+  revision: number;
+  correctionNote?: string;
+}
+
+export interface SaveMessageFeedbackInput {
+  messageId: string;
+  expectedRevision: number;
+  state: MessageFeedbackState | null;
+  correctionNote?: string;
+}
 
 export type ReasoningDepth = "low" | "medium" | "high" | "max";
 
@@ -233,6 +247,7 @@ export interface ChatMessage {
   updatedAt: string;
   sessionSequence: number;
   executionRunId: string | null;
+  feedback?: MessageFeedback;
 }
 
 export type ChatStreamEvent =

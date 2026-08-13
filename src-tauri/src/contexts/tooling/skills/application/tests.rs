@@ -1129,6 +1129,7 @@ impl EffectiveFixture {
         .with_effective_catalog(catalog.clone())
         .with_effective_package_reader(reader.clone())
         .with_system_materializer(Arc::new(FakeEffectiveMaterializer))
+        .with_effective_materializer(Arc::new(FakeEffectiveMaterializer))
         .with_usage_repository(usage.clone());
         Self {
             service,
@@ -2896,6 +2897,95 @@ fn progressive_load_refuses_utility_unavailable_and_ambiguous_aliases() {
     };
     assert_eq!(refusal.reason, SkillAccessRefusalReason::AmbiguousAlias);
     assert_eq!(refusal.conflicting_ids, vec!["first-skill", "second-skill"]);
+}
+
+#[test]
+fn utility_resolution_uses_exact_overlay_revision_but_load_remains_refused() {
+    let mut fixture = EffectiveFixture::new();
+    let utility = package(
+        "utility-review",
+        "user-utility-review",
+        SkillLayer::User,
+        None,
+        Some(SkillType::Utility),
+        Some(SkillDelivery::OnDemand),
+    );
+    fixture.reader.insert(&utility, "Base utility instructions");
+    fixture.catalog.set(vec![utility.clone()]);
+    let snapshots = Arc::new(FakeOverlayAppliedSnapshots::default());
+    let snapshot = overlay_applied_snapshot(
+        &utility,
+        "Base utility instructions",
+        "Overlay utility instructions",
+    );
+    let revision = snapshot.replay.effective().effective_hash().to_string();
+    snapshots.insert(&utility.metadata.id, snapshot);
+    fixture.service = fixture
+        .service
+        .clone()
+        .with_overlay_applied_snapshots(snapshots);
+
+    let UtilitySkillResolutionOutcome::Resolved(resolved) = fixture
+        .service
+        .resolve_utility_for_execution("utility-review", None)
+        .expect("Utility resolution")
+    else {
+        panic!("expected resolved Utility");
+    };
+    assert_eq!(resolved.id, "utility-review");
+    assert_eq!(resolved.revision, revision);
+    assert_eq!(resolved.instructions, "Overlay utility instructions");
+    assert!(resolved.workspace_path.is_none());
+
+    assert!(matches!(
+        fixture
+            .service
+            .load_skill_for_agent(SkillLoadRequest {
+                id_or_alias: "utility-review".to_string(),
+                workspace_path: None,
+            })
+            .expect("load refusal"),
+        SkillLoadOutcome::Refused(SkillAccessRefusal {
+            reason: SkillAccessRefusalReason::UtilityNotLoadable,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn utility_resolution_refuses_role_and_untrusted_utility() {
+    let fixture = EffectiveFixture::new();
+    let role = package(
+        "role-only",
+        "user-role-only",
+        SkillLayer::User,
+        None,
+        Some(SkillType::Role),
+        Some(SkillDelivery::OnDemand),
+    );
+    fixture.reader.insert(&role, "Role instructions");
+    let mut utility = package(
+        "imported-utility",
+        "registry-imported-utility",
+        SkillLayer::Registry,
+        None,
+        Some(SkillType::Utility),
+        Some(SkillDelivery::OnDemand),
+    );
+    utility.trust = SkillTrust::Untrusted;
+    fixture.reader.insert(&utility, "Untrusted instructions");
+    fixture.catalog.set(vec![role, utility]);
+
+    for id in ["role-only", "imported-utility"] {
+        let UtilitySkillResolutionOutcome::Refused(refusal) = fixture
+            .service
+            .resolve_utility_for_execution(id, None)
+            .expect("refusal")
+        else {
+            panic!("expected refusal for {id}");
+        };
+        assert_eq!(refusal.reason, SkillAccessRefusalReason::Unsupported);
+    }
 }
 
 #[test]

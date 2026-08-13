@@ -1,0 +1,6 @@
+//! Privacy-first Skill evolution evidence collection and projection.
+
+pub(crate) mod api;
+pub(crate) mod application;
+pub(crate) mod domain;
+pub(crate) mod infrastructure;

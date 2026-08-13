@@ -27,6 +27,7 @@ mod seat_turn_tests;
 mod service;
 mod terminal_service;
 mod tool_catalog;
+mod utility_delegation;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use error::AgentRuntimeApplicationError;
@@ -58,6 +59,7 @@ pub(crate) use loop_recovery::{LoopRecoveryApplicationPorts, LoopRecoveryApplica
 pub(crate) use loop_service::{LoopApplicationPorts, LoopApplicationService};
 pub(crate) use loop_verification::{
     LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+    LoopVerificationEvidenceFact, LoopVerificationEvidencePort,
 };
 pub(crate) use loop_verifier::{LoopVerifierApplicationPorts, LoopVerifierApplicationService};
 pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationService};
@@ -133,12 +135,19 @@ pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    code_intelligence_tool_definitions, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, EDIT_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
-    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
+    code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
+    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
+    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
+    SHELL_TOOL_NAME,
+};
+pub(crate) use utility_delegation::{
+    UtilityChildExecutionOutcome, UtilityChildExecutionPort, UtilityDelegationApplicationPorts,
+    UtilityDelegationApplicationService, UtilityDelegationEvidenceFact,
+    UtilityDelegationEvidencePort, UtilityDelegationLifecycleFact, UtilityDelegationLifecyclePort,
+    UtilityDelegationResolutionPort,
 };
 
 #[cfg(test)]

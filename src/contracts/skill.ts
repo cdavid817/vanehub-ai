@@ -21,6 +21,11 @@ export type SkillTrust = "trusted" | "untrusted";
 
 export type SkillAvailability = "available" | "disabled" | "invalid" | "conflicting" | "unsupported";
 
+export interface SkillDelegationCapability {
+  supported: boolean;
+  reason: "available" | "native-runtime-unavailable" | "not-utility" | "skill-unavailable";
+}
+
 export interface SkillScopeInput {
   scope: SkillScope;
   workspacePath?: string | null;
@@ -84,6 +89,7 @@ export interface Skill {
   origin: SkillOrigin;
   trust: SkillTrust;
   availability: SkillAvailability;
+  delegationCapability?: SkillDelegationCapability;
   immutable: boolean;
   shadowedDefinitions: SkillShadowSummary[];
   usage: SkillUsageSummary;

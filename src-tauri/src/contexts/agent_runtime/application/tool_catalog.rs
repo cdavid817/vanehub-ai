@@ -22,6 +22,7 @@ pub(crate) const EDIT_TOOL_NAME: &str = "edit";
 pub(crate) const LIST_SKILLS_TOOL_NAME: &str = "list_skills";
 pub(crate) const LOAD_SKILL_TOOL_NAME: &str = "load_skill";
 pub(crate) const READ_SKILL_RESOURCE_TOOL_NAME: &str = "read_skill_resource";
+pub(crate) const DELEGATE_UTILITY_SKILL_TOOL_NAME: &str = "delegate_utility_skill";
 pub(crate) const FIND_DEFINITION_TOOL_NAME: &str = "find_definition";
 pub(crate) const FIND_REFERENCES_TOOL_NAME: &str = "find_references";
 pub(crate) const GET_HOVER_TOOL_NAME: &str = "get_hover";
@@ -89,6 +90,26 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
     ]
+}
+
+pub(crate) fn delegate_utility_skill_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: DELEGATE_UTILITY_SKILL_TOOL_NAME.to_string(),
+        description: "Delegate one bounded specialist task to an available Utility Skill. VaneHub selects the workspace, provider, credentials, and executor.".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "skill_id": { "type": "string", "description": "Canonical Utility Skill id or unambiguous alias." },
+                "task": { "type": "string", "maxLength": 4000, "description": "The bounded specialist task." },
+                "duration_ms": { "type": "integer", "minimum": 1, "maximum": 300000 },
+                "tool_calls": { "type": "integer", "minimum": 0, "maximum": 32 },
+                "approvals": { "type": "integer", "minimum": 0, "maximum": 8 },
+                "result_chars": { "type": "integer", "minimum": 1, "maximum": 4000 }
+            },
+            "required": ["skill_id", "task"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// The catalog offered when the session's permission mode is plan mode
@@ -779,5 +800,22 @@ mod tests {
         assert!(tool_catalog()
             .iter()
             .all(|tool| tool.name != SEARCH_CODE_TOOL_NAME));
+    }
+
+    #[test]
+    fn utility_delegation_schema_exposes_only_bounded_inputs() {
+        let definition = delegate_utility_skill_tool_definition();
+        assert_eq!(definition.name, DELEGATE_UTILITY_SKILL_TOOL_NAME);
+        assert_eq!(
+            definition.input_schema["required"],
+            json!(["skill_id", "task"])
+        );
+        assert_eq!(definition.input_schema["additionalProperties"], false);
+        let properties = definition.input_schema["properties"]
+            .as_object()
+            .expect("properties");
+        for forbidden in ["workspace", "path", "environment", "credential", "provider"] {
+            assert!(!properties.contains_key(forbidden));
+        }
     }
 }

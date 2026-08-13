@@ -1,12 +1,21 @@
 use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest, AgentToolCallOutcome,
-    BoundSkillPrompt,
+    BoundSkillPrompt, UtilityDelegationResolutionPort,
+};
+use crate::contexts::agent_runtime::domain::UtilityDelegationSnapshot;
+use crate::contexts::skill_evolution_evidence::application::{
+    RuntimeEvidenceProjector, SkillLifecycleFact,
+};
+use crate::contexts::skill_evolution_evidence::domain::{
+    EnvelopeCommon, ObservedSkillRevision, SkillAssociationKind,
+    SkillLoadOutcome as EvidenceSkillLoadOutcome, SourceFidelity,
 };
 use crate::contexts::tooling::skills::api::{
     SkillAccessRefusal, SkillApi, SkillAvailability, SkillDelivery, SkillDiscoveryRequest,
     SkillLoadOutcome, SkillLoadRequest, SkillResourceEntry, SkillResourceIndex,
-    SkillResourceReadOutcome, SkillResourceReadRequest, SkillType,
+    SkillResourceReadOutcome, SkillResourceReadRequest, SkillType, UtilitySkillResolutionOutcome,
 };
+use chrono::Utc;
 use serde_json::{json, Value};
 
 /// Wraps `tooling::skills`' public facade to satisfy `agent_runtime`'s own `AgentSkillPort` —
@@ -15,11 +24,12 @@ use serde_json::{json, Value};
 #[derive(Clone)]
 pub(crate) struct RuntimeAgentSkillAdapter {
     skills: SkillApi,
+    evidence: RuntimeEvidenceProjector,
 }
 
 impl RuntimeAgentSkillAdapter {
-    pub(crate) fn new(skills: SkillApi) -> Self {
-        Self { skills }
+    pub(crate) fn new(skills: SkillApi, evidence: RuntimeEvidenceProjector) -> Self {
+        Self { skills, evidence }
     }
 }
 
@@ -32,12 +42,33 @@ impl AgentSkillPort for RuntimeAgentSkillAdapter {
         self.skills
             .bound_skill_prompts_for_api_agent(agent_id, workspace_path)
             .map(|prompts| {
+                let occurred_at = Utc::now().to_rfc3339();
+                let observations = prompts
+                    .iter()
+                    .map(|prompt| ObservedSkillRevision {
+                        skill_id: prompt.id.clone(),
+                        revision: prompt.revision.clone(),
+                        association_kind: SkillAssociationKind::Injected,
+                        observed_at: occurred_at.clone(),
+                    })
+                    .collect::<Vec<_>>();
                 prompts
                     .into_iter()
-                    .map(|prompt| BoundSkillPrompt {
-                        id: prompt.id,
-                        name: prompt.name,
-                        body: prompt.body,
+                    .map(|prompt| {
+                        self.project_loaded_skill(
+                            prompt.id.clone(),
+                            prompt.revision.clone(),
+                            Some(agent_id),
+                            workspace_path,
+                            occurred_at.clone(),
+                            observations.clone(),
+                        );
+                        BoundSkillPrompt {
+                            id: prompt.id,
+                            name: prompt.name,
+                            body: prompt.body,
+                            revision: prompt.revision,
+                        }
                     })
                     .collect()
             })
@@ -104,20 +135,30 @@ impl AgentSkillPort for RuntimeAgentSkillAdapter {
                 id_or_alias,
             } => match self.skills.load_for_agent(SkillLoadRequest {
                 id_or_alias,
-                workspace_path,
+                workspace_path: workspace_path.clone(),
             }) {
-                Ok(SkillLoadOutcome::Loaded(skill)) => success(json!({
-                    "status": "loaded",
-                    "skill": {
-                        "id": skill.id,
-                        "name": skill.name,
-                        "content": skill.content,
-                        "truncated": skill.truncated,
-                        "revision": skill.revision,
-                        "baseUri": skill.base_uri,
-                        "resources": resource_index_json(skill.resources),
-                    }
-                })),
+                Ok(SkillLoadOutcome::Loaded(skill)) => {
+                    self.project_loaded_skill(
+                        skill.id.clone(),
+                        skill.revision.clone(),
+                        None,
+                        workspace_path.as_deref(),
+                        Utc::now().to_rfc3339(),
+                        Vec::new(),
+                    );
+                    success(json!({
+                        "status": "loaded",
+                        "skill": {
+                            "id": skill.id,
+                            "name": skill.name,
+                            "content": skill.content,
+                            "truncated": skill.truncated,
+                            "revision": skill.revision,
+                            "baseUri": skill.base_uri,
+                            "resources": resource_index_json(skill.resources),
+                        }
+                    }))
+                }
                 Ok(SkillLoadOutcome::Refused(refusal)) => refused(refusal),
                 Err(_) => runtime_error(),
             },
@@ -146,6 +187,74 @@ impl AgentSkillPort for RuntimeAgentSkillAdapter {
                 Err(_) => runtime_error(),
             },
         }
+    }
+}
+
+impl UtilityDelegationResolutionPort for RuntimeAgentSkillAdapter {
+    fn resolve(
+        &self,
+        skill_id: &str,
+        canonical_workspace: Option<&str>,
+    ) -> Result<UtilityDelegationSnapshot, AgentRuntimeApplicationError> {
+        match self
+            .skills
+            .resolve_utility_for_execution(skill_id, canonical_workspace)
+            .map_err(|error| AgentRuntimeApplicationError::Skill(error.to_string()))?
+        {
+            UtilitySkillResolutionOutcome::Resolved(snapshot) => Ok(UtilityDelegationSnapshot {
+                skill_id: snapshot.id,
+                revision: snapshot.revision,
+                instructions: snapshot.instructions,
+                canonical_workspace: snapshot.workspace_path,
+            }),
+            UtilitySkillResolutionOutcome::Refused(refusal) => {
+                Err(AgentRuntimeApplicationError::Skill(format!(
+                    "Utility delegation refused: {}",
+                    refusal.reason.as_str()
+                )))
+            }
+        }
+    }
+
+    fn current_revision(
+        &self,
+        skill_id: &str,
+        canonical_workspace: Option<&str>,
+    ) -> Result<String, AgentRuntimeApplicationError> {
+        self.resolve(skill_id, canonical_workspace)
+            .map(|snapshot| snapshot.revision)
+    }
+}
+
+impl RuntimeAgentSkillAdapter {
+    fn project_loaded_skill(
+        &self,
+        skill_id: String,
+        revision: String,
+        agent_id: Option<&str>,
+        workspace: Option<&str>,
+        occurred_at: String,
+        observed_skill_revisions: Vec<ObservedSkillRevision>,
+    ) {
+        let _ = self.evidence.skill_lifecycle(SkillLifecycleFact {
+            common: EnvelopeCommon {
+                source_event_id: format!("skill-load:{}", uuid::Uuid::new_v4()),
+                occurred_at,
+                stable_agent_id: agent_id.map(str::to_string),
+                session_id: None,
+                message_id: None,
+                run_id: None,
+                attempt_id: None,
+                workspace: self.evidence.workspace_scope(workspace),
+                fidelity: SourceFidelity::Native,
+                observed_skill_revisions,
+            },
+            skill_id,
+            revision,
+            outcome: EvidenceSkillLoadOutcome::Loaded,
+            anomaly: None,
+            observation_count: 1,
+        });
     }
 }
 

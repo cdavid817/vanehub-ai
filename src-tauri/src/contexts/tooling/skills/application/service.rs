@@ -14,8 +14,9 @@ use super::{
     SkillResourceReadRequest, SkillResourceReadResult, SkillScopeQuery, SkillShadowSummary,
     SkillSourceProbe, SkillStats, SkillSyncResult, SkillUpdateRequest, SkillUsageActivity,
     SkillUsageIdentity, SkillUsageRepository, SkillUsageSummary, SkillWorkspaceSelectionPort,
-    BUILTIN_RECONCILIATION_VERSION, MAX_DISCOVERY_QUERY_CHARACTERS, MAX_DISCOVERY_RESULTS,
-    MAX_INLINE_SKILL_CHARACTERS, MAX_RESOURCE_BYTES,
+    UtilitySkillExecutionSnapshot, UtilitySkillResolutionOutcome, BUILTIN_RECONCILIATION_VERSION,
+    MAX_DISCOVERY_QUERY_CHARACTERS, MAX_DISCOVERY_RESULTS, MAX_INLINE_SKILL_CHARACTERS,
+    MAX_RESOURCE_BYTES,
 };
 use crate::contexts::tooling::skills::domain::{
     builtin_definition, builtin_definitions, builtin_restore_plan, default_mount_path,
@@ -23,7 +24,7 @@ use crate::contexts::tooling::skills::domain::{
     source_for_user_create, validate_create_identity, validate_update_identity,
     BuiltinSkillDefinition, SkillAvailability, SkillDomainError, SkillDriftIssueType, SkillId,
     SkillIdentityCandidate, SkillKey, SkillLayer, SkillLocation, SkillLookupOutcome, SkillMetadata,
-    SkillMountPath, SkillOrigin, SkillScope, SkillSource, SkillType,
+    SkillMountPath, SkillOrigin, SkillScope, SkillSource, SkillTrust, SkillType,
 };
 
 /// Whether reconciling a built-in created a new source or adopted one that was already on disk.
@@ -370,6 +371,110 @@ impl SkillApplicationService {
         witnessed_package.revision = revision;
         self.bump_view(&witnessed_package);
         Ok(SkillLoadOutcome::Loaded(result))
+    }
+
+    pub(crate) fn resolve_utility_for_execution(
+        &self,
+        id_or_alias: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<UtilitySkillResolutionOutcome, SkillApplicationError> {
+        self.ensure_builtins()?;
+        let requested = SkillId::parse(id_or_alias)?;
+        let location = progressive_location(workspace_path)?;
+        let catalog = self.effective_catalog.as_ref().ok_or_else(|| {
+            SkillApplicationError::Validation("Effective Skill catalog is unavailable".into())
+        })?;
+        let workspace = (location.scope == SkillScope::Workspace)
+            .then_some(location.workspace_path.as_deref())
+            .flatten();
+        let records = self
+            .effective_records(&location)?
+            .into_iter()
+            .map(|record| (record.key.id.clone(), record))
+            .collect::<BTreeMap<_, _>>();
+        let candidates = records
+            .values()
+            .map(|record| SkillIdentityCandidate {
+                id: record.key.id.clone(),
+                aliases: record.metadata.aliases.clone(),
+                availability: utility_resolution_availability(record),
+            })
+            .collect::<Vec<_>>();
+        let resolved = match resolve_skill_identity(&requested, &candidates) {
+            SkillLookupOutcome::Resolved(id) => id,
+            SkillLookupOutcome::Unavailable { id, availability } => {
+                return Ok(UtilitySkillResolutionOutcome::Refused(access_refusal(
+                    requested.as_str(),
+                    Some(id.as_str()),
+                    refusal_for_availability(availability),
+                )))
+            }
+            SkillLookupOutcome::Ambiguous(ids) => {
+                return Ok(UtilitySkillResolutionOutcome::Refused(SkillAccessRefusal {
+                    requested: requested.as_str().to_string(),
+                    canonical_id: None,
+                    reason: SkillAccessRefusalReason::AmbiguousAlias,
+                    conflicting_ids: ids
+                        .into_iter()
+                        .take(8)
+                        .map(|id| id.as_str().to_string())
+                        .collect(),
+                }))
+            }
+            SkillLookupOutcome::NotFound => {
+                return Ok(UtilitySkillResolutionOutcome::Refused(access_refusal(
+                    requested.as_str(),
+                    None,
+                    SkillAccessRefusalReason::NotFound,
+                )))
+            }
+        };
+        let record = records
+            .get(&resolved)
+            .ok_or_else(|| SkillApplicationError::NotFound(resolved.as_str().to_string()))?;
+        if record.effective_metadata().skill_type != SkillType::Utility {
+            return Ok(UtilitySkillResolutionOutcome::Refused(access_refusal(
+                requested.as_str(),
+                Some(resolved.as_str()),
+                SkillAccessRefusalReason::Unsupported,
+            )));
+        }
+        let package = catalog
+            .effective_catalog(workspace)?
+            .into_iter()
+            .find(|skill| skill.effective.metadata.id == resolved)
+            .map(|skill| skill.effective)
+            .ok_or_else(|| SkillApplicationError::NotFound(resolved.as_str().to_string()))?;
+        let (instructions, revision) = if let Some(snapshots) = &self.overlay_applied_snapshots {
+            let snapshot =
+                snapshots.read_overlay_applied_package(&package.metadata.id, workspace)?;
+            (
+                snapshot.replay.effective().instructions().to_string(),
+                snapshot.replay.effective().effective_hash().to_string(),
+            )
+        } else {
+            let reader = self.effective_package_reader.as_ref().ok_or_else(|| {
+                SkillApplicationError::Validation("Effective package reader is unavailable".into())
+            })?;
+            (reader.read_document(&package)?.body, package.revision)
+        };
+        if instructions.trim().is_empty()
+            || instructions.chars().count() > MAX_INLINE_SKILL_CHARACTERS
+        {
+            return Ok(UtilitySkillResolutionOutcome::Refused(access_refusal(
+                requested.as_str(),
+                Some(resolved.as_str()),
+                SkillAccessRefusalReason::OversizedResource,
+            )));
+        }
+        Ok(UtilitySkillResolutionOutcome::Resolved(
+            UtilitySkillExecutionSnapshot {
+                id: resolved.as_str().to_string(),
+                revision,
+                instructions,
+                workspace_path: workspace.map(str::to_string),
+            },
+        ))
     }
 
     pub(crate) fn read_skill_resource_for_agent(
@@ -891,6 +996,7 @@ impl SkillApplicationService {
             id: package.metadata.id.as_str().to_string(),
             name: package.metadata.name.clone(),
             body,
+            revision: package.revision.clone(),
         });
         self.bump_use(package);
     }
@@ -2734,6 +2840,20 @@ fn refusal_for_availability(availability: SkillAvailability) -> SkillAccessRefus
         SkillAvailability::Invalid => SkillAccessRefusalReason::Invalid,
         SkillAvailability::Conflicting => SkillAccessRefusalReason::Conflicting,
         SkillAvailability::Unsupported => SkillAccessRefusalReason::Unsupported,
+    }
+}
+
+fn utility_resolution_availability(record: &SkillRecord) -> SkillAvailability {
+    let metadata = record.effective_metadata();
+    if !record.enabled {
+        return SkillAvailability::Disabled;
+    }
+    if metadata.skill_type != SkillType::Utility || metadata.trust != SkillTrust::Trusted {
+        return SkillAvailability::Unsupported;
+    }
+    match metadata.availability {
+        SkillAvailability::Unsupported => SkillAvailability::Available,
+        availability => availability,
     }
 }
 

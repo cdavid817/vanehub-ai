@@ -9,6 +9,7 @@ import { RichBlocks } from "./RichBlocks";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolUseBlock } from "./ToolUseBlock";
 import { WaitingIndicator } from "./WaitingIndicator";
+import { MessageFeedbackControls } from "./MessageFeedbackControls";
 import { ParticipantAvatar } from "../session-roster-presence";
 
 function statusLabel(message: ChatMessage, t: (key: string) => string) {
@@ -108,6 +109,9 @@ export const MessageItem = memo(function MessageItem({
           <ThinkingBlock content={message.thinkingContent ?? ""} />
           <ToolUseBlock messageFailed={message.status === "failed"} messageStatus={message.status} sessionId={message.sessionId} toolUse={message.toolUse ?? []} />
           <RichBlocks blocks={message.richBlocks ?? []} />
+          {!isUser && message.status === "completed" ? (
+            <MessageFeedbackControls feedback={message.feedback} messageId={message.id} />
+          ) : null}
         </div>
       </div>
     </article>

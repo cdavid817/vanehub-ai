@@ -15,6 +15,14 @@ use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionEvent, ExecutionFidelity, ExecutionIdentityPort, ExecutionSpan,
     ExecutionStatus, ExecutionTelemetryPort, SafeAttributeValue, SafeAttributes,
 };
+use crate::contexts::skill_evolution_evidence::application::{
+    CliLifecycleFact, CliRuntimeKind, RuntimeEvidenceProjector,
+};
+use crate::contexts::skill_evolution_evidence::domain::{
+    CliMountSnapshot, EnvelopeCommon, FailureClass, MountedSkillRevision, SourceFidelity,
+    TerminalOutcome,
+};
+use crate::contexts::tooling::skills::api::{CliSkillEvidenceSnapshot, SkillApi};
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::private_relay_fs::PreparedMcpRelayGuard;
 use crate::platform::process;
@@ -39,12 +47,20 @@ pub(crate) struct RuntimeAgentProcessAdapter {
     mcp_relay: Arc<dyn ManagedMcpRelayPort>,
     providers: Arc<ProviderRegistry>,
     event_sequence: Arc<AtomicU64>,
+    evidence: RuntimeEvidenceProjector,
+    skills: SkillApi,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedMcpRelay {
     pub(crate) invocation_args: Vec<String>,
     pub(crate) guard: Option<PreparedMcpRelayGuard>,
+}
+
+#[derive(Clone)]
+pub(crate) struct RuntimeProcessEvidenceDependencies {
+    pub(crate) evidence: RuntimeEvidenceProjector,
+    pub(crate) skills: SkillApi,
 }
 
 pub(crate) trait ManagedMcpRelayPort: Send + Sync {
@@ -68,6 +84,10 @@ struct ManagedProcess {
     relay_guard: Option<PreparedMcpRelayGuard>,
     execution_context: ExecutionContext,
     output_format: ProviderOutputFormat,
+    message_id: String,
+    workspace: Option<String>,
+    mount_snapshot: Option<CliMountSnapshot>,
+    configured_binding_ids: Vec<String>,
 }
 
 struct ProcessMonitor {
@@ -86,6 +106,11 @@ struct ProcessMonitor {
     telemetry: Arc<dyn ExecutionTelemetryPort>,
     event_sequence: Arc<AtomicU64>,
     output_format: ProviderOutputFormat,
+    message_id: String,
+    workspace: Option<String>,
+    evidence: RuntimeEvidenceProjector,
+    mount_snapshot: Option<CliMountSnapshot>,
+    configured_binding_ids: Vec<String>,
 }
 
 impl RuntimeAgentProcessAdapter {
@@ -96,6 +121,7 @@ impl RuntimeAgentProcessAdapter {
         telemetry: Arc<dyn ExecutionTelemetryPort>,
         mcp_relay: Arc<dyn ManagedMcpRelayPort>,
         providers: Arc<ProviderRegistry>,
+        evidence_dependencies: RuntimeProcessEvidenceDependencies,
     ) -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
@@ -107,6 +133,8 @@ impl RuntimeAgentProcessAdapter {
             mcp_relay,
             providers,
             event_sequence: Arc::new(AtomicU64::new(0)),
+            evidence: evidence_dependencies.evidence,
+            skills: evidence_dependencies.skills,
         }
     }
 
@@ -120,6 +148,11 @@ impl RuntimeAgentProcessAdapter {
                 request.agent.display_name, request.agent.launch.kind
             )));
         }
+        let skill_snapshot = self
+            .skills
+            .cli_evidence_snapshot(&request.agent.id, request.session.folder.as_deref())
+            .ok();
+        let (mount_snapshot, configured_binding_ids) = evidence_cli_snapshot(skill_snapshot);
         let executable =
             normalize_generation_executable(&request.agent.id, &request.cli_profile.executable);
         let provider = self.providers.get(&request.agent.id)?;
@@ -330,6 +363,12 @@ impl RuntimeAgentProcessAdapter {
             relay_guard,
             execution_context: process_context,
             output_format,
+            message_id: request.message_id,
+            workspace: self
+                .evidence
+                .workspace_scope(request.session.folder.as_deref()),
+            mount_snapshot,
+            configured_binding_ids,
         };
         processes.insert(process_id.clone(), managed);
         Ok(StartedGenerationProcess { process_id })
@@ -427,6 +466,32 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             None,
             Some(&request.operation_id),
         );
+        if request.interaction_mode == InteractionMode::Cli {
+            let (mount_snapshot, configured_binding_ids) = evidence_cli_snapshot(
+                self.skills
+                    .cli_evidence_snapshot(&request.agent.id, None)
+                    .ok(),
+            );
+            let _ = self.evidence.cli(CliLifecycleFact {
+                kind: CliRuntimeKind::Interactive,
+                common: EnvelopeCommon {
+                    source_event_id: format!("cli-launch:{}", request.operation_id),
+                    occurred_at: self.clock.now(),
+                    stable_agent_id: Some(request.agent.id.clone()),
+                    session_id: None,
+                    message_id: None,
+                    run_id: None,
+                    attempt_id: Some(request.operation_id.clone()),
+                    workspace: None,
+                    fidelity: SourceFidelity::Opaque,
+                    observed_skill_revisions: Vec::new(),
+                },
+                outcome: TerminalOutcome::Succeeded,
+                failure_class: None,
+                mount_snapshot,
+                configured_binding_ids,
+            });
+        }
         Ok(WorkflowLaunchOutcome {
             adapter: adapter.to_string(),
             message: message.to_string(),
@@ -456,6 +521,10 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
             relay_guard,
             execution_context,
             output_format,
+            message_id,
+            workspace,
+            mount_snapshot,
+            configured_binding_ids,
         ) = {
             let mut processes = self
                 .processes
@@ -487,6 +556,10 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 managed.relay_guard.clone(),
                 managed.execution_context.clone(),
                 managed.output_format,
+                managed.message_id.clone(),
+                managed.workspace.clone(),
+                managed.mount_snapshot.clone(),
+                managed.configured_binding_ids.clone(),
             )
         };
         let processes = self.processes.clone();
@@ -495,6 +568,7 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
         let clock = self.clock.clone();
         let telemetry = self.telemetry.clone();
         let event_sequence = self.event_sequence.clone();
+        let evidence = self.evidence.clone();
         thread::spawn(move || {
             ProcessMonitor {
                 child,
@@ -512,6 +586,11 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
                 telemetry,
                 event_sequence,
                 output_format,
+                message_id,
+                workspace,
+                evidence,
+                mount_snapshot,
+                configured_binding_ids,
             }
             .run();
             if let Ok(mut processes) = processes.lock() {
@@ -602,6 +681,28 @@ impl AgentProcessGateway for RuntimeAgentProcessAdapter {
     }
 }
 
+fn evidence_cli_snapshot(
+    snapshot: Option<CliSkillEvidenceSnapshot>,
+) -> (Option<CliMountSnapshot>, Vec<String>) {
+    let Some(snapshot) = snapshot else {
+        return (None, Vec::new());
+    };
+    let mount_snapshot = snapshot
+        .manifest_hash
+        .map(|manifest_hash| CliMountSnapshot {
+            manifest_hash,
+            skills: snapshot
+                .mounted
+                .into_iter()
+                .map(|skill| MountedSkillRevision {
+                    skill_id: skill.skill_id,
+                    revision: skill.revision,
+                })
+                .collect(),
+        });
+    (mount_snapshot, snapshot.configured_binding_ids)
+}
+
 impl ProcessMonitor {
     fn run(self) {
         let ProcessMonitor {
@@ -620,6 +721,11 @@ impl ProcessMonitor {
             telemetry,
             event_sequence,
             output_format,
+            message_id,
+            workspace,
+            evidence,
+            mount_snapshot,
+            configured_binding_ids,
         } = self;
         let stderr_handle = thread::spawn(move || read_stderr(stderr));
         let parser = output_parser_for_format(output_format);
@@ -751,6 +857,32 @@ impl ProcessMonitor {
                 Some("process_terminal_unknown"),
             ),
         };
+        let (outcome, failure_class) = match &terminal {
+            GenerationProcessEvent::Completed(_) => (TerminalOutcome::Succeeded, None),
+            GenerationProcessEvent::Failed(_) => {
+                (TerminalOutcome::Failed, Some(FailureClass::Process))
+            }
+            _ => (TerminalOutcome::Incomplete, Some(FailureClass::Process)),
+        };
+        let _ = evidence.cli(CliLifecycleFact {
+            kind: CliRuntimeKind::Managed,
+            common: EnvelopeCommon {
+                source_event_id: format!("cli:{}:terminal", execution_context.run_id.as_str()),
+                occurred_at: clock.now(),
+                stable_agent_id: Some(agent_id.clone()),
+                session_id: Some(session_id.clone()),
+                message_id: Some(message_id),
+                run_id: Some(execution_context.run_id.as_str().to_string()),
+                attempt_id: Some(operation_id.clone()),
+                workspace,
+                fidelity: SourceFidelity::Proxied,
+                observed_skill_revisions: Vec::new(),
+            },
+            outcome,
+            failure_class,
+            mount_snapshot,
+            configured_binding_ids,
+        });
         let _ = telemetry.record_event(&ExecutionEvent {
             run_id: execution_context.run_id.clone(),
             span_id: execution_context.span_id.clone(),
@@ -1062,10 +1194,26 @@ fn compose_terminal_event(
 mod terminal_event_tests {
     use super::*;
     use crate::contexts::agent_runtime::application::GenerationProcessFailureKind;
+    use crate::contexts::tooling::skills::api::CliSkillEvidenceEntry;
     use crate::test_support::TempDirectory;
 
     fn failure(message: &str) -> GenerationProcessFailure {
         GenerationProcessFailure::non_retryable(message)
+    }
+
+    #[test]
+    fn cli_snapshot_projection_preserves_only_ids_revisions_and_manifest() {
+        let (mount, configured) = evidence_cli_snapshot(Some(CliSkillEvidenceSnapshot {
+            manifest_hash: Some("manifest-a".to_string()),
+            mounted: vec![CliSkillEvidenceEntry {
+                skill_id: "review".to_string(),
+                revision: "revision-a".to_string(),
+            }],
+            configured_binding_ids: vec!["review".to_string(), "disabled".to_string()],
+        }));
+
+        assert_eq!(configured, ["review", "disabled"]);
+        assert_eq!(mount.expect("mount").skills[0].skill_id, "review");
     }
 
     /// claude-code exits non-zero with empty stderr after reporting the cause on stdout. The

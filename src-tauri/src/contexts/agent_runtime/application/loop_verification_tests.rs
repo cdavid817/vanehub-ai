@@ -7,6 +7,7 @@ struct VerificationWorld {
     evidence: Mutex<Vec<LoopEvidenceView>>,
     operation_events: Mutex<Vec<String>>,
     logs: Mutex<Vec<LoopLog>>,
+    projections: Mutex<Vec<LoopVerificationEvidenceFact>>,
 }
 
 impl VerificationWorld {
@@ -16,7 +17,14 @@ impl VerificationWorld {
             processes: self.clone(),
             observer: LoopOperationObserver::new(self.clone(), self.clone(), self.clone()),
             clock: self.clone(),
+            evidence: self.clone(),
         })
+    }
+}
+
+impl LoopVerificationEvidencePort for VerificationWorld {
+    fn project(&self, fact: LoopVerificationEvidenceFact) {
+        self.projections.lock().expect("projections").push(fact);
     }
 }
 
@@ -234,6 +242,18 @@ fn commands_run_in_definition_order_and_required_timeout_blocks_acceptance() {
     assert!(!result.required_checks_passed);
     assert_eq!(result.evidence[2].status, "timed-out");
     assert_eq!(world.evidence.lock().expect("evidence").len(), 3);
+    assert_eq!(
+        *world.projections.lock().expect("projections"),
+        [LoopVerificationEvidenceFact {
+            run_id: "run-1".to_string(),
+            iteration_id: "iteration-1".to_string(),
+            workspace: "C:/work/project-loop".to_string(),
+            occurred_at: "2026-07-22T09:00:00Z".to_string(),
+            passed_count: 1,
+            failed_count: 2,
+            cancelled: false,
+        }]
+    );
 }
 
 #[test]

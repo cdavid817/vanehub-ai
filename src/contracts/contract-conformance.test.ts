@@ -272,6 +272,7 @@ type SkillAssertions = [
   Assert<Equal<SkillContracts.SkillOrigin, SkillTypes.SkillOrigin>>,
   Assert<Equal<SkillContracts.SkillTrust, SkillTypes.SkillTrust>>,
   Assert<Equal<SkillContracts.SkillAvailability, SkillTypes.SkillAvailability>>,
+  Assert<Equal<SkillContracts.SkillDelegationCapability, SkillTypes.SkillDelegationCapability>>,
   Assert<Equal<SkillContracts.SkillScopeInput, SkillTypes.SkillScopeInput>>,
   Assert<Equal<SkillContracts.SkillMetadata, SkillTypes.SkillMetadata>>,
   Assert<Equal<SkillContracts.SkillCompatibilityDefaults, SkillTypes.SkillCompatibilityDefaults>>,

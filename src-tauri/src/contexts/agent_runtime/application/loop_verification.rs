@@ -14,6 +14,22 @@ pub(crate) struct LoopVerificationApplicationPorts {
     pub(crate) processes: Arc<dyn LoopVerificationProcessPort>,
     pub(crate) observer: LoopOperationObserver,
     pub(crate) clock: Arc<dyn AgentClockPort>,
+    pub(crate) evidence: Arc<dyn LoopVerificationEvidencePort>,
+}
+
+pub(crate) trait LoopVerificationEvidencePort: Send + Sync {
+    fn project(&self, fact: LoopVerificationEvidenceFact);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LoopVerificationEvidenceFact {
+    pub(crate) run_id: String,
+    pub(crate) iteration_id: String,
+    pub(crate) workspace: String,
+    pub(crate) occurred_at: String,
+    pub(crate) passed_count: u32,
+    pub(crate) failed_count: u32,
+    pub(crate) cancelled: bool,
 }
 
 #[derive(Clone)]
@@ -109,6 +125,20 @@ impl LoopVerificationApplicationService {
             }
         }
 
+        let passed_count = evidence
+            .iter()
+            .filter(|item| item.status == "passed")
+            .count() as u32;
+        let failed_count = evidence.len() as u32 - passed_count;
+        self.ports.evidence.project(LoopVerificationEvidenceFact {
+            run_id: request.run_id.clone(),
+            iteration_id: request.iteration_id.clone(),
+            workspace: request.worktree_root,
+            occurred_at: self.ports.clock.now(),
+            passed_count,
+            failed_count,
+            cancelled,
+        });
         Ok(LoopVerificationBatchResult {
             evidence,
             required_checks_passed: required_checks_passed && !cancelled,
