@@ -397,6 +397,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "managed-im-session-bindings",
         crate::contexts::communications::infrastructure::apply_session_binding_schema,
     )?;
+    apply_migration(
+        conn,
+        66,
+        "unified-todo-board",
+        crate::contexts::work_board::infrastructure::apply_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -695,6 +701,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (63, "plan-session-association"),
     (64, "fine-grained-token-accounting"),
     (65, "managed-im-session-bindings"),
+    (66, "unified-todo-board"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1599,7 +1606,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (64, 65));
+        assert_eq!(migration_state, (65, 66));
 
         migrate(&connection).expect("upgrade migration");
 

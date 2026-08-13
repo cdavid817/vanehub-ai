@@ -218,6 +218,8 @@ mod tests {
                 ..Default::default()
             },
             runtime_session_id: None,
+            execution_origin_kind: "user".to_string(),
+            execution_origin_id: None,
             created_at: "100".to_string(),
             updated_at: "100".to_string(),
         };

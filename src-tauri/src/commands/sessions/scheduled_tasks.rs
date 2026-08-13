@@ -12,6 +12,14 @@ pub(crate) fn list_scheduled_tasks(
 }
 
 #[tauri::command]
+pub(crate) fn list_scheduled_task_runs(
+    database: State<'_, NativeDatabase>,
+    task_id: String,
+) -> Result<Vec<dto::ScheduledTaskRun>, CommandError> {
+    scheduled_tasks::list_scheduled_task_runs(&database, &task_id)
+}
+
+#[tauri::command]
 pub(crate) fn create_scheduled_task(
     database: State<'_, NativeDatabase>,
     input: dto::CreateScheduledTaskInput,

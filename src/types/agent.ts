@@ -11,6 +11,11 @@ export type SessionLifecycleState =
 export type SessionRecoveryStatus =
   "clean" | "reconciling" | "action_required" | "quarantined";
 
+export interface SessionExecutionOrigin {
+  kind: "user" | "plan_attempt" | "scheduled_task";
+  id: string | null;
+}
+
 export type ImSessionConnector =
   "feishu" | "telegram" | "dingtalk" | "wecom" | "weixin";
 
@@ -272,6 +277,7 @@ export interface Session {
   runtimeSessionId: string | null;
   categoryId: string | null;
   source?: SessionSourceMetadata;
+  executionOrigin?: SessionExecutionOrigin;
   pinned: boolean;
   archived: boolean;
   createdAt: string;
@@ -363,6 +369,16 @@ export interface ScheduledTask {
   latestError: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScheduledTaskRun {
+  id: string;
+  taskId: string;
+  sessionId: string | null;
+  status: ScheduledTaskLatestStatus;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
 }
 
 export interface CreateScheduledTaskInput {

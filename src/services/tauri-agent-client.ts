@@ -51,6 +51,7 @@ import type {
   SessionDetails,
   SaveCliParameterProfileInput,
   ScheduledTask,
+  ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
   SessionExportResult,
   SessionSearchInput,
@@ -580,6 +581,9 @@ export const tauriAgentClient: AgentService = {
 
   listScheduledTasks() {
     return invoke<ScheduledTask[]>("list_scheduled_tasks");
+  },
+  listScheduledTaskRuns(taskId: string) {
+    return invoke<ScheduledTaskRun[]>("list_scheduled_task_runs", { taskId });
   },
 
   createScheduledTask(input: CreateScheduledTaskInput) {

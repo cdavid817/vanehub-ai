@@ -48,6 +48,7 @@ import type {
   RetrievalIndexStatus,
   RenameSessionCategoryInput,
   ScheduledTask,
+  ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
   Session,
   SessionSeat,
@@ -3264,6 +3265,11 @@ export const webAgentClient: AgentService = {
 
   async listScheduledTasks() {
     return scheduledTasks.map(cloneScheduledTask).sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt));
+  },
+  async listScheduledTaskRuns(taskId: string) {
+    const task = findScheduledTask(taskId);
+    if (!task.latestRunAt) return [];
+    return [{ id: `scheduled-run:${task.id}:${task.latestRunAt}`, taskId: task.id, sessionId: task.latestRunSessionId, status: task.latestStatus, error: task.latestError, startedAt: task.latestRunAt, completedAt: task.latestRunAt }] satisfies ScheduledTaskRun[];
   },
 
   async createScheduledTask(input: CreateScheduledTaskInput) {

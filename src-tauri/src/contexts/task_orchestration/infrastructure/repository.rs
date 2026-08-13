@@ -1214,6 +1214,19 @@ mod tests {
                 "2026-08-08T00:00:05Z",
             )
             .expect("start first attempt");
+        let lineage: (String, Option<String>) = repository
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT origin_kind, origin_id FROM sessions WHERE id = 'attempt-session-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("attempt session lineage");
+        assert_eq!(
+            lineage,
+            ("plan_attempt".to_string(), Some("plan-1".to_string()))
+        );
         repository
             .finish_attempt_generation(
                 &first_task,
