@@ -2193,6 +2193,24 @@
                                               "session-chat-configuration",
                                               "session-execution-policy"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "complete-onepiece-plan-agent-loop",
+                         "path":  "openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-execution-observability",
+                                              "frontend-runtime-architecture",
+                                              "onepiece-native-agent",
+                                              "plan-execution-runtime",
+                                              "plan-management"
+                                          ]
                      }
                  ]
 }

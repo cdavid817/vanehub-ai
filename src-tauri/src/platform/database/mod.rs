@@ -198,6 +198,13 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("stable participant migration");
+        let plan_agent_loop_migration: String = connection
+            .query_row(
+                "SELECT name FROM schema_migrations WHERE version = 60",
+                [],
+                |row| row.get(0),
+            )
+            .expect("OnePiece Plan Agent loop migration");
         let lsp_migration: String = connection
             .query_row(
                 "SELECT name FROM schema_migrations WHERE version = 58",
@@ -233,6 +240,7 @@ mod tests {
             "plan-and-code-index-reconciliation"
         );
         assert_eq!(stable_participant_migration, "stable-session-participants");
+        assert_eq!(plan_agent_loop_migration, "onepiece-plan-agent-loop");
         assert_eq!(lsp_migration, "lsp-code-intelligence-foundation");
         assert_eq!(effective_skill_migration, "effective-skill-runtime");
     }

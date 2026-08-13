@@ -373,6 +373,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-execution-policy",
         apply_session_execution_policy_migration,
     )?;
+    apply_migration(
+        conn,
+        62,
+        "onepiece-plan-agent-loop",
+        crate::contexts::task_orchestration::infrastructure::apply_plan_agent_loop_schema,
+    )?;
+    apply_migration(
+        conn,
+        63,
+        "plan-session-association",
+        crate::contexts::task_orchestration::infrastructure::apply_plan_session_association_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -667,6 +679,8 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (59, "stable-session-participants"),
     (60, "effective-skill-runtime"),
     (61, "session-execution-policy"),
+    (62, "onepiece-plan-agent-loop"),
+    (63, "plan-session-association"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {

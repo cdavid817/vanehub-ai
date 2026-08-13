@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Send, Sparkles, Square } from "lucide-react";
+import { ListChecks, Send, Sparkles, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { ChatConfig, ModelInfo, SessionExecutionMode, ReasoningDepth } from "../../types/chat";
@@ -21,6 +21,7 @@ export function ButtonArea({
   onAgentChange,
   onEnhance,
   onLongContextChange,
+  onOpenPlan,
   onModeChange,
   onModelChange,
   onProviderChange,
@@ -42,6 +43,7 @@ export function ButtonArea({
   onAgentChange: (value: string) => void;
   onEnhance?: () => void;
   onLongContextChange: (value: boolean) => void;
+  onOpenPlan?: () => void;
   onModeChange: (value: SessionExecutionMode) => void;
   onModelChange: (value: string) => void;
   onProviderChange: (value: string) => void;
@@ -83,6 +85,7 @@ export function ButtonArea({
         />
         <ModeSelect
           availableModes={availableModes}
+          emphasizeCapabilities={config.providerId === "onepiece"}
           onChange={onModeChange}
           onClose={close}
           onOpen={() => open("mode")}
@@ -117,6 +120,7 @@ export function ButtonArea({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {onOpenPlan ? <Button className="h-8" onClick={onOpenPlan} type="button" variant="outline"><ListChecks aria-hidden="true" className="h-4 w-4" />{t("chat.openAssociatedPlan")}</Button> : null}
         <Button className="h-8" disabled={disabled || !canSubmit || isStreaming} onClick={onEnhance} title={t("chat.enhanceTitle")} type="button" variant="ghost">
           <Sparkles className="h-4 w-4" aria-hidden="true" />
           {t("chat.enhance")}

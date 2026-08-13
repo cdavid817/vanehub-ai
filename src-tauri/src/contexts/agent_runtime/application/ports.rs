@@ -842,6 +842,14 @@ pub(crate) trait OnePieceModelDiscoveryPort: Send + Sync {
     ) -> Result<super::ProviderCredentialValidationResult, AgentRuntimeApplicationError>;
 }
 
+#[cfg(test)]
+pub(crate) trait OnePiecePlanningPort: Send + Sync {
+    fn generate(
+        &self,
+        request: &super::OnePiecePlanningRequest,
+    ) -> Result<super::OnePiecePlanningResult, AgentRuntimeApplicationError>;
+}
+
 /// Resolution boundary for a native-agent tool call paused awaiting user approval. Only
 /// `RuntimeAgentApiAdapter` implements this — CLI agents run their own approval flow internally
 /// and never register a pending approval here (design.md Decision 4).

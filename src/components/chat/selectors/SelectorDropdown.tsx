@@ -29,7 +29,9 @@ export function SelectorButton({
 }) {
   return (
     <button
-      className="inline-flex h-8 max-w-48 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs hover:bg-muted disabled:cursor-default disabled:opacity-70"
+      aria-expanded={open}
+      aria-haspopup="menu"
+      className="inline-flex h-8 max-w-48 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-70"
       disabled={disabled}
       onClick={(event) => {
         event.stopPropagation();
@@ -80,11 +82,12 @@ export function SelectorDropdown<T extends string>({
     <div
       className="absolute bottom-full left-0 z-50 mb-1 min-w-52 max-w-[min(28rem,calc(100vw-2rem))] rounded-md border border-border bg-background p-1 shadow-xl"
       ref={ref}
+      role="menu"
     >
       {options?.map((option) => (
         <button
           className={cn(
-            "flex w-full items-start gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50",
+            "flex w-full items-start gap-2 rounded px-2 py-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
             option.value === value && "bg-[hsl(var(--nav-active-soft))] text-primary",
           )}
           disabled={option.disabled}
@@ -95,6 +98,8 @@ export function SelectorDropdown<T extends string>({
             onClose();
           }}
           type="button"
+          role="menuitemradio"
+          aria-checked={option.value === value}
         >
           <span className="mt-0.5 h-3.5 w-3.5 shrink-0">{option.icon}</span>
           <span className="min-w-0 flex-1">
