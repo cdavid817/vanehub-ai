@@ -1,6 +1,10 @@
-use super::dto::{ConnectorView, SaveConnectorInput, WeChatAuthorizationView};
+use super::dto::{
+    ConnectorView, PairingStartView, SaveConnectorInput, SessionBindingView,
+    WeChatAuthorizationView,
+};
 use crate::contexts::communications::domain::{
-    builtin_descriptors, ConnectorConfig, ConnectorHealth, ConnectorKind, ConnectorLifecycle,
+    builtin_descriptors, BindingState, ConnectorConfig, ConnectorHealth, ConnectorKind,
+    ConnectorLifecycle, SessionBinding,
 };
 
 #[test]
@@ -53,6 +57,42 @@ fn connector_command_dtos_preserve_the_frontend_json_contract() {
     );
     assert_eq!(serialized["hasCredentials"], true);
     assert!(serialized.get("configuration").is_none());
+}
+
+#[test]
+fn session_pairing_dtos_expose_only_safe_metadata() {
+    let pairing = serde_json::to_value(PairingStartView {
+        connector: ConnectorKind::Telegram,
+        session_id: "session-1".to_string(),
+        code: "ABCD2345".to_string(),
+        expires_at: "2026-08-12T00:10:00Z".to_string(),
+        replace_existing: false,
+    })
+    .expect("pairing view");
+    let binding = serde_json::to_value(SessionBindingView {
+        binding: Some(SessionBinding {
+            connector: ConnectorKind::Telegram,
+            session_id: "session-1".to_string(),
+            state: BindingState::Active,
+            completion_notifications: false,
+            created_at: "2026-08-12T00:00:00Z".to_string(),
+            updated_at: "2026-08-12T00:00:00Z".to_string(),
+        }),
+        pending_connector: None,
+    })
+    .expect("binding view");
+
+    assert_eq!(pairing["replaceExisting"], false);
+    assert_eq!(binding["binding"]["state"], "active");
+    for forbidden in [
+        "externalChatId",
+        "externalChatHash",
+        "deliveryCredentialRef",
+        "credentials",
+    ] {
+        assert!(pairing.get(forbidden).is_none());
+        assert!(binding["binding"].get(forbidden).is_none());
+    }
 }
 
 #[test]

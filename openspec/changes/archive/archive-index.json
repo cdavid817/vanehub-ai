@@ -2230,6 +2230,21 @@
                                               "token-accounting",
                                               "usage-statistics"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-13",
+                         "changeName":  "optimize-im-session-binding",
+                         "path":  "openspec/changes/archive/2026-08-13-optimize-im-session-binding/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "im-connector-management",
+                                              "im-session-binding-ui",
+                                              "settings-im-management-ui"
+                                          ]
                      }
                  ]
 }

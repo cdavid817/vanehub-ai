@@ -907,6 +907,7 @@ pub(crate) enum AgentEvent {
         session_id: String,
         message_id: String,
         token_usage: Option<MessageTokenUsage>,
+        originated_from_im: bool,
     },
     MessageFailed {
         session_id: String,

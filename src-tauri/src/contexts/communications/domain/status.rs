@@ -46,6 +46,10 @@ pub(crate) struct ConnectorStatus {
 }
 
 impl ConnectorStatus {
+    pub(crate) fn is_connected(&self) -> bool {
+        self.lifecycle == ConnectorLifecycle::Connected
+    }
+
     pub(crate) fn disabled() -> Self {
         Self {
             lifecycle: ConnectorLifecycle::Disabled,

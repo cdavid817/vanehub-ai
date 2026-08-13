@@ -65,7 +65,7 @@ pub(crate) use code_intelligence_adapter::{
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
-pub(crate) use events::TauriAgentRuntimeEventAdapter;
+pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;

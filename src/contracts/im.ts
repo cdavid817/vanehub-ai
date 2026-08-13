@@ -82,6 +82,34 @@ export const imRoutingSchema = z.object({
 });
 export type ImRouting = z.infer<typeof imRoutingSchema>;
 
+export const imBindingStateSchema = z.enum(["active", "paused"]);
+export type ImBindingState = z.infer<typeof imBindingStateSchema>;
+
+export const imSessionBindingSchema = z.object({
+  connector: imConnectorKindSchema,
+  sessionId: z.string().min(1),
+  state: imBindingStateSchema,
+  completionNotifications: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}).strict();
+export type ImSessionBinding = z.infer<typeof imSessionBindingSchema>;
+
+export const imSessionBindingViewSchema = z.object({
+  binding: imSessionBindingSchema.nullable(),
+  pendingConnector: imConnectorKindSchema.nullable(),
+}).strict();
+export type ImSessionBindingView = z.infer<typeof imSessionBindingViewSchema>;
+
+export const imPairingStartSchema = z.object({
+  connector: imConnectorKindSchema,
+  sessionId: z.string().min(1),
+  code: z.string().length(8),
+  expiresAt: z.string(),
+  replaceExisting: z.boolean(),
+}).strict();
+export type ImPairingStart = z.infer<typeof imPairingStartSchema>;
+
 export interface SaveImConnectorInput {
   kind: ImConnectorKind;
   enabled: boolean;

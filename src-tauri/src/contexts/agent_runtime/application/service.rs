@@ -1470,6 +1470,8 @@ impl AgentRuntimeApplicationService {
             seat_ownership,
             record_user_message,
         } = input;
+        let originated_from_im =
+            matches!(&source, super::AgentMessageSource::InstantMessage { .. });
         let settings = self.ports.execution_settings.load_settings().map_err(|_| {
             AgentRuntimeApplicationError::Process(
                 "execution observability settings are unavailable".to_string(),
@@ -2064,6 +2066,7 @@ impl AgentRuntimeApplicationService {
                 is_cli_kind: agent.launch().kind_str() == "cli",
                 folder: session.folder.clone(),
                 user_prompt: prompt.clone(),
+                originated_from_im,
             },
         ));
         if let Err(error) = self
@@ -2429,6 +2432,7 @@ struct GenerationEventHandler {
     is_cli_kind: bool,
     folder: Option<String>,
     user_prompt: String,
+    originated_from_im: bool,
     state: Mutex<GenerationStreamState>,
 }
 
@@ -2449,6 +2453,7 @@ struct GenerationEventHandlerInput {
     is_cli_kind: bool,
     folder: Option<String>,
     user_prompt: String,
+    originated_from_im: bool,
 }
 
 // Streaming deltas are persisted for crash/live-reload durability only — the terminal
@@ -2529,6 +2534,7 @@ impl GenerationEventHandler {
             is_cli_kind: input.is_cli_kind,
             folder: input.folder,
             user_prompt: input.user_prompt,
+            originated_from_im: input.originated_from_im,
             state: Mutex::new(GenerationStreamState::default()),
         }
     }
@@ -2889,6 +2895,7 @@ impl GenerationEventHandler {
             session_id: self.session_id.clone(),
             message_id: self.message_id.clone(),
             token_usage: Some(token_usage),
+            originated_from_im: self.originated_from_im,
         });
         self.deliver_loop_terminal(
             LoopRoleGenerationOutcome::Completed,

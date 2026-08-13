@@ -118,6 +118,33 @@ impl CommunicationsCredentialPort for CommunicationsCredentialAdapter {
         }
         Ok(())
     }
+
+    fn store_delivery_handle(
+        &self,
+        kind: ConnectorKind,
+        binding_id: &str,
+        handle: &str,
+    ) -> Result<String, CommunicationsApplicationError> {
+        let account = credential_account(kind, &format!("binding-{binding_id}"));
+        self.store
+            .set(&account, handle)
+            .map_err(|_| write_error())?;
+        Ok(account)
+    }
+
+    fn load_delivery_handle(
+        &self,
+        reference: &str,
+    ) -> Result<Option<Zeroizing<String>>, CommunicationsApplicationError> {
+        self.store.get(reference).map_err(|_| read_error())
+    }
+
+    fn delete_delivery_handle(
+        &self,
+        reference: &str,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.store.delete(reference).map_err(|_| delete_error())
+    }
 }
 
 pub(crate) fn credential_account(kind: ConnectorKind, profile: &str) -> String {
@@ -269,5 +296,28 @@ mod tests {
             credential_account(ConnectorKind::Telegram, "  "),
             "telegram/default"
         );
+    }
+
+    #[test]
+    fn delivery_handles_are_opaque_and_removed_by_reference() {
+        let store = Arc::new(MemorySecureCredentialStore::default());
+        let adapter = CommunicationsCredentialAdapter::with_store(store);
+        let reference = adapter
+            .store_delivery_handle(ConnectorKind::Telegram, "session-1", "raw-chat-target")
+            .expect("store delivery handle");
+        assert!(!reference.contains("raw-chat-target"));
+        assert_eq!(
+            adapter
+                .load_delivery_handle(&reference)
+                .expect("load")
+                .expect("handle")
+                .as_str(),
+            "raw-chat-target"
+        );
+        adapter.delete_delivery_handle(&reference).expect("delete");
+        assert!(adapter
+            .load_delivery_handle(&reference)
+            .expect("load")
+            .is_none());
     }
 }

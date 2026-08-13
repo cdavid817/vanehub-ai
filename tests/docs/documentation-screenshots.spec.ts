@@ -229,13 +229,8 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
   "settings-observability": (page, locale) =>
     openSettings(page, "observability", text(locale, "执行可观测性", "Execution observability")),
 
-  /**
-   * A connector reaching "connected" in Web/mock. The mock refuses to enable one
-   * before default routing is saved, which is the same prerequisite the desktop
-   * runtime enforces — so the capture also documents that ordering.
-   */
+  /** A globally configured connector reaching "connected" before session binding. */
   "im-connected": async (page, locale) => {
-    // Creating a session first is what puts a project into the routing dropdown.
     await createSession(page, locale);
     await page.getByRole("button", { name: text(locale, "设置", "Settings") }).click();
     const shell = page.locator("main").first();
@@ -245,14 +240,6 @@ const scenarios: Record<string, (page: Page, locale: Locale) => Promise<Locator>
     // Every settings page stays mounted and only the active one is visible, so every
     // control here must be filtered to what is actually on screen.
     const visible = { visible: true } as const;
-    const selects = shell.locator("select").filter(visible);
-    await selects.nth(0).selectOption({ index: 1 });
-    await selects.nth(1).selectOption({ index: 1 });
-    await shell
-      .getByRole("button", { name: text(locale, "保存路由", "Save routing") })
-      .filter(visible)
-      .click();
-
     await shell.getByRole("button", { name: /飞书/ }).filter(visible).first().click();
     const credentials = shell
       .locator('input[type="text"], input[type="password"]')
@@ -339,6 +326,9 @@ test.describe("documentation screenshots", () => {
       expect(capture, `unknown scenario "${definition.scenario}"`).toBeTruthy();
 
       await page.setViewportSize({ width: 1440, height: 900 });
+      if (definition.scenario.startsWith("session-")) {
+        await page.clock.setFixedTime(new Date("2026-07-14T08:00:00Z"));
+      }
       await page.addInitScript(({ locale }) => {
         localStorage.clear();
         localStorage.setItem(

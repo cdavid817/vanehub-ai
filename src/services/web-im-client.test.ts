@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getWebImDebugSnapshot, resetWebImMock, webImClient } from "./web-im-client";
 
 describe("web IM client", () => {
   beforeEach(() => resetWebImMock());
+  afterEach(() => vi.useRealTimers());
 
   it("never persists submitted credential plaintext", async () => {
     await webImClient.saveRouting({ agentId: "codex-cli", projectPath: "D:\\example" });
@@ -83,14 +84,50 @@ describe("web IM client", () => {
     expect(getWebImDebugSnapshot()).not.toContain("write-only-token");
   });
 
-  it("rejects native-equivalent enablement without routing defaults", async () => {
+  it("enables a configured connector without routing defaults", async () => {
     await webImClient.saveConnector({
       kind: "telegram",
       enabled: false,
       publicConfig: {},
       credentials: { botToken: "write-only-token" },
     });
-    await expect(webImClient.setConnectorEnabled("telegram", true)).rejects.toThrow("im-routing-required");
+    await expect(webImClient.setConnectorEnabled("telegram", true)).resolves.toBeUndefined();
+  });
+
+  it("creates and cancels session-scoped pairing without project defaults", async () => {
+    await webImClient.saveConnector({
+      kind: "telegram",
+      enabled: true,
+      publicConfig: {},
+      credentials: { botToken: "write-only-token" },
+    });
+
+    const pairing = await webImClient.beginPairing("session-1", "telegram");
+    expect(pairing).toMatchObject({ connector: "telegram", sessionId: "session-1" });
+    expect(pairing.code).toHaveLength(8);
+    await expect(webImClient.getSessionBinding("session-1")).resolves.toEqual({
+      binding: null,
+      pendingConnector: "telegram",
+    });
+    await expect(webImClient.cancelPairing("session-1", "telegram")).resolves.toBe(true);
+  });
+
+  it("simulates IM-side pairing completion deterministically", async () => {
+    await webImClient.saveConnector({
+      kind: "telegram",
+      enabled: true,
+      publicConfig: {},
+      credentials: { botToken: "write-only-token" },
+    });
+    vi.useFakeTimers();
+    await webImClient.beginPairing("session-1", "telegram");
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(webImClient.getSessionBinding("session-1")).resolves.toMatchObject({
+      binding: { connector: "telegram", sessionId: "session-1", state: "active" },
+      pendingConnector: null,
+    });
   });
 
   it("cancels QR polling without retaining authorization state", async () => {
@@ -108,6 +145,6 @@ describe("web IM client", () => {
     await webImClient.setConnectorEnabled("telegram", true).catch(() => undefined);
     unsubscribe();
     await webImClient.clearConnector("telegram");
-    expect(events).toEqual(["disabled"]);
+    expect(events).toEqual(["disabled", "connected"]);
   });
 });

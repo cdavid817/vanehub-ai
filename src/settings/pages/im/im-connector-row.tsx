@@ -10,7 +10,6 @@ import { compactCredentials, connectorDocumentation, credentialDraftAfterSave, c
 
 interface ImConnectorRowProps {
   view: ImConnectorView;
-  routingReady: boolean;
   searchTerm: string;
   pendingAction: string | null;
   onAction: (action: "save" | "enable" | "disable" | "test" | "restart" | "clear", credentials?: Record<string, string>) => Promise<boolean>;
@@ -24,7 +23,7 @@ const statusTone = (lifecycle: ImConnectorView["health"]["lifecycle"]): "success
   return "muted";
 };
 
-export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, onAction, authorization }: ImConnectorRowProps) {
+export function ImConnectorRow({ view, searchTerm, pendingAction, onAction, authorization }: ImConnectorRowProps) {
   const { i18n, t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
@@ -77,7 +76,7 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
           <input
             checked={view.config.enabled}
             className="h-4 w-4 accent-[hsl(var(--primary))]"
-            disabled={busy || (!view.config.enabled && (!routingReady || !view.hasCredentials))}
+            disabled={busy || (!view.config.enabled && !view.hasCredentials)}
             onChange={() => void onAction(view.config.enabled ? "disable" : "enable")}
             type="checkbox"
           />
@@ -87,7 +86,6 @@ export function ImConnectorRow({ view, routingReady, searchTerm, pendingAction, 
 
       {expanded ? (
         <div className="border-t border-border px-4 py-4">
-          {!routingReady ? <div className="mb-4 rounded-md border p-3 text-sm ucd-status-warning">{t("im.routing.incomplete")}</div> : null}
           {view.health.safeErrorCode ? <div className="mb-4 rounded-md border p-3 text-sm ucd-status-danger">{t("im.errors.safeCode", { code: view.health.safeErrorCode })}</div> : null}
           {fields.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

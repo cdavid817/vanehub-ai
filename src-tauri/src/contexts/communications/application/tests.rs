@@ -1,7 +1,8 @@
 use super::*;
 use crate::contexts::communications::domain::{
-    ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig, ConnectorHealth,
-    ConnectorKind, InboundEventIdentity, NormalizedInbound, RoutingSettings,
+    BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
+    ConnectorHealth, ConnectorKind, InboundEventIdentity, NormalizedInbound, PairingIntent,
+    RoutingSettings, SessionBinding,
 };
 use async_trait::async_trait;
 use serde_json::json;
@@ -19,6 +20,10 @@ struct FakeRepository {
     cleanup_limits: Mutex<Vec<usize>>,
     checkpoints: Mutex<HashMap<(ConnectorKind, String), String>>,
     fail_configuration_save: AtomicBool,
+    pairing_intents: Mutex<Vec<PairingIntent>>,
+    managed_bindings: Mutex<HashMap<(ConnectorKind, String), SessionBinding>>,
+    notification_deliveries: Mutex<HashSet<(String, String, ConnectorKind)>>,
+    delivery_references: Mutex<HashMap<String, String>>,
 }
 
 impl CommunicationsRepository for FakeRepository {
@@ -139,11 +144,236 @@ impl CommunicationsRepository for FakeRepository {
         );
         Ok(())
     }
+
+    fn binding_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        Ok(self
+            .managed_bindings
+            .lock()
+            .expect("bindings")
+            .values()
+            .find(|binding| binding.session_id == session_id)
+            .cloned())
+    }
+
+    fn binding_for_chat(
+        &self,
+        key: &ChatBindingKey,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        Ok(self
+            .managed_bindings
+            .lock()
+            .expect("bindings")
+            .get(&(key.connector(), key.external_chat_id().to_string()))
+            .cloned())
+    }
+
+    fn save_pairing_intent(
+        &self,
+        intent: &PairingIntent,
+    ) -> Result<(), CommunicationsApplicationError> {
+        let mut intents = self.pairing_intents.lock().expect("pairings");
+        intents.retain(|candidate| {
+            candidate.session_id != intent.session_id || candidate.connector != intent.connector
+        });
+        intents.push(intent.clone());
+        Ok(())
+    }
+
+    fn pairing_intents(
+        &self,
+        connector: ConnectorKind,
+        now: &str,
+    ) -> Result<Vec<PairingIntent>, CommunicationsApplicationError> {
+        Ok(self
+            .pairing_intents
+            .lock()
+            .expect("pairings")
+            .iter()
+            .filter(|intent| intent.connector == connector && intent.expires_at.as_str() > now)
+            .cloned()
+            .collect())
+    }
+
+    fn consume_pairing_intent(
+        &self,
+        intent_id: &str,
+        key: &ChatBindingKey,
+        now: &str,
+        replace: bool,
+        delivery_credential_ref: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let mut intents = self.pairing_intents.lock().expect("pairings");
+        let index = intents
+            .iter()
+            .position(|intent| {
+                intent.id == intent_id
+                    && intent.connector == key.connector()
+                    && intent.expires_at.as_str() > now
+            })
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-pairing-invalid"))?;
+        let intent = intents[index].clone();
+        let mut bindings = self.managed_bindings.lock().expect("bindings");
+        let conflict = bindings.iter().any(|((kind, chat), binding)| {
+            (*kind == key.connector()
+                && chat == key.external_chat_id()
+                && binding.session_id != intent.session_id)
+                || (binding.session_id == intent.session_id
+                    && chat != key.external_chat_id()
+                    && binding.is_active())
+        });
+        if conflict && !replace {
+            return Err(CommunicationsApplicationError::failure(
+                "im-binding-replacement-required",
+            ));
+        }
+        if replace {
+            bindings.retain(|(kind, chat), binding| {
+                binding.session_id != intent.session_id
+                    && !(*kind == key.connector() && chat == key.external_chat_id())
+            });
+        }
+        let binding = SessionBinding {
+            connector: key.connector(),
+            session_id: intent.session_id,
+            state: BindingState::Active,
+            completion_notifications: false,
+            created_at: now.to_string(),
+            updated_at: now.to_string(),
+        };
+        bindings.insert(
+            (key.connector(), key.external_chat_id().to_string()),
+            binding.clone(),
+        );
+        self.delivery_references
+            .lock()
+            .expect("delivery references")
+            .insert(
+                binding.session_id.clone(),
+                delivery_credential_ref.to_string(),
+            );
+        intents.remove(index);
+        Ok(binding)
+    }
+
+    fn binding_delivery_reference(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, CommunicationsApplicationError> {
+        Ok(self
+            .delivery_references
+            .lock()
+            .expect("delivery references")
+            .get(session_id)
+            .cloned())
+    }
+
+    fn replacement_delivery_references(
+        &self,
+        session_id: &str,
+        _key: &ChatBindingKey,
+    ) -> Result<Vec<String>, CommunicationsApplicationError> {
+        Ok(self
+            .delivery_references
+            .lock()
+            .expect("delivery references")
+            .get(session_id)
+            .cloned()
+            .into_iter()
+            .collect())
+    }
+
+    fn cancel_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        let mut intents = self.pairing_intents.lock().expect("pairings");
+        let before = intents.len();
+        intents.retain(|intent| intent.session_id != session_id || intent.connector != connector);
+        Ok(before != intents.len())
+    }
+
+    fn set_binding_state(
+        &self,
+        session_id: &str,
+        state: BindingState,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let mut bindings = self.managed_bindings.lock().expect("bindings");
+        let binding = bindings
+            .values_mut()
+            .find(|binding| binding.session_id == session_id)
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-binding-not-found"))?;
+        binding.state = state;
+        binding.updated_at = updated_at.to_string();
+        Ok(binding.clone())
+    }
+
+    fn set_completion_notifications(
+        &self,
+        session_id: &str,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let mut bindings = self.managed_bindings.lock().expect("bindings");
+        let binding = bindings
+            .values_mut()
+            .find(|binding| binding.session_id == session_id)
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-binding-not-found"))?;
+        binding.completion_notifications = enabled;
+        binding.updated_at = updated_at.to_string();
+        Ok(binding.clone())
+    }
+
+    fn remove_session_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        let mut bindings = self.managed_bindings.lock().expect("bindings");
+        let before = bindings.len();
+        bindings.retain(|_, binding| binding.session_id != session_id);
+        self.delivery_references
+            .lock()
+            .expect("delivery references")
+            .remove(session_id);
+        Ok(before != bindings.len())
+    }
+
+    fn claim_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+        _delivered_at: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        Ok(self
+            .notification_deliveries
+            .lock()
+            .expect("deliveries")
+            .insert((message_id.to_string(), session_id.to_string(), connector)))
+    }
+
+    fn release_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.notification_deliveries
+            .lock()
+            .expect("deliveries")
+            .remove(&(message_id.to_string(), session_id.to_string(), connector));
+        Ok(())
+    }
 }
 
 #[derive(Default)]
 struct FakeCredentials {
     values: Mutex<HashMap<ConnectorKind, ConnectorCredential>>,
+    delivery_handles: Mutex<HashMap<String, String>>,
     fail_store: AtomicBool,
 }
 
@@ -178,6 +408,44 @@ impl CommunicationsCredentialPort for FakeCredentials {
 
     fn delete(&self, kind: ConnectorKind) -> Result<(), CommunicationsApplicationError> {
         self.values.lock().expect("credentials").remove(&kind);
+        Ok(())
+    }
+
+    fn store_delivery_handle(
+        &self,
+        kind: ConnectorKind,
+        binding_id: &str,
+        handle: &str,
+    ) -> Result<String, CommunicationsApplicationError> {
+        let reference = format!("binding/{}/{binding_id}", kind.as_str());
+        self.delivery_handles
+            .lock()
+            .expect("delivery handles")
+            .insert(reference.clone(), handle.to_string());
+        Ok(reference)
+    }
+
+    fn load_delivery_handle(
+        &self,
+        reference: &str,
+    ) -> Result<Option<zeroize::Zeroizing<String>>, CommunicationsApplicationError> {
+        Ok(self
+            .delivery_handles
+            .lock()
+            .expect("delivery handles")
+            .get(reference)
+            .cloned()
+            .map(Zeroizing::new))
+    }
+
+    fn delete_delivery_handle(
+        &self,
+        reference: &str,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.delivery_handles
+            .lock()
+            .expect("delivery handles")
+            .remove(reference);
         Ok(())
     }
 }
@@ -269,6 +537,19 @@ impl CommunicationsTransportPort for FakeTransports {
             .push("shutdown".to_string());
         Ok(())
     }
+
+    async fn send_notification(
+        &self,
+        kind: ConnectorKind,
+        _chat_id: &str,
+        text: &str,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.actions
+            .lock()
+            .expect("actions")
+            .push(format!("notify:{}:{text}", kind.as_str()));
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -307,45 +588,19 @@ impl CommunicationsAgentExecutionPort for FakeAgents {
 
 #[derive(Default)]
 struct FakeSessions {
-    bindings: Mutex<HashMap<(ConnectorKind, String), String>>,
     resolutions: Mutex<Vec<(ConnectorKind, String, String)>>,
     resets: Mutex<Vec<Option<ConnectorKind>>>,
+    missing: AtomicBool,
 }
 
 impl CommunicationsSessionBindingPort for FakeSessions {
-    fn find(&self, key: &ChatBindingKey) -> Result<Option<String>, CommunicationsApplicationError> {
-        Ok(self
-            .bindings
-            .lock()
-            .expect("bindings")
-            .get(&(key.connector(), key.external_chat_id().to_string()))
-            .cloned())
-    }
-
-    fn create_if_missing(
-        &self,
-        key: &ChatBindingKey,
-        routing: &RoutingSettings,
-    ) -> Result<String, CommunicationsApplicationError> {
-        if let Some(session_id) = self.find(key)? {
-            return Ok(session_id);
-        }
-        self.resolutions.lock().expect("resolutions").push((
-            key.connector(),
-            key.external_chat_id().to_string(),
-            routing.project_path.clone(),
-        ));
-        let session_id = "session-1".to_string();
-        self.bindings.lock().expect("bindings").insert(
-            (key.connector(), key.external_chat_id().to_string()),
-            session_id.clone(),
-        );
-        Ok(session_id)
-    }
-
     fn reset(&self, kind: Option<ConnectorKind>) -> Result<(), CommunicationsApplicationError> {
         self.resets.lock().expect("resets").push(kind);
         Ok(())
+    }
+
+    fn exists(&self, _session_id: &str) -> Result<bool, CommunicationsApplicationError> {
+        Ok(!self.missing.load(Ordering::Acquire))
     }
 }
 
@@ -426,6 +681,17 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_with_copy(CommunicationsCopy {
+        unbound: "This chat is not connected. Start pairing from the session IM panel, then send /bind CODE here.",
+        paused: "This IM connection is paused. Resume it from the session IM panel.",
+        stale: "This connection is no longer available. Start a new pairing from an active session.",
+        pairing_invalid: "The pairing code is invalid or expired.",
+        pairing_established: "IM connection established.",
+        completion: "The session task has completed.",
+    })
+}
+
+fn fixture_with_copy(copy: CommunicationsCopy) -> Fixture {
     let repository = Arc::new(FakeRepository::default());
     *repository.routing.lock().expect("routing") =
         Some(RoutingSettings::new("codex-cli", "C:/repo").expect("routing"));
@@ -444,6 +710,7 @@ fn fixture() -> Fixture {
         operations: operations.clone(),
         clock: Arc::new(FakeClock),
         logging: logging.clone(),
+        copy: Arc::new(move || copy),
     });
     Fixture {
         service,
@@ -454,6 +721,17 @@ fn fixture() -> Fixture {
         sessions,
         operations,
         logging,
+    }
+}
+
+fn simplified_chinese_copy() -> CommunicationsCopy {
+    CommunicationsCopy {
+        unbound: "此聊天尚未连接。请在会话 IM 面板中开始配对，然后在此发送 /bind 配对码。",
+        paused: "此 IM 连接已暂停。请在会话 IM 面板中恢复。",
+        stale: "此连接已不可用。请从有效会话重新开始配对。",
+        pairing_invalid: "配对码无效或已过期。",
+        pairing_established: "IM 连接已建立。",
+        completion: "会话任务已完成。",
     }
 }
 
@@ -478,6 +756,24 @@ fn inbound(direct: bool) -> NormalizedInbound {
         text: "status please".to_string(),
         direct,
         reply_context: None,
+    }
+}
+
+fn inbound_text(text: &str) -> NormalizedInbound {
+    NormalizedInbound {
+        text: text.to_string(),
+        ..inbound(true)
+    }
+}
+
+fn session_binding(session_id: &str, state: BindingState) -> SessionBinding {
+    SessionBinding {
+        connector: ConnectorKind::Telegram,
+        session_id: session_id.to_string(),
+        state,
+        completion_notifications: false,
+        created_at: "2026-07-18T10:00:00Z".to_string(),
+        updated_at: "2026-07-18T10:00:00Z".to_string(),
     }
 }
 
@@ -516,7 +812,12 @@ async fn management_validates_then_persists_credentials_configuration_and_runtim
             .as_slice(),
         ["replace-start:telegram"]
     );
-    assert_eq!(fixture.agents.validations.lock().expect("agents").len(), 1);
+    assert!(fixture
+        .agents
+        .validations
+        .lock()
+        .expect("agents")
+        .is_empty());
     let logs = fixture.logging.entries.lock().expect("logs");
     assert_eq!(logs.len(), 1);
     assert!(!format!("{logs:?}").contains("private-token"));
@@ -832,6 +1133,7 @@ async fn runtime_failures_finish_operations_and_emit_only_safe_diagnostics() {
 #[tokio::test]
 async fn saved_connector_startup_reports_each_connector_without_first_failure_abort() {
     let fixture = fixture();
+    *fixture.repository.routing.lock().expect("routing") = None;
     for kind in [ConnectorKind::Telegram, ConnectorKind::Feishu] {
         fixture
             .repository
@@ -879,9 +1181,298 @@ async fn saved_connector_startup_reports_each_connector_without_first_failure_ab
     );
 }
 
+#[tokio::test]
+async fn pairing_is_expiring_single_use_and_routes_only_after_binding() {
+    let fixture = fixture();
+    fixture
+        .repository
+        .configurations
+        .lock()
+        .expect("configurations")
+        .insert(
+            ConnectorKind::Telegram,
+            ConnectorConfig {
+                kind: ConnectorKind::Telegram,
+                enabled: true,
+                display_name: None,
+                public_config: json!({}),
+                credential_ref: Some("im/telegram/default".to_string()),
+            },
+        );
+    fixture
+        .credentials
+        .store(ConnectorKind::Telegram, "private-token")
+        .expect("credential");
+    fixture
+        .transports
+        .health
+        .lock()
+        .expect("health")
+        .push(ConnectorHealth {
+            kind: ConnectorKind::Telegram,
+            lifecycle: crate::contexts::communications::domain::ConnectorLifecycle::Connected,
+            generation: 1,
+            safe_error_code: None,
+            updated_at: "2026-07-18T10:00:00Z".to_string(),
+        });
+
+    let unbound = fixture
+        .service
+        .route_inbound(inbound(true))
+        .expect("guidance");
+    assert!(matches!(unbound, InboundRouteOutcome::SystemReply { .. }));
+    assert!(fixture.agents.executions.lock().expect("agents").is_empty());
+    assert!(fixture
+        .sessions
+        .resolutions
+        .lock()
+        .expect("sessions")
+        .is_empty());
+
+    let pairing = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Telegram, false)
+        .await
+        .expect("pairing");
+    assert_eq!(pairing.code.len(), 8);
+    assert_eq!(pairing.expires_at, "2026-07-18T10:10:00+00:00");
+    assert!(
+        !format!("{:?}", fixture.logging.entries.lock().expect("logs")).contains(&pairing.code)
+    );
+
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(inbound_text(&format!("/bind {}", pairing.code)))
+            .expect("bind"),
+        InboundRouteOutcome::SystemReply {
+            text: "IM connection established.".to_string(),
+        }
+    );
+    assert!(matches!(
+        fixture
+            .service
+            .route_inbound(inbound_text(&format!("/bind {}", pairing.code)))
+            .expect("single use"),
+        InboundRouteOutcome::SystemReply { text } if text.contains("invalid or expired")
+    ));
+    assert!(matches!(
+        fixture.service.route_inbound(inbound(true)).expect("route"),
+        InboundRouteOutcome::Reply { session_id, .. } if session_id == "session-1"
+    ));
+    fixture
+        .service
+        .set_completion_notifications("session-1", true)
+        .expect("notifications");
+    assert!(fixture
+        .service
+        .notify_session_completion("session-1", "desktop-message-1", false)
+        .await
+        .expect("notification"));
+    assert!(!fixture
+        .service
+        .notify_session_completion("session-1", "desktop-message-1", false)
+        .await
+        .expect("idempotent"));
+    assert!(!fixture
+        .service
+        .notify_session_completion("session-1", "im-message-1", true)
+        .await
+        .expect("loop prevention"));
+    let logs = format!("{:?}", fixture.logging.entries.lock().expect("logs"));
+    for forbidden in [
+        pairing.code.as_str(),
+        "chat-1",
+        "status please",
+        "final reply",
+    ] {
+        assert!(!logs.contains(forbidden));
+    }
+}
+
+#[tokio::test]
+async fn inbound_status_and_completion_messages_use_injected_locale_copy() {
+    let fixture = fixture_with_copy(simplified_chinese_copy());
+    fixture
+        .repository
+        .configurations
+        .lock()
+        .expect("configurations")
+        .insert(
+            ConnectorKind::Telegram,
+            ConnectorConfig {
+                kind: ConnectorKind::Telegram,
+                enabled: true,
+                display_name: None,
+                public_config: json!({}),
+                credential_ref: Some("im/telegram/default".to_string()),
+            },
+        );
+    fixture
+        .credentials
+        .store(ConnectorKind::Telegram, "private-token")
+        .expect("credential");
+    fixture
+        .transports
+        .health
+        .lock()
+        .expect("health")
+        .push(ConnectorHealth {
+            kind: ConnectorKind::Telegram,
+            lifecycle: crate::contexts::communications::domain::ConnectorLifecycle::Connected,
+            generation: 1,
+            safe_error_code: None,
+            updated_at: "2026-07-18T10:00:00Z".to_string(),
+        });
+
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(inbound(true))
+            .expect("unbound"),
+        InboundRouteOutcome::SystemReply {
+            text: simplified_chinese_copy().unbound.to_string(),
+        }
+    );
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(inbound_text("/bind INVALID"))
+            .expect("invalid pairing"),
+        InboundRouteOutcome::SystemReply {
+            text: simplified_chinese_copy().pairing_invalid.to_string(),
+        }
+    );
+    let pairing = fixture
+        .service
+        .begin_pairing("session-1", ConnectorKind::Telegram, false)
+        .await
+        .expect("pairing");
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(inbound_text(&format!("/bind {}", pairing.code)))
+            .expect("bind"),
+        InboundRouteOutcome::SystemReply {
+            text: simplified_chinese_copy().pairing_established.to_string(),
+        }
+    );
+    fixture
+        .service
+        .set_binding_paused("session-1", true)
+        .expect("pause");
+    assert_eq!(
+        fixture
+            .service
+            .route_inbound(inbound(true))
+            .expect("paused"),
+        InboundRouteOutcome::SystemReply {
+            text: simplified_chinese_copy().paused.to_string(),
+        }
+    );
+    fixture
+        .service
+        .set_binding_paused("session-1", false)
+        .expect("resume");
+    fixture
+        .service
+        .set_completion_notifications("session-1", true)
+        .expect("notifications");
+    assert!(fixture
+        .service
+        .notify_session_completion("session-1", "localized-message", false)
+        .await
+        .expect("notification"));
+    assert!(fixture
+        .transports
+        .actions
+        .lock()
+        .expect("actions")
+        .contains(&"notify:telegram:会话任务已完成。".to_string()));
+}
+
+#[test]
+fn stale_session_binding_is_removed_without_agent_execution() {
+    let fixture = fixture();
+    fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .insert(
+            (ConnectorKind::Telegram, "chat-1".to_string()),
+            session_binding("deleted-session", BindingState::Active),
+        );
+    fixture.sessions.missing.store(true, Ordering::Release);
+
+    let outcome = fixture
+        .service
+        .route_inbound(inbound(true))
+        .expect("guidance");
+
+    assert!(matches!(outcome, InboundRouteOutcome::SystemReply { .. }));
+    assert!(fixture.agents.executions.lock().expect("agents").is_empty());
+    assert!(fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .is_empty());
+}
+
+#[test]
+fn paused_and_removed_bindings_block_delivery() {
+    let fixture = fixture();
+    fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .insert(
+            (ConnectorKind::Telegram, "chat-1".to_string()),
+            session_binding("session-1", BindingState::Active),
+        );
+
+    let paused = fixture
+        .service
+        .set_binding_paused("session-1", true)
+        .expect("pause");
+    assert_eq!(paused.state, BindingState::Paused);
+    assert!(matches!(
+        fixture.service.route_inbound(inbound(true)).expect("paused"),
+        InboundRouteOutcome::SystemReply { text } if text.contains("paused")
+    ));
+    fixture
+        .service
+        .set_completion_notifications("session-1", true)
+        .expect("notifications");
+    assert!(fixture
+        .service
+        .session_binding("session-1")
+        .expect("snapshot")
+        .binding
+        .is_some_and(|binding| binding.completion_notifications));
+    assert!(fixture.service.remove_binding("session-1").expect("remove"));
+    assert!(fixture
+        .service
+        .session_binding("session-1")
+        .expect("snapshot")
+        .binding
+        .is_none());
+}
+
 #[test]
 fn router_uses_dedup_routing_binding_and_agent_ports() {
     let fixture = fixture();
+    fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .insert(
+            (ConnectorKind::Telegram, "chat-1".to_string()),
+            session_binding("session-1", BindingState::Active),
+        );
     assert!(fixture
         .service
         .claim_inbound(ConnectorKind::Telegram, "event-1")
@@ -932,10 +1523,12 @@ fn router_uses_dedup_routing_binding_and_agent_ports() {
             .expect("ignore"),
         InboundRouteOutcome::Ignored
     );
-    assert_eq!(
-        fixture.sessions.resolutions.lock().expect("sessions").len(),
-        1
-    );
+    assert!(fixture
+        .sessions
+        .resolutions
+        .lock()
+        .expect("sessions")
+        .is_empty());
     assert_eq!(fixture.agents.executions.lock().expect("agents").len(), 1);
 
     fixture
@@ -1046,10 +1639,15 @@ async fn credential_store_failure_does_not_fall_back_to_plaintext_configuration(
 #[test]
 fn existing_binding_ignores_changed_routing_defaults() {
     let fixture = fixture();
-    fixture.sessions.bindings.lock().expect("bindings").insert(
-        (ConnectorKind::Telegram, "chat-1".to_string()),
-        "session-existing".to_string(),
-    );
+    fixture
+        .repository
+        .managed_bindings
+        .lock()
+        .expect("bindings")
+        .insert(
+            (ConnectorKind::Telegram, "chat-1".to_string()),
+            session_binding("session-existing", BindingState::Active),
+        );
     *fixture.repository.routing.lock().expect("routing") =
         Some(RoutingSettings::new("opencode", "C:/new-default").expect("changed routing"));
 

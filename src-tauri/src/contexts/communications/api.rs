@@ -1,11 +1,13 @@
 use super::application::CommunicationsApplicationService;
-use super::domain::{ConnectorConfig, ConnectorKind, NormalizedInbound, RoutingSettings};
+use super::domain::{
+    ConnectorConfig, ConnectorKind, NormalizedInbound, RoutingSettings, SessionBinding,
+};
 use super::infrastructure::WeChatAuthorizationService;
 use std::sync::Arc;
 
 pub(crate) use super::application::{
     CommunicationsApplicationError, ConnectorStartupResult, ConnectorSummary, InboundRouteOutcome,
-    SaveConnectorRequest,
+    PairingStartResult, SaveConnectorRequest, SessionBindingSnapshot,
 };
 
 #[derive(Clone)]
@@ -161,6 +163,67 @@ impl CommunicationsApi {
         inbound: NormalizedInbound,
     ) -> Result<InboundRouteOutcome, CommunicationsApplicationError> {
         self.service.route_inbound(inbound)
+    }
+
+    pub(crate) async fn begin_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+        replace_existing: bool,
+    ) -> Result<PairingStartResult, CommunicationsApplicationError> {
+        self.service
+            .begin_pairing(session_id, connector, replace_existing)
+            .await
+    }
+
+    pub(crate) fn cancel_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.service.cancel_pairing(session_id, connector)
+    }
+
+    pub(crate) fn session_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionBindingSnapshot, CommunicationsApplicationError> {
+        self.service.session_binding(session_id)
+    }
+
+    pub(crate) fn set_binding_paused(
+        &self,
+        session_id: &str,
+        paused: bool,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        self.service.set_binding_paused(session_id, paused)
+    }
+
+    pub(crate) fn set_completion_notifications(
+        &self,
+        session_id: &str,
+        enabled: bool,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        self.service
+            .set_completion_notifications(session_id, enabled)
+    }
+
+    pub(crate) fn remove_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.service.remove_binding(session_id)
+    }
+
+    pub(crate) async fn notify_session_completion(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        originated_from_im: bool,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.service
+            .notify_session_completion(session_id, message_id, originated_from_im)
+            .await
     }
 
     pub(crate) fn reset_bindings(

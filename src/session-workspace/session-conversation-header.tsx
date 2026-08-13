@@ -8,10 +8,12 @@ import type { Session } from "../types/agent";
 export function SessionConversationHeader({
   actions,
   isStreaming,
+  onOpenIm,
   session,
 }: {
   actions?: ReactNode;
   isStreaming: boolean;
+  onOpenIm?: () => void;
   session: Session | null;
 }) {
   const { t } = useTranslation();
@@ -35,6 +37,17 @@ export function SessionConversationHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {session && onOpenIm ? (
+            <button
+              aria-label={t("im.session.open")}
+              className="hidden h-8 items-center gap-1.5 rounded-md border border-border px-2 text-xs text-foreground hover:bg-muted max-[900px]:flex"
+              onClick={onOpenIm}
+              type="button"
+            >
+              <MessagesSquare aria-hidden="true" className="h-3.5 w-3.5" />
+              IM
+            </button>
+          ) : null}
           <span
             aria-live="polite"
             className={cn(

@@ -22,6 +22,7 @@ export default defineConfig({
     baseURL,
     colorScheme: "dark",
     reducedMotion: "reduce",
+    timezoneId: "UTC",
     trace: "retain-on-failure",
     video: "off",
     screenshot: "off",
