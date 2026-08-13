@@ -2,7 +2,7 @@ use crate::contexts::agent_runtime::api::AgentRuntimeApi;
 use crate::contexts::communications::api::{CommunicationsApi, WeChatAuthorizationApi};
 use crate::contexts::communications::application::{
     CommunicationsApplicationPorts, CommunicationsApplicationService, CommunicationsClockPort,
-    CommunicationsLoggingPort,
+    CommunicationsCopy, CommunicationsCopyProvider, CommunicationsLoggingPort,
 };
 use crate::contexts::communications::infrastructure::{
     BusyMessageProvider, CommunicationsAgentExecutionAdapter, CommunicationsCredentialAdapter,
@@ -70,6 +70,21 @@ pub(crate) fn assemble_communications(
         };
         copy.communications_overload.to_string()
     });
+    let desktop_settings = dependencies.desktop_settings.clone();
+    let communications_copy: CommunicationsCopyProvider = Arc::new(move || {
+        let copy = match desktop_settings.get_settings() {
+            Ok(view) => NativeCopy::for_language(view.settings.application_language()),
+            Err(_) => NativeCopy::resolve("zh-CN"),
+        };
+        CommunicationsCopy {
+            unbound: copy.communications_unbound,
+            paused: copy.communications_paused,
+            stale: copy.communications_stale,
+            pairing_invalid: copy.communications_pairing_invalid,
+            pairing_established: copy.communications_pairing_established,
+            completion: copy.communications_completion,
+        }
+    });
     // 步骤4：初始化通信入站消息桥接器，承载外部消息接收、限流提示能力
     let inbound = Arc::new(CommunicationsInboundBridge::new(
         logging.clone(),
@@ -100,11 +115,11 @@ pub(crate) fn assemble_communications(
         sessions: Arc::new(CommunicationsSessionBindingAdapter::new(
             repository,
             dependencies.sessions,
-            clock.clone(),
         )),
         operations: Arc::new(CommunicationsOperationAdapter::new(dependencies.operations)),
         clock,
         logging: logging as Arc<dyn CommunicationsLoggingPort>,
+        copy: communications_copy,
     });
     // 步骤9：实例化通信对外主API，绑定组装完成的应用服务
     let api = CommunicationsApi::new(service);

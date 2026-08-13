@@ -152,5 +152,6 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-12 | remove-plan-execution | agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management, project-worktree-management | `openspec/changes/archive/2026-08-12-remove-plan-execution/` |
 | 2026-08-12 | standardize-cli-ui-order | agent-ui-ordering, session-management, settings-cli-management-ui | `openspec/changes/archive/2026-08-12-standardize-cli-ui-order/` |
 | 2026-08-12 | unify-agent-session-execution-policy | cli-agent-permission-launch-flags, cli-parameter-management, session-chat-configuration, session-execution-policy | `openspec/changes/archive/2026-08-12-unify-agent-session-execution-policy/` |
+| 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

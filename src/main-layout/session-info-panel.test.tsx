@@ -129,7 +129,7 @@ describe("SessionInfoPanel", () => {
     await activateAppLanguage("en");
   });
 
-  it("renders the optimized three-tab information panel and selected model", () => {
+  it("renders the session information panel with IM management and selected model", () => {
     const html = renderPanel({
       sessionId: "session-info-fixture",
       reported: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheCreationTokens: 2, totalTokens: 35 },
@@ -142,6 +142,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Basic Info");
     expect(html).toContain("Token Usage");
     expect(html).toContain("Skill");
+    expect(html).toContain('id="info-tab-im"');
     expect(html).not.toContain(">Files<");
     expect(html).not.toContain(">Changes<");
     expect(html).not.toContain(">Logs<");
@@ -149,7 +150,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Codex CLI");
     expect(html).not.toContain('data-testid="session-roster-editor"');
     expect(html).not.toContain('id="info-tab-members"');
-    expect(html).toContain("grid-cols-3");
+    expect(html).toContain("grid-cols-4");
     expect(html).not.toContain("Collapse");
     expect(html).not.toContain("Expand info panel");
   });
@@ -174,7 +175,7 @@ describe("SessionInfoPanel", () => {
     expect(html).toContain("Member Information");
     expect(html).toContain('id="info-tab-members"');
     expect(html).toContain('data-testid="info-pane-members"');
-    expect(html).toContain("grid-cols-4");
+    expect(html).toContain("grid-cols-5");
     const memberPane = html.indexOf('data-testid="info-pane-members"');
     const editor = html.indexOf('data-testid="session-roster-editor"');
     const basicPane = html.indexOf('data-testid="info-pane-basic"');
@@ -212,7 +213,7 @@ describe("SessionInfoPanel", () => {
     }, { agentId: "onepiece", interactionMode: "api" });
 
     expect(html).toContain("Code Index");
-    expect(html).toContain("grid-cols-4");
+    expect(html).toContain("grid-cols-5");
   });
 
   it("normalizes Windows extended-length workspace paths for display", () => {

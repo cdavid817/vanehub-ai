@@ -1,5 +1,5 @@
 use crate::contexts::communications::domain::{
-    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind,
+    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind, SessionBinding,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,4 +31,21 @@ pub(crate) struct WeChatAuthorizationView {
     pub(crate) image_data_url: Option<String>,
     pub(crate) expires_at: Option<String>,
     pub(crate) safe_error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PairingStartView {
+    pub(crate) connector: ConnectorKind,
+    pub(crate) session_id: String,
+    pub(crate) code: String,
+    pub(crate) expires_at: String,
+    pub(crate) replace_existing: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionBindingView {
+    pub(crate) binding: Option<SessionBinding>,
+    pub(crate) pending_connector: Option<ConnectorKind>,
 }

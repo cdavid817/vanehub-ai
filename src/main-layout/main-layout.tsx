@@ -24,6 +24,7 @@ import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
 import type { SettingsPageId } from "../settings/settings-pages";
 import { seatsFromSession } from "../services/session-seats";
 import { SessionRecoveryNotice } from "../session-workspace/session-recovery-notice";
+import { useMediaQuery } from "../hooks/use-media-query";
 
 const sessionSidebarWidthStorageKey = "vanehub.session-sidebar.width.v1";
 const minSessionSidebarWidth = 220;
@@ -95,8 +96,10 @@ export function MainLayout({
   const model = useMainLayoutModel();
   const { t } = useTranslation();
   const { notify } = useNotifications();
+  const narrowLayout = useMediaQuery("(max-width: 900px)");
   const [conversationFocusMode, setConversationFocusMode] = useState(false);
-  const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(false);
+  const [infoPanelCollapsed, setInfoPanelCollapsed] = useState(narrowLayout);
+  const [requestedInfoTab, setRequestedInfoTab] = useState<"im" | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [workspaceTabsCollapsed, setWorkspaceTabsCollapsed] = useState(false);
   const [sessionSidebarWidth, setSessionSidebarWidth] = useState(readSessionSidebarWidth);
@@ -136,6 +139,10 @@ export function MainLayout({
       setSessionActivationKey((value) => value + 1);
     }
   }, [model.activeSessionId]);
+
+  useEffect(() => {
+    if (narrowLayout) setInfoPanelCollapsed(true);
+  }, [narrowLayout]);
 
   function startSessionSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
     if (effectiveSessionSidebarCollapsed) return;
@@ -327,6 +334,11 @@ export function MainLayout({
                         setInfoPanelCollapsed(false);
                       } else setInfoPanelCollapsed(true);
                     },
+                    onOpenIm: () => {
+                      if (conversationFocusMode) setConversationFocusMode(false);
+                      setRequestedInfoTab("im");
+                      setInfoPanelCollapsed(false);
+                    },
                     onToggleSessionList: () => {
                       if (effectiveSessionSidebarCollapsed) {
                         if (conversationFocusMode) setConversationFocusMode(false);
@@ -348,8 +360,9 @@ export function MainLayout({
               activeSession={displayedSession}
               collapsed={effectiveInfoPanelCollapsed}
               currentSpeakerSeatId={loopInspection || model.turnStatus?.kind !== "agent" ? null : model.turnStatus.seatId ?? null}
+              onOpenImSettings={() => onOpenSettings("im")}
               onOpenSkillSettings={() => onOpenSettings("skills")}
-              requestedTab={loopInspection?.target.surface === "usage" ? "usage" : null}
+              requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
             />
           </div>
           <section

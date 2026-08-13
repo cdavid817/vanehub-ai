@@ -1,5 +1,5 @@
 use crate::contexts::communications::domain::{
-    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind,
+    ConnectorConfig, ConnectorDescriptor, ConnectorHealth, ConnectorKind, SessionBinding,
 };
 use std::collections::BTreeMap;
 use zeroize::Zeroizing;
@@ -74,7 +74,25 @@ pub(crate) enum InboundRouteOutcome {
         session_id: String,
         message_id: String,
     },
+    SystemReply {
+        text: String,
+    },
     Ignored,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PairingStartResult {
+    pub(crate) connector: ConnectorKind,
+    pub(crate) session_id: String,
+    pub(crate) code: String,
+    pub(crate) expires_at: String,
+    pub(crate) replace_existing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SessionBindingSnapshot {
+    pub(crate) binding: Option<SessionBinding>,
+    pub(crate) pending_connector: Option<ConnectorKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

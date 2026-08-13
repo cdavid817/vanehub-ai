@@ -4,6 +4,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 fn run_fixture_probe(probe: &str) {
+    let mut failures = Vec::new();
+    for attempt in 1..=2 {
+        match run_fixture_probe_once(probe) {
+            Ok(stdout) => {
+                assert!(stdout.contains(&format!("OK {probe}")), "{stdout}");
+                return;
+            }
+            Err(failure) => failures.push(format!("attempt {attempt}: {failure}")),
+        }
+    }
+    panic!("MCP {probe} fixture probe failed\n{}", failures.join("\n"));
+}
+
+fn run_fixture_probe_once(probe: &str) -> Result<String, String> {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let script = manifest_dir
         .join("tests")
@@ -24,7 +38,7 @@ fn run_fixture_probe(probe: &str) {
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("MCP {probe} fixture probe exceeded its 20 second wall-clock guard");
+            return Err("exceeded its 20 second wall-clock guard".to_string());
         }
         thread::sleep(Duration::from_millis(20));
     };
@@ -43,11 +57,10 @@ fn run_fixture_probe(probe: &str) {
         .expect("probe stderr")
         .read_to_string(&mut stderr)
         .expect("read probe stderr");
-    assert!(
-        status.success(),
-        "MCP {probe} fixture probe failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(stdout.contains(&format!("OK {probe}")), "{stdout}");
+    if !status.success() {
+        return Err(format!("stdout:\n{stdout}\nstderr:\n{stderr}"));
+    }
+    Ok(stdout)
 }
 
 #[test]

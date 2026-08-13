@@ -119,6 +119,7 @@ pub(crate) fn assemble_shared_agent_registry(
 pub(crate) struct AgentRuntimeAssembly {
     pub(crate) api: AgentRuntimeApi,
     pub(crate) telemetry_lifecycle: ExecutionTelemetryLifecycle,
+    pub(crate) completion_events: Arc<TauriAgentRuntimeEventAdapter>,
 }
 
 type ExecutionExporterSet = (
@@ -274,7 +275,7 @@ pub(crate) fn assemble_agent_runtime_api(
         logging: logging.clone(),
         clock: clock.clone(),
         events: events.clone(),
-        terminal_events: events,
+        terminal_events: events.clone(),
     });
     let expert_roles = ExpertRoleApplicationService::new(ExpertRoleApplicationPorts {
         repository: expert_role_repository,
@@ -358,6 +359,7 @@ pub(crate) fn assemble_agent_runtime_api(
             seat_turns,
         }),
         telemetry_lifecycle,
+        completion_events: events,
     })
 }
 

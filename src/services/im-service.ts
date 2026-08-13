@@ -2,7 +2,10 @@ import type {
   ImConnectorConfig,
   ImConnectorKind,
   ImConnectorView,
+  ImPairingStart,
   ImRouting,
+  ImSessionBinding,
+  ImSessionBindingView,
   SaveImConnectorInput,
   WeChatAuthorization,
 } from "../contracts/im";
@@ -17,6 +20,12 @@ export interface ImService {
   testConnector(kind: ImConnectorKind): Promise<void>;
   clearConnector(kind: ImConnectorKind): Promise<void>;
   resetBindings(kind?: ImConnectorKind): Promise<void>;
+  getSessionBinding(sessionId: string): Promise<ImSessionBindingView>;
+  beginPairing(sessionId: string, connector: ImConnectorKind, replaceExisting?: boolean): Promise<ImPairingStart>;
+  cancelPairing(sessionId: string, connector: ImConnectorKind): Promise<boolean>;
+  setBindingPaused(sessionId: string, paused: boolean): Promise<ImSessionBinding>;
+  setCompletionNotifications(sessionId: string, enabled: boolean): Promise<ImSessionBinding>;
+  removeSessionBinding(sessionId: string): Promise<boolean>;
   subscribeLifecycle(handler: (health: import("../contracts/im").ImConnectorHealth) => void): Promise<() => void>;
   beginWeChatAuthorization(): Promise<WeChatAuthorization>;
   pollWeChatAuthorization(): Promise<WeChatAuthorization>;

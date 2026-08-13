@@ -3,6 +3,21 @@
 ## Purpose
 TBD - created by archiving change split-settings-center-ui-spec. Update Purpose after archive.
 ## Requirements
+### Requirement: Connector-focused setup
+The IM settings page SHALL present connector credentials, authorization, access posture, connection tests, lifecycle controls, and health independently from any Agent or project selection.
+
+#### Scenario: Enable configured connector without routing defaults
+- **WHEN** a connector has valid credentials or authorization and the user enables it without selecting an Agent or project
+- **THEN** the page SHALL allow the request and display the asynchronous connector lifecycle result
+
+#### Scenario: Explain session binding
+- **WHEN** the user views the IM settings page
+- **THEN** the page SHALL explain that projects and Agents are selected by creating a session and connecting IM from that session
+
+#### Scenario: Open an eligible session
+- **WHEN** the user chooses the settings-page action to connect a session
+- **THEN** the UI SHALL navigate to or prompt for an eligible existing session without duplicating session binding controls inside connector credential rows
+
 ### Requirement: Service-backed IM settings page
 The settings center SHALL include a localized IM entry and service-backed page before Usage Statistics and About.
 
@@ -12,22 +27,7 @@ The settings center SHALL include a localized IM entry and service-backed page b
 
 #### Scenario: Load IM settings
 - **WHEN** the IM page opens
-- **THEN** it SHALL load connector descriptors, current status, credential-presence metadata, and routing settings through the frontend IM service
-
-### Requirement: IM routing controls
-The IM settings page SHALL provide controls for the default Agent and default project used by new external-chat bindings and SHALL synchronize the form with normalized service results.
-
-#### Scenario: Select routing defaults
-- **WHEN** a user edits IM routing settings
-- **THEN** the page SHALL use registered Agent ids and service-backed project selection and SHALL show field-level validation before saving
-
-#### Scenario: Save normalized routing defaults
-- **WHEN** the routing service accepts and normalizes an Agent id or project path
-- **THEN** the page SHALL replace both editable and persisted routing state with the normalized result and SHALL consider the routing ready
-
-#### Scenario: Routing defaults are incomplete
-- **WHEN** no valid default Agent or project is configured
-- **THEN** the page SHALL explain the incomplete state and SHALL prevent enabling a connector
+- **THEN** it SHALL load connector descriptors, current status, credential-presence metadata, and access posture through the frontend IM service without requiring session routing settings
 
 ### Requirement: Connector management rows
 The IM settings page SHALL render one expandable management row for each of the five built-in connectors.

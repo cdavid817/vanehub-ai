@@ -17,7 +17,7 @@ pub(crate) use credential_adapter::CommunicationsCredentialAdapter;
 pub(crate) use lifecycle_events::TauriConnectorLifecycleEvents;
 pub(crate) use runtime_bridge::{BusyMessageProvider, CommunicationsInboundBridge};
 pub(crate) use runtime_manager::ConnectorRuntimeManager;
-pub(crate) use schema::{apply_schema, apply_session_source_schema};
+pub(crate) use schema::{apply_schema, apply_session_binding_schema, apply_session_source_schema};
 pub(crate) use sqlite_repository::SqliteCommunicationsRepository;
 pub(crate) use transport_adapter::{
     maintain_wechat_reply_contexts, CommunicationsTransportAdapter,

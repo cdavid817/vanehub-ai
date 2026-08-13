@@ -89,6 +89,11 @@ fn map_outcome(outcome: InboundRouteOutcome) -> InboundOutcome {
             session_id,
             message_id,
         },
+        InboundRouteOutcome::SystemReply { text } => InboundOutcome::Reply {
+            text,
+            session_id: "im-system".to_string(),
+            message_id: "im-system".to_string(),
+        },
         InboundRouteOutcome::Ignored => InboundOutcome::Ignored,
     }
 }

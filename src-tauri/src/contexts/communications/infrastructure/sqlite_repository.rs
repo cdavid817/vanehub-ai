@@ -2,8 +2,8 @@ use crate::contexts::communications::application::{
     CommunicationsApplicationError, CommunicationsRepository,
 };
 use crate::contexts::communications::domain::{
-    ChatBinding, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
-    ConnectorKind, InboundEventIdentity, RoutingSettings,
+    BindingState, ChatBindingKey, CheckpointKey, ConnectorCheckpoint, ConnectorConfig,
+    ConnectorKind, InboundEventIdentity, PairingIntent, RoutingSettings, SessionBinding,
 };
 use crate::platform::database::{NativeDatabase, PooledSqlite};
 use rusqlite::{params, OptionalExtension, Row};
@@ -32,6 +32,7 @@ impl SqliteCommunicationsRepository {
             .map_err(|_| repository_unavailable())
     }
 
+    #[cfg(test)]
     pub(crate) fn find_binding(
         &self,
         key: &ChatBindingKey,
@@ -39,7 +40,7 @@ impl SqliteCommunicationsRepository {
         self.connection()?
             .query_row(
                 "SELECT session_id FROM im_session_bindings \
-                 WHERE connector = ?1 AND external_chat_hash = ?2",
+                 WHERE connector = ?1 AND external_chat_hash = ?2 AND state = 'active'",
                 params![
                     key.connector().as_str(),
                     stable_hash(key.external_chat_id())
@@ -50,18 +51,22 @@ impl SqliteCommunicationsRepository {
             .map_err(sqlite_error)
     }
 
+    #[cfg(test)]
     pub(crate) fn save_binding(
         &self,
-        binding: &ChatBinding,
+        binding: &crate::contexts::communications::domain::ChatBinding,
         created_at: &str,
     ) -> Result<(), CommunicationsApplicationError> {
         self.connection()?
             .execute(
                 r#"INSERT INTO im_session_bindings
-                   (connector, external_chat_hash, session_id, created_at)
-                   VALUES (?1, ?2, ?3, ?4)
+                   (connector, external_chat_hash, session_id, created_at, state,
+                    completion_notifications, updated_at)
+                   VALUES (?1, ?2, ?3, ?4, 'active', 0, ?4)
                    ON CONFLICT(connector, external_chat_hash) DO UPDATE SET
-                     session_id = excluded.session_id"#,
+                     session_id = excluded.session_id,
+                     state = 'active',
+                     updated_at = excluded.updated_at"#,
                 params![
                     binding.key().connector().as_str(),
                     stable_hash(binding.key().external_chat_id()),
@@ -71,6 +76,364 @@ impl SqliteCommunicationsRepository {
             )
             .map_err(sqlite_error)?;
         Ok(())
+    }
+
+    pub(crate) fn binding_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        self.connection()?
+            .query_row(
+                r#"SELECT connector, session_id, state, completion_notifications,
+                          created_at, updated_at
+                   FROM im_session_bindings
+                   WHERE session_id = ?1
+                   ORDER BY CASE state WHEN 'active' THEN 0 ELSE 1 END, created_at
+                   LIMIT 1"#,
+                [session_id],
+                read_session_binding,
+            )
+            .optional()
+            .map_err(sqlite_error)?
+            .map(session_binding_from_row)
+            .transpose()
+    }
+
+    pub(crate) fn binding_for_chat(
+        &self,
+        key: &ChatBindingKey,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        self.connection()?
+            .query_row(
+                r#"SELECT connector, session_id, state, completion_notifications,
+                          created_at, updated_at
+                   FROM im_session_bindings
+                   WHERE connector = ?1 AND external_chat_hash = ?2"#,
+                params![
+                    key.connector().as_str(),
+                    stable_hash(key.external_chat_id())
+                ],
+                read_session_binding,
+            )
+            .optional()
+            .map_err(sqlite_error)?
+            .map(session_binding_from_row)
+            .transpose()
+    }
+
+    pub(crate) fn set_binding_state(
+        &self,
+        session_id: &str,
+        state: BindingState,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let changed = self
+            .connection()?
+            .execute(
+                "UPDATE im_session_bindings SET state = ?2, updated_at = ?3 WHERE session_id = ?1",
+                params![session_id, state.as_str(), updated_at],
+            )
+            .map_err(sqlite_error)?;
+        if changed == 0 {
+            return Err(CommunicationsApplicationError::user_visible(
+                "im-binding-not-found",
+                "This session has no IM binding.",
+            ));
+        }
+        self.binding_for_session(session_id)?
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-binding-update-lost"))
+    }
+
+    pub(crate) fn set_completion_notifications(
+        &self,
+        session_id: &str,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let changed = self.connection()?.execute(
+            "UPDATE im_session_bindings SET completion_notifications = ?2, updated_at = ?3 WHERE session_id = ?1",
+            params![session_id, enabled, updated_at],
+        ).map_err(sqlite_error)?;
+        if changed == 0 {
+            return Err(CommunicationsApplicationError::user_visible(
+                "im-binding-not-found",
+                "This session has no IM binding.",
+            ));
+        }
+        self.binding_for_session(session_id)?
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-binding-update-lost"))
+    }
+
+    pub(crate) fn remove_session_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "DELETE FROM im_session_bindings WHERE session_id = ?1",
+                [session_id],
+            )
+            .map(|changed| changed > 0)
+            .map_err(sqlite_error)
+    }
+
+    pub(crate) fn claim_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+        delivered_at: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "INSERT OR IGNORE INTO im_notification_deliveries \
+                 (message_id, session_id, connector, delivered_at) VALUES (?1, ?2, ?3, ?4)",
+                params![message_id, session_id, connector.as_str(), delivered_at],
+            )
+            .map(|changed| changed > 0)
+            .map_err(sqlite_error)
+    }
+
+    pub(crate) fn release_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "DELETE FROM im_notification_deliveries \
+                 WHERE message_id = ?1 AND session_id = ?2 AND connector = ?3",
+                params![message_id, session_id, connector.as_str()],
+            )
+            .map(|_| ())
+            .map_err(sqlite_error)
+    }
+
+    pub(crate) fn save_pairing_intent(
+        &self,
+        intent: &PairingIntent,
+    ) -> Result<(), CommunicationsApplicationError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM im_pairing_intents WHERE session_id = ?1 AND connector = ?2",
+                params![intent.session_id, intent.connector.as_str()],
+            )
+            .map_err(sqlite_error)?;
+        transaction
+            .execute(
+                r#"INSERT INTO im_pairing_intents
+                   (id, connector, session_id, code_hash, salt, expires_at, created_at,
+                    replace_existing)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+                params![
+                    intent.id,
+                    intent.connector.as_str(),
+                    intent.session_id,
+                    intent.code_hash,
+                    intent.salt,
+                    intent.expires_at,
+                    intent.created_at,
+                    intent.replace_existing,
+                ],
+            )
+            .map_err(sqlite_error)?;
+        transaction.commit().map_err(sqlite_error)
+    }
+
+    pub(crate) fn pairing_intents(
+        &self,
+        connector: ConnectorKind,
+        now: &str,
+    ) -> Result<Vec<PairingIntent>, CommunicationsApplicationError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                r#"SELECT id, connector, session_id, code_hash, salt, expires_at, created_at,
+                          replace_existing
+                   FROM im_pairing_intents
+                   WHERE connector = ?1 AND expires_at > ?2
+                   ORDER BY created_at DESC LIMIT 16"#,
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map(params![connector.as_str(), now], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)? != 0,
+                ))
+            })
+            .map_err(sqlite_error)?;
+        let mut intents = Vec::new();
+        for row in rows {
+            let (
+                id,
+                connector,
+                session_id,
+                code_hash,
+                salt,
+                expires_at,
+                created_at,
+                replace_existing,
+            ) = row.map_err(sqlite_error)?;
+            let connector = ConnectorKind::parse(&connector).ok_or_else(invalid_repository_data)?;
+            intents.push(PairingIntent::new(
+                id,
+                connector,
+                session_id,
+                (code_hash, salt),
+                (expires_at, created_at),
+                replace_existing,
+            )?);
+        }
+        Ok(intents)
+    }
+
+    pub(crate) fn consume_pairing_intent(
+        &self,
+        intent_id: &str,
+        key: &ChatBindingKey,
+        now: &str,
+        replace: bool,
+        delivery_credential_ref: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        let intent = transaction
+            .query_row(
+                "SELECT connector, session_id, expires_at FROM im_pairing_intents WHERE id = ?1",
+                [intent_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(sqlite_error)?
+            .ok_or_else(|| {
+                CommunicationsApplicationError::user_visible(
+                    "im-pairing-invalid",
+                    "The pairing code is invalid or has already been used.",
+                )
+            })?;
+        if intent.0 != key.connector().as_str() || intent.2.as_str() <= now {
+            return Err(CommunicationsApplicationError::user_visible(
+                "im-pairing-invalid",
+                "The pairing code is invalid or expired.",
+            ));
+        }
+        let external_hash = stable_hash(key.external_chat_id());
+        let chat_conflict: Option<String> = transaction.query_row(
+            "SELECT session_id FROM im_session_bindings WHERE connector = ?1 AND external_chat_hash = ?2",
+            params![key.connector().as_str(), external_hash], |row| row.get(0),
+        ).optional().map_err(sqlite_error)?;
+        let session_conflict: Option<String> = transaction.query_row(
+            "SELECT external_chat_hash FROM im_session_bindings WHERE session_id = ?1 AND state = 'active' LIMIT 1",
+            [&intent.1], |row| row.get(0),
+        ).optional().map_err(sqlite_error)?;
+        if !replace
+            && (chat_conflict.as_deref().is_some_and(|id| id != intent.1)
+                || session_conflict
+                    .as_deref()
+                    .is_some_and(|hash| hash != external_hash))
+        {
+            return Err(CommunicationsApplicationError::user_visible(
+                "im-binding-replacement-required",
+                "Confirm replacement before changing this IM binding.",
+            ));
+        }
+        if replace {
+            transaction.execute(
+                "DELETE FROM im_session_bindings WHERE session_id = ?1 OR (connector = ?2 AND external_chat_hash = ?3)",
+                params![intent.1, key.connector().as_str(), external_hash],
+            ).map_err(sqlite_error)?;
+        }
+        transaction.execute(
+            r#"INSERT INTO im_session_bindings
+               (connector, external_chat_hash, session_id, created_at, state,
+                completion_notifications, updated_at, delivery_credential_ref)
+               VALUES (?1, ?2, ?3, ?4, 'active', 0, ?4, ?5)
+               ON CONFLICT(connector, external_chat_hash) DO UPDATE SET
+                 session_id = excluded.session_id, state = 'active', updated_at = excluded.updated_at,
+                 delivery_credential_ref = excluded.delivery_credential_ref"#,
+            params![key.connector().as_str(), external_hash, intent.1, now, delivery_credential_ref],
+        ).map_err(sqlite_error)?;
+        transaction
+            .execute("DELETE FROM im_pairing_intents WHERE id = ?1", [intent_id])
+            .map_err(sqlite_error)?;
+        transaction.commit().map_err(sqlite_error)?;
+        self.binding_for_session(&intent.1)?
+            .ok_or_else(|| CommunicationsApplicationError::failure("im-binding-create-lost"))
+    }
+
+    pub(crate) fn binding_delivery_reference(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, CommunicationsApplicationError> {
+        self.connection()?
+            .query_row(
+                "SELECT delivery_credential_ref FROM im_session_bindings WHERE session_id = ?1 LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sqlite_error)
+            .map(Option::flatten)
+    }
+
+    pub(crate) fn replacement_delivery_references(
+        &self,
+        session_id: &str,
+        key: &ChatBindingKey,
+    ) -> Result<Vec<String>, CommunicationsApplicationError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT delivery_credential_ref FROM im_session_bindings \
+                 WHERE delivery_credential_ref IS NOT NULL AND \
+                 (session_id = ?1 OR (connector = ?2 AND external_chat_hash = ?3))",
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map(
+                params![
+                    session_id,
+                    key.connector().as_str(),
+                    stable_hash(key.external_chat_id())
+                ],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_error)?;
+        let mut references = Vec::new();
+        for row in rows {
+            references.push(row.map_err(sqlite_error)?);
+        }
+        Ok(references)
+    }
+
+    pub(crate) fn cancel_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        self.connection()?
+            .execute(
+                "DELETE FROM im_pairing_intents WHERE session_id = ?1 AND connector = ?2",
+                params![session_id, connector.as_str()],
+            )
+            .map(|changed| changed > 0)
+            .map_err(sqlite_error)
     }
 
     pub(crate) fn reset_bindings(
@@ -405,6 +768,130 @@ impl CommunicationsRepository for SqliteCommunicationsRepository {
             .map_err(sqlite_error)?;
         Ok(())
     }
+
+    fn binding_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::binding_for_session(self, session_id)
+    }
+
+    fn binding_for_chat(
+        &self,
+        key: &ChatBindingKey,
+    ) -> Result<Option<SessionBinding>, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::binding_for_chat(self, key)
+    }
+
+    fn save_pairing_intent(
+        &self,
+        intent: &PairingIntent,
+    ) -> Result<(), CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::save_pairing_intent(self, intent)
+    }
+
+    fn pairing_intents(
+        &self,
+        connector: ConnectorKind,
+        now: &str,
+    ) -> Result<Vec<PairingIntent>, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::pairing_intents(self, connector, now)
+    }
+
+    fn consume_pairing_intent(
+        &self,
+        intent_id: &str,
+        key: &ChatBindingKey,
+        now: &str,
+        replace: bool,
+        delivery_credential_ref: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::consume_pairing_intent(
+            self,
+            intent_id,
+            key,
+            now,
+            replace,
+            delivery_credential_ref,
+        )
+    }
+
+    fn binding_delivery_reference(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::binding_delivery_reference(self, session_id)
+    }
+
+    fn replacement_delivery_references(
+        &self,
+        session_id: &str,
+        key: &ChatBindingKey,
+    ) -> Result<Vec<String>, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::replacement_delivery_references(self, session_id, key)
+    }
+
+    fn cancel_pairing(
+        &self,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::cancel_pairing(self, session_id, connector)
+    }
+
+    fn set_binding_state(
+        &self,
+        session_id: &str,
+        state: BindingState,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::set_binding_state(self, session_id, state, updated_at)
+    }
+
+    fn set_completion_notifications(
+        &self,
+        session_id: &str,
+        enabled: bool,
+        updated_at: &str,
+    ) -> Result<SessionBinding, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::set_completion_notifications(
+            self, session_id, enabled, updated_at,
+        )
+    }
+
+    fn remove_session_binding(
+        &self,
+        session_id: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::remove_session_binding(self, session_id)
+    }
+
+    fn claim_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+        delivered_at: &str,
+    ) -> Result<bool, CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::claim_notification_delivery(
+            self,
+            message_id,
+            session_id,
+            connector,
+            delivered_at,
+        )
+    }
+
+    fn release_notification_delivery(
+        &self,
+        message_id: &str,
+        session_id: &str,
+        connector: ConnectorKind,
+    ) -> Result<(), CommunicationsApplicationError> {
+        SqliteCommunicationsRepository::release_notification_delivery(
+            self, message_id, session_id, connector,
+        )
+    }
 }
 
 struct ConnectorRow {
@@ -446,6 +933,32 @@ fn stable_hash(value: &str) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+type SessionBindingRow = (String, String, String, bool, String, String);
+
+fn read_session_binding(row: &Row<'_>) -> rusqlite::Result<SessionBindingRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get::<_, i64>(3)? != 0,
+        row.get(4)?,
+        row.get(5)?,
+    ))
+}
+
+fn session_binding_from_row(
+    row: SessionBindingRow,
+) -> Result<SessionBinding, CommunicationsApplicationError> {
+    Ok(SessionBinding {
+        connector: ConnectorKind::parse(&row.0).ok_or_else(invalid_repository_data)?,
+        session_id: row.1,
+        state: BindingState::parse(&row.2).ok_or_else(invalid_repository_data)?,
+        completion_notifications: row.3,
+        created_at: row.4,
+        updated_at: row.5,
+    })
+}
+
 fn sqlite_error(_error: rusqlite::Error) -> CommunicationsApplicationError {
     CommunicationsApplicationError::failure("communications-repository-failed")
 }
@@ -461,6 +974,7 @@ fn invalid_repository_data() -> CommunicationsApplicationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::communications::domain::ChatBinding;
     use crate::test_support::TempDirectory;
     use serde_json::json;
 
@@ -493,6 +1007,21 @@ mod tests {
             public_config: json!({"apiBase": "https://example.test"}),
             credential_ref: credential_ref.map(str::to_string),
         }
+    }
+
+    fn insert_session(fixture: &Fixture, session_id: &str) {
+        fixture
+            .database
+            .connection()
+            .expect("connection")
+            .execute(
+                r#"INSERT INTO sessions
+               (id, title, agent_id, interaction_mode, lifecycle_state,
+                pinned, archived, created_at, updated_at)
+               VALUES (?1, ?1, 'codex-cli', 'interactive', 'idle', 0, 0, ?2, ?2)"#,
+                params![session_id, "2026-08-12T00:00:00Z"],
+            )
+            .expect("session");
     }
 
     #[test]
@@ -746,6 +1275,202 @@ mod tests {
             .find_binding(&feishu_key)
             .expect("binding after delete")
             .is_none());
+    }
+
+    #[test]
+    fn pairing_is_connector_scoped_single_use_and_enforces_replacement() {
+        let fixture = fixture("communications-pairing-consumption");
+        insert_session(&fixture, "session-1");
+        insert_session(&fixture, "session-2");
+        let first = PairingIntent::new(
+            "pair-1",
+            ConnectorKind::Telegram,
+            "session-1",
+            ("hash-1", "salt-1"),
+            ("2026-08-12T00:10:00Z", "2026-08-12T00:00:00Z"),
+            false,
+        )
+        .expect("intent");
+        fixture
+            .repository
+            .save_pairing_intent(&first)
+            .expect("save intent");
+        assert!(fixture
+            .repository
+            .pairing_intents(ConnectorKind::Feishu, "2026-08-12T00:01:00Z")
+            .expect("other connector")
+            .is_empty());
+        let key = ChatBindingKey::new(ConnectorKind::Telegram, "private-chat-1").expect("key");
+        let binding = fixture
+            .repository
+            .consume_pairing_intent("pair-1", &key, "2026-08-12T00:01:00Z", false, "ref-1")
+            .expect("consume");
+        assert_eq!(binding.session_id, "session-1");
+        assert!(fixture
+            .repository
+            .consume_pairing_intent("pair-1", &key, "2026-08-12T00:02:00Z", false, "ref-1")
+            .is_err());
+
+        let second = PairingIntent::new(
+            "pair-2",
+            ConnectorKind::Telegram,
+            "session-2",
+            ("hash-2", "salt-2"),
+            ("2026-08-12T00:10:00Z", "2026-08-12T00:02:00Z"),
+            true,
+        )
+        .expect("intent");
+        fixture
+            .repository
+            .save_pairing_intent(&second)
+            .expect("save second");
+        let error = fixture
+            .repository
+            .consume_pairing_intent("pair-2", &key, "2026-08-12T00:03:00Z", false, "ref-2")
+            .expect_err("replacement required");
+        assert_eq!(error.safe_code(), "im-binding-replacement-required");
+        let replaced = fixture
+            .repository
+            .consume_pairing_intent("pair-2", &key, "2026-08-12T00:03:00Z", true, "ref-2")
+            .expect("replace");
+        assert_eq!(replaced.session_id, "session-2");
+    }
+
+    #[test]
+    fn expired_pairing_cannot_bind_and_binding_controls_round_trip() {
+        let fixture = fixture("communications-pairing-expiry-controls");
+        insert_session(&fixture, "session-1");
+        let expired = PairingIntent::new(
+            "pair-expired",
+            ConnectorKind::Telegram,
+            "session-1",
+            ("hash", "salt"),
+            ("2026-08-12T00:01:00Z", "2026-08-12T00:00:00Z"),
+            false,
+        )
+        .expect("intent");
+        fixture
+            .repository
+            .save_pairing_intent(&expired)
+            .expect("save");
+        assert!(fixture
+            .repository
+            .pairing_intents(ConnectorKind::Telegram, "2026-08-12T00:02:00Z")
+            .expect("active intents")
+            .is_empty());
+        let key = ChatBindingKey::new(ConnectorKind::Telegram, "private-chat").expect("key");
+        assert!(fixture
+            .repository
+            .consume_pairing_intent(
+                "pair-expired",
+                &key,
+                "2026-08-12T00:02:00Z",
+                false,
+                "ref-expired",
+            )
+            .is_err());
+
+        fixture
+            .repository
+            .save_binding(
+                &ChatBinding::new(key.clone(), "session-1").expect("binding"),
+                "2026-08-12T00:03:00Z",
+            )
+            .expect("save binding");
+        let paused = fixture
+            .repository
+            .set_binding_state("session-1", BindingState::Paused, "2026-08-12T00:04:00Z")
+            .expect("pause");
+        assert!(!paused.is_active());
+        assert!(fixture
+            .repository
+            .find_binding(&key)
+            .expect("active lookup")
+            .is_none());
+        let notified = fixture
+            .repository
+            .set_completion_notifications("session-1", true, "2026-08-12T00:05:00Z")
+            .expect("notifications");
+        assert!(notified.completion_notifications);
+        assert!(fixture
+            .repository
+            .remove_session_binding("session-1")
+            .expect("remove"));
+        assert!(fixture
+            .repository
+            .binding_for_session("session-1")
+            .expect("lookup")
+            .is_none());
+    }
+
+    #[test]
+    fn binding_mutations_preserve_session_execution_and_history_continuity() {
+        let fixture = fixture("communications-binding-session-continuity");
+        insert_session(&fixture, "session-continuity");
+        fixture
+            .database
+            .connection()
+            .expect("connection")
+            .execute_batch(
+                r#"
+                UPDATE sessions
+                   SET project_path = 'D:/project', worktree_path = 'D:/project-feature',
+                       worktree_name = 'feature', worktree_branch = 'feat/im',
+                       runtime_session_id = 'provider-session-7', history_revision = 7,
+                       chat_preferences = '{"permissionMode":"agent","providerId":"openai","modelId":"gpt-continuity","reasoningDepth":"high","streaming":true,"thinking":true,"longContext":false}'
+                 WHERE id = 'session-continuity';
+                INSERT INTO messages
+                    (id, session_id, role, status, content, created_at, updated_at, session_sequence)
+                VALUES
+                    ('message-continuity', 'session-continuity', 'assistant', 'completed',
+                     'preserved history', '2026-08-12T00:00:00Z', '2026-08-12T00:00:00Z', 1);
+                "#,
+            )
+            .expect("seed continuity");
+        let snapshot = || {
+            fixture
+                .database
+                .connection()
+                .expect("connection")
+                .query_row(
+                    r#"SELECT agent_id || '|' || COALESCE(project_path, '') || '|' ||
+                              COALESCE(worktree_path, '') || '|' || COALESCE(runtime_session_id, '') || '|' ||
+                              COALESCE(chat_preferences, '') || '|' || CAST(history_revision AS TEXT) || '|' ||
+                              COALESCE((SELECT group_concat(role || ':' || content, ',')
+                                          FROM messages WHERE session_id = sessions.id), '')
+                         FROM sessions WHERE id = 'session-continuity'"#,
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("session snapshot")
+        };
+        let before = snapshot();
+        let key = ChatBindingKey::new(ConnectorKind::Telegram, "private-chat").expect("key");
+        fixture
+            .repository
+            .save_binding(
+                &ChatBinding::new(key, "session-continuity").expect("binding"),
+                "2026-08-12T00:01:00Z",
+            )
+            .expect("save binding");
+        fixture
+            .repository
+            .set_binding_state(
+                "session-continuity",
+                BindingState::Paused,
+                "2026-08-12T00:02:00Z",
+            )
+            .expect("pause");
+        fixture
+            .repository
+            .set_completion_notifications("session-continuity", true, "2026-08-12T00:03:00Z")
+            .expect("notifications");
+        fixture
+            .repository
+            .remove_session_binding("session-continuity")
+            .expect("remove");
+
+        assert_eq!(snapshot(), before);
     }
 
     #[test]

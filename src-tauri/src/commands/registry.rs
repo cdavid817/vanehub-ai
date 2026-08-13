@@ -156,6 +156,12 @@ pub(crate) fn invoke_handler(
         crate::commands::communications::begin_wechat_authorization::begin_wechat_authorization,
         crate::commands::communications::poll_wechat_authorization::poll_wechat_authorization,
         crate::commands::communications::cancel_wechat_authorization::cancel_wechat_authorization,
+        crate::commands::communications::begin_im_pairing::begin_im_pairing,
+        crate::commands::communications::cancel_im_pairing::cancel_im_pairing,
+        crate::commands::communications::get_im_session_binding::get_im_session_binding,
+        crate::commands::communications::set_im_binding_paused::set_im_binding_paused,
+        crate::commands::communications::set_im_completion_notifications::set_im_completion_notifications,
+        crate::commands::communications::remove_im_session_binding::remove_im_session_binding,
         // Operations
         crate::commands::operations::list_operations::list_operations,
         crate::commands::operations::get_operation_status::get_operation_status,

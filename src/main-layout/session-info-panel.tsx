@@ -22,13 +22,15 @@ import type { SessionUsageSummary } from "../types/chat";
 import { SessionSkillsPane } from "./session-skills-pane";
 import { SessionCodeIndexPane } from "./session-code-index-pane";
 import { SessionRosterEditor } from "./session-roster-editor";
+import { SessionImPane } from "./session-im-pane";
 
-export type InfoTab = "members" | "basic" | "usage" | "skills" | "codeIndex";
+export type InfoTab = "members" | "basic" | "usage" | "skills" | "im" | "codeIndex";
 
 const tabs: Array<{ key: InfoTab; labelKey: string }> = [
   { key: "basic", labelKey: "layout.infoTab.basic" },
   { key: "usage", labelKey: "layout.infoTab.tokenUsage" },
   { key: "skills", labelKey: "layout.infoTab.skills" },
+  { key: "im", labelKey: "layout.infoTab.im" },
 ];
 
 function Pane({ active, children, tab }: { active: boolean; children: ReactNode; tab: InfoTab }) {
@@ -123,12 +125,14 @@ export function SessionInfoPanel({
   currentSpeakerSeatId = null,
   requestedTab,
   onOpenSkillSettings,
+  onOpenImSettings,
 }: {
   activeSession: Session | null;
   collapsed: boolean;
   currentSpeakerSeatId?: string | null;
   requestedTab?: InfoTab | null;
   onOpenSkillSettings?: () => void;
+  onOpenImSettings?: () => void;
 }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<InfoTab>("basic");
@@ -156,7 +160,11 @@ export function SessionInfoPanel({
     ...tabs,
     ...(showCodeIndex ? [{ key: "codeIndex" as const, labelKey: "layout.infoTab.codeIndex" }] : []),
   ];
-  const tabColumns = visibleTabs.length === 5 ? "grid-cols-5" : visibleTabs.length === 4 ? "grid-cols-4" : "grid-cols-3";
+  const tabColumns = visibleTabs.length === 6
+    ? "grid-cols-6"
+    : visibleTabs.length === 5
+      ? "grid-cols-5"
+      : "grid-cols-4";
 
   useEffect(() => {
     if (requestedTab && (
@@ -167,7 +175,7 @@ export function SessionInfoPanel({
   }, [requestedTab, sessionId, showCodeIndex, showSessionMembers]);
 
   return (
-    <aside className={cn("min-w-0 overflow-hidden bg-[hsl(var(--panel-muted))] transition-[opacity,transform] duration-200 max-[900px]:hidden", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
+    <aside className={cn("min-w-0 overflow-hidden bg-[hsl(var(--panel-muted))] transition-[opacity,transform] duration-200 max-[900px]:absolute max-[900px]:inset-y-0 max-[900px]:right-0 max-[900px]:z-30 max-[900px]:w-[min(320px,90vw)] max-[900px]:border-l max-[900px]:border-border max-[900px]:shadow-xl", collapsed ? "pointer-events-none translate-x-2 opacity-0" : "opacity-100")}>
       <div className="flex h-full min-h-0 flex-col p-3">
         <div className="mb-3 flex h-7 items-center"><h2 className="text-sm font-semibold">{t("layout.infoPanel")}</h2></div>
         <div aria-label={t("layout.infoPanel")} className={cn("ucd-segmented mb-3 grid gap-1 rounded-md p-1", tabColumns)} role="tablist">
@@ -208,6 +216,9 @@ export function SessionInfoPanel({
           <Pane active={activeTab === "usage"} tab="usage"><TokenUsagePane loading={usage.isLoading} summary={usage.data} /></Pane>
           <Pane active={activeTab === "skills"} tab="skills">
             <SessionSkillsPane activeSession={activeSession} onOpenSkillSettings={onOpenSkillSettings} />
+          </Pane>
+          <Pane active={activeTab === "im"} tab="im">
+            <SessionImPane onOpenSettings={onOpenImSettings} sessionId={sessionId} />
           </Pane>
           {showCodeIndex && workspacePath ? <Pane active={activeTab === "codeIndex"} tab="codeIndex"><SessionCodeIndexPane workspacePath={workspacePath} /></Pane> : null}
         </div>

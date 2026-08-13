@@ -373,6 +373,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-execution-policy",
         apply_session_execution_policy_migration,
     )?;
+    apply_migration(
+        conn,
+        62,
+        "managed-im-session-bindings",
+        crate::contexts::communications::infrastructure::apply_session_binding_schema,
+    )?;
     repair_missing_stable_participant_schema(conn)?;
 
     // Fail fast when a migration was skipped or the persisted history contains a gap.
@@ -667,6 +673,7 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (59, "stable-session-participants"),
     (60, "effective-skill-runtime"),
     (61, "session-execution-policy"),
+    (62, "managed-im-session-bindings"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1571,7 +1578,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (60, 61));
+        assert_eq!(migration_state, (61, 62));
 
         migrate(&connection).expect("upgrade migration");
 
