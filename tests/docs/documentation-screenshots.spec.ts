@@ -326,6 +326,9 @@ test.describe("documentation screenshots", () => {
       expect(capture, `unknown scenario "${definition.scenario}"`).toBeTruthy();
 
       await page.setViewportSize({ width: 1440, height: 900 });
+      if (definition.scenario.startsWith("session-")) {
+        await page.clock.setFixedTime(new Date("2026-07-14T08:00:00Z"));
+      }
       await page.addInitScript(({ locale }) => {
         localStorage.clear();
         localStorage.setItem(
