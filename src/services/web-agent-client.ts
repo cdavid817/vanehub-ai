@@ -362,6 +362,7 @@ let webExpertRoles: ExpertRole[] = builtinExpertRoles.map((role) => structuredCl
 let nextExpertRoleId = 1;
 const loopSubscribers = new Map<string, Set<(event: LoopEvent) => void>>();
 const loopTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let webLoopPhaseDelayMs = 220;
 const loopRoleSessionIds = new Set<string>();
 let knownProjects: KnownProject[] = [];
 let knownRemoteWorkspaces: KnownRemoteWorkspace[] = [];
@@ -2316,8 +2317,12 @@ function scheduleWebLoopPhase(run: LoopRun) {
         details: { simulated: true, decision: run.status },
       });
     }
-  }, 220);
+  }, webLoopPhaseDelayMs);
   loopTimers.set(run.id, timeoutId);
+}
+
+export function setWebLoopPhaseDelayForTest(delayMs: number): void {
+  webLoopPhaseDelayMs = Math.max(1, Math.min(delayMs, 10_000));
 }
 
 const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {

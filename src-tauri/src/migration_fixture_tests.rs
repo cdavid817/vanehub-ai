@@ -6,13 +6,14 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 62. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 64. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
-/// migration 61 resets legacy session execution preferences and governed CLI security selections.
-/// Migration 62 introduces invocation-grained Token accounting.
+/// migration 61 resets legacy session execution preferences and governed CLI security selections;
+/// migrations 62-63 complete the OnePiece Plan-Agent loop and session association, and migration
+/// 64 introduces invocation-grained Token accounting.
 fn expected_versions() -> Vec<i64> {
-    (1..=62).collect()
+    (1..=64).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {
@@ -281,7 +282,7 @@ fn token_accounting_migration_does_not_import_pre_release_usage() {
         DROP TABLE token_usage_observations;
         DROP TABLE usage_ingestion_cursors;
         DROP TABLE model_invocations;
-        DELETE FROM schema_migrations WHERE version = 62;
+        DELETE FROM schema_migrations WHERE version = 64;
         "#,
     )
     .expect("prepare pre-ledger database");

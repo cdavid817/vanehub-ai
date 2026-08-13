@@ -7,7 +7,7 @@ use crate::contexts::sessions::application::{
 use rusqlite::{params, params_from_iter, Connection, Row};
 
 /// Migration 22 is intentionally retained as a no-op so pre-release migration numbering remains
-/// dense. Fine-grained accounting starts at migration 62 and deliberately imports no old data.
+/// dense. Fine-grained accounting starts at migration 64 and deliberately imports no old data.
 pub(crate) fn apply_schema(
     _connection: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {

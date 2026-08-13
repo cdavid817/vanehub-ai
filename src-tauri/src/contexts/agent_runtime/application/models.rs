@@ -663,6 +663,55 @@ pub(crate) struct WorkflowLaunchOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ExecutionToolMode {
+    Standard,
+    #[allow(dead_code)]
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OrchestrationCorrelation {
+    pub(crate) plan_run_id: Option<String>,
+    pub(crate) subtask_run_id: Option<String>,
+    pub(crate) attempt_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct OrchestrationExecutionProfile {
+    pub(crate) bounded_root: Option<String>,
+    pub(crate) tool_mode: ExecutionToolMode,
+    pub(crate) permitted_tools: Vec<String>,
+    pub(crate) tool_call_limit: Option<u32>,
+    pub(crate) token_budget: Option<u32>,
+    pub(crate) timeout_seconds: Option<u64>,
+    pub(crate) correlation: OrchestrationCorrelation,
+}
+
+#[allow(dead_code)]
+impl OrchestrationExecutionProfile {
+    pub(crate) fn validate_for_session(&self, session: &AgentSession) -> Result<(), &'static str> {
+        if self.tool_call_limit == Some(0)
+            || self.token_budget == Some(0)
+            || self.timeout_seconds == Some(0)
+        {
+            return Err("orchestration execution limits must be positive");
+        }
+        if self
+            .bounded_root
+            .as_deref()
+            .is_some_and(|root| session.folder.as_deref() != Some(root))
+        {
+            return Err("orchestration bounded root does not match the session root");
+        }
+        if matches!(self.tool_mode, ExecutionToolMode::Disabled) && !self.permitted_tools.is_empty()
+        {
+            return Err("a tool-less orchestration request cannot permit tools");
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GenerationProcessRequest {
     pub(crate) execution_context: ExecutionContext,
     pub(crate) session: AgentSession,
@@ -1178,6 +1227,26 @@ pub(crate) struct OnePieceProviderModelDiscoveryResult {
 pub(crate) struct OnePieceProviderProfiles {
     pub(crate) profiles: Vec<OnePieceProviderProfile>,
     pub(crate) active_profile_id: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningRequest {
+    pub(crate) instruction_version: u32,
+    pub(crate) prompt: String,
+    pub(crate) bounded_root: String,
+    pub(crate) permitted_tools: Vec<String>,
+    pub(crate) tool_call_limit: u32,
+    pub(crate) token_budget: u32,
+    pub(crate) timeout_seconds: u64,
+}
+
+#[cfg(test)]
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct OnePiecePlanningResult {
+    pub(crate) content: String,
+    pub(crate) profile_id: String,
+    pub(crate) model_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

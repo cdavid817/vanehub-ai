@@ -373,9 +373,21 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "session-execution-policy",
         apply_session_execution_policy_migration,
     )?;
-    apply_transactional_migration(
+    apply_migration(
         conn,
         62,
+        "onepiece-plan-agent-loop",
+        crate::contexts::task_orchestration::infrastructure::apply_plan_agent_loop_schema,
+    )?;
+    apply_migration(
+        conn,
+        63,
+        "plan-session-association",
+        crate::contexts::task_orchestration::infrastructure::apply_plan_session_association_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        64,
         "fine-grained-token-accounting",
         crate::contexts::sessions::infrastructure::apply_usage_accounting_schema,
     )?;
@@ -673,7 +685,9 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (59, "stable-session-participants"),
     (60, "effective-skill-runtime"),
     (61, "session-execution-policy"),
-    (62, "fine-grained-token-accounting"),
+    (62, "onepiece-plan-agent-loop"),
+    (63, "plan-session-association"),
+    (64, "fine-grained-token-accounting"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1578,7 +1592,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (61, 62));
+        assert_eq!(migration_state, (63, 64));
 
         migrate(&connection).expect("upgrade migration");
 

@@ -361,6 +361,7 @@ pub(crate) fn assemble_agent_runtime_api(
             loop_scheduler,
             expert_roles,
             seat_turns,
+            guarded_validation,
         }),
         telemetry_lifecycle,
     })
