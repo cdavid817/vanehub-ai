@@ -470,6 +470,348 @@ pub(super) fn session_usage_summary_to_dto(
     }
 }
 
+pub(super) fn token_usage_query(
+    input: dto::TokenUsageSummaryInput,
+) -> Result<crate::contexts::sessions::api::UsageSummaryQuery, SessionsError> {
+    use crate::contexts::sessions::api::{MeasurementQuality, UsagePurpose, UsageStatus};
+    Ok(crate::contexts::sessions::api::UsageSummaryQuery {
+        session_id: input.session_id,
+        message_id: input.message_id,
+        generation_id: input.generation_id,
+        agent_id: input.agent_id,
+        provider_id: input.provider_id,
+        model_id: input.model_id,
+        purpose: input
+            .purpose
+            .as_deref()
+            .map(|value| match value {
+                "assistant-initial" => Ok(UsagePurpose::AssistantInitial),
+                "tool-continuation" => Ok(UsagePurpose::ToolContinuation),
+                "context-compaction" => Ok(UsagePurpose::ContextCompaction),
+                "memory-extraction" => Ok(UsagePurpose::MemoryExtraction),
+                "retry" => Ok(UsagePurpose::Retry),
+                "terminal-interval" => Ok(UsagePurpose::TerminalInterval),
+                _ => Err(invalid_usage_filter("purpose", value)),
+            })
+            .transpose()?,
+        quality: input
+            .quality
+            .as_deref()
+            .map(|value| match value {
+                "reported" => Ok(MeasurementQuality::Reported),
+                "reported-derived" => Ok(MeasurementQuality::ReportedDerived),
+                "estimated" => Ok(MeasurementQuality::Estimated),
+                _ => Err(invalid_usage_filter("quality", value)),
+            })
+            .transpose()?,
+        status: input
+            .status
+            .as_deref()
+            .map(|value| match value {
+                "running" => Ok(UsageStatus::Running),
+                "succeeded" => Ok(UsageStatus::Succeeded),
+                "failed" => Ok(UsageStatus::Failed),
+                "cancelled" => Ok(UsageStatus::Cancelled),
+                _ => Err(invalid_usage_filter("status", value)),
+            })
+            .transpose()?,
+        range_start: input.range_start,
+        range_end: input.range_end,
+        breakdown_limit: input.breakdown_limit.unwrap_or(10).clamp(1, 50),
+        generated_at: String::new(),
+    })
+}
+
+pub(super) fn token_usage_details_query(
+    input: dto::TokenUsageDetailsInput,
+) -> Result<crate::contexts::sessions::api::InvocationDetailQuery, SessionsError> {
+    Ok(crate::contexts::sessions::api::InvocationDetailQuery {
+        session_id: input.session_id,
+        agent_id: input.agent_id,
+        provider_id: input.provider_id,
+        model_id: input.model_id,
+        purpose: usage_purpose(input.purpose.as_deref())?,
+        quality: usage_quality_filter(input.quality.as_deref())?,
+        status: usage_status(input.status.as_deref())?,
+        after_id: input.after_id,
+        limit: input.limit.unwrap_or(25).clamp(1, 100),
+    })
+}
+
+pub(super) fn token_usage_details_to_dto(
+    page: crate::contexts::sessions::api::UsageDetailPage,
+) -> dto::TokenUsageDetailsPage {
+    dto::TokenUsageDetailsPage {
+        schema_version: 1,
+        invocations: page
+            .invocations
+            .into_iter()
+            .map(|record| {
+                let invocation = record.invocation;
+                dto::ModelInvocation {
+                    id: invocation.id,
+                    generation_id: invocation.generation_id,
+                    run_id: invocation.run_id,
+                    operation_id: invocation.operation_id,
+                    session_id: invocation.session_id,
+                    message_id: invocation.message_id,
+                    agent_id: invocation.agent_id,
+                    provider_id: invocation.provider_id,
+                    profile_id: invocation.profile_id,
+                    endpoint_id: invocation.endpoint_id,
+                    model_id: invocation.model_id,
+                    interaction_kind: interaction_kind(invocation.interaction_kind).to_string(),
+                    purpose: purpose_value(invocation.purpose).to_string(),
+                    request_sequence: invocation.request_sequence,
+                    attempt: invocation.attempt,
+                    status: status_value(record.status).to_string(),
+                    started_at: invocation.started_at,
+                    completed_at: record.completed_at,
+                }
+            })
+            .collect(),
+        observations: page
+            .observations
+            .into_iter()
+            .map(|record| {
+                let observation = record.observation;
+                dto::UsageObservation {
+                    id: observation.id,
+                    invocation_id: observation.invocation_id,
+                    quality: quality_value(observation.quality).to_string(),
+                    unit: accounting_unit(observation.unit).to_string(),
+                    measurement_kind: measurement_kind(observation.measurement_kind).to_string(),
+                    dimensions: token_dimensions(observation.dimensions),
+                    cache_overlap: overlap_value(observation.cache_overlap).to_string(),
+                    reasoning_overlap: overlap_value(observation.reasoning_overlap).to_string(),
+                    normalization_version: observation.normalization_version,
+                    source: observation.source,
+                    source_revision: observation.source_revision,
+                    event_at: observation.event_at,
+                    observed_at: observation.observed_at,
+                }
+            })
+            .collect(),
+        next_cursor: page.next_cursor,
+    }
+}
+
+pub(super) fn token_usage_summary_to_dto(
+    summary: crate::contexts::sessions::api::UsageAccountingSummary,
+) -> dto::TokenUsageSummary {
+    dto::TokenUsageSummary {
+        schema_version: 1,
+        totals: usage_quality(summary.totals),
+        user_response: usage_quality(summary.user_response),
+        internal: usage_quality(summary.internal),
+        counts: usage_counts(summary.counts),
+        daily: summary
+            .daily
+            .into_iter()
+            .map(|point| dto::UsageDailyPoint {
+                local_date: point.local_date,
+                totals: usage_quality(point.totals),
+                counts: usage_counts(point.counts),
+            })
+            .collect(),
+        breakdowns: summary
+            .breakdowns
+            .into_iter()
+            .map(|breakdown| dto::UsageBreakdown {
+                dimension: usage_breakdown_dimension(breakdown.dimension).to_string(),
+                entries: breakdown
+                    .entries
+                    .into_iter()
+                    .map(|entry| dto::UsageBreakdownEntry {
+                        key: entry.key,
+                        totals: usage_quality(entry.totals),
+                        counts: usage_counts(entry.counts),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        generated_at: summary.generated_at,
+    }
+}
+
+fn usage_quality(
+    totals: crate::contexts::sessions::api::UsageQualityAggregate,
+) -> dto::UsageQualityTotals {
+    dto::UsageQualityTotals {
+        reported: usage_measure(totals.reported),
+        reported_derived: usage_measure(totals.reported_derived),
+        estimated: usage_measure(totals.estimated),
+    }
+}
+
+fn usage_measure(
+    measure: crate::contexts::sessions::api::UsageMeasureAggregate,
+) -> dto::UsageMeasure {
+    dto::UsageMeasure {
+        unit: accounting_unit(measure.unit).to_string(),
+        dimensions: token_dimensions(measure.dimensions),
+        headline_total: measure.headline_total,
+        call_count: measure.call_count,
+        observation_count: measure.observation_count,
+    }
+}
+
+fn usage_counts(
+    counts: crate::contexts::sessions::api::UsageEntityCounts,
+) -> dto::UsageEntityCounts {
+    dto::UsageEntityCounts {
+        calls: counts.calls,
+        generations: counts.generations,
+        sessions: counts.sessions,
+    }
+}
+
+fn usage_breakdown_dimension(
+    dimension: crate::contexts::sessions::api::UsageBreakdownDimension,
+) -> &'static str {
+    use crate::contexts::sessions::api::UsageBreakdownDimension;
+    match dimension {
+        UsageBreakdownDimension::Agent => "agent",
+        UsageBreakdownDimension::Provider => "provider",
+        UsageBreakdownDimension::Model => "model",
+        UsageBreakdownDimension::Purpose => "purpose",
+        UsageBreakdownDimension::Quality => "quality",
+        UsageBreakdownDimension::Status => "status",
+    }
+}
+
+fn invalid_usage_filter(field: &str, value: &str) -> SessionsError {
+    SessionsError::Validation(format!("unsupported Token usage {field}: {value}"))
+}
+
+fn accounting_unit(unit: crate::contexts::sessions::api::AccountingUnit) -> &'static str {
+    match unit {
+        crate::contexts::sessions::api::AccountingUnit::Tokens => "tokens",
+        crate::contexts::sessions::api::AccountingUnit::Characters => "characters",
+    }
+}
+
+fn token_dimensions(
+    value: crate::contexts::sessions::api::TokenDimensions,
+) -> dto::TokenDimensions {
+    dto::TokenDimensions {
+        input: value.input,
+        output: value.output,
+        cached_input: value.cached_input,
+        cache_write_input: value.cache_write_input,
+        reasoning_output: value.reasoning_output,
+        provider_total: value.provider_total,
+    }
+}
+
+fn interaction_kind(value: crate::contexts::sessions::api::UsageInteractionKind) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::UsageInteractionKind::ManagedCli => "managed-cli",
+        crate::contexts::sessions::api::UsageInteractionKind::TerminalCli => "terminal-cli",
+        crate::contexts::sessions::api::UsageInteractionKind::NativeApi => "native-api",
+    }
+}
+
+fn measurement_kind(value: crate::contexts::sessions::api::MeasurementKind) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::MeasurementKind::Interval => "interval",
+        crate::contexts::sessions::api::MeasurementKind::CumulativeSnapshot => {
+            "cumulative-snapshot"
+        }
+    }
+}
+
+fn overlap_value(value: crate::contexts::sessions::api::TokenOverlap) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::TokenOverlap::Subset => "subset",
+        crate::contexts::sessions::api::TokenOverlap::Exclusive => "exclusive",
+        crate::contexts::sessions::api::TokenOverlap::Unknown => "unknown",
+    }
+}
+
+fn purpose_value(value: crate::contexts::sessions::api::UsagePurpose) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::UsagePurpose::AssistantInitial => "assistant-initial",
+        crate::contexts::sessions::api::UsagePurpose::ToolContinuation => "tool-continuation",
+        crate::contexts::sessions::api::UsagePurpose::ContextCompaction => "context-compaction",
+        crate::contexts::sessions::api::UsagePurpose::MemoryExtraction => "memory-extraction",
+        crate::contexts::sessions::api::UsagePurpose::Retry => "retry",
+        crate::contexts::sessions::api::UsagePurpose::TerminalInterval => "terminal-interval",
+    }
+}
+
+fn quality_value(value: crate::contexts::sessions::api::MeasurementQuality) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::MeasurementQuality::Reported => "reported",
+        crate::contexts::sessions::api::MeasurementQuality::ReportedDerived => "reported-derived",
+        crate::contexts::sessions::api::MeasurementQuality::Estimated => "estimated",
+    }
+}
+
+fn status_value(value: crate::contexts::sessions::api::UsageStatus) -> &'static str {
+    match value {
+        crate::contexts::sessions::api::UsageStatus::Running => "running",
+        crate::contexts::sessions::api::UsageStatus::Succeeded => "succeeded",
+        crate::contexts::sessions::api::UsageStatus::Failed => "failed",
+        crate::contexts::sessions::api::UsageStatus::Cancelled => "cancelled",
+    }
+}
+
+fn usage_purpose(
+    value: Option<&str>,
+) -> Result<Option<crate::contexts::sessions::api::UsagePurpose>, SessionsError> {
+    value
+        .map(|value| match value {
+            "assistant-initial" => {
+                Ok(crate::contexts::sessions::api::UsagePurpose::AssistantInitial)
+            }
+            "tool-continuation" => {
+                Ok(crate::contexts::sessions::api::UsagePurpose::ToolContinuation)
+            }
+            "context-compaction" => {
+                Ok(crate::contexts::sessions::api::UsagePurpose::ContextCompaction)
+            }
+            "memory-extraction" => {
+                Ok(crate::contexts::sessions::api::UsagePurpose::MemoryExtraction)
+            }
+            "retry" => Ok(crate::contexts::sessions::api::UsagePurpose::Retry),
+            "terminal-interval" => {
+                Ok(crate::contexts::sessions::api::UsagePurpose::TerminalInterval)
+            }
+            _ => Err(invalid_usage_filter("purpose", value)),
+        })
+        .transpose()
+}
+
+fn usage_quality_filter(
+    value: Option<&str>,
+) -> Result<Option<crate::contexts::sessions::api::MeasurementQuality>, SessionsError> {
+    value
+        .map(|value| match value {
+            "reported" => Ok(crate::contexts::sessions::api::MeasurementQuality::Reported),
+            "reported-derived" => {
+                Ok(crate::contexts::sessions::api::MeasurementQuality::ReportedDerived)
+            }
+            "estimated" => Ok(crate::contexts::sessions::api::MeasurementQuality::Estimated),
+            _ => Err(invalid_usage_filter("quality", value)),
+        })
+        .transpose()
+}
+
+fn usage_status(
+    value: Option<&str>,
+) -> Result<Option<crate::contexts::sessions::api::UsageStatus>, SessionsError> {
+    value
+        .map(|value| match value {
+            "running" => Ok(crate::contexts::sessions::api::UsageStatus::Running),
+            "succeeded" => Ok(crate::contexts::sessions::api::UsageStatus::Succeeded),
+            "failed" => Ok(crate::contexts::sessions::api::UsageStatus::Failed),
+            "cancelled" => Ok(crate::contexts::sessions::api::UsageStatus::Cancelled),
+            _ => Err(invalid_usage_filter("status", value)),
+        })
+        .transpose()
+}
+
 fn interaction_mode(value: &str) -> Result<dto::InteractionMode, SessionsError> {
     match value {
         "browser" => Ok(dto::InteractionMode::Browser),
@@ -725,6 +1067,60 @@ mod tests {
         assert_eq!(value["coverage"]["reportedPercent"], 33.3);
         assert_eq!(value["responseCount"], 3);
         assert!(value.get("session_id").is_none());
+    }
+
+    #[test]
+    fn token_usage_queries_validate_filters_and_bound_page_sizes() {
+        let input = serde_json::from_value::<dto::TokenUsageDetailsInput>(serde_json::json!({
+            "sessionId": "session-1",
+            "purpose": "tool-continuation",
+            "quality": "reported-derived",
+            "status": "failed",
+            "limit": 500
+        }))
+        .expect("deserialize detail query");
+
+        let query = token_usage_details_query(input).expect("map detail query");
+        assert_eq!(query.session_id.as_deref(), Some("session-1"));
+        assert_eq!(
+            query.purpose,
+            Some(crate::contexts::sessions::api::UsagePurpose::ToolContinuation)
+        );
+        assert_eq!(
+            query.quality,
+            Some(crate::contexts::sessions::api::MeasurementQuality::ReportedDerived)
+        );
+        assert_eq!(
+            query.status,
+            Some(crate::contexts::sessions::api::UsageStatus::Failed)
+        );
+        assert_eq!(query.limit, 100);
+
+        let invalid = serde_json::from_value::<dto::TokenUsageSummaryInput>(serde_json::json!({
+            "quality": "precise"
+        }))
+        .expect("deserialize summary query");
+        assert!(matches!(
+            token_usage_query(invalid),
+            Err(SessionsError::Validation(message)) if message.contains("quality")
+        ));
+    }
+
+    #[test]
+    fn empty_token_usage_details_keep_versioned_camel_case_contract() {
+        let value = serde_json::to_value(token_usage_details_to_dto(
+            crate::contexts::sessions::api::UsageDetailPage {
+                invocations: Vec::new(),
+                observations: Vec::new(),
+                next_cursor: Some("invocation-9".to_string()),
+            },
+        ))
+        .expect("serialize Token usage details");
+
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["nextCursor"], "invocation-9");
+        assert!(value["invocations"].as_array().is_some_and(Vec::is_empty));
+        assert!(value.get("schema_version").is_none());
     }
 
     #[test]

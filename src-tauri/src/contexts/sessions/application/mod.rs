@@ -3,6 +3,8 @@ mod models;
 mod ports;
 mod recovery_coordinator;
 mod service;
+mod usage_accounting;
+mod usage_accounting_ports;
 
 pub(crate) use error::SessionsApplicationError;
 pub(crate) use models::{
@@ -36,6 +38,16 @@ pub(crate) use ports::{
 };
 pub(crate) use recovery_coordinator::SessionRecoveryCoordinator;
 pub(crate) use service::{SessionApplicationPorts, SessionsApplicationService};
+pub(crate) use usage_accounting::{
+    CompletedInvocationAccounting, InvocationDetailQuery, ModelInvocationRecord,
+    NewModelInvocation, NewUsageObservation, TokenUsageObservation, UsageAccountingSummary,
+    UsageBreakdown, UsageBreakdownDimension, UsageBreakdownEntry, UsageCursor, UsageCursorAdvance,
+    UsageDailyAggregate, UsageDetailPage, UsageEntityCounts, UsageMeasureAggregate,
+    UsageQualityAggregate, UsageSummaryQuery,
+};
+pub(crate) use usage_accounting_ports::{
+    TokenAccountingPort, TokenAccountingQueryPort, TokenAccountingRepository,
+};
 
 #[cfg(test)]
 mod tests;

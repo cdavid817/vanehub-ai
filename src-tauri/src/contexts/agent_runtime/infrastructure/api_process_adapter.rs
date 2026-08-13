@@ -16,19 +16,24 @@ use crate::contexts::agent_runtime::application::{
     AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway,
     ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort,
     GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    PersonalizationSettings, ProcessStopInitiator, StartedGenerationProcess, ToolApprovalDecision,
-    ToolApprovalPort, ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome, WorkflowLaunchRequest,
-    EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
-    MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
-    SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
+    PersonalizationSettings, ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess,
+    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome,
+    WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
+    LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
+use crate::contexts::sessions::api::{
+    AccountingUnit, MeasurementKind, MeasurementQuality, NewModelInvocation, NewUsageObservation,
+    SessionsApi, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose, UsageStatus,
+};
 use crate::platform::filesystem::BoundedFilesystem;
 use crate::platform::network::blocking_http_client;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::Path;
@@ -97,6 +102,7 @@ pub(crate) struct RuntimeAgentApiAdapter {
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
+    accounting: Option<SessionsApi>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
 }
@@ -183,9 +189,15 @@ impl RuntimeAgentApiAdapter {
             code_intelligence,
             workspace_mutations,
             personalization,
+            accounting: None,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    pub(crate) fn with_accounting(mut self, accounting: SessionsApi) -> Self {
+        self.accounting = Some(accounting);
+        self
     }
 }
 
@@ -273,6 +285,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let code_intelligence = self.code_intelligence.clone();
         let workspace_mutations = self.workspace_mutations.clone();
         let personalization = self.personalization.clone();
+        let accounting = self.accounting.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -291,6 +304,7 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 code_intelligence,
                 workspace_mutations,
                 personalization,
+                accounting,
                 sink,
                 pending_approvals,
             );
@@ -366,6 +380,7 @@ fn run_generation(
     code_intelligence: Arc<dyn AgentCodeIntelligencePort>,
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
+    accounting: Option<SessionsApi>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
 ) {
@@ -388,6 +403,7 @@ fn run_generation(
         code_intelligence.as_ref(),
         workspace_mutations.as_ref(),
         personalization.as_ref(),
+        accounting.as_ref(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -413,6 +429,7 @@ fn run_generation(
 pub(crate) struct GenerationOptions<'a> {
     pub(crate) thinking: bool,
     pub(crate) reasoning_depth: Option<&'a str>,
+    pub(crate) include_stream_usage: bool,
 }
 
 impl GenerationOptions<'_> {
@@ -422,22 +439,40 @@ impl GenerationOptions<'_> {
         GenerationOptions {
             thinking: false,
             reasoning_depth: None,
+            include_stream_usage: false,
         }
     }
 }
 
 fn generation_options_from_configuration(
     configuration: &AgentChatConfiguration,
+    include_stream_usage: bool,
 ) -> GenerationOptions<'_> {
     GenerationOptions {
         thinking: configuration.thinking,
         reasoning_depth: configuration.reasoning_depth.as_deref(),
+        include_stream_usage,
     }
 }
 
 /// Whether the session narrows the durable Agent policy to read-only planning behavior.
 fn is_plan_mode(configuration: &AgentChatConfiguration) -> bool {
     configuration.execution_mode == "plan"
+}
+
+fn reviewed_stream_usage_strategy(config: &ApiProviderConfig) -> bool {
+    if config.interface_format != INTERFACE_FORMAT_OPENAI_COMPATIBLE {
+        return false;
+    }
+    config.base_url.as_deref().is_some_and(|base_url| {
+        [
+            "https://api.openai.com/",
+            "https://openrouter.ai/",
+            "https://api.deepseek.com/",
+        ]
+        .iter()
+        .any(|prefix| base_url.starts_with(prefix))
+    })
 }
 
 /// The wire-protocol-specific pieces `execute` needs: where to send the request, what body to
@@ -456,6 +491,197 @@ pub(crate) struct WireFormat {
     build_reply_turns: fn(&str, &[ExecutedToolCall]) -> Vec<Value>,
     failure_from_http_status: fn(u16, &str) -> GenerationProcessFailure,
     apply_auth: fn(reqwest::blocking::RequestBuilder, &str) -> reqwest::blocking::RequestBuilder,
+}
+
+fn begin_api_invocation(
+    accounting: Option<&SessionsApi>,
+    request: &GenerationProcessRequest,
+    config: &ApiProviderConfig,
+    request_sequence: u32,
+    purpose: UsagePurpose,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) -> Option<NewModelInvocation> {
+    let accounting = accounting?;
+    let invocation = api_invocation_snapshot(request, config, request_sequence, purpose, clock);
+    if accounting.start_model_invocation(&invocation).is_err() {
+        record_accounting_diagnostic(logging, clock, request, "start_failed", request_sequence);
+        return None;
+    }
+    Some(invocation)
+}
+
+fn api_invocation_snapshot(
+    request: &GenerationProcessRequest,
+    config: &ApiProviderConfig,
+    request_sequence: u32,
+    purpose: UsagePurpose,
+    clock: &dyn AgentClockPort,
+) -> NewModelInvocation {
+    NewModelInvocation {
+        id: format!(
+            "native-api:{}:{}:{}",
+            request.message_id, request_sequence, 0
+        ),
+        generation_id: Some(request.message_id.clone()),
+        run_id: Some(request.execution_context.run_id.as_str().to_string()),
+        operation_id: Some(request.operation_id.clone()),
+        session_id: request.session.id.clone(),
+        message_id: Some(request.message_id.clone()),
+        agent_id: request.agent.id.clone(),
+        provider_id: request
+            .configuration
+            .provider_id
+            .clone()
+            .or_else(|| Some(config.interface_format.clone())),
+        profile_id: request.configuration.provider_id.clone(),
+        endpoint_id: config
+            .base_url
+            .as_deref()
+            .map(|value| format!("endpoint-{}", bounded_hash(value))),
+        model_id: Some(config.model_id.clone()),
+        interaction_kind: UsageInteractionKind::NativeApi,
+        purpose,
+        request_sequence,
+        attempt: 0,
+        started_at: clock.now(),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn finish_api_invocation(
+    accounting: Option<&SessionsApi>,
+    invocation: Option<&NewModelInvocation>,
+    request: &GenerationProcessRequest,
+    usage: Option<&ReportedUsageTotals>,
+    estimated_characters: Option<(usize, usize)>,
+    status: UsageStatus,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) {
+    let (Some(accounting), Some(invocation)) = (accounting, invocation) else {
+        return;
+    };
+    let observed_at = clock.now();
+    let observation = usage
+        .map(|usage| {
+            let overlap = |value| match value {
+                crate::contexts::agent_runtime::application::AgentUsageOverlap::Subset => {
+                    TokenOverlap::Subset
+                }
+                crate::contexts::agent_runtime::application::AgentUsageOverlap::Exclusive => {
+                    TokenOverlap::Exclusive
+                }
+                crate::contexts::agent_runtime::application::AgentUsageOverlap::Unknown => {
+                    TokenOverlap::Unknown
+                }
+            };
+            NewUsageObservation {
+                id: format!("{}:reported", invocation.id),
+                invocation_id: invocation.id.clone(),
+                quality: MeasurementQuality::Reported,
+                unit: AccountingUnit::Tokens,
+                measurement_kind: MeasurementKind::Interval,
+                dimensions: TokenDimensions {
+                    input: usage.input_tokens,
+                    output: usage.output_tokens,
+                    cached_input: usage.cache_read_tokens,
+                    cache_write_input: usage.cache_creation_tokens,
+                    reasoning_output: usage.reasoning_output_tokens,
+                    provider_total: usage.provider_total_tokens,
+                },
+                cache_overlap: overlap(usage.cache_overlap),
+                reasoning_overlap: overlap(usage.reasoning_overlap),
+                normalization_version: usage.normalization_version.to_string(),
+                source: "provider-api-stream".to_string(),
+                source_key: format!("{}:reported", invocation.id),
+                source_revision: None,
+                supersedes_observation_id: None,
+                event_at: None,
+                observed_at: observed_at.clone(),
+                provenance_hash: None,
+            }
+        })
+        .or_else(|| {
+            let (input, output) = estimated_characters?;
+            Some(NewUsageObservation {
+                id: format!("{}:estimated", invocation.id),
+                invocation_id: invocation.id.clone(),
+                quality: MeasurementQuality::Estimated,
+                unit: AccountingUnit::Characters,
+                measurement_kind: MeasurementKind::Interval,
+                dimensions: TokenDimensions {
+                    input: i64::try_from(input).unwrap_or(i64::MAX),
+                    output: i64::try_from(output).unwrap_or(i64::MAX),
+                    ..TokenDimensions::default()
+                },
+                cache_overlap: TokenOverlap::Unknown,
+                reasoning_overlap: TokenOverlap::Unknown,
+                normalization_version: "api-character-count-v1".to_string(),
+                source: "character-count".to_string(),
+                source_key: format!("{}:estimated", invocation.id),
+                source_revision: None,
+                supersedes_observation_id: None,
+                event_at: None,
+                observed_at: observed_at.clone(),
+                provenance_hash: None,
+            })
+        });
+    if observation
+        .as_ref()
+        .is_some_and(|observation| accounting.record_token_observation(observation).is_err())
+    {
+        record_accounting_diagnostic(
+            logging,
+            clock,
+            request,
+            "observation_failed",
+            invocation.request_sequence,
+        );
+    }
+    if accounting
+        .finalize_model_invocation(&invocation.id, status, &observed_at)
+        .is_err()
+    {
+        record_accounting_diagnostic(
+            logging,
+            clock,
+            request,
+            "finalize_failed",
+            invocation.request_sequence,
+        );
+    }
+}
+
+fn record_accounting_diagnostic(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    reason: &str,
+    request_sequence: u32,
+) {
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Warn,
+        category: "token.accounting.api".to_string(),
+        message: format!(
+            "API accounting degraded reason={reason} request_sequence={request_sequence} adapter=v1"
+        ),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: Some(request.execution_context.run_id.as_str().to_string()),
+        trace_id: Some(request.execution_context.trace_id.as_str().to_string()),
+        span_id: Some(request.execution_context.span_id.as_str().to_string()),
+        occurred_at: clock.now(),
+    });
+}
+
+fn bounded_hash(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// `Err` carries a plain diagnostic message rather than `GenerationProcessEvent` — that enum
@@ -559,6 +785,7 @@ fn execute(
         &code_intelligence,
         &NOOP_WORKSPACE_MUTATIONS,
         personalization,
+        None,
     )
 }
 
@@ -582,6 +809,7 @@ fn execute_with_code_intelligence(
     code_intelligence: &dyn AgentCodeIntelligencePort,
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
     personalization: &dyn AgentPersonalizationPort,
+    accounting: Option<&SessionsApi>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -669,14 +897,19 @@ fn execute_with_code_intelligence(
         code_search_available,
         code_intelligence_available,
     );
-    let generation_options = generation_options_from_configuration(&request.configuration);
+    let generation_options = generation_options_from_configuration(
+        &request.configuration,
+        reviewed_stream_usage_strategy(&provider_config),
+    );
     let mut turns = (wire_format.history_to_turns)(&recent);
-    if let Some(failure) = maybe_compact(
+    let mut request_sequence = 0u32;
+    if let Some(failure) = maybe_compact_accounted(
         &mut turns,
         &wire_format,
         &client,
         &api_key,
         &provider_config.model_id,
+        &provider_config,
         system.as_deref(),
         &cancelled,
         sink,
@@ -686,15 +919,33 @@ fn execute_with_code_intelligence(
         memories,
         personalization,
         tool_assisted_session,
+        accounting,
+        &mut request_sequence,
     ) {
         return failure;
     }
 
     let mut emitted_visible_content = false;
-    for _round_trip in 0..MAX_TOOL_ROUND_TRIPS {
+    for round_trip in 0..MAX_TOOL_ROUND_TRIPS {
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
         }
+        let sequence = request_sequence;
+        request_sequence = request_sequence.saturating_add(1);
+        let purpose = if round_trip == 0 {
+            UsagePurpose::AssistantInitial
+        } else {
+            UsagePurpose::ToolContinuation
+        };
+        let invocation = begin_api_invocation(
+            accounting,
+            request,
+            &provider_config,
+            sequence,
+            purpose,
+            clock,
+            logging,
+        );
         let body = (wire_format.build_request_body)(
             &provider_config.model_id,
             &turns,
@@ -704,6 +955,7 @@ fn execute_with_code_intelligence(
         );
         let request_builder =
             (wire_format.apply_auth)(client.post(&wire_format.endpoint), &api_key);
+        let estimated_input_characters = value_character_count(&body);
         let response = match request_builder
             .header("content-type", "application/json")
             .json(&body)
@@ -711,14 +963,34 @@ fn execute_with_code_intelligence(
         {
             Ok(response) => response,
             Err(error) => {
+                finish_api_invocation(
+                    accounting,
+                    invocation.as_ref(),
+                    request,
+                    None,
+                    None,
+                    UsageStatus::Failed,
+                    clock,
+                    logging,
+                );
                 return GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(
                     error.to_string(),
-                ))
+                ));
             }
         };
         let status = response.status();
         if !status.is_success() {
             let body_text = response.text().unwrap_or_default();
+            finish_api_invocation(
+                accounting,
+                invocation.as_ref(),
+                request,
+                None,
+                None,
+                UsageStatus::Failed,
+                clock,
+                logging,
+            );
             return GenerationProcessEvent::Failed((wire_format.failure_from_http_status)(
                 status.as_u16(),
                 &body_text,
@@ -729,17 +1001,38 @@ fn execute_with_code_intelligence(
         let mut current_data: Option<String> = None;
         let mut accumulator = ToolCallAccumulator::default();
         let mut assistant_text = String::new();
+        let mut round_usage = None;
         loop {
             if cancelled.load(Ordering::SeqCst) {
+                finish_api_invocation(
+                    accounting,
+                    invocation.as_ref(),
+                    request,
+                    round_usage.as_ref(),
+                    None,
+                    UsageStatus::Cancelled,
+                    clock,
+                    logging,
+                );
                 return failed_non_retryable("Generation was cancelled.");
             }
             let mut line = String::new();
             let read = match reader.read_line(&mut line) {
                 Ok(read) => read,
                 Err(error) => {
+                    finish_api_invocation(
+                        accounting,
+                        invocation.as_ref(),
+                        request,
+                        round_usage.as_ref(),
+                        None,
+                        UsageStatus::Failed,
+                        clock,
+                        logging,
+                    );
                     return GenerationProcessEvent::Failed(GenerationProcessFailure::retryable(
                         format!("Failed to read the provider API response: {error}"),
-                    ))
+                    ));
                 }
             };
             if read == 0 {
@@ -753,9 +1046,22 @@ fn execute_with_code_intelligence(
             if line.is_empty() {
                 if let Some(data) = current_data.take() {
                     match (wire_format.translate_sse_data)(&data, &mut accumulator) {
-                        Some(GenerationProcessEvent::Completed(_)) => break,
+                        Some(GenerationProcessEvent::Completed(usage)) => {
+                            round_usage = usage;
+                            break;
+                        }
                         Some(GenerationProcessEvent::Failed(failure)) => {
-                            return GenerationProcessEvent::Failed(failure)
+                            finish_api_invocation(
+                                accounting,
+                                invocation.as_ref(),
+                                request,
+                                round_usage.as_ref(),
+                                None,
+                                UsageStatus::Failed,
+                                clock,
+                                logging,
+                            );
+                            return GenerationProcessEvent::Failed(failure);
                         }
                         Some(GenerationProcessEvent::Token(text)) => {
                             let starts_new_round = assistant_text.is_empty();
@@ -783,6 +1089,17 @@ fn execute_with_code_intelligence(
                 }
             }
         }
+
+        finish_api_invocation(
+            accounting,
+            invocation.as_ref(),
+            request,
+            round_usage.as_ref(),
+            Some((estimated_input_characters, assistant_text.chars().count())),
+            UsageStatus::Succeeded,
+            clock,
+            logging,
+        );
 
         let tool_calls = accumulator.take_completed();
         if tool_calls.is_empty() {
@@ -922,12 +1239,13 @@ fn execute_with_code_intelligence(
         if !executed.is_empty() {
             tool_assisted_session = true;
         }
-        if let Some(failure) = maybe_compact(
+        if let Some(failure) = maybe_compact_accounted(
             &mut turns,
             &wire_format,
             &client,
             &api_key,
             &provider_config.model_id,
+            &provider_config,
             system.as_deref(),
             &cancelled,
             sink,
@@ -937,6 +1255,8 @@ fn execute_with_code_intelligence(
             memories,
             personalization,
             tool_assisted_session,
+            accounting,
+            &mut request_sequence,
         ) {
             return failure;
         }
@@ -1298,12 +1618,13 @@ fn format_custom_instructions_section(settings: &PersonalizationSettings) -> Opt
 /// be written into `turns`, or it would be eligible to be summarized away — see design.md
 /// Decision 2 in `add-agent-skill-support`).
 #[allow(clippy::too_many_arguments)]
-fn maybe_compact(
+fn maybe_compact_accounted(
     turns: &mut Vec<Value>,
     wire_format: &WireFormat,
     client: &reqwest::blocking::Client,
     api_key: &str,
     model: &str,
+    provider_config: &ApiProviderConfig,
     system: Option<&str>,
     cancelled: &AtomicBool,
     sink: &dyn AgentProcessEventSink,
@@ -1313,6 +1634,8 @@ fn maybe_compact(
     memories: &dyn AgentMemoryPort,
     personalization: &dyn AgentPersonalizationPort,
     tool_assisted: bool,
+    accounting: Option<&SessionsApi>,
+    request_sequence: &mut u32,
 ) -> Option<GenerationProcessEvent> {
     if !should_compact(turns_character_count(turns)) || turns.len() <= COMPACTION_KEEP_RECENT_TURNS
     {
@@ -1320,15 +1643,23 @@ fn maybe_compact(
     }
     let split_at = turns.len() - COMPACTION_KEEP_RECENT_TURNS;
     let turns_before = turns.len();
-    let summary = match summarize_turns(
+    let compaction_sequence = *request_sequence;
+    *request_sequence = request_sequence.saturating_add(1);
+    let summary = match summarize_turns_accounted(
         wire_format,
         client,
         api_key,
-        model,
+        provider_config,
         system,
         &turns[..split_at],
         SUMMARIZATION_INSTRUCTION,
         cancelled,
+        accounting,
+        request,
+        UsagePurpose::ContextCompaction,
+        compaction_sequence,
+        clock,
+        logging,
     ) {
         Ok(Some(summary)) => summary,
         Ok(None) | Err(_) => {
@@ -1360,11 +1691,12 @@ fn maybe_compact(
     let extraction_allowed = personalization_settings.memory_enabled
         && (!tool_assisted || personalization_settings.memory_tool_assisted_chats_enabled);
     if extraction_allowed {
-        extract_memories(
+        extract_memories_accounted(
             wire_format,
             client,
             api_key,
             model,
+            provider_config,
             system,
             &turns[..split_at],
             cancelled,
@@ -1374,6 +1706,8 @@ fn maybe_compact(
             logging,
             clock,
             request,
+            accounting,
+            request_sequence,
         );
     }
     let mut compacted = vec![json!({ "role": "user", "content": summary })];
@@ -1389,6 +1723,52 @@ fn maybe_compact(
         return Some(failed_retryable("Agent generation event handling failed."));
     }
     None
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn maybe_compact(
+    turns: &mut Vec<Value>,
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    cancelled: &AtomicBool,
+    sink: &dyn AgentProcessEventSink,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    memories: &dyn AgentMemoryPort,
+    personalization: &dyn AgentPersonalizationPort,
+    tool_assisted: bool,
+) -> Option<GenerationProcessEvent> {
+    let config = ApiProviderConfig {
+        model_id: model.to_string(),
+        interface_format: "anthropic".to_string(),
+        base_url: None,
+        auto_approve_tools: false,
+    };
+    let mut request_sequence = 0;
+    maybe_compact_accounted(
+        turns,
+        wire_format,
+        client,
+        api_key,
+        model,
+        &config,
+        system,
+        cancelled,
+        sink,
+        logging,
+        clock,
+        request,
+        memories,
+        personalization,
+        tool_assisted,
+        None,
+        &mut request_sequence,
+    )
 }
 
 /// Calls the model once to reduce `turns_to_summarize` to short text per `instruction`, reusing
@@ -1412,8 +1792,32 @@ pub(crate) fn summarize_turns(
     instruction: &str,
     cancelled: &AtomicBool,
 ) -> Result<Option<String>, String> {
+    summarize_turns_with_usage(
+        wire_format,
+        client,
+        api_key,
+        model,
+        system,
+        turns_to_summarize,
+        instruction,
+        cancelled,
+    )
+    .map(|(summary, _usage)| summary)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn summarize_turns_with_usage(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    turns_to_summarize: &[Value],
+    instruction: &str,
+    cancelled: &AtomicBool,
+) -> Result<(Option<String>, Option<ReportedUsageTotals>), String> {
     if turns_to_summarize.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
     let mut prompt_turns = turns_to_summarize.to_vec();
     prompt_turns.push(json!({ "role": "user", "content": instruction }));
@@ -1440,6 +1844,7 @@ pub(crate) fn summarize_turns(
     let mut current_data: Option<String> = None;
     let mut accumulator = ToolCallAccumulator::default();
     let mut summary = String::new();
+    let mut usage = None;
     loop {
         if cancelled.load(Ordering::SeqCst) {
             return Err("cancelled".to_string());
@@ -1459,7 +1864,10 @@ pub(crate) fn summarize_turns(
         if line.is_empty() {
             if let Some(data) = current_data.take() {
                 match (wire_format.translate_sse_data)(&data, &mut accumulator) {
-                    Some(GenerationProcessEvent::Completed(_)) => break,
+                    Some(GenerationProcessEvent::Completed(reported)) => {
+                        usage = reported;
+                        break;
+                    }
                     Some(GenerationProcessEvent::Failed(failure)) => return Err(failure.diagnostic),
                     Some(GenerationProcessEvent::Token(text)) => summary.push_str(&text),
                     _ => {}
@@ -1469,7 +1877,76 @@ pub(crate) fn summarize_turns(
     }
 
     let trimmed = summary.trim();
-    Ok((!trimmed.is_empty()).then(|| trimmed.to_string()))
+    Ok(((!trimmed.is_empty()).then(|| trimmed.to_string()), usage))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn summarize_turns_accounted(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    config: &ApiProviderConfig,
+    system: Option<&str>,
+    turns: &[Value],
+    instruction: &str,
+    cancelled: &AtomicBool,
+    accounting: Option<&SessionsApi>,
+    request: &GenerationProcessRequest,
+    purpose: UsagePurpose,
+    request_sequence: u32,
+    clock: &dyn AgentClockPort,
+    logging: &dyn AgentLoggingPort,
+) -> Result<Option<String>, String> {
+    let invocation = begin_api_invocation(
+        accounting,
+        request,
+        config,
+        request_sequence,
+        purpose,
+        clock,
+        logging,
+    );
+    let estimated_input = turns_character_count(turns).saturating_add(instruction.chars().count());
+    let result = summarize_turns_with_usage(
+        wire_format,
+        client,
+        api_key,
+        &config.model_id,
+        system,
+        turns,
+        instruction,
+        cancelled,
+    );
+    match &result {
+        Ok((summary, usage)) => finish_api_invocation(
+            accounting,
+            invocation.as_ref(),
+            request,
+            usage.as_ref(),
+            Some((
+                estimated_input,
+                summary.as_ref().map_or(0, |value| value.chars().count()),
+            )),
+            UsageStatus::Succeeded,
+            clock,
+            logging,
+        ),
+        Err(_) => finish_api_invocation(
+            accounting,
+            invocation.as_ref(),
+            request,
+            None,
+            None,
+            if cancelled.load(Ordering::SeqCst) {
+                UsageStatus::Cancelled
+            } else {
+                UsageStatus::Failed
+            },
+            clock,
+            logging,
+        ),
+    }
+    result.map(|(summary, _usage)| summary)
 }
 
 /// Parses `summarize_turns`'s response as zero or more memories, one per non-empty line, and
@@ -1478,11 +1955,12 @@ pub(crate) fn summarize_turns(
 /// (`Err`) is logged and otherwise ignored, exactly like compaction's own summarization failure,
 /// so it's visible to an operator without affecting the generation or its compaction.
 #[allow(clippy::too_many_arguments)]
-fn extract_memories(
+fn extract_memories_accounted(
     wire_format: &WireFormat,
     client: &reqwest::blocking::Client,
     api_key: &str,
-    model: &str,
+    _model: &str,
+    provider_config: &ApiProviderConfig,
     system: Option<&str>,
     turns_to_extract_from: &[Value],
     cancelled: &AtomicBool,
@@ -1492,16 +1970,26 @@ fn extract_memories(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
+    accounting: Option<&SessionsApi>,
+    request_sequence: &mut u32,
 ) {
-    let response = match summarize_turns(
+    let memory_sequence = *request_sequence;
+    *request_sequence = request_sequence.saturating_add(1);
+    let response = match summarize_turns_accounted(
         wire_format,
         client,
         api_key,
-        model,
+        provider_config,
         system,
         turns_to_extract_from,
         MEMORY_EXTRACTION_INSTRUCTION,
         cancelled,
+        accounting,
+        request,
+        UsagePurpose::MemoryExtraction,
+        memory_sequence,
+        clock,
+        logging,
     ) {
         Ok(Some(response)) => response,
         Ok(None) => return,
@@ -1529,6 +2017,50 @@ fn extract_memories(
             let _ = memories.save(agent_id, folder, line, MemorySource::Automatic);
         }
     }
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn extract_memories(
+    wire_format: &WireFormat,
+    client: &reqwest::blocking::Client,
+    api_key: &str,
+    model: &str,
+    system: Option<&str>,
+    turns_to_extract_from: &[Value],
+    cancelled: &AtomicBool,
+    agent_id: &str,
+    folder: Option<&str>,
+    memories: &dyn AgentMemoryPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+) {
+    let config = ApiProviderConfig {
+        model_id: model.to_string(),
+        interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+        base_url: None,
+        auto_approve_tools: false,
+    };
+    let mut request_sequence = 0;
+    extract_memories_accounted(
+        wire_format,
+        client,
+        api_key,
+        model,
+        &config,
+        system,
+        turns_to_extract_from,
+        cancelled,
+        agent_id,
+        folder,
+        memories,
+        logging,
+        clock,
+        request,
+        None,
+        &mut request_sequence,
+    );
 }
 
 /// Maps every built-in tool to the established permission action whose policy behavior matches
@@ -4036,6 +4568,61 @@ mod tests {
     }
 
     #[test]
+    fn api_invocation_snapshot_captures_immutable_request_correlation() {
+        let mut request = onepiece_request();
+        request.configuration.provider_id = Some("profile-primary".to_string());
+        let config = ApiProviderConfig {
+            model_id: "gpt-5".to_string(),
+            interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            auto_approve_tools: false,
+        };
+
+        let snapshot = api_invocation_snapshot(
+            &request,
+            &config,
+            2,
+            UsagePurpose::ToolContinuation,
+            &FixedClock,
+        );
+        request.configuration.provider_id = Some("profile-switched".to_string());
+
+        assert_eq!(snapshot.generation_id.as_deref(), Some("message-1"));
+        assert_eq!(snapshot.operation_id.as_deref(), Some("operation-1"));
+        assert_eq!(snapshot.session_id, "session-1");
+        assert_eq!(snapshot.message_id.as_deref(), Some("message-1"));
+        assert_eq!(snapshot.agent_id, "onepiece");
+        assert_eq!(snapshot.provider_id.as_deref(), Some("profile-primary"));
+        assert_eq!(snapshot.profile_id.as_deref(), Some("profile-primary"));
+        assert_eq!(snapshot.model_id.as_deref(), Some("gpt-5"));
+        assert_eq!(snapshot.request_sequence, 2);
+        assert_eq!(snapshot.purpose, UsagePurpose::ToolContinuation);
+        assert_eq!(snapshot.started_at, "2026-01-01T00:00:00Z");
+        let endpoint_id = snapshot.endpoint_id.expect("hashed endpoint identity");
+        assert!(endpoint_id.starts_with("endpoint-"));
+        assert!(!endpoint_id.contains("api.openai.com"));
+    }
+
+    #[test]
+    fn accounting_diagnostic_excludes_request_and_provider_secrets() {
+        let mut request = onepiece_request();
+        request.effective_prompt = "prompt-secret".to_string();
+        request.operation_id = "operation-safe".to_string();
+        let logging = RecordingLogging::default();
+
+        record_accounting_diagnostic(&logging, &FixedClock, &request, "observation_failed", 7);
+
+        let logs = logging.logs.lock().expect("logs");
+        let log = logs.first().expect("accounting diagnostic");
+        assert_eq!(log.category, "token.accounting.api");
+        assert!(log.message.contains("observation_failed"));
+        assert!(log.message.contains("request_sequence=7"));
+        assert!(!log.message.contains("prompt-secret"));
+        assert!(!log.message.contains("api.openai.com"));
+        assert!(!log.message.contains("Authorization"));
+    }
+
+    #[test]
     fn wire_format_for_anthropic_uses_official_endpoint_by_default() {
         let config = ApiProviderConfig {
             model_id: "claude-opus-4-8".to_string(),
@@ -4068,7 +4655,7 @@ mod tests {
         configuration.thinking = true;
         configuration.reasoning_depth = Some("high".to_string());
 
-        let options = generation_options_from_configuration(&configuration);
+        let options = generation_options_from_configuration(&configuration, false);
 
         assert!(options.thinking);
         assert_eq!(options.reasoning_depth, Some("high"));
@@ -4078,7 +4665,7 @@ mod tests {
     fn generation_options_from_configuration_defaults_to_disabled() {
         let configuration = sample_request("api").configuration;
 
-        let options = generation_options_from_configuration(&configuration);
+        let options = generation_options_from_configuration(&configuration, false);
 
         assert!(!options.thinking);
         assert_eq!(options.reasoning_depth, None);

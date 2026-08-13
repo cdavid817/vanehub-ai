@@ -1,19 +1,21 @@
 use crate::contexts::agent_runtime::application::{
-    AgentChatConfiguration, AgentFileReference, AgentMessage, AgentRuntimeApplicationError,
-    AgentSession, AgentSessionGateway, AgentUsageAccountingKind, AgentUsageRecord,
-    CompleteAgentMessage, ConversationHistoryPort, DurableAgentGenerationMessages,
-    DurableAgentGenerationStart, LoopChildRecoveryDecision, LoopChildRecoveryProjection,
-    LoopRoleSessionPort, LoopRoleSessionRequest, LoopSessionRecoveryPort, MessageTokenUsage,
-    NewAgentMessage, ToolUseBlock,
+    AgentChatConfiguration, AgentFileReference, AgentInvocationUsage, AgentMessage,
+    AgentRuntimeApplicationError, AgentSession, AgentSessionGateway, AgentUsageAccountingKind,
+    AgentUsageOverlap, AgentUsageRecord, CompleteAgentMessage, ConversationHistoryPort,
+    DurableAgentGenerationMessages, DurableAgentGenerationStart, LoopChildRecoveryDecision,
+    LoopChildRecoveryProjection, LoopRoleSessionPort, LoopRoleSessionRequest,
+    LoopSessionRecoveryPort, MessageTokenUsage, NewAgentMessage, ToolUseBlock,
 };
 use crate::contexts::agent_runtime::domain::{AgentLifecycle, InteractionMode};
 use crate::contexts::sessions::api::{
-    ChatConfigurationValues, CompleteMessageRequest, CreateMessageRequest,
-    DurableGenerationStartRequest, DurableGenerationTerminalRequest, FailMessageRequest,
-    FileReferenceInput, GenerationTerminalStatus, LoopRoleSessionRequest as SessionLoopRoleRequest,
-    LoopSessionRole, MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord,
-    RuntimeMessageSnapshot, SessionChatConfiguration, SessionLifecycle, SessionUsageAccountingKind,
-    SessionUsageUnit, SessionsApi, SessionsError,
+    AccountingUnit, ChatConfigurationValues, CompleteMessageRequest, CompletedInvocationAccounting,
+    CreateMessageRequest, DurableGenerationStartRequest, DurableGenerationTerminalRequest,
+    FailMessageRequest, FileReferenceInput, GenerationTerminalStatus,
+    LoopRoleSessionRequest as SessionLoopRoleRequest, LoopSessionRole, MeasurementKind,
+    MeasurementQuality, MessageTokenUsage as SessionMessageTokenUsage, MessageUsageRecord,
+    NewModelInvocation, NewUsageObservation, RuntimeMessageSnapshot, SessionChatConfiguration,
+    SessionLifecycle, SessionUsageAccountingKind, SessionUsageUnit, SessionsApi, SessionsError,
+    TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose, UsageStatus,
 };
 use crate::contexts::sessions::domain::recovery::RecoveryDecision;
 use serde_json::{json, Value};
@@ -294,16 +296,6 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
             .map_err(session_error)
     }
 
-    fn find_terminal_usage_message(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-    ) -> Result<Option<String>, AgentRuntimeApplicationError> {
-        self.sessions
-            .terminal_usage_message_id(session_id, agent_id)
-            .map_err(session_error)
-    }
-
     fn append_content(
         &self,
         message_id: &str,
@@ -372,6 +364,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                     rich_blocks,
                     token_usage: message.token_usage.map(session_token_usage),
                     usage: message.usage.map(session_usage),
+                    invocation_usage: message.invocation_usage.map(session_invocation_usage),
                     error: None,
                 })
                 .map(|result| agent_message(RuntimeMessageSnapshot::from_record(&result.message)))
@@ -387,6 +380,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                 rich_blocks,
                 token_usage: message.token_usage.map(session_token_usage),
                 usage: message.usage.map(session_usage),
+                invocation_usage: message.invocation_usage.map(session_invocation_usage),
             })
             .map(|record| agent_message(RuntimeMessageSnapshot::from_record(&record)))
             .map_err(session_error)
@@ -418,6 +412,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                             .then_some(current.rich_blocks),
                         token_usage: current.token_usage,
                         usage: None,
+                        invocation_usage: None,
                         error: Some(error.to_string()),
                     })
                     .map(|result| {
@@ -467,6 +462,7 @@ impl AgentSessionGateway for SessionsAgentRuntimeAdapter {
                     rich_blocks: current.rich_blocks.clone(),
                     token_usage: current.token_usage.clone(),
                     usage: None,
+                    invocation_usage: None,
                     error: None,
                 })
                 .map_err(session_error)?;
@@ -637,6 +633,80 @@ fn session_usage(usage: AgentUsageRecord) -> MessageUsageRecord {
         cache_creation_count: usage.cache_creation_count,
         source: usage.source,
         occurred_at: usage.occurred_at,
+    }
+}
+
+fn session_invocation_usage(usage: AgentInvocationUsage) -> CompletedInvocationAccounting {
+    let quality = match usage.usage.accounting_kind {
+        AgentUsageAccountingKind::Reported => MeasurementQuality::Reported,
+        AgentUsageAccountingKind::Estimated => MeasurementQuality::Estimated,
+    };
+    let unit = if quality == MeasurementQuality::Estimated {
+        AccountingUnit::Characters
+    } else {
+        AccountingUnit::Tokens
+    };
+    let overlap = |value| match value {
+        AgentUsageOverlap::Subset => TokenOverlap::Subset,
+        AgentUsageOverlap::Exclusive => TokenOverlap::Exclusive,
+        AgentUsageOverlap::Unknown => TokenOverlap::Unknown,
+    };
+    let invocation_id = usage.invocation_id;
+    let message_id = usage.usage.message_id;
+    let observed_at = usage.usage.occurred_at;
+    let source_key = usage.source_identity.as_ref().map_or_else(
+        || format!("managed-cli:message:{message_id}"),
+        |identity| match usage.source_revision.as_deref() {
+            Some(revision) => format!("managed-cli:step:{identity}:revision:{revision}"),
+            None => format!("managed-cli:step:{identity}"),
+        },
+    );
+    CompletedInvocationAccounting {
+        invocation: NewModelInvocation {
+            id: invocation_id.clone(),
+            generation_id: Some(usage.generation_id),
+            run_id: Some(usage.run_id),
+            operation_id: Some(usage.operation_id),
+            session_id: usage.usage.session_id,
+            message_id: Some(message_id.clone()),
+            agent_id: usage.usage.agent_id,
+            provider_id: usage.usage.provider_id,
+            profile_id: None,
+            endpoint_id: None,
+            model_id: usage.usage.model_id,
+            interaction_kind: UsageInteractionKind::ManagedCli,
+            purpose: UsagePurpose::AssistantInitial,
+            request_sequence: 0,
+            attempt: 0,
+            started_at: observed_at.clone(),
+        },
+        observation: NewUsageObservation {
+            id: usage.observation_id,
+            invocation_id,
+            quality,
+            unit,
+            measurement_kind: MeasurementKind::Interval,
+            dimensions: TokenDimensions {
+                input: usage.usage.input_count,
+                output: usage.usage.output_count,
+                cached_input: usage.usage.cache_read_count,
+                cache_write_input: usage.usage.cache_creation_count,
+                reasoning_output: usage.usage.reasoning_output_count,
+                provider_total: usage.usage.provider_total_count,
+            },
+            cache_overlap: overlap(usage.usage.cache_overlap),
+            reasoning_overlap: overlap(usage.usage.reasoning_overlap),
+            normalization_version: usage.usage.normalization_version,
+            source: usage.usage.source,
+            source_key,
+            source_revision: usage.source_revision,
+            supersedes_observation_id: None,
+            event_at: Some(observed_at.clone()),
+            observed_at: observed_at.clone(),
+            provenance_hash: None,
+        },
+        status: UsageStatus::Succeeded,
+        completed_at: observed_at,
     }
 }
 

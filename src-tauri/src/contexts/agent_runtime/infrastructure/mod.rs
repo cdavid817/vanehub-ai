@@ -47,7 +47,7 @@ mod skill_gateway;
 mod sqlite_repository;
 mod terminal_observability;
 mod terminal_process;
-mod terminal_usage_ingestion;
+mod terminal_usage_ledger;
 mod terminal_wrapper;
 mod tool_call_accumulator;
 mod tools;

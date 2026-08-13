@@ -8,9 +8,9 @@ use super::terminal_observability::{
     finish_terminal_execution_trace, start_terminal_execution_trace,
     TerminalExecutionObservability, TerminalExecutionTrace,
 };
-use super::terminal_usage_ingestion::{
+use super::terminal_usage_ledger::{
     ingest_claude_terminal_usage, ingest_codex_terminal_usage, ingest_gemini_terminal_usage,
-    ingest_opencode_terminal_usage, load_terminal_usage_message_id,
+    ingest_opencode_terminal_usage, record_unsupported_terminal_source,
 };
 use super::terminal_wrapper::{
     default_agent_terminal_shell, generate_agent_terminal_wrapper, AgentTerminalWrapperRequest,
@@ -25,6 +25,7 @@ use crate::contexts::agent_runtime::application::{
 };
 use crate::contexts::agent_runtime::domain::AgentLifecycle;
 use crate::contexts::execution_observability::api::ExecutionStatus;
+use crate::contexts::sessions::api::SessionsApi;
 use crate::platform::filesystem::normalize_windows_extended_length_path;
 use crate::platform::text::take_decodable_utf8;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -123,6 +124,7 @@ pub(crate) struct PortablePtyAgentTerminalRuntime {
     terminal_ids: Arc<AtomicU64>,
     events: Arc<dyn AgentTerminalEventPort>,
     sessions: Arc<dyn AgentSessionGateway>,
+    accounting: SessionsApi,
     logging: Arc<dyn AgentLoggingPort>,
     clock: Arc<dyn AgentClockPort>,
     observability: TerminalExecutionObservability,
@@ -131,9 +133,11 @@ pub(crate) struct PortablePtyAgentTerminalRuntime {
 }
 
 impl PortablePtyAgentTerminalRuntime {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         events: Arc<dyn AgentTerminalEventPort>,
         sessions: Arc<dyn AgentSessionGateway>,
+        accounting: SessionsApi,
         logging: Arc<dyn AgentLoggingPort>,
         clock: Arc<dyn AgentClockPort>,
         observability: TerminalExecutionObservability,
@@ -145,6 +149,7 @@ impl PortablePtyAgentTerminalRuntime {
             terminal_ids: Arc::new(AtomicU64::new(0)),
             events,
             sessions,
+            accounting,
             logging,
             clock,
             observability,
@@ -493,6 +498,7 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
 
         let events = self.events.clone();
         let sessions = self.sessions.clone();
+        let accounting = self.accounting.clone();
         let logging = self.logging.clone();
         let clock = self.clock.clone();
         let telemetry = self.observability.telemetry.clone();
@@ -506,30 +512,11 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             .filter(|f| !f.trim().is_empty())
             .map(str::to_string);
         let started_at_ms = now_timestamp_ms(self.clock.as_ref());
-        // Recover the backing row when a terminal is restarted. When no row exists,
-        // the first non-zero usage sample creates it lazily so opening and closing an
-        // idle terminal does not leave a ghost assistant message in the transcript.
-        let usage_tracking_message_id = if matches!(
+        let terminal_started_at = self.clock.now();
+        let usage_tracking_enabled = matches!(
             agent_id.as_str(),
-            "claude-code" | "opencode" | "codex-cli" | "gemini-cli"
-        ) {
-            match load_terminal_usage_message_id(sessions.as_ref(), &session_id, &agent_id) {
-                Ok(message_id) => Some(Arc::new(Mutex::new(message_id))),
-                Err(error) => {
-                    self.record_log(
-                        AgentLogLevel::Warn,
-                        format!("Failed to recover terminal usage message: {error}"),
-                        Some(&agent_id),
-                        Some(&session_id),
-                    );
-                    // Keep tracking enabled: persistence retries the lookup before it
-                    // creates a replacement row, preserving restart idempotency.
-                    Some(Arc::new(Mutex::new(None)))
-                }
-            }
-        } else {
-            None
-        };
+            "claude-code" | "opencode" | "codex-cli" | "gemini-cli" | "antigravity-cli"
+        );
         // A CLI can go quiet on the PTY (idle, waiting for the next prompt) for several
         // seconds *after* it has finished streaming visible output but *before* it has
         // actually persisted that turn's usage to its own session log/DB — observed
@@ -539,14 +526,15 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
         // of output (or exit). This timer thread is intentionally independent of PTY
         // activity so it keeps checking on a fixed cadence regardless.
         let usage_poll_alive = Arc::new(AtomicBool::new(true));
-        let usage_poll_handle = if let Some(message_id) = usage_tracking_message_id.clone() {
+        let usage_poll_handle = if usage_tracking_enabled {
             let agent_id = agent_id.clone();
             let session_folder = session_folder.clone();
             let runtime_session_id = runtime_session_id.clone();
-            let sessions = sessions.clone();
+            let accounting = accounting.clone();
             let logging = logging.clone();
             let clock = clock.clone();
             let session_id = session_id.clone();
+            let terminal_started_at = terminal_started_at.clone();
             let alive = usage_poll_alive.clone();
             Some(thread::spawn(move || {
                 // Ticks in short increments so the thread notices the terminal has
@@ -568,9 +556,9 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
                         session_folder.as_deref(),
                         runtime_session_id.as_deref(),
                         started_at_ms,
-                        sessions.as_ref(),
-                        message_id.as_ref(),
+                        &accounting,
                         &session_id,
+                        &terminal_started_at,
                         clock.as_ref(),
                     );
                     if let Some(result) = result {
@@ -750,15 +738,15 @@ impl AgentTerminalGateway for PortablePtyAgentTerminalRuntime {
             // — that poll only samples while fresh PTY output is arriving, so it can miss
             // a session whose own log/DB row appears after the last visible output but
             // before Stop.
-            if let Some(message_id) = usage_tracking_message_id.as_ref() {
+            if usage_tracking_enabled {
                 let result = run_terminal_usage_ingestion(
                     &agent_id,
                     session_folder.as_deref(),
                     runtime_session_id.as_deref(),
                     started_at_ms,
-                    sessions.as_ref(),
-                    message_id.as_ref(),
+                    &accounting,
                     &session_id,
+                    &terminal_started_at,
                     clock.as_ref(),
                 );
                 if let Some(result) = result {
@@ -938,9 +926,9 @@ fn run_terminal_usage_ingestion(
     session_folder: Option<&str>,
     runtime_session_id: Option<&str>,
     started_at_ms: i64,
-    sessions: &dyn AgentSessionGateway,
-    message_id: &Mutex<Option<String>>,
+    accounting: &SessionsApi,
     session_id: &str,
+    terminal_started_at: &str,
     clock: &dyn AgentClockPort,
 ) -> Option<Result<bool, AgentRuntimeApplicationError>> {
     match agent_id {
@@ -948,42 +936,46 @@ fn run_terminal_usage_ingestion(
             ingest_claude_terminal_usage(
                 session_folder,
                 runtime_session_id,
-                sessions,
-                message_id,
+                accounting,
                 session_id,
                 agent_id,
-                clock,
+                terminal_started_at,
             )
         }),
         "opencode" => Some(ingest_opencode_terminal_usage(
             session_folder,
             started_at_ms,
-            sessions,
-            message_id,
+            accounting,
             session_id,
             agent_id,
+            terminal_started_at,
             clock,
         )),
         "codex-cli" => Some(ingest_codex_terminal_usage(
             session_folder,
             started_at_ms,
-            sessions,
-            message_id,
+            accounting,
             session_id,
             agent_id,
+            terminal_started_at,
             clock,
         )),
         "gemini-cli" => runtime_session_id.map(|runtime_session_id| {
             ingest_gemini_terminal_usage(
                 session_folder,
                 runtime_session_id,
-                sessions,
-                message_id,
+                accounting,
                 session_id,
                 agent_id,
-                clock,
+                terminal_started_at,
             )
         }),
+        "antigravity-cli" => Some(record_unsupported_terminal_source(
+            accounting,
+            session_id,
+            agent_id,
+            terminal_started_at,
+        )),
         _ => None,
     }
 }

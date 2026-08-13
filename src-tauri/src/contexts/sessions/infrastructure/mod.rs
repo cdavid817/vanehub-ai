@@ -8,6 +8,8 @@ mod schema;
 mod sqlite_repository;
 mod transactions;
 mod usage;
+mod usage_accounting;
+mod usage_accounting_projection;
 
 pub(crate) use schema::{
     apply_configuration_schema, apply_loop_ownership_schema, apply_message_speaker_schema,
@@ -15,6 +17,7 @@ pub(crate) use schema::{
 };
 pub(crate) use sqlite_repository::SqliteSessionsRepository;
 pub(crate) use usage::apply_schema as apply_usage_schema;
+pub(crate) use usage_accounting::apply_schema as apply_usage_accounting_schema;
 
 #[cfg(test)]
 mod tests;

@@ -48,6 +48,12 @@ import type {
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type {
+  TokenUsageDetailsPage,
+  TokenUsageDetailsQuery,
+  TokenUsageSummary,
+  TokenUsageSummaryQuery,
+} from "../types/token-usage";
 import type { OperationTask } from "../types/operation";
 import type {
   ContinueLoopInput,
@@ -300,6 +306,8 @@ export interface AgentService {
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
+  getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
+  getTokenUsageDetails(input: TokenUsageDetailsQuery): Promise<TokenUsageDetailsPage>;
   stopGeneration(sessionId: string): Promise<void>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;

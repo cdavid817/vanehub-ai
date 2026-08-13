@@ -166,6 +166,7 @@ pub(crate) fn assemble_agent_runtime_api(
         )),
         provider_registry.clone(),
     ));
+    let accounting = dependencies.sessions.clone();
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(dependencies.skills));
     let agent_memories = Arc::new(SqliteAgentMemoryRepository::new(
@@ -187,22 +188,25 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.code_intelligence,
         ),
     );
-    let api_processes = Arc::new(RuntimeAgentApiAdapter::new_with_code_intelligence(
-        api_credentials.clone(),
-        repository.clone(),
-        sessions.clone(),
-        logging.clone(),
-        clock.clone(),
-        agent_skills,
-        Arc::new(NativeAgentCoreInstructionsAdapter),
-        agent_memories.clone(),
-        agent_mcp_tools,
-        agent_permissions,
-        dependencies.retrieval,
-        code_intelligence,
-        dependencies.workspace_mutations,
-        agent_personalization.clone(),
-    ));
+    let api_processes = Arc::new(
+        RuntimeAgentApiAdapter::new_with_code_intelligence(
+            api_credentials.clone(),
+            repository.clone(),
+            sessions.clone(),
+            logging.clone(),
+            clock.clone(),
+            agent_skills,
+            Arc::new(NativeAgentCoreInstructionsAdapter),
+            agent_memories.clone(),
+            agent_mcp_tools,
+            agent_permissions,
+            dependencies.retrieval,
+            code_intelligence,
+            dependencies.workspace_mutations,
+            agent_personalization.clone(),
+        )
+        .with_accounting(accounting.clone()),
+    );
     let tool_approvals = api_processes.clone();
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
         Arc::new(CompositeAgentProcessGateway::new(
@@ -221,6 +225,7 @@ pub(crate) fn assemble_agent_runtime_api(
     let terminal_runtime = Arc::new(PortablePtyAgentTerminalRuntime::new(
         events.clone(),
         sessions.clone(),
+        accounting,
         logging.clone(),
         clock.clone(),
         TerminalExecutionObservability::new(

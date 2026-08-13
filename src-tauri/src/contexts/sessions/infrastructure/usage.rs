@@ -1,71 +1,16 @@
 use super::SqliteSessionsRepository;
 use crate::contexts::sessions::application::{
-    EstimatedCharacterTotals, MessageUsageRecord, ReportedTokenTotals, SessionUsageAccountingKind,
-    SessionUsageAgentBreakdown, SessionUsageCoverage, SessionUsagePoint, SessionUsageRepository,
-    SessionUsageStatistics, SessionUsageSummary, SessionUsageUnit, SessionsApplicationError,
-    UsageStatisticsRange,
+    EstimatedCharacterTotals, ReportedTokenTotals, SessionUsageAgentBreakdown,
+    SessionUsageCoverage, SessionUsagePoint, SessionUsageRepository, SessionUsageStatistics,
+    SessionUsageSummary, SessionsApplicationError, UsageStatisticsRange,
 };
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, Transaction};
+use rusqlite::{params, params_from_iter, Connection, Row};
 
+/// Migration 22 is intentionally retained as a no-op so pre-release migration numbering remains
+/// dense. Fine-grained accounting starts at migration 62 and deliberately imports no old data.
 pub(crate) fn apply_schema(
-    connection: &Connection,
+    _connection: &Connection,
 ) -> Result<(), crate::platform::database::DatabaseError> {
-    connection.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS usage_records (
-            message_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            agent_id TEXT NOT NULL,
-            provider_id TEXT,
-            model_id TEXT,
-            input_count INTEGER NOT NULL DEFAULT 0 CHECK (input_count >= 0),
-            output_count INTEGER NOT NULL DEFAULT 0 CHECK (output_count >= 0),
-            cache_read_count INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_count >= 0),
-            cache_creation_count INTEGER NOT NULL DEFAULT 0 CHECK (cache_creation_count >= 0),
-            accounting_kind TEXT NOT NULL CHECK (accounting_kind IN ('reported', 'estimated')),
-            unit TEXT NOT NULL CHECK (unit IN ('tokens', 'characters')),
-            source TEXT NOT NULL,
-            occurred_at TEXT NOT NULL,
-            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-            FOREIGN KEY (agent_id) REFERENCES agents(id),
-            CHECK (
-                (accounting_kind = 'reported' AND unit = 'tokens') OR
-                (accounting_kind = 'estimated' AND unit = 'characters')
-            )
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_usage_records_occurred_at
-            ON usage_records(occurred_at);
-        CREATE INDEX IF NOT EXISTS idx_usage_records_agent_occurred
-            ON usage_records(agent_id, occurred_at);
-
-        INSERT OR IGNORE INTO usage_records (
-            message_id, session_id, agent_id, input_count, output_count,
-            cache_read_count, cache_creation_count, accounting_kind, unit,
-            source, occurred_at
-        )
-        SELECT
-            messages.id,
-            messages.session_id,
-            sessions.agent_id,
-            MAX(COALESCE(messages.token_input, 0), 0),
-            MAX(COALESCE(messages.token_output, 0), 0),
-            0,
-            0,
-            'estimated',
-            'characters',
-            'legacy-character-count',
-            messages.created_at
-        FROM messages
-        INNER JOIN sessions ON sessions.id = messages.session_id
-        WHERE messages.role = 'assistant'
-          AND (
-              COALESCE(messages.token_input, 0) > 0 OR
-              COALESCE(messages.token_output, 0) > 0
-          );
-        "#,
-    )?;
     Ok(())
 }
 
@@ -83,45 +28,33 @@ impl SessionUsageRepository for SqliteSessionsRepository {
             ""
         };
         let summary_sql = format!(
-            "SELECT {AGGREGATE_COLUMNS},
+            "{ACTIVE_USAGE_CTE}
+             SELECT {AGGREGATE_COLUMNS},
                 COALESCE(SUM(CASE WHEN accounting_kind = 'reported' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN accounting_kind = 'estimated' THEN 1 ELSE 0 END), 0),
                 COUNT(DISTINCT session_id)
-             FROM usage_records
-             {filter}"
+             FROM active_usage {filter}"
         );
-        let (
-            reported,
-            estimated,
-            total_responses,
-            reported_responses,
-            estimated_responses,
-            counted_sessions,
-        ) = connection
-            .query_row(&summary_sql, params_from_iter(range_start.iter()), |row| {
-                let (reported, estimated, total_responses) = totals_from_row(row, 0)?;
-                Ok((
-                    reported,
-                    estimated,
-                    total_responses,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
-                ))
-            })
-            .map_err(repository_error)?;
-        let reported_percent = if total_responses == 0 {
-            0.0
-        } else {
-            (reported_responses as f64 / total_responses as f64) * 100.0
-        };
-
+        let (reported, estimated, responses, reported_responses, estimated_responses, sessions) =
+            connection
+                .query_row(&summary_sql, params_from_iter(range_start.iter()), |row| {
+                    let (reported, estimated, responses) = totals_from_row(row, 0)?;
+                    Ok((
+                        reported,
+                        estimated,
+                        responses,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ))
+                })
+                .map_err(repository_error)?;
         let daily_sql = format!(
-            "SELECT date(occurred_at, 'localtime') AS local_date, {AGGREGATE_COLUMNS}
-             FROM usage_records
-             {filter}
-             GROUP BY local_date
-             ORDER BY local_date"
+            "{ACTIVE_USAGE_CTE}
+             SELECT date(occurred_at, 'localtime'), {AGGREGATE_COLUMNS}
+             FROM active_usage {filter}
+             GROUP BY date(occurred_at, 'localtime')
+             ORDER BY date(occurred_at, 'localtime')"
         );
         let mut daily_statement = connection.prepare(&daily_sql).map_err(repository_error)?;
         let daily = daily_statement
@@ -137,11 +70,10 @@ impl SessionUsageRepository for SqliteSessionsRepository {
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
-
         let agent_sql = format!(
-            "SELECT agent_id, {AGGREGATE_COLUMNS}
-             FROM usage_records
-             {filter}
+            "{ACTIVE_USAGE_CTE}
+             SELECT agent_id, {AGGREGATE_COLUMNS}
+             FROM active_usage {filter}
              GROUP BY agent_id
              ORDER BY COUNT(*) DESC, agent_id"
         );
@@ -159,18 +91,12 @@ impl SessionUsageRepository for SqliteSessionsRepository {
             .map_err(repository_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(repository_error)?;
-
         Ok(SessionUsageStatistics {
             range,
             reported,
             estimated,
-            coverage: SessionUsageCoverage {
-                reported_responses,
-                estimated_responses,
-                total_responses,
-                reported_percent,
-            },
-            counted_sessions,
+            coverage: coverage(reported_responses, estimated_responses, responses),
+            counted_sessions: sessions,
             daily,
             by_agent,
             generated_at: generated_at.to_string(),
@@ -183,133 +109,47 @@ impl SessionUsageRepository for SqliteSessionsRepository {
         generated_at: &str,
     ) -> Result<SessionUsageSummary, SessionsApplicationError> {
         let connection = self.connection()?;
-        let (reported, estimated, response_count, reported_responses, estimated_responses) =
-            connection
-                .query_row(
-                    &format!(
-                        "SELECT {AGGREGATE_COLUMNS},
-                            COALESCE(SUM(CASE WHEN accounting_kind = 'reported' THEN 1 ELSE 0 END), 0),
-                            COALESCE(SUM(CASE WHEN accounting_kind = 'estimated' THEN 1 ELSE 0 END), 0)
-                         FROM usage_records
-                         WHERE session_id = ?1"
-                    ),
-                    params![session_id],
-                    |row| {
-                        let (reported, estimated, response_count) = totals_from_row(row, 0)?;
-                        Ok((
-                            reported,
-                            estimated,
-                            response_count,
-                            row.get(7)?,
-                            row.get(8)?,
-                        ))
-                    },
-                )
-                .map_err(repository_error)?;
-        let reported_percent = if response_count == 0 {
-            0.0
-        } else {
-            (reported_responses as f64 / response_count as f64) * 100.0
-        };
+        let sql = format!(
+            "{ACTIVE_USAGE_CTE}
+             SELECT {AGGREGATE_COLUMNS},
+                COALESCE(SUM(CASE WHEN accounting_kind = 'reported' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN accounting_kind = 'estimated' THEN 1 ELSE 0 END), 0)
+             FROM active_usage WHERE session_id = ?1"
+        );
+        let (reported, estimated, responses, reported_responses, estimated_responses) = connection
+            .query_row(&sql, params![session_id], |row| {
+                let (reported, estimated, responses) = totals_from_row(row, 0)?;
+                Ok((reported, estimated, responses, row.get(7)?, row.get(8)?))
+            })
+            .map_err(repository_error)?;
         Ok(SessionUsageSummary {
             session_id: session_id.to_string(),
             reported,
             estimated,
-            coverage: SessionUsageCoverage {
-                reported_responses,
-                estimated_responses,
-                total_responses: response_count,
-                reported_percent,
-            },
-            response_count,
+            coverage: coverage(reported_responses, estimated_responses, responses),
+            response_count: responses,
             generated_at: generated_at.to_string(),
         })
     }
-
-    fn terminal_usage_message_id(
-        &self,
-        session_id: &str,
-        agent_id: &str,
-    ) -> Result<Option<String>, SessionsApplicationError> {
-        self.connection()?
-            .query_row(
-                "SELECT usage_records.message_id
-                 FROM usage_records
-                 INNER JOIN messages ON messages.id = usage_records.message_id
-                 WHERE usage_records.session_id = ?1
-                   AND usage_records.agent_id = ?2
-                   AND usage_records.source = 'cli-session-log'
-                 ORDER BY messages.updated_at DESC, usage_records.message_id DESC
-                 LIMIT 1",
-                params![session_id, agent_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(repository_error)
-    }
 }
 
-pub(super) fn upsert_usage(
-    transaction: &Transaction<'_>,
-    usage: &MessageUsageRecord,
-) -> Result<(), SessionsApplicationError> {
-    let accounting_kind = match usage.accounting_kind {
-        SessionUsageAccountingKind::Reported => "reported",
-        SessionUsageAccountingKind::Estimated => "estimated",
-    };
-    let unit = match usage.unit {
-        SessionUsageUnit::Tokens => "tokens",
-        SessionUsageUnit::Characters => "characters",
-    };
-    let update_guard = if usage.accounting_kind == SessionUsageAccountingKind::Estimated {
-        "WHERE usage_records.accounting_kind != 'reported'"
-    } else {
-        ""
-    };
-    transaction
-        .execute(
-            &format!(
-                r#"
-                INSERT INTO usage_records (
-                    message_id, session_id, agent_id, provider_id, model_id,
-                    input_count, output_count, cache_read_count, cache_creation_count,
-                    accounting_kind, unit, source, occurred_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-                ON CONFLICT(message_id) DO UPDATE SET
-                    session_id = excluded.session_id,
-                    agent_id = excluded.agent_id,
-                    provider_id = excluded.provider_id,
-                    model_id = excluded.model_id,
-                    input_count = excluded.input_count,
-                    output_count = excluded.output_count,
-                    cache_read_count = excluded.cache_read_count,
-                    cache_creation_count = excluded.cache_creation_count,
-                    accounting_kind = excluded.accounting_kind,
-                    unit = excluded.unit,
-                    source = excluded.source,
-                    occurred_at = excluded.occurred_at
-                {update_guard}
-                "#
-            ),
-            params![
-                usage.message_id,
-                usage.session_id,
-                usage.agent_id,
-                usage.provider_id,
-                usage.model_id,
-                usage.input_count,
-                usage.output_count,
-                usage.cache_read_count,
-                usage.cache_creation_count,
-                accounting_kind,
-                unit,
-                usage.source,
-                usage.occurred_at,
-            ],
-        )
-        .map_err(repository_error)?;
-    Ok(())
-}
+const ACTIVE_USAGE_CTE: &str = r#"
+    WITH active_usage AS (
+        SELECT
+            invocation.session_id,
+            invocation.agent_id,
+            CASE WHEN observation.quality = 'estimated' THEN 'estimated' ELSE 'reported' END
+                AS accounting_kind,
+            observation.input_count,
+            observation.output_count,
+            observation.cached_input_count AS cache_read_count,
+            observation.cache_write_input_count AS cache_creation_count,
+            COALESCE(observation.event_at, observation.observed_at) AS occurred_at
+        FROM token_usage_observations observation
+        INNER JOIN model_invocations invocation ON invocation.id = observation.invocation_id
+        WHERE observation.superseded_by_observation_id IS NULL
+    )
+"#;
 
 const AGGREGATE_COLUMNS: &str = r#"
     COALESCE(SUM(CASE WHEN accounting_kind = 'reported' THEN input_count ELSE 0 END), 0),
@@ -320,6 +160,19 @@ const AGGREGATE_COLUMNS: &str = r#"
     COALESCE(SUM(CASE WHEN accounting_kind = 'estimated' THEN output_count ELSE 0 END), 0),
     COUNT(*)
 "#;
+
+fn coverage(reported: i64, estimated: i64, total: i64) -> SessionUsageCoverage {
+    SessionUsageCoverage {
+        reported_responses: reported,
+        estimated_responses: estimated,
+        total_responses: total,
+        reported_percent: if total == 0 {
+            0.0
+        } else {
+            reported as f64 / total as f64 * 100.0
+        },
+    }
+}
 
 fn totals_from_row(
     row: &Row<'_>,

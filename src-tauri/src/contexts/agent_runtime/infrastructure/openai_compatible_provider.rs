@@ -8,7 +8,8 @@
 use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
-    AgentMessage, GenerationProcessEvent, GenerationProcessFailure, ToolDefinition, ToolUseBlock,
+    AgentMessage, AgentUsageOverlap, GenerationProcessEvent, GenerationProcessFailure,
+    ReportedUsageTotals, ToolDefinition, ToolUseBlock,
 };
 use serde_json::{json, Value};
 
@@ -69,6 +70,9 @@ pub(crate) fn build_request_body(
     }
     if let Some(depth) = options.reasoning_depth {
         body["reasoning_effort"] = json!(reasoning_effort(depth));
+    }
+    if options.include_stream_usage {
+        body["stream_options"] = json!({ "include_usage": true });
     }
     body
 }
@@ -145,13 +149,49 @@ pub(crate) fn translate_sse_data(
     }
     if trimmed == DONE_SENTINEL {
         accumulator.finish_all_pending();
-        return Some(GenerationProcessEvent::Completed(None));
+        return Some(GenerationProcessEvent::Completed(accumulator.take_usage()));
     }
     let value: Value = serde_json::from_str(trimmed).ok()?;
     if value.get("error").is_some() {
         return Some(GenerationProcessEvent::Failed(translate_error(&value)));
     }
+    if let Some(usage) = value.get("usage") {
+        accumulator.update_usage(openai_usage(usage));
+    }
     translate_delta(&value, accumulator)
+}
+
+fn openai_usage(usage: &Value) -> ReportedUsageTotals {
+    ReportedUsageTotals {
+        input_tokens: usage
+            .get("prompt_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+        output_tokens: usage
+            .get("completion_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+        cache_read_tokens: usage
+            .pointer("/prompt_tokens_details/cached_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+        reasoning_output_tokens: usage
+            .pointer("/completion_tokens_details/reasoning_tokens")
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+            .max(0),
+        provider_total_tokens: usage
+            .get("total_tokens")
+            .and_then(Value::as_i64)
+            .map(|value| value.max(0)),
+        cache_overlap: AgentUsageOverlap::Subset,
+        reasoning_overlap: AgentUsageOverlap::Subset,
+        normalization_version: "openai-chat-stream-usage-v1",
+        ..ReportedUsageTotals::default()
+    }
 }
 
 fn translate_delta(
@@ -354,6 +394,7 @@ mod tests {
             let options = GenerationOptions {
                 thinking: false,
                 reasoning_depth: Some(depth),
+                include_stream_usage: false,
             };
             let body = build_request_body("deepseek-chat", &[], &[], None, &options);
             assert_eq!(body["reasoning_effort"], depth);
@@ -365,6 +406,7 @@ mod tests {
         let options = GenerationOptions {
             thinking: false,
             reasoning_depth: Some("max"),
+            include_stream_usage: false,
         };
         let body = build_request_body("deepseek-chat", &[], &[], None, &options);
         assert_eq!(body["reasoning_effort"], "high");
@@ -375,10 +417,41 @@ mod tests {
         let options = GenerationOptions {
             thinking: true,
             reasoning_depth: None,
+            include_stream_usage: false,
         };
         let body = build_request_body("deepseek-chat", &[], &[], None, &options);
         assert!(body.get("thinking").is_none());
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn reviewed_strategy_requests_and_parses_final_stream_usage() {
+        let options = GenerationOptions {
+            thinking: false,
+            reasoning_depth: None,
+            include_stream_usage: true,
+        };
+        let body = build_request_body("gpt-5.4", &[], &[], None, &options);
+        assert_eq!(body["stream_options"]["include_usage"], true);
+
+        let mut accumulator = ToolCallAccumulator::default();
+        assert_eq!(
+            translate_sse_data(
+                r#"{"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28,"prompt_tokens_details":{"cached_tokens":5},"completion_tokens_details":{"reasoning_tokens":3}}}"#,
+                &mut accumulator,
+            ),
+            None
+        );
+        let Some(GenerationProcessEvent::Completed(Some(usage))) =
+            translate_sse_data("[DONE]", &mut accumulator)
+        else {
+            panic!("expected completed usage");
+        };
+        assert_eq!(usage.input_tokens, 20);
+        assert_eq!(usage.output_tokens, 8);
+        assert_eq!(usage.cache_read_tokens, 5);
+        assert_eq!(usage.reasoning_output_tokens, 3);
+        assert_eq!(usage.provider_total_tokens, Some(28));
     }
 
     #[test]
