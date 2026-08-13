@@ -25,8 +25,7 @@ export function triggerLatestWebPlanRepairForTest(): void {
 }
 function nextId(prefix: string): string { sequence += 1; return `${prefix}-mock-${sequence}`; }
 function now(): string { return new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(); }
-function copy<T>(value: T): T { return structuredClone(value); }
-function persistDraft(draft: PlanDraft): void {
+function copy<T>(value: T): T { return structuredClone(value); } function persistDraft(draft: PlanDraft): void {
   drafts.set(draft.id, copy(draft));
   const history = versions.get(draft.id) ?? []; const retained = history.filter((candidate) => candidate.versionId !== draft.versionId);
   versions.set(draft.id, [...retained, copy(draft)].sort((left, right) => right.version - left.version));
@@ -280,6 +279,7 @@ export const webPlanClient: PlanService = {
     }));
     return { items: copy(items), nextCursor: null };
   },
+  async listPlans() { return [...drafts.values()].map((draft) => { const latestRun = [...runs.values()].filter((run) => run.planId === draft.id).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]; return { id: draft.id, goal: draft.goal, projectPath: draft.projectPath, status: latestRun ? "approved" as const : "draft" as const, latestRunId: latestRun?.id ?? null, latestRunStatus: latestRun?.status ?? null, createdAt: latestRun?.createdAt ?? new Date(0).toISOString(), updatedAt: latestRun?.updatedAt ?? new Date(0).toISOString() }; }); },
   async getPlanRun(runId) { const run = runs.get(runId); if (!run) throw new Error("PlanRun was not found."); return copy(run); },
   async getPlanRunForSession(sessionId) {
     const run = [...runs.values()].filter((candidate) => candidate.originatingSessionId === sessionId).at(-1);

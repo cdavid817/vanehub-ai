@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { PlanService } from "./plan-service";
-import type { ApprovePlanResult, ExecutedPlanAttempt, PlanAttemptEvidence, PlanControlResult, PlanDraft, PlanRunDetail, PreparedPlanRun } from "../types/plan";
+import type { ApprovePlanResult, ExecutedPlanAttempt, PlanAttemptEvidence, PlanControlResult, PlanDraft, PlanRunDetail, PlanSummary, PreparedPlanRun } from "../types/plan";
 
 export const tauriPlanClient: PlanService = {
   generatePlanDraft(input) { return invoke<PlanDraft>("generate_plan_draft", { input }); },
@@ -13,6 +13,7 @@ export const tauriPlanClient: PlanService = {
   startPlanRun(runId) { return invoke<PreparedPlanRun>("start_plan_run", { runId }); },
   executeNextAttempt(runId) { return invoke<ExecutedPlanAttempt | null>("execute_next_plan_attempt", { runId }); },
   listPlanRuns(cursor) { return invoke("list_plan_runs", { cursor: cursor ?? null }); },
+  listPlans() { return invoke<PlanSummary[]>("list_plan_summaries"); },
   getPlanRun(runId) { return invoke<PlanRunDetail>("get_plan_run_detail", { runId }); },
   getPlanRunForSession(sessionId) { return invoke("get_plan_run_for_session", { sessionId }); },
   getPlanAttemptEvidence(attemptId) { return invoke<PlanAttemptEvidence[]>("get_plan_attempt_evidence", { attemptId }); },

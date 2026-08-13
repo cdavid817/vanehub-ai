@@ -12,4 +12,5 @@ pub(crate) mod sessions;
 pub(crate) mod ssh_connections;
 pub(crate) mod task_orchestration;
 pub(crate) mod tooling;
+pub(crate) mod work_board;
 pub(crate) mod workspaces;

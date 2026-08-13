@@ -1,4 +1,4 @@
-import { CalendarClock, CircleHelp, ListTree, MessagesSquare, Repeat2, Settings } from "lucide-react";
+import { CalendarClock, CircleHelp, Columns3, ListTree, MessagesSquare, Repeat2, Settings } from "lucide-react";
 import { cn } from "../lib/utils";
 
 export interface WorkspaceActivityBarLabels {
@@ -9,18 +9,20 @@ export interface WorkspaceActivityBarLabels {
   loops: string;
   plans: string;
   scheduledTasks: string;
+  todoBoard: string;
   settings: string;
   help: string;
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "plans";
+  activeDestination: "sessions" | "loops" | "plans" | "todo-board";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
   onLoops: () => void;
   onPlans: () => void;
   onSessions: () => void;
   onScheduledTasks: () => void;
+  onTodoBoard: () => void;
   sessionSidebarExpanded: boolean;
 }
 
@@ -35,6 +37,7 @@ export function WorkspaceActivityBar({
   onPlans,
   onSessions,
   onScheduledTasks,
+  onTodoBoard,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
@@ -76,6 +79,7 @@ export function WorkspaceActivityBar({
         <button aria-label={labels.scheduledTasks} className={activityButtonClass} onClick={onScheduledTasks} title={labels.scheduledTasks} type="button">
           <CalendarClock aria-hidden="true" className="h-5 w-5" />
         </button>
+        <button aria-controls="todo-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "todo-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onTodoBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
       </div>
       <div className="flex flex-col items-center gap-1" data-activity-group="utility">
         <button aria-label={labels.settings} className={activityButtonClass} onClick={() => onOpenSettings()} title={labels.settings} type="button">

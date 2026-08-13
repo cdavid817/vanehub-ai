@@ -131,6 +131,17 @@ export interface PlanRunSummary {
   updatedAt: string;
 }
 
+export interface PlanSummary {
+  id: string;
+  goal: string;
+  projectPath: string;
+  status: PlanStatus;
+  latestRunId: string | null;
+  latestRunStatus: PlanRunStatus | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PlanRunDetail extends PlanRunSummary {
   projectPath: string;
   baseRef: string;

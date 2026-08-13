@@ -530,6 +530,8 @@ impl SessionsApplicationService {
             interaction_mode: request.interaction_mode,
             workspace: request.workspace,
             runtime_session_id: None,
+            execution_origin_kind: "user".to_string(),
+            execution_origin_id: None,
             created_at: now.clone(),
             updated_at: now,
         };
