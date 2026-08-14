@@ -3244,5 +3244,14 @@
   "slash.output.streaming": "ストリーミング: {{value}}",
   "slash.output.longcontext": "ロングコンテキスト: {{value}}",
   "slash.error.title": "コマンドが失敗しました",
-  "slash.error.badArgument": "/{{command}} には次のいずれかを指定してください: {{allowed}}"
+  "slash.error.badArgument": "/{{command}} には次のいずれかを指定してください: {{allowed}}",
+  "slash.output.export": "エクスポートを開始しました: {{value}}",
+  "slash.output.statusTitle": "セッションの状態",
+  "slash.output.usageTitle": "トークン使用量",
+  "slash.output.usageTotal": "合計トークン: {{value}}",
+  "slash.output.usageInput": "入力トークン: {{value}}",
+  "slash.output.usageOutput": "出力トークン: {{value}}",
+  "slash.output.usageResponses": "応答回数: {{value}}",
+  "slash.error.notStreaming": "現在生成中の処理はありません。",
+  "slash.error.usageUnavailable": "トークン使用量を取得できませんでした。"
 }

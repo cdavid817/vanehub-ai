@@ -3244,5 +3244,14 @@
   "slash.output.streaming": "스트리밍: {{value}}",
   "slash.output.longcontext": "긴 컨텍스트: {{value}}",
   "slash.error.title": "명령 실행 실패",
-  "slash.error.badArgument": "/{{command}} 에는 다음 중 하나가 필요합니다: {{allowed}}"
+  "slash.error.badArgument": "/{{command}} 에는 다음 중 하나가 필요합니다: {{allowed}}",
+  "slash.output.export": "내보내기를 시작했습니다: {{value}}",
+  "slash.output.statusTitle": "세션 상태",
+  "slash.output.usageTitle": "토큰 사용량",
+  "slash.output.usageTotal": "총 토큰: {{value}}",
+  "slash.output.usageInput": "입력 토큰: {{value}}",
+  "slash.output.usageOutput": "출력 토큰: {{value}}",
+  "slash.output.usageResponses": "응답 횟수: {{value}}",
+  "slash.error.notStreaming": "현재 생성 중인 작업이 없습니다.",
+  "slash.error.usageUnavailable": "토큰 사용량을 읽을 수 없습니다."
 }

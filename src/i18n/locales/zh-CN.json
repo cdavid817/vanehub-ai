@@ -3244,5 +3244,14 @@
   "slash.output.streaming": "流式输出：{{value}}",
   "slash.output.longcontext": "长上下文：{{value}}",
   "slash.error.title": "命令执行失败",
-  "slash.error.badArgument": "/{{command}} 需要下列取值之一：{{allowed}}"
+  "slash.error.badArgument": "/{{command}} 需要下列取值之一：{{allowed}}",
+  "slash.output.export": "已开始导出：{{value}}",
+  "slash.output.statusTitle": "会话状态",
+  "slash.output.usageTitle": "Token 用量",
+  "slash.output.usageTotal": "总 Token：{{value}}",
+  "slash.output.usageInput": "输入 Token：{{value}}",
+  "slash.output.usageOutput": "输出 Token：{{value}}",
+  "slash.output.usageResponses": "回复次数：{{value}}",
+  "slash.error.notStreaming": "当前没有正在生成的内容。",
+  "slash.error.usageUnavailable": "无法读取 Token 用量。"
 }

@@ -3244,5 +3244,14 @@
   "slash.output.streaming": "Streaming: {{value}}",
   "slash.output.longcontext": "Long context: {{value}}",
   "slash.error.title": "Command failed",
-  "slash.error.badArgument": "/{{command}} expects one of: {{allowed}}"
+  "slash.error.badArgument": "/{{command}} expects one of: {{allowed}}",
+  "slash.output.export": "Export started: {{value}}",
+  "slash.output.statusTitle": "Session status",
+  "slash.output.usageTitle": "Token usage",
+  "slash.output.usageTotal": "Total tokens: {{value}}",
+  "slash.output.usageInput": "Input tokens: {{value}}",
+  "slash.output.usageOutput": "Output tokens: {{value}}",
+  "slash.output.usageResponses": "Responses: {{value}}",
+  "slash.error.notStreaming": "Nothing is generating right now.",
+  "slash.error.usageUnavailable": "Token usage could not be read."
 }

@@ -3244,5 +3244,14 @@
   "slash.output.streaming": "串流輸出：{{value}}",
   "slash.output.longcontext": "長上下文：{{value}}",
   "slash.error.title": "指令執行失敗",
-  "slash.error.badArgument": "/{{command}} 需要下列其中一個值：{{allowed}}"
+  "slash.error.badArgument": "/{{command}} 需要下列其中一個值：{{allowed}}",
+  "slash.output.export": "已開始匯出：{{value}}",
+  "slash.output.statusTitle": "工作階段狀態",
+  "slash.output.usageTitle": "Token 用量",
+  "slash.output.usageTotal": "總 Token：{{value}}",
+  "slash.output.usageInput": "輸入 Token：{{value}}",
+  "slash.output.usageOutput": "輸出 Token：{{value}}",
+  "slash.output.usageResponses": "回覆次數：{{value}}",
+  "slash.error.notStreaming": "目前沒有正在生成的內容。",
+  "slash.error.usageUnavailable": "無法讀取 Token 用量。"
 }
