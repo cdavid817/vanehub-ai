@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen, Plus, Repeat2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../components/ui/button";
 import { useLoopDefinitionsQuery, useLoopRunQuery, useLoopRunsQuery } from "../hooks/use-loop-queries";
 import { LoopInspector } from "./loop-inspector";
 import { LoopDefinitionDialog } from "./loop-definition-dialog";
@@ -69,7 +70,9 @@ export function LoopCenter({ onInspect }: { onInspect?: (target: LoopInspectionT
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
           {error ? <StateMessage title={t("loops.states.error")} value={error instanceof Error ? error.message : String(error)} /> : null}
           {!error && (definitions.isLoading || runs.isLoading) ? <StateMessage title={t("loops.states.loading")} /> : null}
-          {!error && !definitions.isLoading && definitions.data?.length === 0 ? <StateMessage title={t("loops.states.emptyDefinitions")} /> : null}
+          {!error && !definitions.isLoading && definitions.data?.length === 0 ? (
+            <EmptyDefinitions onCreate={() => setEditorDefinitionId("new")} />
+          ) : null}
           {!error && definitions.data?.length !== 0 && !runs.isLoading && runs.data?.length === 0 ? <StateMessage title={t("loops.states.emptyRuns")} /> : null}
           {!error && runId && run.data ? <LoopTimeline onInspect={onInspect} refreshing={run.isFetching} run={run.data} /> : null}
         </div>
@@ -129,6 +132,28 @@ function StateMessage({ title, value }: { title: string; value?: string }) {
     <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center">
       <p className="text-sm font-medium text-foreground">{title}</p>
       {value ? <p className="max-w-md text-xs text-destructive">{value}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * The first-run state used to be one centred sentence, with creation reachable only through a
+ * 24px icon in the navigation header. Matches the icon/title/explanation/action shape the chat
+ * welcome screen and notification centre already use.
+ */
+function EmptyDefinitions({ onCreate }: { onCreate: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-full min-h-48 flex-col items-center justify-center gap-3 p-6 text-center">
+      <span className="grid h-12 w-12 place-items-center rounded-lg border border-border bg-background">
+        <Repeat2 aria-hidden="true" className="h-5 w-5 text-primary" />
+      </span>
+      <p className="text-sm font-semibold">{t("loops.states.emptyDefinitions")}</p>
+      <p className="max-w-sm text-xs leading-5 text-muted-foreground">{t("loops.states.emptyDefinitionsDescription")}</p>
+      <Button onClick={onCreate} size="sm" type="button">
+        <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+        {t("loops.states.emptyDefinitionsAction")}
+      </Button>
     </div>
   );
 }

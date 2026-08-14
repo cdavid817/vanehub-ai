@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../../../components/ui/use-confirmation";
 import { ApplicationDialog } from "../../../components/ui/application-dialog";
 import { Button } from "../../../components/ui/button";
 import type { AgentService } from "../../../services/agent-service";
@@ -18,6 +19,7 @@ export function PromptHookLifecyclePanel({
   onChanged: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const historyQuery = useQuery({
     queryKey: ["prompt-hook-history", hook.id],
@@ -85,6 +87,7 @@ export function PromptHookLifecyclePanel({
       onClose={onClose}
       title={t("promptHooks.lifecycle.title", { name: hook.name })}
     >
+      {confirmationDialog}
       <div className="flex justify-end">
         <Button onClick={onClose} variant="ghost">{t("promptHooks.dialog.close")}</Button>
       </div>
@@ -176,9 +179,11 @@ export function PromptHookLifecyclePanel({
                     <Button
                       disabled={rollbackMutation.isPending}
                       onClick={() => {
-                        if (window.confirm(t("promptHooks.lifecycle.rollbackConfirm", { version: version.version }))) {
-                          rollbackMutation.mutate(version.version);
-                        }
+                        void confirm({
+                          title: t("promptHooks.lifecycle.rollbackConfirm", { version: version.version }),
+                        }).then((confirmed) => {
+                          if (confirmed) rollbackMutation.mutate(version.version);
+                        });
                       }}
                       size="sm"
                       variant="outline"

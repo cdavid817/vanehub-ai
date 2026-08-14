@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { formatScheduledTaskFrequency } from "../lib/scheduled-task-recurrence";
 import { agentService } from "../services/runtime-agent-client";
@@ -61,6 +62,7 @@ export function ScheduledTasksDialog({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const selectableAgents = useMemo(
     () => agents.filter((agent) => agent.id === "onepiece" || agent.supportedInteractionModes.includes("cli")),
@@ -116,7 +118,7 @@ export function ScheduledTasksDialog({
   }
 
   async function deleteTask(task: ScheduledTask) {
-    if (!window.confirm(t("scheduledTasks.confirmDelete", { name: task.name }))) return;
+    setConfirmingDeleteId(null);
     setError(null);
     try {
       await agentService.deleteScheduledTask(task.id);
@@ -129,19 +131,23 @@ export function ScheduledTasksDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4">
-      <div className="ucd-panel grid max-h-[90vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl">
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div>
-            <h3 className="text-sm font-semibold">{t("scheduledTasks.title")}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">{t("scheduledTasks.description")}</p>
-          </div>
-          <Button className="h-8 w-8 px-0" onClick={onClose} title={t("scheduledTasks.close")} variant="outline">
-            <X className="h-4 w-4" aria-hidden="true" />
+    <ApplicationDialog
+      closeDisabled={saving}
+      description={t("scheduledTasks.description")}
+      footer={(
+        <div className="flex items-start justify-between gap-3">
+          <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role="alert">{error}</p>
+          <Button className="h-8 shrink-0 px-3 text-xs" disabled={!name.trim() || !content.trim() || !agentId || saving} onClick={() => void createTask()} type="button">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+            {t("scheduledTasks.create")}
           </Button>
         </div>
-
-        <div className="grid min-h-0 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      )}
+      maxWidth="max-w-5xl"
+      onClose={onClose}
+      title={t("scheduledTasks.title")}
+    >
+        <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="min-h-0">
             <div className="mb-3 flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase text-muted-foreground">{t("scheduledTasks.listTitle")}</h4>
@@ -167,9 +173,22 @@ export function ScheduledTasksDialog({
                           <input checked={task.enabled} onChange={(event) => void setEnabled(task, event.target.checked)} type="checkbox" />
                           {task.enabled ? t("scheduledTasks.enabled") : t("scheduledTasks.disabled")}
                         </label>
-                        <Button className="h-8 w-8 px-0" onClick={() => void deleteTask(task)} title={t("scheduledTasks.delete")} variant="outline">
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        </Button>
+                        {/* Confirmed inline rather than in a nested dialog: a second modal would
+                            add a second Escape handler, and one keypress would close both. */}
+                        {confirmingDeleteId === task.id ? (
+                          <span className="flex items-center gap-1">
+                            <Button className="h-8 px-2 text-xs" onClick={() => setConfirmingDeleteId(null)} size="sm" variant="outline">
+                              {t("scheduledTasks.cancelDelete")}
+                            </Button>
+                            <Button autoFocus className="h-8 bg-destructive px-2 text-xs text-destructive-foreground" onClick={() => void deleteTask(task)} size="sm">
+                              {t("scheduledTasks.confirmDeleteAction")}
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button aria-label={t("scheduledTasks.confirmDelete", { name: task.name })} className="h-8 w-8 px-0" onClick={() => setConfirmingDeleteId(task.id)} title={t("scheduledTasks.delete")} variant="outline">
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                     <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
@@ -205,16 +224,7 @@ export function ScheduledTasksDialog({
             <p className="text-xs text-muted-foreground">{t("scheduledTasks.runtimeHint")}</p>
           </section>
         </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-border p-4">
-          <span className="min-w-0 truncate text-xs text-destructive">{error}</span>
-          <Button className="h-8 px-3 text-xs" disabled={!name.trim() || !content.trim() || !agentId || saving} onClick={() => void createTask()} type="button">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-            {t("scheduledTasks.create")}
-          </Button>
-        </div>
-      </div>
-    </div>
+    </ApplicationDialog>
   );
 }
 

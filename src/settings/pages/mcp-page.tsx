@@ -2,6 +2,7 @@ import { Boxes, Cable, Plus, RefreshCw, Upload, Wrench } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
 import { mcpService } from "../../services/runtime-mcp-client";
 import { operationService } from "../../services/runtime-operation-client";
@@ -32,6 +33,7 @@ async function loadMcpServersAndStatuses() {
 
 export function McpPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [editingServer, setEditingServer] = useState<McpServerConfig | null | undefined>();
   const [showImportExport, setShowImportExport] = useState(false);
@@ -168,7 +170,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
   }
 
   async function deleteServer(server: McpServerConfig) {
-    if (!window.confirm(t("mcp.confirm.delete", { name: server.name }))) return;
+    if (!(await confirm({ title: t("mcp.confirm.delete", { name: server.name }), tone: "danger" }))) return;
     setError(null);
     await deleteServerMutation.mutateAsync(server).catch((err) => {
       const failure = mcpErrorFromUnknown(err);
@@ -212,6 +214,7 @@ export function McpPage({ searchTerm }: { searchTerm: string }) {
 
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader
         actions={
           <>
