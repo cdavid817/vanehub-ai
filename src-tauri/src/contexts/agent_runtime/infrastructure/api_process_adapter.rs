@@ -4,6 +4,7 @@ use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
     ToolExecutionOutcome, OUTPUT_MODE_FILES,
 };
+use super::SqliteNativeToolRepository;
 use super::{anthropic_provider, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
     code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
@@ -15,10 +16,15 @@ use crate::contexts::agent_runtime::application::{
     AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
     AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest,
     AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, GenerationProcessEvent,
-    GenerationProcessFailure, GenerationProcessRequest, MemorySource, PersonalizationSettings,
-    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, ToolApprovalDecision,
-    ToolApprovalPort, ToolDefinition, ToolUseBlock, UtilityDelegationApplicationService,
+    ApiProviderConfig, BoundSkillPrompt, ConversationHistoryPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
+    NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
+    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, StoredToolOperation,
+    StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
+    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
     WorkflowLaunchOutcome, WorkflowLaunchRequest, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
     FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
     GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
@@ -52,6 +58,8 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
+use tauri::Emitter;
 
 const HISTORY_LIMIT: i64 = 50;
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -167,6 +175,9 @@ pub(crate) struct RuntimeAgentApiAdapter {
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
     evidence: RuntimeEvidenceProjector,
@@ -256,6 +267,9 @@ impl RuntimeAgentApiAdapter {
             workspace_mutations,
             personalization,
             accounting: None,
+            native_tools: NativeToolRegistry::empty(),
+            native_tool_operations: None,
+            native_tool_events: None,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
             evidence: RuntimeEvidenceProjector::disabled(),
@@ -278,6 +292,21 @@ impl RuntimeAgentApiAdapter {
 
     pub(crate) fn with_accounting(mut self, accounting: SessionsApi) -> Self {
         self.accounting = Some(accounting);
+        self
+    }
+
+    pub(crate) fn with_native_tool_registry(mut self, native_tools: NativeToolRegistry) -> Self {
+        self.native_tools = native_tools;
+        self
+    }
+
+    pub(crate) fn with_native_tool_operations(
+        mut self,
+        repository: Arc<SqliteNativeToolRepository>,
+        app: tauri::AppHandle,
+    ) -> Self {
+        self.native_tool_operations = Some(repository);
+        self.native_tool_events = Some(app);
         self
     }
 }
@@ -369,6 +398,9 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let evidence = self.evidence.clone();
         let utility_delegation = self.utility_delegation.clone();
         let accounting = self.accounting.clone();
+        let native_tools = self.native_tools.clone();
+        let native_tool_operations = self.native_tool_operations.clone();
+        let native_tool_events = self.native_tool_events.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -388,6 +420,9 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 workspace_mutations,
                 personalization,
                 accounting,
+                native_tools,
+                native_tool_operations,
+                native_tool_events,
                 sink,
                 pending_approvals,
                 evidence,
@@ -466,6 +501,9 @@ fn run_generation(
     workspace_mutations: Arc<dyn AgentWorkspaceMutationPort>,
     personalization: Arc<dyn AgentPersonalizationPort>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
     evidence: RuntimeEvidenceProjector,
@@ -495,6 +533,9 @@ fn run_generation(
         utility_delegation.as_ref(),
         &mut observed_skill_revisions,
         accounting.as_ref(),
+        &native_tools,
+        native_tool_operations.as_deref(),
+        native_tool_events.as_ref(),
     );
     project_native_outcomes(
         &evidence,
@@ -947,6 +988,9 @@ fn execute(
         None,
         &mut ignored_observations,
         None,
+        &NativeToolRegistry::empty(),
+        None,
+        None,
     )
 }
 
@@ -973,6 +1017,9 @@ fn execute_with_code_intelligence(
     utility_delegation: Option<&UtilityDelegationApplicationService>,
     observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
     accounting: Option<&SessionsApi>,
+    native_tools: &NativeToolRegistry,
+    native_tool_operations: Option<&SqliteNativeToolRepository>,
+    native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -1051,7 +1098,7 @@ fn execute_with_code_intelligence(
     let code_intelligence_available = code_intelligence_context
         .as_ref()
         .is_some_and(|context| code_intelligence.is_available(context));
-    let tools = resolve_tool_catalog_with_code_intelligence(
+    let mut tools = resolve_tool_catalog_with_code_intelligence(
         request,
         mcp,
         logging,
@@ -1061,10 +1108,23 @@ fn execute_with_code_intelligence(
         code_search_available,
         code_intelligence_available,
     );
-    let mut tools = tools;
     if utility_delegation.is_some() && !plan_mode {
         tools.push(delegate_utility_skill_tool_definition());
     }
+    tools.extend(
+        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
+            agent_id: request.agent.id.clone(),
+            session_id: request.session.id.clone(),
+            generation_id: request.operation_id.clone(),
+            canonical_workspace: request.session.folder.as_deref().map(Into::into),
+            execution_mode: if plan_mode {
+                NativeToolExecutionMode::Plan
+            } else {
+                NativeToolExecutionMode::Execute
+            },
+            readiness: native_tools.readiness_snapshot(),
+        }),
+    );
     let generation_options = generation_options_from_configuration(
         &request.configuration,
         reviewed_stream_usage_strategy(&provider_config),
@@ -1280,6 +1340,41 @@ fn execute_with_code_intelligence(
                 return failed_non_retryable("Generation was cancelled.");
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
+            if native_tools.handler(&tool_use.name).is_some() {
+                let outcome = match execute_registered_native_tool(
+                    &mut tool_use,
+                    &input,
+                    request,
+                    cancelled.clone(),
+                    native_tools,
+                    native_tool_operations,
+                    native_tool_events,
+                    permissions,
+                    pending_approvals,
+                    sink,
+                    plan_mode,
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(failure) => return failure,
+                };
+                if cancelled.load(Ordering::SeqCst) {
+                    return failed_non_retryable("Generation was cancelled.");
+                }
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error));
+                continue;
+            }
             let (permission_action, permission_resource) =
                 permission_action_and_resource(&tool_use.name, &input);
             let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -2548,6 +2643,328 @@ fn execute_skill_read(
     }
 }
 
+struct NativeToolOperationRecorder {
+    repository: Option<SqliteNativeToolRepository>,
+    events: Option<tauri::AppHandle>,
+    record: Mutex<StoredToolOperation>,
+}
+
+impl std::fmt::Debug for NativeToolOperationRecorder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeToolOperationRecorder")
+            .finish_non_exhaustive()
+    }
+}
+
+impl NativeToolOperationRecorder {
+    fn new(
+        repository: Option<&SqliteNativeToolRepository>,
+        events: Option<&tauri::AppHandle>,
+        request: &GenerationProcessRequest,
+        tool_use: &ToolUseBlock,
+    ) -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        let recorder = Self {
+            repository: repository.cloned(),
+            events: events.cloned(),
+            record: Mutex::new(StoredToolOperation {
+                contract_version: 1,
+                id: tool_use.id.clone(),
+                session_id: request.session.id.clone(),
+                generation_id: request.operation_id.clone(),
+                tool_name: tool_use.name.clone(),
+                status: StoredToolOperationStatus::Queued,
+                progress_sequence: 0,
+                progress_message: None,
+                result_artifact_ids: Vec::new(),
+                error_code: None,
+                created_at: now.clone(),
+                updated_at: now,
+            }),
+        };
+        recorder.persist();
+        recorder
+    }
+
+    fn transition(
+        &self,
+        status: StoredToolOperationStatus,
+        message: Option<String>,
+        artifact_ids: Vec<String>,
+        error_code: Option<String>,
+    ) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record.progress_sequence.saturating_add(1);
+            record.status = status;
+            record.progress_message = message;
+            record.result_artifact_ids = artifact_ids;
+            record.error_code = error_code;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+
+    fn persist(&self) {
+        let Ok(record) = self.record.lock().map(|record| record.clone()) else {
+            return;
+        };
+        if let Some(repository) = &self.repository {
+            let _ = repository.save_operation(&record);
+        }
+        if let Some(events) = &self.events {
+            let _ = events.emit("builtin-tool-operation", operation_event(&record));
+        }
+    }
+}
+
+impl NativeToolProgressSink for NativeToolOperationRecorder {
+    fn publish(&self, progress: NativeToolProgress) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record
+                .progress_sequence
+                .saturating_add(1)
+                .max(progress.sequence.saturating_add(2));
+            record.status = if progress.phase == NativeToolProgressPhase::AwaitingHuman {
+                StoredToolOperationStatus::AwaitingHuman
+            } else {
+                StoredToolOperationStatus::Running
+            };
+            record.progress_message = progress.message;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
+fn execute_registered_native_tool(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    request: &GenerationProcessRequest,
+    cancelled: Arc<AtomicBool>,
+    registry: &NativeToolRegistry,
+    operations: Option<&SqliteNativeToolRepository>,
+    events: Option<&tauri::AppHandle>,
+    permissions: &dyn AgentPermissionPort,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+    plan_mode: bool,
+) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+    let recorder = Arc::new(NativeToolOperationRecorder::new(
+        operations, events, request, tool_use,
+    ));
+    let authority = ToolEligibilityContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        canonical_workspace: request.session.folder.as_deref().map(Into::into),
+        execution_mode: if plan_mode {
+            NativeToolExecutionMode::Plan
+        } else {
+            NativeToolExecutionMode::Execute
+        },
+        readiness: registry.readiness_snapshot(),
+    };
+    let execution = NativeToolExecutionContext {
+        call_id: tool_use.id.clone(),
+        session_id: authority.session_id.clone(),
+        generation_id: authority.generation_id.clone(),
+        agent_id: authority.agent_id.clone(),
+        canonical_workspace: authority.canonical_workspace.clone(),
+        deadline: Instant::now() + REQUEST_TIMEOUT,
+        cancelled: cancelled.clone(),
+        progress: recorder.clone(),
+    };
+    let dispatcher = NativeToolDispatcher::new(registry.clone());
+    let prepared = match dispatcher.prepare(NativeToolDispatchRequest {
+        tool_name: tool_use.name.clone(),
+        input: input.clone(),
+        authority,
+        execution,
+    }) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let project_key = request.session.folder.as_deref().unwrap_or("");
+    let mut witness = match dispatcher.authorize(&prepared, permissions, project_key) {
+        Ok(witness) => witness,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    if witness.status == NativeToolAuthorizationStatus::AwaitingApproval {
+        recorder.transition(
+            StoredToolOperationStatus::AwaitingApproval,
+            None,
+            Vec::new(),
+            None,
+        );
+        tool_use.status = "awaiting_approval".to_owned();
+        if sink
+            .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+            .is_err()
+        {
+            return Err(failed_retryable("Agent generation event handling failed."));
+        }
+        match await_approval(&tool_use.id, &cancelled, pending_approvals) {
+            ApprovalOutcome::Approved => {
+                witness.status = NativeToolAuthorizationStatus::Allowed;
+            }
+            ApprovalOutcome::Denied => {
+                recorder.transition(
+                    StoredToolOperationStatus::Failed,
+                    None,
+                    Vec::new(),
+                    Some("permission_denied".to_owned()),
+                );
+                return Ok(native_dispatch_error("Denied by user.".to_owned()));
+            }
+            ApprovalOutcome::Cancelled => {
+                recorder.transition(
+                    StoredToolOperationStatus::Cancelled,
+                    None,
+                    Vec::new(),
+                    Some("cancelled".to_owned()),
+                );
+                return Err(failed_non_retryable(
+                    "Generation was cancelled while a tool call was awaiting approval.",
+                ));
+            }
+        }
+    }
+    recorder.transition(StoredToolOperationStatus::Running, None, Vec::new(), None);
+    tool_use.status = "running".to_owned();
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    let result = match dispatcher.execute_authorized(prepared, &witness) {
+        Ok(result) => result,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let is_error = result.status != NativeToolResultStatus::Succeeded;
+    recorder.transition(
+        stored_status(&result),
+        None,
+        artifact_ids(&result),
+        result.error_code.map(|code| code.as_str().to_owned()),
+    );
+    let output = match (result.output, result.safe_error) {
+        (Some(value), _) => serde_json::to_string(&value)
+            .unwrap_or_else(|_| "The native tool result could not be encoded.".to_owned()),
+        (None, Some(message)) => message,
+        (None, None) => "The native tool returned no result.".to_owned(),
+    };
+    Ok(ToolExecutionOutcome { output, is_error })
+}
+
+fn stored_status(result: &NativeToolResultEnvelope) -> StoredToolOperationStatus {
+    match result.status {
+        NativeToolResultStatus::Succeeded => StoredToolOperationStatus::Succeeded,
+        NativeToolResultStatus::Cancelled => StoredToolOperationStatus::Cancelled,
+        _ => StoredToolOperationStatus::Failed,
+    }
+}
+
+fn artifact_ids(result: &NativeToolResultEnvelope) -> Vec<String> {
+    fn visit(value: &Value, ids: &mut Vec<String>) {
+        if ids.len() >= 64 {
+            return;
+        }
+        match value {
+            Value::String(value) if value.starts_with("artifact-") => {
+                if !ids.contains(value) {
+                    ids.push(value.clone());
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, ids)),
+            Value::Object(values) => values.values().for_each(|value| visit(value, ids)),
+            _ => {}
+        }
+    }
+
+    let mut ids = Vec::new();
+    if let Some(output) = &result.output {
+        visit(output, &mut ids);
+    }
+    ids
+}
+
+fn operation_event(record: &StoredToolOperation) -> Value {
+    let progress = record.progress_message.as_ref().map(|message| {
+        json!({
+            "phase": message,
+            "completedUnits": record.progress_sequence,
+            "totalUnits": Value::Null,
+            "messageCode": Value::Null
+        })
+    });
+    json!({
+        "kind": "snapshot",
+        "operation": {
+            "id": record.id,
+            "agentId": "onepiece",
+            "sessionId": record.session_id,
+            "capability": native_tool_capability(&record.tool_name),
+            "operation": record.tool_name,
+            "status": match record.status {
+                StoredToolOperationStatus::AwaitingApproval => "queued",
+                other => other.as_str(),
+            },
+            "progress": progress,
+            "artifactIds": record.result_artifact_ids,
+            "errorCode": record.error_code,
+            "simulated": false,
+            "createdAt": record.created_at,
+            "updatedAt": record.updated_at
+        }
+    })
+}
+
+fn native_tool_capability(tool_name: &str) -> &'static str {
+    match tool_name {
+        "browser" => "browser",
+        "web_search" | "web_fetch" => "web",
+        "code_execution" => "code_execution",
+        "ocr" => "ocr",
+        "artifact" => "artifact",
+        "delegate_cli" | "apply_delegation_changes" => "delegation",
+        _ => "filesystem",
+    }
+}
+
+fn native_dispatch_error(message: String) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: message,
+        is_error: true,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn execute_tool_call(
@@ -2802,27 +3219,25 @@ fn execute_tool_call_impl(
     plan_mode: bool,
     skills: &dyn AgentSkillPort,
 ) -> ToolExecutionOutcome {
-    if matches!(
-        name,
-        LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME
-    ) {
+    let registered_handler = ExistingToolHandlerRegistry::resolve(name);
+    if registered_handler == Some(ExistingToolHandler::SkillRead) {
         return execute_skill_read(name, input, workspace_folder, skills);
     }
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
     // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
-    if name == REMEMBER_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Remember) {
         return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
     // plan-mode restriction. It also needs no `agent_id`/`workspace_folder`: memories are one
     // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
-    if name == RECALL_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Recall) {
         return execute_recall(input, retrieval);
     }
-    if name == SEARCH_CODE_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::SearchCode) {
         let Some(folder) = workspace_folder else {
             return ToolExecutionOutcome {
                 output: "Code search is unavailable because this session has no workspace folder."
@@ -2843,24 +3258,24 @@ fn execute_tool_call_impl(
     // is *told* it can do. This is the actual enforcement boundary: nothing stops a model from
     // requesting a tool/operation it was never offered (hallucination, or prompt injection from
     // earlier tool output), so every one of these is re-checked here regardless of the catalog.
-    if plan_mode && name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Mcp) {
         return plan_mode_denial("MCP tools");
     }
     // MCP tools are similarly folder-independent: a user-scoped MCP server has no project
     // affiliation at all, so a folder-less session can still reach it (`add-agent-mcp-tools`).
     // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
     // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
-    if name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if registered_handler == Some(ExistingToolHandler::Mcp) {
         let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input, cancelled);
         return ToolExecutionOutcome {
             output: outcome.output,
             is_error: outcome.is_error,
         };
     }
-    if plan_mode && name == SHELL_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Shell) {
         return plan_mode_denial("Shell commands");
     }
-    if plan_mode && name == EDIT_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Edit) {
         return plan_mode_denial("Editing files");
     }
     let Some(folder) = workspace_folder else {
@@ -2869,13 +3284,7 @@ fn execute_tool_call_impl(
             is_error: true,
         };
     };
-    if matches!(
-        name,
-        FIND_DEFINITION_TOOL_NAME
-            | FIND_REFERENCES_TOOL_NAME
-            | GET_HOVER_TOOL_NAME
-            | GET_DIAGNOSTICS_TOOL_NAME
-    ) {
+    if registered_handler == Some(ExistingToolHandler::CodeIntelligence) {
         let Some(code_intelligence) = code_intelligence else {
             return ToolExecutionOutcome {
                 output: "Code intelligence is unavailable for this session.".to_owned(),
@@ -2884,15 +3293,15 @@ fn execute_tool_call_impl(
         };
         return execute_code_intelligence_tool(name, input, folder, cancelled, code_intelligence);
     }
-    match name {
-        SHELL_TOOL_NAME => {
+    match registered_handler {
+        Some(ExistingToolHandler::Shell) => {
             let command = input
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             execute_shell(command, folder, cancelled)
         }
-        FILE_TOOL_NAME => {
+        Some(ExistingToolHandler::File) => {
             let operation = input
                 .get("operation")
                 .and_then(Value::as_str)
@@ -2919,7 +3328,7 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        GREP_TOOL_NAME => {
+        Some(ExistingToolHandler::Grep) => {
             let context = match parse_optional_non_negative_integer_arg(input, "context") {
                 Ok(context) => context.unwrap_or(0),
                 Err(outcome) => return outcome,
@@ -2951,7 +3360,7 @@ fn execute_tool_call_impl(
                 cancelled,
             )
         }
-        GLOB_TOOL_NAME => execute_glob(
+        Some(ExistingToolHandler::Glob) => execute_glob(
             input
                 .get("pattern")
                 .and_then(Value::as_str)
@@ -2960,7 +3369,7 @@ fn execute_tool_call_impl(
             folder,
             cancelled,
         ),
-        EDIT_TOOL_NAME => {
+        Some(ExistingToolHandler::Edit) => {
             let path = input
                 .get("path")
                 .and_then(Value::as_str)
@@ -2986,8 +3395,8 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        other => ToolExecutionOutcome {
-            output: format!("Unknown tool \"{other}\"."),
+        _ => ToolExecutionOutcome {
+            output: format!("Unknown tool \"{name}\"."),
             is_error: true,
         },
     }
@@ -3340,6 +3749,66 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn native_tool_operation_event_projects_frontend_contract() {
+        let record = StoredToolOperation {
+            contract_version: 1,
+            id: "call-1".to_owned(),
+            session_id: "session-1".to_owned(),
+            generation_id: "generation-1".to_owned(),
+            tool_name: "web_fetch".to_owned(),
+            status: StoredToolOperationStatus::AwaitingApproval,
+            progress_sequence: 2,
+            progress_message: Some("approval".to_owned()),
+            result_artifact_ids: vec!["artifact-1".to_owned()],
+            error_code: None,
+            created_at: "100".to_owned(),
+            updated_at: "101".to_owned(),
+        };
+
+        let event = operation_event(&record);
+
+        assert_eq!(
+            event.pointer("/kind").and_then(Value::as_str),
+            Some("snapshot")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/capability")
+                .and_then(Value::as_str),
+            Some("web")
+        );
+        assert_eq!(
+            event.pointer("/operation/status").and_then(Value::as_str),
+            Some("queued")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/artifactIds/0")
+                .and_then(Value::as_str),
+            Some("artifact-1")
+        );
+    }
+
+    #[test]
+    fn native_tool_result_collects_unique_bounded_artifact_ids() {
+        let result = NativeToolResultEnvelope {
+            contract_version: 1,
+            status: NativeToolResultStatus::Succeeded,
+            output: Some(json!({
+                "artifact_id": "artifact-1",
+                "nested": ["artifact-1", {"id": "artifact-2"}],
+                "untrusted": "not-an-artifact"
+            })),
+            error_code: None,
+            safe_error: None,
+            truncated: false,
+            metadata: BTreeMap::new(),
+        };
+
+        assert_eq!(artifact_ids(&result), vec!["artifact-1", "artifact-2"]);
+    }
 
     #[derive(Default)]
     struct FakeCredentials {
@@ -5099,6 +5568,60 @@ mod tests {
             false,
         );
         assert!(outcome.is_error);
+    }
+
+    struct NativeOcrPort;
+
+    impl crate::contexts::agent_runtime::application::OcrInferencePort for NativeOcrPort {
+        fn execute_ocr(
+            &self,
+            _: crate::contexts::agent_runtime::application::NativeToolPortRequest,
+        ) -> crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+            crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+                contract_version: 1,
+                status: NativeToolResultStatus::Succeeded,
+                output: Some(json!({"text": "native-ocr"})),
+                error_code: None,
+                safe_error: None,
+                truncated: false,
+                metadata: BTreeMap::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn registered_native_tool_uses_dispatcher_and_production_tool_loop_projection() {
+        let registry = NativeToolRegistry::try_new(vec![Arc::new(
+            crate::contexts::agent_runtime::application::OcrNativeToolHandler::new(Arc::new(
+                NativeOcrPort,
+            )),
+        )])
+        .expect("registry");
+        let mut tool_use = ToolUseBlock {
+            id: "call-ocr-1".to_owned(),
+            name: "ocr".to_owned(),
+            input: None,
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let request = onepiece_request();
+        let outcome = execute_registered_native_tool(
+            &mut tool_use,
+            &json!({"artifact_id": "artifact-source", "languages": ["en"]}),
+            &request,
+            not_cancelled(),
+            &registry,
+            None,
+            None,
+            &FakePermissions::with_override(Action::new("ocr.read"), Effect::Allow),
+            &no_pending_approvals(),
+            &CapturingSink::default(),
+            false,
+        )
+        .expect("dispatch");
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("native-ocr"));
+        assert_eq!(tool_use.status, "running");
     }
 
     #[test]

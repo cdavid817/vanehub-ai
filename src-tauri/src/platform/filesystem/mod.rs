@@ -104,6 +104,13 @@ pub(crate) fn current_directory() -> Result<PathBuf, BoundaryError> {
     Ok(path.canonicalize().unwrap_or(path))
 }
 
+pub(crate) fn create_new_file(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 pub(crate) fn sibling_worktree_target(
     project_path: &Path,
     worktree_name: &str,

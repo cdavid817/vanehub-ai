@@ -1,5 +1,6 @@
 //! Git command adapter over the explicit process boundary.
 use crate::platform::process::{ProcessAdapter, ProcessError, ProcessRequest};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitStatus;
 use std::time::Duration;
@@ -27,6 +28,29 @@ impl GitAdapter {
             .args(args.iter().cloned())
             .current_dir(root)
             .timeout(timeout);
+        let output = self.process.execute(&request)?;
+        Ok(GitOutput {
+            status: output.status,
+            stdout: output.stdout_bytes,
+            stderr: output.stderr_bytes,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn execute_with_environment(
+        &self,
+        root: &Path,
+        args: &[String],
+        environment: &BTreeMap<String, String>,
+        timeout: Duration,
+    ) -> Result<GitOutput, ProcessError> {
+        let mut request = ProcessRequest::new("git")
+            .args(args.iter().cloned())
+            .current_dir(root)
+            .timeout(timeout);
+        for (key, value) in environment {
+            request = request.env(key, value);
+        }
         let output = self.process.execute(&request)?;
         Ok(GitOutput {
             status: output.status,

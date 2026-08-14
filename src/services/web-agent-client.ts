@@ -171,6 +171,7 @@ import type {
 } from "../types/code-index";
 import { codeIndexLanguages } from "../types/code-index";
 import { normalizeCodeIndexConfiguration } from "./code-index-contract";
+import { webBuiltinToolClient } from "./web-builtin-tool-client";
 
 function tr(key: string, values?: Record<string, string | number>) {
   return i18n.t(key, values);
@@ -2359,6 +2360,7 @@ const webSkillOverlayRuntime = createWebSkillOverlayRuntime((target) => {
 });
 
 export const webAgentClient: AgentService = {
+  ...webBuiltinToolClient,
   ...webSessionWorkspaceClient,
   ...webLspClient,
   async openExternalUrl(url) {

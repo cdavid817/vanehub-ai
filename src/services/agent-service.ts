@@ -254,8 +254,9 @@ import type {
   LspWorkspaceTrust,
   LspWorkspaceTrustUpdate,
 } from "../types/lsp";
+import type { BuiltinToolService } from "./builtin-tool-service";
 
-export interface AgentService {
+export interface AgentService extends BuiltinToolService {
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;

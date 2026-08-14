@@ -2295,6 +2295,30 @@
                                               "skill-management",
                                               "utility-skill-delegation-runtime"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "complete-onepiece-builtin-tool-system",
+                         "path":  "openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-tool-execution",
+                                              "local-extension-management",
+                                              "onepiece-artifact-publishing",
+                                              "onepiece-browser-automation",
+                                              "onepiece-cli-delegation",
+                                              "onepiece-code-execution",
+                                              "onepiece-native-agent",
+                                              "onepiece-ocr-tool",
+                                              "onepiece-tool-governance",
+                                              "onepiece-web-research"
+                                          ]
                      }
                  ]
 }

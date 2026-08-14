@@ -1,5 +1,6 @@
 mod error;
 mod execution_policy;
+mod existing_tool_registry;
 mod expert_role;
 mod loop_control;
 mod loop_models;
@@ -16,6 +17,7 @@ mod loop_worker;
 mod loop_worker_prompt;
 mod model_category;
 mod models;
+mod native_tools;
 mod onepiece_provider_catalog;
 mod ports;
 #[cfg(test)]
@@ -32,6 +34,7 @@ mod utility_delegation;
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
+pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
 pub(crate) use expert_role::{
     ExpertRoleApplicationPorts, ExpertRoleApplicationService, ExpertRoleClockPort,
     ExpertRoleIdPort, ExpertRolePort,
@@ -105,6 +108,30 @@ pub(crate) use models::{OnePiecePlanningRequest, OnePiecePlanningResult};
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use models::SeatTurnStatus;
+#[allow(unused_imports)]
+pub(crate) use native_tools::{
+    is_onepiece_only, web_native_tool_handlers, ApplyDelegationChangesNativeToolHandler,
+    ArtifactNativeToolHandler, ArtifactPort, ArtifactRecord, BrowserAutomationPort,
+    BrowserHandoffControlPort, BrowserNativeToolHandler, CanonicalToolResource, ChangeSetApplyPort,
+    ChangeSetApplyRecord, ChangeSetFileRecord, ChangeSetRecord, ChangeSetStatus, CliDelegationPort,
+    CodeExecutionNativeToolHandler, CodeExecutionPort, DelegateCliNativeToolHandler,
+    DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
+    FileChangeKind, ManualApplyDelegationRequest, ManualNativeToolAuthorityPort,
+    ManualNativeToolOperationPort, ManualNativeToolRequest, ManualNativeToolResult,
+    ManualNativeToolService, ManualStartDelegationRequest, NativeToolApprovalWitness,
+    NativeToolAuthorizationStatus, NativeToolDefinition, NativeToolDispatchError,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolErrorCode,
+    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolHandler, NativeToolHandlerError,
+    NativeToolLimitProfile, NativeToolLogEvent, NativeToolLogEventKind, NativeToolLogIdentity,
+    NativeToolOperation, NativeToolPermissionRequest, NativeToolPortRequest,
+    NativeToolPrivateLogData, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolReadinessReasonCode, NativeToolRegistry, NativeToolRegistryError,
+    NativeToolResultEnvelope, NativeToolResultStatus, NativeToolSafeLogMetadata, OcrInferencePort,
+    OcrNativeToolHandler, OnePieceToolFeatureGates, PreparedNativeToolDispatch, RecoveryRecord,
+    RecoveryStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibility,
+    ToolEligibilityContext, ToolResourceKind, ValidatedNativeToolInput, WebResearchPort,
+    NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID, ONEPIECE_ONLY_TOOL_NAMES,
+};
 #[cfg(test)]
 pub(crate) use ports::OnePiecePlanningPort;
 pub(crate) use ports::SeatTurnCompletionPort;

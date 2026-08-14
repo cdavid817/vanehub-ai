@@ -131,7 +131,11 @@ async fn server_status_command_starts_empty_and_all_commands_are_registered() {
         .expect("server statuses")
         .is_empty());
 
-    let registry = include_str!("../registry.rs");
+    let registry = concat!(
+        include_str!("../core_registry.rs"),
+        include_str!("../builtin_tool_registry.rs"),
+        include_str!("../supplemental_registry.rs")
+    );
     for command in [
         "get_lsp_configuration::get_lsp_configuration",
         "save_lsp_configuration::save_lsp_configuration",
