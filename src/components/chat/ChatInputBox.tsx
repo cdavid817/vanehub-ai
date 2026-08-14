@@ -6,6 +6,9 @@ import type { SessionDocument } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
+import { SlashCommandCompletion } from "./SlashCommandCompletion";
+import { SlashCommandOutput } from "./SlashCommandOutput";
+import type { CommandOutput, SlashCommand } from "../../services/slash-commands/types";
 
 export function ChatInputBox({
   agents,
@@ -34,6 +37,10 @@ export function ChatInputBox({
   onSubmit,
   onRemoveFileReference,
   participantMentions = [],
+  slashCommandOutput = null,
+  slashCommandSuggestions = [],
+  onDismissSlashCommandOutput,
+  onSelectSlashCommand,
   value,
 }: {
   agents: AgentRegistryEntry[];
@@ -62,6 +69,10 @@ export function ChatInputBox({
   onSubmit: () => void;
   onRemoveFileReference: (path: string) => void;
   participantMentions?: SeatMentionOption[];
+  slashCommandOutput?: CommandOutput | null;
+  slashCommandSuggestions?: SlashCommand[];
+  onDismissSlashCommandOutput?: () => void;
+  onSelectSlashCommand?: (name: string) => void;
   value: string;
 }) {
   const { t } = useTranslation();
@@ -109,6 +120,12 @@ export function ChatInputBox({
         className="relative rounded-xl border border-border bg-background shadow-xs transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-ring/30"
         data-testid="wechat-style-composer"
       >
+        <SlashCommandOutput onDismiss={onDismissSlashCommandOutput ?? (() => undefined)} output={slashCommandOutput} />
+        {slashCommandSuggestions.length ? (
+          <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
+            <SlashCommandCompletion onSelect={onSelectSlashCommand ?? (() => undefined)} options={slashCommandSuggestions} />
+          </div>
+        ) : null}
         {participantSuggestions.length || fileSuggestions.length ? (
           <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
             <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
