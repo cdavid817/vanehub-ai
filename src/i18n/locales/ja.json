@@ -3278,5 +3278,6 @@
   "slash.command.stop.description": "現在の生成を停止",
   "slash.command.status.description": "現在の実行時スイッチを表示",
   "slash.command.usage.description": "このセッションのトークン使用量を表示",
-  "slash.output.dismiss": "コマンド出力を閉じる"
+  "slash.output.dismiss": "コマンド出力を閉じる",
+  "slash.completion.title": "コマンド"
 }

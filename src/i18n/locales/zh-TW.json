@@ -3278,5 +3278,6 @@
   "slash.command.stop.description": "停止目前生成",
   "slash.command.status.description": "顯示目前執行時開關",
   "slash.command.usage.description": "顯示本工作階段的 Token 用量",
-  "slash.output.dismiss": "關閉指令輸出"
+  "slash.output.dismiss": "關閉指令輸出",
+  "slash.completion.title": "指令"
 }
