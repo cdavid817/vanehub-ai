@@ -24,12 +24,17 @@ export const directoryFixtures: Record<string, DirectoryEntry[]> = {
   src: [{ name: "main.ts", path: "src/main.ts", kind: "file", size: 128 }],
 };
 
+// Line N reads `export const valueN`, so a preview that mislabels a line is visible at a
+// glance — and long enough that selecting across it requires the line list to scroll.
+const longModule = Array.from({ length: 400 }, (_, index) => `export const value${index + 1} = ${index + 1};`).join("\n");
+
 export const fileFixtures: Record<string, string> = {
   "README.md": "# VaneHub Web Preview\n\nThis document is deterministic mock content for the session workspace.",
   "docs/architecture.md": "# Architecture\n\n- React service boundary\n- Tauri desktop adapter\n- Web mock adapter",
   "docs/notes.txt": "Web preview note: local filesystem operations are simulated.",
   "package.json": "{\n  \"name\": \"vanehub-web-preview\",\n  \"private\": true\n}",
   "src/main.ts": "export const runtime = \"web-mock\";\n",
+  "src/long-module.ts": longModule,
 };
 
 export const documentFixtures: SessionDocument[] = [

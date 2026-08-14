@@ -53,4 +53,4 @@
 - [x] 6.9 `npx playwright test` — composer behavior change
 - [x] 6.10 `openspec validate add-file-reference-preview-picker --strict`
 - [x] 6.11 `openspec validate --specs --strict`
-- [ ] 6.12 Manual check against a real project root: open the preview on a several-thousand-line source file, select a range spanning a scroll, and confirm the attached chip and the injected prompt agree on the line numbers
+- [ ] 6.12 Manual check against a real project root: open the preview on a several-thousand-line source file, select a range spanning a scroll, and confirm the attached chip and the injected prompt agree on the line numbers. **Partly automated since:** `tests/e2e/file-reference-picker.spec.ts` now anchors line 3, scrolls the virtualized list until line 380 enters the DOM, asserts that line carries the content that belongs on line 380, and checks the resulting chip reads L3-380 — the windowing risk this task existed for. What remains genuinely manual is only the *real project root*: the E2E runs against the Web mock workspace.

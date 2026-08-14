@@ -42,4 +42,4 @@
 - [x] 5.9 `npx playwright test` — composer and Files tab behavior change
 - [x] 5.10 `openspec validate add-file-reference-drag-and-paste --strict`
 - [x] 5.11 `openspec validate --specs --strict`
-- [ ] 5.12 Manual check in the desktop runtime, not just the browser: drag a file from the Files tab onto the composer, and copy-paste a path, confirming clipboard behavior in the Tauri webview matches what the Web-adapter tests assert
+- [ ] 5.12 **Partly automated since:** `tests/e2e/file-reference-picker.spec.ts` dispatches a real dragstart from a Files tab row and a drop on the composer in Chromium, and asserts the reference gets attached — so the drag half is covered in a browser. What remains manual is the clipboard half in the Tauri WebView2 runtime specifically, where custom clipboard formats are the one behavior that can differ from Chromium. Original wording: manual check in the desktop runtime, not just the browser: drag a file from the Files tab onto the composer, and copy-paste a path, confirming clipboard behavior in the Tauri webview matches what the Web-adapter tests assert

@@ -164,7 +164,7 @@ export function ChatInputBox({
           </div>
         ) : null}
         {fileReferences.length ? (
-          <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+          <div className="flex flex-wrap gap-1.5 px-3 pt-3" data-testid="composer-file-references">
             {fileReferences.map((reference) => (
               <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.id}>
                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
