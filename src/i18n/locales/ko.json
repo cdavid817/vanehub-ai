@@ -2216,6 +2216,7 @@
   "chat.richMedia.imagePreviewTitle": "이미지 미리보기",
   "chat.richMedia.openImagePreview": "이미지 미리보기: {{label}}",
   "chat.richMedia.closeImagePreview": "이미지 미리보기 닫기",
+  "chat.fileReferenceLines": "{{range}}번째 줄",
   "chat.removeFileReference": "파일 참조 제거",
   "chat.you": "당신",
   "chat.agent": "Agent",

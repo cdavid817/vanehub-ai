@@ -2,10 +2,12 @@ import { useEffect, useRef } from "react";
 import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useComposerMention } from "../../hooks/use-composer-mention";
+import { formatMentionRange, type MentionLineRange } from "../../services/composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
 import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
+import { FileReferenceLines } from "./FileReferenceLines";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
 
 export function ChatInputBox({
@@ -48,7 +50,7 @@ export function ChatInputBox({
   fileReferenceCandidates: FileSearchMatch[];
   fileReferences: ChatFileReference[];
   onChange: (value: string) => void;
-  onAddFileReference: (candidate: FileSearchMatch) => void;
+  onAddFileReference: (candidate: FileSearchMatch, range: MentionLineRange) => void;
   onClear: () => void;
   onConfigAgentChange: (value: string) => void;
   onConfigLongContextChange: (value: boolean) => void;
@@ -61,14 +63,14 @@ export function ChatInputBox({
   onOpenPlan?: () => void;
   onStop: () => void;
   onSubmit: () => void;
-  onRemoveFileReference: (path: string) => void;
+  onRemoveFileReference: (referenceId: string) => void;
   participantMentions?: SeatMentionOption[];
   value: string;
 }) {
   const { t } = useTranslation();
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
-  const { applyMention, fileSuggestions, participantSuggestions } = useComposerMention({
+  const { applyMention, fileSuggestions, mentionRange, participantSuggestions } = useComposerMention({
     disabled,
     fileReferenceCandidates,
     fileReferences,
@@ -77,8 +79,8 @@ export function ChatInputBox({
   });
 
   function selectReference(candidate: FileSearchMatch) {
-    onAddFileReference(candidate);
-    onChange(applyMention(candidate.path));
+    onAddFileReference(candidate, mentionRange);
+    onChange(applyMention(`${candidate.path}${formatMentionRange(mentionRange)}`));
     textAreaRef.current?.focus();
   }
 
@@ -116,10 +118,11 @@ export function ChatInputBox({
         {fileReferences.length ? (
           <div className="flex flex-wrap gap-1.5 px-3 pt-3">
             {fileReferences.map((reference) => (
-              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.path}>
+              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs" key={reference.id}>
                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
                 <span className="truncate">{reference.name}</span>
-                <button className="rounded text-muted-foreground hover:text-foreground" disabled={disabled || isStreaming} onClick={() => onRemoveFileReference(reference.path)} title={t("chat.removeFileReference")} type="button">
+                <FileReferenceLines reference={reference} />
+                <button className="rounded text-muted-foreground hover:text-foreground" disabled={disabled || isStreaming} onClick={() => onRemoveFileReference(reference.id)} title={t("chat.removeFileReference")} type="button">
                   <X className="h-3 w-3" aria-hidden="true" />
                 </button>
               </span>

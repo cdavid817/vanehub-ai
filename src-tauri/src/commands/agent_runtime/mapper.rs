@@ -313,6 +313,8 @@ pub(super) fn send_message_request(
                 name: reference.name,
                 size_bytes: reference.size_bytes,
                 content_hash: reference.content_hash,
+                start_line: reference.start_line,
+                end_line: reference.end_line,
             })
             .collect(),
     }
@@ -343,6 +345,8 @@ pub(super) fn message_to_dto(message: AgentMessage) -> dto::ChatMessage {
                 name: reference.name,
                 size_bytes: reference.size_bytes,
                 content_hash: reference.content_hash,
+                start_line: reference.start_line,
+                end_line: reference.end_line,
             })
             .collect()
     });

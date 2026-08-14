@@ -20,10 +20,10 @@ use super::{
     TokenAccountingPort, UpdateSessionSeatsRequest, UsageStatisticsRange,
 };
 use crate::contexts::sessions::domain::{
-    normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileReference,
-    FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation, SessionAggregate,
-    SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner, SessionSeat,
-    SessionSeatRoleSnapshot, SessionTitle, UsageStatus,
+    normalize_chat_preferences, restore_chat_preferences, CategoryId, CategoryName, FileLineRange,
+    FileReference, FileReferenceSet, MessageId, MessageRole, MessageStatus, SessionActivation,
+    SessionAggregate, SessionCategory, SessionId, SessionLifecycle, SessionMessage, SessionOwner,
+    SessionSeat, SessionSeatRoleSnapshot, SessionTitle, UsageStatus,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -1145,11 +1145,10 @@ impl SessionsApplicationService {
                 .ports
                 .files
                 .read_reference_text(session_id, reference.path())?;
-            prompt.push_str(&format!(
-                "\n--- FILE: {} ---\n{}\n--- END FILE: {} ---\n",
+            prompt.push_str(&render_reference_block(
                 reference.path(),
-                file_content,
-                reference.path()
+                &file_content,
+                reference.line_range(),
             ));
         }
         Ok(prompt)
@@ -1524,11 +1523,45 @@ fn file_reference_set(
                     reference.name,
                     reference.size_bytes,
                     reference.content_hash,
+                    FileLineRange::from_optional_bounds(reference.start_line, reference.end_line)?,
                 )
             })
             .collect::<Result<Vec<_>, _>>()?,
     )
     .map_err(Into::into)
+}
+
+/// Renders one referenced file for prompt injection. A reference without a range keeps the
+/// exact block shape it has always had; a ranged one is clamped to the file and carries
+/// 1-based positions so the Agent cites lines that match the user's editor.
+pub(super) fn render_reference_block(
+    path: &str,
+    content: &str,
+    range: Option<FileLineRange>,
+) -> String {
+    let Some(range) = range else {
+        return format!("\n--- FILE: {path} ---\n{content}\n--- END FILE: {path} ---\n");
+    };
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len() as u32;
+    if range.start() > total {
+        return format!(
+            "\n--- FILE: {path} (lines {}-{} requested; file ends at line {total}) ---\n\n--- END FILE: {path} ---\n",
+            range.start(),
+            range.end(),
+        );
+    }
+    let end = range.end().min(total);
+    let body = lines[(range.start() - 1) as usize..end as usize]
+        .iter()
+        .enumerate()
+        .map(|(offset, line)| format!("{} | {line}", range.start() + offset as u32))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "\n--- FILE: {path} (lines {}-{end}) ---\n{body}\n--- END FILE: {path} ---\n",
+        range.start(),
+    )
 }
 
 fn validate_usage(

@@ -2216,6 +2216,7 @@
   "chat.richMedia.imagePreviewTitle": "画像プレビュー",
   "chat.richMedia.openImagePreview": "画像をプレビュー：{{label}}",
   "chat.richMedia.closeImagePreview": "画像プレビューを閉じる",
+  "chat.fileReferenceLines": "{{range}} 行目",
   "chat.removeFileReference": "ファイル参照を削除する",
   "chat.you": "あなた",
   "chat.agent": "Agent",

@@ -2216,6 +2216,7 @@
   "chat.richMedia.imagePreviewTitle": "Image preview",
   "chat.richMedia.openImagePreview": "Preview image: {{label}}",
   "chat.richMedia.closeImagePreview": "Close image preview",
+  "chat.fileReferenceLines": "lines {{range}}",
   "chat.removeFileReference": "Remove file reference",
   "chat.you": "You",
   "chat.agent": "Agent",

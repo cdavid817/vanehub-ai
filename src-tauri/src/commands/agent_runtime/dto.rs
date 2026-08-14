@@ -328,6 +328,10 @@ pub(crate) struct ChatFileReference {
     pub(crate) name: String,
     pub(crate) size_bytes: Option<i64>,
     pub(crate) content_hash: Option<String>,
+    #[serde(default)]
+    pub(crate) start_line: Option<u32>,
+    #[serde(default)]
+    pub(crate) end_line: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

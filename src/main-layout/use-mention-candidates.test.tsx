@@ -56,6 +56,12 @@ describe("useMentionCandidates", () => {
     expect(result.current).toEqual([]);
   });
 
+  it("searches on the path portion while a line range is being typed", async () => {
+    renderHook(() => useMentionCandidates("session-1", "@src/utils.rs:10-50"), { wrapper: createWrapper() });
+    // Querying the whole token would empty completion the moment the user types `:`.
+    await waitFor(() => expect(searchSessionFiles).toHaveBeenCalledWith("session-1", "src/utils.rs", 8));
+  });
+
   it("does not reach the native runtime without an active session", () => {
     renderHook(() => useMentionCandidates(null, "@session"), { wrapper: createWrapper() });
     expect(searchSessionFiles).not.toHaveBeenCalled();

@@ -277,6 +277,8 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
             name: reference.name().to_string(),
             size_bytes: reference.size_bytes(),
             content_hash: reference.content_hash().map(str::to_string),
+            start_line: reference.line_range().map(|range| range.start()),
+            end_line: reference.line_range().map(|range| range.end()),
         })
         .collect::<Vec<_>>();
     let tool_use = record.tool_use.and_then(|items| {
@@ -980,6 +982,7 @@ mod tests {
                     "main.rs",
                     Some(12),
                     Some("hash".to_string()),
+                    None,
                 )
                 .expect("file reference")])
                 .expect("references"),

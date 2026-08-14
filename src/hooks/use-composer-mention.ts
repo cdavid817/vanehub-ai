@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import type { SeatMentionOption } from "../components/chat/SeatMentionCompletion";
-import { composerMentionQuery, replaceComposerMention } from "../services/composer-mention";
+import {
+  composerMentionToken,
+  parseComposerMention,
+  replaceComposerMention,
+  type MentionLineRange,
+} from "../services/composer-mention";
 import type { ChatFileReference } from "../types/chat";
 import type { FileSearchMatch } from "../types/session-workspace";
 
@@ -24,11 +29,18 @@ export function useComposerMention({
   participantMentions: SeatMentionOption[];
   value: string;
 }) {
-  const mentionQuery = composerMentionQuery(value);
+  const token = composerMentionToken(value);
+  const parsed = token === null ? null : parseComposerMention(token);
+  const mentionQuery = parsed?.path.toLowerCase() ?? null;
+  const mentionRange: MentionLineRange = { startLine: parsed?.startLine, endLine: parsed?.endLine };
   const fileSuggestions = useMemo(() => {
     if (mentionQuery === null || disabled) return [];
-    const selected = new Set(fileReferences.map((reference) => reference.path));
-    return fileReferenceCandidates.filter((candidate) => !selected.has(candidate.path)).slice(0, SUGGESTION_LIMIT);
+    // Only an identical attachment is hidden: the same file at a different range is a
+    // distinct reference and must stay offerable.
+    const selected = new Set(fileReferences.map((reference) => reference.id));
+    return fileReferenceCandidates
+      .filter((candidate) => !selected.has(candidate.path))
+      .slice(0, SUGGESTION_LIMIT);
   }, [disabled, fileReferenceCandidates, fileReferences, mentionQuery]);
   const participantSuggestions = useMemo(() => {
     if (mentionQuery === null || disabled) return [];
@@ -39,6 +51,9 @@ export function useComposerMention({
   return {
     fileSuggestions,
     participantSuggestions,
+    // A range already typed before a candidate is picked must survive the selection,
+    // otherwise choosing from completion would silently discard it.
+    mentionRange,
     applyMention: (insertion: string) => replaceComposerMention(value, insertion),
   };
 }

@@ -2216,6 +2216,7 @@
   "chat.richMedia.imagePreviewTitle": "圖片預覽",
   "chat.richMedia.openImagePreview": "預覽圖片：{{label}}",
   "chat.richMedia.closeImagePreview": "關閉圖片預覽",
+  "chat.fileReferenceLines": "第 {{range}} 行",
   "chat.removeFileReference": "移除文件引用",
   "chat.you": "你",
   "chat.agent": "Agent",

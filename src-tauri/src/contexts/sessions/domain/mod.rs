@@ -18,7 +18,7 @@ pub(crate) use chat_configuration::{
 pub(crate) use error::{ArchivedSessionAction, SessionsDomainError};
 pub(crate) use identity::{CategoryId, MessageId, SessionId};
 pub(crate) use message::{
-    FileReference, FileReferenceSet, MessageRole, MessageStatus, SessionMessage,
+    FileLineRange, FileReference, FileReferenceSet, MessageRole, MessageStatus, SessionMessage,
 };
 pub(crate) use recovery::{
     RecoveryDecision, RecoveryEvidenceReference, RecoveryReasonCode, RecoveryTrigger,

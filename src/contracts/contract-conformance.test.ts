@@ -112,6 +112,7 @@ type ChatAssertions = [
   Assert<Equal<ChatContracts.EffectiveExecutionPolicy, ChatTypes.EffectiveExecutionPolicy>>,
   Assert<Equal<ChatContracts.ModelInfo, ChatTypes.ModelInfo>>,
   Assert<Equal<ChatContracts.ChatConfig, ChatTypes.ChatConfig>>,
+  Assert<Equal<ChatContracts.ChatFileReference, ChatTypes.ChatFileReference>>,
   Assert<Equal<ChatContracts.ToolUseBlock, ChatTypes.ToolUseBlock>>,
   Assert<Equal<ChatContracts.RichBlockKind, ChatTypes.RichBlockKind>>,
   Assert<Equal<ChatContracts.RichCardBlock, ChatTypes.RichCardBlock>>,

@@ -166,6 +166,10 @@ export interface ChatFileReference {
   name: string;
   sizeBytes?: number | null;
   contentHash?: string | null;
+  // Absent means the whole file. Both bounds are 1-based and inclusive, and either both
+  // are present or neither is.
+  startLine?: number;
+  endLine?: number;
 }
 
 export type UsageStatisticsRange = "today" | "last7Days" | "last30Days" | "all";
