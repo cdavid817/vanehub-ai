@@ -4,6 +4,30 @@ import { describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { Session } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
+import type { SlashCommand } from "./types";
+
+// A non-async `run` that throws before ever returning a promise. Every shipped command is
+// declared `async`, so this is the only way to reach dispatch's synchronous-throw guard without
+// editing a real command module.
+const throwingCommand = vi.hoisted(
+  (): SlashCommand => ({
+    name: "detonate",
+    category: "info",
+    appliesTo: () => true,
+    run: () => {
+      throw new Error("synchronous boom");
+    },
+  }),
+);
+
+// `SLASH_COMMANDS` is imported inside the hook, so the only way to give `dispatch` a fake command
+// is to mock the catalog module. Extending the real export (instead of replacing it) keeps every
+// other test in this file running against the actual command set.
+vi.mock("./command-catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./command-catalog")>();
+  return { ...actual, SLASH_COMMANDS: [...actual.SLASH_COMMANDS, throwingCommand] };
+});
+
 import { useSlashCommands } from "./use-slash-commands";
 
 const session = (agentId = "onepiece"): Session =>
@@ -98,6 +122,37 @@ describe("useSlashCommands", () => {
     expect(result.current.suggestions).toEqual([]);
   });
 
+  it("offers the full command list for a bare slash", () => {
+    const { result } = setup();
+    act(() => { result.current.updateSuggestions("/"); });
+    expect(result.current.suggestionQuery).toBe("");
+    expect(result.current.suggestions.length).toBeGreaterThan(0);
+  });
+
+  it("shows no suggestions for ordinary prose", () => {
+    const { result } = setup();
+    act(() => { result.current.updateSuggestions("just chatting, not a command"); });
+    expect(result.current.suggestionQuery).toBeNull();
+    expect(result.current.suggestions).toEqual([]);
+  });
+
+  it("closes the dropdown once a completed name leaves a trailing space", () => {
+    const { result } = setup();
+    act(() => { result.current.updateSuggestions("/mode"); });
+    expect(result.current.suggestionQuery).toBe("mode");
+
+    act(() => { result.current.updateSuggestions("/mode "); });
+    expect(result.current.suggestionQuery).toBeNull();
+    expect(result.current.suggestions).toEqual([]);
+  });
+
+  it("still suggests commands when the draft has leading whitespace", () => {
+    const { result } = setup();
+    act(() => { result.current.updateSuggestions("  /mod"); });
+    expect(result.current.suggestionQuery).toBe("mod");
+    expect(result.current.suggestions.map((entry) => entry.name)).toEqual(["mode"]);
+  });
+
   it("never executes a command from updateSuggestions", () => {
     const { result, chat } = setup();
     act(() => { result.current.updateSuggestions("/mode execute"); });
@@ -126,5 +181,18 @@ describe("useSlashCommands", () => {
     act(() => { result.current.dispatch("/export"); });
     await waitFor(() => expect(onError).toHaveBeenCalledWith("SlashCommands.export", expect.any(Error)));
     expect(result.current.output?.tone).toBe("error");
+  });
+
+  it("keeps a synchronous throw from a non-async run from escaping dispatch", () => {
+    const { result, onError } = setup();
+    // No `act(async ...)`/`waitFor` here on purpose: the throw happens inside the call to
+    // `command.run`, so the try/catch's recovery is already done by the time `dispatch` returns,
+    // unlike the rejection above which only settles after a microtask.
+    act(() => { expect(result.current.dispatch("/detonate")).toEqual({ kind: "handled" }); });
+    expect(onError).toHaveBeenCalledWith("SlashCommands.detonate", expect.any(Error));
+    expect(result.current.output).toEqual({
+      titleKey: "slash.error.title", tone: "error",
+      messages: [{ key: "slash.error.failed", params: { command: "detonate" } }],
+    });
   });
 });

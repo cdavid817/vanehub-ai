@@ -5,7 +5,7 @@ import { parseCommandInput } from "./parse-command";
 import { slashCommandsEnabled } from "./command-availability";
 import type { Session } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
-import type { CommandCapabilities, CommandContext, CommandOutput, SlashCommandNavigation } from "./types";
+import type { CommandCapabilities, CommandContext, CommandOutcome, CommandOutput, SlashCommandNavigation } from "./types";
 
 export type DispatchResult =
   | { kind: "message" }
@@ -52,7 +52,11 @@ export function useSlashCommands(input: {
    * allowed to have side effects, and conflating the two would fire a command per character.
    */
   const updateSuggestions = useCallback((draft: string) => {
-    const completion = COMPLETION_PATTERN.exec(draft.trim());
+    // `.trim()` would erase a trailing space, making "/mode " indistinguishable from "/mode" so
+    // completing a name would reopen the dropdown it was just used to close. Stripping only
+    // leading whitespace keeps that distinction: the anchored pattern requires the match to reach
+    // the end of the string, so a trailing space makes it fail and the query resets to null.
+    const completion = COMPLETION_PATTERN.exec(draft.replace(/^\s+/, ""));
     setSuggestionQuery(completion ? (completion[1] ?? "").toLowerCase() : null);
   }, []);
 
@@ -77,17 +81,31 @@ export function useSlashCommands(input: {
       listAvailableCommands: () => available,
     };
 
+    const reportRunFailure = (reason: unknown): void => {
+      onError(`SlashCommands.${command.name}`, reason);
+      setOutput(errorOutput("slash.error.failed", { command: command.name }));
+    };
+
+    // `SlashCommand.run` is typed to return a Promise but is not required to be declared `async`,
+    // so a structurally valid handler can throw before ever producing one. That throw happens
+    // inside this call expression itself, before `running` exists, so only a try/catch around the
+    // call — not the `.catch()` on the promise it returns — keeps it from escaping `dispatch`
+    // uncaught.
+    let running: Promise<CommandOutcome>;
+    try {
+      running = command.run(context, parsed.args);
+    } catch (reason) {
+      reportRunFailure(reason);
+      return { kind: "handled" };
+    }
+
     // The caller needs a synchronous answer about whether the model should see this input, so the
     // handler's own result lands in state afterwards rather than being awaited here. `run` starts
     // executing the moment it is called (its synchronous prefix runs before this line returns);
     // only the settling of its promise is deferred, which is what stays out of this call stack.
-    void command
-      .run(context, parsed.args)
+    void running
       .then((outcome) => setOutput(outcome.kind === "output" ? outcome.output : null))
-      .catch((reason) => {
-        onError(`SlashCommands.${command.name}`, reason);
-        setOutput(errorOutput("slash.error.failed", { command: command.name }));
-      });
+      .catch(reportRunFailure);
 
     return { kind: "handled" };
   }, [actions, available, capabilities, chat, config, enabled, isStreaming, navigate, onError, session]);
