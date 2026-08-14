@@ -266,3 +266,33 @@ The shared application settings model SHALL include two custom-instruction text 
 - **WHEN** personalization settings are loaded or saved through the Web/mock adapter
 - **THEN** the Web adapter SHALL preserve the same field and toggle shape without accessing SQLite
 
+### Requirement: Automatic context compaction application setting
+The shared application settings model SHALL include a boolean automatic-context-compaction preference, default it to enabled, and persist it through the active settings adapter without a dedicated storage table.
+
+#### Scenario: Existing installation has no saved preference
+- **WHEN** settings are loaded without a saved automatic-context-compaction value
+- **THEN** desktop and Web/mock runtimes SHALL return the preference as enabled
+
+#### Scenario: Save desktop preference
+- **WHEN** a user changes the preference in the desktop runtime
+- **THEN** the settings service SHALL validate and persist the boolean value through the native settings layer
+
+#### Scenario: Preserve Web mock parity
+- **WHEN** the preference is loaded or saved through the Web/mock settings adapter
+- **THEN** the adapter SHALL preserve the same boolean key and behavior without claiming SQLite access
+
+### Requirement: Context quality history retention setting
+Application settings SHALL persist a validated local context-quality history retention window, defaulting to 30 days and supporting only the documented bounded options consistently across desktop and Web/mock runtimes.
+
+#### Scenario: Existing installation has no saved retention value
+- **WHEN** settings are loaded without a stored context-quality retention value
+- **THEN** the effective retention window SHALL be 30 days
+
+#### Scenario: User selects a supported retention value
+- **WHEN** the user saves a documented retention option
+- **THEN** subsequent history pruning and settings loads SHALL use that value
+
+#### Scenario: Stored retention value is invalid
+- **WHEN** a persisted or incoming retention value is outside the supported options
+- **THEN** the settings boundary SHALL reject the mutation or normalize corrupted stored data to the safe default
+

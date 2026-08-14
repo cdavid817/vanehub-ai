@@ -1,4 +1,20 @@
 mod catalog;
+mod context_compaction_control;
+#[cfg(test)]
+mod context_compaction_control_tests;
+mod context_compaction_evidence;
+mod context_measurement;
+#[cfg(test)]
+mod context_measurement_tests;
+mod context_optimizer;
+#[cfg(test)]
+mod context_optimizer_tests;
+mod context_quality_assessment;
+#[cfg(test)]
+mod context_quality_assessment_tests;
+mod context_summary;
+#[cfg(test)]
+mod context_summary_tests;
 mod error;
 mod expert_role;
 mod generation;
@@ -14,6 +30,40 @@ pub(crate) use catalog::{
     AgentAvailability, AgentDefinition, AgentDefinitionInput, AgentId, AgentOrigin,
     AvailabilityAssessment, AvailabilityProbe, ExecutableStatus, InteractionMode, LaunchMetadata,
     ManagedSdkStatus,
+};
+pub(crate) use context_compaction_control::{
+    select_authoritative_compaction, AutomaticCompactionMode, AutomaticCompactionState,
+    CompactionBypassReason, CompactionTriggerSource, AUTOMATIC_COMPACTION_POLICY_VERSION,
+};
+pub(crate) use context_compaction_evidence::{CompactionPath, ContextCompactionEvidence};
+pub(crate) use context_measurement::{
+    classify_components, ContextCapacity, ContextCompactionDecision, ContextComponent,
+    ContextRound, ContextSnapshot, MeasurementQuality, ProtocolState, RetentionClass,
+    SemanticClass, UsageAnchor, CONTEXT_ESTIMATOR_VERSION, CONTEXT_POLICY_VERSION,
+    CONTEXT_SNAPSHOT_VERSION,
+};
+#[allow(unused_imports)]
+pub(crate) use context_optimizer::{
+    build_optimization_plan, verify_optimization_candidate, CandidateEvidence,
+    ContextOptimizationAction, ContextOptimizationBudget, ContextOptimizationPlan,
+    ContextOptimizationVerification, FallbackReason, OptimizationActionKind, OptimizationOutcome,
+    OptimizationPlanError, OptimizationTarget, ReductionBasis, SafeFingerprint, SummaryBoundary,
+    ToolResultOutcome, ToolResultReplacement, VerificationFailure, CONTEXT_OPTIMIZER_VERSION,
+    CONTEXT_VERIFIER_VERSION,
+};
+#[allow(unused_imports)]
+pub(crate) use context_quality_assessment::{
+    ContextAssessmentInvariants, ContextAssessmentMeasurementQuality, ContextAssessmentOutcome,
+    ContextAssessmentPath, ContextAssessmentReason, ContextAssessmentTriggerSource,
+    ContextQualityAssessment, ContextQualityAssessmentInput, ContextQualityAssessmentPage,
+    ContextQualityAssessmentRecord, ContextQualitySummary, CONTEXT_QUALITY_ASSESSMENT_VERSION,
+    CONTEXT_QUALITY_HISTORY_HARD_LIMIT,
+};
+#[allow(unused_imports)]
+pub(crate) use context_summary::{
+    parse_structured_summary, StructuredSummaryEvidence, StructuredSummaryFailure,
+    StructuredSummarySectionEvidence, STRUCTURED_SUMMARY_MAX_CHARACTERS, STRUCTURED_SUMMARY_PROMPT,
+    STRUCTURED_SUMMARY_VERSION,
 };
 pub(crate) use error::AgentRuntimeDomainError;
 pub(crate) use expert_role::{

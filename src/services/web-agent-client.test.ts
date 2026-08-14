@@ -25,6 +25,7 @@ afterEach(() => {
   resetWebRetrievalForTest();
   resetWebAgentMemoriesForTest();
   resetWebRecoverySessionsForTest();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -775,7 +776,50 @@ describe("webAgentClient", () => {
       (event) => event.type === "rich_block" && event.block.id.startsWith("web-compaction-"),
     );
     expect(compactionEvent).toBeDefined();
+    if (compactionEvent?.type === "rich_block" && compactionEvent.block.kind === "card") {
+      expect(compactionEvent.block.fields).toEqual(expect.arrayContaining([
+        { label: "Before tokens", value: "Unavailable" },
+        { label: "After tokens", value: "Unavailable" },
+        { label: "Trigger source", value: "character-fallback" },
+        { label: "Compaction path", value: "compatibility" },
+      ]));
+      expect(compactionEvent.block.meta).toMatchObject({
+        evidenceKind: "context-compaction",
+        beforeQuality: "characters-only",
+        afterQuality: "characters-only",
+        beforeTokens: null,
+        afterTokens: null,
+      });
+      expect(JSON.stringify(compactionEvent.block)).not.toContain("x".repeat(100));
+    }
     unsubscribe();
+  });
+
+  it("suppresses mock compaction when the persisted user preference is disabled", async () => {
+    stubBrowserLocalStorage();
+    await webSettingsClient.saveSetting({ key: "automaticContextCompactionEnabled", value: false });
+    vi.useFakeTimers();
+    const session = await createMockSession({
+      agentId: "codex-cli",
+      interactionMode: "cli",
+      title: "Compaction disabled",
+    });
+    const config = await webAgentClient.getSessionChatConfig(session.id);
+    const events: ChatStreamEvent[] = [];
+    const unsubscribe = await webAgentClient.subscribeMessageEvents(session.id, (event) => events.push(event));
+
+    await webAgentClient.sendMessage({
+      sessionId: session.id,
+      content: "secret-api-key=" + "s".repeat(2_100),
+      config,
+    });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    expect(events.some(
+      (event) => event.type === "rich_block" && event.block.id.startsWith("web-compaction-"),
+    )).toBe(false);
+    unsubscribe();
+    vi.unstubAllGlobals();
   });
 
   it("does not emit a compaction notice for ordinary short mock sessions", async () => {

@@ -31,6 +31,8 @@ impl AgentPersonalizationPort for RuntimeAgentPersonalizationAdapter {
             custom_instructions_enabled: settings.custom_instructions_enabled(),
             memory_enabled: settings.memory_enabled(),
             memory_tool_assisted_chats_enabled: settings.memory_tool_assisted_chats_enabled(),
+            automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled(),
+            context_quality_retention_days: settings.context_quality_retention_days(),
         })
     }
 }

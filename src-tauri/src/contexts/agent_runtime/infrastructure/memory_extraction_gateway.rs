@@ -149,6 +149,7 @@ mod tests {
             }),
             Arc::new(FakeApiAgents {
                 provider_config: base_url.map(|base_url| ApiProviderConfig {
+                    source_provider_id: None,
                     model_id: "deepseek-chat".to_string(),
                     interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
                     base_url: Some(base_url.to_string()),

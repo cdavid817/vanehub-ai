@@ -45,6 +45,8 @@ import type * as LoopContracts from "./loop";
 import type * as LoopTypes from "../types/loop";
 import type * as SessionWorkspaceContracts from "./session-workspace";
 import type * as SessionWorkspaceTypes from "../types/session-workspace";
+import type * as ContextQualityContracts from "./context-quality";
+import type * as ContextQualityTypes from "../types/context-quality";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -326,6 +328,15 @@ type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.ShellEvent, SessionWorkspaceTypes.ShellEvent>>,
 ];
 
+type ContextQualityAssertions = [
+  Assert<Equal<ContextQualityContracts.ContextQualityRangeDays, ContextQualityTypes.ContextQualityRangeDays>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityAssessment, ContextQualityTypes.ContextQualityAssessment>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityHistoryQuery, ContextQualityTypes.ContextQualityHistoryQuery>>,
+  Assert<Equal<ContextQualityContracts.ContextQualityHistoryPage, ContextQualityTypes.ContextQualityHistoryPage>>,
+  Assert<Equal<ContextQualityContracts.ContextQualitySummary, ContextQualityTypes.ContextQualitySummary>>,
+  Assert<Equal<ContextQualityContracts.ContextQualitySafeError, ContextQualityTypes.ContextQualitySafeError>>,
+];
+
 void (0 as unknown as AgentAssertions);
 void (0 as unknown as ChatAssertions);
 void (0 as unknown as TokenUsageAssertions);
@@ -337,6 +348,7 @@ void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
 void (0 as unknown as SkillOverlayAssertions);
 void (0 as unknown as SessionWorkspaceAssertions);
+void (0 as unknown as ContextQualityAssertions);
 
 describe("contract conformance", () => {
   it("compiles when committed contracts match frontend service types", () => {

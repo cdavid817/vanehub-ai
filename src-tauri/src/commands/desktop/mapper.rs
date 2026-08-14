@@ -12,8 +12,13 @@ pub(super) fn setting_input(
     input: dto::SaveSettingInput,
 ) -> Result<(String, String), CommandError> {
     let value = match (&*input.key, input.value) {
-        ("launchOnStartup", serde_json::Value::Bool(enabled)) => enabled.to_string(),
+        (_, serde_json::Value::Bool(enabled)) => enabled.to_string(),
         (_, serde_json::Value::String(value)) => value,
+        ("contextQualityRetentionDays", serde_json::Value::Number(value))
+            if value.is_i64() || value.is_u64() =>
+        {
+            value.to_string()
+        }
         _ => {
             return Err(CommandError::validation(format!(
                 "Invalid setting value type for key '{}'.",
@@ -39,6 +44,8 @@ pub(super) fn settings_to_dto(view: DesktopSettingsView) -> dto::AppSettings {
         automatic_archival_inactive_days: archival.inactive_days(),
         launch_on_startup: settings.startup().enabled(),
         default_policy_template: settings.default_policy_template().to_string(),
+        automatic_context_compaction_enabled: settings.automatic_context_compaction_enabled(),
+        context_quality_retention_days: settings.context_quality_retention_days(),
         logging_policy: logging_policy_to_dto(view.logging_policy),
     }
 }
@@ -214,6 +221,8 @@ mod tests {
                 "automaticArchivalInactiveDays": 10,
                 "launchOnStartup": false,
                 "defaultPolicyTemplate": "standard",
+                "automaticContextCompactionEnabled": true,
+                "contextQualityRetentionDays": 30,
                 "loggingPolicy": {
                     "retentionDays": 30,
                     "archiveEnabled": true,
@@ -226,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn setting_input_preserves_string_and_startup_boolean_rules() {
+    fn setting_input_preserves_string_and_boolean_rules() {
         let string = setting_input(
             serde_json::from_value(json!({ "key": "fontSize", "value": "16px" }))
                 .expect("string input"),
@@ -245,6 +254,31 @@ mod tests {
 
         assert_eq!(string, ("fontSize".to_string(), "16px".to_string()));
         assert_eq!(boolean, ("launchOnStartup".to_string(), "true".to_string()));
+        assert_eq!(
+            setting_input(
+                serde_json::from_value(json!({
+                    "key": "contextQualityRetentionDays",
+                    "value": 90
+                }))
+                .expect("retention input"),
+            )
+            .expect("retention mapping"),
+            ("contextQualityRetentionDays".to_string(), "90".to_string())
+        );
+        assert_eq!(
+            setting_input(
+                serde_json::from_value(json!({
+                    "key": "automaticContextCompactionEnabled",
+                    "value": false
+                }))
+                .expect("compaction input"),
+            )
+            .expect("compaction mapping"),
+            (
+                "automaticContextCompactionEnabled".to_string(),
+                "false".to_string()
+            )
+        );
         assert_eq!(
             error.message(),
             "validation error: Invalid setting value type for key 'fontSize'."

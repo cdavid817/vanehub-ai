@@ -11,6 +11,16 @@ mod code_intelligence_tool_output;
 #[cfg(test)]
 mod code_intelligence_tool_output_tests;
 mod composite_process_gateway;
+mod context_policy_corpus;
+mod context_policy_evaluation;
+mod context_policy_evaluation_support;
+mod context_projection;
+#[cfg(test)]
+mod context_projection_tests;
+mod context_quality_repository;
+mod context_reduction;
+#[cfg(test)]
+mod context_reduction_tests;
 mod core_instructions;
 mod credential_aware_registry;
 mod events;
@@ -31,6 +41,7 @@ mod memory_extraction_gateway;
 mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
+mod model_context_catalog;
 mod onepiece_model_discovery;
 #[cfg(test)]
 mod onepiece_planning;
@@ -63,6 +74,7 @@ pub(crate) use code_intelligence_adapter::{
     RuntimeAgentCodeIntelligenceAdapter, UnavailableAgentCodeIntelligenceResponder,
 };
 pub(crate) use composite_process_gateway::CompositeAgentProcessGateway;
+pub(crate) use context_quality_repository::SqliteContextQualityRepository;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};

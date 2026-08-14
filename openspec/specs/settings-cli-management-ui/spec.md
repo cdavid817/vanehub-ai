@@ -338,3 +338,39 @@ The CLI Management page SHALL summarize installation coverage with one installed
 - **THEN** the page SHALL display the installed count against the total managed CLI count
 - **AND** it SHALL NOT display a separate uninstalled-count summary card
 
+### Requirement: OnePiece automatic compaction control
+The OnePiece parameter page SHALL provide a localized, keyboard-accessible control for the persisted automatic-context-compaction preference and SHALL save changes through the shared settings service boundary.
+
+#### Scenario: Open OnePiece parameter page
+- **WHEN** a user opens the OnePiece area of CLI Parameter Management
+- **THEN** the page SHALL show the current automatic-compaction preference
+- **AND** SHALL explain that the preference applies to subsequent OnePiece generations
+
+#### Scenario: Disable automatic compaction
+- **WHEN** the user disables the control
+- **THEN** the page SHALL persist the disabled value through the settings provider
+- **AND** SHALL expose saving or failure feedback without directly invoking a native command
+
+#### Scenario: Render supported themes and locales
+- **WHEN** the application theme or locale changes
+- **THEN** the control, description, status, and focus state SHALL remain readable and localized using existing semantic styles
+
+### Requirement: OnePiece context policy health panel
+The OnePiece settings surface SHALL present localized context-policy health using service-provided history and aggregates, including evaluated decisions, compacted and bypassed outcomes, savings, measurement-quality coverage, fallback and failure distributions, active policy versions, range controls, and retention controls.
+
+#### Scenario: User opens context health
+- **WHEN** the OnePiece parameter page loads successfully
+- **THEN** the panel SHALL show bounded aggregate values and recent assessment outcomes without rendering raw prompt, summary, tool, or secret content
+
+#### Scenario: History is empty or unavailable
+- **WHEN** no assessments exist or the service request fails
+- **THEN** the panel SHALL show a distinct localized empty or error state without fabricating metrics or disabling unrelated settings
+
+#### Scenario: User changes time range or retention
+- **WHEN** the user selects a supported history range or retention option
+- **THEN** the panel SHALL refresh through the settings and agent service boundaries with accessible loading and failure feedback
+
+#### Scenario: Measurement quality is incomplete
+- **WHEN** some assessments contain character-only or estimated measurements
+- **THEN** the panel SHALL disclose quality coverage and SHALL state that savings are operational context metrics rather than provider billing reconciliation or proof of semantic answer quality
+

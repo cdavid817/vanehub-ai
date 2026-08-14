@@ -3,13 +3,14 @@ use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServic
 use crate::contexts::agent_runtime::application::{
     AgentCodeIntelligenceResponderPort, AgentRetrievalPort, AgentRuntimeApplicationPorts,
     AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
-    AgentWorkspaceMutationPort, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
-    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
-    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
-    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
-    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
-    LoopVerificationApplicationService, LoopVerifierApplicationPorts,
-    LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
+    AgentWorkspaceMutationPort, ContextQualityQueryService, ContextQualityRecorder,
+    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LoopApplicationPorts,
+    LoopApplicationService, LoopControlApplicationPorts, LoopControlApplicationService,
+    LoopOperationObserver, LoopOrchestratorApplicationService, LoopOrchestratorPorts,
+    LoopProgressApplicationService, LoopRecoveryApplicationPorts, LoopRecoveryApplicationService,
+    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+    LoopVerifierApplicationPorts, LoopVerifierApplicationService, LoopWorkerApplicationPorts,
+    LoopWorkerApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
@@ -22,10 +23,10 @@ use crate::contexts::agent_runtime::infrastructure::{
     RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter, RuntimeAgentMemoryExtractionAdapter,
     RuntimeAgentPersonalizationAdapter, RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter,
     RuntimeEffectivePromptAdapter, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    SqliteAgentRuntimeRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
+    SqliteLoopRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -184,6 +185,16 @@ pub(crate) fn assemble_agent_runtime_api(
         api_credentials.clone(),
         repository.clone(),
     ));
+    let context_quality_repository = Arc::new(SqliteContextQualityRepository::new(
+        dependencies.database.clone(),
+    ));
+    let context_quality_query =
+        ContextQualityQueryService::new(context_quality_repository.clone(), clock.clone());
+    let context_quality = Arc::new(ContextQualityRecorder::new(
+        context_quality_repository,
+        logging.clone(),
+        clock.clone(),
+    ));
     let code_intelligence = Arc::new(
         crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter::new(
             dependencies.code_intelligence,
@@ -206,6 +217,7 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.workspace_mutations,
             agent_personalization.clone(),
         )
+        .with_context_quality_recorder(context_quality)
         .with_accounting(accounting.clone()),
     );
     let tool_approvals = api_processes.clone();
@@ -363,6 +375,7 @@ pub(crate) fn assemble_agent_runtime_api(
             expert_roles,
             seat_turns,
             guarded_validation,
+            context_quality: context_quality_query,
         }),
         telemetry_lifecycle,
         completion_events: events,

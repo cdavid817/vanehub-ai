@@ -1,7 +1,7 @@
 use super::loop_models::LoopVerificationCommandView;
 use crate::contexts::agent_runtime::domain::{
     AgentAvailability, AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
-    InteractionMode,
+    AutomaticCompactionMode, InteractionMode,
 };
 use crate::contexts::execution_observability::api::ExecutionContext;
 use serde::Serialize;
@@ -720,6 +720,7 @@ pub(crate) struct GenerationProcessRequest {
     pub(crate) operation_id: String,
     pub(crate) configuration: AgentChatConfiguration,
     pub(crate) effective_prompt: String,
+    pub(crate) automatic_compaction: AutomaticCompactionMode,
     /**
      * A multi-seat session's role briefing, placed in the CLI's own system-prompt channel so it
      * survives context compaction. `None` for single-Agent sessions, whose invocation must stay
@@ -1057,6 +1058,7 @@ pub(crate) const INTERFACE_FORMAT_OPENAI_COMPATIBLE: &str = "openai-compatible";
 /// which model, which wire protocol, and (for `openai-compatible`) which endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApiProviderConfig {
+    pub(crate) source_provider_id: Option<String>,
     pub(crate) model_id: String,
     pub(crate) interface_format: String,
     pub(crate) base_url: Option<String>,
@@ -1309,6 +1311,8 @@ pub(crate) struct PersonalizationSettings {
     pub(crate) custom_instructions_enabled: bool,
     pub(crate) memory_enabled: bool,
     pub(crate) memory_tool_assisted_chats_enabled: bool,
+    pub(crate) automatic_context_compaction_enabled: bool,
+    pub(crate) context_quality_retention_days: i64,
 }
 
 impl PersonalizationSettings {
@@ -1323,6 +1327,8 @@ impl PersonalizationSettings {
             custom_instructions_enabled: true,
             memory_enabled: true,
             memory_tool_assisted_chats_enabled: true,
+            automatic_context_compaction_enabled: true,
+            context_quality_retention_days: 30,
         }
     }
 

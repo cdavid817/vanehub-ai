@@ -34,6 +34,8 @@ pub(crate) struct AppSettings {
     pub(crate) automatic_archival_inactive_days: i64,
     pub(crate) launch_on_startup: bool,
     pub(crate) default_policy_template: String,
+    pub(crate) automatic_context_compaction_enabled: bool,
+    pub(crate) context_quality_retention_days: i64,
     pub(crate) logging_policy: LoggingPolicy,
 }
 

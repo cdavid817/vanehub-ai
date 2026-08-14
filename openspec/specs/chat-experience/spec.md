@@ -688,6 +688,7 @@ The composer SHALL acknowledge a valid submission immediately while preserving r
 - **THEN** the temporary user message SHALL be removed
 - **AND** the submitted draft and file references SHALL be restored
 - **AND** the existing localized error feedback SHALL remain available
+
 ### Requirement: Chat controls respect recovery safety
 The chat experience SHALL derive send and stop availability from the service-backed lifecycle, recovery status, and active execution ownership rather than lifecycle alone.
 
@@ -717,4 +718,19 @@ The chat experience SHALL present interrupted content and safe recovery explanat
 #### Scenario: Present quarantined session
 - **WHEN** the active session is quarantined
 - **THEN** the UI SHALL keep supported inspection and export surfaces available while disabling dependent mutations
+
+### Requirement: Chat history displays context compaction evidence
+The chat experience SHALL render each successful automatic context compaction as an accessible rich card in chronological message history, showing content-free before/after measurements, savings, trigger source, compaction path, and policy version.
+
+#### Scenario: Successful compaction occurs during streaming
+- **WHEN** the active OnePiece generation emits a successful compaction evidence card
+- **THEN** the card SHALL appear with the corresponding assistant message without interrupting token streaming
+
+#### Scenario: Token count is unavailable
+- **WHEN** the evidence reports token measurements as unavailable
+- **THEN** the card SHALL clearly distinguish unavailable token evidence from a zero token count
+
+#### Scenario: Reload conversation history
+- **WHEN** a conversation containing compaction evidence is restored
+- **THEN** the evidence card SHALL retain its field values and chronological position
 

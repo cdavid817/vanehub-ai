@@ -1,5 +1,5 @@
 import { isSupportedAppLanguage } from "../i18n/supported-locales";
-import { appFontSizes, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
+import { appFontSizes, contextQualityRetentionDaysOptions, countCustomInstructionsCharacters, customInstructionsFieldCharacterLimit, logLevels, type AppFontSize, type AppLanguage, type AppSettingKey, type AppSettings, type ClientLogEvent, type ContextQualityRetentionDays, type DataManagementInfo, type DetectedNetworkProxy, type LoggingPolicy, type NetworkProxyTestResult, type NodeInfo } from "../types/settings";
 import { policyTemplateNames, type PolicyTemplateName } from "../types/permissions";
 import { defaultThemeId, isUcdThemeId } from "../theme/theme-registry";
 
@@ -46,6 +46,8 @@ export const defaultAppSettings: AppSettings = {
   customInstructionsEnabled: true,
   memoryEnabled: true,
   memoryToolAssistedChatsEnabled: true,
+  automaticContextCompactionEnabled: true,
+  contextQualityRetentionDays: 30,
 };
 
 export function isAppLanguage(value: unknown): value is AppLanguage {
@@ -58,6 +60,11 @@ export function isAppFontSize(value: unknown): value is AppFontSize {
 
 export function isPolicyTemplateName(value: unknown): value is PolicyTemplateName {
   return typeof value === "string" && policyTemplateNames.includes(value as PolicyTemplateName);
+}
+
+export function isContextQualityRetentionDays(value: unknown): value is ContextQualityRetentionDays {
+  return typeof value === "number"
+    && contextQualityRetentionDaysOptions.includes(value as ContextQualityRetentionDays);
 }
 
 function normalizeLoggingPolicy(input: unknown): LoggingPolicy {
@@ -147,6 +154,13 @@ export function normalizeAppSettings(input: AppSettingsInput): AppSettings {
       typeof input.memoryToolAssistedChatsEnabled === "boolean"
         ? input.memoryToolAssistedChatsEnabled
         : defaultAppSettings.memoryToolAssistedChatsEnabled,
+    automaticContextCompactionEnabled:
+      typeof input.automaticContextCompactionEnabled === "boolean"
+        ? input.automaticContextCompactionEnabled
+        : defaultAppSettings.automaticContextCompactionEnabled,
+    contextQualityRetentionDays: isContextQualityRetentionDays(input.contextQualityRetentionDays)
+      ? input.contextQualityRetentionDays
+      : defaultAppSettings.contextQualityRetentionDays,
   };
 }
 

@@ -75,6 +75,8 @@ describe("settings-service", () => {
     expect(settings.customInstructionsEnabled).toBe(true);
     expect(settings.memoryEnabled).toBe(true);
     expect(settings.memoryToolAssistedChatsEnabled).toBe(true);
+    expect(settings.automaticContextCompactionEnabled).toBe(true);
+    expect(settings.contextQualityRetentionDays).toBe(30);
   });
 
   it("normalizes custom instructions and memory preference settings", () => {
@@ -84,6 +86,8 @@ describe("settings-service", () => {
       customInstructionsEnabled: false,
       memoryEnabled: false,
       memoryToolAssistedChatsEnabled: false,
+      automaticContextCompactionEnabled: false,
+      contextQualityRetentionDays: 90,
     });
 
     expect(settings.customInstructionsAboutUser).toBe("Works on VaneHub AI.");
@@ -91,6 +95,15 @@ describe("settings-service", () => {
     expect(settings.customInstructionsEnabled).toBe(false);
     expect(settings.memoryEnabled).toBe(false);
     expect(settings.memoryToolAssistedChatsEnabled).toBe(false);
+    expect(settings.automaticContextCompactionEnabled).toBe(false);
+    expect(settings.contextQualityRetentionDays).toBe(90);
+  });
+
+  it("accepts only bounded context quality retention options", () => {
+    expect(normalizeAppSettings({ contextQualityRetentionDays: 7 }).contextQualityRetentionDays).toBe(7);
+    expect(normalizeAppSettings({ contextQualityRetentionDays: 90 }).contextQualityRetentionDays).toBe(90);
+    expect(normalizeAppSettings({ contextQualityRetentionDays: 14 }).contextQualityRetentionDays).toBe(30);
+    expect(normalizeAppSettings({ contextQualityRetentionDays: "30" }).contextQualityRetentionDays).toBe(30);
   });
 
   it("falls back to empty custom-instruction fields when a field exceeds the character limit", () => {

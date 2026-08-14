@@ -155,5 +155,10 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-13 | complete-onepiece-plan-agent-loop | agent-chat-configuration, agent-execution-observability, frontend-runtime-architecture, onepiece-native-agent, plan-execution-runtime, plan-management | `openspec/changes/archive/2026-08-13-complete-onepiece-plan-agent-loop/` |
 | 2026-08-13 | establish-fine-grained-token-accounting | agent-terminal-runtime, api-agent-runtime, onepiece-native-agent, settings-usage-statistics-ui, token-accounting, usage-statistics | `openspec/changes/archive/2026-08-13-establish-fine-grained-token-accounting/` |
 | 2026-08-13 | optimize-im-session-binding | im-connector-management, im-session-binding-ui, settings-im-management-ui | `openspec/changes/archive/2026-08-13-optimize-im-session-binding/` |
+| 2026-08-14 | add-onepiece-context-evidence-and-controls-ui | agent-context-compaction-control, agent-context-evidence-projection, app-settings, chat-experience, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/` |
+| 2026-08-14 | add-onepiece-context-measurement-and-classification | agent-context-compaction, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-measurement-and-classification/` |
+| 2026-08-14 | add-onepiece-context-optimizer | agent-context-compaction, agent-context-optimization | `openspec/changes/archive/2026-08-14-add-onepiece-context-optimizer/` |
+| 2026-08-14 | add-onepiece-context-quality-and-policy-evaluation | agent-context-evidence-projection, agent-context-quality-evaluation, app-settings, frontend-runtime-architecture, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-quality-and-policy-evaluation/` |
+| 2026-08-14 | add-onepiece-context-trigger-and-suppression | agent-context-compaction, agent-context-compaction-control, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-trigger-and-suppression/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

@@ -93,6 +93,46 @@
 
 记忆是**主机级共享池**，不再按 Agent 隔离。完整说明见 [个性化的 Agent 记忆](personalization.md#agent-记忆)。记忆写入受权限系统 `memory.write` 动作管辖。
 
+## 上下文测量与分类
+
+OnePiece 在每次原生 API 请求发送前，对已经构造完成的 provider 请求体执行分析。Anthropic 与 OpenAI-compatible 适配器只负责把各自 wire shape 投影成统一组件；API round 分组、语义分类、保留分类、容量判断和压缩决策位于公共领域与应用层。分析本身不修改请求；只有权威触发器命中、控制策略允许且优化候选通过验证后，运行时才会替换 turns，并对最终实际发送的请求重新生成 snapshot。
+
+测量质量有四种：`reported` 表示同一请求已有 provider input usage；`reported-plus-estimated-delta` 表示同一 generation 内可证明为追加关系的后继请求；`estimated` 表示完整本地 Token 估算；`characters-only` 表示遇到未知原生内容块后只保留字符证据。usage anchor 只在当前 generation 内生效，并绑定 provider、model、请求指纹和连续 invocation sequence；system、工具 schema、顺序或前缀变化都会令它失效。
+
+模型容量来自 `src/config/onepiece-model-context-catalog.json`。目录只接受稳定 source provider id 与精确 model id，不按显示名、协议或模糊别名猜测。自定义端点和未收录的发现模型保持 unknown，继续使用已有字符计数行为。
+
+`onepiece-context-production-v1` 使用模型窗口减去最多 20,000 Token 的输出预留和最多 13,000 Token 的安全缓冲作为阈值。模型容量与 Token 测量都可用时，该结果具有决策权：`true` 可以在 turns 未到 60,000 字符时触发，`false` 也会抑制旧字符规则。容量未知、只有字符证据或分析无法给出 Token 决策时，才回退到原有 60,000 字符规则。旧字符结果始终作为比较证据保留。
+
+主动判断覆盖完整请求，而不只数 turns：system instructions、工具 schema、历史消息和工具循环新增内容都会进入 snapshot。首次请求通常使用完整本地估算；同一 generation 的后续工具请求可复用与 provider、model、请求前缀和连续 invocation sequence 严格关联的 usage anchor。
+
+`onepiece-automatic-compaction-control-v1` 在每个 generation 内维护独立控制状态。请求边界可选择 `automatic` 或 `suppressed`；成功压缩后，上下文至少再增长 8,192 个递归字符才允许第二次自动压缩；优化器与兼容摘要都未安装候选才算一次失败，连续两次失败后为本 generation 打开熔断。成功会清零失败计数，新 generation 不继承 cooldown 或熔断。suppression、cooldown 和 open circuit 路径都不会调用摘要 provider，也不会修改准备好的请求。
+
+统一日志仅记录策略版本、trigger source、测量质量、占用与阈值、旧字符比较、bypass reason、cooldown growth、失败计数、熔断状态和安全哈希，不记录 prompt、消息、工具输入输出、摘要、凭据、header、SSE frame 或 provider 原始 payload。
+
+## 上下文优化与压缩
+
+权威触发器命中、控制策略允许且存在可压缩旧轮次后，`onepiece-context-optimizer-v1` 才开始工作。优化器不修改原始 provider request，而是先从完整 snapshot 生成不可变计划，再在请求副本上依次执行以下动作：
+
+1. 删除明确标记为 `discardable` 的临时内容。
+2. 用当前权威来源替代陈旧的 `reinjectable` 状态。
+3. 将旧的大型或重复工具结果替换为保留调用关联、成功/失败状态和安全源指纹的有界标记。
+4. 如果仍未达到预算，选择最旧、连续且协议完整的 API rounds 生成一次结构化摘要。
+5. 以单项、分类和总量三层预算重新注入当前 memory/runtime context。
+
+优化器达到目标预算便停止。`protected`、`verbatim`、未知内容和协议不完整 round 不会被选择；summary boundary 不会拆分工具请求与结果。
+
+结构化摘要使用 `onepiece-continuation-summary-v1`，必须按顺序包含 primary intent、technical constraints、decisions、files and code areas、errors and fixes、completed work、pending work、immediate next action 八段。摘要请求只携带计划选中的连续 round 前缀与固定指令，不声明工具，不继承 thinking、reasoning depth、system prompt 或用户轮次生成选项。输出为空、缺段、重复、乱序或超过上限时会被拒绝。
+
+候选请求在使用前必须重新经过相同的 Anthropic/OpenAI-compatible 投影。`onepiece-context-verifier-v1` 校验 protected/verbatim 指纹及顺序、工具协议完整性、动作与计划对应关系、必要 reinjection、递归字符覆盖和实际缩减量；双方都有 Token 估算时按 Token 比较，否则回退到字符比较。只有全部不变量成立且候选更小、达到计划目标时，原始 turns 才会被替换，并继续复用现有的可见压缩提示。
+
+结构化摘要调用继续登记为 `ContextCompaction`，沿用现有 provider usage 归一化、overlap 和 invocation sequence 语义；仅 microcompaction 的路径不会创建模型调用。规划、缩减、reinjection、摘要、重建或验证任一阶段失败时，系统把未修改的原始 turns 交给兼容的 summary-only 路径，该路径仍保留最近六轮、memory extraction、可见提示和既有计账行为。
+
+统一日志只记录优化器/验证器版本、动作和分类计数、前后测量质量与占用、节省量、受限安全指纹、不变量结果以及 fallback stage/reason。计划与候选只存在于当前 generation 内，不写入 SQLite。
+
+压缩证据现已通过消息证据卡展示同一次 attempt 的前后字符/Token、测量质量、动作、不变量与回退原因；自动压缩开关和 7/30/90 天质量历史保留期也已经进入 OnePiece 参数页。每次最终压缩决策最多写入一条不含原文的质量评估，桌面端存入 SQLite 并受保留期和 10,000 条硬上限约束，写入或清理失败只产生脱敏统一日志告警，不改变生成结果。
+
+“上下文策略健康”界面通过统一 Agent service boundary 查询 7/30/90 天汇总和游标历史，分别显示结果、路径、测量质量、字符节省与具有明确覆盖率的 Token 节省；Web/mock adapter 返回同形状的确定性有界数据。React 组件不直接调用 native command 或数据库。独立的版本化安全语料会复用生产 planner、reducer、reinjection 和 verifier 对 active/candidate 策略做确定性回归评估，但评估结果不会自动切换线上策略。provider-native cache edits 仍未启用，界面指标也不代表 provider 缓存命中或计费数据。
+
 ## 记忆检索（recall）
 
 **这是 OnePiece 的能力，不是全局功能**——界面入口挂在 OnePiece 配置下（`src/settings/pages/agents/onepiece-retrieval-section.tsx`）。
