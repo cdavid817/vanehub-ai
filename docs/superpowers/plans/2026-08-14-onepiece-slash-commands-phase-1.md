@@ -313,33 +313,41 @@ const command = (name: string, overrides: Partial<SlashCommand> = {}): SlashComm
   run: async () => ({ kind: "handled" }), ...overrides,
 });
 
+const capabilities = (hasAssociatedPlan = false) => ({ hasAssociatedPlan });
+
 describe("command registry", () => {
   const commands = [
     command("help"),
     command("status", { aliases: ["st"] }),
     command("compact", { appliesTo: (target) => target.agentId === "onepiece" }),
+    command("plan", { appliesTo: (_target, caps) => caps.hasAssociatedPlan }),
   ];
 
   it("finds a command by name", () => {
-    expect(findCommand(commands, "help", session("onepiece"))?.name).toBe("help");
+    expect(findCommand(commands, "help", session("onepiece"), capabilities())?.name).toBe("help");
   });
 
   it("finds a command by alias", () => {
-    expect(findCommand(commands, "st", session("onepiece"))?.name).toBe("status");
+    expect(findCommand(commands, "st", session("onepiece"), capabilities())?.name).toBe("status");
   });
 
   it("returns null for an unknown name", () => {
-    expect(findCommand(commands, "nope", session("onepiece"))).toBeNull();
+    expect(findCommand(commands, "nope", session("onepiece"), capabilities())).toBeNull();
   });
 
   it("returns null when the command does not apply to the session", () => {
-    expect(findCommand(commands, "compact", session("claude-code"))).toBeNull();
-    expect(findCommand(commands, "compact", session("onepiece"))?.name).toBe("compact");
+    expect(findCommand(commands, "compact", session("claude-code"), capabilities())).toBeNull();
+    expect(findCommand(commands, "compact", session("onepiece"), capabilities())?.name).toBe("compact");
+  });
+
+  it("consults capabilities, not just the session", () => {
+    expect(findCommand(commands, "plan", session("onepiece"), capabilities(false))).toBeNull();
+    expect(findCommand(commands, "plan", session("onepiece"), capabilities(true))?.name).toBe("plan");
   });
 
   it("lists only applicable commands, sorted by name", () => {
-    expect(listCommands(commands, session("claude-code")).map((entry) => entry.name)).toEqual(["help", "status"]);
-    expect(listCommands(commands, session("onepiece")).map((entry) => entry.name)).toEqual(["compact", "help", "status"]);
+    expect(listCommands(commands, session("claude-code"), capabilities()).map((entry) => entry.name)).toEqual(["help", "status"]);
+    expect(listCommands(commands, session("onepiece"), capabilities(true)).map((entry) => entry.name)).toEqual(["compact", "help", "plan", "status"]);
   });
 });
 ```
@@ -361,6 +369,14 @@ import type { SessionTabId } from "../../session-workspace/session-tab-bar";
 export type SlashCommandCategory = "session" | "runtime" | "navigation" | "info";
 
 export type SlashCommandDestination = "sessions" | "loops" | "plans" | "todo-board";
+
+/**
+ * Facts a command needs for its availability decision that do not live on the session row.
+ * Passing them explicitly is what keeps `appliesTo` a pure function of its arguments.
+ */
+export interface CommandCapabilities {
+  hasAssociatedPlan: boolean;
+}
 
 /**
  * Commands emit translation keys rather than finished strings so their unit tests stay free of
@@ -417,7 +433,8 @@ export interface SlashCommand {
   category: SlashCommandCategory;
   /** Rendered in `/help` and the completion dropdown, e.g. "<plan|execute|inherit>". */
   argumentHint?: string;
-  appliesTo: (session: Session) => boolean;
+  /** Commands that only care about the session may declare a one-parameter function. */
+  appliesTo: (session: Session, capabilities: CommandCapabilities) => boolean;
   run: (context: CommandContext, args: string[]) => Promise<CommandOutcome>;
 }
 ```
@@ -428,21 +445,25 @@ export interface SlashCommand {
 
 ```ts
 import type { Session } from "../../types/agent";
-import type { SlashCommand } from "./types";
+import type { CommandCapabilities, SlashCommand } from "./types";
 
 function matches(command: SlashCommand, name: string): boolean {
   return command.name === name || (command.aliases?.includes(name) ?? false);
 }
 
-export function findCommand(commands: SlashCommand[], name: string, session: Session): SlashCommand | null {
+export function findCommand(
+  commands: SlashCommand[], name: string, session: Session, capabilities: CommandCapabilities,
+): SlashCommand | null {
   const command = commands.find((entry) => matches(entry, name));
-  if (!command || !command.appliesTo(session)) return null;
+  if (!command || !command.appliesTo(session, capabilities)) return null;
   return command;
 }
 
-export function listCommands(commands: SlashCommand[], session: Session): SlashCommand[] {
+export function listCommands(
+  commands: SlashCommand[], session: Session, capabilities: CommandCapabilities,
+): SlashCommand[] {
   return commands
-    .filter((command) => command.appliesTo(session))
+    .filter((command) => command.appliesTo(session, capabilities))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 ```
@@ -1208,7 +1229,9 @@ describe("navigation commands", () => {
   });
 
   it("/plan is unavailable without an associated plan run", () => {
-    expect(byName("plan").appliesTo(session())).toBe(false);
+    expect(byName("plan").appliesTo(session(), { hasAssociatedPlan: false })).toBe(false);
+    expect(byName("plan").appliesTo(session(), { hasAssociatedPlan: true })).toBe(true);
+    expect(byName("plan").appliesTo(session("claude-code"), { hasAssociatedPlan: true })).toBe(false);
   });
 
   it("/plan opens the associated run when one exists", async () => {
@@ -1250,17 +1273,6 @@ const DESTINATION_COMMANDS: Array<{ name: string; destination: SlashCommandDesti
   { name: "loops", destination: "loops" },
 ];
 
-/**
- * `appliesTo` cannot see the navigation context, so `/plan`'s availability is decided by the
- * session-level fact that drives it: a run is associated only in a plan-linked session. The
- * dispatcher rebuilds the command list per render, so this stays in step with the session.
- */
-let associatedPlanAvailable = false;
-
-export function setAssociatedPlanAvailability(available: boolean): void {
-  associatedPlanAvailable = available;
-}
-
 export const NAVIGATION_COMMANDS: SlashCommand[] = [
   ...DESTINATION_COMMANDS.map(({ name, destination }): SlashCommand => ({
     name, category: "navigation", appliesTo: isOnePieceSession,
@@ -1278,7 +1290,9 @@ export const NAVIGATION_COMMANDS: SlashCommand[] = [
   })),
   {
     name: "plan", category: "navigation",
-    appliesTo: (session) => isOnePieceSession(session) && associatedPlanAvailable,
+    // Availability comes in as an argument rather than module state so the predicate stays pure
+    // and the test suite cannot leak one case's setup into the next.
+    appliesTo: (session, capabilities) => isOnePieceSession(session) && capabilities.hasAssociatedPlan,
     run: async (context) => {
       context.navigate.openAssociatedPlan?.();
       return { kind: "handled" };
@@ -1306,8 +1320,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 
 Run: `npx vitest run src/services/slash-commands/navigation-commands.test.ts`
 Expected: PASS — 5 tests
-
-Note: `/plan` 的用例依赖 `setAssociatedPlanAvailability`。若 Step 1 的测试因模块级状态而失败，在该用例前调用 `setAssociatedPlanAvailability(true)`、之后调用 `setAssociatedPlanAvailability(false)` 复位。
 
 - [ ] **Step 6: Add the i18n keys**
 
@@ -1924,7 +1936,7 @@ git commit -m "feat: add slash command completion dropdown"
 - Test: `src/services/slash-commands/use-slash-commands.test.tsx`
 
 **Interfaces:**
-- Consumes: `parseCommandInput`（Task 1）、`slashCommandsEnabled`（Task 2）、`findCommand`/`listCommands`（Task 3）、`SLASH_COMMANDS`（Task 7）、`setAssociatedPlanAvailability`（Task 6）
+- Consumes: `parseCommandInput`（Task 1）、`slashCommandsEnabled`（Task 2）、`findCommand`/`listCommands`/`CommandCapabilities`（Task 3）、`SLASH_COMMANDS`（Task 7）
 - Produces:
 
 ```ts
@@ -1943,7 +1955,7 @@ useSlashCommands(input: {
   suggestionQuery: string | null;
   dispatch: (draft: string) => DispatchResult;
   updateSuggestions: (draft: string) => void;
-  completeDraft: (draft: string, name: string) => string;
+  completeDraft: (name: string) => string;
 }
 
 type DispatchResult = { kind: "message" } | { kind: "literal"; content: string } | { kind: "handled" };
@@ -1973,7 +1985,11 @@ const config: ChatConfig = {
   streaming: true, thinking: false, longContext: false, reasoningDepth: "low",
 };
 
-function setup(overrides: { session?: Session | null; isStreaming?: boolean } = {}) {
+function setup(overrides: {
+  session?: Session | null;
+  isStreaming?: boolean;
+  openAssociatedPlan?: () => void;
+} = {}) {
   const chat = {
     setSessionExecutionMode: vi.fn(), setReasoningDepth: vi.fn(),
     setStreaming: vi.fn(), setThinking: vi.fn(), setLongContext: vi.fn(),
@@ -1982,7 +1998,11 @@ function setup(overrides: { session?: Session | null; isStreaming?: boolean } = 
     exportSession: vi.fn(), stop: vi.fn(),
     loadUsageSummary: vi.fn().mockResolvedValue({ totalTokens: 1, inputTokens: 1, outputTokens: 0, responseCount: 1 }),
   };
-  const navigate = { openAssociatedPlan: null, openDestination: vi.fn(), openSessionTab: vi.fn() };
+  const navigate = {
+    openAssociatedPlan: overrides.openAssociatedPlan ?? null,
+    openDestination: vi.fn(),
+    openSessionTab: vi.fn(),
+  };
   const onError = vi.fn();
   const rendered = renderHook(() => useSlashCommands({
     session: overrides.session === undefined ? session() : overrides.session,
@@ -2058,7 +2078,17 @@ describe("useSlashCommands", () => {
 
   it("completes a draft into a ready-to-run invocation", () => {
     const { result } = setup();
-    expect(result.current.completeDraft("/mod", "mode")).toBe("/mode ");
+    expect(result.current.completeDraft("mode")).toBe("/mode ");
+  });
+
+  it("offers /plan only when the session has an associated plan run", () => {
+    const without = setup();
+    act(() => { without.result.current.updateSuggestions("/pla"); });
+    expect(without.result.current.suggestions.map((entry) => entry.name)).toEqual(["plans"]);
+
+    const withPlan = setup({ openAssociatedPlan: () => undefined });
+    act(() => { withPlan.result.current.updateSuggestions("/pla"); });
+    expect(withPlan.result.current.suggestions.map((entry) => entry.name)).toEqual(["plan", "plans"]);
   });
 
   it("reports a handler that throws through onError", async () => {
@@ -2086,10 +2116,9 @@ import { SLASH_COMMANDS } from "./command-catalog";
 import { findCommand, listCommands } from "./command-registry";
 import { parseCommandInput } from "./parse-command";
 import { slashCommandsEnabled } from "./command-availability";
-import { setAssociatedPlanAvailability } from "./navigation-commands";
 import type { Session } from "../../types/agent";
 import type { ChatConfig } from "../../types/chat";
-import type { CommandContext, CommandOutput, SlashCommand, SlashCommandNavigation } from "./types";
+import type { CommandCapabilities, CommandContext, CommandOutput, SlashCommandNavigation } from "./types";
 
 export type DispatchResult =
   | { kind: "message" }
@@ -2115,12 +2144,15 @@ export function useSlashCommands(input: {
   const [output, setOutput] = useState<CommandOutput | null>(null);
   const [suggestionQuery, setSuggestionQuery] = useState<string | null>(null);
 
-  setAssociatedPlanAvailability(navigate.openAssociatedPlan !== null);
   const enabled = slashCommandsEnabled(session);
+  const capabilities = useMemo<CommandCapabilities>(
+    () => ({ hasAssociatedPlan: navigate.openAssociatedPlan !== null }),
+    [navigate.openAssociatedPlan],
+  );
 
   const available = useMemo(
-    () => (session && enabled ? listCommands(SLASH_COMMANDS, session) : []),
-    [enabled, session],
+    () => (session && enabled ? listCommands(SLASH_COMMANDS, session, capabilities) : []),
+    [capabilities, enabled, session],
   );
 
   const suggestions = useMemo(() => {
@@ -2144,7 +2176,7 @@ export function useSlashCommands(input: {
     if (parsed.kind === "literal") return parsed;
     if (parsed.kind === "message" || !session || !enabled) return { kind: "message" };
 
-    const command = findCommand(SLASH_COMMANDS, parsed.name, session);
+    const command = findCommand(SLASH_COMMANDS, parsed.name, session, capabilities);
     if (!command) {
       setOutput(errorOutput("slash.error.unknown", { command: parsed.name }));
       return { kind: "handled" };
@@ -2166,12 +2198,10 @@ export function useSlashCommands(input: {
       });
 
     return { kind: "handled" };
-  }, [actions, available, chat, config, enabled, isStreaming, navigate, onError, session]);
+  }, [actions, available, capabilities, chat, config, enabled, isStreaming, navigate, onError, session]);
 
-  const completeDraft = useCallback((draft: string, name: string): string => {
-    void draft;
-    return `/${name} `;
-  }, []);
+  /** A command occupies the whole draft, so completing one replaces it rather than editing it. */
+  const completeDraft = useCallback((name: string): string => `/${name} `, []);
 
   const dismissOutput = useCallback(() => setOutput(null), []);
 
@@ -2192,7 +2222,7 @@ export function useSlashCommands(input: {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `npx vitest run src/services/slash-commands/use-slash-commands.test.tsx src/i18n/slash-command-locales.test.ts`
-Expected: PASS — 11 + 1 tests
+Expected: PASS — 12 + 1 tests
 
 - [ ] **Step 6: Commit**
 
@@ -2554,7 +2584,7 @@ export function ApiSessionComposer({
       onDismissSlashCommandOutput={slash.dismissOutput}
       onOpenPlan={model.chatConfig.associatedPlanRun ? onOpenPlan : undefined}
       onRemoveFileReference={model.removeFileReference}
-      onSelectSlashCommand={(name) => model.setDraft(slash.completeDraft(model.draft, name))}
+      onSelectSlashCommand={(name) => model.setDraft(slash.completeDraft(name))}
       onStop={model.stop}
       onSubmit={submit}
       value={model.draft}
@@ -2793,4 +2823,4 @@ AGENTS.md 要求任何新功能先在 `openspec/changes/` 下起 proposal 并通
 - **修正 1（按键即执行命令）**：初稿把 `slash.dispatch` 接到了 `onChange`，那会在每敲一个字符时执行一次命令。已拆成两个入口——`updateSuggestions`（按键调用，只刷新补全）与 `dispatch`（提交调用，唯一有副作用的入口），并在 Task 10 补了 `never executes a command from updateSuggestions` 回归用例
 - **修正 2（不存在的上报方法）**：初稿的 `onError` 调用了 `model.reportSlashCommandFailure`，但 `use-main-layout-model.ts` 并未导出该方法，且该文件是 298/300 行、无豁免、不能加行。已改为在 composer 内复用 `createChatOperationFailureEvent` + `notify` + `reportClientLogEvent`，与 `use-main-layout-model.ts:66-76` 的既有路径一致
 - **类型一致性**：`SlashCommand`、`CommandContext`、`CommandOutput`、`CommandMessage`、`SlashCommandNavigation`、`SlashCommandDestination`、`DispatchResult` 在 Task 3 与 Task 10 定义一次，后续任务全部按同名引用；`loadUsageSummary` 的返回结构在 Task 3（类型）、Task 5（消费）、Task 12（实现）三处一致
-- **`/plan` 的可用性**：`appliesTo` 拿不到导航上下文，因此用 `navigation-commands.ts` 的模块级 `setAssociatedPlanAvailability` 由 hook 每次渲染同步。这是模块级可变状态，Task 6 Step 5 已注明测试需显式置位与复位
+- **修正 3（模块级可变状态）**：初稿让 `/plan` 的可用性依赖 `navigation-commands.ts` 里的模块级 `associatedPlanAvailable`，由 hook 在**渲染期**调 `setAssociatedPlanAvailability` 同步。三重问题：模块级可变状态、渲染期副作用、测试相互污染。已改为 `appliesTo(session, capabilities)` 显式接收 `CommandCapabilities`，谓词恢复为纯函数；`completeDraft` 也顺带去掉了那个未使用的 `draft` 参数
