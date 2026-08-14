@@ -221,7 +221,7 @@ The information panel SHALL support smooth collapse and expand behavior while pr
 - **THEN** the content area SHALL scroll inside the information panel without scrolling the whole workspace shell
 
 ### Requirement: Create-session dialog
-The main layout UI SHALL provide a create-session dialog with Agent mode selection, Agent choice for Single Agent sessions, project folder, project history, and optional Git worktree controls.
+The main layout UI SHALL provide a create-session dialog with Agent mode selection, Agent choice for Single Agent sessions, project folder, project history, and optional Git worktree controls. The dialog SHALL obtain its modal behavior from the shared application dialog primitive.
 
 #### Scenario: Select session mode
 - **WHEN** the create-session dialog opens
@@ -256,6 +256,17 @@ The main layout UI SHALL provide a create-session dialog with Agent mode selecti
 #### Scenario: Submit concise failures
 - **WHEN** project inspection, folder selection, or session creation fails
 - **THEN** the dialog SHALL show a concise error message without rendering raw stdout or stderr
+- **AND** the message SHALL remain fully readable rather than being truncated to a single line
+- **AND** it SHALL be announced to assistive technology
+
+#### Scenario: Dismiss without creating
+- **WHEN** the create-session dialog is open and no creation request is in flight
+- **THEN** pressing Escape SHALL close it without creating a session
+- **AND** focus SHALL return to the control that opened it
+
+#### Scenario: Dismissal blocked while creating
+- **WHEN** a creation request is in flight
+- **THEN** Escape and backdrop dismissal SHALL NOT close the dialog
 
 ### Requirement: Agent Terminal and Shell tab separation
 The workspace shell SHALL keep the Agent Terminal experience separate from the ordinary project Shell tab.
@@ -841,4 +852,59 @@ The workspace SHALL expose Todo Board as a first-class full-screen activity dest
 - **WHEN** the user activates the Todo Board activity entry
 - **THEN** the workspace SHALL mark that entry active and render the board in the primary workspace region
 - **AND** it SHALL preserve the existing Session, Plan, and Loop destination state for later return
+
+### Requirement: Workspace auxiliary dialog behavior
+The scheduled-tasks dialog and the session batch-delete confirmation SHALL obtain dismissal, focus containment, and focus return from the shared application dialog primitive.
+
+#### Scenario: Dismiss the scheduled-tasks dialog
+- **WHEN** the scheduled-tasks dialog is open
+- **THEN** pressing Escape SHALL close it and focus SHALL return to the activity bar control that opened it
+
+#### Scenario: Confirm destructive batch deletion
+- **WHEN** the batch-delete confirmation is open
+- **THEN** focus SHALL be placed inside the confirmation and SHALL remain contained within it
+- **AND** Escape SHALL cancel the deletion while a delete request is not in flight
+
+### Requirement: In-application session category creation
+Creating a session category from the session context menu SHALL use an in-application dialog.
+
+#### Scenario: Create and assign in one step
+- **WHEN** the user chooses to create a category for a session and submits a non-empty name
+- **THEN** the system SHALL create the category, assign that session to it, and close the dialog
+
+#### Scenario: Empty or rejected name
+- **WHEN** the submitted category name is empty or the creation request fails
+- **THEN** the dialog SHALL stay open and SHALL present the reason next to the field
+
+### Requirement: Routed workspace destinations
+Activating a workspace destination SHALL change the route, and destination state SHALL survive that navigation.
+
+#### Scenario: Destination activation navigates
+- **WHEN** the user activates the Sessions, Plans, Loops, or Todo Board activity entry
+- **THEN** the workspace SHALL navigate to that destination's route
+- **AND** the activity bar SHALL mark the entry active from the route
+
+#### Scenario: Mounted destination state survives navigation
+- **WHEN** the user leaves a visited destination and later returns to it
+- **THEN** that destination SHALL retain the state it had when it was left
+- **AND** it SHALL NOT be remounted or refetched solely because the route changed
+
+#### Scenario: Return from a cross-destination jump
+- **WHEN** the user opens a session from the Loop Center or Plan Center and then triggers Back
+- **THEN** the workspace SHALL return to the destination the jump started from
+
+#### Scenario: Unknown destination segment
+- **WHEN** a workspace route names a destination that does not exist
+- **THEN** the workspace SHALL fall back to the Sessions destination rather than rendering an empty region
+
+### Requirement: Addressable session creation
+Opening the create-session dialog SHALL be expressible as a route.
+
+#### Scenario: External trigger opens creation
+- **WHEN** the floating assistant or another external surface requests a new session
+- **THEN** the workspace SHALL navigate to the session-creation route and open the dialog
+
+#### Scenario: Dismissing creation leaves the route
+- **WHEN** the user closes the create-session dialog without creating a session
+- **THEN** the workspace SHALL return to the destination route it came from
 
