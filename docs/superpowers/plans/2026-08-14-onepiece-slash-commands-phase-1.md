@@ -2191,7 +2191,11 @@ export function useSlashCommands(input: {
    * allowed to have side effects, and conflating the two would fire a command per character.
    */
   const updateSuggestions = useCallback((draft: string) => {
-    const completion = COMPLETION_PATTERN.exec(draft.trim());
+    // `.trim()` would erase a trailing space, making "/mode " indistinguishable from "/mode" so
+    // completing a name would reopen the dropdown it was just used to close. Stripping only
+    // leading whitespace keeps that distinction: the anchored pattern requires the match to reach
+    // the end of the string, so a trailing space makes it fail and the query resets to null.
+    const completion = COMPLETION_PATTERN.exec(draft.replace(/^\s+/, ""));
     setSuggestionQuery(completion ? (completion[1] ?? "").toLowerCase() : null);
   }, []);
 
@@ -2216,15 +2220,32 @@ export function useSlashCommands(input: {
       listAvailableCommands: () => available,
     };
 
+    const reportRunFailure = (reason: unknown): void => {
+      onError(`SlashCommands.${command.name}`, reason);
+      setOutput(errorOutput("slash.error.failed", { command: command.name }));
+    };
+
+    // `SlashCommand.run` is typed to return a Promise but is not required to be declared `async`,
+    // so a structurally valid handler can throw before ever producing one. That throw happens
+    // inside this call expression itself, before `running` exists, so only a try/catch around the
+    // call — not the `.catch()` on the promise it returns — keeps it from escaping `dispatch`
+    // uncaught. Wrapping the call in `Promise.resolve().then(...)` would also catch it, but at the
+    // cost of deferring the handler's synchronous prefix by a microtask, which breaks callers that
+    // observe a config change immediately after `dispatch` returns.
+    let running: Promise<CommandOutcome>;
+    try {
+      running = command.run(context, parsed.args);
+    } catch (reason) {
+      reportRunFailure(reason);
+      return { kind: "handled" };
+    }
+
     // The caller needs a synchronous answer about whether the model should see this input, so the
-    // handler's own result lands in state afterwards rather than being awaited here.
-    void Promise.resolve()
-      .then(() => command.run(context, parsed.args))
+    // handler's own result lands in state afterwards rather than being awaited here. `run` starts
+    // executing the moment it is called; only the settling of its promise is deferred.
+    void running
       .then((outcome) => setOutput(outcome.kind === "output" ? outcome.output : null))
-      .catch((reason) => {
-        onError(`SlashCommands.${command.name}`, reason);
-        setOutput(errorOutput("slash.error.failed", { command: command.name }));
-      });
+      .catch(reportRunFailure);
 
     return { kind: "handled" };
   }, [actions, available, capabilities, chat, config, enabled, isStreaming, navigate, onError, session]);
