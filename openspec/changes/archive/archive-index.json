@@ -2424,6 +2424,20 @@
                                               "agent-task-list",
                                               "agent-tool-execution"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-15",
+                         "changeName":  "add-agent-user-question",
+                         "path":  "openspec/changes/archive/2026-08-15-add-agent-user-question/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution",
+                                              "agent-user-question"
+                                          ]
                      }
                  ]
 }

@@ -4,11 +4,11 @@
 TBD - created by archiving change add-agent-tool-execution. Update Purpose after archive.
 ## Requirements
 ### Requirement: Native agent tool catalog
-The system SHALL assemble a fixed, provider-agnostic native API-agent tool catalog from a fixed handler registry. The baseline catalog SHALL continue to comprise a shell/command-execution tool, a file read/write tool, a content-search tool, a filename-search tool, a scoped file-edit tool, a cross-session memory tool, the read-only `list_skills`, `load_skill`, and `read_skill_resource` tools, the `shell_output` and `shell_kill` background-command tools introduced by `add-background-shell-execution`, and the `todo_write` task-list tool introduced by `add-agent-task-list`, subject to the existing permission mode and runtime predicates. The registry SHALL additionally contain the fixed Browser, Web research, `code_execution`, OCR, Artifact-publication, `delegate_cli`, and `apply_delegation_changes` handlers introduced by `complete-onepiece-builtin-tool-system`, but those new handlers SHALL be eligible only for stable Agent id `onepiece` and only when their current mode/readiness predicates pass. Each tool SHALL be defined once and translated into the request shape required by the session's `interface_format`; runtime inventory SHALL NOT create dynamic tool names or schemas.
+The system SHALL assemble a fixed, provider-agnostic native API-agent tool catalog from a fixed handler registry. The baseline catalog SHALL continue to comprise a shell/command-execution tool, a file read/write tool, a content-search tool, a filename-search tool, a scoped file-edit tool, a cross-session memory tool, the read-only `list_skills`, `load_skill`, and `read_skill_resource` tools, the `shell_output` and `shell_kill` background-command tools introduced by `add-background-shell-execution`, the `todo_write` task-list tool introduced by `add-agent-task-list`, and the `ask_user_question` clarification tool introduced by `add-agent-user-question`, subject to the existing permission mode and runtime predicates. The registry SHALL additionally contain the fixed Browser, Web research, `code_execution`, OCR, Artifact-publication, `delegate_cli`, and `apply_delegation_changes` handlers introduced by `complete-onepiece-builtin-tool-system`, but those new handlers SHALL be eligible only for stable Agent id `onepiece` and only when their current mode/readiness predicates pass. Each tool SHALL be defined once and translated into the request shape required by the session's `interface_format`; runtime inventory SHALL NOT create dynamic tool names or schemas.
 
 #### Scenario: Tools included in every native generation request
 - **WHEN** a chat generation starts for an agent with `launch_kind = api`
-- **THEN** the outgoing provider request SHALL declare the baseline shell, file, content-search, filename-search, file-edit, memory, fixed Skill, background-command, and task-list tools allowed by the active permission mode
+- **THEN** the outgoing provider request SHALL declare the baseline shell, file, content-search, filename-search, file-edit, memory, fixed Skill, background-command, task-list, and clarification tools allowed by the active permission mode
 
 #### Scenario: Background-command tools follow the shell tool's permission mode
 - **WHEN** the active permission mode excludes the shell tool from the catalog
@@ -18,6 +18,12 @@ The system SHALL assemble a fixed, provider-agnostic native API-agent tool catal
 #### Scenario: Task-list tool is available in every permission mode
 - **WHEN** a chat generation starts in plan mode
 - **THEN** the outgoing provider request SHALL still declare `todo_write`, which writes only VaneHub-internal session state and has no workspace, process, or network effect
+
+#### Scenario: Clarification tool is offered only to interactive sessions
+- **WHEN** a chat generation starts for an interactive session, including one in plan mode
+- **THEN** the outgoing provider request SHALL declare `ask_user_question`
+- **WHEN** a generation starts for a Loop worker or verifier, a scheduled-task run, a Plan attempt or repair session, or a delegated Utility attempt
+- **THEN** the outgoing provider request SHALL exclude `ask_user_question`
 
 #### Scenario: OnePiece receives eligible extended tools
 - **WHEN** a chat generation starts for stable Agent id `onepiece`
@@ -94,7 +100,7 @@ The system SHALL, when a provider response requests one or more tool calls, exec
 - **THEN** the system SHALL end the generation with a non-retryable failure rather than continuing to call the provider
 
 ### Requirement: Risk-tiered tool approval
-The system SHALL classify each tool call's risk by which tool/operation is being invoked, not by inspecting its specific arguments, and SHALL resolve whether it executes immediately, is denied, or requires approval through the unified permission evaluation defined by `permissions-core`. File-read, content-search, and filename-search operations SHALL execute without requiring user approval. File-write operations, file-edit calls, and shell execution SHALL, by default, require an explicit user approval before executing, unless the acting principal's assigned policy resolves the action to `Allow` or `Deny`. Starting a background command SHALL be classified as shell execution and SHALL NOT receive a weaker classification than an equivalent foreground call. Retrieving a background command's output SHALL be classified as a read-only operation and SHALL execute without approval; terminating a background command SHALL execute without approval because it only reduces the effects of already-approved work. Writing the session task list SHALL execute without approval because it changes only VaneHub-internal session state.
+The system SHALL classify each tool call's risk by which tool/operation is being invoked, not by inspecting its specific arguments, and SHALL resolve whether it executes immediately, is denied, or requires approval through the unified permission evaluation defined by `permissions-core`. File-read, content-search, and filename-search operations SHALL execute without requiring user approval. File-write operations, file-edit calls, and shell execution SHALL, by default, require an explicit user approval before executing, unless the acting principal's assigned policy resolves the action to `Allow` or `Deny`. Starting a background command SHALL be classified as shell execution and SHALL NOT receive a weaker classification than an equivalent foreground call. Retrieving a background command's output SHALL be classified as a read-only operation and SHALL execute without approval; terminating a background command SHALL execute without approval because it only reduces the effects of already-approved work. Writing the session task list SHALL execute without approval because it changes only VaneHub-internal session state. Asking the user a question SHALL execute without approval, because the user's answer is itself the authorization.
 
 #### Scenario: File read executes without approval
 - **WHEN** the native agent calls the file tool with a read operation
@@ -132,6 +138,10 @@ The system SHALL classify each tool call's risk by which tool/operation is being
 #### Scenario: Task-list writes execute without approval
 - **WHEN** the native agent calls `todo_write`
 - **THEN** the system SHALL execute it immediately without requesting user approval
+
+#### Scenario: Asking a question executes without approval
+- **WHEN** the native agent calls `ask_user_question`
+- **THEN** the system SHALL publish the question without first requesting a separate approval
 
 #### Scenario: A policy-allowed file write or shell call executes without approval
 - **WHEN** the acting principal's assigned policy resolves a file-write or shell-execution action to `Allow`
