@@ -1,3 +1,4 @@
+mod agent_image;
 mod anthropic_provider;
 mod api_credentials;
 mod api_process_adapter;

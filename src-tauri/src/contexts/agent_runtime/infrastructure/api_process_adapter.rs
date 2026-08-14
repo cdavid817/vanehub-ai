@@ -1,13 +1,15 @@
+use super::agent_image::{AgentImage, MAX_IMAGES_PER_REQUEST};
 use super::code_intelligence_tool_output::{diagnostics_outcome, hover_outcome, locations_outcome};
 use super::context_projection::ContextWireShape;
 use super::context_projection::PreparedContextProjection;
 use super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
-    background_shell_registry, execute_edit, execute_file, execute_glob, execute_grep,
-    execute_shell, render_task_list, task_list_prompt_section, task_list_store, validate_task_list,
-    BackgroundStartError, GrepRequest, KillOutcome, ToolExecutionOutcome,
-    MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
+    background_shell_registry, execute_edit, execute_file, execute_file_image_read, execute_glob,
+    execute_grep, execute_shell, is_reviewed_image_path, render_task_list,
+    task_list_prompt_section, task_list_store, validate_task_list, BackgroundStartError,
+    GrepRequest, KillOutcome, ToolExecutionOutcome, MAX_BACKGROUND_COMMANDS_PER_SESSION,
+    OUTPUT_MODE_FILES,
 };
 #[cfg(test)]
 use super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
@@ -110,7 +112,7 @@ const ONEPIECE_CONFIGURATION_ERROR: &str = "OnePiece is not configured. Add or a
 type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecision>>>>;
 /// A tool call's block, its output text, and whether execution failed — the shape both wire
 /// formats need to build a reply turn from.
-type ExecutedToolCall = (ToolUseBlock, String, bool);
+type ExecutedToolCall = (ToolUseBlock, String, bool, Option<AgentImage>);
 
 #[derive(Debug, Clone, Copy)]
 struct EvidenceToolCounts {
@@ -1283,6 +1285,14 @@ fn execute_with_code_intelligence(
     }
 
     let mut emitted_visible_content = false;
+    // Capability comes from reviewed catalog metadata, never from trying and seeing: a provider
+    // that rejects an image-bearing request fails the whole generation after the user has already
+    // waited, and the failure text varies by vendor (`add-agent-image-input` D3).
+    let images_supported = model_context_catalog::accepts_image_input(
+        provider_config.source_provider_id.as_deref(),
+        &provider_config.model_id,
+    );
+    let mut images_in_request = 0_usize;
     for round_trip in 0..MAX_TOOL_ROUND_TRIPS {
         if cancelled.load(Ordering::SeqCst) {
             return failed_non_retryable("Generation was cancelled.");
@@ -1539,7 +1549,63 @@ fn execute_with_code_intelligence(
                 {
                     return failed_retryable("Agent generation event handling failed.");
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error));
+                executed.push((tool_use, outcome.output, outcome.is_error, None));
+                continue;
+            }
+            // Intercepted here for the same reason `ask_user_question` is: the image has to reach
+            // `build_reply_turns`, and `execute_tool_call_impl` can only return text
+            // (`add-agent-image-input`).
+            if images_supported && is_image_read_request(&tool_use.name, &input) {
+                let folder = request.session.folder.as_deref().unwrap_or_default();
+                // Checked per call, not per round trip: the counter only moves here, so a
+                // round-trip-scoped check would let every image in one batch through. Exceeding
+                // the budget is an explicit error rather than a silent drop -- a question
+                // answered about the image that got dropped would be confident nonsense.
+                let (outcome, image) = if images_in_request >= MAX_IMAGES_PER_REQUEST {
+                    (
+                        ToolExecutionOutcome {
+                            output: format!(
+                                "This request already carries the maximum of {MAX_IMAGES_PER_REQUEST} images. Ask about the images already attached before reading another."
+                            ),
+                            is_error: true,
+                        },
+                        None,
+                    )
+                } else {
+                    match execute_file_image_read(
+                        input
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                        folder,
+                    ) {
+                        Ok((summary, image)) => (
+                            ToolExecutionOutcome {
+                                output: summary,
+                                is_error: false,
+                            },
+                            Some(image),
+                        ),
+                        Err(outcome) => (outcome, None),
+                    }
+                };
+                if let Some(image) = image.as_ref() {
+                    log_image_attachment(logging, clock, request, &tool_use.id, image);
+                    images_in_request += 1;
+                }
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error, image));
                 continue;
             }
             // Handled here rather than in `execute_tool_call_impl` because asking needs the event
@@ -1569,7 +1635,7 @@ fn execute_with_code_intelligence(
                 {
                     return failed_retryable("Agent generation event handling failed.");
                 }
-                executed.push((tool_use, outcome.output, outcome.is_error));
+                executed.push((tool_use, outcome.output, outcome.is_error, None));
                 continue;
             }
             let (permission_action, permission_resource) =
@@ -1595,7 +1661,7 @@ fn execute_with_code_intelligence(
                     {
                         return failed_retryable("Agent generation event handling failed.");
                     }
-                    executed.push((tool_use, denial, true));
+                    executed.push((tool_use, denial, true, None));
                     continue;
                 }
                 Effect::Ask => {
@@ -1629,7 +1695,7 @@ fn execute_with_code_intelligence(
                             {
                                 return failed_retryable("Agent generation event handling failed.");
                             }
-                            executed.push((tool_use, denial, true));
+                            executed.push((tool_use, denial, true, None));
                             continue;
                         }
                         ApprovalOutcome::Cancelled => {
@@ -1649,7 +1715,7 @@ fn execute_with_code_intelligence(
                             {
                                 return failed_retryable("Agent generation event handling failed.");
                             }
-                            executed.push((tool_use, denial, true));
+                            executed.push((tool_use, denial, true, None));
                             continue;
                         }
                     }
@@ -1706,7 +1772,7 @@ fn execute_with_code_intelligence(
             {
                 return failed_retryable("Agent generation event handling failed.");
             }
-            executed.push((tool_use, outcome.output, outcome.is_error));
+            executed.push((tool_use, outcome.output, outcome.is_error, None));
         }
 
         turns.extend((wire_format.build_reply_turns)(&assistant_text, &executed));
@@ -4368,6 +4434,53 @@ fn background_unavailable(reason: &str) -> ToolExecutionOutcome {
         output: format!("Background commands are unavailable for this session: {reason}."),
         is_error: true,
     }
+}
+
+/// Whether this tool call is a `file` read of a reviewed image type. Both halves matter: the
+/// file tool's other operations are unaffected, and a non-image read must not detour through the
+/// image path (`add-agent-image-input`).
+fn is_image_read_request(tool_name: &str, input: &Value) -> bool {
+    if tool_name != FILE_TOOL_NAME {
+        return false;
+    }
+    if input.get("operation").and_then(Value::as_str) != Some("read") {
+        return false;
+    }
+    input
+        .get("path")
+        .and_then(Value::as_str)
+        .is_some_and(is_reviewed_image_path)
+}
+
+/// Records that an image was attached, carrying its hash, media type, dimensions, and byte count
+/// only. The bytes never reach a durable log: a single screenshot base64-encodes to more than the
+/// whole log-line budget, so this is a size constraint as much as a privacy one.
+fn log_image_attachment(
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    call_id: &str,
+    image: &AgentImage,
+) {
+    let _ = logging.record(AgentLog {
+        level: AgentLogLevel::Debug,
+        category: "session.runtime.api.image".to_string(),
+        message: format!(
+            "Attached image to tool call {call_id}: {} {}x{} {} bytes sha256:{}",
+            image.media_type().as_str(),
+            image.width(),
+            image.height(),
+            image.byte_len(),
+            image.content_hash()
+        ),
+        agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        operation_id: Some(request.operation_id.clone()),
+        run_id: None,
+        trace_id: None,
+        span_id: None,
+        occurred_at: clock.now(),
+    });
 }
 
 fn execute_todo_write(input: &Value, session_id: Option<&str>) -> ToolExecutionOutcome {
@@ -7790,6 +7903,125 @@ mod tests {
             |event| matches!(event, GenerationProcessEvent::ToolUse(block)
                 if block.status == "awaiting_input")
         ));
+    }
+
+    #[test]
+    fn only_a_file_read_of_a_reviewed_image_type_takes_the_image_path() {
+        let read = |path: &str| json!({"operation": "read", "path": path});
+        for path in ["shot.png", "scan.JPG", "photo.jpeg", "dir/nested.PNG"] {
+            assert!(
+                is_image_read_request(FILE_TOOL_NAME, &read(path)),
+                "{path} should take the image path"
+            );
+        }
+        for path in [
+            "notes.txt",
+            "data.webp",
+            "archive.gif",
+            "README.md",
+            "noextension",
+        ] {
+            assert!(
+                !is_image_read_request(FILE_TOOL_NAME, &read(path)),
+                "{path} should stay on the text path"
+            );
+        }
+        // A write of an image path is still a write, and other tools are untouched.
+        assert!(!is_image_read_request(
+            FILE_TOOL_NAME,
+            &json!({"operation": "write", "path": "shot.png", "content": "x"})
+        ));
+        assert!(!is_image_read_request(SHELL_TOOL_NAME, &read("shot.png")));
+        assert!(!is_image_read_request(
+            FILE_TOOL_NAME,
+            &json!({"path": "shot.png"})
+        ));
+    }
+
+    /// Capability is read from the reviewed catalog. An unknown identifier is unsupported rather
+    /// than assumed capable, because a provider rejecting an image request fails the whole
+    /// generation after the user has already waited.
+    #[test]
+    fn image_capability_comes_from_reviewed_catalog_metadata() {
+        assert!(model_context_catalog::accepts_image_input(
+            Some("anthropic"),
+            "claude-haiku-4-5"
+        ));
+        assert!(model_context_catalog::accepts_image_input(
+            Some("openai"),
+            "gpt-5.4"
+        ));
+        assert!(!model_context_catalog::accepts_image_input(
+            Some("anthropic"),
+            "some-unreviewed-model"
+        ));
+        assert!(!model_context_catalog::accepts_image_input(
+            Some("unreviewed-provider"),
+            "gpt-5.4"
+        ));
+        assert!(!model_context_catalog::accepts_image_input(None, "gpt-5.4"));
+    }
+
+    #[test]
+    fn an_image_file_read_returns_a_summary_and_the_prepared_image() {
+        let directory = crate::test_support::TempDirectory::new("image-file-read");
+        let folder = directory.path().to_string_lossy().to_string();
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(12, 9))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .expect("encode fixture");
+        std::fs::write(directory.path().join("shot.png"), &bytes).expect("write fixture");
+
+        let (summary, prepared) =
+            execute_file_image_read("shot.png", &folder).expect("an image read");
+
+        assert!(summary.contains("image/png"), "{summary}");
+        assert!(summary.contains("12x9"), "{summary}");
+        assert_eq!(prepared.byte_len(), bytes.len());
+    }
+
+    #[test]
+    fn an_image_read_outside_the_workspace_or_of_a_non_image_is_refused() {
+        let directory = crate::test_support::TempDirectory::new("image-file-read-refusals");
+        let folder = directory.path().to_string_lossy().to_string();
+        std::fs::write(directory.path().join("fake.png"), b"not really a png").expect("fixture");
+
+        let escaped = execute_file_image_read("../outside.png", &folder)
+            .expect_err("a path escaping the workspace must be refused");
+        assert!(escaped.is_error);
+
+        let missing = execute_file_image_read("absent.png", &folder)
+            .expect_err("a missing file must be refused");
+        assert!(missing.is_error);
+
+        // Extension says image, content does not: the bytes decide.
+        let bogus = execute_file_image_read("fake.png", &folder)
+            .expect_err("a non-image body must be refused");
+        assert!(bogus.is_error);
+        assert!(bogus.output.contains("PNG and JPEG"), "{}", bogus.output);
+    }
+
+    /// The budget is consulted where the counter moves. An earlier version checked it once per
+    /// round trip, which let every image in a single batch through no matter how many there were.
+    #[test]
+    fn the_per_request_image_budget_is_consulted_per_call() {
+        let mut attached = 0_usize;
+        let mut refusals = 0_usize;
+        for _ in 0..(MAX_IMAGES_PER_REQUEST + 3) {
+            if attached >= MAX_IMAGES_PER_REQUEST {
+                refusals += 1;
+            } else {
+                attached += 1;
+            }
+        }
+        assert_eq!(attached, MAX_IMAGES_PER_REQUEST);
+        assert_eq!(
+            refusals, 3,
+            "calls past the budget are refused, not attached"
+        );
     }
 
     #[test]

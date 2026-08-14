@@ -20,7 +20,7 @@ pub(crate) use background_shell::{
     MAX_BACKGROUND_COMMANDS_PER_SESSION,
 };
 pub(crate) use edit_tool::execute_edit;
-pub(crate) use file_tool::execute_file;
+pub(crate) use file_tool::{execute_file, execute_file_image_read, is_reviewed_image_path};
 pub(crate) use glob_tool::execute_glob;
 pub(crate) use grep_tool::{execute_grep, GrepRequest, OUTPUT_MODE_FILES};
 pub(crate) use shell_tool::execute_shell;

@@ -5,6 +5,7 @@
 //! `interface_format` without any other branching. No I/O lives here so this module is
 //! unit-testable without a live network connection.
 
+use super::agent_image::AgentImage;
 use super::api_process_adapter::GenerationOptions;
 use super::tool_call_accumulator::ToolCallAccumulator;
 use crate::contexts::agent_runtime::application::{
@@ -22,9 +23,11 @@ pub(crate) fn project_request_context(
     )
 }
 
-/// A tool call's block, its output text, and whether execution failed — the shape both wire
-/// formats need to build a reply turn from.
-type ExecutedToolCall = (ToolUseBlock, String, bool);
+/// A tool call's block, its output text, whether execution failed, and any image it returned
+/// (`add-agent-image-input`). The image travels beside the text rather than inside it: a
+/// `tool_result` carries structured content, and base64 pasted into the text field would be read
+/// as prose.
+type ExecutedToolCall = (ToolUseBlock, String, bool, Option<AgentImage>);
 
 /// The literal SSE payload OpenAI-compatible endpoints send to terminate a stream — not a JSON
 /// object, so it must be checked before attempting to parse `data` as JSON.
@@ -114,7 +117,7 @@ fn tool_definition_to_json(tool: &ToolDefinition) -> Value {
 pub(crate) fn build_reply_turns(assistant_text: &str, executed: &[ExecutedToolCall]) -> Vec<Value> {
     let tool_calls: Vec<Value> = executed
         .iter()
-        .map(|(tool_use, _, _)| {
+        .map(|(tool_use, _, _, _)| {
             json!({
                 "id": tool_use.id,
                 "type": "function",
@@ -135,14 +138,36 @@ pub(crate) fn build_reply_turns(assistant_text: &str, executed: &[ExecutedToolCa
         "content": assistant_content,
         "tool_calls": tool_calls,
     })];
-    for (tool_use, output, _is_error) in executed {
+    for (tool_use, output, _is_error, image) in executed {
         turns.push(json!({
             "role": "tool",
             "tool_call_id": tool_use.id,
             "content": output,
         }));
+        // This wire format has no image content inside a `tool` message, so an image rides on a
+        // following user turn that references the call it came from. Attaching it to the `tool`
+        // message instead would be silently dropped by every vendor that implements the spec.
+        if let Some(image) = image {
+            turns.push(json!({
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": format!("Image returned by tool call {}:", tool_use.id) },
+                    image_content_block(image),
+                ],
+            }));
+        }
     }
     turns
+}
+
+/// OpenAI's image shape: a data URL rather than a separate media-type field.
+pub(crate) fn image_content_block(image: &AgentImage) -> Value {
+    json!({
+        "type": "image_url",
+        "image_url": {
+            "url": format!("data:{};base64,{}", image.media_type().as_str(), image.base64()),
+        },
+    })
 }
 
 /// Translates one decoded SSE `data:` payload into an application event, or `None` when the
@@ -518,7 +543,10 @@ mod tests {
             output: None,
             status: "pending".to_string(),
         };
-        let turns = build_reply_turns("Let me check.", &[(tool_use, "a.txt\n".to_string(), false)]);
+        let turns = build_reply_turns(
+            "Let me check.",
+            &[(tool_use, "a.txt\n".to_string(), false, None)],
+        );
         assert_eq!(turns.len(), 2);
         assert_eq!(turns[0]["role"], "assistant");
         assert_eq!(turns[0]["content"], "Let me check.");
@@ -620,5 +648,65 @@ mod tests {
             failure.diagnostic,
             "OpenAI-compatible API request failed with status 500."
         );
+    }
+
+    #[test]
+    fn a_text_only_tool_result_adds_no_extra_turn() {
+        let tool_use = ToolUseBlock {
+            id: "call_text".to_string(),
+            name: "file".to_string(),
+            input: Some(json!({"path": "a.txt"})),
+            output: None,
+            status: "pending".to_string(),
+        };
+        let turns = build_reply_turns("", &[(tool_use, "hello".to_string(), false, None)]);
+        assert_eq!(turns.len(), 2, "assistant turn plus one tool turn");
+        assert_eq!(turns[1]["content"], "hello");
+    }
+
+    /// This wire format has no image content inside a `tool` message, so the image rides on a
+    /// following user turn that names the call it came from.
+    #[test]
+    fn an_image_result_rides_on_a_following_user_turn() {
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(4, 4))
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .expect("encode fixture");
+        let prepared = super::super::agent_image::prepare_image(&bytes, None).expect("prepare");
+        let tool_use = ToolUseBlock {
+            id: "call_image".to_string(),
+            name: "file".to_string(),
+            input: Some(json!({"path": "shot.png"})),
+            output: None,
+            status: "pending".to_string(),
+        };
+
+        let turns = build_reply_turns(
+            "",
+            &[(
+                tool_use,
+                "read shot.png".to_string(),
+                false,
+                Some(prepared.clone()),
+            )],
+        );
+
+        assert_eq!(turns.len(), 3);
+        assert_eq!(turns[1]["role"], "tool");
+        assert_eq!(turns[2]["role"], "user");
+        assert_eq!(turns[2]["content"][0]["type"], "text");
+        assert!(turns[2]["content"][0]["text"]
+            .as_str()
+            .expect("text")
+            .contains("call_image"));
+        assert_eq!(turns[2]["content"][1]["type"], "image_url");
+        let url = turns[2]["content"][1]["image_url"]["url"]
+            .as_str()
+            .expect("url");
+        assert!(url.starts_with("data:image/png;base64,"), "{url}");
+        assert!(url.ends_with(&prepared.base64()));
     }
 }
