@@ -14,6 +14,7 @@ use serde_json::json;
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const SHELL_OUTPUT_TOOL_NAME: &str = "shell_output";
 pub(crate) const SHELL_KILL_TOOL_NAME: &str = "shell_kill";
+pub(crate) const TODO_WRITE_TOOL_NAME: &str = "todo_write";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
@@ -78,7 +79,49 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         read_skill_resource_tool_definition(),
         shell_output_tool_definition(),
         shell_kill_tool_definition(),
+        todo_write_tool_definition(),
     ]
+}
+
+/// Whole-list replacement rather than per-item operations (`add-agent-task-list` D1): addressing
+/// items by id would need the model to carry stable ids across turns, which desynchronizes the
+/// moment a turn is compacted away.
+fn todo_write_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: TODO_WRITE_TOOL_NAME.to_string(),
+        description: "Record your task list for this session, replacing it in full. Use it for \
+                      work with several steps: write the list once you know the steps, and rewrite \
+                      it as each one starts and finishes. The list is shown back to you on every \
+                      turn, so it survives context compaction. Submit an empty list to clear it."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "description": "The complete task list. This replaces any previous list, so include every task you still care about, not only the changed ones.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {
+                                "type": "string",
+                                "description": "What the task is, as a short title of at most 200 characters."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                                "description": "At most one task may be in_progress at a time; a list with two is rejected."
+                            }
+                        },
+                        "required": ["content", "status"],
+                        "additionalProperties": false
+                    }
+                }
+            },
+            "required": ["todos"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 fn shell_tool_definition() -> ToolDefinition {
@@ -221,6 +264,7 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
         shell_output_tool_definition(),
+        todo_write_tool_definition(),
     ]
 }
 
@@ -552,6 +596,7 @@ mod tests {
                 READ_SKILL_RESOURCE_TOOL_NAME,
                 SHELL_OUTPUT_TOOL_NAME,
                 SHELL_KILL_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
             ]
         );
     }
@@ -571,6 +616,7 @@ mod tests {
                 LOAD_SKILL_TOOL_NAME,
                 READ_SKILL_RESOURCE_TOOL_NAME,
                 SHELL_OUTPUT_TOOL_NAME,
+                TODO_WRITE_TOOL_NAME,
             ]
         );
         assert_eq!(

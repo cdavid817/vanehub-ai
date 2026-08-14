@@ -12,6 +12,7 @@ mod file_tool;
 mod glob_tool;
 mod grep_tool;
 mod shell_tool;
+mod task_list;
 mod walk;
 
 pub(crate) use background_shell::{
@@ -23,6 +24,12 @@ pub(crate) use file_tool::execute_file;
 pub(crate) use glob_tool::execute_glob;
 pub(crate) use grep_tool::{execute_grep, GrepRequest, OUTPUT_MODE_FILES};
 pub(crate) use shell_tool::execute_shell;
+pub(crate) use task_list::{
+    prompt_section as task_list_prompt_section, render as render_task_list,
+    store as task_list_store, validate as validate_task_list,
+};
+#[cfg(test)]
+pub(crate) use task_list::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
 
 /// Shared cap on how many matches a search-style tool (glob, grep) returns. Bounds the reply
 /// turn the model has to read, independent of how many files the workspace actually contains.

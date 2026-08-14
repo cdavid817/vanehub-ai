@@ -12,7 +12,7 @@ use super::application::{
     LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
-    background_shell_registry, ManualNativeToolControl, NativeLoopScheduler,
+    background_shell_registry, task_list_store, ManualNativeToolControl, NativeLoopScheduler,
     NativeSeatTurnCoordinator,
 };
 use std::sync::Arc;
@@ -245,6 +245,9 @@ impl AgentRuntimeApi {
     /// generation cancellation, which would kill the dev server a user deliberately left running.
     pub(crate) fn reap_background_commands(&self, session_id: &str) {
         background_shell_registry().reap_session(session_id);
+        // The task list is session-scoped runtime state with the same lifetime, so it is
+        // discarded on the same edge (`add-agent-task-list`).
+        task_list_store().clear_session(session_id);
     }
 
     /// Terminates every remaining background command on desktop shutdown. Windows' job object

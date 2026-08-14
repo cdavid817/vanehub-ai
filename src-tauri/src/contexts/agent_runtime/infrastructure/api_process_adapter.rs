@@ -5,9 +5,12 @@ use super::context_reduction::{build_structured_summary_turns, reconstruct_candi
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
     background_shell_registry, execute_edit, execute_file, execute_glob, execute_grep,
-    execute_shell, BackgroundStartError, GrepRequest, KillOutcome, ToolExecutionOutcome,
+    execute_shell, render_task_list, task_list_prompt_section, task_list_store, validate_task_list,
+    BackgroundStartError, GrepRequest, KillOutcome, ToolExecutionOutcome,
     MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
+#[cfg(test)]
+use super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING};
 use super::SqliteNativeToolRepository;
 use super::{anthropic_provider, model_context_catalog, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
@@ -36,6 +39,7 @@ use crate::contexts::agent_runtime::application::{
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
     MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
     SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -2057,11 +2061,16 @@ fn resolve_system_prompt_with_settings(
             }
         }
     };
+    // Last so the most volatile section sits at the end of the prompt: the earlier sections are
+    // stable across a session and stay cacheable, while this one changes on every `todo_write`
+    // (`add-agent-task-list` D2).
+    let task_list_section = task_list_prompt_section(&request.session.id);
     let sections: Vec<String> = [
         core_section,
         custom_instructions_section,
         skill_section,
         memory_section,
+        task_list_section,
     ]
     .into_iter()
     .flatten()
@@ -3339,6 +3348,9 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
         SHELL_OUTPUT_TOOL_NAME | SHELL_KILL_TOOL_NAME => {
             (Action::file_read(), Resource::new(tool_name))
         }
+        // Writes only VaneHub-internal session state, with no workspace, process, or network
+        // effect -- the same no-approval classification the fixed Skill tools use.
+        TODO_WRITE_TOOL_NAME => (Action::file_read(), Resource::new(tool_name)),
         FILE_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
             let resource = Resource::file_path(path);
@@ -4195,6 +4207,58 @@ fn background_unavailable(reason: &str) -> ToolExecutionOutcome {
     }
 }
 
+fn execute_todo_write(input: &Value, session_id: Option<&str>) -> ToolExecutionOutcome {
+    let Some(todos) = input.get("todos").and_then(Value::as_array) else {
+        return ToolExecutionOutcome {
+            output: "todos must be an array of {content, status} objects.".to_string(),
+            is_error: true,
+        };
+    };
+    let mut submitted = Vec::with_capacity(todos.len());
+    for (index, todo) in todos.iter().enumerate() {
+        let Some(content) = todo.get("content").and_then(Value::as_str) else {
+            return ToolExecutionOutcome {
+                output: format!("Task {} is missing a string content field.", index + 1),
+                is_error: true,
+            };
+        };
+        let Some(status) = todo.get("status").and_then(Value::as_str) else {
+            return ToolExecutionOutcome {
+                output: format!("Task {} is missing a string status field.", index + 1),
+                is_error: true,
+            };
+        };
+        submitted.push((content.to_owned(), status.to_owned()));
+    }
+    // Validation happens before any store access, so a rejected write provably leaves the
+    // previous list untouched rather than half-applied.
+    let items = match validate_task_list(&submitted) {
+        Ok(items) => items,
+        Err(error) => {
+            return ToolExecutionOutcome {
+                output: error.message(),
+                is_error: true,
+            }
+        }
+    };
+    let Some(session_id) = session_id else {
+        return ToolExecutionOutcome {
+            output: "The task list is unavailable because this session has no runtime identity."
+                .to_string(),
+            is_error: true,
+        };
+    };
+    let stored = task_list_store().replace(session_id, items);
+    ToolExecutionOutcome {
+        output: if stored.is_empty() {
+            "Task list cleared.".to_string()
+        } else {
+            format!("Task list updated.\n{}", render_task_list(&stored))
+        },
+        is_error: false,
+    }
+}
+
 /// Shortens a command for a one-line status header. Cuts on a character boundary so a multi-byte
 /// character is never split into replacement characters.
 fn truncate_for_label(command: &str) -> String {
@@ -4367,6 +4431,11 @@ fn execute_tool_call_impl(
     // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
     if registered_handler == Some(ExistingToolHandler::Recall) {
         return execute_recall(input, retrieval);
+    }
+    // Handled beside remember/recall for the same reason: it touches only VaneHub-internal
+    // session state, so it needs neither a workspace folder nor a plan-mode restriction.
+    if registered_handler == Some(ExistingToolHandler::TodoWrite) {
+        return execute_todo_write(input, session_id);
     }
     if registered_handler == Some(ExistingToolHandler::SearchCode) {
         let Some(folder) = workspace_folder else {
@@ -7351,6 +7420,180 @@ mod tests {
     }
 
     #[test]
+    fn task_list_writes_are_classified_as_a_no_approval_operation() {
+        let (action, resource) = permission_action_and_resource(
+            TODO_WRITE_TOOL_NAME,
+            &json!({"todos": [{"content": "Do it", "status": "pending"}]}),
+        );
+        assert_eq!(action, Action::file_read());
+        assert_eq!(resource, Resource::new(TODO_WRITE_TOOL_NAME));
+    }
+
+    /// The tool schema hardcodes its status enum while the runtime parses `task_list`'s
+    /// constants. They live in different layers and would otherwise drift silently -- a schema
+    /// value the validator rejects would look to the model like an arbitrary refusal.
+    #[test]
+    fn the_todo_schema_status_enum_matches_the_statuses_the_runtime_accepts() {
+        let todo_write = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == TODO_WRITE_TOOL_NAME)
+            .expect("todo_write present in catalog");
+        let declared = todo_write.input_schema["properties"]["todos"]["items"]["properties"]
+            ["status"]["enum"]
+            .as_array()
+            .expect("status enum")
+            .iter()
+            .map(|value| value.as_str().expect("string").to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            declared,
+            vec![STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_COMPLETED]
+        );
+        for status in &declared {
+            assert!(
+                validate_task_list(&[("Task".to_owned(), status.clone())]).is_ok(),
+                "schema offers {status} but the runtime rejects it"
+            );
+        }
+    }
+
+    /// The task-list store is process-wide, so every test that writes it needs its own session id
+    /// -- sharing `TEST_SESSION_ID` would make these race against each other under a parallel
+    /// test runner.
+    fn write_todos(session_id: &str, todos: Value, plan_mode: bool) -> ToolExecutionOutcome {
+        execute_tool_call_impl(
+            TODO_WRITE_TOOL_NAME,
+            &json!({ "todos": todos }),
+            None,
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            None,
+            None,
+            plan_mode,
+            &UnavailableSkillReads,
+            Some(session_id),
+        )
+    }
+
+    #[test]
+    fn todo_write_stores_the_list_and_echoes_it_back() {
+        let session = "todo-echo-session";
+        let outcome = write_todos(
+            session,
+            json!([
+                {"content": "Read the code", "status": STATUS_COMPLETED},
+                {"content": "Write the fix", "status": STATUS_IN_PROGRESS},
+            ]),
+            false,
+        );
+
+        assert!(!outcome.is_error, "{}", outcome.output);
+        assert!(outcome.output.contains("[x] Read the code"));
+        assert!(outcome.output.contains("[~] Write the fix"));
+        assert_eq!(task_list_store().get(session).len(), 2);
+        task_list_store().clear_session(session);
+    }
+
+    /// No workspace folder is required: the list is VaneHub-internal state, like `remember`.
+    #[test]
+    fn todo_write_needs_no_workspace_folder_and_is_available_in_plan_mode() {
+        for (session, plan_mode) in [
+            ("todo-no-folder-session", false),
+            ("todo-plan-mode-session", true),
+        ] {
+            let outcome = write_todos(
+                session,
+                json!([{"content": "Task", "status": STATUS_PENDING}]),
+                plan_mode,
+            );
+            assert!(!outcome.is_error, "{}", outcome.output);
+            assert!(!outcome.output.contains("plan mode"));
+            task_list_store().clear_session(session);
+        }
+    }
+
+    #[test]
+    fn a_rejected_todo_write_reports_why_and_leaves_the_previous_list_intact() {
+        let session = "todo-rejection-session";
+        assert!(
+            !write_todos(
+                session,
+                json!([{"content": "Keep me", "status": STATUS_IN_PROGRESS}]),
+                false
+            )
+            .is_error
+        );
+
+        let rejected = write_todos(
+            session,
+            json!([
+                {"content": "One", "status": STATUS_IN_PROGRESS},
+                {"content": "Two", "status": STATUS_IN_PROGRESS},
+            ]),
+            false,
+        );
+        assert!(rejected.is_error);
+        assert!(rejected.output.contains("only one task may be in progress"));
+
+        let stored = task_list_store().get(session);
+        assert_eq!(
+            stored.len(),
+            1,
+            "a rejected write must not disturb the stored list"
+        );
+        assert_eq!(stored[0].content, "Keep me");
+        task_list_store().clear_session(session);
+    }
+
+    #[test]
+    fn todo_write_rejects_malformed_items_before_touching_the_store() {
+        let session = "todo-malformed-session";
+        for todos in [
+            json!("not an array"),
+            json!([{"status": STATUS_PENDING}]),
+            json!([{"content": "No status"}]),
+            json!([{"content": 7, "status": STATUS_PENDING}]),
+        ] {
+            let outcome = write_todos(session, todos.clone(), false);
+            assert!(outcome.is_error, "expected rejection for {todos}");
+            assert!(task_list_store().get(session).is_empty());
+        }
+    }
+
+    #[test]
+    fn an_over_long_todo_list_is_rejected_by_the_executor() {
+        let session = "todo-over-long-session";
+        let todos: Vec<Value> = (0..=MAX_TASK_ITEMS)
+            .map(|index| json!({"content": format!("Task {index}"), "status": STATUS_PENDING}))
+            .collect();
+        let outcome = write_todos(session, json!(todos), false);
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains(&MAX_TASK_ITEMS.to_string()));
+        assert!(task_list_store().get(session).is_empty());
+    }
+
+    #[test]
+    fn an_empty_todo_submission_clears_the_list() {
+        let session = "todo-clear-session";
+        assert!(
+            !write_todos(
+                session,
+                json!([{"content": "Old task", "status": STATUS_PENDING}]),
+                false
+            )
+            .is_error
+        );
+
+        let outcome = write_todos(session, json!([]), false);
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("cleared"));
+        assert!(task_list_store().get(session).is_empty());
+    }
+
+    #[test]
     fn mcp_and_unknown_tools_keep_their_fail_closed_permission_mappings() {
         let (mcp_action, mcp_resource) = permission_action_and_resource(
             "mcp__filesystem-tools__search",
@@ -8152,7 +8395,7 @@ mod tests {
         let tools =
             resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -8185,7 +8428,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 267);
+        assert_eq!(tools.len(), 268);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, GREP_TOOL_NAME);
@@ -8197,6 +8440,7 @@ mod tests {
         assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
         assert_eq!(tools[9].name, SHELL_OUTPUT_TOOL_NAME);
         assert_eq!(tools[10].name, SHELL_KILL_TOOL_NAME);
+        assert_eq!(tools[11].name, TODO_WRITE_TOOL_NAME);
     }
 
     #[test]
@@ -8231,7 +8475,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 268);
+        assert_eq!(tools.len(), 269);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 
@@ -8252,7 +8496,7 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            11,
+            12,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
@@ -8266,6 +8510,7 @@ mod tests {
         assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
         assert_eq!(tools[9].name, SHELL_OUTPUT_TOOL_NAME);
         assert_eq!(tools[10].name, SHELL_KILL_TOOL_NAME);
+        assert_eq!(tools[11].name, TODO_WRITE_TOOL_NAME);
         let logs = logging.logs.lock().expect("logs");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].level, AgentLogLevel::Warn);
@@ -8331,7 +8576,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 12);
+        assert_eq!(tools.len(), 13);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 
