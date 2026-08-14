@@ -115,6 +115,9 @@ export function MainLayout({
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
   const [planCenterVisited, setPlanCenterVisited] = useState(false);
   const [workBoardVisited, setWorkBoardVisited] = useState(false);
+  // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
+  // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
+  const [slashTabRequest, setSlashTabRequest] = useState<{ tab: SessionTabId; nonce: number } | null>(null);
   const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
@@ -209,18 +212,34 @@ export function MainLayout({
   const displayedMessages = loopInspection?.messages ?? model.messages;
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
-    : null;
+    : slashTabRequest?.tab ?? null;
   const usesStructuredChat = Boolean(
     displayedSession && (displayedSession.interactionMode === "api" || seatsFromSession(displayedSession).length > 1),
   );
+  const openAssociatedPlan = () => {
+    const run = model.chatConfig.associatedPlanRun;
+    if (!run) return;
+    setPlanInspectionRunId(run.id);
+    setPlanCenterVisited(true);
+    setDestination("plans");
+  };
   const apiComposer = !loopInspection && usesStructuredChat ? (
-    <ApiSessionComposer model={model} onOpenPlan={() => {
-      const run = model.chatConfig.associatedPlanRun;
-      if (!run) return;
-      setPlanInspectionRunId(run.id);
-      setPlanCenterVisited(true);
-      setDestination("plans");
-    }} />
+    <ApiSessionComposer
+      model={model}
+      navigation={{
+        // Null (not the callback) is what tells the hook `/plan` has nothing to open — passing a
+        // function unconditionally would leave the command offerable but inert.
+        openAssociatedPlan: model.chatConfig.associatedPlanRun ? openAssociatedPlan : null,
+        openDestination: (target) => {
+          if (target === "todo-board") setWorkBoardVisited(true);
+          if (target === "plans") setPlanCenterVisited(true);
+          if (target === "loops") setLoopCenterVisited(true);
+          setDestination(target);
+        },
+        openSessionTab: (tab) => setSlashTabRequest((current) => ({ tab, nonce: (current?.nonce ?? 0) + 1 })),
+      }}
+      onOpenPlan={openAssociatedPlan}
+    />
   ) : null;
 
   return (
@@ -346,6 +365,7 @@ export function MainLayout({
                     />
                   ) : null}
                   requestedTab={requestedWorkspaceTab}
+                  requestedTabNonce={slashTabRequest?.nonce ?? 0}
                   sessionActivationKey={sessionActivationKey}
                   turnStatus={loopInspection ? null : model.turnStatus}
                   visibilityControls={{
