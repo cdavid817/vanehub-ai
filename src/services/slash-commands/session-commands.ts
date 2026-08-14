@@ -17,10 +17,12 @@ export const SESSION_COMMANDS: SlashCommand[] = [
     name: "export", category: "session", argumentHint: "[md|json]", appliesTo: isOnePieceSession,
     run: async (context, args) => {
       const requested = args[0] ?? "md";
-      const format = EXPORT_FORMATS[requested];
-      if (!format) {
+      // Bracket indexing on a plain object walks Object.prototype, so an unguarded lookup would
+      // let names like "constructor" or "toString" resolve to a truthy, non-format value.
+      if (!Object.hasOwn(EXPORT_FORMATS, requested)) {
         return error("slash.error.badArgument", { command: "export", allowed: Object.keys(EXPORT_FORMATS).join(", ") });
       }
+      const format = EXPORT_FORMATS[requested];
       context.actions.exportSession(context.session, format);
       return { kind: "output", output: { titleKey: "slash.output.applied", tone: "info", messages: [{ key: "slash.output.export", params: { value: format } }] } };
     },
@@ -66,9 +68,11 @@ export const SESSION_COMMANDS: SlashCommand[] = [
             ],
           },
         };
-      } catch {
+      } catch (reason) {
         // The panel is the only feedback channel a command has, so a failed lookup has to be
-        // reported here rather than thrown into a boundary the user never sees.
+        // reported here rather than thrown into a boundary the user never sees; reportFailure is
+        // what keeps the failure from vanishing entirely once this catch has absorbed it.
+        context.reportFailure("SlashCommands.usage", reason);
         return error("slash.error.usageUnavailable");
       }
     },

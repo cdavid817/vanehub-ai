@@ -14,6 +14,7 @@ function context(overrides: { config?: Partial<ChatConfig>; isStreaming?: boolea
       totalTokens: 1234, inputTokens: 1000, outputTokens: 234, responseCount: 7,
     }),
   };
+  const reportFailure = vi.fn();
   const ctx = {
     session: session(),
     config: {
@@ -28,9 +29,10 @@ function context(overrides: { config?: Partial<ChatConfig>; isStreaming?: boolea
     },
     actions,
     navigate: { openAssociatedPlan: null, openDestination: vi.fn(), openSessionTab: vi.fn() },
+    reportFailure,
     listAvailableCommands: () => [],
   } as unknown as CommandContext;
-  return { ctx, actions };
+  return { ctx, actions, reportFailure };
 }
 
 const byName = (name: string): SlashCommand => {
@@ -48,18 +50,33 @@ describe("session commands", () => {
 
   it("/export defaults to markdown", async () => {
     const { ctx, actions } = context();
-    await byName("export").run(ctx, []);
+    const outcome = await byName("export").run(ctx, []);
     expect(actions.exportSession).toHaveBeenCalledWith(ctx.session, "markdown");
+    expect(outcome).toEqual({
+      kind: "output",
+      output: { titleKey: "slash.output.applied", tone: "info",
+        messages: [{ key: "slash.output.export", params: { value: "markdown" } }] },
+    });
   });
 
   it("/export accepts json and the md alias", async () => {
     const json = context();
-    await byName("export").run(json.ctx, ["json"]);
+    const jsonOutcome = await byName("export").run(json.ctx, ["json"]);
     expect(json.actions.exportSession).toHaveBeenCalledWith(json.ctx.session, "json");
+    expect(jsonOutcome).toEqual({
+      kind: "output",
+      output: { titleKey: "slash.output.applied", tone: "info",
+        messages: [{ key: "slash.output.export", params: { value: "json" } }] },
+    });
 
     const md = context();
-    await byName("export").run(md.ctx, ["md"]);
+    const mdOutcome = await byName("export").run(md.ctx, ["md"]);
     expect(md.actions.exportSession).toHaveBeenCalledWith(md.ctx.session, "markdown");
+    expect(mdOutcome).toEqual({
+      kind: "output",
+      output: { titleKey: "slash.output.applied", tone: "info",
+        messages: [{ key: "slash.output.export", params: { value: "markdown" } }] },
+    });
   });
 
   it("/export rejects an unknown format", async () => {
@@ -73,6 +90,19 @@ describe("session commands", () => {
     });
   });
 
+  it("/export rejects prototype property names instead of walking the prototype chain", async () => {
+    for (const requested of ["constructor", "toString", "hasOwnProperty", "__proto__"]) {
+      const { ctx, actions } = context();
+      const outcome = await byName("export").run(ctx, [requested]);
+      expect(actions.exportSession).not.toHaveBeenCalled();
+      expect(outcome).toEqual({
+        kind: "output",
+        output: { titleKey: "slash.error.title", tone: "error",
+          messages: [{ key: "slash.error.badArgument", params: { command: "export", allowed: "md, markdown, json" } }] },
+      });
+    }
+  });
+
   it("/stop only acts while streaming", async () => {
     const idle = context({ isStreaming: false });
     const outcome = await byName("stop").run(idle.ctx, []);
@@ -84,8 +114,9 @@ describe("session commands", () => {
     });
 
     const busy = context({ isStreaming: true });
-    await byName("stop").run(busy.ctx, []);
+    const busyOutcome = await byName("stop").run(busy.ctx, []);
     expect(busy.actions.stop).toHaveBeenCalled();
+    expect(busyOutcome).toEqual({ kind: "handled" });
   });
 
   it("/status reports the current runtime switches", async () => {
@@ -124,10 +155,12 @@ describe("session commands", () => {
     });
   });
 
-  it("/usage surfaces a service failure instead of throwing", async () => {
-    const { ctx, actions } = context();
-    actions.loadUsageSummary.mockRejectedValue(new Error("backend down"));
+  it("/usage surfaces a service failure instead of throwing, and reports it", async () => {
+    const { ctx, actions, reportFailure } = context();
+    const reason = new Error("backend down");
+    actions.loadUsageSummary.mockRejectedValue(reason);
     const outcome = await byName("usage").run(ctx, []);
+    expect(reportFailure).toHaveBeenCalledWith("SlashCommands.usage", reason);
     expect(outcome).toEqual({
       kind: "output",
       output: { titleKey: "slash.error.title", tone: "error",
