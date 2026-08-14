@@ -2248,6 +2248,19 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-background-shell-execution",
+                         "path":  "openspec/changes/archive/2026-08-14-add-background-shell-execution/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-tool-execution"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-onepiece-context-evidence-and-controls-ui",
                          "path":  "openspec/changes/archive/2026-08-14-add-onepiece-context-evidence-and-controls-ui/",
                          "artifacts":  [
