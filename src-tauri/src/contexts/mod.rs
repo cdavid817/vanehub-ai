@@ -15,4 +15,5 @@ pub(crate) mod skill_evolution_evidence;
 pub(crate) mod ssh_connections;
 pub(crate) mod task_orchestration;
 pub(crate) mod tooling;
+pub(crate) mod work_board;
 pub(crate) mod workspaces;

@@ -45,6 +45,7 @@ import type {
   SessionSearchInput,
   SessionSearchResult,
   ScheduledTask,
+  ScheduledTaskRun,
   WorkflowState,
 } from "../types/agent";
 import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
@@ -353,6 +354,7 @@ export interface AgentService {
   getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
   saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
   listScheduledTasks(): Promise<ScheduledTask[]>;
+  listScheduledTaskRuns(taskId: string): Promise<ScheduledTaskRun[]>;
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;

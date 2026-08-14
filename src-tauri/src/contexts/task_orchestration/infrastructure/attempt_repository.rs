@@ -183,6 +183,20 @@ impl SqlitePlanRepository {
         if attempt_changed != 1 || task_changed != 1 {
             return Err(PlanApplicationError::Conflict);
         }
+        transaction
+            .execute(
+                r#"UPDATE sessions
+                   SET origin_kind = 'plan_attempt',
+                       origin_id = (
+                           SELECT run.plan_id
+                           FROM plan_subtask_runs AS task
+                           JOIN plan_runs AS run ON run.id = task.plan_run_id
+                           WHERE task.id = ?2
+                       )
+                   WHERE id = ?1"#,
+                params![session_id, subtask_run_id],
+            )
+            .map_err(storage_error)?;
         let sequence: u32 = transaction
             .query_row(
                 "SELECT sequence FROM plan_subtask_attempts WHERE id = ?1",

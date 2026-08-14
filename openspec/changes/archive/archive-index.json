@@ -2265,6 +2265,23 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "add-unified-todo-board",
+                         "path":  "openspec/changes/archive/2026-08-14-add-unified-todo-board/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "plan-management",
+                                              "scheduled-task-management",
+                                              "session-management",
+                                              "unified-todo-board"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-utility-skill-delegation-runtime",
                          "path":  "openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/",
                          "artifacts":  [

@@ -187,6 +187,11 @@ export interface UpdateSessionSeatsInput {
   seats: SessionSeat[];
 }
 
+export interface SessionExecutionOrigin {
+  kind: "user" | "plan_attempt" | "scheduled_task";
+  id: string | null;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -214,6 +219,7 @@ export interface Session {
   runtimeSessionId: string | null;
   categoryId: string | null;
   source?: SessionSourceMetadata;
+  executionOrigin?: SessionExecutionOrigin;
   pinned: boolean;
   archived: boolean;
   createdAt: string;

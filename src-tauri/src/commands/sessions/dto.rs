@@ -55,6 +55,13 @@ pub(crate) struct SessionSource {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct SessionExecutionOrigin {
+    pub(crate) kind: String,
+    pub(crate) id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Session {
     pub(crate) id: String,
     pub(crate) title: String,
@@ -78,6 +85,7 @@ pub(crate) struct Session {
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) category_id: Option<String>,
     pub(crate) source: SessionSource,
+    pub(crate) execution_origin: SessionExecutionOrigin,
     pub(crate) pinned: bool,
     pub(crate) archived: bool,
     pub(crate) created_at: String,
@@ -212,6 +220,18 @@ pub(crate) struct ScheduledTask {
     pub(crate) latest_error: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScheduledTaskRun {
+    pub(crate) id: String,
+    pub(crate) task_id: String,
+    pub(crate) session_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: String,
+    pub(crate) completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

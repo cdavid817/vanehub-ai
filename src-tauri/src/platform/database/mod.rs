@@ -228,13 +228,13 @@ mod tests {
             .expect("effective Skill migration");
         let evidence_migration: String = connection
             .query_row(
-                "SELECT name FROM schema_migrations WHERE version = 62",
+                "SELECT name FROM schema_migrations WHERE version = 67",
                 [],
                 |row| row.get(0),
             )
             .expect("Skill evolution evidence migration");
 
-        assert_eq!(migration_count, 66);
+        assert_eq!(migration_count, 67);
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, SQLITE_SYNCHRONOUS_FULL);
         assert_eq!(agent_count, 6);
@@ -290,7 +290,7 @@ mod tests {
             .expect("migration count");
 
         assert_eq!(value, "preserved");
-        assert_eq!(migration_count, 66);
+        assert_eq!(migration_count, 67);
     }
 
     #[test]

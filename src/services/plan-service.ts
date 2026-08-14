@@ -7,6 +7,7 @@ import type {
   PlanAttemptEvidence,
   PlanRunDetail,
   PlanRunSummary,
+  PlanSummary,
   PreparedPlanRun,
   ExecutedPlanAttempt,
 } from "../types/plan";
@@ -22,6 +23,7 @@ export interface PlanService {
   startPlanRun(runId: string): Promise<PreparedPlanRun>;
   executeNextAttempt(runId: string): Promise<ExecutedPlanAttempt | null>;
   listPlanRuns(cursor?: string): Promise<{ items: PlanRunSummary[]; nextCursor: string | null }>;
+  listPlans(): Promise<PlanSummary[]>;
   getPlanRun(runId: string): Promise<PlanRunDetail>;
   getPlanRunForSession(sessionId: string): Promise<PlanRunSummary | null>;
   getPlanAttemptEvidence(attemptId: string): Promise<PlanAttemptEvidence[]>;

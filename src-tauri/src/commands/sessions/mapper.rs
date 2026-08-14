@@ -161,6 +161,10 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
                 .connector_id()
                 .and_then(ConnectorKind::parse),
         },
+        execution_origin: dto::SessionExecutionOrigin {
+            kind: session.execution_origin_kind,
+            id: session.execution_origin_id,
+        },
         pinned: session.aggregate.is_pinned(),
         archived: session.aggregate.is_archived(),
         created_at: session.created_at,
@@ -919,6 +923,8 @@ mod tests {
                 ..Default::default()
             },
             runtime_session_id: None,
+            execution_origin_kind: "user".to_string(),
+            execution_origin_id: None,
             created_at: "100".to_string(),
             updated_at: "101".to_string(),
         };
