@@ -39,13 +39,21 @@ pub(crate) struct SandboxLaunchRequest {
 pub(crate) enum SandboxBackendError {
     IsolationUnavailable,
     InvalidLaunch,
+    #[cfg(any(windows, test))]
     SpawnFailed,
+    #[cfg(windows)]
     JobSetupFailed,
+    #[cfg(windows)]
     AclSetupFailed,
+    #[cfg(windows)]
     ProcessCreationFailed(u32),
+    #[cfg(windows)]
     JobAssignmentFailed,
+    #[cfg(windows)]
     ResumeFailed,
+    #[cfg(windows)]
     WaitFailed,
+    #[cfg(windows)]
     TerminationFailed,
 }
 

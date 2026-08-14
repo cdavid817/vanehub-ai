@@ -165,9 +165,10 @@ fn ensure_owned_directory(path: &std::path::Path) -> Result<(), OcrExecutionErro
 }
 
 fn minimal_windows_environment() -> BTreeMap<String, String> {
-    let mut environment = BTreeMap::from([("NO_PROXY".to_owned(), "*".to_owned())]);
+    let environment = BTreeMap::from([("NO_PROXY".to_owned(), "*".to_owned())]);
     #[cfg(windows)]
     {
+        let mut environment = environment;
         let root = std::env::var("SystemRoot")
             .or_else(|_| std::env::var("WINDIR"))
             .unwrap_or_else(|_| "C:\\Windows".to_owned());
@@ -176,8 +177,12 @@ fn minimal_windows_environment() -> BTreeMap<String, String> {
         environment.insert("PATH".to_owned(), format!("{root}\\System32"));
         environment.insert("PYTHONNOUSERSITE".to_owned(), "1".to_owned());
         environment.insert("PYTHONDONTWRITEBYTECODE".to_owned(), "1".to_owned());
+        environment
     }
-    environment
+    #[cfg(not(windows))]
+    {
+        environment
+    }
 }
 
 #[cfg(test)]

@@ -90,7 +90,7 @@ mod tests {
             executable: root.join("runtime.exe"),
             arguments: vec!["source.py".to_owned()],
             working_directory: root,
-            environment: windows_environment(),
+            environment: BTreeMap::new(),
             limits: CodeExecutionLimits::HARD_CEILING,
         };
         assert!(matches!(
