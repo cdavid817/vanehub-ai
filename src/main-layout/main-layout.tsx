@@ -15,6 +15,7 @@ import { CreateSessionDialog } from "./create-session-dialog";
 import { SessionContextPanel, type ContextPanelState } from "./session-context-panel";
 import { SessionInfoPanel } from "./session-info-panel";
 import { SessionSidebar } from "./session-sidebar";
+import { nextSlashTabRequestState, type SlashTabRequest } from "./slash-tab-request";
 import { ScheduledTasksDialog } from "./scheduled-tasks-dialog";
 import { TopBar } from "./top-bar";
 import { useMainLayoutModel } from "./use-main-layout-model";
@@ -117,8 +118,10 @@ export function MainLayout({
   const [workBoardVisited, setWorkBoardVisited] = useState(false);
   // Nonce, not just the tab id: requesting the same tab twice in a row (e.g. `/logs` again after
   // the user manually switched back to chat) must still re-trigger `SessionTabs`' activation effect.
-  const [slashTabRequest, setSlashTabRequest] = useState<{ tab: SessionTabId; nonce: number } | null>(null);
-  const [slashTabRequestSessionId, setSlashTabRequestSessionId] = useState(model.activeSessionId);
+  const [slashTabRequest, setSlashTabRequest] = useState<SlashTabRequest | null>(null);
+  // Not seeded from a session id: the guard below reconciles this against displayedSession?.id on
+  // every render, including the first, so any value that isn't a real session id settles safely.
+  const [slashTabRequestSessionId, setSlashTabRequestSessionId] = useState<string | null>(null);
   const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
@@ -128,15 +131,16 @@ export function MainLayout({
   const activatedSessionIdRef = useRef<string | null>(null);
   const effectiveInfoPanelCollapsed = conversationFocusMode || infoPanelCollapsed;
   const effectiveSessionSidebarCollapsed = conversationFocusMode || sessionSidebarCollapsed;
-
-  // A stale slash-tab request must not survive a session switch, or SessionTabs' own sessionId
-  // effect (declared after its reset-to-chat sibling) re-applies it right back. This has to clear
-  // during render, not in an Effect: React runs a child's effects before its parent's in the same
-  // commit, so an Effect here would still lose that race for the switch right after the slash
-  // command — SessionTabs would already have re-applied the stale tab before this Effect ran.
-  if (model.activeSessionId !== slashTabRequestSessionId) {
-    setSlashTabRequestSessionId(model.activeSessionId);
-    if (slashTabRequest) setSlashTabRequest(null);
+  // SessionTabs' resets key on its `activeSession` prop (displayedSession here), not on
+  // model.activeSessionId: loop inspection displays a different session without the sidebar's
+  // active session ever changing. A pending slash-tab request must be invalidated on that same
+  // identity — during render, not in an Effect, since a child's effects run before its parent's in
+  // the same commit and would already have re-applied a stale tab by the time an Effect ran.
+  const displayedSession = loopInspection?.session ?? model.activeSession;
+  const nextSlashTabState = nextSlashTabRequestState(slashTabRequest, slashTabRequestSessionId, displayedSession?.id ?? null);
+  if (nextSlashTabState.trackedSessionId !== slashTabRequestSessionId) {
+    setSlashTabRequestSessionId(nextSlashTabState.trackedSessionId);
+    setSlashTabRequest(nextSlashTabState.request);
   }
 
   useEffect(() => {
@@ -219,7 +223,6 @@ export function MainLayout({
     }
   }
 
-  const displayedSession = loopInspection?.session ?? model.activeSession;
   const displayedMessages = loopInspection?.messages ?? model.messages;
   const requestedWorkspaceTab: SessionTabId | null = loopInspection
     ? loopInspection.target.surface === "usage" ? "chat" : loopInspection.target.surface
