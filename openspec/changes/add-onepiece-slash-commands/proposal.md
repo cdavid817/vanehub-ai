@@ -10,7 +10,8 @@ OnePiece 会话里每一次改执行模式、切推理深度、导出会话、�
 - 输入框新增两个表面：`/` 触发的命令补全下拉，以及输入框上方承载命令输出的可关闭临时面板
 - 命令输出存于前端独立状态，不写入消息流。原因是 `sendMessage.onSuccess` 会 invalidate `["messages", sessionId]` 触发重新拉取，注入消息缓存的本地条目活不过一轮对话
 - 未知命令**不转发给模型**，以错误形式提示；`//` 前缀转义为字面 `/`，保证用户仍能发送真正以斜杠开头的文本
-- 第一版命令集限于零后端改动的既有能力：`/mode` `/reasoning` `/thinking` `/streaming` `/longcontext` `/export` `/stop` `/status` `/usage` `/help`，以及导航类 `/plan` `/plans` `/loops` `/todo` 与八个工作区页签
+- 第一版命令集限于零后端改动的既有能力：`/mode` `/thinking` `/streaming` `/longcontext` `/export` `/status` `/usage` `/help`，以及导航类 `/plan` `/plans` `/loops` `/todo` 与八个工作区页签
+- **移除** `/reasoning` 与 `/stop`（最终评审后删除，理由见下）：`/reasoning` 对这些会话必然是空操作——OnePiece 模型 `supportsReasoning: false` 使 `config.reasoningDepth` 恒为 `undefined`，工具栏也不渲染对应选择器供用户对照；`/stop` 的成功路径不可达——流式生成时输入框会整体撤下提交入口（`canSubmit` 恒假，Send 换成 Stop），命令永远无法在 `isStreaming` 为真时执行，唯一可达结果是报错
 - 作用域限于 OnePiece 会话（`agentId === "onepiece"`），由单一谓词模块门控。多席位 CLI 会话的接入是后续变更，架构上只需放宽该谓词
 - **不提供** `/model` `/provider` `/agent`：`api-session-composer.tsx` 无条件传入 `lockRuntimeIdentity`，`ButtonArea` 据此禁用了对应选择器，命令绕开该锁会与既有产品决策冲突
 - **不包含** `/clear` 与 `/compact`：两者需要新的后端能力（删除消息并重置上下文、持久化的手动压缩），单独成后续变更

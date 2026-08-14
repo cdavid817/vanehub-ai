@@ -1,5 +1,5 @@
 import type { Session, SessionExportFormat } from "../../types/agent";
-import type { ChatConfig, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
+import type { ChatConfig, SessionExecutionMode } from "../../types/chat";
 import type { SessionTabId } from "../../session-workspace/session-tab-bar";
 
 export type SlashCommandCategory = "session" | "runtime" | "navigation" | "info";
@@ -46,14 +46,12 @@ export interface CommandContext {
   isStreaming: boolean;
   chat: {
     setSessionExecutionMode: (value: SessionExecutionMode) => void;
-    setReasoningDepth: (value: ReasoningDepth) => void;
     setStreaming: (value: boolean) => void;
     setThinking: (value: boolean) => void;
     setLongContext: (value: boolean) => void;
   };
   actions: {
     exportSession: (session: Session, format: SessionExportFormat) => void;
-    stop: () => void;
     loadUsageSummary: (sessionId: string) => Promise<{
       totalTokens: number; inputTokens: number; outputTokens: number; responseCount: number;
     }>;

@@ -1,9 +1,8 @@
 import { isOnePieceSession } from "./command-availability";
-import type { ReasoningDepth, SessionExecutionMode } from "../../types/chat";
+import type { SessionExecutionMode } from "../../types/chat";
 import type { CommandContext, CommandOutcome, SlashCommand } from "./types";
 
 const EXECUTION_MODES: SessionExecutionMode[] = ["inherit", "plan", "execute"];
-const REASONING_DEPTHS: ReasoningDepth[] = ["low", "medium", "high", "max"];
 
 function applied(key: string, value: string | number): CommandOutcome {
   return { kind: "output", output: { titleKey: "slash.output.applied", tone: "info", messages: [{ key, params: { value } }] } };
@@ -52,15 +51,6 @@ export const RUNTIME_COMMANDS: SlashCommand[] = [
       if (!value || !EXECUTION_MODES.includes(value)) return badArgument("mode", EXECUTION_MODES);
       context.chat.setSessionExecutionMode(value);
       return applied("slash.output.mode", value);
-    },
-  },
-  {
-    name: "reasoning", category: "runtime", argumentHint: "<low|medium|high|max>", appliesTo: isOnePieceSession,
-    run: async (context, args) => {
-      const value = args[0] as ReasoningDepth | undefined;
-      if (!value || !REASONING_DEPTHS.includes(value)) return badArgument("reasoning", REASONING_DEPTHS);
-      context.chat.setReasoningDepth(value);
-      return applied("slash.output.reasoning", value);
     },
   },
   toggleCommand("thinking", (context) => context.config.thinking, (context, value) => context.chat.setThinking(value), "slash.output.thinking"),

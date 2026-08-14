@@ -57,8 +57,8 @@ type SessionTabId = "chat" | "changes" | "documents" | "files" | "terminal"
 | `src/services/slash-commands/command-availability.ts` | 会话类型谓词，唯一门控真源 |
 | `src/services/slash-commands/types.ts` | `SlashCommand`、`CommandContext`、`CommandOutcome` 等共享类型 |
 | `src/services/slash-commands/command-registry.ts` | 对命令数组的纯查找函数 |
-| `src/services/slash-commands/runtime-commands.ts` | `/mode` `/reasoning` `/thinking` `/streaming` `/longcontext` |
-| `src/services/slash-commands/session-commands.ts` | `/export` `/stop` `/status` `/usage` |
+| `src/services/slash-commands/runtime-commands.ts` | `/mode` `/thinking` `/streaming` `/longcontext` |
+| `src/services/slash-commands/session-commands.ts` | `/export` `/status` `/usage` |
 | `src/services/slash-commands/navigation-commands.ts` | `/plan` `/plans` `/loops` `/todo` 与工作区页签 |
 | `src/services/slash-commands/help-command.ts` | `/help` |
 | `src/services/slash-commands/command-catalog.ts` | 汇总全部命令为 `SLASH_COMMANDS` |
@@ -837,7 +837,7 @@ git commit -m "feat: add runtime slash commands"
 
 **Interfaces:**
 - Consumes: Task 3 的类型、Task 2 的 `isOnePieceSession`
-- Produces: `SESSION_COMMANDS: SlashCommand[]`（`/export` `/stop` `/status` `/usage`）
+- Produces: `SESSION_COMMANDS: SlashCommand[]`（`/export` `/status` `/usage`）
 
 `/clear` 与 `/compact` 属于第二阶段，本任务不实现。
 
@@ -2880,3 +2880,4 @@ AGENTS.md 要求任何新功能先在 `openspec/changes/` 下起 proposal 并通
 - **修正 2（不存在的上报方法）**：初稿的 `onError` 调用了 `model.reportSlashCommandFailure`，但 `use-main-layout-model.ts` 并未导出该方法，且该文件是 298/300 行、无豁免、不能加行。已改为在 composer 内复用 `createChatOperationFailureEvent` + `notify` + `reportClientLogEvent`，与 `use-main-layout-model.ts:66-76` 的既有路径一致
 - **类型一致性**：`SlashCommand`、`CommandContext`、`CommandOutput`、`CommandMessage`、`SlashCommandNavigation`、`SlashCommandDestination`、`DispatchResult` 在 Task 3 与 Task 10 定义一次，后续任务全部按同名引用；`loadUsageSummary` 的返回结构在 Task 3（类型）、Task 5（消费）、Task 12（实现）三处一致
 - **修正 3（模块级可变状态）**：初稿让 `/plan` 的可用性依赖 `navigation-commands.ts` 里的模块级 `associatedPlanAvailable`，由 hook 在**渲染期**调 `setAssociatedPlanAvailability` 同步。三重问题：模块级可变状态、渲染期副作用、测试相互污染。已改为 `appliesTo(session, capabilities)` 显式接收 `CommandCapabilities`；`completeDraft` 也顺带去掉了那个未使用的 `draft` 参数。注意措辞：双参数**并不能让类型系统强制纯粹性**——TS 的函数类型拦不住闭包捕获模块级变量。它真正做到的是把唯一已知的非 session 事实显式供上，从而移除了伸手拿全局变量的理由。纯粹性因此是纪律，写命令时仍需自觉
+- **最终评审删除 `/reasoning` 与 `/stop`**：整支分支合并前的最终评审发现两条命令在实现里其实不可用——`/reasoning` 因 OnePiece 模型 `supportsReasoning: false` 而对 `config.reasoningDepth` 没有任何可观察效果（`useChatConfig.ts:231`），`/stop` 的成功路径因流式期间输入框整体撤下提交入口而不可达（`ChatInputBox.tsx:80`、`ButtonArea.tsx:128-138`）。两者已从 `RUNTIME_COMMANDS`/`SESSION_COMMANDS` 与本文件上方的 File Structure 表中移除；`/status` 也不再报告恒为 `"low"` 的推理深度

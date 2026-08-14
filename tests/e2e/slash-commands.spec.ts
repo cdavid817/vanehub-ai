@@ -47,7 +47,13 @@ test.describe("OnePiece slash commands", () => {
 
     const output = page.getByTestId("slash-command-output");
     await expect(output).toBeVisible();
-    await expect(output).toContainText("/status");
+    // Full rendered string, not just the invocation half: `SlashCommandOutput` resolves
+    // `descriptionKey` as a nested key before interpolating (the one mechanism shared by all 22
+    // help entries in all five languages), and a broken resolver would still contain "/status"
+    // while rendering the raw key "slash.command.status.description" instead of this text. The
+    // app's default language here is zh-CN (see the Chinese button labels used below), so this
+    // asserts the zh-CN copy rather than assuming English.
+    await expect(output).toContainText("/status — 显示当前运行时开关");
     await expect(input).toHaveValue("");
     // A fresh session renders no message-scroll-region until it has at least one message
     // (MessageList falls back to WelcomeScreen for an empty list), so its absence is a
@@ -71,5 +77,19 @@ test.describe("OnePiece slash commands", () => {
     const input = page.getByTestId("wechat-style-composer").getByRole("textbox");
     await input.fill("/st");
     await expect(page.getByRole("button", { name: /\/status/ })).toBeVisible();
+  });
+
+  // Navigation commands (`/logs` and eleven siblings) are wired through an optional
+  // `navigation` prop on `ApiSessionComposer` (main-layout.tsx) rather than through anything
+  // exercised by the composer's own unit tests, which render without that prop by design. If
+  // `main-layout.tsx` stopped passing it, all twelve would silently become no-ops — still
+  // listed, still offered, doing nothing — and no other test here would notice.
+  test("/logs opens the logs workspace tab", async ({ page }) => {
+    await createOnePieceSession(page, "斜杠导航命令会话");
+    const input = page.getByTestId("wechat-style-composer").getByRole("textbox");
+    await input.fill("/logs");
+    await input.press("Enter");
+
+    await expect(page.getByRole("tab", { name: "日志" })).toHaveAttribute("aria-selected", "true");
   });
 });

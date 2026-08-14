@@ -65,7 +65,7 @@ describe("SlashCommandOutput", () => {
     renderWithAppProviders(
       <SlashCommandOutput
         onDismiss={() => undefined}
-        output={{ titleKey: "slash.error.title", tone: "error", messages: [{ key: "slash.error.notStreaming" }] }}
+        output={{ titleKey: "slash.error.title", tone: "error", messages: [{ key: "slash.error.usageUnavailable" }] }}
       />,
     );
     const panel = screen.getByTestId("slash-command-output");

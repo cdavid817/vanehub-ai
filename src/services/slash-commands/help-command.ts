@@ -6,7 +6,9 @@ function invocation(command: SlashCommand): string {
 }
 
 export const HELP_COMMAND: SlashCommand = {
-  name: "help", aliases: ["?"], category: "info", appliesTo: isOnePieceSession,
+  // No alias: `?` is not a letter, so `COMMAND_PATTERN` (parse-command.ts) never recognises `/?`
+  // as a command in the first place — an alias here would advertise something unreachable.
+  name: "help", category: "info", appliesTo: isOnePieceSession,
   run: async (context) => ({
     kind: "output",
     output: {

@@ -9,7 +9,7 @@ const session = (agentId = "onepiece"): Session =>
 
 function context(overrides: { config?: Partial<ChatConfig>; isStreaming?: boolean } = {}) {
   const actions = {
-    exportSession: vi.fn(), stop: vi.fn(),
+    exportSession: vi.fn(),
     loadUsageSummary: vi.fn().mockResolvedValue({
       totalTokens: 1234, inputTokens: 1000, outputTokens: 234, responseCount: 7,
     }),
@@ -20,11 +20,11 @@ function context(overrides: { config?: Partial<ChatConfig>; isStreaming?: boolea
     config: {
       agentId: "onepiece", interactionMode: "api", executionMode: "plan",
       streaming: true, thinking: false, longContext: false,
-      reasoningDepth: "medium", ...overrides.config,
+      ...overrides.config,
     } as ChatConfig,
     isStreaming: overrides.isStreaming ?? false,
     chat: {
-      setSessionExecutionMode: vi.fn(), setReasoningDepth: vi.fn(),
+      setSessionExecutionMode: vi.fn(),
       setStreaming: vi.fn(), setThinking: vi.fn(), setLongContext: vi.fn(),
     },
     actions,
@@ -46,6 +46,13 @@ describe("session commands", () => {
     const names = SESSION_COMMANDS.map((command) => command.name);
     expect(names).not.toContain("clear");
     expect(names).not.toContain("compact");
+  });
+
+  // Regression guard for the final-review removal: while streaming, the composer replaces the
+  // submit affordance with the Stop button entirely, so `slash.dispatch` can never run with
+  // `isStreaming` true. Re-adding this needs the composer to accept command input mid-stream first.
+  it("does not expose /stop", () => {
+    expect(SESSION_COMMANDS.map((command) => command.name)).not.toContain("stop");
   });
 
   it("/export defaults to markdown", async () => {
@@ -103,22 +110,6 @@ describe("session commands", () => {
     }
   });
 
-  it("/stop only acts while streaming", async () => {
-    const idle = context({ isStreaming: false });
-    const outcome = await byName("stop").run(idle.ctx, []);
-    expect(idle.actions.stop).not.toHaveBeenCalled();
-    expect(outcome).toEqual({
-      kind: "output",
-      output: { titleKey: "slash.error.title", tone: "error",
-        messages: [{ key: "slash.error.notStreaming" }] },
-    });
-
-    const busy = context({ isStreaming: true });
-    const busyOutcome = await byName("stop").run(busy.ctx, []);
-    expect(busy.actions.stop).toHaveBeenCalled();
-    expect(busyOutcome).toEqual({ kind: "handled" });
-  });
-
   it("/status reports the current runtime switches", async () => {
     const { ctx } = context();
     const outcome = await byName("status").run(ctx, []);
@@ -128,7 +119,6 @@ describe("session commands", () => {
         titleKey: "slash.output.statusTitle", tone: "info",
         messages: [
           { key: "slash.output.mode", params: { value: "plan" } },
-          { key: "slash.output.reasoning", params: { value: "medium" } },
           { key: "slash.output.thinking", params: { value: "off" } },
           { key: "slash.output.streaming", params: { value: "on" } },
           { key: "slash.output.longcontext", params: { value: "off" } },

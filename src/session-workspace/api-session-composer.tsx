@@ -42,14 +42,12 @@ export function ApiSessionComposer({
     isStreaming: model.isStreaming,
     chat: {
       setSessionExecutionMode: model.chatConfig.setSessionExecutionMode,
-      setReasoningDepth: model.chatConfig.setReasoningDepth,
       setStreaming: model.chatConfig.setStreaming,
       setThinking: model.chatConfig.setThinking,
       setLongContext: model.chatConfig.setLongContext,
     },
     actions: {
       exportSession: model.exportSession,
-      stop: model.stop,
       loadUsageSummary: async (sessionId) => {
         const summary = await agentService.getSessionUsageSummary(sessionId);
         return {

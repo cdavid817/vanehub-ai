@@ -14,12 +14,12 @@ const config = (overrides: Partial<ChatConfig> = {}): ChatConfig => ({
 
 function context(overrides: Partial<ChatConfig> = {}) {
   const chat = {
-    setSessionExecutionMode: vi.fn(), setReasoningDepth: vi.fn(),
+    setSessionExecutionMode: vi.fn(),
     setStreaming: vi.fn(), setThinking: vi.fn(), setLongContext: vi.fn(),
   };
   const ctx = {
     session: session(), config: config(overrides), isStreaming: false, chat,
-    actions: { exportSession: vi.fn(), stop: vi.fn(), loadUsageSummary: vi.fn() },
+    actions: { exportSession: vi.fn(), loadUsageSummary: vi.fn() },
     navigate: { openAssociatedPlan: null, openDestination: vi.fn(), openSessionTab: vi.fn() },
     listAvailableCommands: () => [],
   } as unknown as CommandContext;
@@ -50,6 +50,13 @@ describe("runtime commands", () => {
     expect(names).not.toContain("agent");
   });
 
+  // Regression guard for the final-review removal: the catalogued OnePiece model has
+  // `supportsReasoning: false`, so `config.reasoningDepth` is always undefined and the command
+  // has no observable effect. Re-adding it needs a model capability change first, not just a test.
+  it("does not expose /reasoning", () => {
+    expect(RUNTIME_COMMANDS.map((command) => command.name)).not.toContain("reasoning");
+  });
+
   it("/mode sets a valid execution mode and reports it", async () => {
     const { ctx, chat } = context();
     const outcome = await byName("mode").run(ctx, ["plan"]);
@@ -70,14 +77,6 @@ describe("runtime commands", () => {
       output: { titleKey: "slash.error.title", tone: "error",
         messages: [{ key: "slash.error.badArgument", params: { command: "mode", allowed: "inherit, plan, execute" } }] },
     });
-  });
-
-  it("/reasoning accepts every supported depth", async () => {
-    for (const depth of ["low", "medium", "high", "max"]) {
-      const { ctx, chat } = context();
-      await byName("reasoning").run(ctx, [depth]);
-      expect(chat.setReasoningDepth).toHaveBeenCalledWith(depth);
-    }
   });
 
   it("/thinking toggles when given no argument", async () => {

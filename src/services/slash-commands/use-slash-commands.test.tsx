@@ -44,11 +44,11 @@ function setup(overrides: {
   openAssociatedPlan?: () => void;
 } = {}) {
   const chat = {
-    setSessionExecutionMode: vi.fn(), setReasoningDepth: vi.fn(),
+    setSessionExecutionMode: vi.fn(),
     setStreaming: vi.fn(), setThinking: vi.fn(), setLongContext: vi.fn(),
   };
   const actions = {
-    exportSession: vi.fn(), stop: vi.fn(),
+    exportSession: vi.fn(),
     loadUsageSummary: vi.fn().mockResolvedValue({ totalTokens: 1, inputTokens: 1, outputTokens: 0, responseCount: 1 }),
   };
   const navigate = {

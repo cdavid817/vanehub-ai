@@ -28,14 +28,6 @@ export const SESSION_COMMANDS: SlashCommand[] = [
     },
   },
   {
-    name: "stop", category: "session", appliesTo: isOnePieceSession,
-    run: async (context) => {
-      if (!context.isStreaming) return error("slash.error.notStreaming");
-      context.actions.stop();
-      return { kind: "handled" };
-    },
-  },
-  {
     name: "status", category: "info", appliesTo: isOnePieceSession,
     run: async (context) => ({
       kind: "output",
@@ -43,7 +35,6 @@ export const SESSION_COMMANDS: SlashCommand[] = [
         titleKey: "slash.output.statusTitle", tone: "info",
         messages: [
           { key: "slash.output.mode", params: { value: context.config.executionMode } },
-          { key: "slash.output.reasoning", params: { value: context.config.reasoningDepth ?? "low" } },
           { key: "slash.output.thinking", params: { value: onOff(context.config.thinking) } },
           { key: "slash.output.streaming", params: { value: onOff(context.config.streaming) } },
           { key: "slash.output.longcontext", params: { value: onOff(context.config.longContext) } },
