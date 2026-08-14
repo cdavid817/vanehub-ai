@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithAppProviders } from "../../test/render";
 import { agentService } from "../../services/runtime-agent-client";
@@ -42,7 +42,6 @@ describe("MessageFeedbackControls", () => {
       revision: 5,
       correctionNote: "Use the retry boundary.",
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = renderWithAppProviders(
       <MessageFeedbackControls
         feedback={{ state: "helpful", revision: 4 }}
@@ -56,13 +55,15 @@ describe("MessageFeedbackControls", () => {
     await user.type(correction, "Use the retry boundary.");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
+    // Replacing an existing rating asks for confirmation before it overwrites the previous one.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
+
     await waitFor(() => expect(saveFeedback).toHaveBeenCalledWith({
       messageId: "message-2",
       expectedRevision: 4,
       state: "corrected",
       correctionNote: "Use the retry boundary.",
     }));
-    expect(window.confirm).toHaveBeenCalled();
   });
 
   it("keeps controls retryable after a save conflict", async () => {

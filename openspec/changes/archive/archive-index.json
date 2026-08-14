@@ -2326,6 +2326,20 @@
                      },
                      {
                          "archivedOn":  "2026-08-14",
+                         "changeName":  "address-workspace-destinations-by-route",
+                         "path":  "openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "frontend-runtime-architecture",
+                                              "main-layout-ui"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
                          "changeName":  "add-skill-evolution-evidence-pipeline",
                          "path":  "openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/",
                          "artifacts":  [
@@ -2396,6 +2410,21 @@
                                               "onepiece-ocr-tool",
                                               "onepiece-tool-governance",
                                               "onepiece-web-research"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "harden-workspace-dialogs-and-empty-states",
+                         "path":  "openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "loop-management-ui",
+                                              "main-layout-ui",
+                                              "visual-design-system"
                                           ]
                      }
                  ]

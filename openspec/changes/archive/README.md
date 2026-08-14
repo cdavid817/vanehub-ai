@@ -160,9 +160,11 @@ Online archive location: `openspec/changes/archive/`
 | 2026-08-14 | add-onepiece-context-optimizer | agent-context-compaction, agent-context-optimization | `openspec/changes/archive/2026-08-14-add-onepiece-context-optimizer/` |
 | 2026-08-14 | add-onepiece-context-quality-and-policy-evaluation | agent-context-evidence-projection, agent-context-quality-evaluation, app-settings, frontend-runtime-architecture, settings-cli-management-ui | `openspec/changes/archive/2026-08-14-add-onepiece-context-quality-and-policy-evaluation/` |
 | 2026-08-14 | add-onepiece-context-trigger-and-suppression | agent-context-compaction, agent-context-compaction-control, agent-context-measurement | `openspec/changes/archive/2026-08-14-add-onepiece-context-trigger-and-suppression/` |
+| 2026-08-14 | address-workspace-destinations-by-route | frontend-runtime-architecture, main-layout-ui | `openspec/changes/archive/2026-08-14-address-workspace-destinations-by-route/` |
 | 2026-08-14 | add-skill-evolution-evidence-pipeline | agent-execution-observability, chat-experience, settings-skill-management-ui, skill-evolution-evidence, skill-management | `openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/` |
 | 2026-08-14 | add-unified-todo-board | main-layout-ui, plan-management, scheduled-task-management, session-management, unified-todo-board | `openspec/changes/archive/2026-08-14-add-unified-todo-board/` |
 | 2026-08-14 | add-utility-skill-delegation-runtime | effective-skill-runtime, settings-skill-management-ui, skill-management, utility-skill-delegation-runtime | `openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/` |
 | 2026-08-14 | complete-onepiece-builtin-tool-system | agent-chat-configuration, agent-tool-execution, local-extension-management, onepiece-artifact-publishing, onepiece-browser-automation, onepiece-cli-delegation, onepiece-code-execution, onepiece-native-agent, onepiece-ocr-tool, onepiece-tool-governance, onepiece-web-research | `openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/` |
+| 2026-08-14 | harden-workspace-dialogs-and-empty-states | loop-management-ui, main-layout-ui, visual-design-system | `openspec/changes/archive/2026-08-14-harden-workspace-dialogs-and-empty-states/` |
 
 Cold-archive destinations are recorded in `openspec/archive-cold-migrations.md`.

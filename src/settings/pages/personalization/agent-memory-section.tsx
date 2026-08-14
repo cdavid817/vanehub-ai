@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
+import { useConfirmation } from "../../../components/ui/use-confirmation";
 import { formatAppDateTime } from "../../../i18n/format";
 import type { AgentService } from "../../../services/agent-service";
 import { agentService as defaultAgentService } from "../../../services/runtime-agent-client";
@@ -32,6 +33,7 @@ function MemoryToggle({ ariaLabel, checked, disabled, onToggle }: { ariaLabel: s
 
 export function AgentMemorySection({ service = defaultAgentService }: { service?: AgentService }) {
   const { i18n, t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const { loading, reportClientLogEvent, saveSetting, savingKey, settings } = useSettings();
   const settingsBusy = loading || savingKey !== null;
@@ -65,13 +67,13 @@ export function AgentMemorySection({ service = defaultAgentService }: { service?
     });
   }
 
-  function handleDelete(memory: AgentMemory) {
-    if (!window.confirm(t("personalization.memory.confirmDelete"))) return;
+  async function handleDelete(memory: AgentMemory) {
+    if (!(await confirm({ title: t("personalization.memory.confirmDelete"), tone: "danger" }))) return;
     deleteMutation.mutate(memory.id);
   }
 
-  function handleReset() {
-    if (!window.confirm(t("personalization.memory.confirmReset"))) return;
+  async function handleReset() {
+    if (!(await confirm({ title: t("personalization.memory.confirmReset"), tone: "danger" }))) return;
     resetMutation.mutate();
   }
 
@@ -79,6 +81,7 @@ export function AgentMemorySection({ service = defaultAgentService }: { service?
 
   return (
     <SectionPanel description={t("personalization.memory.description")} title={t("personalization.memory.title")} variant="settings">
+      {confirmationDialog}
       <SettingsRow description={t("personalization.memory.enabledDesc")} title={t("personalization.memory.enabled")}>
         <MemoryToggle
           ariaLabel={t("personalization.memory.enabled")}

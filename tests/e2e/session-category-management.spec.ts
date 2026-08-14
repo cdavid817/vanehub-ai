@@ -39,8 +39,12 @@ async function createAndAssignCategory(
   name: string,
 ) {
   await sessionCard.click({ button: "right" });
-  page.once("dialog", (dialog) => dialog.accept(name));
   await page.getByRole("button", { name: "新建分类", exact: true }).click();
+  // Naming moved from `window.prompt` into an in-application dialog.
+  const categoryDialog = page.getByRole("dialog", { name: "新建分类" });
+  await categoryDialog.getByRole("textbox").fill(name);
+  await categoryDialog.getByRole("button", { name: "创建分类" }).click();
+  await expect(categoryDialog).toHaveCount(0);
   await sessionCard.click({ button: "right" });
   await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   await page.mouse.click(2, 2);

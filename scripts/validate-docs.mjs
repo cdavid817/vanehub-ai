@@ -253,6 +253,58 @@ function validateNativeBoundaries(errors) {
   }
 }
 
+export function boundedContextDrift(documented, actual) {
+  const undocumented = actual.filter((name) => !documented.includes(name));
+  const stale = documented.filter((name) => !actual.includes(name));
+  return { stale, undocumented };
+}
+
+/** Line-scanned rather than sliced by regex, because the standards file uses CRLF endings. */
+export function documentedBoundedContexts(standards) {
+  const lines = standards.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === "### Bounded contexts");
+  if (start < 0) return [];
+  const names = [];
+  for (let cursor = start + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor].trim();
+    if (line.startsWith("### ")) break;
+    const row = line.match(/^\|\s*`([a-z_]+)`\s*\|/);
+    if (row) names.push(row[1]);
+  }
+  return names.sort();
+}
+
+/**
+ * `native-runtime-architecture` requires the project standards to document the bounded-context
+ * map, but nothing checked that they still matched. The table had drifted to seven rows while
+ * `src-tauri/src/contexts/` held fifteen, so eight contexts had no documented owner.
+ */
+function validateBoundedContexts(errors) {
+  const contextsPath = resolve(repositoryRoot, "src-tauri", "src", "contexts");
+  const standardsPath = resolve(repositoryRoot, "openspec", "project.md");
+  if (!existsSync(contextsPath) || !existsSync(standardsPath)) {
+    errors.push("openspec/project.md: cannot verify the bounded-context map; a required path is missing.");
+    return;
+  }
+  const actual = readdirSync(contextsPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  const documented = documentedBoundedContexts(readFileSync(standardsPath, "utf8"));
+  if (documented.length === 0) {
+    errors.push("openspec/project.md: the Bounded contexts table could not be read.");
+    return;
+  }
+
+  const { stale, undocumented } = boundedContextDrift(documented, actual);
+  for (const name of undocumented) {
+    errors.push(`openspec/project.md: bounded context "${name}" exists in src-tauri/src/contexts/ but has no row in the Bounded contexts table.`);
+  }
+  for (const name of stale) {
+    errors.push(`openspec/project.md: bounded context "${name}" is documented but has no directory in src-tauri/src/contexts/.`);
+  }
+}
+
 function validateAssembled(errors) {
   const expected = [
     ".docs-build/index.html",
@@ -273,6 +325,7 @@ export function validateDocs({ assembled = false } = {}) {
   validateEmphasis(errors);
   validateScreenshotInventory(errors);
   validateNativeBoundaries(errors);
+  validateBoundedContexts(errors);
   if (assembled) validateAssembled(errors);
   if (errors.length > 0) throw new Error(`Documentation validation failed:\n${errors.join("\n")}`);
 }

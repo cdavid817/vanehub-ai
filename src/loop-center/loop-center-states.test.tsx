@@ -9,7 +9,11 @@ import { LoopInspector } from "./loop-inspector";
 import { LoopTimeline } from "./loop-timeline";
 
 describe("Loop Center states", () => {
-  it("renders the localized empty-definition state", () => {
+  /**
+   * The first run used to be one centred sentence whose only creation entry was a 24px icon in
+   * the navigation header. The explanation and the primary action are the point of this state.
+   */
+  it("renders the localized empty-definition state with an explanation and a primary action", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(loopQueryKeys.definitions, []);
     client.setQueryData(loopQueryKeys.runs(), []);
@@ -19,7 +23,19 @@ describe("Loop Center states", () => {
     );
 
     expect(html).toContain("暂无循环定义");
+    expect(html).toContain("循环定义描述一段可重复执行的任务");
+    expect(html).toContain("创建循环定义");
     expect(html).toContain('aria-label="新建循环定义"');
+  });
+
+  it("explains the inspector's empty state instead of showing a bare line", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}><LoopInspector loading={false} run={null} /></QueryClientProvider>,
+    );
+
+    expect(html).toContain("未选择运行记录");
+    expect(html).toContain("选择一条运行记录后");
   });
 
   it("renders active controls and operation state for a running Loop", () => {

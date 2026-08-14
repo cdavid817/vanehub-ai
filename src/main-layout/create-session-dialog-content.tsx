@@ -2,8 +2,9 @@ import { SessionSeatAssignment } from "./session-seat-assignment";
 import { withModelFamily } from "../services/agent-model-family";
 import type { SessionSeat } from "../types/agent";
 import type { ExpertRole } from "../types/expert-role";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { CreateSessionAgentSection } from "./create-session-agent-section";
 import { RemoteWorkspaceSection } from "./create-session-remote-workspace-section";
@@ -127,29 +128,47 @@ export function CreateSessionDialogContent({
   const { t } = useTranslation();
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/70 p-4">
-      <div
-        aria-labelledby="create-session-dialog-title"
-        aria-modal="true"
-        className="ucd-panel grid max-h-[88vh] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg shadow-xl"
-        role="dialog"
-      >
-        <div className="flex items-center justify-between border-b border-border p-4">
-          <div>
-            <h3 className="text-sm font-semibold" id="create-session-dialog-title">
-              {t("createSession.title")}
-            </h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("createSession.description")}
-            </p>
+    <ApplicationDialog
+      closeDisabled={loading}
+      description={t("createSession.description")}
+      footer={(
+        <div className="flex items-start justify-between gap-3">
+          {/* Truncating this hid the reason a path or SSH target was rejected, which is the
+              only actionable part of the failure. */}
+          <p className="min-w-0 flex-1 wrap-break-word text-xs leading-5 text-destructive" role="alert">
+            {error}
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              className="h-8 px-3 text-xs"
+              disabled={loading}
+              onClick={onClose}
+              type="button"
+              variant="outline"
+            >
+              {t("createSession.cancel")}
+            </Button>
+            <Button
+              className="h-8 px-3 text-xs"
+              disabled={!canSubmit || loading}
+              onClick={onSubmit}
+              type="button"
+            >
+              {loading ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {t("createSession.create")}
+            </Button>
           </div>
-          <Button className="h-8 w-8 px-0" onClick={onClose} variant="outline">
-            <X className="h-4 w-4" aria-hidden="true" />
-          </Button>
         </div>
-
-        <div className="min-h-0 overflow-y-auto p-4">
-          <div className="grid gap-4">
+      )}
+      onClose={onClose}
+      title={t("createSession.title")}
+    >
+      <div className="grid gap-4">
             <SessionAgentModeSelector
               mode={agentMode}
               onModeChange={onAgentModeChange}
@@ -222,39 +241,7 @@ export function CreateSessionDialogContent({
                 value={title}
               />
             </label>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-border p-4">
-          <span className="min-w-0 truncate text-xs text-destructive">
-            {error}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              className="h-8 px-3 text-xs"
-              onClick={onClose}
-              type="button"
-              variant="outline"
-            >
-              {t("createSession.cancel")}
-            </Button>
-            <Button
-              className="h-8 px-3 text-xs"
-              disabled={!canSubmit || loading}
-              onClick={onSubmit}
-              type="button"
-            >
-              {loading ? (
-                <Loader2
-                  className="h-3.5 w-3.5 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : null}
-              {t("createSession.create")}
-            </Button>
-          </div>
-        </div>
       </div>
-    </div>
+    </ApplicationDialog>
   );
 }

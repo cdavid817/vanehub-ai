@@ -34,7 +34,12 @@ export const LoopInspector = forwardRef<HTMLElement, LoopInspectorProps>(functio
         ) : null}
       </header>
       {loading ? <p className="text-xs text-muted-foreground">{t("loops.states.loading")}</p> : null}
-      {!loading && !run ? <p className="text-xs text-muted-foreground">{t("loops.states.noSelection")}</p> : null}
+      {!loading && !run ? (
+        <div className="grid gap-1 py-6 text-center">
+          <p className="text-xs font-medium">{t("loops.states.noSelection")}</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">{t("loops.states.noSelectionDescription")}</p>
+        </div>
+      ) : null}
       {run ? (
         <div className="grid gap-5">
           <InspectorSection title={t("loops.inspector.run")}>
