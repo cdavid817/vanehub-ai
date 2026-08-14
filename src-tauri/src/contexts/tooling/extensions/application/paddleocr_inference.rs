@@ -150,7 +150,10 @@ mod tests {
             protocol_version: PADDLEOCR_INFERENCE_PROTOCOL_VERSION.to_owned(),
             operation_id: "ocr-operation-1".to_owned(),
             inputs: vec![PaddleOcrInferenceInput {
-                staged_path: PathBuf::from("C:\\owned\\input.png"),
+                staged_path: std::env::current_dir()
+                    .expect("current directory")
+                    .join("owned")
+                    .join("input.png"),
                 source_sha256: "a".repeat(64),
                 kind: PaddleOcrInputKind::Image,
                 page_number: None,

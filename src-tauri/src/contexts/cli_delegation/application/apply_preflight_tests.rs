@@ -71,9 +71,15 @@ fn capture() -> DelegationChangeSetCapture {
     }
 }
 
+fn target_root() -> PathBuf {
+    std::env::current_dir()
+        .expect("current directory")
+        .join("delegation-apply-target")
+}
+
 fn request() -> DelegationApplyPreflightRequest {
     DelegationApplyPreflightRequest {
-        target_root: PathBuf::from("C:/repo"),
+        target_root: target_root(),
         artifact_id: "artifact-1".into(),
         expected_content_hash: hash('a'),
         expected_diff_hash: hash('b'),
@@ -101,7 +107,7 @@ fn admits_only_exact_integral_clean_and_unconsumed_target() {
     let plan = service(true, "c".repeat(40), true, true)
         .preflight(request())
         .expect("plan");
-    assert_eq!(plan.target_root, PathBuf::from("C:/repo"));
+    assert_eq!(plan.target_root, target_root());
     assert_eq!(plan.artifact.capture.diff_hash, hash('b'));
     assert_eq!(plan.approval_input_hash, hash('d'));
 }
