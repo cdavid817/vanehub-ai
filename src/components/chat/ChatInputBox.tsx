@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { FileText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useComposerMention } from "../../hooks/use-composer-mention";
 import type { AgentRegistryEntry } from "../../types/agent";
-import type { SessionDocument } from "../../types/session-workspace";
+import type { FileSearchMatch } from "../../types/session-workspace";
 import type { ChatConfig, ChatFileReference, ModelInfo, ReasoningDepth, SessionExecutionMode } from "../../types/chat";
 import { ButtonArea } from "./ButtonArea";
 import { SeatMentionCompletion, type SeatMentionOption } from "./SeatMentionCompletion";
@@ -44,10 +45,10 @@ export function ChatInputBox({
   disabled?: boolean;
   isStreaming: boolean;
   lockRuntimeIdentity?: boolean;
-  fileReferenceCandidates: SessionDocument[];
+  fileReferenceCandidates: FileSearchMatch[];
   fileReferences: ChatFileReference[];
   onChange: (value: string) => void;
-  onAddFileReference: (document: SessionDocument) => void;
+  onAddFileReference: (candidate: FileSearchMatch) => void;
   onClear: () => void;
   onConfigAgentChange: (value: string) => void;
   onConfigLongContextChange: (value: boolean) => void;
@@ -67,31 +68,22 @@ export function ChatInputBox({
   const { t } = useTranslation();
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const canSubmit = value.trim().length > 0 && !disabled && !isStreaming;
-  const mention = value.match(/(?:^|\s)@([^\s@]*)$/);
-  const mentionQuery = mention?.[1]?.toLowerCase() ?? null;
-  const fileSuggestions = useMemo(() => {
-    if (mentionQuery === null || disabled) return [];
-    const selected = new Set(fileReferences.map((reference) => reference.path));
-    return fileReferenceCandidates
-      .filter((document) => !selected.has(document.path))
-      .filter((document) => `${document.name} ${document.path}`.toLowerCase().includes(mentionQuery))
-      .slice(0, 8);
-  }, [disabled, fileReferenceCandidates, fileReferences, mentionQuery]);
-  const participantSuggestions = useMemo(() => {
-    if (mentionQuery === null || disabled) return [];
-    return participantMentions
-      .filter((option) => `${option.mention} ${option.roleName ?? ""} ${option.agentName}`.toLowerCase().includes(mentionQuery))
-      .slice(0, 8);
-  }, [disabled, mentionQuery, participantMentions]);
+  const { applyMention, fileSuggestions, participantSuggestions } = useComposerMention({
+    disabled,
+    fileReferenceCandidates,
+    fileReferences,
+    participantMentions,
+    value,
+  });
 
-  function selectReference(document: SessionDocument) {
-    onAddFileReference(document);
-    onChange(value.replace(/(?:^|\s)@([^\s@]*)$/, (token) => `${token.startsWith(" ") ? " " : ""}@${document.path} `));
+  function selectReference(candidate: FileSearchMatch) {
+    onAddFileReference(candidate);
+    onChange(applyMention(candidate.path));
     textAreaRef.current?.focus();
   }
 
   function selectParticipant(mentionHandle: string) {
-    onChange(value.replace(/(?:^|\s)@([^\s@]*)$/, (token) => `${token.startsWith(" ") || token.startsWith("\n") ? token[0] : ""}@${mentionHandle} `));
+    onChange(applyMention(mentionHandle));
     textAreaRef.current?.focus();
   }
 
@@ -113,10 +105,10 @@ export function ChatInputBox({
           <div className="ucd-panel absolute bottom-full left-0 z-20 mb-2 grid max-h-56 w-full gap-1 overflow-y-auto rounded-md p-1 text-xs shadow-lg">
             <SeatMentionCompletion onSelect={selectParticipant} options={participantSuggestions} />
             {fileSuggestions.length ? <p className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{t("chat.completion.file")}</p> : null}
-            {fileSuggestions.map((document) => (
-              <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={document.path} onClick={() => selectReference(document)} type="button">
+            {fileSuggestions.map((candidate) => (
+              <button className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-muted" key={candidate.path} onClick={() => selectReference(candidate)} type="button">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">{document.path}</span>
+                <span className="min-w-0 flex-1 truncate">{candidate.path}</span>
               </button>
             ))}
           </div>

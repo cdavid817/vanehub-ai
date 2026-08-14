@@ -72,7 +72,7 @@ describe("chat Mermaid and file references", () => {
     expect(html).toContain("正在渲染 Mermaid 图表");
   });
 
-  it("shows bounded @ file candidates and selected reference chips", () => {
+  it("shows ranked @ file candidates including source files, plus selected reference chips", () => {
     const html = renderToString(
       <ChatInputBox
         agents={[agent]}
@@ -81,8 +81,8 @@ describe("chat Mermaid and file references", () => {
         availableReasoning={["low", "medium", "high", "max"]}
         config={config}
         fileReferenceCandidates={[
-          { name: "README.md", path: "README.md", kind: "markdown" },
-          { name: "notes.txt", path: "docs/notes.txt", kind: "text" },
+          { name: "README.md", path: "README.md" },
+          { name: "session_search.rs", path: "src-tauri/src/session_search.rs" },
         ]}
         fileReferences={[{ id: "README.md", path: "README.md", name: "README.md" }]}
         isStreaming={false}
@@ -100,12 +100,13 @@ describe("chat Mermaid and file references", () => {
         onRemoveFileReference={vi.fn()}
         onStop={vi.fn()}
         onSubmit={vi.fn()}
-        value="@notes"
+        value="@session"
       />,
     );
 
     expect(html).toContain("README.md");
-    expect(html).toContain("docs/notes.txt");
+    // Candidates arrive already ranked from the native search; a source file must be offerable.
+    expect(html).toContain("src-tauri/src/session_search.rs");
     expect(html).toContain('data-testid="wechat-style-composer"');
     expect(html).toContain('data-testid="composer-toolbar"');
     expect(html).toContain('data-testid="effective-execution-policy"');

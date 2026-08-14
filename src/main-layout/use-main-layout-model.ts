@@ -13,7 +13,8 @@ import { agentService } from "../services/runtime-agent-client";
 import { permissionsService } from "../services/runtime-permissions-client";
 import { settingsService } from "../services/runtime-settings-client";
 import type { Session, SessionCategory, SessionExportFormat } from "../types/agent";
-import type { SessionDocument } from "../types/session-workspace";
+import type { FileSearchMatch } from "../types/session-workspace";
+import { useMentionCandidates } from "./use-mention-candidates";
 import type { ChatFileReference, ChatMessage, ChatStreamEvent } from "../types/chat";
 import { appendMessageIfMissing, createOptimisticUserMessage, removeMessageById, type SendMessageMutationInput } from "./optimistic-message";
 import { canSendToSession, hasLiveSessionGeneration } from "../services/session-admission";
@@ -56,12 +57,7 @@ export function useMainLayoutModel() {
     queryFn: () => activeSessionId ? agentService.listMessages({ sessionId: activeSessionId, limit: messageLimit }) : Promise.resolve([]),
   });
   const messages = messagesQuery.data ?? [];
-  const documentsQuery = useQuery({
-    enabled: Boolean(activeSessionId),
-    queryKey: ["session-documents", activeSessionId],
-    queryFn: () => activeSessionId ? agentService.listSessionDocuments(activeSessionId) : Promise.resolve({ context: { availability: "unavailable" as const, rootName: null, reason: null }, items: [], truncated: false, nextCursor: null }),
-  });
-  const fileReferenceCandidates = documentsQuery.data?.items ?? [];
+  const fileReferenceCandidates = useMentionCandidates(activeSessionId, draft);
   const isStreaming = hasLiveSessionGeneration(activeSession, messages);
   const reportChatFailure = useCallback((source: string, reason: unknown, sessionId: string | null, restoreDraft?: string) => {
     const event = createChatOperationFailureEvent(source, reason);
@@ -287,7 +283,7 @@ export function useMainLayoutModel() {
       : [],
     sessions: sessionsQuery.data ?? [],
     setDraft,
-    addFileReference: (document: SessionDocument) => setFileReferences((current) => current.some((reference) => reference.path === document.path) ? current : [...current, { id: document.path, path: document.path, name: document.name }]),
+    addFileReference: (candidate: FileSearchMatch) => setFileReferences((current) => current.some((reference) => reference.path === candidate.path) ? current : [...current, { id: candidate.path, path: candidate.path, name: candidate.name }]),
     removeFileReference: (path: string) => setFileReferences((current) => current.filter((reference) => reference.path !== path)),
     setSessionSearchQuery,
     stop, submit,

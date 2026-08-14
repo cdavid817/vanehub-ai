@@ -335,6 +335,8 @@ type SessionWorkspaceAssertions = [
   Assert<Equal<SessionWorkspaceContracts.DirectoryListing, SessionWorkspaceTypes.DirectoryListing>>,
   Assert<Equal<SessionWorkspaceContracts.DocumentListing, SessionWorkspaceTypes.DocumentListing>>,
   Assert<Equal<SessionWorkspaceContracts.FileContent, SessionWorkspaceTypes.FileContent>>,
+  Assert<Equal<SessionWorkspaceContracts.FileSearchListing, SessionWorkspaceTypes.FileSearchListing>>,
+  Assert<Equal<SessionWorkspaceContracts.FileSearchMatch, SessionWorkspaceTypes.FileSearchMatch>>,
   Assert<Equal<SessionWorkspaceContracts.GitStatusResult, SessionWorkspaceTypes.GitStatusResult>>,
   Assert<Equal<SessionWorkspaceContracts.GitDiffResult, SessionWorkspaceTypes.GitDiffResult>>,
   Assert<Equal<SessionWorkspaceContracts.SessionLogQuery, SessionWorkspaceTypes.SessionLogQuery>>,

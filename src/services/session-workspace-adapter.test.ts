@@ -15,6 +15,17 @@ describe("Web session workspace adapter", () => {
     expect(await webSessionWorkspaceClient.exportSessionLogs({ sessionId: "session-1", levels: [], search: "" })).toEqual({ status: "unavailable", path: null });
   });
 
+  it("serves mention candidates covering source files with the native ordering contract", async () => {
+    const listing = await webSessionWorkspaceClient.searchSessionFiles("session-1", "main", 8);
+    // The Documents tab fixture holds only Markdown and text; mention search must reach further.
+    expect(listing.items.map((entry) => entry.path)).toContain("src/main.ts");
+    const ranked = await webSessionWorkspaceClient.searchSessionFiles("session-1", "notes", 8);
+    expect(ranked.items[0].path).toBe("docs/notes.txt");
+    const capped = await webSessionWorkspaceClient.searchSessionFiles("session-1", "", 2);
+    expect(capped.items).toHaveLength(2);
+    expect(capped.truncated).toBe(true);
+  });
+
   it("simulates shell I/O and supports cleanup without a native process", async () => {
     const shell = await webSessionWorkspaceClient.createShell({ sessionId: "session-1", rows: 24, cols: 80 });
     expect(shell.capability).toBe("simulated");

@@ -8,6 +8,8 @@ export type {
   DocumentListing,
   FileContent,
   FileContentStatus,
+  FileSearchListing,
+  FileSearchMatch,
   GitChangeKind,
   GitDiffFile,
   GitDiffHunk,

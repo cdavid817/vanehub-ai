@@ -107,6 +107,7 @@ pub(crate) fn invoke_handler(
         crate::commands::workspaces::list_session_directory::list_session_directory,
         crate::commands::workspaces::read_session_file::read_session_file,
         crate::commands::workspaces::list_session_documents::list_session_documents,
+        crate::commands::workspaces::search_session_files::search_session_files,
         crate::commands::workspaces::get_session_git_status::get_session_git_status,
         crate::commands::workspaces::get_session_git_diff::get_session_git_diff,
         crate::commands::workspaces::list_session_logs::list_session_logs,

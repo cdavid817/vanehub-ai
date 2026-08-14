@@ -1,7 +1,8 @@
 use super::{
-    DirectoryListing, DocumentListing, FileContent, GitDiffResult, GitDiffSource, GitStatusResult,
-    KnownProject, KnownRemoteWorkspace, SessionLogExportResult, SessionLogPage, SessionLogQuery,
-    ShellEvent, ShellLaunch, ShellLog, ShellWorkspace, WorkspaceApplicationError,
+    DirectoryListing, DocumentListing, FileContent, FileSearchListing, GitDiffResult,
+    GitDiffSource, GitStatusResult, KnownProject, KnownRemoteWorkspace, SessionLogExportResult,
+    SessionLogPage, SessionLogQuery, ShellEvent, ShellLaunch, ShellLog, ShellWorkspace,
+    WorkspaceApplicationError,
 };
 use crate::contexts::workspaces::domain::{
     ProjectInspection, ProjectPath, RemoteWorkspace, TerminalDimensions, WorktreeName,
@@ -103,6 +104,13 @@ pub(crate) trait WorkspaceSessionQueryPort: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<DocumentListing, WorkspaceApplicationError>;
+
+    fn search_files(
+        &self,
+        session_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<FileSearchListing, WorkspaceApplicationError>;
 
     fn read_file(
         &self,

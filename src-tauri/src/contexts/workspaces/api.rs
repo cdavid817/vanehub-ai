@@ -1,7 +1,7 @@
 pub(crate) use super::application::{
     CreateShellRequest, CreatedWorktree, DirectoryListing, DocumentListing, FileContent,
-    GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource, GitStatusResult,
-    KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree, ResizeShellRequest,
+    FileSearchListing, GitDiffFile, GitDiffHunk, GitDiffLine, GitDiffResult, GitDiffSource,
+    GitStatusResult, KnownProject, KnownRemoteWorkspace, PreparedPlanWorktree, ResizeShellRequest,
     SessionLogExportResult, SessionLogPage, SessionLogQuery, SessionWorkspaceContext, ShellSession,
     WorkspaceApplicationError as WorkspaceError, WorkspaceLogLevel,
 };
@@ -114,6 +114,15 @@ impl WorkspaceApi {
         self.queries.list_documents(session_id)
     }
 
+    pub(crate) fn search_session_files(
+        &self,
+        session_id: &str,
+        query: &str,
+        max_results: usize,
+    ) -> Result<FileSearchListing, WorkspaceError> {
+        self.queries.search_files(session_id, query, max_results)
+    }
+
     pub(crate) fn read_session_file(
         &self,
         session_id: &str,
@@ -219,6 +228,21 @@ impl WorkspaceApi {
         tauri::async_runtime::spawn_blocking(move || api.list_session_directory(&session_id, &path))
             .await
             .map_err(|_| WorkspaceError::Storage("session directory task failed".to_string()))?
+    }
+
+    /// Async wrapper for mention candidate search, which walks the filesystem synchronously.
+    pub(crate) async fn search_session_files_blocking(
+        &self,
+        session_id: String,
+        query: String,
+        max_results: usize,
+    ) -> Result<FileSearchListing, WorkspaceError> {
+        let api = self.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            api.search_session_files(&session_id, &query, max_results)
+        })
+        .await
+        .map_err(|_| WorkspaceError::Storage("session file search task failed".to_string()))?
     }
 
     pub(crate) fn create_shell(
