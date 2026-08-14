@@ -263,17 +263,22 @@ fn is_sha256(value: &str) -> bool {
 }
 
 pub(super) fn minimal_environment() -> BTreeMap<String, String> {
-    let mut environment = BTreeMap::from([("NO_PROXY".to_owned(), "*".to_owned())]);
+    let environment = BTreeMap::from([("NO_PROXY".to_owned(), "*".to_owned())]);
     #[cfg(windows)]
     {
+        let mut environment = environment;
         let root = std::env::var("SystemRoot")
             .or_else(|_| std::env::var("WINDIR"))
             .unwrap_or_else(|_| "C:\\Windows".to_owned());
         environment.insert("SYSTEMROOT".to_owned(), root.clone());
         environment.insert("WINDIR".to_owned(), root.clone());
         environment.insert("PATH".to_owned(), format!("{root}\\System32"));
+        environment
     }
-    environment
+    #[cfg(not(windows))]
+    {
+        environment
+    }
 }
 
 pub(super) struct ControlFiles {

@@ -109,7 +109,16 @@ pub(super) fn map_backend_launch(error: SandboxBackendError) -> CodeServiceError
     match error {
         SandboxBackendError::IsolationUnavailable => CodeServiceError::IsolationUnavailable,
         SandboxBackendError::InvalidLaunch => CodeServiceError::InvalidRequest,
-        _ => CodeServiceError::SpawnFailure,
+        #[cfg(any(windows, test))]
+        SandboxBackendError::SpawnFailed => CodeServiceError::SpawnFailure,
+        #[cfg(windows)]
+        SandboxBackendError::JobSetupFailed
+        | SandboxBackendError::AclSetupFailed
+        | SandboxBackendError::ProcessCreationFailed(_)
+        | SandboxBackendError::JobAssignmentFailed
+        | SandboxBackendError::ResumeFailed
+        | SandboxBackendError::WaitFailed
+        | SandboxBackendError::TerminationFailed => CodeServiceError::SpawnFailure,
     }
 }
 
