@@ -3279,5 +3279,7 @@
   "slash.command.status.description": "Show the current runtime switches",
   "slash.command.usage.description": "Show token usage for this session",
   "slash.output.dismiss": "Dismiss command output",
-  "slash.completion.title": "Commands"
+  "slash.completion.title": "Commands",
+  "slash.error.unknown": "Unknown command /{{command}}. Try /help.",
+  "slash.error.failed": "/{{command}} did not complete."
 }

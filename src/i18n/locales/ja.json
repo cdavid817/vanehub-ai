@@ -3279,5 +3279,7 @@
   "slash.command.status.description": "現在の実行時スイッチを表示",
   "slash.command.usage.description": "このセッションのトークン使用量を表示",
   "slash.output.dismiss": "コマンド出力を閉じる",
-  "slash.completion.title": "コマンド"
+  "slash.completion.title": "コマンド",
+  "slash.error.unknown": "不明なコマンド /{{command}} です。/help をお試しください。",
+  "slash.error.failed": "/{{command}} は完了しませんでした。"
 }
