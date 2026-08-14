@@ -3003,6 +3003,7 @@
   "chat.toolActivity.status.pending": "等待中",
   "chat.toolActivity.status.running": "执行中",
   "chat.toolActivity.status.awaiting_approval": "等待确认",
+  "chat.toolActivity.status.awaiting_input": "等待你回答",
   "chat.toolActivity.status.completed": "已完成",
   "chat.toolActivity.status.failed": "失败",
   "chat.toolActivity.count.approval": "待确认 {{count}}",
@@ -3264,5 +3265,8 @@
   "todoBoard.source.plan": "计划",
   "todoBoard.source.plan_run": "计划运行",
   "todoBoard.source.scheduled_task": "定时任务",
-  "todoBoard.project.all": "全部项目"
+  "todoBoard.project.all": "全部项目",
+  "chat.toolQuestion.otherLabel": "用你自己的话回答",
+  "chat.toolQuestion.otherPlaceholder": "或者自己输入答案",
+  "chat.toolQuestion.submit": "发送"
 }

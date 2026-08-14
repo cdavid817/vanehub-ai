@@ -1,7 +1,7 @@
 use super::{
-    EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    ASK_USER_QUESTION_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
     READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
     SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
@@ -12,6 +12,7 @@ pub(crate) enum ExistingToolHandler {
     ShellOutput,
     ShellKill,
     TodoWrite,
+    AskUserQuestion,
     File,
     Grep,
     Glob,
@@ -33,6 +34,7 @@ impl ExistingToolHandlerRegistry {
             SHELL_OUTPUT_TOOL_NAME => Some(ExistingToolHandler::ShellOutput),
             SHELL_KILL_TOOL_NAME => Some(ExistingToolHandler::ShellKill),
             TODO_WRITE_TOOL_NAME => Some(ExistingToolHandler::TodoWrite),
+            ASK_USER_QUESTION_TOOL_NAME => Some(ExistingToolHandler::AskUserQuestion),
             FILE_TOOL_NAME => Some(ExistingToolHandler::File),
             GREP_TOOL_NAME => Some(ExistingToolHandler::Grep),
             GLOB_TOOL_NAME => Some(ExistingToolHandler::Glob),

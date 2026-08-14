@@ -408,6 +408,12 @@ export interface AgentService extends BuiltinToolService {
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;
   getTokenUsageDetails(input: TokenUsageDetailsQuery): Promise<TokenUsageDetailsPage>;
+  /**
+   * Delivers the user's answer to a tool call waiting in `awaiting_input`. Resolves to whether a
+   * live waiter received it, so the caller can distinguish a delivered answer from one aimed at a
+   * question that already resolved or whose generation is gone.
+   */
+  resolveAgentQuestion(sessionId: string, callId: string, answer: string): Promise<boolean>;
   stopGeneration(sessionId: string): Promise<void>;
   openAgentTerminal(sessionId: string, size: AgentTerminalSize): Promise<AgentTerminalSession>;
   sendAgentTerminalInput(terminalId: string, content: string): Promise<void>;

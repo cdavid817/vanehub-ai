@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { TFunction } from "i18next";
-import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleEllipsis, LoaderCircle, ShieldAlert, Wrench, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronDown, CircleEllipsis, LoaderCircle, MessageCircleQuestion, ShieldAlert, Wrench, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/utils";
+import { QuestionCard } from "./QuestionCard";
 import { permissionsService } from "../../services/runtime-permissions-client";
 import { normalizeToolUse } from "../../services/tool-use";
 import { Badge } from "../ui/badge";
@@ -127,6 +128,7 @@ function toolLabel(name: string, t: TFunction) {
 
 function StatusIcon({ status }: { status: ToolUseBlockType["status"] }) {
   if (status === "awaiting_approval") return <ShieldAlert className="h-3.5 w-3.5 text-warning" aria-hidden="true" />;
+  if (status === "awaiting_input") return <MessageCircleQuestion className="h-3.5 w-3.5 text-primary" aria-hidden="true" />;
   if (status === "pending" || status === "running") return <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />;
   if (status === "failed") return <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />;
   return <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />;
@@ -139,7 +141,7 @@ function ActivityRow({ occurrences = [], sessionId, tool, t }: { occurrences?: T
     ? { occurrences: occurrences.map(({ id, input, output }) => ({ id, input, output })) }
     : { input: tool.input, output: tool.output };
   return (
-    <div className={cn("overflow-hidden rounded-md border bg-background/70", tool.status === "failed" && "border-destructive/40", tool.status === "awaiting_approval" && "border-warning/40")} data-tool-status={tool.status}>
+    <div className={cn("overflow-hidden rounded-md border bg-background/70", tool.status === "failed" && "border-destructive/40", tool.status === "awaiting_approval" && "border-warning/40", tool.status === "awaiting_input" && "border-primary/40")} data-tool-status={tool.status}>
       <details>
         <summary className="flex min-h-9 cursor-pointer items-center gap-2 px-3 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <StatusIcon status={tool.status} />
@@ -155,6 +157,7 @@ function ActivityRow({ occurrences = [], sessionId, tool, t }: { occurrences?: T
         </pre>
       </details>
       {tool.status === "awaiting_approval" ? <ApprovalCard callId={tool.id} sessionId={sessionId} /> : null}
+      {tool.status === "awaiting_input" ? <QuestionCard callId={tool.id} input={tool.input} sessionId={sessionId} /> : null}
     </div>
   );
 }
@@ -169,12 +172,13 @@ export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming
   const contentId = useId();
   const normalized = normalizeToolUse(toolUse);
   const approval = normalized.filter((tool) => tool.status === "awaiting_approval");
+  const question = normalized.filter((tool) => tool.status === "awaiting_input");
   const active = normalized.filter((tool) => tool.status === "pending" || tool.status === "running");
   const failed = normalized.filter((tool) => tool.status === "failed");
   const completed = normalized.filter((tool) => tool.status === "completed");
   const terminalFailed = messageFailed || messageStatus === "failed";
   const userSelectedDisclosure = useRef(false);
-  const [preferredOpen, setPreferredOpen] = useState(() => approval.length > 0 || active.length > 0 || terminalFailed || messageStatus === "streaming");
+  const [preferredOpen, setPreferredOpen] = useState(() => approval.length > 0 || question.length > 0 || active.length > 0 || terminalFailed || messageStatus === "streaming");
   const [failureHistoryOpen, setFailureHistoryOpen] = useState(terminalFailed);
   useEffect(() => {
     if (terminalFailed) setFailureHistoryOpen(true);
@@ -185,11 +189,11 @@ export function ToolUseBlock({ messageFailed = false, messageStatus = "streaming
     else if (messageStatus === "completed" || messageStatus === "cancelled") setPreferredOpen(false);
   }, [active.length, messageStatus, terminalFailed]);
   if (normalized.length === 0) return null;
-  const actionable = [...approval, ...active];
+  const actionable = [...approval, ...question, ...active];
   const failureGroups = groupConsecutiveFailures(normalized).reverse();
   const latestFailure = failureGroups[0]?.occurrences.at(-1);
   const onlyCompleted = completed.length === 1 && actionable.length === 0 && failed.length === 0 ? completed[0] : null;
-  const approvalForcesOpen = approval.length > 0;
+  const approvalForcesOpen = approval.length > 0 || question.length > 0;
   const activityOpen = approvalForcesOpen || preferredOpen;
   const summaryTool = active.at(-1) ?? failed.at(-1) ?? completed.at(-1);
 

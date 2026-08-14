@@ -186,11 +186,13 @@ pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
-    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
+    ask_user_question_tool_definition, code_intelligence_tool_definitions,
+    delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
+    search_code_tool_definition, tool_catalog, ASK_USER_QUESTION_TOOL_NAME,
     DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
     FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
-    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MAX_QUESTION_CHARS,
+    MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS, MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS,
     READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
     SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };

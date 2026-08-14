@@ -817,6 +817,10 @@ export const tauriAgentClient: AgentService = {
     return invoke<TokenUsageDetailsPage>("get_token_usage_details", { input });
   },
 
+  async resolveAgentQuestion(sessionId: string, callId: string, answer: string) {
+    return invoke<boolean>("resolve_agent_question", { sessionId, callId, answer });
+  },
+
   async stopGeneration(sessionId: string) {
     await invoke<void>("stop_generation", { sessionId });
   },

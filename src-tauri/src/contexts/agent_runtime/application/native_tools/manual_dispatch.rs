@@ -201,7 +201,9 @@ impl ManualNativeToolService {
                 Some(ToolApprovalDecision::Approved) => {
                     witness.status = NativeToolAuthorizationStatus::Allowed;
                 }
-                Some(ToolApprovalDecision::Denied) => {
+                // An answer delivered to a call that asked for permission means the two
+                // resolution paths were crossed; deny rather than treat it as consent.
+                Some(ToolApprovalDecision::Denied | ToolApprovalDecision::Answered(_)) => {
                     return Ok(terminal_result(
                         NativeToolResultStatus::Denied,
                         NativeToolErrorCode::PermissionDenied,

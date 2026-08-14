@@ -54,7 +54,12 @@ export interface ToolUseBlock {
   name: string;
   input?: unknown;
   output?: unknown;
-  status: "pending" | "running" | "awaiting_approval" | "completed" | "failed";
+  /**
+   * `awaiting_input` is a question waiting on the user, distinct from `awaiting_approval`: the
+   * affordance differs (choose one of N versus allow/deny), and rendering one as the other would
+   * show a security prompt for a clarification.
+   */
+  status: "pending" | "running" | "awaiting_approval" | "awaiting_input" | "completed" | "failed";
 }
 
 export type RichBlockKind =

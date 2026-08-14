@@ -588,9 +588,9 @@ impl AgentRuntimeApi {
         call_id: &str,
         decision: ToolApprovalDecision,
     ) -> Result<bool, AgentRuntimeApplicationError> {
-        let generation = self
-            .service
-            .resolve_tool_approval(session_id, call_id, decision)?;
+        let generation =
+            self.service
+                .resolve_tool_approval(session_id, call_id, decision.clone())?;
         let manual = self
             .manual_native_tools
             .resolve_approval(session_id, call_id, decision);
@@ -670,7 +670,12 @@ impl AgentRuntimeApi {
         request: SendMessageRequest,
         _profile: OrchestrationExecutionProfile,
     ) -> Result<StartedAgentMessage, AgentRuntimeApplicationError> {
-        self.service.send_message_with_completion(request)
+        // Plan attempts, repairs, and discovery all send with `AgentMessageSource::Desktop` and
+        // own no Loop session, so nothing about the request distinguishes them from a chat turn.
+        // Routing them here is what keeps a blocking question out of an unattended attempt
+        // (`add-agent-user-question` D4).
+        self.service
+            .send_non_interactive_message_with_completion(request)
     }
 
     pub(crate) fn active_generation_correlation(

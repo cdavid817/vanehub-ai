@@ -1912,6 +1912,34 @@ export function resolveWebMockToolApproval(sessionId: string, callId: string, ap
   return true;
 }
 
+/**
+ * Web/mock backing for `resolveAgentQuestion`. Unlike the desktop runtime there is no blocked
+ * generation to resume, so "delivered" means only that a tool block in this session was still
+ * showing `awaiting_input` — the mock reports the round trip as simulated rather than implying a
+ * real wait ended.
+ */
+/**
+ * Marker that makes the Web/mock runtime simulate a clarification round trip. Web/mock has no
+ * model deciding when to ask, so the trigger stands in for that decision.
+ */
+export const WEB_MOCK_QUESTION_TRIGGER = "[ask-me]";
+
+function resolveSimulatedQuestion(sessionId: string, callId: string, answer: string): boolean {
+  findSession(sessionId);
+  const message = getSessionMessages(sessionId).find((entry) =>
+    entry.toolUse?.some((tool) => tool.id === callId && tool.status === "awaiting_input"),
+  );
+  const pending = message?.toolUse?.find((tool) => tool.id === callId);
+  if (!message || !pending) return false;
+  publishChatEvent({
+    type: "tool_use",
+    sessionId,
+    messageId: message.id,
+    toolUse: { ...pending, output: answer, status: "completed" },
+  });
+  return true;
+}
+
 function emitTerminalEvent(event: AgentTerminalEvent, recordOutput = true) {
   if (recordOutput && event.type === "output") {
     terminalTranscriptsBySession.set(event.sessionId, appendTerminalTranscript(
@@ -4128,6 +4156,28 @@ export const webAgentClient: AgentService = {
         });
       }, 230);
       timeoutIds.push(approvalTimeoutId);
+      // Clarification round trip (`add-agent-user-question`). Gated on an explicit marker in the
+      // message rather than emitted every turn: a question blocks until answered, so simulating
+      // one unconditionally would leave every other mock conversation waiting on a card.
+      if (input.content.includes(WEB_MOCK_QUESTION_TRIGGER)) {
+        const questionTimeoutId = setTimeout(() => {
+          publishChatEvent({
+            type: "tool_use",
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            toolUse: {
+              id: `web-tool-question-${assistantMessage.id}`,
+              name: "ask_user_question",
+              input: {
+                question: "Which approach should the simulated agent take?",
+                options: ["Rewrite the module", "Patch it in place"],
+              },
+              status: "awaiting_input",
+            },
+          });
+        }, 240);
+        timeoutIds.push(questionTimeoutId);
+      }
       // Read-only search (`add-onepiece-search-and-edit-tools`): `grep` is classified
       // `AutoApprove`, so it follows `remember`'s no-approval path rather than `shell`'s gated
       // one. Output is a fixed fake result — the Web runtime never touches a real filesystem.
@@ -4394,6 +4444,15 @@ export const webAgentClient: AgentService = {
       ...input,
       sessionId: session.agentId === "onepiece" ? "web-token-onepiece" : "web-token-cli",
     });
+  },
+
+  /**
+   * The Web runtime simulates the round trip: nothing is actually blocked on the answer, so this
+   * reports delivery only when a matching tool block is still showing `awaiting_input` and marks
+   * it completed with the answer, rather than claiming a real generation resumed.
+   */
+  async resolveAgentQuestion(sessionId: string, callId: string, answer: string) {
+    return resolveSimulatedQuestion(sessionId, callId, answer);
   },
 
   async stopGeneration(sessionId: string) {

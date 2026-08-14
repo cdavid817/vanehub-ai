@@ -15,6 +15,15 @@ pub(crate) const SHELL_TOOL_NAME: &str = "shell";
 pub(crate) const SHELL_OUTPUT_TOOL_NAME: &str = "shell_output";
 pub(crate) const SHELL_KILL_TOOL_NAME: &str = "shell_kill";
 pub(crate) const TODO_WRITE_TOOL_NAME: &str = "todo_write";
+pub(crate) const ASK_USER_QUESTION_TOOL_NAME: &str = "ask_user_question";
+
+/// Bounds for `ask_user_question` (`add-agent-user-question` D6). Fewer than two options is not
+/// a choice; more than four stops being scannable and starts being a menu the model should have
+/// narrowed itself.
+pub(crate) const MIN_QUESTION_OPTIONS: usize = 2;
+pub(crate) const MAX_QUESTION_OPTIONS: usize = 4;
+pub(crate) const MAX_QUESTION_CHARS: usize = 300;
+pub(crate) const MAX_QUESTION_OPTION_CHARS: usize = 120;
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
@@ -81,6 +90,43 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         shell_kill_tool_definition(),
         todo_write_tool_definition(),
     ]
+}
+
+/// Offered only to interactive sessions (`add-agent-user-question` D4). A blocking question in a
+/// Loop worker, a scheduled run, or a Plan attempt burns that attempt's whole ceiling with nobody
+/// able to end the wait, so the catalog withholds it and the executor refuses it independently.
+pub(crate) fn ask_user_question_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: ASK_USER_QUESTION_TOOL_NAME.to_string(),
+        description: format!(
+            "Ask the user one question and wait for their answer. Use it when the request is \
+             genuinely ambiguous and the readings would lead to materially different work -- not \
+             for choices with an obvious default, and not to confirm work you can just do. Offer \
+             {MIN_QUESTION_OPTIONS} to {MAX_QUESTION_OPTIONS} concrete options; the user can also \
+             answer in their own words, so an option set that misses their intent is recoverable."
+        ),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": format!("The question, at most {MAX_QUESTION_CHARS} characters. Ask one thing.")
+                },
+                "options": {
+                    "type": "array",
+                    "minItems": MIN_QUESTION_OPTIONS,
+                    "maxItems": MAX_QUESTION_OPTIONS,
+                    "description": "Concrete answers to choose between. Each is a short label, not a paragraph.",
+                    "items": {
+                        "type": "string",
+                        "description": format!("One option, at most {MAX_QUESTION_OPTION_CHARS} characters.")
+                    }
+                }
+            },
+            "required": ["question", "options"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// Whole-list replacement rather than per-item operations (`add-agent-task-list` D1): addressing

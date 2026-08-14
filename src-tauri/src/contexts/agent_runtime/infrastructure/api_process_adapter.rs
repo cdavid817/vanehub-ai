@@ -14,17 +14,17 @@ use super::tools::{MAX_TASK_ITEMS, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_
 use super::SqliteNativeToolRepository;
 use super::{anthropic_provider, model_context_catalog, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
-    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
-    AgentChatConfiguration, AgentClockPort, AgentCodeIntelligenceContext,
-    AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentCoreInstructionsPort,
-    AgentDocumentInput, AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentLoggingPort,
-    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentPermissionPort,
-    AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
-    AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest,
-    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
-    ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput, ContextAnalysisService,
-    ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
+    ask_user_question_tool_definition, code_intelligence_tool_definitions,
+    delegate_utility_skill_tool_definition, plan_mode_tool_catalog, recall_tool_definition,
+    search_code_tool_definition, tool_catalog, AgentChatConfiguration, AgentClockPort,
+    AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome,
+    AgentCoreInstructionsPort, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
+    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage,
+    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway,
+    AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
+    AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway,
+    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput,
+    ContextAnalysisService, ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
     ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
     GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
     NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
@@ -33,13 +33,14 @@ use crate::contexts::agent_runtime::application::{
     ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, StoredToolOperation,
     StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
     ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
-    WorkflowLaunchOutcome, WorkflowLaunchRequest, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
-    FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
-    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
-    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
-    MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
-    SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
-    TODO_WRITE_TOOL_NAME,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, ASK_USER_QUESTION_TOOL_NAME,
+    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
+    LOAD_SKILL_TOOL_NAME, MAX_QUESTION_CHARS, MAX_QUESTION_OPTIONS, MAX_QUESTION_OPTION_CHARS,
+    MCP_TOOL_NAME_PREFIX, MIN_QUESTION_OPTIONS, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
+    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME,
+    SHELL_TOOL_NAME, TODO_WRITE_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -1541,6 +1542,36 @@ fn execute_with_code_intelligence(
                 executed.push((tool_use, outcome.output, outcome.is_error));
                 continue;
             }
+            // Handled here rather than in `execute_tool_call_impl` because asking needs the event
+            // sink and the blocked-call channel, exactly as the approval gate below does
+            // (`add-agent-user-question` D1).
+            if tool_use.name == ASK_USER_QUESTION_TOOL_NAME {
+                let outcome = match ask_user_question(
+                    &mut tool_use,
+                    &input,
+                    request.interactive,
+                    &cancelled,
+                    pending_approvals,
+                    sink,
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(failure) => return failure,
+                };
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error));
+                continue;
+            }
             let (permission_action, permission_resource) =
                 permission_action_and_resource(&tool_use.name, &input);
             let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -1605,6 +1636,21 @@ fn execute_with_code_intelligence(
                             return failed_non_retryable(
                                 "Generation was cancelled while a tool call was awaiting approval.",
                             );
+                        }
+                        // An answer delivered to a call that asked for permission means the two
+                        // resolutions were crossed; fail closed rather than treat it as consent.
+                        ApprovalOutcome::Answered(_) => {
+                            let denial = "Denied by user.".to_string();
+                            tool_use.status = "failed".to_string();
+                            tool_use.output = Some(Value::String(denial.clone()));
+                            if sink
+                                .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                                .is_err()
+                            {
+                                return failed_retryable("Agent generation event handling failed.");
+                            }
+                            executed.push((tool_use, denial, true));
+                            continue;
                         }
                     }
                 }
@@ -1827,6 +1873,11 @@ fn resolve_tool_catalog_with_code_intelligence(
         if code_intelligence_available {
             tools.extend(code_intelligence_tool_definitions());
         }
+        // Plan mode is where clarification matters most -- the whole point of the mode is to
+        // settle what the work is before doing it (`add-agent-user-question`).
+        if request.interactive {
+            tools.push(ask_user_question_tool_definition());
+        }
         return tools;
     }
     let mut tools = tool_catalog();
@@ -1858,6 +1909,9 @@ fn resolve_tool_catalog_with_code_intelligence(
     }
     if code_intelligence_available {
         tools.extend(code_intelligence_tool_definitions());
+    }
+    if request.interactive {
+        tools.push(ask_user_question_tool_definition());
     }
     tools
 }
@@ -3351,6 +3405,9 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
         // Writes only VaneHub-internal session state, with no workspace, process, or network
         // effect -- the same no-approval classification the fixed Skill tools use.
         TODO_WRITE_TOOL_NAME => (Action::file_read(), Resource::new(tool_name)),
+        // The user's answer is itself the authorization; a separate approval prompt in front of a
+        // question would ask permission to ask permission.
+        ASK_USER_QUESTION_TOOL_NAME => (Action::file_read(), Resource::new(tool_name)),
         FILE_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
             let resource = Resource::file_path(path);
@@ -3383,10 +3440,113 @@ fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Re
     }
 }
 
+/// Validates a question, publishes it, and blocks until the user answers.
+///
+/// Validation happens before anything is published, so a malformed call neither renders a card
+/// nor blocks the generation. The non-interactive refusal is repeated here rather than left to the
+/// catalog because the catalog only shapes what the model is *told* -- nothing stops it requesting
+/// a tool it was never offered, and in an unattended attempt that request would hang until the
+/// attempt's ceiling fired (`add-agent-user-question` D4).
+#[allow(clippy::result_large_err)]
+fn ask_user_question(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    interactive: bool,
+    cancelled: &AtomicBool,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+    if !interactive {
+        return Ok(ToolExecutionOutcome {
+            output: "There is no interactive user in this execution context, so a question cannot \
+                     be answered here. Decide using the information you have, state the assumption \
+                     you made, and continue."
+                .to_string(),
+            is_error: true,
+        });
+    }
+    if let Err(message) = validate_question_input(input) {
+        return Ok(ToolExecutionOutcome {
+            output: message,
+            is_error: true,
+        });
+    }
+
+    tool_use.status = "awaiting_input".to_string();
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    match await_approval(&tool_use.id, cancelled, pending_approvals) {
+        ApprovalOutcome::Answered(answer) => Ok(ToolExecutionOutcome {
+            output: answer,
+            is_error: false,
+        }),
+        ApprovalOutcome::Cancelled => Err(failed_non_retryable(
+            "Generation was cancelled while a question was awaiting an answer.",
+        )),
+        // Approve/deny arriving for a question means the two resolution paths were crossed. There
+        // is no answer to return, so the call fails rather than inventing one.
+        ApprovalOutcome::Approved | ApprovalOutcome::Denied => Ok(ToolExecutionOutcome {
+            output: "The question was dismissed without an answer.".to_string(),
+            is_error: true,
+        }),
+    }
+}
+
+fn validate_question_input(input: &Value) -> Result<(), String> {
+    let question = input
+        .get("question")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if question.is_empty() {
+        return Err("question must be a non-empty string.".to_string());
+    }
+    if question.chars().count() > MAX_QUESTION_CHARS {
+        return Err(format!(
+            "question is {} characters; the maximum is {MAX_QUESTION_CHARS}.",
+            question.chars().count()
+        ));
+    }
+    let Some(options) = input.get("options").and_then(Value::as_array) else {
+        return Err("options must be an array of strings.".to_string());
+    };
+    if options.len() < MIN_QUESTION_OPTIONS || options.len() > MAX_QUESTION_OPTIONS {
+        return Err(format!(
+            "options must contain between {MIN_QUESTION_OPTIONS} and {MAX_QUESTION_OPTIONS} entries, but {} were given.",
+            options.len()
+        ));
+    }
+    for (index, option) in options.iter().enumerate() {
+        let Some(text) = option.as_str() else {
+            return Err(format!("option {} must be a string.", index + 1));
+        };
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err(format!("option {} is empty.", index + 1));
+        }
+        if trimmed.chars().count() > MAX_QUESTION_OPTION_CHARS {
+            return Err(format!(
+                "option {} is {} characters; the maximum is {MAX_QUESTION_OPTION_CHARS}.",
+                index + 1,
+                trimmed.chars().count()
+            ));
+        }
+    }
+    Ok(())
+}
+
 enum ApprovalOutcome {
     Approved,
     Denied,
     Cancelled,
+    /// A question resolved with the user's answer. Reaching this from the approval gate would mean
+    /// an answer was delivered to a call that asked for permission, so that path treats it as a
+    /// denial rather than silently proceeding (`add-agent-user-question` D1).
+    Answered(String),
 }
 
 fn await_approval(
@@ -3414,6 +3574,7 @@ fn await_approval(
         match rx.recv_timeout(APPROVAL_POLL_INTERVAL) {
             Ok(ToolApprovalDecision::Approved) => return ApprovalOutcome::Approved,
             Ok(ToolApprovalDecision::Denied) => return ApprovalOutcome::Denied,
+            Ok(ToolApprovalDecision::Answered(answer)) => return ApprovalOutcome::Answered(answer),
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => return ApprovalOutcome::Cancelled,
         }
@@ -3806,7 +3967,9 @@ fn execute_registered_native_tool(
             ApprovalOutcome::Approved => {
                 witness.status = NativeToolAuthorizationStatus::Allowed;
             }
-            ApprovalOutcome::Denied => {
+            // An answer delivered here means the approval and question resolution paths were
+            // crossed; fail closed rather than treat it as consent.
+            ApprovalOutcome::Denied | ApprovalOutcome::Answered(_) => {
                 recorder.transition(
                     StoredToolOperationStatus::Failed,
                     None,
@@ -5840,6 +6003,9 @@ mod tests {
                 managed_args: Vec::new(),
                 env: BTreeMap::new(),
             },
+            // Desktop chat is the interactive default; the non-interactive cases construct their
+            // own request and flip this.
+            interactive: true,
         }
     }
 
@@ -7593,6 +7759,298 @@ mod tests {
         assert!(task_list_store().get(session).is_empty());
     }
 
+    /// Cancellation is inherited from the approval channel's own wait loop rather than
+    /// reimplemented (`add-agent-user-question` D7): a cancelled generation must stop waiting
+    /// instead of leaving the tool call blocked forever.
+    #[test]
+    fn a_cancelled_generation_stops_waiting_on_a_question() {
+        let mut tool_use = ToolUseBlock {
+            id: "call-cancelled".to_owned(),
+            name: ASK_USER_QUESTION_TOOL_NAME.to_owned(),
+            input: None,
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let input = json!({"question": "Which?", "options": ["a", "b"]});
+        let sink = CapturingSink::default();
+
+        let failure = ask_user_question(
+            &mut tool_use,
+            &input,
+            true,
+            &AtomicBool::new(true),
+            &no_pending_approvals(),
+            &sink,
+        )
+        .expect_err("a cancelled generation must fail the call rather than return an answer");
+
+        assert!(matches!(failure, GenerationProcessEvent::Failed(_)));
+        // The question was still published before the wait began, so the user saw what was asked.
+        assert!(sink.events.lock().expect("events").iter().any(
+            |event| matches!(event, GenerationProcessEvent::ToolUse(block)
+                if block.status == "awaiting_input")
+        ));
+    }
+
+    #[test]
+    fn asking_a_question_is_classified_as_a_no_approval_operation() {
+        let (action, resource) = permission_action_and_resource(
+            ASK_USER_QUESTION_TOOL_NAME,
+            &json!({"question": "Which one?", "options": ["a", "b"]}),
+        );
+        assert_eq!(action, Action::file_read());
+        assert_eq!(resource, Resource::new(ASK_USER_QUESTION_TOOL_NAME));
+    }
+
+    #[test]
+    fn the_question_tool_is_offered_only_to_interactive_sessions() {
+        let mut request = sample_request("api");
+        for plan_mode in [false, true] {
+            request.interactive = true;
+            let offered = resolve_tool_catalog(
+                &request,
+                &NoopMcp,
+                &NoopLogging,
+                &FixedClock,
+                plan_mode,
+                false,
+                false,
+            );
+            assert!(
+                offered
+                    .iter()
+                    .any(|tool| tool.name == ASK_USER_QUESTION_TOOL_NAME),
+                "interactive session (plan_mode={plan_mode}) should be offered the question tool"
+            );
+
+            request.interactive = false;
+            let withheld = resolve_tool_catalog(
+                &request,
+                &NoopMcp,
+                &NoopLogging,
+                &FixedClock,
+                plan_mode,
+                false,
+                false,
+            );
+            assert!(
+                !withheld
+                    .iter()
+                    .any(|tool| tool.name == ASK_USER_QUESTION_TOOL_NAME),
+                "non-interactive session (plan_mode={plan_mode}) must not be offered it"
+            );
+        }
+    }
+
+    fn question_input(question: &str, options: Vec<Value>) -> Value {
+        json!({ "question": question, "options": options })
+    }
+
+    #[test]
+    fn a_valid_question_passes_validation_at_both_option_bounds() {
+        for count in [MIN_QUESTION_OPTIONS, MAX_QUESTION_OPTIONS] {
+            let options: Vec<Value> = (0..count)
+                .map(|index| json!(format!("Option {index}")))
+                .collect();
+            assert!(
+                validate_question_input(&question_input("Which approach?", options)).is_ok(),
+                "{count} options is within bounds"
+            );
+        }
+    }
+
+    #[test]
+    fn question_validation_rejects_every_malformed_shape() {
+        let long_question = "q".repeat(MAX_QUESTION_CHARS + 1);
+        let long_option = "o".repeat(MAX_QUESTION_OPTION_CHARS + 1);
+        let too_few: Vec<Value> = (0..MIN_QUESTION_OPTIONS - 1)
+            .map(|i| json!(format!("{i}")))
+            .collect();
+        let too_many: Vec<Value> = (0..MAX_QUESTION_OPTIONS + 1)
+            .map(|i| json!(format!("{i}")))
+            .collect();
+        let cases = vec![
+            (question_input("", vec![json!("a"), json!("b")]), "question"),
+            (
+                question_input("   ", vec![json!("a"), json!("b")]),
+                "question",
+            ),
+            (
+                question_input(&long_question, vec![json!("a"), json!("b")]),
+                "maximum",
+            ),
+            (question_input("Which?", too_few), "between"),
+            (question_input("Which?", too_many), "between"),
+            (
+                question_input("Which?", vec![json!("a"), json!("")]),
+                "empty",
+            ),
+            (
+                question_input("Which?", vec![json!("a"), json!(&long_option)]),
+                "maximum",
+            ),
+            (
+                question_input("Which?", vec![json!("a"), json!(7)]),
+                "must be a string",
+            ),
+            (json!({"question": "Which?"}), "options"),
+        ];
+        for (input, expected_fragment) in cases {
+            let error = validate_question_input(&input)
+                .expect_err(&format!("expected rejection for {input}"));
+            assert!(
+                error.contains(expected_fragment),
+                "error for {input} was {error:?}, expected it to mention {expected_fragment:?}"
+            );
+        }
+    }
+
+    /// Multi-byte questions are bounded by characters, not bytes -- a 300-character Chinese
+    /// question is 900 bytes and must still be accepted.
+    #[test]
+    fn question_bounds_count_characters_not_bytes() {
+        let at_bound = "\u{4e2d}".repeat(MAX_QUESTION_CHARS);
+        assert!(
+            validate_question_input(&question_input(&at_bound, vec![json!("a"), json!("b")]))
+                .is_ok()
+        );
+        let over = "\u{4e2d}".repeat(MAX_QUESTION_CHARS + 1);
+        assert!(
+            validate_question_input(&question_input(&over, vec![json!("a"), json!("b")])).is_err()
+        );
+    }
+
+    fn ask(interactive: bool, input: &Value, pending: &PendingApprovals) -> ToolExecutionOutcome {
+        let mut tool_use = ToolUseBlock {
+            id: "call-question".to_owned(),
+            name: ASK_USER_QUESTION_TOOL_NAME.to_owned(),
+            input: Some(input.clone()),
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let sink = CapturingSink::default();
+        ask_user_question(
+            &mut tool_use,
+            input,
+            interactive,
+            &AtomicBool::new(false),
+            pending,
+            &sink,
+        )
+        .unwrap_or_else(|_| panic!("ask_user_question should not fail the generation here"))
+    }
+
+    /// The catalog already withholds the tool outside interactive sessions, but the catalog only
+    /// shapes what the model is *told*. This is the boundary that actually holds -- without it a
+    /// hallucinated call would block an unattended attempt until its ceiling fired.
+    #[test]
+    fn a_non_interactive_context_refuses_to_ask_instead_of_blocking() {
+        let pending = no_pending_approvals();
+        let outcome = ask(
+            false,
+            &question_input("Which?", vec![json!("a"), json!("b")]),
+            &pending,
+        );
+        assert!(outcome.is_error);
+        assert!(
+            outcome.output.contains("no interactive user"),
+            "{}",
+            outcome.output
+        );
+        assert!(
+            pending.lock().expect("pending").is_empty(),
+            "a refused question must not register a waiter"
+        );
+    }
+
+    #[test]
+    fn an_invalid_question_is_rejected_without_registering_a_waiter() {
+        let pending = no_pending_approvals();
+        let outcome = ask(
+            true,
+            &question_input("Which?", vec![json!("only-one")]),
+            &pending,
+        );
+        assert!(outcome.is_error);
+        assert!(outcome.output.contains("between"), "{}", outcome.output);
+        assert!(
+            pending.lock().expect("pending").is_empty(),
+            "a rejected question must neither publish nor block"
+        );
+    }
+
+    #[test]
+    fn an_answer_resolves_the_question_and_is_returned_verbatim() {
+        let pending = no_pending_approvals();
+        let waiter = pending.clone();
+        let answered = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                let sender = waiter
+                    .lock()
+                    .expect("pending")
+                    .get("call-question")
+                    .cloned();
+                if let Some(sender) = sender {
+                    // Free text the model never offered: the answer is returned unchanged rather
+                    // than matched to the nearest option.
+                    let _ = sender.send(ToolApprovalDecision::Answered(
+                        "neither, use the third thing".to_owned(),
+                    ));
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        let outcome = ask(
+            true,
+            &question_input("Which approach?", vec![json!("a"), json!("b")]),
+            &pending,
+        );
+        answered.join().expect("answering thread");
+
+        assert!(!outcome.is_error, "{}", outcome.output);
+        assert_eq!(outcome.output, "neither, use the third thing");
+    }
+
+    /// Approve/deny arriving for a question means the two resolution paths were crossed. There is
+    /// no answer to return, so the call fails rather than inventing one.
+    #[test]
+    fn an_approval_delivered_to_a_question_does_not_become_an_answer() {
+        let pending = no_pending_approvals();
+        let waiter = pending.clone();
+        let resolver = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                let sender = waiter
+                    .lock()
+                    .expect("pending")
+                    .get("call-question")
+                    .cloned();
+                if let Some(sender) = sender {
+                    let _ = sender.send(ToolApprovalDecision::Approved);
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        let outcome = ask(
+            true,
+            &question_input("Which approach?", vec![json!("a"), json!("b")]),
+            &pending,
+        );
+        resolver.join().expect("resolving thread");
+
+        assert!(outcome.is_error);
+        assert!(
+            outcome.output.contains("without an answer"),
+            "{}",
+            outcome.output
+        );
+    }
+
     #[test]
     fn mcp_and_unknown_tools_keep_their_fail_closed_permission_mappings() {
         let (mcp_action, mcp_resource) = permission_action_and_resource(
@@ -8375,6 +8833,22 @@ mod tests {
         assert!(outcome.output.contains("context"));
     }
 
+    /// Recall is appended after every MCP-sourced entry (`add-agent-mcp-tools`' ordering intent).
+    /// This used to be spelled `tools.last()`, which stopped meaning that once
+    /// `add-agent-user-question` appended a conditional tool behind it.
+    fn assert_recall_follows_mcp_entries(tools: &[ToolDefinition]) {
+        let recall = tools
+            .iter()
+            .position(|tool| tool.name == RECALL_TOOL_NAME)
+            .expect("recall present");
+        let last_mcp = tools
+            .iter()
+            .rposition(|tool| tool.name.starts_with(MCP_TOOL_NAME_PREFIX));
+        if let Some(last_mcp) = last_mcp {
+            assert!(recall > last_mcp, "recall must follow every MCP entry");
+        }
+    }
+
     #[test]
     fn resolve_tool_catalog_merges_mcp_entries_into_the_fixed_catalog() {
         let request = sample_request("api");
@@ -8395,7 +8869,7 @@ mod tests {
         let tools =
             resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
-        assert_eq!(tools.len(), 13);
+        assert_eq!(tools.len(), 14);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -8428,7 +8902,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 268);
+        assert_eq!(tools.len(), 269);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, GREP_TOOL_NAME);
@@ -8475,8 +8949,8 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 269);
-        assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
+        assert_eq!(tools.len(), 270);
+        assert_recall_follows_mcp_entries(&tools);
     }
 
     #[test]
@@ -8496,7 +8970,7 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            12,
+            13,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
@@ -8536,7 +9010,9 @@ mod tests {
 
         let tools = resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, true, false, false);
 
-        assert_eq!(tools, plan_mode_tool_catalog());
+        let mut expected = plan_mode_tool_catalog();
+        expected.push(ask_user_question_tool_definition());
+        assert_eq!(tools, expected);
         assert_eq!(
             *mcp.catalog_lookups.lock().expect("catalog_lookups"),
             0,
@@ -8576,8 +9052,8 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 13);
-        assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
+        assert_eq!(tools.len(), 14);
+        assert_recall_follows_mcp_entries(&tools);
     }
 
     #[test]
@@ -8596,6 +9072,7 @@ mod tests {
 
         let mut expected = plan_mode_tool_catalog();
         expected.push(recall_tool_definition());
+        expected.push(ask_user_question_tool_definition());
         assert_eq!(tools, expected);
     }
 
@@ -8611,7 +9088,7 @@ mod tests {
             false,
             true,
         );
-        assert_eq!(tools.last().expect("last tool").name, SEARCH_CODE_TOOL_NAME);
+        assert!(tools.iter().any(|tool| tool.name == SEARCH_CODE_TOOL_NAME));
 
         let unavailable = resolve_tool_catalog(
             &request,
