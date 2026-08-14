@@ -1667,15 +1667,22 @@ git commit -m "feat: add slash help command"
 创建 `src/components/chat/SlashCommandOutput.test.tsx`：
 
 ```tsx
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import { activateAppLanguage } from "../../i18n";
 import { renderWithAppProviders } from "../../test/render";
 import { SlashCommandOutput } from "./SlashCommandOutput";
 
 describe("SlashCommandOutput", () => {
+  // The app defaults to zh-CN; pin English so the assertions below can check real copy
+  // instead of translation keys (see ModeSelect.test.tsx for the same pattern).
+  beforeAll(async () => activateAppLanguage("en"));
+
   it("renders nothing when there is no output", () => {
     const { container } = renderWithAppProviders(<SlashCommandOutput output={null} onDismiss={() => undefined} />);
-    expect(container).toBeEmptyDOMElement();
+    expect(container.firstChild).toBeNull();
   });
 
   it("translates the title and each message", () => {
@@ -1685,9 +1692,9 @@ describe("SlashCommandOutput", () => {
         output={{ titleKey: "slash.output.applied", tone: "info", messages: [{ key: "slash.output.mode", params: { value: "plan" } }] }}
       />,
     );
-    expect(screen.getByTestId("slash-command-output")).toBeInTheDocument();
-    expect(screen.getByText("Applied")).toBeInTheDocument();
-    expect(screen.getByText("Execution mode: plan")).toBeInTheDocument();
+    expect(screen.getByTestId("slash-command-output")).toBeTruthy();
+    expect(screen.getByText("Applied")).toBeTruthy();
+    expect(screen.getByText("Execution mode: plan")).toBeTruthy();
   });
 
   it("translates a help entry's description parameter before interpolating", () => {
@@ -1700,7 +1707,7 @@ describe("SlashCommandOutput", () => {
         }}
       />,
     );
-    expect(screen.getByText("/status — Show the current runtime switches")).toBeInTheDocument();
+    expect(screen.getByText("/status — Show the current runtime switches")).toBeTruthy();
   });
 
   it("marks an error tone for assistive technology", () => {
@@ -1710,7 +1717,7 @@ describe("SlashCommandOutput", () => {
         output={{ titleKey: "slash.error.title", tone: "error", messages: [{ key: "slash.error.notStreaming" }] }}
       />,
     );
-    expect(screen.getByTestId("slash-command-output")).toHaveAttribute("data-tone", "error");
+    expect(screen.getByTestId("slash-command-output").getAttribute("data-tone")).toBe("error");
   });
 
   it("dismisses on the close button", async () => {
@@ -1833,8 +1840,11 @@ git commit -m "feat: add slash command output panel"
 创建 `src/components/chat/SlashCommandCompletion.test.tsx`：
 
 ```tsx
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import { activateAppLanguage } from "../../i18n";
 import { renderWithAppProviders } from "../../test/render";
 import type { SlashCommand } from "../../services/slash-commands/types";
 import { SlashCommandCompletion } from "./SlashCommandCompletion";
@@ -1845,17 +1855,21 @@ const command = (name: string, argumentHint?: string): SlashCommand => ({
 });
 
 describe("SlashCommandCompletion", () => {
+  // The app defaults to zh-CN; pin English so the assertions below check real copy
+  // instead of translation keys (see ModeSelect.test.tsx for the same pattern).
+  beforeAll(async () => activateAppLanguage("en"));
+
   it("renders nothing when there are no options", () => {
     const { container } = renderWithAppProviders(<SlashCommandCompletion onSelect={() => undefined} options={[]} />);
-    expect(container).toBeEmptyDOMElement();
+    expect(container.firstChild).toBeNull();
   });
 
   it("shows the invocation and the translated description", () => {
     renderWithAppProviders(
       <SlashCommandCompletion onSelect={() => undefined} options={[command("mode", "<inherit|plan|execute>")]} />,
     );
-    expect(screen.getByText("/mode <inherit|plan|execute>")).toBeInTheDocument();
-    expect(screen.getByText("Set the execution mode")).toBeInTheDocument();
+    expect(screen.getByText("/mode <inherit|plan|execute>")).not.toBeNull();
+    expect(screen.getByText("Set the execution mode")).not.toBeNull();
   });
 
   it("reports the selected command name", async () => {
@@ -1868,6 +1882,8 @@ describe("SlashCommandCompletion", () => {
   });
 });
 ```
+
+⚠️ 断言用 vitest 内置匹配器（`.not.toBeNull()`、`.toBeNull()`），**不要用 `toBeInTheDocument()` 等 jest-dom 匹配器**——`@testing-library/jest-dom` 不在本仓库依赖里。同理需要顶部的 `// @vitest-environment jsdom` 指令。
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2263,8 +2279,11 @@ git commit -m "feat: add slash command dispatch hook"
 创建 `src/components/chat/ChatInputBox.slash.test.tsx`：
 
 ```tsx
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import { activateAppLanguage } from "../../i18n";
 import { renderWithAppProviders } from "../../test/render";
 import type { SlashCommand } from "../../services/slash-commands/types";
 import { ChatInputBox } from "./ChatInputBox";
@@ -2291,15 +2310,18 @@ function renderBox(overrides: Partial<Parameters<typeof ChatInputBox>[0]> = {}) 
 }
 
 describe("ChatInputBox slash command surfaces", () => {
+  // The app defaults to zh-CN; pin English so the assertions below check real copy.
+  beforeAll(async () => activateAppLanguage("en"));
+
   it("renders neither surface by default", () => {
     renderBox();
-    expect(screen.queryByTestId("slash-command-output")).not.toBeInTheDocument();
-    expect(screen.queryByText("Commands")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("slash-command-output")).toBeNull();
+    expect(screen.queryByText("Commands")).toBeNull();
   });
 
   it("renders the completion dropdown from suggestions", () => {
     renderBox({ slashCommandSuggestions: [command("status")] });
-    expect(screen.getByRole("button", { name: /\/status/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\/status/ })).not.toBeNull();
   });
 
   it("reports the selected command", async () => {
@@ -2315,7 +2337,7 @@ describe("ChatInputBox slash command surfaces", () => {
       onDismissSlashCommandOutput,
       slashCommandOutput: { titleKey: "slash.output.applied", tone: "info", messages: [] },
     });
-    expect(screen.getByTestId("slash-command-output")).toBeInTheDocument();
+    expect(screen.getByTestId("slash-command-output")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Dismiss command output" }));
     expect(onDismissSlashCommandOutput).toHaveBeenCalled();
   });
