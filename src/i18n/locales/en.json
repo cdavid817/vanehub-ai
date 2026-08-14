@@ -3277,5 +3277,6 @@
   "slash.command.export.description": "Export this session",
   "slash.command.stop.description": "Stop the current generation",
   "slash.command.status.description": "Show the current runtime switches",
-  "slash.command.usage.description": "Show token usage for this session"
+  "slash.command.usage.description": "Show token usage for this session",
+  "slash.output.dismiss": "Dismiss command output"
 }

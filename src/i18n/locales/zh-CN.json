@@ -3277,5 +3277,6 @@
   "slash.command.export.description": "导出当前会话",
   "slash.command.stop.description": "停止当前生成",
   "slash.command.status.description": "显示当前运行时开关",
-  "slash.command.usage.description": "显示本会话的 Token 用量"
+  "slash.command.usage.description": "显示本会话的 Token 用量",
+  "slash.output.dismiss": "关闭命令输出"
 }

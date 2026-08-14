@@ -3277,5 +3277,6 @@
   "slash.command.export.description": "이 세션 내보내기",
   "slash.command.stop.description": "현재 생성 중지",
   "slash.command.status.description": "현재 런타임 스위치 표시",
-  "slash.command.usage.description": "이 세션의 토큰 사용량 표시"
+  "slash.command.usage.description": "이 세션의 토큰 사용량 표시",
+  "slash.output.dismiss": "명령 출력 닫기"
 }
