@@ -33,6 +33,7 @@ pub(crate) enum AgentRuntimeApplicationError {
     Mcp(String),
     Permission(String),
     Personalization(String),
+    ContextQuality(String),
     Provider(AgentProviderError),
 }
 
@@ -88,6 +89,9 @@ impl fmt::Display for AgentRuntimeApplicationError {
             Self::Permission(message) => write!(formatter, "agent permission error: {message}"),
             Self::Personalization(message) => {
                 write!(formatter, "agent personalization error: {message}")
+            }
+            Self::ContextQuality(message) => {
+                write!(formatter, "context quality persistence error: {message}")
             }
             Self::Provider(error) => error.fmt(formatter),
         }

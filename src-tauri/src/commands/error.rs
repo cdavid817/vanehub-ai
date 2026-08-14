@@ -238,6 +238,7 @@ impl From<AgentRuntimeApplicationError> for CommandError {
             | AgentRuntimeApplicationError::Memory(message)
             | AgentRuntimeApplicationError::Mcp(message)
             | AgentRuntimeApplicationError::Permission(message)
+            | AgentRuntimeApplicationError::ContextQuality(message)
             | AgentRuntimeApplicationError::Personalization(message) => Self::storage(message),
             AgentRuntimeApplicationError::Credential(message) => Self {
                 category: CommandErrorCategory::Infrastructure,

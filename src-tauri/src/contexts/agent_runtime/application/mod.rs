@@ -1,3 +1,11 @@
+mod context_analysis;
+#[cfg(test)]
+mod context_analysis_tests;
+mod context_quality_query;
+mod context_quality_recording;
+mod context_reinjection;
+#[cfg(test)]
+mod context_reinjection_tests;
 mod error;
 mod execution_policy;
 mod existing_tool_registry;
@@ -32,6 +40,15 @@ mod tool_catalog;
 mod utility_delegation;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
+pub(crate) use context_analysis::{ContextAnalysisInput, ContextAnalysisService};
+pub(crate) use context_quality_query::ContextQualityQueryService;
+pub(crate) use context_quality_recording::ContextQualityRecorder;
+#[allow(unused_imports)]
+pub(crate) use context_reinjection::{
+    AuthoritativeContextValue, ContextReinjectionBudget, ContextReinjectionEvidence,
+    ContextReinjectionFailure, ContextReinjectionKind, ContextReinjectionResult,
+    ContextReinjectionService, ReinjectedContextValue,
+};
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
 pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
@@ -101,6 +118,7 @@ pub(crate) use models::{
     ValidateOnePieceProviderCredentialInput, WorkflowLaunchOutcome, WorkflowLaunchRequest,
     WorkflowView, INTERFACE_FORMAT_ANTHROPIC, INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
+pub(crate) use ports::ContextQualityRepository;
 
 #[cfg(test)]
 pub(crate) use models::{OnePiecePlanningRequest, OnePiecePlanningResult};
@@ -143,13 +161,13 @@ pub(crate) use ports::{
     AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRegistryRepository,
     AgentRetrievalHit, AgentRetrievalOutcome, AgentRetrievalPort, AgentSessionGateway,
     AgentSkillPort, AgentTaskPort, AgentTerminalEventPort, AgentTerminalGateway,
-    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, ConversationHistoryPort,
-    EffectivePromptGateway, LoopExecutionControlPort, LoopExecutionLeasePort,
-    LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository, LoopLoggingPort,
-    LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort, LoopRoleSessionPort,
-    LoopSessionRecoveryPort, LoopVerificationProcessPort, LoopVerifierContextPort,
-    LoopVerifierGenerationPort, LoopWorkerGenerationPort, OnePieceModelDiscoveryPort,
-    ToolApprovalPort,
+    AgentWorkflowRepository, ApiAgentGateway, ApiCredentialPort, AuthoritativeContextPort,
+    ConversationHistoryPort, EffectivePromptGateway, LoopExecutionControlPort,
+    LoopExecutionLeasePort, LoopGenerationControlPort, LoopGitStatePort, LoopIterationRepository,
+    LoopLoggingPort, LoopProjectPort, LoopRepository, LoopRoleGenerationCompletionPort,
+    LoopRoleSessionPort, LoopSessionRecoveryPort, LoopVerificationProcessPort,
+    LoopVerifierContextPort, LoopVerifierGenerationPort, LoopWorkerGenerationPort,
+    OnePieceModelDiscoveryPort, ToolApprovalPort,
 };
 #[allow(unused_imports)]
 pub(crate) use ports::{

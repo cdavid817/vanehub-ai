@@ -248,7 +248,7 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
     ) -> Result<Option<ApiProviderConfig>, AgentRuntimeApplicationError> {
         self.connection()?
             .query_row(
-                "SELECT model_id, interface_format, base_url, auto_approve_tools FROM agents WHERE id = ?1",
+                "SELECT model_id, interface_format, base_url, auto_approve_tools, (SELECT source_provider_id FROM onepiece_provider_profiles WHERE agent_id = agents.id AND active = 1 LIMIT 1) FROM agents WHERE id = ?1",
                 [agent_id],
                 |row| {
                     Ok((
@@ -256,14 +256,16 @@ impl ApiAgentGateway for SqliteAgentRuntimeRepository {
                         row.get::<_, Option<String>>(1)?,
                         row.get::<_, Option<String>>(2)?,
                         row.get::<_, bool>(3)?,
+                        row.get::<_, Option<String>>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(registry_error)
             .map(|row| {
-                row.and_then(|(model_id, interface_format, base_url, auto_approve_tools)| {
+                row.and_then(|(model_id, interface_format, base_url, auto_approve_tools, source_provider_id)| {
                     Some(ApiProviderConfig {
+                        source_provider_id,
                         model_id: model_id?,
                         interface_format: interface_format
                             .unwrap_or_else(|| INTERFACE_FORMAT_ANTHROPIC.to_string()),

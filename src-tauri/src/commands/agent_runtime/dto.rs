@@ -6,6 +6,88 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualityHistoryQuery {
+    pub(crate) range_days: u32,
+    pub(crate) cursor: Option<String>,
+    pub(crate) limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualitySummaryQuery {
+    pub(crate) range_days: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualityAssessment {
+    pub(crate) version: String,
+    pub(crate) attempt_id: String,
+    pub(crate) session_correlation: Option<String>,
+    pub(crate) decision_sequence: u64,
+    pub(crate) recorded_at: String,
+    pub(crate) outcome: String,
+    pub(crate) path: Option<String>,
+    pub(crate) reason: Option<String>,
+    pub(crate) trigger_source: Option<String>,
+    pub(crate) before_characters: u64,
+    pub(crate) after_characters: u64,
+    pub(crate) saved_characters: u64,
+    pub(crate) before_tokens: Option<u64>,
+    pub(crate) after_tokens: Option<u64>,
+    pub(crate) saved_tokens: Option<u64>,
+    pub(crate) measurement_quality: String,
+    pub(crate) invariants: Option<ContextQualityInvariants>,
+    pub(crate) context_policy_version: String,
+    pub(crate) optimizer_version: String,
+    pub(crate) verifier_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualityInvariants {
+    pub(crate) protocol_complete: bool,
+    pub(crate) protected_retained: bool,
+    pub(crate) verbatim_retained: bool,
+    pub(crate) reinjection_complete: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualityHistoryPage {
+    pub(crate) items: Vec<ContextQualityAssessment>,
+    pub(crate) next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualityCoverage {
+    pub(crate) measured_with_tokens: u64,
+    pub(crate) characters_only: u64,
+    pub(crate) token_coverage_basis_points: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ContextQualitySummary {
+    pub(crate) range_days: u32,
+    pub(crate) evaluated: u64,
+    pub(crate) saved_characters: u64,
+    pub(crate) saved_tokens: u64,
+    pub(crate) token_measurement_count: u64,
+    pub(crate) quality_coverage: ContextQualityCoverage,
+    pub(crate) outcomes: BTreeMap<String, u64>,
+    pub(crate) paths: BTreeMap<String, u64>,
+    pub(crate) qualities: BTreeMap<String, u64>,
+    pub(crate) reasons: BTreeMap<String, u64>,
+    pub(crate) policy_versions: BTreeMap<String, u64>,
+    pub(crate) earliest_recorded_at: Option<String>,
+    pub(crate) latest_recorded_at: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]

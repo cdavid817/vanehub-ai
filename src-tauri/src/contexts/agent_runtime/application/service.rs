@@ -28,7 +28,8 @@ use super::{
     INTERFACE_FORMAT_OPENAI_COMPATIBLE,
 };
 use crate::contexts::agent_runtime::domain::{
-    AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow, InteractionMode,
+    AgentDefinition, AgentLifecycle, AgentOrigin, AgentReadiness, AgentWorkflow,
+    AutomaticCompactionMode, InteractionMode,
 };
 use crate::contexts::execution_observability::api::{
     ExecutionContext, ExecutionFidelity, ExecutionIdentityPort, ExecutionLink, ExecutionRun,
@@ -1979,6 +1980,7 @@ impl AgentRuntimeApplicationService {
                 operation_id: operation.id.clone(),
                 configuration: configuration.clone(),
                 effective_prompt: effective_prompt.content,
+                automatic_compaction: AutomaticCompactionMode::Automatic,
                 // Single-Agent sessions carry no briefing, so their invocation is unchanged.
                 role_briefing: role_briefing.clone(),
                 cli_profile: profile,

@@ -65,6 +65,10 @@ import { managedCliAgentIds } from "../types/agent";
 import { getOnePieceProviderPresets, resolveOnePieceProviderPreset } from "../config/onepiece-provider-presets";
 import { findWebSshConnection } from "./web-ssh-connection-client";
 import { readWebAppSettings } from "./web-settings-client";
+import {
+  getWebContextQualitySummary,
+  listWebContextQualityHistory,
+} from "./web-context-quality";
 import { requireHttpsExternalUrl } from "./external-url";
 import { defaultSessionTitleFromPath, normalizeDisplayPath } from "../lib/session-path";
 import { snapshotSeat } from "./seat-presentation";
@@ -2374,6 +2378,14 @@ export const webAgentClient: AgentService = {
       : mockAgents;
   },
 
+  async listContextQualityHistory(input) {
+    return listWebContextQualityHistory(input);
+  },
+
+  async getContextQualitySummary(input) {
+    return getWebContextQualitySummary(input);
+  },
+
   async registerApiAgent(input: RegisterApiAgentInput) {
     const displayName = input.displayName.trim();
     const provider = input.provider.trim();
@@ -3863,6 +3875,7 @@ export const webAgentClient: AgentService = {
     const personalizationSettings = readWebAppSettings();
     const memoryEnabled = personalizationSettings.memoryEnabled;
     const toolAssistedExtractionEnabled = personalizationSettings.memoryToolAssistedChatsEnabled;
+    const automaticCompactionEnabled = personalizationSettings.automaticContextCompactionEnabled;
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
     const startTimeoutId = setTimeout(() => {
       emitChatEvent({ type: "started", sessionId: input.sessionId, messageId: assistantMessage.id });
@@ -3872,7 +3885,12 @@ export const webAgentClient: AgentService = {
       (total, message) => total + message.content.length,
       0,
     );
-    if (historyCharacterCount > mockCompactionTriggerCharacters) {
+    if (automaticCompactionEnabled && historyCharacterCount > mockCompactionTriggerCharacters) {
+      const afterCharacters = Math.min(
+        historyCharacterCount,
+        Math.max(userMessage.content.length, Math.ceil(historyCharacterCount * 0.4)),
+      );
+      const savedCharacters = Math.max(0, historyCharacterCount - afterCharacters);
       const compactionTimeoutId = setTimeout(() => {
         publishChatEvent({
           type: "rich_block",
@@ -3883,8 +3901,34 @@ export const webAgentClient: AgentService = {
             kind: "card",
             v: 1,
             title: "Conversation compacted",
-            bodyMarkdown: "Earlier turns in this conversation were summarized to stay within the model's context window.",
+            bodyMarkdown: "Earlier context was compacted. This evidence contains measurements only and excludes conversation content.",
             tone: "info",
+            fields: [
+              { label: "Before characters", value: String(historyCharacterCount) },
+              { label: "After characters", value: String(afterCharacters) },
+              { label: "Characters saved", value: String(savedCharacters) },
+              { label: "Before tokens", value: "Unavailable" },
+              { label: "After tokens", value: "Unavailable" },
+              { label: "Tokens saved", value: "Unavailable" },
+              { label: "Measurement quality", value: "characters-only → characters-only" },
+              { label: "Trigger source", value: "character-fallback" },
+              { label: "Compaction path", value: "compatibility" },
+              { label: "Policy version", value: "onepiece-context-production-v1" },
+            ],
+            meta: {
+              evidenceKind: "context-compaction",
+              beforeCharacters: historyCharacterCount,
+              afterCharacters,
+              savedCharacters,
+              beforeTokens: null,
+              afterTokens: null,
+              savedTokens: null,
+              beforeQuality: "characters-only",
+              afterQuality: "characters-only",
+              triggerSource: "character-fallback",
+              compactionPath: "compatibility",
+              policyVersion: "onepiece-context-production-v1",
+            },
           },
         });
       }, 150);

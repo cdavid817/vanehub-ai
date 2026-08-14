@@ -11,6 +11,9 @@ export type AppFontSize = (typeof appFontSizes)[number];
 export const logLevels = ["error", "warn", "info", "debug"] as const;
 export type LogLevel = (typeof logLevels)[number];
 
+export const contextQualityRetentionDaysOptions = [7, 30, 90] as const;
+export type ContextQualityRetentionDays = (typeof contextQualityRetentionDaysOptions)[number];
+
 export type ClientLogEventKind = "error-boundary" | "critical-operation-failure";
 
 export interface NetworkProxyTestResult {
@@ -53,7 +56,9 @@ export type AppSettingKey =
   | "customInstructionsStyleRules"
   | "customInstructionsEnabled"
   | "memoryEnabled"
-  | "memoryToolAssistedChatsEnabled";
+  | "memoryToolAssistedChatsEnabled"
+  | "automaticContextCompactionEnabled"
+  | "contextQualityRetentionDays";
 
 export const customInstructionsFieldCharacterLimit = 3000;
 
@@ -78,6 +83,8 @@ export interface AppSettings {
   customInstructionsEnabled: boolean;
   memoryEnabled: boolean;
   memoryToolAssistedChatsEnabled: boolean;
+  automaticContextCompactionEnabled: boolean;
+  contextQualityRetentionDays: ContextQualityRetentionDays;
 }
 
 export interface NodeInfo {
