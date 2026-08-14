@@ -6,16 +6,17 @@ const LEGACY_V1_FIXTURE: &str = include_str!("../tests/fixtures/database/legacy-
 const CURRENT_V20_DATA_FIXTURE: &str =
     include_str!("../tests/fixtures/database/current-v20-data.sql");
 
-/// Contiguous through 67. Migration 53 reconciles Plan execution and workspace code indexing,
+/// Contiguous through 69. Migration 53 reconciles Plan execution and workspace code indexing,
 /// migrations 54-58 add Loop, recovery, and LSP foundations, migration 59 introduces stable
 /// shared-session participant identity, migration 60 adds effective Skill reconciliation, and
 /// migration 61 resets legacy session execution preferences and governed CLI security selections;
 /// migrations 62-63 complete the OnePiece Plan-Agent loop and session association, and migration
 /// 64 introduces invocation-grained Token accounting, migration 65 adds managed IM bindings, and
 /// migration 66 adds the unified Todo Board, and migration 67 adds the privacy-bounded Skill
-/// evolution evidence store.
+/// evolution evidence store. Migrations 68-69 add native-tool persistence and Artifact catalog
+/// metadata.
 fn expected_versions() -> Vec<i64> {
-    (1..=67).collect()
+    (1..=69).collect()
 }
 
 fn applied_versions(conn: &Connection) -> Vec<i64> {

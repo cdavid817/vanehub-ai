@@ -75,6 +75,7 @@ pub(crate) struct ExtensionFrameworkDefinition {
     pub(crate) name_key: &'static str,
     pub(crate) description_key: &'static str,
     pub(crate) default_port: u16,
+    pub(crate) inference_protocol: Option<&'static str>,
     pub(crate) requirement: ExtensionRequirement,
 }
 
@@ -103,6 +104,7 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.paddleocr.name",
         description_key: "extensions.framework.paddleocr.description",
         default_port: 9875,
+        inference_protocol: Some("vanehub.paddleocr.inference.v1"),
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["paddleocr>=3,<4", "paddlepaddle>=3,<4"],
@@ -119,6 +121,7 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.fasterWhisper.name",
         description_key: "extensions.framework.fasterWhisper.description",
         default_port: 9876,
+        inference_protocol: None,
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["faster-whisper>=1,<2"],
@@ -135,6 +138,7 @@ const EXTENSION_DEFINITIONS: [ExtensionFrameworkDefinition; 3] = [
         name_key: "extensions.framework.sherpaOnnx.name",
         description_key: "extensions.framework.sherpaOnnx.description",
         default_port: 9879,
+        inference_protocol: None,
         requirement: ExtensionRequirement {
             runtime: "Python 3.10+",
             packages: &["sherpa-onnx>=1,<2"],
@@ -184,6 +188,10 @@ mod tests {
         assert_eq!(paddleocr.requirement.import_module, "paddleocr");
         assert_eq!(paddleocr.requirement.version_package, "paddleocr");
         assert_eq!(paddleocr.default_port, 9875);
+        assert_eq!(
+            paddleocr.inference_protocol,
+            Some("vanehub.paddleocr.inference.v1")
+        );
     }
 
     #[test]

@@ -160,6 +160,7 @@ import {
   normalizeLspWorkspaceTrustList,
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
+import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -196,6 +197,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  ...tauriBuiltinToolClient,
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },

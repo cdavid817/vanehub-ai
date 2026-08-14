@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "playwright": {
+    "package_version": "1.62.1",
+    "protocol_version": 1
+  },
+  "paddleocr": {
+    "engine_major": 3,
+    "protocol_version": "vanehub.paddleocr.inference.v1"
+  },
+  "pdfium": {
+    "protocol_version": "vanehub.pdfium.render.v1",
+    "checksum_required": true
+  },
+  "claude_code": {
+    "minimum": "1.0.0",
+    "maximum_reviewed": "2.999.999",
+    "capture_fixture": "claude-success.v1.jsonl"
+  },
+  "codex_cli": {
+    "minimum": "0.1.0",
+    "maximum_reviewed": "0.999.999",
+    "capture_fixture": "codex-success.v1.jsonl"
+  },
+  "runtimes": {
+    "python_supported": "Python 3.12.4",
+    "python_rejected": "Python 3.10.9",
+    "javascript_supported": "v22.14.0",
+    "javascript_rejected": "v25.0.0"
+  }
+}

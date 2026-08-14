@@ -36,7 +36,7 @@ The system SHALL pass the session's configured reasoning depth to the provider w
 - **THEN** the request sent to the provider SHALL NOT include a reasoning-effort field
 
 ### Requirement: Plan mode restricts a native API agent to read-only tools
-The system SHALL, when the session's permission mode is plan mode, offer a native API agent only tools that cannot modify the user's system or call an arbitrary network or tool server. Read-only fixed Skill tools SHALL remain available, as SHALL configured read-only LSP queries against an explicitly trusted local workspace. The system SHALL reject any attempt to use a tool or operation outside the restricted set regardless of what the model requests.
+The system SHALL, when the session's permission mode is plan mode, offer a native API agent only tools that cannot modify the user's system, execute arbitrary code, start an external delegated Agent, apply delegated changes, publish new Artifacts, or call an arbitrary network or tool server. Read-only fixed Skill tools SHALL remain available, as SHALL configured read-only LSP queries against an explicitly trusted local workspace. For OnePiece, bounded reads of existing Artifacts and local OCR extraction that does not publish a derived Artifact MAY remain available when their readiness predicates pass. The system SHALL reject any attempt to use a tool or operation outside the restricted set regardless of what the model requests.
 
 #### Scenario: Plan mode excludes shell and MCP-sourced tools from the catalog
 - **WHEN** a generation starts in plan mode
@@ -63,14 +63,23 @@ The system SHALL, when the session's permission mode is plan mode, offer a nativ
 - **WHEN** a generation starts in plan mode
 - **THEN** the tool catalog offered to the model SHALL still include the remember tool
 
+#### Scenario: Plan-mode OnePiece can inspect existing Artifacts
+- **WHEN** a OnePiece generation starts in plan mode and Artifact/OCR readiness passes
+- **THEN** the catalog MAY include bounded metadata/read operations for existing authorized Artifacts and OCR extraction that returns only its in-memory bounded result
+- **AND** it SHALL exclude Artifact creation/publication and derived-Artifact output
+
+#### Scenario: Plan mode excludes extended effectful tools
+- **WHEN** a OnePiece generation starts in plan mode
+- **THEN** the catalog SHALL exclude Browser navigation/interaction, Web search/fetch, `code_execution`, `delegate_cli`, `apply_delegation_changes`, Artifact publication, and any OCR operation that persists a derived Artifact
+
 #### Scenario: A disallowed tool call is rejected even if requested
-- **WHEN** the model requests the shell tool, the file-edit tool, an MCP-sourced tool, a file write operation, a mutating Skill operation, or an unadvertised mutating LSP operation while the session is in plan mode
+- **WHEN** the model requests the shell tool, the file-edit tool, an MCP-sourced tool, a file write operation, a mutating Skill or Artifact operation, an unadvertised mutating LSP or OCR operation, Browser/Web access, code execution, CLI delegation, or delegated-change application while the session is in plan mode
 - **THEN** the system SHALL reject the call as an error outcome without executing it, regardless of whether the tool appeared in the offered catalog
 
 #### Scenario: Other permission modes are unaffected
 - **WHEN** a generation starts with a permission mode other than plan mode
 - **THEN** the tool catalog and tool execution behavior SHALL remain governed by that mode's existing permission and tool-availability rules
-- **AND** the read-only fixed Skill tools SHALL be available according to the effective Skill runtime
+- **AND** the read-only fixed Skill tools and eligible OnePiece-only tools SHALL be available according to their effective runtime predicates
 
 ### Requirement: Context compaction is unaffected by turn-level generation settings
 The system SHALL NOT apply a session's thinking, reasoning-depth, or permission-mode settings to context compaction's own internal summarization request.

@@ -6,6 +6,13 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn command_registration_source() -> &'static str {
+    concat!(
+        include_str!("commands/core_registry.rs"),
+        include_str!("commands/builtin_tool_registry.rs")
+    )
+}
+
 #[test]
 fn operation_contract_keeps_lowercase_enums_and_camel_case_fields() {
     let value = serde_json::to_value(OperationTask {
@@ -90,7 +97,7 @@ fn command_error_contract_remains_a_display_string() {
 #[test]
 fn every_tauri_command_is_registered_exactly_once() {
     let command_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
-    let registry = include_str!("commands/registry.rs");
+    let registry = command_registration_source();
     let mut sources = Vec::new();
     collect_rust_sources(&command_root, &mut sources);
 
@@ -154,7 +161,7 @@ fn is_tauri_command(attribute: &syn::Attribute) -> bool {
 
 #[test]
 fn mcp_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-mcp-client.ts");
     for command in [
         "list_mcp_servers",
@@ -180,7 +187,7 @@ fn mcp_command_registration_and_frontend_invokes_keep_stable_names() {
 
 #[test]
 fn cli_config_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-agent-client.ts");
     for command in [
         "list_cli_config_profiles",
@@ -207,7 +214,7 @@ fn cli_config_command_registration_and_frontend_invokes_keep_stable_names() {
 
 #[test]
 fn extension_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-extension-client.ts");
     for command in [
         "get_extension_overview",
@@ -233,7 +240,7 @@ fn extension_command_registration_and_frontend_invokes_keep_stable_names() {
 
 #[test]
 fn workspace_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-agent-client.ts");
     for command in [
         "list_known_projects",
@@ -255,7 +262,7 @@ fn workspace_command_registration_and_frontend_invokes_keep_stable_names() {
 
 #[test]
 fn workspace_query_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-session-workspace-client.ts");
     for command in [
         "list_session_directory",
@@ -284,7 +291,7 @@ fn workspace_query_command_registration_and_frontend_invokes_keep_stable_names()
 
 #[test]
 fn agent_runtime_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-agent-client.ts");
     for command in [
         "list_agents",
@@ -317,7 +324,7 @@ fn agent_runtime_command_registration_and_frontend_invokes_keep_stable_names() {
 
 #[test]
 fn plugin_integration_command_registration_and_frontend_invokes_keep_stable_names() {
-    let native_registration = include_str!("commands/registry.rs");
+    let native_registration = command_registration_source();
     let tauri_client = include_str!("../../src/services/tauri-plugin-integration-client.ts");
     for command in [
         "get_plugin_integration_overview",

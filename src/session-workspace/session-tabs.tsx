@@ -112,7 +112,7 @@ export function SessionTabs({
     if (id === "documents") return <LazyFeature componentProps={{ sessionId }} loader={loadDocumentsTab} />;
     if (id === "files") return <LazyFeature componentProps={{ sessionId }} loader={loadFilesTab} />;
     if (id === "terminal") {
-      return <LazyFeature componentProps={{ messages, partial: messagesPartial }} loader={loadTerminalTab} />;
+      return <LazyFeature componentProps={{ builtinToolsAvailable: activeSession?.agentId === "onepiece", messages, partial: messagesPartial, sessionId, targetRoot: activeSession?.worktreePath ?? activeSession?.projectPath ?? "" }} loader={loadTerminalTab} />;
     }
     if (id === "shell") {
       return <LazyFeature componentProps={{ active: activeTab === "shell", sessionId }} loader={loadShellTab} />;

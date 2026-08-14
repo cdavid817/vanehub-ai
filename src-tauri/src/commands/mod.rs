@@ -1,6 +1,8 @@
 pub(crate) mod agent_runtime;
+mod builtin_tool_registry;
 pub(crate) mod code_intelligence;
 pub(crate) mod communications;
+mod core_registry;
 pub(crate) mod desktop;
 pub(crate) mod error;
 pub(crate) mod execution_observability;
@@ -11,6 +13,7 @@ pub(crate) mod retrieval;
 pub(crate) mod sessions;
 pub(crate) mod skill_evolution_evidence;
 pub(crate) mod ssh_connections;
+mod supplemental_registry;
 pub(crate) mod task_orchestration;
 pub(crate) mod tooling;
 pub(crate) mod work_board;

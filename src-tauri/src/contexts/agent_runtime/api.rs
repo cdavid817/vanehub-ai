@@ -5,12 +5,14 @@
 //! terminals, loop engineering, and durable Multi-Agent runs.
 
 use super::application::{
-    AgentRuntimeApplicationService, AgentTerminalApplicationService, ExpertRoleApplicationService,
-    LoopApplicationService, LoopControlApplicationService, LoopRecoveryApplicationService,
-    LoopVerificationCancellation, LoopVerificationCommandView, LoopVerificationProcessPort,
-    LoopVerificationProcessRequest, LoopVerificationProcessStatus,
+    AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
+    ExpertRoleApplicationService, LoopApplicationService, LoopControlApplicationService,
+    LoopRecoveryApplicationService, LoopVerificationCancellation, LoopVerificationCommandView,
+    LoopVerificationProcessPort, LoopVerificationProcessRequest, LoopVerificationProcessStatus,
 };
-use super::infrastructure::{NativeLoopScheduler, NativeSeatTurnCoordinator};
+use super::infrastructure::{
+    ManualNativeToolControl, NativeLoopScheduler, NativeSeatTurnCoordinator,
+};
 use std::sync::Arc;
 
 pub(crate) use super::application::{
@@ -19,14 +21,15 @@ pub(crate) use super::application::{
     AgentSessionDetails, AgentTerminalInputRequest, AgentTerminalSession, AgentTerminalSize,
     AgentView, ApiProviderConfig, ContinueLoopRequest, DiscoverOnePieceProviderModelsInput,
     EmbeddingEndpointView, ExecutionToolMode, LaunchWorkflowResult, LoopDefinitionView,
-    LoopRunView, OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult,
-    OnePieceProviderModelOption, OnePieceProviderPreset, OnePieceProviderProfiles,
-    OpenAgentTerminalRequest, OrchestrationCorrelation, OrchestrationExecutionProfile,
-    ProviderCredentialValidationResult, ReadinessView, RegisterApiAgentInput,
-    ResizeAgentTerminalRequest, SaveLoopDefinitionRequest, SaveOnePieceProviderConfigInput,
-    SaveOnePieceProviderProfileInput, SendMessageRequest, StartLoopResultView, StartedAgentMessage,
-    StopAgentTerminalRequest, StopGenerationResult, ToolApprovalDecision, UpdateApiAgentInput,
-    ValidateOnePieceProviderCredentialInput, WorkflowView,
+    LoopRunView, ManualApplyDelegationRequest, ManualStartDelegationRequest, NativeToolRegistry,
+    OnePieceProviderConfig, OnePieceProviderModelDiscoveryResult, OnePieceProviderModelOption,
+    OnePieceProviderPreset, OnePieceProviderProfiles, OpenAgentTerminalRequest,
+    OrchestrationCorrelation, OrchestrationExecutionProfile, ProviderCredentialValidationResult,
+    ReadinessView, RegisterApiAgentInput, ResizeAgentTerminalRequest, SaveLoopDefinitionRequest,
+    SaveOnePieceProviderConfigInput, SaveOnePieceProviderProfileInput, SendMessageRequest,
+    StartLoopResultView, StartedAgentMessage, StopAgentTerminalRequest, StopGenerationResult,
+    ToolApprovalDecision, UpdateApiAgentInput, ValidateOnePieceProviderCredentialInput,
+    WorkflowView,
 };
 
 const GUARDED_VALIDATION_OUTPUT_LIMIT: usize = 4_000;
@@ -98,6 +101,9 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) expert_roles: ExpertRoleApplicationService,
     pub(crate) seat_turns: NativeSeatTurnCoordinator,
     pub(crate) guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    pub(crate) native_tools: NativeToolRegistry,
+    pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
+    pub(crate) manual_native_tools: ManualNativeToolControl,
 }
 
 #[derive(Clone)]
@@ -115,6 +121,9 @@ pub(crate) struct AgentRuntimeApi {
     seat_turns: NativeSeatTurnCoordinator,
     expert_roles: ExpertRoleApplicationService,
     guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    native_tools: NativeToolRegistry,
+    browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
+    manual_native_tools: ManualNativeToolControl,
 }
 
 impl AgentRuntimeApi {
@@ -129,6 +138,9 @@ impl AgentRuntimeApi {
             expert_roles,
             seat_turns,
             guarded_validation,
+            native_tools,
+            browser_handoff,
+            manual_native_tools,
         } = services;
         Self {
             service,
@@ -140,6 +152,9 @@ impl AgentRuntimeApi {
             expert_roles,
             seat_turns,
             guarded_validation,
+            native_tools,
+            browser_handoff,
+            manual_native_tools,
         }
     }
 
@@ -169,6 +184,76 @@ impl AgentRuntimeApi {
             output_summary,
             output_truncated: result.output_truncated || bounded_truncated,
         })
+    }
+
+    pub(crate) fn get_browser_handoff(&self, operation_id: &str) -> Result<serde_json::Value, ()> {
+        self.browser_handoff
+            .as_ref()
+            .ok_or(())?
+            .get_handoff(operation_id)
+    }
+
+    pub(crate) fn begin_browser_handoff(
+        &self,
+        operation_id: &str,
+    ) -> Result<serde_json::Value, ()> {
+        self.browser_handoff
+            .as_ref()
+            .ok_or(())?
+            .begin_handoff(operation_id)
+    }
+
+    pub(crate) fn resume_browser_automation(
+        &self,
+        operation_id: &str,
+        ownership_token: &str,
+    ) -> Result<serde_json::Value, ()> {
+        self.browser_handoff
+            .as_ref()
+            .ok_or(())?
+            .resume_automation(operation_id, ownership_token)
+    }
+
+    pub(crate) fn is_native_tool_registered(&self, name: &str) -> bool {
+        self.native_tools.is_registered(name)
+    }
+
+    pub(crate) async fn start_manual_delegation(
+        &self,
+        request: ManualStartDelegationRequest,
+    ) -> Result<serde_json::Value, String> {
+        let control = self.manual_native_tools.clone();
+        tauri::async_runtime::spawn_blocking(move || control.start_delegation(request))
+            .await
+            .map_err(|_| "manual_dispatch_failed".to_owned())?
+    }
+
+    pub(crate) async fn apply_manual_delegation_changes(
+        &self,
+        request: ManualApplyDelegationRequest,
+    ) -> Result<serde_json::Value, String> {
+        let control = self.manual_native_tools.clone();
+        tauri::async_runtime::spawn_blocking(move || control.apply_delegation_changes(request))
+            .await
+            .map_err(|_| "manual_dispatch_failed".to_owned())?
+    }
+
+    pub(crate) fn cancel_manual_native_tool(&self, operation_id: &str) -> bool {
+        self.manual_native_tools.cancel(operation_id)
+    }
+
+    pub(crate) fn native_tool_readiness_reason(&self, name: &str) -> Option<&'static str> {
+        self.native_tools
+            .readiness_reason(name)
+            .map(|reason| reason.as_str())
+    }
+
+    pub(crate) fn is_native_tool_backend_ready(&self, name: &str) -> bool {
+        self.is_native_tool_registered(name) && self.native_tool_readiness_reason(name).is_none()
+    }
+
+    pub(crate) fn is_native_tool_feature_enabled(&self, capability: &str, mode: &str) -> bool {
+        self.native_tools.is_feature_enabled(capability, mode)
     }
 
     pub(crate) fn list_expert_roles(
@@ -464,8 +549,13 @@ impl AgentRuntimeApi {
         call_id: &str,
         decision: ToolApprovalDecision,
     ) -> Result<bool, AgentRuntimeApplicationError> {
-        self.service
-            .resolve_tool_approval(session_id, call_id, decision)
+        let generation = self
+            .service
+            .resolve_tool_approval(session_id, call_id, decision)?;
+        let manual = self
+            .manual_native_tools
+            .resolve_approval(session_id, call_id, decision);
+        Ok(generation || manual)
     }
 
     pub(crate) fn list_all_memories(

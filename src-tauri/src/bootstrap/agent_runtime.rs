@@ -1,23 +1,29 @@
 use super::managed_mcp_relay::InvocationScopedMcpRelayAdapter;
 use crate::contexts::agent_runtime::api::{AgentRuntimeApi, AgentRuntimeApiServices};
 use crate::contexts::agent_runtime::application::{
-    AgentCodeIntelligenceResponderPort, AgentRetrievalPort, AgentRuntimeApplicationPorts,
-    AgentRuntimeApplicationService, AgentTerminalApplicationPorts, AgentTerminalApplicationService,
-    AgentWorkspaceMutationPort, ExpertRoleApplicationPorts, ExpertRoleApplicationService,
-    LoopApplicationPorts, LoopApplicationService, LoopControlApplicationPorts,
-    LoopControlApplicationService, LoopOperationObserver, LoopOrchestratorApplicationService,
-    LoopOrchestratorPorts, LoopProgressApplicationService, LoopRecoveryApplicationPorts,
-    LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
-    LoopVerificationApplicationService, LoopVerifierApplicationPorts,
-    LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
-    UtilityDelegationApplicationPorts, UtilityDelegationApplicationService,
+    web_native_tool_handlers, AgentCodeIntelligenceResponderPort, AgentRetrievalPort,
+    AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
+    AgentTerminalApplicationService, AgentWorkspaceMutationPort,
+    ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
+    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, DelegateCliNativeToolHandler,
+    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LoopApplicationPorts,
+    LoopApplicationService, LoopControlApplicationPorts, LoopControlApplicationService,
+    LoopOperationObserver, LoopOrchestratorApplicationService, LoopOrchestratorPorts,
+    LoopProgressApplicationService, LoopRecoveryApplicationPorts, LoopRecoveryApplicationService,
+    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+    LoopVerifierApplicationPorts, LoopVerifierApplicationService, LoopWorkerApplicationPorts,
+    LoopWorkerApplicationService, ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
+    NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
+    OnePieceToolFeatureGates, UtilityDelegationApplicationPorts,
+    UtilityDelegationApplicationService,
 };
 use crate::contexts::agent_runtime::infrastructure::{
     builtin_expert_roles, AgentRuntimeLoggingAdapter, AgentRuntimeOperationAdapter,
     CompositeAgentProcessGateway, CredentialAwareAgentRegistry, HttpOnePieceModelDiscoveryAdapter,
     InMemoryAgentMessageTerminalCompletions, InMemoryGenerationCoordinator,
     InMemoryLoopExecutionCoordinator, InMemoryLoopRoleGenerationCompletions,
-    InMemorySeatTurnCompletions, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
+    InMemorySeatTurnCompletions, ManualNativeToolAuthorityAdapter, ManualNativeToolControl,
+    ManualNativeToolOperationAdapter, NativeAgentCoreInstructionsAdapter, NativeLoopScheduler,
     NativeSeatTurnCoordinator, NativeUtilityChildExecutor, OsApiCredentialAdapter,
     PermissionsPortAdapter, PortablePtyAgentTerminalRuntime, RuntimeAgentApiAdapter,
     RuntimeAgentAvailabilityAdapter, RuntimeAgentCliProfileAdapter, RuntimeAgentMcpToolAdapter,
@@ -26,9 +32,33 @@ use crate::contexts::agent_runtime::infrastructure::{
     RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
     RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
     SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    StructuredLoopVerificationProcess, SystemAgentRuntimeClock, SystemExpertRoleClock,
-    TauriAgentRuntimeEventAdapter, TerminalExecutionObservability, UuidExpertRoleIds,
-    WorkspaceLoopProjectAdapter,
+    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
+    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
+    UnavailableNativeToolPort, UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+};
+use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
+use crate::contexts::artifacts::infrastructure::{
+    ArtifactBlobStore, ArtifactNativeToolAdapter, BrowserArtifactAdapter, CodeArtifactAdapter,
+    SqliteArtifactCatalog,
+};
+use crate::contexts::browser_automation::application::{
+    BrowserArtifactBridge, BrowserContextPolicy, BrowserOperationService, BrowserSessionManager,
+};
+use crate::contexts::browser_automation::infrastructure::{
+    BrowserHandoffCommandAdapter, BrowserNativeToolAdapter, PlaywrightSidecarFactory,
+};
+use crate::contexts::cli_delegation::application::{
+    DelegationCapabilityDependencies, DelegationMode, DelegationReadinessService,
+    DelegationReadinessState, DelegationTarget,
+};
+use crate::contexts::cli_delegation::infrastructure::{
+    ClaudeDelegationNativeToolAdapter, NativeChangeSetApplyAdapter, PassiveDelegationProbe,
+};
+use crate::contexts::code_execution::application::{
+    CodeExecutionService, SandboxProcessBackend, SandboxWorkspaceService,
+};
+use crate::contexts::code_execution::infrastructure::{
+    CodeExecutionNativeToolAdapter, PlatformSandboxBackend, SystemCodeRuntimeAdapter,
 };
 use crate::contexts::desktop::api::DesktopSettingsApi;
 use crate::contexts::execution_observability::api::ExecutionTelemetryPort;
@@ -45,18 +75,29 @@ use crate::contexts::permissions::api::PermissionsApi;
 use crate::contexts::sessions::api::SessionsApi;
 use crate::contexts::skill_evolution_evidence::application::RuntimeEvidenceProjector;
 use crate::contexts::tooling::cli::api::CliApi;
+use crate::contexts::tooling::cli::infrastructure::CliExecutableLocatorAdapter;
 use crate::contexts::tooling::cli_parameters::CliParametersApi;
+use crate::contexts::tooling::extensions::application::PaddleOcrReadinessService;
+use crate::contexts::tooling::extensions::infrastructure::{
+    ManagedPaddleOcrReadinessInspector, OcrNativeToolAdapter, SqliteExtensionRepository,
+};
 use crate::contexts::tooling::mcp::api::McpApi;
 use crate::contexts::tooling::prompt_hooks::api::PromptHookApi;
 use crate::contexts::tooling::sdk::api::SdkApi;
 use crate::contexts::tooling::skills::api::SkillApi;
+use crate::contexts::web_research::application::{FetchedBinaryRouter, GuardedFetchService};
+use crate::contexts::web_research::infrastructure::{
+    ArtifactFetchedBinaryAdapter, DuckDuckGoSearchAdapter, ReqwestFetchHttpAdapter,
+    ReqwestSearchHttpAdapter, SystemUrlResolver, WebResearchNativeToolAdapter,
+};
 use crate::contexts::workspaces::api::WorkspaceApi;
 use crate::platform::database::NativeDatabase;
+use crate::platform::process::command_exists;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 pub(crate) struct AgentRuntimeDependencies {
     pub(crate) database: NativeDatabase,
@@ -132,6 +173,247 @@ type ExecutionExporterSet = (
     Option<Arc<dyn ExternalLogExportPort>>,
 );
 
+fn assemble_native_tool_registry(
+    database: &NativeDatabase,
+    app: &AppHandle,
+    cli: &CliApi,
+) -> Result<
+    (
+        NativeToolRegistry,
+        Option<Arc<dyn BrowserHandoffControlPort>>,
+    ),
+    String,
+> {
+    let data_root = database
+        .db_path
+        .parent()
+        .ok_or_else(|| "application data directory is unavailable".to_owned())?;
+    let artifacts = Arc::new(ArtifactService::new(
+        Arc::new(
+            ArtifactBlobStore::new(
+                data_root,
+                ArtifactBlobStorePolicy {
+                    max_blob_bytes: 256 * 1024 * 1024,
+                    max_operation_items: 64,
+                    max_operation_bytes: 512 * 1024 * 1024,
+                    max_total_bytes: 4 * 1024 * 1024 * 1024,
+                },
+            )
+            .map_err(|error| format!("Artifact storage is unavailable: {error:?}"))?,
+        ),
+        Arc::new(SqliteArtifactCatalog::new(database.clone())),
+    ));
+    let install_path = data_root.join("extensions").join("paddleocr");
+    let readiness = PaddleOcrReadinessService::new(
+        Arc::new(SqliteExtensionRepository::new(database.clone())),
+        Arc::new(ManagedPaddleOcrReadinessInspector),
+    )
+    .check()
+    .ok()
+    .is_some_and(|snapshot| snapshot.ready);
+    let feature_gates = OnePieceToolFeatureGates::from_environment();
+    let mut readiness_reasons = BTreeMap::new();
+    let mut browser_handoff: Option<Arc<dyn BrowserHandoffControlPort>> = None;
+    let mut handlers: Vec<Arc<dyn NativeToolHandler>> = vec![Arc::new(
+        ArtifactNativeToolHandler::new(Arc::new(ArtifactNativeToolAdapter::new(artifacts.clone()))),
+    )];
+    if let Some(script_path) = available_browser_sidecar(app) {
+        let factory = Arc::new(PlaywrightSidecarFactory::new(
+            "node".to_owned(),
+            script_path,
+        ));
+        let operations = Arc::new(BrowserOperationService::new(
+            BrowserSessionManager::new(factory),
+            BrowserContextPolicy::default(),
+        ));
+        let handoff_control = Arc::new(BrowserHandoffCommandAdapter::new(operations.clone()));
+        let artifacts = Arc::new(BrowserArtifactBridge::new(Arc::new(
+            BrowserArtifactAdapter::new(artifacts.clone()),
+        )));
+        let port = Arc::new(BrowserNativeToolAdapter::with_handoff_control(
+            operations,
+            Arc::new(SystemUrlResolver),
+            Some(artifacts),
+            handoff_control.clone(),
+        ));
+        browser_handoff = Some(handoff_control);
+        handlers.push(Arc::new(BrowserNativeToolHandler::new(port)));
+    } else {
+        handlers.push(Arc::new(BrowserNativeToolHandler::new(Arc::new(
+            UnavailableNativeToolPort,
+        ))));
+        readiness_reasons.insert(
+            "browser".to_owned(),
+            NativeToolReadinessReasonCode::MissingDependency,
+        );
+    }
+    let web = Arc::new(WebResearchNativeToolAdapter::new(
+        DuckDuckGoSearchAdapter::new(Arc::new(ReqwestSearchHttpAdapter)),
+        GuardedFetchService::new(
+            Arc::new(SystemUrlResolver),
+            Arc::new(ReqwestFetchHttpAdapter),
+        ),
+        FetchedBinaryRouter::new(Arc::new(ArtifactFetchedBinaryAdapter::new(
+            artifacts.clone(),
+        ))),
+    ));
+    handlers.extend(web_native_tool_handlers(web));
+    let sandbox = Arc::new(PlatformSandboxBackend);
+    if feature_gates.tool_enabled("code_execution") && sandbox.capabilities().ready() {
+        let artifact_port = Arc::new(CodeArtifactAdapter::new(artifacts.clone()));
+        let workspaces = Arc::new(
+            SandboxWorkspaceService::new(
+                data_root.join("code-execution"),
+                artifact_port.clone(),
+                Arc::new(crate::contexts::code_execution::infrastructure::SystemSandboxFilesystem),
+            )
+            .map_err(|error| format!("code execution workspace is unavailable: {error:?}"))?,
+        );
+        let service = Arc::new(CodeExecutionService::new(
+            workspaces,
+            sandbox,
+            Arc::new(SystemCodeRuntimeAdapter),
+            artifact_port,
+        ));
+        handlers.push(Arc::new(CodeExecutionNativeToolHandler::new(Arc::new(
+            CodeExecutionNativeToolAdapter::new(service),
+        ))));
+    } else {
+        handlers.push(Arc::new(CodeExecutionNativeToolHandler::new(Arc::new(
+            UnavailableNativeToolPort,
+        ))));
+        readiness_reasons.insert(
+            "code_execution".to_owned(),
+            NativeToolReadinessReasonCode::IsolationUnavailable,
+        );
+    }
+    if readiness {
+        let port = Arc::new(OcrNativeToolAdapter::new(
+            install_path,
+            data_root.join("ocr-operations"),
+            Arc::new(PlatformSandboxBackend),
+            artifacts.clone(),
+        ));
+        handlers.push(Arc::new(OcrNativeToolHandler::new(port)));
+    } else {
+        handlers.push(Arc::new(OcrNativeToolHandler::new(Arc::new(
+            UnavailableNativeToolPort,
+        ))));
+        readiness_reasons.insert(
+            "ocr".to_owned(),
+            NativeToolReadinessReasonCode::MissingDependency,
+        );
+    }
+    let delegation_readiness = DelegationReadinessService::new(
+        Arc::new(PassiveDelegationProbe::new(Arc::new(
+            CliExecutableLocatorAdapter::new(),
+        ))),
+        DelegationCapabilityDependencies {
+            process_tree_control: true,
+            analyze_isolation: true,
+            edit_isolation: true,
+            artifact_storage: true,
+            codex_network_isolation_canary: false,
+        },
+    )
+    .check();
+    let claude_analyze_ready = feature_gates.enabled("delegation", "read")
+        && delegation_mode_ready(
+            &delegation_readiness,
+            DelegationTarget::ClaudeCode,
+            DelegationMode::Analyze,
+        );
+    let claude_edit_ready = feature_gates.enabled("delegation", "write")
+        && delegation_mode_ready(
+            &delegation_readiness,
+            DelegationTarget::ClaudeCode,
+            DelegationMode::Edit,
+        );
+    if claude_analyze_ready || claude_edit_ready {
+        handlers.push(Arc::new(DelegateCliNativeToolHandler::new(Arc::new(
+            ClaudeDelegationNativeToolAdapter::new(
+                cli.clone(),
+                data_root.join("delegation"),
+                artifacts.clone(),
+                Arc::new(SqliteNativeToolRepository::new(database.clone())),
+                claude_analyze_ready,
+                claude_edit_ready,
+            ),
+        ))));
+    } else {
+        handlers.push(Arc::new(DelegateCliNativeToolHandler::new(Arc::new(
+            UnavailableNativeToolPort,
+        ))));
+        readiness_reasons.insert(
+            "delegate_cli".to_owned(),
+            NativeToolReadinessReasonCode::BackendUnavailable,
+        );
+    }
+    if feature_gates.enabled("delegation", "apply") {
+        let apply_port = NativeChangeSetApplyAdapter::new(
+            artifacts.clone(),
+            Arc::new(SqliteNativeToolRepository::new(database.clone())),
+            data_root.join("delegation-apply-recovery"),
+        )
+        .map_err(|error| format!("delegation apply is unavailable: {error}"))?;
+        handlers.push(Arc::new(ApplyDelegationChangesNativeToolHandler::new(
+            Arc::new(apply_port),
+        )));
+    } else {
+        handlers.push(Arc::new(ApplyDelegationChangesNativeToolHandler::new(
+            Arc::new(UnavailableNativeToolPort),
+        )));
+        readiness_reasons.insert(
+            "apply_delegation_changes".to_owned(),
+            NativeToolReadinessReasonCode::BackendUnavailable,
+        );
+    }
+    let registry = NativeToolRegistry::try_new_with_feature_gates_and_readiness(
+        handlers,
+        feature_gates,
+        readiness_reasons,
+    )
+    .map_err(|error| format!("native tool registry is invalid: {error:?}"))?;
+    Ok((registry, browser_handoff))
+}
+
+fn delegation_mode_ready(
+    readiness: &[crate::contexts::cli_delegation::application::DelegationReadiness],
+    target: DelegationTarget,
+    mode: DelegationMode,
+) -> bool {
+    readiness.iter().any(|snapshot| {
+        snapshot.target == target
+            && snapshot.mode == mode
+            && matches!(
+                snapshot.state,
+                DelegationReadinessState::Ready | DelegationReadinessState::Degraded
+            )
+    })
+}
+
+fn available_browser_sidecar(app: &AppHandle) -> Option<PathBuf> {
+    if !command_exists("node", Duration::from_secs(2)) {
+        return None;
+    }
+    let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("scripts")
+        .join("onepiece-playwright-sidecar.mjs");
+    let mut candidates = vec![development];
+    if let Ok(resources) = app.path().resource_dir() {
+        candidates.push(resources.join("scripts/onepiece-playwright-sidecar.mjs"));
+        candidates.push(resources.join("_up_/scripts/onepiece-playwright-sidecar.mjs"));
+    }
+    candidates.into_iter().find(|script| {
+        script.is_file()
+            && script
+                .parent()
+                .and_then(std::path::Path::parent)
+                .is_some_and(|root| root.join("node_modules/playwright/package.json").is_file())
+    })
+}
+
 pub(crate) fn assemble_agent_runtime_api(
     dependencies: AgentRuntimeDependencies,
 ) -> Result<AgentRuntimeAssembly, String> {
@@ -177,6 +459,10 @@ pub(crate) fn assemble_agent_runtime_api(
         },
     ));
     let accounting = dependencies.sessions.clone();
+    let manual_authority = Arc::new(ManualNativeToolAuthorityAdapter::new(
+        dependencies.sessions.clone(),
+        dependencies.database.clone(),
+    ));
     let sessions = Arc::new(SessionsAgentRuntimeAdapter::new(dependencies.sessions));
     let agent_skills = Arc::new(RuntimeAgentSkillAdapter::new(
         dependencies.skills.clone(),
@@ -217,6 +503,11 @@ pub(crate) fn assemble_agent_runtime_api(
             evidence: utility_projector,
             clock: clock.clone(),
         });
+    let (native_tools, browser_handoff) = assemble_native_tool_registry(
+        &dependencies.database,
+        &dependencies.app,
+        &dependencies.cli,
+    )?;
     let api_processes = Arc::new(
         RuntimeAgentApiAdapter::new_with_code_intelligence(
             api_credentials.clone(),
@@ -228,7 +519,7 @@ pub(crate) fn assemble_agent_runtime_api(
             Arc::new(NativeAgentCoreInstructionsAdapter),
             agent_memories.clone(),
             agent_mcp_tools,
-            agent_permissions,
+            agent_permissions.clone(),
             dependencies.retrieval,
             code_intelligence,
             dependencies.workspace_mutations,
@@ -236,9 +527,27 @@ pub(crate) fn assemble_agent_runtime_api(
         )
         .with_evidence(dependencies.evidence.clone())
         .with_utility_delegation(utility_delegation)
-        .with_accounting(accounting.clone()),
+        .with_accounting(accounting.clone())
+        .with_native_tool_registry(native_tools.clone())
+        .with_native_tool_operations(
+            Arc::new(SqliteNativeToolRepository::new(
+                dependencies.database.clone(),
+            )),
+            dependencies.app.clone(),
+        ),
     );
     let tool_approvals = api_processes.clone();
+    let manual_native_tool_service = ManualNativeToolService::new(
+        NativeToolDispatcher::new(native_tools.clone()),
+        agent_permissions,
+        manual_authority,
+        Arc::new(ManualNativeToolOperationAdapter::new(
+            SqliteNativeToolRepository::new(dependencies.database.clone()),
+            dependencies.app.clone(),
+        )),
+    );
+    let manual_native_tools =
+        ManualNativeToolControl::new(manual_native_tool_service, dependencies.database.clone());
     let processes: Arc<dyn crate::contexts::agent_runtime::application::AgentProcessGateway> =
         Arc::new(CompositeAgentProcessGateway::new(
             cli_processes,
@@ -397,6 +706,9 @@ pub(crate) fn assemble_agent_runtime_api(
             expert_roles,
             seat_turns,
             guarded_validation,
+            native_tools,
+            browser_handoff,
+            manual_native_tools,
         }),
         telemetry_lifecycle,
         completion_events: events,

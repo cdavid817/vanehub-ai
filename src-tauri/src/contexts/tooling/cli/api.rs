@@ -3,6 +3,7 @@ pub(crate) use crate::contexts::tooling::cli::application::{
     CliApplicationError as CliError, CliToolStatus, PreparedCliInstall, PreparedCliRefresh,
     PreparedCliUpgradeAll, StartedCliOperation,
 };
+pub(crate) use crate::contexts::tooling::cli::domain::compare_versions;
 
 #[derive(Clone)]
 pub(crate) struct CliApi {

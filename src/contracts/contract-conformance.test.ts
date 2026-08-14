@@ -8,6 +8,7 @@ import type * as SkillContracts from "./skill";
 import type * as SkillOverlayContracts from "./skill-overlay";
 import type * as SkillOverlayReconciliationContracts from "./skill-overlay-reconciliation";
 import type * as OperationContracts from "./operation";
+import type * as OnePieceToolContracts from "./onepiece-tools";
 import type * as ObservabilityContracts from "./execution-observability";
 import type * as AgentTypes from "../types/agent";
 import type * as ChatTypes from "../types/chat";
@@ -40,6 +41,7 @@ import {
   SKILL_RUNTIME_LAYERS as frontendSkillLayers,
 } from "../types/skill";
 import type * as OperationTypes from "../types/operation";
+import type * as OnePieceToolTypes from "../types/onepiece-tools";
 import type * as ObservabilityTypes from "../types/execution-observability";
 import type * as LoopContracts from "./loop";
 import type * as LoopTypes from "../types/loop";
@@ -228,6 +230,21 @@ type OperationAssertions = [
   Assert<Equal<OperationContracts.OperationTask, OperationTypes.OperationTask>>,
 ];
 
+type OnePieceToolAssertions = [
+  Assert<Equal<OnePieceToolContracts.OnePieceToolCapability, OnePieceToolTypes.OnePieceToolCapability>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolReadiness, OnePieceToolTypes.OnePieceToolReadiness>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolOperation, OnePieceToolTypes.OnePieceToolOperation>>,
+  Assert<Equal<OnePieceToolContracts.OnePieceToolApproval, OnePieceToolTypes.OnePieceToolApproval>>,
+  Assert<Equal<OnePieceToolContracts.ArtifactSummary, OnePieceToolTypes.ArtifactSummary>>,
+  Assert<Equal<OnePieceToolContracts.ArtifactDetail, OnePieceToolTypes.ArtifactDetail>>,
+  Assert<Equal<OnePieceToolContracts.DelegationAttempt, OnePieceToolTypes.DelegationAttempt>>,
+  Assert<Equal<OnePieceToolContracts.DelegationView, OnePieceToolTypes.DelegationView>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetView, OnePieceToolTypes.ChangeSetView>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetApplyAttempt, OnePieceToolTypes.ChangeSetApplyAttempt>>,
+  Assert<Equal<OnePieceToolContracts.ChangeSetRecoveryState, OnePieceToolTypes.ChangeSetRecoveryState>>,
+  Assert<Equal<OnePieceToolContracts.BrowserHumanHandoff, OnePieceToolTypes.BrowserHumanHandoff>>,
+];
+
 type ObservabilityAssertions = [
   Assert<Equal<ObservabilityContracts.CapturePolicy, ObservabilityTypes.CapturePolicy>>,
   Assert<Equal<ObservabilityContracts.OtlpProtocol, ObservabilityTypes.OtlpProtocol>>,
@@ -333,6 +350,7 @@ void (0 as unknown as TokenUsageAssertions);
 void (0 as unknown as McpAssertions);
 void (0 as unknown as SdkAssertions);
 void (0 as unknown as OperationAssertions);
+void (0 as unknown as OnePieceToolAssertions);
 void (0 as unknown as ObservabilityAssertions);
 void (0 as unknown as LoopAssertions);
 void (0 as unknown as SkillAssertions);
