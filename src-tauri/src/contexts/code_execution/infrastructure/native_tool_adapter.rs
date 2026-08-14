@@ -228,9 +228,13 @@ fn error_envelope(error: CodeServiceError) -> NativeToolResultEnvelope {
             NativeToolErrorCode::IntegrityFailure,
             "Code execution output could not be admitted safely.",
         ),
-        CodeServiceError::WorkspaceFailure
-        | CodeServiceError::SpawnFailure
-        | CodeServiceError::WaitFailure => (
+        CodeServiceError::WorkspaceFailure | CodeServiceError::WaitFailure => (
+            NativeToolResultStatus::Failed,
+            NativeToolErrorCode::InternalFailure,
+            "Code execution failed in the isolated runtime.",
+        ),
+        #[cfg(any(windows, test))]
+        CodeServiceError::SpawnFailure => (
             NativeToolResultStatus::Failed,
             NativeToolErrorCode::InternalFailure,
             "Code execution failed in the isolated runtime.",

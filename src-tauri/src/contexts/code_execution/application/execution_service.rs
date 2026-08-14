@@ -20,6 +20,7 @@ pub(crate) enum CodeServiceError {
     IsolationUnavailable,
     RuntimeUnavailable,
     WorkspaceFailure,
+    #[cfg(any(windows, test))]
     SpawnFailure,
     WaitFailure,
     OutputRejected,
