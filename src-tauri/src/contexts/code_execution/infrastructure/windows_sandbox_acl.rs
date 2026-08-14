@@ -1,16 +1,13 @@
 use crate::contexts::code_execution::application::SandboxBackendError;
-use std::mem::size_of;
 use std::path::Path;
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::LocalFree;
 use windows_sys::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W,
-    GRANT_ACCESS, SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+    GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW, EXPLICIT_ACCESS_W, SET_ACCESS,
+    SE_FILE_OBJECT, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
 };
 use windows_sys::Win32::Security::{
-    AclSizeInformation, EqualSid, GetAce, GetAclInformation, ACCESS_ALLOWED_ACE,
-    ACL_SIZE_INFORMATION, CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE,
-    PSID,
+    CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, PSID,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
@@ -85,13 +82,10 @@ fn grant_path(
     if status != 0 {
         return Err(SandboxBackendError::AclSetupFailed);
     }
-    if acl_grants_access(old_acl, sid, access, inherit) {
-        unsafe { LocalFree(descriptor) };
-        return Ok(());
-    }
     let entry = EXPLICIT_ACCESS_W {
         grfAccessPermissions: access,
-        grfAccessMode: GRANT_ACCESS,
+        // Replacing this SID's explicit allow entry keeps repeated sandbox launches idempotent.
+        grfAccessMode: SET_ACCESS,
         grfInheritance: if inherit {
             OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
         } else {
@@ -132,39 +126,4 @@ fn grant_path(
     } else {
         Err(SandboxBackendError::AclSetupFailed)
     }
-}
-
-fn acl_grants_access(
-    acl: *mut windows_sys::Win32::Security::ACL,
-    sid: PSID,
-    access: u32,
-    inherit: bool,
-) -> bool {
-    if acl.is_null() {
-        return false;
-    }
-    let mut info = ACL_SIZE_INFORMATION::default();
-    if unsafe {
-        GetAclInformation(
-            acl,
-            (&raw mut info).cast(),
-            size_of::<ACL_SIZE_INFORMATION>() as u32,
-            AclSizeInformation,
-        )
-    } == 0
-    {
-        return false;
-    }
-    (0..info.AceCount).any(|index| {
-        let mut raw_ace = null_mut();
-        if unsafe { GetAce(acl, index, &mut raw_ace) } == 0 || raw_ace.is_null() {
-            return false;
-        }
-        let ace = unsafe { &*raw_ace.cast::<ACCESS_ALLOWED_ACE>() };
-        let inheritance = (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) as u8;
-        ace.Header.AceType == 0
-            && ace.Mask & access == access
-            && (!inherit || ace.Header.AceFlags & inheritance == inheritance)
-            && unsafe { EqualSid((&raw const ace.SidStart).cast_mut().cast(), sid) } != 0
-    })
 }
