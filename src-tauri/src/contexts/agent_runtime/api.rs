@@ -12,7 +12,8 @@ use super::application::{
     LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
-    ManualNativeToolControl, NativeLoopScheduler, NativeSeatTurnCoordinator,
+    background_shell_registry, ManualNativeToolControl, NativeLoopScheduler,
+    NativeSeatTurnCoordinator,
 };
 use std::sync::Arc;
 
@@ -237,6 +238,20 @@ impl AgentRuntimeApi {
 
     pub(crate) fn is_native_tool_registered(&self, name: &str) -> bool {
         self.native_tools.is_registered(name)
+    }
+
+    /// Terminates every background command the session owns (`add-background-shell-execution`).
+    /// Called when a session ends, alongside the equivalent workspace-shell cleanup -- not on
+    /// generation cancellation, which would kill the dev server a user deliberately left running.
+    pub(crate) fn reap_background_commands(&self, session_id: &str) {
+        background_shell_registry().reap_session(session_id);
+    }
+
+    /// Terminates every remaining background command on desktop shutdown. Windows' job object
+    /// would reap these when the process handle closed, but an orphaned Unix process group would
+    /// survive, so this is the portable guarantee rather than a convenience.
+    pub(crate) fn reap_all_background_commands(&self) {
+        background_shell_registry().reap_all();
     }
 
     pub(crate) async fn start_manual_delegation(

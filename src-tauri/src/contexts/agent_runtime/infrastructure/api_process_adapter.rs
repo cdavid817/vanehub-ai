@@ -4,8 +4,9 @@ use super::context_projection::PreparedContextProjection;
 use super::context_reduction::{build_structured_summary_turns, reconstruct_candidate};
 use super::tool_call_accumulator::ToolCallAccumulator;
 use super::tools::{
-    execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
-    ToolExecutionOutcome, OUTPUT_MODE_FILES,
+    background_shell_registry, execute_edit, execute_file, execute_glob, execute_grep,
+    execute_shell, BackgroundStartError, GrepRequest, KillOutcome, ToolExecutionOutcome,
+    MAX_BACKGROUND_COMMANDS_PER_SESSION, OUTPUT_MODE_FILES,
 };
 use super::SqliteNativeToolRepository;
 use super::{anthropic_provider, model_context_catalog, openai_compatible_provider};
@@ -34,7 +35,7 @@ use crate::contexts::agent_runtime::application::{
     GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
     INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
     MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
-    SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_KILL_TOOL_NAME, SHELL_OUTPUT_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -3326,7 +3327,18 @@ fn extract_memories(
 /// a rule for, so hallucinated calls still fail closed to `Ask`.
 fn permission_action_and_resource(tool_name: &str, input: &Value) -> (Action, Resource) {
     match tool_name {
+        // Background start is deliberately not a weaker classification than a foreground call:
+        // same command, same workspace, same effects -- only the wait differs
+        // (`add-background-shell-execution`).
         SHELL_TOOL_NAME => (Action::shell_exec(), Resource::workspace()),
+        // Reading a background command's output observes already-approved work, so it is
+        // classified like the other read-only tools. Terminating one only *reduces* the effects
+        // of work the user already approved, and can act on nothing else -- a handle resolves
+        // solely within its own session -- so gating it behind another prompt would make stopping
+        // a runaway process harder than starting it was.
+        SHELL_OUTPUT_TOOL_NAME | SHELL_KILL_TOOL_NAME => {
+            (Action::file_read(), Resource::new(tool_name))
+        }
         FILE_TOOL_NAME => {
             let path = input.get("path").and_then(Value::as_str).unwrap_or("");
             let resource = Resource::file_path(path);
@@ -3922,6 +3934,12 @@ fn native_dispatch_error(message: String) -> ToolExecutionOutcome {
     }
 }
 
+/// The owning session the test-only executor helpers report. Background commands are keyed by
+/// session, so the helpers need *a* session to exercise the ordinary path; tests that care about
+/// a missing session call `execute_tool_call_impl` with `None` directly.
+#[cfg(test)]
+const TEST_SESSION_ID: &str = "test-session";
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn execute_tool_call(
@@ -3948,6 +3966,7 @@ fn execute_tool_call(
         None,
         plan_mode,
         &UnavailableSkillReads,
+        Some(TEST_SESSION_ID),
     )
 }
 
@@ -3978,6 +3997,7 @@ fn execute_tool_call_with_code_intelligence(
         None,
         plan_mode,
         &UnavailableSkillReads,
+        Some(TEST_SESSION_ID),
     )
 }
 
@@ -4014,6 +4034,7 @@ fn execute_tool_call_with_runtime_ports(
         Some(workspace_mutations),
         plan_mode,
         skills,
+        Some(generation.session.id.as_str()),
     )
 }
 
@@ -4128,6 +4149,7 @@ fn execute_tool_call_with_workspace_mutations(
         Some(workspace_mutations),
         plan_mode,
         &UnavailableSkillReads,
+        Some(TEST_SESSION_ID),
     )
 }
 
@@ -4158,7 +4180,155 @@ fn execute_tool_call_with_skills(
         None,
         plan_mode,
         skills,
+        Some(TEST_SESSION_ID),
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+/// The shared refusal for a background-command tool used by a session the runtime could not
+/// identify. Background state is keyed by session, so without one there is no safe scope to read
+/// or terminate within -- failing closed beats guessing an owner.
+fn background_unavailable(reason: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: format!("Background commands are unavailable for this session: {reason}."),
+        is_error: true,
+    }
+}
+
+/// Shortens a command for a one-line status header. Cuts on a character boundary so a multi-byte
+/// character is never split into replacement characters.
+fn truncate_for_label(command: &str) -> String {
+    const MAX_LABEL_CHARS: usize = 100;
+    if command.chars().count() <= MAX_LABEL_CHARS {
+        return command.to_owned();
+    }
+    let head: String = command.chars().take(MAX_LABEL_CHARS).collect();
+    format!("{head}...")
+}
+
+fn required_handle_arg(input: &Value) -> Result<&str, ToolExecutionOutcome> {
+    match input.get("shell_id").and_then(Value::as_str) {
+        Some(handle) if !handle.trim().is_empty() => Ok(handle),
+        _ => Err(ToolExecutionOutcome {
+            output: "shell_id must be the handle string returned when the background command was started.".to_string(),
+            is_error: true,
+        }),
+    }
+}
+
+fn execute_shell_in_background(
+    command: &str,
+    workspace_folder: &str,
+    session_id: Option<&str>,
+) -> ToolExecutionOutcome {
+    let Some(session_id) = session_id else {
+        return background_unavailable("this session has no runtime identity");
+    };
+    match background_shell_registry().start(session_id, command, workspace_folder) {
+        Ok(handle) => ToolExecutionOutcome {
+            output: format!(
+                "Started background command {handle}. It keeps running after this tool call \
+                 returns. Read its output with shell_output(shell_id: \"{handle}\") and stop it \
+                 with shell_kill(shell_id: \"{handle}\")."
+            ),
+            is_error: false,
+        },
+        Err(BackgroundStartError::SessionLimitReached) => ToolExecutionOutcome {
+            output: format!(
+                "This session already has {MAX_BACKGROUND_COMMANDS_PER_SESSION} background \
+                 commands running. Stop one with shell_kill before starting another."
+            ),
+            is_error: true,
+        },
+        Err(BackgroundStartError::Spawn) => ToolExecutionOutcome {
+            output: "The background command could not be started.".to_string(),
+            is_error: true,
+        },
+    }
+}
+
+fn execute_shell_output(input: &Value, session_id: Option<&str>) -> ToolExecutionOutcome {
+    let handle = match required_handle_arg(input) {
+        Ok(handle) => handle,
+        Err(outcome) => return outcome,
+    };
+    let Some(session_id) = session_id else {
+        return background_unavailable("this session has no runtime identity");
+    };
+    let registry = background_shell_registry();
+    let command = registry.command_label(session_id, handle);
+    let Ok(output) = registry.take_output(session_id, handle) else {
+        return unknown_background_handle(handle);
+    };
+
+    // Naming the command in the header matters once several handles are in flight: a status line
+    // that says only "bg_3 running" leaves the model to remember which of them is the build.
+    let mut report = match command {
+        Some(command) => format!(
+            "[{handle}] {} — {}",
+            output.status.label(),
+            truncate_for_label(&command)
+        ),
+        None => format!("[{handle}] {}", output.status.label()),
+    };
+    if output.dropped_bytes > 0 {
+        report.push_str(&format!(
+            "\n[{} earlier bytes were dropped: the command produced output faster than it was read]",
+            output.dropped_bytes
+        ));
+    }
+    if output.remaining_bytes > 0 {
+        report.push_str(&format!(
+            "\n[{} more bytes are buffered; call shell_output again to continue reading]",
+            output.remaining_bytes
+        ));
+    }
+    if output.text.is_empty() {
+        report.push_str("\n(no new output)");
+    } else {
+        report.push('\n');
+        report.push_str(&output.text);
+    }
+    ToolExecutionOutcome {
+        output: report,
+        // A non-zero exit is information about the command, not a failure of this tool: reporting
+        // it as a tool error would make a failing build indistinguishable from a broken handle.
+        is_error: false,
+    }
+}
+
+fn execute_shell_kill(input: &Value, session_id: Option<&str>) -> ToolExecutionOutcome {
+    let handle = match required_handle_arg(input) {
+        Ok(handle) => handle,
+        Err(outcome) => return outcome,
+    };
+    let Some(session_id) = session_id else {
+        return background_unavailable("this session has no runtime identity");
+    };
+    match background_shell_registry().kill(session_id, handle) {
+        Ok(KillOutcome::Terminated(status)) => ToolExecutionOutcome {
+            output: format!("Background command {handle} and its child processes were terminated. Status: {}.", status.label()),
+            is_error: false,
+        },
+        Ok(KillOutcome::AlreadyFinished(status)) => ToolExecutionOutcome {
+            output: format!(
+                "Background command {handle} had already finished, so nothing was terminated. Status: {}.",
+                status.label()
+            ),
+            is_error: false,
+        },
+        Err(_) => unknown_background_handle(handle),
+    }
+}
+
+fn unknown_background_handle(handle: &str) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: format!(
+            "No background command {handle} belongs to this session. Handles do not survive a \
+             desktop restart and cannot be used from another session."
+        ),
+        is_error: true,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4175,6 +4345,10 @@ fn execute_tool_call_impl(
     workspace_mutations: Option<&dyn AgentWorkspaceMutationPort>,
     plan_mode: bool,
     skills: &dyn AgentSkillPort,
+    // Owning session for background commands (`add-background-shell-execution`). Never
+    // model-supplied: a handle resolves only within the session that started it, so accepting a
+    // session id as a tool argument would let one session read or kill another's processes.
+    session_id: Option<&str>,
 ) -> ToolExecutionOutcome {
     let registered_handler = ExistingToolHandlerRegistry::resolve(name);
     if registered_handler == Some(ExistingToolHandler::SkillRead) {
@@ -4232,6 +4406,18 @@ fn execute_tool_call_impl(
     if plan_mode && registered_handler == Some(ExistingToolHandler::Shell) {
         return plan_mode_denial("Shell commands");
     }
+    if plan_mode && registered_handler == Some(ExistingToolHandler::ShellKill) {
+        return plan_mode_denial("Terminating background commands");
+    }
+    // Reading a background command's output needs no workspace folder: the command was started
+    // with one, and retrieval only touches this process's own buffers. Handled before the
+    // folder gate for the same reason `remember`/`recall` are.
+    if registered_handler == Some(ExistingToolHandler::ShellOutput) {
+        return execute_shell_output(input, session_id);
+    }
+    if registered_handler == Some(ExistingToolHandler::ShellKill) {
+        return execute_shell_kill(input, session_id);
+    }
     if plan_mode && registered_handler == Some(ExistingToolHandler::Edit) {
         return plan_mode_denial("Editing files");
     }
@@ -4256,7 +4442,18 @@ fn execute_tool_call_impl(
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            execute_shell(command, folder, cancelled)
+            if input
+                .get("run_in_background")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                return execute_shell_in_background(command, folder, session_id);
+            }
+            let timeout_ms = match parse_optional_non_negative_integer_arg(input, "timeout_ms") {
+                Ok(timeout_ms) => timeout_ms.map(|value| value as u64),
+                Err(outcome) => return outcome,
+            };
+            execute_shell(command, folder, cancelled, timeout_ms)
         }
         Some(ExistingToolHandler::File) => {
             let operation = input
@@ -6961,6 +7158,199 @@ mod tests {
     }
 
     #[test]
+    fn starting_a_background_command_is_classified_exactly_like_a_foreground_shell_call() {
+        let foreground = permission_action_and_resource(SHELL_TOOL_NAME, &json!({"command": "ls"}));
+        let background = permission_action_and_resource(
+            SHELL_TOOL_NAME,
+            &json!({"command": "ls", "run_in_background": true}),
+        );
+        assert_eq!(
+            foreground, background,
+            "background execution must not be a weaker classification than foreground"
+        );
+        assert_eq!(foreground.0, Action::shell_exec());
+    }
+
+    #[test]
+    fn background_retrieval_and_termination_are_classified_as_no_approval_operations() {
+        for tool_name in [SHELL_OUTPUT_TOOL_NAME, SHELL_KILL_TOOL_NAME] {
+            let (action, resource) =
+                permission_action_and_resource(tool_name, &json!({"shell_id": "bg_1"}));
+            assert_eq!(action, Action::file_read(), "action for {tool_name}");
+            assert_eq!(
+                resource,
+                Resource::new(tool_name),
+                "resource for {tool_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn execute_tool_call_routes_the_background_command_lifecycle() {
+        let directory = crate::test_support::TempDirectory::new("execute-background-routing");
+        let folder = directory.path().to_string_lossy().to_string();
+
+        let started = execute_tool_call(
+            SHELL_TOOL_NAME,
+            &json!({"command": "echo backgrounded", "run_in_background": true}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            false,
+        );
+        assert!(!started.is_error, "{}", started.output);
+        let handle = started
+            .output
+            .split_whitespace()
+            .find(|token| token.starts_with("bg_"))
+            .expect("a handle in the start message")
+            .trim_end_matches('.')
+            .to_owned();
+
+        let polled = execute_tool_call(
+            SHELL_OUTPUT_TOOL_NAME,
+            &json!({"shell_id": handle}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            false,
+        );
+        assert!(!polled.is_error, "{}", polled.output);
+        assert!(
+            polled.output.contains(&handle),
+            "the poll result names the handle it read: {}",
+            polled.output
+        );
+
+        let killed = execute_tool_call(
+            SHELL_KILL_TOOL_NAME,
+            &json!({"shell_id": handle}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            false,
+        );
+        assert!(!killed.is_error, "{}", killed.output);
+    }
+
+    #[test]
+    fn background_tools_reject_an_unknown_handle_instead_of_returning_an_empty_result() {
+        for tool_name in [SHELL_OUTPUT_TOOL_NAME, SHELL_KILL_TOOL_NAME] {
+            let outcome = execute_tool_call(
+                tool_name,
+                &json!({"shell_id": "bg_not_a_real_handle"}),
+                Some("."),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                false,
+            );
+            assert!(outcome.is_error, "{tool_name} must fail on a bad handle");
+            assert!(outcome.output.contains("bg_not_a_real_handle"));
+        }
+    }
+
+    #[test]
+    fn background_tools_reject_a_missing_or_empty_handle() {
+        for input in [
+            json!({}),
+            json!({"shell_id": "   "}),
+            json!({"shell_id": 7}),
+        ] {
+            let outcome = execute_tool_call(
+                SHELL_OUTPUT_TOOL_NAME,
+                &input,
+                Some("."),
+                not_cancelled(),
+                "test-agent",
+                &FakeMemories::default(),
+                &NoopMcp,
+                &NoopRetrieval,
+                false,
+            );
+            assert!(outcome.is_error, "expected rejection for {input}");
+            assert!(outcome.output.contains("shell_id"));
+        }
+    }
+
+    /// Plan mode withholds every tool that acts on a process, but keeps the read-only poll: a
+    /// model that enters plan mode mid-task can still read the build it already started.
+    #[test]
+    fn plan_mode_denies_background_termination_but_allows_reading_output() {
+        let terminate = execute_tool_call(
+            SHELL_KILL_TOOL_NAME,
+            &json!({"shell_id": "bg_1"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            true,
+        );
+        assert!(terminate.is_error);
+        assert!(
+            terminate.output.contains("plan mode"),
+            "{}",
+            terminate.output
+        );
+
+        let read = execute_tool_call(
+            SHELL_OUTPUT_TOOL_NAME,
+            &json!({"shell_id": "bg_1"}),
+            Some("."),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            true,
+        );
+        // Rejected for being an unknown handle, not for being unavailable in plan mode.
+        assert!(!read.output.contains("plan mode"), "{}", read.output);
+    }
+
+    #[test]
+    fn background_start_is_unavailable_without_an_owning_session() {
+        let directory = crate::test_support::TempDirectory::new("execute-background-no-session");
+        let folder = directory.path().to_string_lossy().to_string();
+        let outcome = execute_tool_call_impl(
+            SHELL_TOOL_NAME,
+            &json!({"command": "echo hi", "run_in_background": true}),
+            Some(&folder),
+            not_cancelled(),
+            "test-agent",
+            &FakeMemories::default(),
+            &NoopMcp,
+            &NoopRetrieval,
+            None,
+            None,
+            false,
+            &UnavailableSkillReads,
+            None,
+        );
+        assert!(outcome.is_error);
+        assert!(
+            outcome
+                .output
+                .contains("Background commands are unavailable"),
+            "{}",
+            outcome.output
+        );
+    }
+
+    #[test]
     fn mcp_and_unknown_tools_keep_their_fail_closed_permission_mappings() {
         let (mcp_action, mcp_resource) = permission_action_and_resource(
             "mcp__filesystem-tools__search",
@@ -7762,7 +8152,7 @@ mod tests {
         let tools =
             resolve_tool_catalog(&request, &mcp, &logging, &FixedClock, false, false, false);
 
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
         assert!(tools.contains(&mcp_tool));
         assert!(logging.logs.lock().expect("logs").is_empty());
     }
@@ -7795,7 +8185,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 265);
+        assert_eq!(tools.len(), 267);
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
         assert_eq!(tools[1].name, FILE_TOOL_NAME);
         assert_eq!(tools[2].name, GREP_TOOL_NAME);
@@ -7805,6 +8195,8 @@ mod tests {
         assert_eq!(tools[6].name, LIST_SKILLS_TOOL_NAME);
         assert_eq!(tools[7].name, LOAD_SKILL_TOOL_NAME);
         assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
+        assert_eq!(tools[9].name, SHELL_OUTPUT_TOOL_NAME);
+        assert_eq!(tools[10].name, SHELL_KILL_TOOL_NAME);
     }
 
     #[test]
@@ -7839,7 +8231,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 266);
+        assert_eq!(tools.len(), 268);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 
@@ -7860,7 +8252,7 @@ mod tests {
 
         assert_eq!(
             tools.len(),
-            9,
+            11,
             "should fall back to exactly the fixed catalog"
         );
         assert_eq!(tools[0].name, SHELL_TOOL_NAME);
@@ -7872,6 +8264,8 @@ mod tests {
         assert_eq!(tools[6].name, LIST_SKILLS_TOOL_NAME);
         assert_eq!(tools[7].name, LOAD_SKILL_TOOL_NAME);
         assert_eq!(tools[8].name, READ_SKILL_RESOURCE_TOOL_NAME);
+        assert_eq!(tools[9].name, SHELL_OUTPUT_TOOL_NAME);
+        assert_eq!(tools[10].name, SHELL_KILL_TOOL_NAME);
         let logs = logging.logs.lock().expect("logs");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].level, AgentLogLevel::Warn);
@@ -7937,7 +8331,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
         assert_eq!(tools.last().expect("last tool").name, RECALL_TOOL_NAME);
     }
 

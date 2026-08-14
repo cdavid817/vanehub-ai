@@ -12,6 +12,8 @@ use super::ToolDefinition;
 use serde_json::json;
 
 pub(crate) const SHELL_TOOL_NAME: &str = "shell";
+pub(crate) const SHELL_OUTPUT_TOOL_NAME: &str = "shell_output";
+pub(crate) const SHELL_KILL_TOOL_NAME: &str = "shell_kill";
 pub(crate) const FILE_TOOL_NAME: &str = "file";
 pub(crate) const REMEMBER_TOOL_NAME: &str = "remember";
 pub(crate) const RECALL_TOOL_NAME: &str = "recall";
@@ -34,22 +36,7 @@ pub(crate) const MCP_TOOL_NAME_PREFIX: &str = "mcp__";
 
 pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
     vec![
-        ToolDefinition {
-            name: SHELL_TOOL_NAME.to_string(),
-            description:
-                "Execute a shell command in the session's workspace folder and return its output."
-                    .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    }
-                },
-                "required": ["command"]
-            }),
-        },
+        shell_tool_definition(),
         ToolDefinition {
             name: FILE_TOOL_NAME.to_string(),
             description: "Read or write a file relative to the session's workspace folder."
@@ -89,7 +76,80 @@ pub(crate) fn tool_catalog() -> Vec<ToolDefinition> {
         list_skills_tool_definition(),
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
+        shell_output_tool_definition(),
+        shell_kill_tool_definition(),
     ]
+}
+
+fn shell_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_TOOL_NAME.to_string(),
+        description:
+            "Execute a shell command in the session's workspace folder. By default the call blocks \
+             and returns the command's output. Set run_in_background for work that outlives one \
+             tool call -- a build, a test suite, a dev server -- and poll it with shell_output."
+                .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute."
+                },
+                "run_in_background": {
+                    "type": "boolean",
+                    "description": "Run the command in the background and return a handle immediately instead of waiting for it to finish. Poll the handle with shell_output and stop it with shell_kill. Defaults to false."
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "How long to wait for a foreground command, in milliseconds. Defaults to 60000 and is capped at 600000; a larger value is clamped rather than rejected. Ignored when run_in_background is true, which is bounded by a maximum background lifetime instead."
+                }
+            },
+            "required": ["command"]
+        }),
+    }
+}
+
+fn shell_output_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_OUTPUT_TOOL_NAME.to_string(),
+        description: "Read the output a background command has produced since the last time you \
+                      read it, along with its current status and, once it has finished, its exit \
+                      code. Each call returns only new output."
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "shell_id": {
+                    "type": "string",
+                    "description": "The handle returned when the background command was started."
+                }
+            },
+            "required": ["shell_id"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn shell_kill_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: SHELL_KILL_TOOL_NAME.to_string(),
+        description:
+            "Terminate a running background command and every process it started. Reports the \
+             command's existing outcome instead if it has already finished."
+                .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "shell_id": {
+                    "type": "string",
+                    "description": "The handle returned when the background command was started."
+                }
+            },
+            "required": ["shell_id"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 pub(crate) fn delegate_utility_skill_tool_definition() -> ToolDefinition {
@@ -119,6 +179,12 @@ pub(crate) fn delegate_utility_skill_tool_definition() -> ToolDefinition {
 /// what the model is *told* it can do — `execute_tool_call`'s own plan-mode checks are the actual
 /// enforcement boundary, since nothing stops a model from requesting a tool/operation it was
 /// never offered.
+///
+/// `shell_output` is here but `shell_kill` is not (`add-background-shell-execution`): reading a
+/// background command's output observes work that was already approved before plan mode was
+/// entered and cannot start, change, or stop anything, so a model that switches into plan mode
+/// mid-task can still read the build it started. `shell_kill` acts on a process, which is exactly
+/// what this mode withholds.
 pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
@@ -154,6 +220,7 @@ pub(crate) fn plan_mode_tool_catalog() -> Vec<ToolDefinition> {
         list_skills_tool_definition(),
         load_skill_tool_definition(),
         read_skill_resource_tool_definition(),
+        shell_output_tool_definition(),
     ]
 }
 
@@ -483,6 +550,8 @@ mod tests {
                 LIST_SKILLS_TOOL_NAME,
                 LOAD_SKILL_TOOL_NAME,
                 READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
+                SHELL_KILL_TOOL_NAME,
             ]
         );
     }
@@ -501,6 +570,7 @@ mod tests {
                 LIST_SKILLS_TOOL_NAME,
                 LOAD_SKILL_TOOL_NAME,
                 READ_SKILL_RESOURCE_TOOL_NAME,
+                SHELL_OUTPUT_TOOL_NAME,
             ]
         );
         assert_eq!(
@@ -510,13 +580,77 @@ mod tests {
     }
 
     #[test]
-    fn plan_mode_catalog_never_offers_shell_or_edit() {
+    fn plan_mode_catalog_never_offers_shell_edit_or_process_termination() {
         let names: Vec<String> = plan_mode_tool_catalog()
             .into_iter()
             .map(|tool| tool.name)
             .collect();
         assert!(!names.contains(&SHELL_TOOL_NAME.to_string()));
         assert!(!names.contains(&EDIT_TOOL_NAME.to_string()));
+        // `shell_kill` acts on a process; plan mode withholds every tool that does.
+        assert!(!names.contains(&SHELL_KILL_TOOL_NAME.to_string()));
+    }
+
+    /// The two background tools are appended after the pre-existing nine rather than inserted
+    /// among them. Tool order is part of the prompt-cache prefix, so inserting in the middle would
+    /// invalidate the cached prefix of every native generation for no functional gain.
+    #[test]
+    fn background_tools_extend_the_catalog_without_reordering_the_existing_prefix() {
+        let names: Vec<String> = tool_catalog().into_iter().map(|tool| tool.name).collect();
+        assert_eq!(
+            names[..9],
+            [
+                SHELL_TOOL_NAME,
+                FILE_TOOL_NAME,
+                GREP_TOOL_NAME,
+                GLOB_TOOL_NAME,
+                EDIT_TOOL_NAME,
+                REMEMBER_TOOL_NAME,
+                LIST_SKILLS_TOOL_NAME,
+                LOAD_SKILL_TOOL_NAME,
+                READ_SKILL_RESOURCE_TOOL_NAME,
+            ]
+            .map(str::to_string)
+        );
+    }
+
+    #[test]
+    fn shell_schema_declares_background_and_timeout_without_making_them_required() {
+        let shell = tool_catalog()
+            .into_iter()
+            .find(|tool| tool.name == SHELL_TOOL_NAME)
+            .expect("shell tool present in catalog");
+        assert_eq!(shell.input_schema["required"], json!(["command"]));
+        let properties = shell.input_schema["properties"]
+            .as_object()
+            .expect("properties object");
+        for key in ["command", "run_in_background", "timeout_ms"] {
+            assert!(properties.contains_key(key), "missing property {key}");
+        }
+        assert_eq!(properties["run_in_background"]["type"], "boolean");
+        assert_eq!(properties["timeout_ms"]["type"], "integer");
+    }
+
+    #[test]
+    fn background_handle_tools_accept_only_a_handle() {
+        for definition in [shell_output_tool_definition(), shell_kill_tool_definition()] {
+            assert_eq!(definition.input_schema["required"], json!(["shell_id"]));
+            assert_eq!(definition.input_schema["additionalProperties"], false);
+            let properties = definition.input_schema["properties"]
+                .as_object()
+                .expect("properties object");
+            assert_eq!(
+                properties.len(),
+                1,
+                "{} exposes extra inputs",
+                definition.name
+            );
+            // A session-supplied session id would let one session read another's output; scope is
+            // injected by the runtime, exactly as it is for `recall`.
+            for forbidden in ["session_id", "sessionId", "workspace", "path"] {
+                assert!(!properties.contains_key(forbidden));
+            }
+        }
     }
 
     #[test]

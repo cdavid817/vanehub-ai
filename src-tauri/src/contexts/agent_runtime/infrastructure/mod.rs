@@ -75,6 +75,8 @@ mod tools;
 mod unavailable_native_tool_port;
 mod utility_delegation;
 
+pub(crate) use tools::background_shell_registry;
+
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
 pub(crate) use availability::RuntimeAgentAvailabilityAdapter;

@@ -321,9 +321,13 @@ fn operation_terminal_status(status: OperationStatus) -> OperationTerminalStatus
 
 impl SessionRuntimePort for AgentSessionRuntimeAdapter {
     fn stop_session_activity(&self, session_id: &str) -> Result<(), SessionsApplicationError> {
-        self.published_agent_runtime()?
+        let runtime = self.published_agent_runtime()?;
+        runtime
             .stop_generation(session_id)
             .map_err(agent_runtime_error)?;
+        // Background commands are reaped on the same "this session is done" edge as workspace
+        // shells below, and for the same reason: neither has an owner left to attend to it.
+        runtime.reap_background_commands(session_id);
         self.workspaces
             .kill_shells_for_session(session_id)
             .map_err(workspace_error)

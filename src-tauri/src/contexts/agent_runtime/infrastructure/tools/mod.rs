@@ -6,6 +6,7 @@
 //! wrap `walk.rs`, a traversal primitive introduced alongside them in this same change, not a
 //! pre-existing one.
 
+mod background_shell;
 mod edit_tool;
 mod file_tool;
 mod glob_tool;
@@ -13,6 +14,10 @@ mod grep_tool;
 mod shell_tool;
 mod walk;
 
+pub(crate) use background_shell::{
+    registry as background_shell_registry, BackgroundStartError, KillOutcome,
+    MAX_BACKGROUND_COMMANDS_PER_SESSION,
+};
 pub(crate) use edit_tool::execute_edit;
 pub(crate) use file_tool::execute_file;
 pub(crate) use glob_tool::execute_glob;
