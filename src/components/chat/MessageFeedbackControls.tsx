@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { MessageSquareText, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../ui/use-confirmation";
 import { agentService } from "../../services/runtime-agent-client";
 import type { MessageFeedback, MessageFeedbackState } from "../../types/chat";
 import { cn } from "../../lib/utils";
@@ -13,6 +14,7 @@ export function MessageFeedbackControls({
   messageId: string;
 }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const [feedback, setFeedback] = useState(initialFeedback);
   const [correction, setCorrection] = useState(initialFeedback?.correctionNote ?? "");
   const [editing, setEditing] = useState(false);
@@ -25,7 +27,10 @@ export function MessageFeedbackControls({
   }, [initialFeedback]);
 
   const persist = async (state: MessageFeedbackState | null, correctionNote?: string) => {
-    if (feedback?.state && state !== feedback.state && !window.confirm(t("chat.feedback.replaceConfirm"))) {
+    if (
+      feedback?.state && state !== feedback.state
+      && !(await confirm({ title: t("chat.feedback.replaceConfirm") }))
+    ) {
       return;
     }
     setPending(true);
@@ -54,6 +59,7 @@ export function MessageFeedbackControls({
 
   return (
     <div className="mt-2 border-t border-border/60 pt-2" data-testid="message-feedback-controls">
+      {confirmationDialog}
       <div className="flex flex-wrap items-center gap-1">
         <FeedbackButton active={feedback?.state === "helpful"} disabled={pending} label={t("chat.feedback.helpful")} onClick={() => toggle("helpful")}>
           <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />

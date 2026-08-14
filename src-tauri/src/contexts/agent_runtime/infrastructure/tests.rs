@@ -136,6 +136,14 @@ fn onepiece_provider_profiles_switch_runtime_projection_and_delete_without_fallb
         ApiAgentGateway::onepiece_provider_config(&repository).expect("project active profile");
     assert_eq!(projected.provider, "OpenAI");
     assert_eq!(projected.model_id.as_deref(), Some("gpt-test"));
+    assert_eq!(
+        ApiAgentGateway::provider_config(&repository, "onepiece")
+            .expect("runtime config")
+            .expect("active provider")
+            .source_provider_id
+            .as_deref(),
+        Some("openrouter")
+    );
 
     ApiAgentGateway::activate_onepiece_provider_profile(&repository, &anthropic.id)
         .expect("reactivate first-inserted profile without violating the active index");
@@ -217,6 +225,7 @@ fn api_agent_registration_round_trips_and_reports_available() {
     assert_eq!(
         ApiAgentGateway::provider_config(&repository, "my-claude-agent").expect("provider config"),
         Some(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "claude-opus-4-8".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
@@ -270,6 +279,7 @@ fn openai_compatible_agent_registration_persists_base_url_and_reports_available(
         ApiAgentGateway::provider_config(&repository, "my-deepseek-agent")
             .expect("provider config"),
         Some(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "deepseek-chat".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://api.deepseek.com/v1".to_string()),

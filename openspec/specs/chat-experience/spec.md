@@ -719,6 +719,20 @@ The chat experience SHALL present interrupted content and safe recovery explanat
 - **WHEN** the active session is quarantined
 - **THEN** the UI SHALL keep supported inspection and export surfaces available while disabling dependent mutations
 
+### Requirement: Chat history displays context compaction evidence
+The chat experience SHALL render each successful automatic context compaction as an accessible rich card in chronological message history, showing content-free before/after measurements, savings, trigger source, compaction path, and policy version.
+
+#### Scenario: Successful compaction occurs during streaming
+- **WHEN** the active OnePiece generation emits a successful compaction evidence card
+- **THEN** the card SHALL appear with the corresponding assistant message without interrupting token streaming
+
+#### Scenario: Token count is unavailable
+- **WHEN** the evidence reports token measurements as unavailable
+- **THEN** the card SHALL clearly distinguish unavailable token evidence from a zero token count
+
+#### Scenario: Reload conversation history
+- **WHEN** a conversation containing compaction evidence is restored
+- **THEN** the evidence card SHALL retain its field values and chronological position
 ### Requirement: Explicit assistant-message feedback
 The chat experience SHALL let users submit one current feedback state of `helpful`, `unhelpful`, or `corrected` for a completed assistant message. Corrected feedback MAY include one bounded optional correction note. Feedback SHALL be sent through the frontend service boundary and SHALL not edit the assistant message.
 

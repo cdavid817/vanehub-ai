@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../i18n";
 import { SettingsProvider } from "../../settings-provider";
@@ -46,7 +46,6 @@ describe("AgentMemorySection", () => {
       listAllMemories: async () => memories,
       deleteAgentMemory,
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = renderSection(service);
 
     expect(await screen.findByText("Uses pnpm.")).toBeTruthy();
@@ -59,8 +58,7 @@ describe("AgentMemorySection", () => {
 
     const deleteButtons = screen.getAllByRole("button", { name: "删除" });
     await user.click(deleteButtons[0]!);
-
-    expect(window.confirm).toHaveBeenCalled();
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
     expect(deleteAgentMemory).toHaveBeenCalledWith("memory-1");
     await waitFor(() => expect(screen.queryByText("Uses pnpm.")).toBeNull());
     expect(screen.getByText("Prefers concise responses.")).toBeTruthy();
@@ -72,13 +70,11 @@ describe("AgentMemorySection", () => {
     ];
     const deleteAgentMemory = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, deleteAgentMemory });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const { user } = renderSection(service);
 
     await screen.findByText("Uses pnpm.");
     await user.click(screen.getByRole("button", { name: "删除" }));
-
-    expect(window.confirm).toHaveBeenCalled();
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "取消" }));
     expect(deleteAgentMemory).not.toHaveBeenCalled();
     expect(screen.getByText("Uses pnpm.")).toBeTruthy();
   });
@@ -89,13 +85,11 @@ describe("AgentMemorySection", () => {
     ];
     const resetAllMemories = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, resetAllMemories });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = renderSection(service);
 
     await screen.findByText("Uses pnpm.");
     await user.click(screen.getByRole("button", { name: "重置全部" }));
-
-    expect(window.confirm).toHaveBeenCalled();
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "确认" }));
     expect(resetAllMemories).toHaveBeenCalledWith();
   });
 
@@ -105,11 +99,11 @@ describe("AgentMemorySection", () => {
     ];
     const resetAllMemories = vi.fn(async () => undefined);
     const service = createAgentServiceDouble({ listAllMemories: async () => memories, resetAllMemories });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const { user } = renderSection(service);
 
     await screen.findByText("Uses pnpm.");
     await user.click(screen.getByRole("button", { name: "重置全部" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "取消" }));
 
     expect(resetAllMemories).not.toHaveBeenCalled();
   });

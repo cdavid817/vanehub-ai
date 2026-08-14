@@ -7,7 +7,7 @@ const TAB_COMMANDS: SessionTabId[] = [
 ];
 
 const DESTINATION_COMMANDS: Array<{ name: string; destination: SlashCommandDestination }> = [
-  { name: "todo", destination: "todo-board" },
+  { name: "todo", destination: "work-board" },
   { name: "plans", destination: "plans" },
   { name: "loops", destination: "loops" },
 ];

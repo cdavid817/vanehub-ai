@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { supportedLocales, type AppLanguage } from "../../i18n/supported-locales";
 import { Button } from "../../components/ui/button";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { useSettings } from "../settings-provider";
 import { ucdThemes } from "../../theme/theme-registry";
@@ -84,6 +85,7 @@ function NodeEnvironmentPanel({
 
 export function BasicSettingsPage() {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const { error, loading, nodeInfo, reportClientLogEvent, resetSettings, saveSetting, savingKey, settings } = useSettings();
   const [defaultFolderDraft, setDefaultFolderDraft] = useState(settings.defaultFolderPath);
   const [defaultFolderError, setDefaultFolderError] = useState<string | null>(null);
@@ -110,6 +112,7 @@ export function BasicSettingsPage() {
 
   return (
     <div className="mx-auto max-w-[1040px] space-y-5 pb-8">
+      {confirmationDialog}
       <header className="border-b border-border pb-5">
         <div>
           <div className="mb-1 text-xs font-medium text-muted-foreground">{t("app.settings.breadcrumb")}</div>
@@ -211,7 +214,8 @@ export function BasicSettingsPage() {
           className="shrink-0"
           disabled={busy}
           onClick={() => {
-            if (window.confirm(t("basic.resetConfirm"))) void resetSettings();
+            void confirm({ title: t("basic.resetConfirm"), tone: "danger" })
+              .then((confirmed) => { if (confirmed) void resetSettings(); });
           }}
           variant="outline"
         >

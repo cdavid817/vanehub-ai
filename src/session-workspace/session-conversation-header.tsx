@@ -2,8 +2,21 @@ import type { ReactNode } from "react";
 import { Circle, MessagesSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../lib/utils";
+import {
+  interactionModeLabelKey,
+  lifecycleLabelKey,
+  lifecycleTone,
+  type LifecycleTone,
+} from "../lib/session-lifecycle";
 import { activeSeatsFromSession } from "../services/session-seats";
 import type { Session } from "../types/agent";
+
+const pillClass: Record<LifecycleTone, string> = {
+  active: "ucd-status-success",
+  pending: "ucd-status-warning",
+  danger: "ucd-status-danger",
+  neutral: "border-border bg-muted text-muted-foreground",
+};
 
 export function SessionConversationHeader({
   actions,
@@ -18,6 +31,12 @@ export function SessionConversationHeader({
 }) {
   const { t } = useTranslation();
   const activeSeatCount = session ? activeSeatsFromSession(session).length : 0;
+  // Streaming is an overlay on the session lifecycle, not a replacement for it: reporting only
+  // `isStreaming` painted a green "ready" pill over stopped and failed sessions.
+  const tone = session ? (isStreaming ? "active" : lifecycleTone(session.lifecycleState)) : null;
+  const statusLabel = session
+    ? isStreaming ? t("layout.generating") : t(lifecycleLabelKey(session.lifecycleState))
+    : null;
   return (
     <header className="shrink-0 border-b border-border bg-[hsl(var(--panel))] px-4 py-2.5" data-testid="session-conversation-header">
       <div className="flex min-h-9 items-center justify-between gap-4">
@@ -31,7 +50,7 @@ export function SessionConversationHeader({
               {session
                 ? activeSeatCount > 1
                   ? `${t("createSession.agentMode.multi")} · ${t("session.participantCount", { count: activeSeatCount })}`
-                  : session.interactionMode
+                  : t(interactionModeLabelKey(session.interactionMode))
                 : t("layout.startChat")}
             </p>
           </div>
@@ -48,18 +67,18 @@ export function SessionConversationHeader({
               IM
             </button>
           ) : null}
-          <span
-            aria-live="polite"
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-              isStreaming
-                ? "border-primary/30 bg-[hsl(var(--nav-active-soft))] text-primary"
-                : "border-[hsl(var(--success))]/30 bg-[hsl(var(--success-soft))] text-[hsl(var(--success))]",
-            )}
-          >
-            <Circle aria-hidden="true" className={cn("h-2 w-2 fill-current", isStreaming && "animate-pulse motion-reduce:animate-none")} />
-            {isStreaming ? t("layout.generating") : t("layout.ready")}
-          </span>
+          {tone && statusLabel ? (
+            <span
+              aria-live="polite"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+                pillClass[tone],
+              )}
+            >
+              <Circle aria-hidden="true" className={cn("h-2 w-2 fill-current", isStreaming && "animate-pulse motion-reduce:animate-none")} />
+              {statusLabel}
+            </span>
+          ) : null}
           {actions}
         </div>
       </div>

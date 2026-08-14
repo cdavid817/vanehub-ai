@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent,
 import { Archive, CheckSquare, ChevronDown, ChevronRight, EllipsisVertical, FolderOpen, List, ListTree, Pin, Plus, Search, Trash2, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../components/agent-brand-icon";
+import { ApplicationDialog } from "../components/ui/application-dialog";
 import { Button } from "../components/ui/button";
 import { getAgentVisualIdentity } from "../lib/agent-visual-identity";
+import { lifecycleDotClass, lifecycleLabelKey, lifecycleTone } from "../lib/session-lifecycle";
 import { cn } from "../lib/utils";
 import type { Session, SessionCategory, SessionSearchResult } from "../types/agent";
 import {
@@ -45,10 +47,7 @@ function SessionCard({ active, batchMode, checked, draggable, onContextMenu, onD
   const { i18n, t } = useTranslation();
   const meta = getAgentVisualIdentity(session.agentId);
   const activeSeatCount = session.seats?.filter((seat) => seat.leftAt == null).length ?? 1;
-  const lifecycle: Record<Session["lifecycleState"], string> = {
-    failed: t("layout.needsInput"), idle: t("layout.idle"), running: t("layout.running"),
-    starting: t("layout.pendingVerification"), stopped: t("layout.stopped"),
-  };
+  const tone = lifecycleTone(session.lifecycleState);
   const date = new Intl.DateTimeFormat(i18n.language, { month: "2-digit", day: "2-digit" }).format(new Date(session.updatedAt));
   const select = () => {
     if (batchMode) onToggleChecked(!checked);
@@ -81,8 +80,8 @@ function SessionCard({ active, batchMode, checked, draggable, onContextMenu, onD
         {session.pinned ? <Pin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-primary" /> : null}
       </div>
       <div className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden pl-11 text-[11px] text-muted-foreground">
-        <span className={cn("h-2 w-2 shrink-0 rounded-full", session.archived ? "bg-muted-foreground" : "bg-[hsl(var(--success))]")} />
-        <span className="min-w-0 truncate">{session.archived ? t("layout.archived") : lifecycle[session.lifecycleState]}</span>
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", session.archived ? "bg-muted-foreground" : lifecycleDotClass[tone])} />
+        <span className="min-w-0 truncate">{session.archived ? t("layout.archived") : t(lifecycleLabelKey(session.lifecycleState))}</span>
         {activeSeatCount > 1 ? (
           <span
             className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-primary/30 bg-[hsl(var(--nav-active-soft))] px-1.5 text-[10px] font-semibold leading-none text-primary"
@@ -99,14 +98,17 @@ function SessionCard({ active, batchMode, checked, draggable, onContextMenu, onD
   );
 }
 
-export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, categories, deletingSessions, onAssignCategory, onBatchDelete, onContextMenu, onNew, onSearchChange, onSelect, searchQuery, searchResults, sessions }: {
+export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessions, categories, deletingSessions, focusSearchToken = 0, onAssignCategory, onBatchDelete, onContextMenu, onNew, onSearchChange, onSelect, searchQuery, searchResults, sessions }: {
   activeSessionId: string | null; agentsAvailable: boolean; archivedSessions: Session[]; categories: SessionCategory[]; deletingSessions?: boolean;
+  /** Incremented by the shell to move focus here from the top bar search entry. */
+  focusSearchToken?: number;
   onAssignCategory: (session: Session, categoryId: string | null) => void;
   onBatchDelete: (sessions: Session[]) => void;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>, session: Session) => void;
   onNew: () => void; onSearchChange: (value: string) => void; onSelect: (session: Session) => void; searchQuery: string; searchResults: SessionSearchResult[]; sessions: Session[];
 }) {
   const { t } = useTranslation();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [sourceMode, setSourceMode] = useState<SessionSourceMode>("active");
   const [presentation, setPresentation] = useState<SessionPresentationMode>(readPresentation);
   const [agentFilter, setAgentFilter] = useState<SessionAgentFilter>("all");
@@ -130,6 +132,19 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
     { id: null, label: t("layout.uncategorized"), sessions: groupPool.filter((session) => !session.categoryId) },
   ], [categories, groupPool, t]);
   const projectGroups = useMemo(() => groupSessionsByProject(groupPool, t("layout.ungroupedProject")), [groupPool, t]);
+  // "No sessions" and "the Agent filter hid them all" need different wording, otherwise the
+  // only way to tell which one you are looking at is to reset the filter and check.
+  const emptyListMessage = sourceMode === "archived"
+    ? t("layout.noArchived")
+    : agentFilter !== "all" && sourceSessions.length > 0
+      ? t("layout.noSessionsForFilter")
+      : t("layout.noSessionsVisible");
+
+  useEffect(() => {
+    if (!focusSearchToken) return;
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+  }, [focusSearchToken]);
 
   useEffect(() => {
     if (typeof localStorage !== "undefined") localStorage.setItem(sessionSidebarPresentationKey, presentation);
@@ -248,7 +263,7 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
           <Button className="h-7 px-2 text-xs" disabled={!agentsAvailable || batchMode} onClick={onNew}><Plus aria-hidden="true" className="h-3.5 w-3.5" />{t("layout.new")}</Button>
         </div>
       </div>
-      <label className="relative mb-2 block"><Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="ucd-input h-8 w-full rounded-md pl-8 pr-2 text-xs" onChange={(event) => onSearchChange(event.target.value)} placeholder={t("layout.sessionSearchPlaceholder")} value={searchQuery} /></label>
+      <label className="relative mb-2 block"><Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" aria-hidden="true" /><input className="ucd-input h-8 w-full rounded-md pl-8 pr-2 text-xs" id="workspace-session-search" onChange={(event) => onSearchChange(event.target.value)} placeholder={t("layout.sessionSearchPlaceholder")} ref={searchInputRef} value={searchQuery} /></label>
       <div className="ucd-segmented mb-2 grid grid-cols-3 gap-1 rounded-md p-1">
         <button className={cn("h-7 rounded text-xs", presentation === "list" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setPresentation("list")} type="button"><List className="mr-1 inline h-3.5 w-3.5" />{t("layout.sessionViewList")}</button>
         <button className={cn("h-7 rounded text-xs", presentation === "category" ? "bg-background font-semibold text-primary" : "text-muted-foreground hover:bg-muted")} onClick={() => setPresentation("category")} type="button"><ListTree className="mr-1 inline h-3.5 w-3.5" />{t("layout.sessionViewCategory")}</button>
@@ -259,11 +274,27 @@ export function SessionSidebar({ activeSessionId, agentsAvailable, archivedSessi
       <div className="-mx-1 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1">
         {searchQuery.trim() && presentation !== "project" ? <div className="grid gap-2"><div className="flex justify-between text-xs text-muted-foreground"><span>{t("layout.searchResults")}</span><span>{filteredSearchResults.length}</span></div>{filteredSearchResults.map((result) => <div className="grid gap-1" key={result.session.id}>{card(result.session)}<p className="truncate px-2 text-xs text-muted-foreground">{result.matches[0]?.excerpt}</p></div>)}{filteredSearchResults.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{t("layout.noSearchResults")}</p> : null}</div> : null}
         {!searchQuery.trim() && pinned.length > 0 ? <section className="mb-3 grid gap-2 border-b border-border pb-3"><div className="flex justify-between text-xs text-muted-foreground"><span><Pin className="mr-1 inline h-3.5 w-3.5" />{t("layout.pinned")}</span><span>{pinned.length}</span></div>{pinned.map(card)}</section> : null}
-        {!searchQuery.trim() && presentation === "list" ? <div className="grid gap-1">{listSessions.map(card)}{listSessions.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
+        {!searchQuery.trim() && presentation === "list" ? <div className="grid gap-1">{listSessions.map(card)}{listSessions.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{emptyListMessage}</p> : null}</div> : null}
         {!searchQuery.trim() && presentation === "category" ? <div className="grid gap-2">{categoryGroups.map((group) => <section className="grid gap-2" data-session-category-id={group.id ?? "uncategorized"} key={group.id ?? "uncategorized"} onDragOver={(event) => { if (!batchMode) event.preventDefault(); }} onDrop={(event) => dropCategory(event, group.id)}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(`category:${group.id ?? "none"}`)} type="button">{expanded.has(`category:${group.id ?? "none"}`) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<ListTree className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(`category:${group.id ?? "none"}`) ? group.sessions.map(card) : null}</section>)}</div> : null}
         {presentation === "project" ? <div className="grid gap-2">{projectGroups.map((group) => <section className="grid gap-2" key={group.id}><button className="ucd-list-row flex h-8 items-center gap-2 rounded-md px-2 text-left text-xs" onClick={() => toggle(group.id)} title={group.path ?? group.label} type="button">{expanded.has(group.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}<FolderOpen className="h-3.5 w-3.5 text-primary" /><span className="truncate">{group.label}</span><span className="ml-auto">{group.sessions.length}</span></button>{expanded.has(group.id) ? group.sessions.map(card) : null}</section>)}{projectGroups.length === 0 ? <p className="ucd-muted-panel rounded-md p-3 text-xs text-muted-foreground">{searchQuery.trim() ? t("layout.noSearchResults") : sourceMode === "archived" ? t("layout.noArchived") : t("layout.noSessionsVisible")}</p> : null}</div> : null}
       </div>
-      {confirmOpen ? <div className="fixed inset-0 z-50 grid place-items-center bg-background/60 p-4"><div className="ucd-panel grid w-full max-w-sm gap-3 rounded-lg p-4 text-sm shadow-xl"><div><h3 className="font-semibold">{t("layout.batchDeleteSessions")}</h3><p className="mt-1 text-xs text-muted-foreground">{t("layout.batchDeleteDescription", { count: selectedSessions.length })}</p></div><div className="grid grid-cols-2 gap-2"><button className="h-8 rounded border border-border text-xs" onClick={() => setConfirmOpen(false)} type="button">{t("layout.cancel")}</button><button className="h-8 rounded bg-destructive text-xs text-destructive-foreground disabled:opacity-50" disabled={deletingSessions} onClick={confirmDelete} type="button">{t("layout.delete")}</button></div></div></div> : null}
+      {confirmOpen ? (
+        <ApplicationDialog
+          closeDisabled={deletingSessions}
+          description={t("layout.batchDeleteDescription", { count: selectedSessions.length })}
+          footer={(
+            <div className="grid grid-cols-2 gap-2">
+              <Button disabled={deletingSessions} onClick={() => setConfirmOpen(false)} size="sm" variant="outline">{t("layout.cancel")}</Button>
+              <Button className="bg-destructive text-destructive-foreground" data-dialog-autofocus disabled={deletingSessions} onClick={confirmDelete} size="sm">{t("layout.delete")}</Button>
+            </div>
+          )}
+          maxWidth="max-w-sm"
+          onClose={() => setConfirmOpen(false)}
+          title={t("layout.batchDeleteSessions")}
+        >
+          <p className="text-xs text-muted-foreground">{t("layout.batchDeleteHint")}</p>
+        </ApplicationDialog>
+      ) : null}
     </aside>
   );
 }

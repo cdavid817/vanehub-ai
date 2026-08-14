@@ -2,6 +2,7 @@ import { KeyRound, Plus, RefreshCw, Server, Wifi } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
 import { sshConnectionService } from "../../services/runtime-ssh-connection-client";
 import type {
@@ -19,6 +20,7 @@ import {
 
 export function SshConnectionsPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<SshConnection | null | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
@@ -95,9 +97,10 @@ export function SshConnectionsPage({ searchTerm }: { searchTerm: string }) {
 
   async function deleteConnection(connection: SshConnection) {
     if (
-      !window.confirm(
-        t("sshConnections.confirm.delete", { name: connection.name }),
-      )
+      !(await confirm({
+        title: t("sshConnections.confirm.delete", { name: connection.name }),
+        tone: "danger",
+      }))
     )
       return;
     setError(null);
@@ -117,6 +120,7 @@ export function SshConnectionsPage({ searchTerm }: { searchTerm: string }) {
 
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader
         actions={
           <>

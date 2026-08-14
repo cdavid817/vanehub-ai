@@ -22,8 +22,8 @@ test.describe("CLI parameter settings", () => {
     await page.getByRole("button", { name: "Codex CLI" }).click();
     await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("high");
 
-    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /恢复默认值|Restore defaults/ }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /^(确认|Confirm)$/ }).click();
     await expect(page.getByRole("combobox", { name: /推理强度|Reasoning effort/ })).toHaveValue("default");
     await expect(page.getByRole("button", { name: /保存更改|Save changes/ })).toBeDisabled();
 
@@ -49,6 +49,16 @@ test.describe("CLI parameter settings", () => {
     await expect(page.getByRole("heading", { name: "CLI Parameter Management" })).toBeVisible();
     await expect(page.getByText("Safe argument preview")).toBeVisible();
     await page.getByRole("button", { name: "OnePiece" }).click();
+    const automaticCompaction = page.getByRole("switch", { name: "Automatic context compaction" });
+    await expect(automaticCompaction).toHaveAttribute("aria-checked", "true");
+    await automaticCompaction.focus();
+    await page.keyboard.press("Space");
+    await expect(automaticCompaction).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText(/Changes apply to subsequent OnePiece generations/)).toBeVisible();
+    await page.reload();
+    await page.getByText(/^CLI Parameters$/).click();
+    await page.getByRole("button", { name: "OnePiece" }).click();
+    await expect(page.getByRole("switch", { name: "Automatic context compaction" })).toHaveAttribute("aria-checked", "false");
     await page.getByRole("combobox", { name: "Automatic project code indexing" }).selectOption("local");
     await expect(page.getByText("Tree-sitter and FTS5 stay on this device", { exact: false })).toBeVisible();
     const codexButton = page.getByRole("button", { name: "Codex CLI" });

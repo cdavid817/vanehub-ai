@@ -54,7 +54,9 @@ test.describe("OnePiece native Agent", () => {
     await page.getByRole("button", { name: /新建/ }).click();
     const dialog = page.getByRole("dialog");
     await agentButton(dialog, "OnePiece").click();
-    await expect(dialog.getByText(/当前选中：OnePiece|Selected Agent: OnePiece/)).toBeVisible();
+    // The card's own pressed state is the selection signal; the separate "selected agent"
+    // echo row it used to assert duplicated the already-highlighted card.
+    await expect(agentButton(dialog, "OnePiece")).toHaveAttribute("aria-pressed", "true");
     await dialog.getByPlaceholder(/code.*project/).fill("D:\\onepiece-workspace");
     await dialog.getByPlaceholder("新会话").fill("OnePiece API 会话");
     await dialog.getByRole("button", { name: "创建", exact: true }).click();
@@ -62,7 +64,8 @@ test.describe("OnePiece native Agent", () => {
     const conversationHeader = page.getByTestId("session-conversation-header");
     await expect(conversationHeader.getByText("OnePiece", { exact: true })).toHaveCount(0);
     await expect(conversationHeader.getByText("onepiece", { exact: true })).toHaveCount(0);
-    await expect(conversationHeader.getByText("api", { exact: true })).toBeVisible();
+    // The subtitle renders the localized interaction mode, not the raw enum value.
+    await expect(conversationHeader.getByText("API", { exact: true })).toBeVisible();
     await expect(page.getByTestId("info-pane-basic").getByText("OnePiece", { exact: true }).first()).toBeVisible();
     const composer = page.getByPlaceholder("输入指令，下发任务给当前 Agent...");
     await expect(composer).toBeVisible();
@@ -118,11 +121,12 @@ test.describe("OnePiece native Agent", () => {
     await expect(feedback.getByRole("button", { name: "有帮助", exact: true })).toHaveAttribute("aria-pressed", "true");
     await feedback.getByRole("button", { name: "提出纠正" }).click();
     await feedback.getByLabel("需要纠正什么？").fill("请先概括风险，再请求工具审批。");
-    page.once("dialog", (dialog) => dialog.accept());
+    // Replacing an existing rating confirms through an in-application dialog now.
     await feedback.getByRole("button", { name: "保存" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(feedback.getByRole("button", { name: "提出纠正" })).toHaveAttribute("aria-pressed", "true");
-    page.once("dialog", (dialog) => dialog.accept());
     await feedback.getByRole("button", { name: "清除反馈" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(feedback.getByRole("button", { name: "清除反馈" })).toHaveCount(0);
   });
 

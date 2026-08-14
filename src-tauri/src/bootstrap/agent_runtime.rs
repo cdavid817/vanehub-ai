@@ -5,14 +5,15 @@ use crate::contexts::agent_runtime::application::{
     AgentRuntimeApplicationPorts, AgentRuntimeApplicationService, AgentTerminalApplicationPorts,
     AgentTerminalApplicationService, AgentWorkspaceMutationPort,
     ApplyDelegationChangesNativeToolHandler, ArtifactNativeToolHandler, BrowserHandoffControlPort,
-    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, DelegateCliNativeToolHandler,
-    ExpertRoleApplicationPorts, ExpertRoleApplicationService, LoopApplicationPorts,
-    LoopApplicationService, LoopControlApplicationPorts, LoopControlApplicationService,
-    LoopOperationObserver, LoopOrchestratorApplicationService, LoopOrchestratorPorts,
-    LoopProgressApplicationService, LoopRecoveryApplicationPorts, LoopRecoveryApplicationService,
-    LoopVerificationApplicationPorts, LoopVerificationApplicationService,
-    LoopVerifierApplicationPorts, LoopVerifierApplicationService, LoopWorkerApplicationPorts,
-    LoopWorkerApplicationService, ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
+    BrowserNativeToolHandler, CodeExecutionNativeToolHandler, ContextQualityQueryService,
+    ContextQualityRecorder, DelegateCliNativeToolHandler, ExpertRoleApplicationPorts,
+    ExpertRoleApplicationService, LoopApplicationPorts, LoopApplicationService,
+    LoopControlApplicationPorts, LoopControlApplicationService, LoopOperationObserver,
+    LoopOrchestratorApplicationService, LoopOrchestratorPorts, LoopProgressApplicationService,
+    LoopRecoveryApplicationPorts, LoopRecoveryApplicationService, LoopVerificationApplicationPorts,
+    LoopVerificationApplicationService, LoopVerifierApplicationPorts,
+    LoopVerifierApplicationService, LoopWorkerApplicationPorts, LoopWorkerApplicationService,
+    ManualNativeToolService, NativeToolDispatcher, NativeToolHandler,
     NativeToolReadinessReasonCode, NativeToolRegistry, OcrNativeToolHandler,
     OnePieceToolFeatureGates, UtilityDelegationApplicationPorts,
     UtilityDelegationApplicationService,
@@ -31,10 +32,11 @@ use crate::contexts::agent_runtime::infrastructure::{
     RuntimeAgentProcessAdapter, RuntimeAgentSkillAdapter, RuntimeEffectivePromptAdapter,
     RuntimeLoopVerificationEvidenceAdapter, RuntimeProcessEvidenceDependencies,
     RuntimeUtilityLifecycleProjector, SessionsAgentRuntimeAdapter, SqliteAgentMemoryRepository,
-    SqliteAgentRuntimeRepository, SqliteExpertRoleRepository, SqliteLoopRepository,
-    SqliteNativeToolRepository, StructuredLoopVerificationProcess, SystemAgentRuntimeClock,
-    SystemExpertRoleClock, TauriAgentRuntimeEventAdapter, TerminalExecutionObservability,
-    UnavailableNativeToolPort, UuidExpertRoleIds, WorkspaceLoopProjectAdapter,
+    SqliteAgentRuntimeRepository, SqliteContextQualityRepository, SqliteExpertRoleRepository,
+    SqliteLoopRepository, SqliteNativeToolRepository, StructuredLoopVerificationProcess,
+    SystemAgentRuntimeClock, SystemExpertRoleClock, TauriAgentRuntimeEventAdapter,
+    TerminalExecutionObservability, UnavailableNativeToolPort, UuidExpertRoleIds,
+    WorkspaceLoopProjectAdapter,
 };
 use crate::contexts::artifacts::application::{ArtifactBlobStorePolicy, ArtifactService};
 use crate::contexts::artifacts::infrastructure::{
@@ -482,6 +484,16 @@ pub(crate) fn assemble_agent_runtime_api(
         api_credentials.clone(),
         repository.clone(),
     ));
+    let context_quality_repository = Arc::new(SqliteContextQualityRepository::new(
+        dependencies.database.clone(),
+    ));
+    let context_quality_query =
+        ContextQualityQueryService::new(context_quality_repository.clone(), clock.clone());
+    let context_quality = Arc::new(ContextQualityRecorder::new(
+        context_quality_repository,
+        logging.clone(),
+        clock.clone(),
+    ));
     let code_intelligence = Arc::new(
         crate::contexts::agent_runtime::infrastructure::RuntimeAgentCodeIntelligenceAdapter::new(
             dependencies.code_intelligence,
@@ -525,6 +537,7 @@ pub(crate) fn assemble_agent_runtime_api(
             dependencies.workspace_mutations,
             agent_personalization.clone(),
         )
+        .with_context_quality_recorder(context_quality)
         .with_evidence(dependencies.evidence.clone())
         .with_utility_delegation(utility_delegation)
         .with_accounting(accounting.clone())
@@ -706,6 +719,7 @@ pub(crate) fn assemble_agent_runtime_api(
             expert_roles,
             seat_turns,
             guarded_validation,
+            context_quality: context_quality_query,
             native_tools,
             browser_handoff,
             manual_native_tools,

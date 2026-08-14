@@ -227,10 +227,15 @@ test.describe("workspace activity bar", () => {
     await expect(page.getByRole("button", { name: "Plan 执行" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "循环工程" })).toBeFocused();
+    // Scheduled tasks opens a dialog, so it now follows the four destination entries in its
+    // own group rather than sitting between them.
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "任务看板" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(scheduledTasks).toBeFocused();
     await scheduledTasks.click();
-    await expect(page).toHaveURL(/\/workspace$/);
+    // Scheduled tasks is a dialog, not a destination, so it must leave the workspace route alone.
+    await expect(page).toHaveURL(/\/workspace\/sessions/);
     await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
     await expect(page.getByPlaceholder("例如：每日整理项目进度")).toBeVisible();
 
@@ -250,13 +255,14 @@ test.describe("workspace activity bar", () => {
     await taskRow.getByLabel("已停用").check();
     await expect(taskRow.getByLabel("已启用")).toBeVisible();
 
-    page.once("dialog", (dialog) => dialog.accept());
-    await taskRow.getByRole("button", { name: "删除任务" }).click();
+    // Deletion is confirmed inline in the row now, not by a browser-native dialog.
+    await taskRow.getByRole("button", { name: /删除定时任务/ }).click();
+    await taskRow.getByRole("button", { name: "确认删除" }).click();
     await expect(page.getByText("每日整理项目进度")).toHaveCount(0);
     await expect(page.getByText("还没有定时任务。")).toBeVisible();
     await expect(page.getByRole("button", { name: "帮助" })).toBeVisible();
 
-    await page.getByRole("button", { name: "关闭定时任务" }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("heading", { name: "定时任务" })).toHaveCount(0);
     await page.getByRole("button", { name: "设置", exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
@@ -280,14 +286,18 @@ test.describe("workspace activity bar", () => {
       await expect(sessionSidebar).toHaveAttribute("aria-hidden", "false");
       await expect(activityBar).toBeVisible();
 
+      // The entry used to open a second input that ran no query. It now hands focus to the
+      // session sidebar search, which is the control that actually filters sessions.
       const openSearch = page.getByRole("button", { name: "打开搜索" });
       await expect(openSearch).toBeVisible();
+      const searchInput = page.locator("#workspace-session-search");
+      await page.getByRole("button", { name: "折叠会话栏" }).click();
+      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "true");
+
       await openSearch.click();
-      const searchInput = page.getByPlaceholder("搜索 Agent、对话、任务...");
+      await expect(sessionSidebar).toHaveAttribute("aria-hidden", "false");
       await expect(searchInput).toBeVisible();
       await expect(searchInput).toBeFocused();
-      await page.getByRole("button", { name: "关闭搜索" }).click();
-      await expect(searchInput).toBeHidden();
       await expect(openSearch).toBeVisible();
     });
   }

@@ -15,14 +15,15 @@ export interface WorkspaceActivityBarLabels {
 }
 
 interface WorkspaceActivityBarProps {
-  activeDestination: "sessions" | "loops" | "plans" | "todo-board";
+  activeDestination: "sessions" | "loops" | "plans" | "work-board";
   labels: WorkspaceActivityBarLabels;
   onOpenSettings: () => void;
+  onHelp: () => void;
   onLoops: () => void;
   onPlans: () => void;
   onSessions: () => void;
   onScheduledTasks: () => void;
-  onTodoBoard: () => void;
+  onWorkBoard: () => void;
   sessionSidebarExpanded: boolean;
 }
 
@@ -33,17 +34,18 @@ export function WorkspaceActivityBar({
   activeDestination,
   labels,
   onOpenSettings,
+  onHelp,
   onLoops,
   onPlans,
   onSessions,
   onScheduledTasks,
-  onTodoBoard,
+  onWorkBoard,
   sessionSidebarExpanded,
 }: WorkspaceActivityBarProps) {
   const sessionsLabel = sessionSidebarExpanded ? labels.collapseSessions : labels.expandSessions;
 
   return (
-    <nav aria-label={labels.navigation} className="ucd-activity-bar flex w-12 shrink-0 flex-col items-center justify-between px-1 py-2">
+    <nav aria-label={labels.navigation} className="ucd-activity-bar flex w-12 shrink-0 flex-col items-center px-1 py-2">
       <div className="flex flex-col items-center gap-1" data-activity-group="primary">
         <button
           aria-controls="workspace-session-sidebar"
@@ -76,16 +78,20 @@ export function WorkspaceActivityBar({
         >
           <Repeat2 aria-hidden="true" className="h-5 w-5" />
         </button>
-        <button aria-label={labels.scheduledTasks} className={activityButtonClass} onClick={onScheduledTasks} title={labels.scheduledTasks} type="button">
+        <button aria-controls="work-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "work-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onWorkBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
+      </div>
+      {/* Scheduled tasks opens a dialog rather than switching destination, so it sits apart from
+          the four entries that do change what fills the workspace. */}
+      <div className="mt-1 flex flex-col items-center gap-1 border-t border-border pt-2" data-activity-group="tools">
+        <button aria-haspopup="dialog" aria-label={labels.scheduledTasks} className={activityButtonClass} onClick={onScheduledTasks} title={labels.scheduledTasks} type="button">
           <CalendarClock aria-hidden="true" className="h-5 w-5" />
         </button>
-        <button aria-controls="todo-board" aria-label={labels.todoBoard} className={cn(activityButtonClass, activeDestination === "todo-board" && "border-primary bg-[hsl(var(--nav-active-soft))] text-primary")} onClick={onTodoBoard} title={labels.todoBoard} type="button"><Columns3 aria-hidden="true" className="h-5 w-5" /></button>
       </div>
-      <div className="flex flex-col items-center gap-1" data-activity-group="utility">
+      <div className="mt-auto flex flex-col items-center gap-1" data-activity-group="utility">
         <button aria-label={labels.settings} className={activityButtonClass} onClick={() => onOpenSettings()} title={labels.settings} type="button">
           <Settings aria-hidden="true" className="h-5 w-5" />
         </button>
-        <button aria-label={labels.help} className={activityButtonClass} title={labels.help} type="button">
+        <button aria-label={labels.help} className={activityButtonClass} onClick={onHelp} title={labels.help} type="button">
           <CircleHelp aria-hidden="true" className="h-5 w-5" />
         </button>
       </div>

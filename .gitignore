@@ -12,6 +12,8 @@ coverage/
 .docs-build/
 .docs-target/
 .docs-screenshots/
+# one-off UX audit captures (docs/ux-audit-report.md references these locally)
+.ux-audit/
 
 
 # subagent-driven-development scratch (progress ledger, task briefs, review packages)

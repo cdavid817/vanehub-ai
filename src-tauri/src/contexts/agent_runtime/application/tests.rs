@@ -2335,6 +2335,7 @@ fn update_api_agent_trims_fields_and_forwards_the_normalized_input_to_the_gatewa
         .lock()
         .expect("provider config")
         .replace(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "old-model".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,
@@ -2371,6 +2372,7 @@ fn update_api_agent_rejects_a_missing_base_url_when_the_stored_format_is_openai_
         .lock()
         .expect("provider config")
         .replace(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "old-model".to_string(),
             interface_format: INTERFACE_FORMAT_OPENAI_COMPATIBLE.to_string(),
             base_url: Some("https://old.example.test".to_string()),
@@ -2406,6 +2408,7 @@ fn update_api_agent_rotating_the_key_stores_it_without_touching_other_fields() {
         .lock()
         .expect("provider config")
         .replace(ApiProviderConfig {
+            source_provider_id: None,
             model_id: "gpt-test".to_string(),
             interface_format: INTERFACE_FORMAT_ANTHROPIC.to_string(),
             base_url: None,

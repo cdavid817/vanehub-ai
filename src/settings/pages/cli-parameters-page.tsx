@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AgentBrandIcon } from "../../components/agent-brand-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { getAgentVisualIdentity } from "../../lib/agent-visual-identity";
 import { orderByAgentPriority } from "../../lib/agent-display-order";
 import { buildCliParameterPreviewFromDefinitions } from "../../services/cli-parameter-catalog";
@@ -27,6 +28,7 @@ type ParameterPageId = ManagedCliAgentId | "onepiece";
 
 export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [activeAgentId, setActiveAgentId] = useState<ParameterPageId>("claude-code");
   const [drafts, setDrafts] = useState<Partial<Record<ManagedCliAgentId, CliParameterSelections>>>({});
@@ -93,8 +95,9 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
     }));
   }
 
-  function resetActiveProfile() {
-    if (!activeProfile || !window.confirm(t("cliParameters.confirmReset"))) return;
+  async function resetActiveProfile() {
+    if (!activeProfile) return;
+    if (!(await confirm({ title: t("cliParameters.confirmReset"), tone: "danger" }))) return;
     resetMutation.mutate(activeProfile.agentId);
   }
 
@@ -113,12 +116,13 @@ export function CliParametersPage({ searchTerm }: { searchTerm: string }) {
         : null;
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader
         actions={
           <>
             {activeAgentId !== "onepiece" && dirty ? <Badge tone="warning">{t("cliParameters.common.unsaved")}</Badge> : null}
             {activeAgentId !== "onepiece" ? <>
-            <Button disabled={!activeProfile || resetMutation.isPending} onClick={resetActiveProfile} variant="outline">
+            <Button disabled={!activeProfile || resetMutation.isPending} onClick={() => void resetActiveProfile()} variant="outline">
               <RotateCcw aria-hidden="true" /> {t("cliParameters.actions.reset")}
             </Button>
             </> : null}

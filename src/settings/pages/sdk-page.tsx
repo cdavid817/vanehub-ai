@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Download, PackageCheck, RefreshCw, RotateC
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
 import { operationService } from "../../services/runtime-operation-client";
@@ -39,6 +40,7 @@ const sdkStatusTone: Record<SdkStatus["status"], "success" | "warning" | "danger
 
 export function SdkPage({ searchTerm }: { searchTerm: string }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [selectedVersions, setSelectedVersions] = useState<SelectedVersions>({});
   const [logs, setLogs] = useState<OperationLogEntry[]>([]);
@@ -205,7 +207,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
   }
 
   async function uninstall(sdk: SdkStatus) {
-    if (!window.confirm(t("sdk.confirm.uninstall", { name: sdk.displayName }))) return;
+    if (!(await confirm({ title: t("sdk.confirm.uninstall", { name: sdk.displayName }), tone: "danger" }))) return;
     setError(null);
     setNotice(null);
     setLogs([]);
@@ -323,6 +325,7 @@ export function SdkPage({ searchTerm }: { searchTerm: string }) {
 
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader
         actions={
           <>

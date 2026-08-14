@@ -6,9 +6,10 @@
 
 use super::application::{
     AgentRuntimeApplicationService, AgentTerminalApplicationService, BrowserHandoffControlPort,
-    ExpertRoleApplicationService, LoopApplicationService, LoopControlApplicationService,
-    LoopRecoveryApplicationService, LoopVerificationCancellation, LoopVerificationCommandView,
-    LoopVerificationProcessPort, LoopVerificationProcessRequest, LoopVerificationProcessStatus,
+    ContextQualityQueryService, ExpertRoleApplicationService, LoopApplicationService,
+    LoopControlApplicationService, LoopRecoveryApplicationService, LoopVerificationCancellation,
+    LoopVerificationCommandView, LoopVerificationProcessPort, LoopVerificationProcessRequest,
+    LoopVerificationProcessStatus,
 };
 use super::infrastructure::{
     ManualNativeToolControl, NativeLoopScheduler, NativeSeatTurnCoordinator,
@@ -85,8 +86,8 @@ pub(crate) struct GuardedValidationResult {
 #[cfg(test)]
 pub(crate) use super::application::{AgentLaunchView, MessageTokenUsage};
 pub(crate) use super::domain::{
-    AgentAvailability, AgentLifecycle, ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits,
-    LoopVerificationCommand,
+    AgentAvailability, AgentLifecycle, ContextQualityAssessmentPage, ContextQualitySummary,
+    ExpertRole, ExpertRoleInput, InteractionMode, LoopLimits, LoopVerificationCommand,
 };
 
 /// Assembled in bootstrap and handed over whole, so adding a service does not lengthen a
@@ -101,6 +102,7 @@ pub(crate) struct AgentRuntimeApiServices {
     pub(crate) expert_roles: ExpertRoleApplicationService,
     pub(crate) seat_turns: NativeSeatTurnCoordinator,
     pub(crate) guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    pub(crate) context_quality: ContextQualityQueryService,
     pub(crate) native_tools: NativeToolRegistry,
     pub(crate) browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     pub(crate) manual_native_tools: ManualNativeToolControl,
@@ -121,6 +123,7 @@ pub(crate) struct AgentRuntimeApi {
     seat_turns: NativeSeatTurnCoordinator,
     expert_roles: ExpertRoleApplicationService,
     guarded_validation: Arc<dyn LoopVerificationProcessPort>,
+    context_quality: ContextQualityQueryService,
     native_tools: NativeToolRegistry,
     browser_handoff: Option<std::sync::Arc<dyn BrowserHandoffControlPort>>,
     manual_native_tools: ManualNativeToolControl,
@@ -138,6 +141,7 @@ impl AgentRuntimeApi {
             expert_roles,
             seat_turns,
             guarded_validation,
+            context_quality,
             native_tools,
             browser_handoff,
             manual_native_tools,
@@ -152,10 +156,27 @@ impl AgentRuntimeApi {
             expert_roles,
             seat_turns,
             guarded_validation,
+            context_quality,
             native_tools,
             browser_handoff,
             manual_native_tools,
         }
+    }
+
+    pub(crate) fn list_context_quality_history(
+        &self,
+        range_days: u32,
+        cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<ContextQualityAssessmentPage, AgentRuntimeApplicationError> {
+        self.context_quality.list(range_days, cursor, limit)
+    }
+
+    pub(crate) fn context_quality_summary(
+        &self,
+        range_days: u32,
+    ) -> Result<ContextQualitySummary, AgentRuntimeApplicationError> {
+        self.context_quality.summarize(range_days)
     }
 
     pub(crate) fn run_guarded_validation_cancellable(

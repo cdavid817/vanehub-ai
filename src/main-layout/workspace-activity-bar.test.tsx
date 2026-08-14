@@ -28,12 +28,15 @@ function groupButtons(element: ReactElement<{ children: ReactNode }>, groupIndex
 describe("WorkspaceActivityBar", () => {
   it("renders icon-only primary and utility groups with accessible state", () => {
     const html = renderToStaticMarkup(
-      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onLoops={vi.fn()} onOpenSettings={vi.fn()} onPlans={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onTodoBoard={vi.fn()} sessionSidebarExpanded />,
+      <WorkspaceActivityBar activeDestination="sessions" labels={labels} onHelp={vi.fn()} onLoops={vi.fn()} onOpenSettings={vi.fn()} onPlans={vi.fn()} onScheduledTasks={vi.fn()} onSessions={vi.fn()} onWorkBoard={vi.fn()} sessionSidebarExpanded />,
     );
 
     expect(html).toContain('aria-label="Workspace navigation"');
     expect(html).toContain('data-activity-group="primary"');
+    // Scheduled tasks opens a dialog, so it is grouped away from the destination entries.
+    expect(html).toContain('data-activity-group="tools"');
     expect(html).toContain('data-activity-group="utility"');
+    expect(html.indexOf('title="Todo Board"')).toBeLessThan(html.indexOf('title="Scheduled tasks"'));
     expect(html.indexOf('title="Collapse sessions"')).toBeLessThan(html.indexOf('title="Scheduled tasks"'));
     expect(html.indexOf('title="Settings"')).toBeLessThan(html.indexOf('title="Help"'));
     expect(html).toContain('aria-controls="workspace-session-sidebar"');
@@ -46,26 +49,30 @@ describe("WorkspaceActivityBar", () => {
     const onLoops = vi.fn();
     const onPlans = vi.fn();
     const onScheduledTasks = vi.fn();
-    const onTodoBoard = vi.fn();
+    const onWorkBoard = vi.fn();
     const onOpenSettings = vi.fn();
-    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onLoops, onOpenSettings, onPlans, onScheduledTasks, onSessions, onTodoBoard, sessionSidebarExpanded: false });
-    const primaryButtons = groupButtons(element, 0);
-    const utilityButtons = groupButtons(element, 1);
+    const onHelp = vi.fn();
+    const element = WorkspaceActivityBar({ activeDestination: "loops", labels, onHelp, onLoops, onOpenSettings, onPlans, onScheduledTasks, onSessions, onWorkBoard, sessionSidebarExpanded: false });
+    const destinationButtons = groupButtons(element, 0);
+    const toolButtons = groupButtons(element, 1);
+    const utilityButtons = groupButtons(element, 2);
 
-    primaryButtons[0].props.onClick?.({} as never);
-    primaryButtons[1].props.onClick?.({} as never);
-    primaryButtons[2].props.onClick?.({} as never);
-    primaryButtons[3].props.onClick?.({} as never);
-    primaryButtons[4].props.onClick?.({} as never);
+    destinationButtons[0].props.onClick?.({} as never);
+    destinationButtons[1].props.onClick?.({} as never);
+    destinationButtons[2].props.onClick?.({} as never);
+    destinationButtons[3].props.onClick?.({} as never);
+    toolButtons[0].props.onClick?.({} as never);
     utilityButtons[0].props.onClick?.({} as never);
+    utilityButtons[1].props.onClick?.({} as never);
 
     expect(onSessions).toHaveBeenCalledOnce();
     expect(onLoops).toHaveBeenCalledOnce();
     expect(onPlans).toHaveBeenCalledOnce();
     expect(onScheduledTasks).toHaveBeenCalledOnce();
-    expect(onTodoBoard).toHaveBeenCalledOnce();
+    expect(onWorkBoard).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledWith();
     expect(renderToStaticMarkup(element)).toContain('title="Expand sessions"');
     expect(utilityButtons[1].props.title).toBe("Help");
+    expect(onHelp).toHaveBeenCalledOnce();
   });
 });

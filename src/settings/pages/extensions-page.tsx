@@ -2,6 +2,7 @@ import { Activity, Box, CheckCircle2, Cpu, Download, Play, RefreshCw, Square, Tr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConfirmation } from "../../components/ui/use-confirmation";
 import { ApplicationDialog } from "../../components/ui/application-dialog";
 import { Button } from "../../components/ui/button";
 import { normalizeDisplayPath } from "../../lib/session-path";
@@ -67,6 +68,7 @@ export function ExtensionsPage({
   service?: ExtensionService;
 }) {
   const { t } = useTranslation();
+  const { confirm, confirmationDialog } = useConfirmation();
   const queryClient = useQueryClient();
   const [preview, setPreview] = useState<ExtensionInstallPreview | null>(null);
   const [activeOperation, setActiveOperation] = useState<OperationTask | null>(null);
@@ -122,7 +124,7 @@ export function ExtensionsPage({
   }
 
   async function runAction(action: string, frameworkId: ExtensionFrameworkId) {
-    if (action === "uninstall" && !window.confirm(t("extensions.confirm.uninstall"))) return;
+    if (action === "uninstall" && !(await confirm({ title: t("extensions.confirm.uninstall"), tone: "danger" }))) return;
     setError(null);
     await operationMutation.mutateAsync({ action, frameworkId }).catch(() => undefined);
   }
@@ -175,6 +177,7 @@ export function ExtensionsPage({
 
   return (
     <div className="space-y-4">
+      {confirmationDialog}
       <PageHeader actions={<Button disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} variant="outline"><RefreshCw className={overviewQuery.isFetching ? "animate-spin" : ""} />{t("extensions.refresh")}</Button>} description={t("extensions.description")} icon={Cpu} title={t("extensions.title")} />
       {overview && !overview.environment.nativeOperationsAvailable ? <div className="rounded-md border p-3 text-sm ucd-status-warning">{t("extensions.environment.desktopOnly")}</div> : null}
       {error ? <div className="rounded-md border p-3 text-sm ucd-status-danger">{error}</div> : null}
