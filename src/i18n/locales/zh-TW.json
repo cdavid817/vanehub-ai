@@ -3253,5 +3253,17 @@
   "slash.output.usageOutput": "輸出 Token：{{value}}",
   "slash.output.usageResponses": "回覆次數：{{value}}",
   "slash.error.notStreaming": "目前沒有正在生成的內容。",
-  "slash.error.usageUnavailable": "無法讀取 Token 用量。"
+  "slash.error.usageUnavailable": "無法讀取 Token 用量。",
+  "slash.command.todo.description": "開啟待辦看板",
+  "slash.command.plans.description": "開啟計畫中心",
+  "slash.command.loops.description": "開啟迴圈中心",
+  "slash.command.plan.description": "開啟本工作階段關聯的計畫執行",
+  "slash.command.logs.description": "開啟記錄頁籤",
+  "slash.command.files.description": "開啟檔案頁籤",
+  "slash.command.changes.description": "開啟變更頁籤",
+  "slash.command.documents.description": "開啟文件頁籤",
+  "slash.command.terminal.description": "開啟終端機頁籤",
+  "slash.command.shell.description": "開啟 Shell 頁籤",
+  "slash.command.traces.description": "開啟追蹤頁籤",
+  "slash.command.report.description": "開啟報告頁籤"
 }

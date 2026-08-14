@@ -3253,5 +3253,17 @@
   "slash.output.usageOutput": "出力トークン: {{value}}",
   "slash.output.usageResponses": "応答回数: {{value}}",
   "slash.error.notStreaming": "現在生成中の処理はありません。",
-  "slash.error.usageUnavailable": "トークン使用量を取得できませんでした。"
+  "slash.error.usageUnavailable": "トークン使用量を取得できませんでした。",
+  "slash.command.todo.description": "タスクボードを開く",
+  "slash.command.plans.description": "プランセンターを開く",
+  "slash.command.loops.description": "ループセンターを開く",
+  "slash.command.plan.description": "このセッションに紐づくプラン実行を開く",
+  "slash.command.logs.description": "ログタブを開く",
+  "slash.command.files.description": "ファイルタブを開く",
+  "slash.command.changes.description": "変更タブを開く",
+  "slash.command.documents.description": "ドキュメントタブを開く",
+  "slash.command.terminal.description": "ターミナルタブを開く",
+  "slash.command.shell.description": "シェルタブを開く",
+  "slash.command.traces.description": "トレースタブを開く",
+  "slash.command.report.description": "レポートタブを開く"
 }

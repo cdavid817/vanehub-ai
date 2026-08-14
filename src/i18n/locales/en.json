@@ -3253,5 +3253,17 @@
   "slash.output.usageOutput": "Output tokens: {{value}}",
   "slash.output.usageResponses": "Responses: {{value}}",
   "slash.error.notStreaming": "Nothing is generating right now.",
-  "slash.error.usageUnavailable": "Token usage could not be read."
+  "slash.error.usageUnavailable": "Token usage could not be read.",
+  "slash.command.todo.description": "Open the todo board",
+  "slash.command.plans.description": "Open the plan center",
+  "slash.command.loops.description": "Open the loop center",
+  "slash.command.plan.description": "Open this session's associated plan run",
+  "slash.command.logs.description": "Open the logs tab",
+  "slash.command.files.description": "Open the files tab",
+  "slash.command.changes.description": "Open the changes tab",
+  "slash.command.documents.description": "Open the documents tab",
+  "slash.command.terminal.description": "Open the terminal tab",
+  "slash.command.shell.description": "Open the shell tab",
+  "slash.command.traces.description": "Open the traces tab",
+  "slash.command.report.description": "Open the report tab"
 }

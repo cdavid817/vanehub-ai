@@ -3253,5 +3253,17 @@
   "slash.output.usageOutput": "输出 Token：{{value}}",
   "slash.output.usageResponses": "回复次数：{{value}}",
   "slash.error.notStreaming": "当前没有正在生成的内容。",
-  "slash.error.usageUnavailable": "无法读取 Token 用量。"
+  "slash.error.usageUnavailable": "无法读取 Token 用量。",
+  "slash.command.todo.description": "打开待办看板",
+  "slash.command.plans.description": "打开计划中心",
+  "slash.command.loops.description": "打开循环中心",
+  "slash.command.plan.description": "打开本会话关联的计划运行",
+  "slash.command.logs.description": "打开日志页签",
+  "slash.command.files.description": "打开文件页签",
+  "slash.command.changes.description": "打开变更页签",
+  "slash.command.documents.description": "打开文档页签",
+  "slash.command.terminal.description": "打开终端页签",
+  "slash.command.shell.description": "打开 Shell 页签",
+  "slash.command.traces.description": "打开追踪页签",
+  "slash.command.report.description": "打开报告页签"
 }

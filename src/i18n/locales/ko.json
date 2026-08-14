@@ -3253,5 +3253,17 @@
   "slash.output.usageOutput": "출력 토큰: {{value}}",
   "slash.output.usageResponses": "응답 횟수: {{value}}",
   "slash.error.notStreaming": "현재 생성 중인 작업이 없습니다.",
-  "slash.error.usageUnavailable": "토큰 사용량을 읽을 수 없습니다."
+  "slash.error.usageUnavailable": "토큰 사용량을 읽을 수 없습니다.",
+  "slash.command.todo.description": "할 일 보드 열기",
+  "slash.command.plans.description": "플랜 센터 열기",
+  "slash.command.loops.description": "루프 센터 열기",
+  "slash.command.plan.description": "이 세션에 연결된 플랜 실행 열기",
+  "slash.command.logs.description": "로그 탭 열기",
+  "slash.command.files.description": "파일 탭 열기",
+  "slash.command.changes.description": "변경 탭 열기",
+  "slash.command.documents.description": "문서 탭 열기",
+  "slash.command.terminal.description": "터미널 탭 열기",
+  "slash.command.shell.description": "셸 탭 열기",
+  "slash.command.traces.description": "트레이스 탭 열기",
+  "slash.command.report.description": "리포트 탭 열기"
 }
