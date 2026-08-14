@@ -57,10 +57,26 @@ export interface SettingsNavigationTarget {
   agentConfigAgentId?: CliConfigAgentId | "onepiece";
 }
 
+/**
+ * Sidebar grouping only. The page order itself is a deliberate product decision asserted by
+ * `tests/e2e/settings-navigation-order.spec.ts`, so groups must stay contiguous in that order
+ * rather than re-sorting pages into a tidier taxonomy.
+ */
+export type SettingsPageGroup = "general" | "agent" | "capabilities" | "integrations" | "diagnostics";
+
+export const settingsPageGroupOrder: SettingsPageGroup[] = [
+  "general",
+  "agent",
+  "capabilities",
+  "integrations",
+  "diagnostics",
+];
+
 export interface SettingsPageDefinition {
   id: SettingsPageId;
   labelKey: string;
   crumbKey: string;
+  group: SettingsPageGroup;
   icon: LucideIcon;
   badge?: number;
   searchPlaceholderKey: string;
@@ -105,6 +121,7 @@ const loadAboutPage: LazyFeatureLoader<SettingsPageContext> = () => import("./pa
 export const settingsPages: SettingsPageDefinition[] = [
   {
     id: "basic",
+    group: "general",
     labelKey: "settings.pages.basic",
     crumbKey: "settings.pages.basic",
     icon: Settings,
@@ -113,6 +130,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "agent-configurations",
+    group: "agent",
     labelKey: "settings.pages.agentConfigurations",
     crumbKey: "settings.pages.agentConfigurations",
     icon: Settings2,
@@ -121,6 +139,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "agent-policies",
+    group: "agent",
     labelKey: "settings.pages.agentPolicies",
     crumbKey: "settings.pages.agentPolicies",
     icon: ShieldCheck,
@@ -129,6 +148,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "cli-parameters",
+    group: "agent",
     labelKey: "settings.pages.cliParameters",
     crumbKey: "settings.pages.cliParameters",
     icon: SlidersHorizontal,
@@ -137,6 +157,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "mcp",
+    group: "capabilities",
     labelKey: "settings.pages.mcp",
     crumbKey: "settings.pages.mcp",
     icon: Boxes,
@@ -145,6 +166,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "skills",
+    group: "capabilities",
     labelKey: "settings.pages.skills",
     crumbKey: "settings.pages.skills",
     icon: Puzzle,
@@ -153,6 +175,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "personalization",
+    group: "capabilities",
     labelKey: "settings.pages.personalization",
     crumbKey: "settings.pages.personalization",
     icon: Sparkles,
@@ -161,6 +184,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "prompt-hooks",
+    group: "capabilities",
     labelKey: "settings.pages.promptHooks",
     crumbKey: "settings.pages.promptHooks",
     icon: Workflow,
@@ -169,6 +193,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "expert-roles",
+    group: "capabilities",
     labelKey: "settings.pages.expertRoles",
     crumbKey: "settings.pages.expertRoles",
     icon: UserRound,
@@ -177,6 +202,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "providers",
+    group: "integrations",
     labelKey: "settings.pages.providers",
     crumbKey: "settings.pages.providers",
     icon: Terminal,
@@ -185,6 +211,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "extensions",
+    group: "integrations",
     labelKey: "settings.pages.extensions",
     crumbKey: "settings.pages.extensions",
     icon: Cpu,
@@ -193,6 +220,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "plugins",
+    group: "integrations",
     labelKey: "settings.pages.plugins",
     crumbKey: "settings.pages.plugins",
     icon: Plug,
@@ -201,6 +229,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "im",
+    group: "integrations",
     labelKey: "settings.pages.im",
     crumbKey: "settings.pages.im",
     icon: MessagesSquare,
@@ -209,6 +238,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "ssh-connections",
+    group: "integrations",
     labelKey: "settings.pages.sshConnections",
     crumbKey: "settings.pages.sshConnections",
     icon: KeyRound,
@@ -217,6 +247,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "observability",
+    group: "diagnostics",
     labelKey: "settings.pages.observability",
     crumbKey: "settings.pages.observability",
     icon: Activity,
@@ -225,6 +256,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "usage",
+    group: "diagnostics",
     labelKey: "settings.pages.usage",
     crumbKey: "settings.pages.usage",
     icon: BarChart3,
@@ -233,6 +265,7 @@ export const settingsPages: SettingsPageDefinition[] = [
   },
   {
     id: "about",
+    group: "diagnostics",
     labelKey: "settings.pages.about",
     crumbKey: "settings.pages.about",
     icon: Info,

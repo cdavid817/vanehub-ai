@@ -2,7 +2,7 @@ import { ServiceError } from "./service-error";
 
 export const aboutRepositoryUrl = "https://github.com/cdavid817/vanehub-ai";
 export const aboutReleasesUrl = `${aboutRepositoryUrl}/releases`;
-export const aboutCurrentVersion = "0.1.0";
+export const aboutCurrentVersion = __APP_VERSION__;
 export const aboutBuildChannel = "Preview";
 
 const latestReleaseApiUrl = "https://api.github.com/repos/cdavid817/vanehub-ai/releases/latest";
