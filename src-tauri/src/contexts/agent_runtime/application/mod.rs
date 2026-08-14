@@ -8,6 +8,7 @@ mod context_reinjection;
 mod context_reinjection_tests;
 mod error;
 mod execution_policy;
+mod existing_tool_registry;
 mod expert_role;
 mod loop_control;
 mod loop_models;
@@ -24,6 +25,7 @@ mod loop_worker;
 mod loop_worker_prompt;
 mod model_category;
 mod models;
+mod native_tools;
 mod onepiece_provider_catalog;
 mod ports;
 #[cfg(test)]
@@ -35,6 +37,7 @@ mod seat_turn_tests;
 mod service;
 mod terminal_service;
 mod tool_catalog;
+mod utility_delegation;
 
 pub(crate) use crate::contexts::agent_runtime::domain::LoopVerifierRecommendation;
 pub(crate) use context_analysis::{ContextAnalysisInput, ContextAnalysisService};
@@ -48,6 +51,7 @@ pub(crate) use context_reinjection::{
 };
 pub(crate) use error::AgentRuntimeApplicationError;
 pub(crate) use execution_policy::{resolve_effective_execution_policy, SessionExecutionMode};
+pub(crate) use existing_tool_registry::{ExistingToolHandler, ExistingToolHandlerRegistry};
 pub(crate) use expert_role::{
     ExpertRoleApplicationPorts, ExpertRoleApplicationService, ExpertRoleClockPort,
     ExpertRoleIdPort, ExpertRolePort,
@@ -74,6 +78,7 @@ pub(crate) use loop_recovery::{LoopRecoveryApplicationPorts, LoopRecoveryApplica
 pub(crate) use loop_service::{LoopApplicationPorts, LoopApplicationService};
 pub(crate) use loop_verification::{
     LoopVerificationApplicationPorts, LoopVerificationApplicationService,
+    LoopVerificationEvidenceFact, LoopVerificationEvidencePort,
 };
 pub(crate) use loop_verifier::{LoopVerifierApplicationPorts, LoopVerifierApplicationService};
 pub(crate) use loop_worker::{LoopWorkerApplicationPorts, LoopWorkerApplicationService};
@@ -121,6 +126,30 @@ pub(crate) use models::{OnePiecePlanningRequest, OnePiecePlanningResult};
 #[cfg(test)]
 pub(crate) use models::GenerationProcessFailureKind;
 pub(crate) use models::SeatTurnStatus;
+#[allow(unused_imports)]
+pub(crate) use native_tools::{
+    is_onepiece_only, web_native_tool_handlers, ApplyDelegationChangesNativeToolHandler,
+    ArtifactNativeToolHandler, ArtifactPort, ArtifactRecord, BrowserAutomationPort,
+    BrowserHandoffControlPort, BrowserNativeToolHandler, CanonicalToolResource, ChangeSetApplyPort,
+    ChangeSetApplyRecord, ChangeSetFileRecord, ChangeSetRecord, ChangeSetStatus, CliDelegationPort,
+    CodeExecutionNativeToolHandler, CodeExecutionPort, DelegateCliNativeToolHandler,
+    DelegationAttemptRecord, DelegationMode, DelegationRecord, DelegationStatus, DelegationTarget,
+    FileChangeKind, ManualApplyDelegationRequest, ManualNativeToolAuthorityPort,
+    ManualNativeToolOperationPort, ManualNativeToolRequest, ManualNativeToolResult,
+    ManualNativeToolService, ManualStartDelegationRequest, NativeToolApprovalWitness,
+    NativeToolAuthorizationStatus, NativeToolDefinition, NativeToolDispatchError,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolErrorCode,
+    NativeToolExecutionContext, NativeToolExecutionMode, NativeToolHandler, NativeToolHandlerError,
+    NativeToolLimitProfile, NativeToolLogEvent, NativeToolLogEventKind, NativeToolLogIdentity,
+    NativeToolOperation, NativeToolPermissionRequest, NativeToolPortRequest,
+    NativeToolPrivateLogData, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolReadinessReasonCode, NativeToolRegistry, NativeToolRegistryError,
+    NativeToolResultEnvelope, NativeToolResultStatus, NativeToolSafeLogMetadata, OcrInferencePort,
+    OcrNativeToolHandler, OnePieceToolFeatureGates, PreparedNativeToolDispatch, RecoveryRecord,
+    RecoveryStatus, StoredToolOperation, StoredToolOperationStatus, ToolEligibility,
+    ToolEligibilityContext, ToolResourceKind, ValidatedNativeToolInput, WebResearchPort,
+    NATIVE_TOOL_CONTRACT_VERSION, ONEPIECE_AGENT_ID, ONEPIECE_ONLY_TOOL_NAMES,
+};
 #[cfg(test)]
 pub(crate) use ports::OnePiecePlanningPort;
 pub(crate) use ports::SeatTurnCompletionPort;
@@ -157,12 +186,19 @@ pub(crate) use seat_turn::{SeatTurnAssignment, SeatTurnStop};
 pub(crate) use service::{AgentRuntimeApplicationPorts, AgentRuntimeApplicationService};
 pub(crate) use terminal_service::{AgentTerminalApplicationPorts, AgentTerminalApplicationService};
 pub(crate) use tool_catalog::{
-    code_intelligence_tool_definitions, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, EDIT_TOOL_NAME, FILE_TOOL_NAME,
-    FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME,
-    GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
-    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
+    code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
+    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
+    DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
+    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
+    GREP_TOOL_NAME, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX,
+    READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME,
+    SHELL_TOOL_NAME,
+};
+pub(crate) use utility_delegation::{
+    UtilityChildExecutionOutcome, UtilityChildExecutionPort, UtilityDelegationApplicationPorts,
+    UtilityDelegationApplicationService, UtilityDelegationEvidenceFact,
+    UtilityDelegationEvidencePort, UtilityDelegationLifecycleFact, UtilityDelegationLifecyclePort,
+    UtilityDelegationResolutionPort,
 };
 
 #[cfg(test)]

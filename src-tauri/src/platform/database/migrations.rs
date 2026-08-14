@@ -397,9 +397,33 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DatabaseError> {
         "managed-im-session-bindings",
         crate::contexts::communications::infrastructure::apply_session_binding_schema,
     )?;
-    apply_transactional_migration(
+    apply_migration(
         conn,
         66,
+        "unified-todo-board",
+        crate::contexts::work_board::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        67,
+        "skill-evolution-evidence-foundation",
+        crate::contexts::skill_evolution_evidence::infrastructure::apply_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        68,
+        "onepiece-native-tool-persistence",
+        crate::contexts::agent_runtime::infrastructure::apply_native_tool_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        69,
+        "onepiece-artifact-catalog-metadata",
+        crate::contexts::artifacts::infrastructure::apply_artifact_catalog_schema,
+    )?;
+    apply_transactional_migration(
+        conn,
+        70,
         "onepiece-context-quality-history",
         apply_context_quality_history_migration,
     )?;
@@ -748,7 +772,11 @@ const EXPECTED_MIGRATIONS: &[(i64, &str)] = &[
     (63, "plan-session-association"),
     (64, "fine-grained-token-accounting"),
     (65, "managed-im-session-bindings"),
-    (66, "onepiece-context-quality-history"),
+    (66, "unified-todo-board"),
+    (67, "skill-evolution-evidence-foundation"),
+    (68, "onepiece-native-tool-persistence"),
+    (69, "onepiece-artifact-catalog-metadata"),
+    (70, "onepiece-context-quality-history"),
 ];
 
 fn assert_migration_history_is_dense(conn: &Connection) -> Result<(), DatabaseError> {
@@ -1653,7 +1681,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("fixture migration state");
-        assert_eq!(migration_state, (64, 65));
+        assert_eq!(migration_state, (68, 69));
 
         migrate(&connection).expect("upgrade migration");
 

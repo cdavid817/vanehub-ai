@@ -83,7 +83,12 @@ fn run_due_tasks(
             &task.name,
             Some(&task.id),
         );
-        if let Err(error) = scheduled_tasks::mark_task_running(database, &task.id) {
+        if let Err(error) = scheduled_tasks::mark_task_running_with_trigger(
+            database,
+            &task.id,
+            matches!(mode, ScheduledTaskScanMode::Startup),
+        ) {
+            let _ = scheduled_tasks::record_task_skipped(database, &task.id, &error.to_string());
             log_scheduled_task(
                 fallback_log_directory,
                 LogSeverity::Warn,

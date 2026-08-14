@@ -101,6 +101,7 @@ impl OrchestratorWorld {
                 processes: self.clone(),
                 observer: observer.clone(),
                 clock: self.clone(),
+                evidence: self.clone(),
             });
         let verifier = LoopVerifierApplicationService::new(LoopVerifierApplicationPorts {
             iterations: self.clone(),
@@ -124,6 +125,10 @@ impl OrchestratorWorld {
             clock: self.clone(),
         })
     }
+}
+
+impl LoopVerificationEvidencePort for OrchestratorWorld {
+    fn project(&self, _: LoopVerificationEvidenceFact) {}
 }
 
 impl LoopRepository for OrchestratorWorld {

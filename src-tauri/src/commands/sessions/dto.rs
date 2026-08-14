@@ -55,6 +55,13 @@ pub(crate) struct SessionSource {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct SessionExecutionOrigin {
+    pub(crate) kind: String,
+    pub(crate) id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Session {
     pub(crate) id: String,
     pub(crate) title: String,
@@ -78,6 +85,7 @@ pub(crate) struct Session {
     pub(crate) runtime_session_id: Option<String>,
     pub(crate) category_id: Option<String>,
     pub(crate) source: SessionSource,
+    pub(crate) execution_origin: SessionExecutionOrigin,
     pub(crate) pinned: bool,
     pub(crate) archived: bool,
     pub(crate) created_at: String,
@@ -214,6 +222,18 @@ pub(crate) struct ScheduledTask {
     pub(crate) updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScheduledTaskRun {
+    pub(crate) id: String,
+    pub(crate) task_id: String,
+    pub(crate) session_id: Option<String>,
+    pub(crate) status: String,
+    pub(crate) error: Option<String>,
+    pub(crate) started_at: String,
+    pub(crate) completed_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateScheduledTaskInput {
@@ -341,6 +361,16 @@ pub(crate) struct ChatMessage {
     pub(crate) updated_at: String,
     pub(crate) session_sequence: u64,
     pub(crate) execution_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) feedback: Option<MessageFeedback>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MessageFeedback {
+    pub(crate) state: Option<String>,
+    pub(crate) revision: u64,
+    pub(crate) correction_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

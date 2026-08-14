@@ -46,6 +46,32 @@ pub(crate) fn list_scheduled_tasks(
     Ok(tasks)
 }
 
+pub(crate) fn list_scheduled_task_runs(
+    database: &NativeDatabase,
+    task_id: &str,
+) -> Result<Vec<dto::ScheduledTaskRun>, CommandError> {
+    let connection = database.connection().map_err(command_error)?;
+    let mut statement = connection.prepare(
+        "SELECT id, task_id, session_id, status, error, started_at, completed_at FROM scheduled_task_runs WHERE task_id = ?1 ORDER BY started_at DESC, id DESC LIMIT 100",
+    ).map_err(command_error)?;
+    let runs = statement
+        .query_map([task_id], |row| {
+            Ok(dto::ScheduledTaskRun {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                session_id: row.get(2)?,
+                status: row.get(3)?,
+                error: row.get(4)?,
+                started_at: row.get(5)?,
+                completed_at: row.get(6)?,
+            })
+        })
+        .map_err(command_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(command_error)?;
+    Ok(runs)
+}
+
 pub(crate) fn create_scheduled_task(
     database: &NativeDatabase,
     input: dto::CreateScheduledTaskInput,
@@ -266,11 +292,35 @@ pub(crate) fn due_tasks(
     Ok(tasks)
 }
 
-pub(crate) fn mark_task_running(
+pub(crate) fn mark_task_running_with_trigger(
     database: &NativeDatabase,
     task_id: &str,
+    backfill: bool,
 ) -> Result<(), CommandError> {
+    let connection = database.connection().map_err(command_error)?;
+    let timestamp = Utc::now().to_rfc3339();
+    let run_status = if backfill {
+        "backfill_running"
+    } else {
+        "running"
+    };
+    connection.execute("INSERT INTO scheduled_task_runs (id,task_id,session_id,status,error,started_at,completed_at) VALUES (?1,?2,NULL,?3,NULL,?4,NULL)", params![format!("scheduled-run-{}", Uuid::new_v4()), task_id, run_status, timestamp]).map_err(command_error)?;
+    drop(connection);
     update_task_run_metadata(database, task_id, "running", None, None)
+}
+
+pub(crate) fn record_task_skipped(
+    database: &NativeDatabase,
+    task_id: &str,
+    reason: &str,
+) -> Result<(), CommandError> {
+    let connection = database.connection().map_err(command_error)?;
+    let timestamp = Utc::now().to_rfc3339();
+    connection.execute(
+        "INSERT INTO scheduled_task_runs (id,task_id,session_id,status,error,started_at,completed_at) VALUES (?1,?2,NULL,'skipped',?3,?4,?4)",
+        params![format!("scheduled-run-{}", Uuid::new_v4()), task_id, reason, timestamp],
+    ).map_err(command_error)?;
+    Ok(())
 }
 
 pub(crate) fn mark_task_succeeded(
@@ -307,6 +357,7 @@ pub(crate) fn mark_task_failed(
             params![timestamp, error, next_run_at, task.id],
         )
         .map_err(command_error)?;
+    connection.execute("UPDATE scheduled_task_runs SET status='failed', error=?1, completed_at=?2 WHERE id=(SELECT id FROM scheduled_task_runs WHERE task_id=?3 AND completed_at IS NULL ORDER BY started_at DESC LIMIT 1)", params![error, timestamp, task.id]).map_err(command_error)?;
     Ok(())
 }
 
@@ -330,6 +381,17 @@ fn update_task_run_metadata(
             params![status, timestamp, session_id, next_run_at, task_id],
         )
         .map_err(command_error)?;
+    if status == "succeeded" {
+        connection.execute("UPDATE scheduled_task_runs SET status=CASE status WHEN 'backfill_running' THEN 'backfilled' ELSE 'succeeded' END, session_id=?1, completed_at=?2 WHERE id=(SELECT id FROM scheduled_task_runs WHERE task_id=?3 AND completed_at IS NULL ORDER BY started_at DESC LIMIT 1)", params![session_id, timestamp, task_id]).map_err(command_error)?;
+        if let Some(session_id) = session_id {
+            connection
+                .execute(
+                    "UPDATE sessions SET origin_kind='scheduled_task', origin_id=?1 WHERE id=?2",
+                    params![task_id, session_id],
+                )
+                .map_err(command_error)?;
+        }
+    }
     Ok(())
 }
 
@@ -584,11 +646,15 @@ mod tests {
         .expect("due tasks")
         .remove(0);
 
-        mark_task_running(&database, &task.id).expect("running");
+        mark_task_running_with_trigger(&database, &task.id, false).expect("running");
         let running = list_scheduled_tasks(&database).expect("tasks").remove(0);
         assert_eq!(running.latest_status, "running");
         assert!(running.latest_run_at.is_some());
 
+        database.connection().expect("connection").execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, pinned, archived, created_at, updated_at) VALUES ('session-1', 'Scheduled run', 'codex-cli', 'cli', 'idle', 0, 0, '2026-07-19T03:00:00Z', '2026-07-19T03:00:00Z')",
+            [],
+        ).expect("session");
         mark_task_succeeded(&database, &task, "session-1").expect("succeeded");
         let succeeded = list_scheduled_tasks(&database).expect("tasks").remove(0);
         assert_eq!(succeeded.latest_status, "succeeded");
@@ -598,12 +664,46 @@ mod tests {
         );
         assert!(succeeded.latest_error.is_none());
         assert!(succeeded.next_run_at > task.next_run_at);
+        let lineage: (String, Option<String>) = database
+            .connection()
+            .expect("connection")
+            .query_row(
+                "SELECT origin_kind, origin_id FROM sessions WHERE id = 'session-1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("lineage");
+        assert_eq!(
+            lineage,
+            ("scheduled_task".to_string(), Some("task-1".to_string()))
+        );
 
         mark_task_failed(&database, &succeeded, "agent unavailable").expect("failed");
         let failed = list_scheduled_tasks(&database).expect("tasks").remove(0);
         assert_eq!(failed.latest_status, "failed");
         assert_eq!(failed.latest_error.as_deref(), Some("agent unavailable"));
         assert!(failed.next_run_at >= succeeded.next_run_at);
+    }
+
+    #[test]
+    fn run_history_records_backfill_and_skip_outcomes() {
+        let (_directory, database) = database();
+        insert_task(&database, "task-history", true, "2026-07-19T00:00:00Z");
+        let task = list_scheduled_tasks(&database).expect("tasks").remove(0);
+        database.connection().expect("connection").execute(
+            "INSERT INTO sessions (id, title, agent_id, interaction_mode, lifecycle_state, pinned, archived, created_at, updated_at) VALUES ('session-backfill', 'Backfill', 'codex-cli', 'cli', 'idle', 0, 0, '2026-07-19T03:00:00Z', '2026-07-19T03:00:00Z')",
+            [],
+        ).expect("session");
+
+        mark_task_running_with_trigger(&database, &task.id, true).expect("start backfill");
+        mark_task_succeeded(&database, &task, "session-backfill").expect("finish backfill");
+        record_task_skipped(&database, &task.id, "already claimed").expect("record skip");
+
+        let history = list_scheduled_task_runs(&database, &task.id).expect("history");
+        assert_eq!(history[0].status, "skipped");
+        assert_eq!(history[0].error.as_deref(), Some("already claimed"));
+        assert_eq!(history[1].status, "backfilled");
+        assert_eq!(history[1].session_id.as_deref(), Some("session-backfill"));
     }
 
     #[test]

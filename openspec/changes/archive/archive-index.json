@@ -2323,6 +2323,80 @@
                                               "agent-context-compaction-control",
                                               "agent-context-measurement"
                                           ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "add-skill-evolution-evidence-pipeline",
+                         "path":  "openspec/changes/archive/2026-08-14-add-skill-evolution-evidence-pipeline/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "agent-execution-observability",
+                                              "chat-experience",
+                                              "settings-skill-management-ui",
+                                              "skill-evolution-evidence",
+                                              "skill-management"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "add-unified-todo-board",
+                         "path":  "openspec/changes/archive/2026-08-14-add-unified-todo-board/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "main-layout-ui",
+                                              "plan-management",
+                                              "scheduled-task-management",
+                                              "session-management",
+                                              "unified-todo-board"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "add-utility-skill-delegation-runtime",
+                         "path":  "openspec/changes/archive/2026-08-14-add-utility-skill-delegation-runtime/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks"
+                                       ],
+                         "capabilities":  [
+                                              "effective-skill-runtime",
+                                              "settings-skill-management-ui",
+                                              "skill-management",
+                                              "utility-skill-delegation-runtime"
+                                          ]
+                     },
+                     {
+                         "archivedOn":  "2026-08-14",
+                         "changeName":  "complete-onepiece-builtin-tool-system",
+                         "path":  "openspec/changes/archive/2026-08-14-complete-onepiece-builtin-tool-system/",
+                         "artifacts":  [
+                                           "proposal",
+                                           "design",
+                                           "tasks",
+                                           "verification"
+                                       ],
+                         "capabilities":  [
+                                              "agent-chat-configuration",
+                                              "agent-tool-execution",
+                                              "local-extension-management",
+                                              "onepiece-artifact-publishing",
+                                              "onepiece-browser-automation",
+                                              "onepiece-cli-delegation",
+                                              "onepiece-code-execution",
+                                              "onepiece-native-agent",
+                                              "onepiece-ocr-tool",
+                                              "onepiece-tool-governance",
+                                              "onepiece-web-research"
+                                          ]
                      }
                  ]
 }

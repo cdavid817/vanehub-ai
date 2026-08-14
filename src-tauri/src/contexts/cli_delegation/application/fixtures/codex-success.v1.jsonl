@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"fixture-codex"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"cmd-1","type":"command_execution"}}
+{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}

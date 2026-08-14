@@ -51,13 +51,14 @@ import type {
   SessionDetails,
   SaveCliParameterProfileInput,
   ScheduledTask,
+  ScheduledTaskRun,
   SetScheduledTaskEnabledInput,
   SessionExportResult,
   SessionSearchInput,
   SessionSearchResult,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback } from "../types/chat";
 import type {
   ContextQualityHistoryPage,
   ContextQualityHistoryQuery,
@@ -166,6 +167,7 @@ import {
   normalizeLspWorkspaceTrustList,
   normalizeLspWorkspaceTrustUpdate,
 } from "./lsp-contract";
+import { tauriBuiltinToolClient } from "./tauri-builtin-tool-client";
 
 function invokeSkillOverlay<TResult>(command: string, input: unknown): Promise<TResult> {
   return invoke<TResult>(command, { input }).catch((error: unknown) =>
@@ -202,6 +204,7 @@ function isSessionStateEvent(value: unknown): value is SessionStateEvent {
 }
 
 export const tauriAgentClient: AgentService = {
+  ...tauriBuiltinToolClient,
   async openExternalUrl(url) {
     await openUrl(requireHttpsExternalUrl(url));
   },
@@ -598,6 +601,9 @@ export const tauriAgentClient: AgentService = {
   listScheduledTasks() {
     return invoke<ScheduledTask[]>("list_scheduled_tasks");
   },
+  listScheduledTaskRuns(taskId: string) {
+    return invoke<ScheduledTaskRun[]>("list_scheduled_task_runs", { taskId });
+  },
 
   createScheduledTask(input: CreateScheduledTaskInput) {
     return invoke<ScheduledTask>("create_scheduled_task", { input });
@@ -763,6 +769,32 @@ export const tauriAgentClient: AgentService = {
       limit: input.limit ?? null,
       beforeId: input.beforeId ?? null,
     });
+  },
+
+  async saveMessageFeedback(input) {
+    const saved = await invoke<{
+      messageId: string;
+      revision: number;
+      state: MessageFeedback["state"] | null;
+      correctionNote: string | null;
+    }>("save_message_feedback", { input });
+    return {
+      state: saved.state,
+      revision: saved.revision,
+      ...(saved.correctionNote ? { correctionNote: saved.correctionNote } : {}),
+    };
+  },
+
+  querySkillEvolutionEvidence(input) {
+    return invoke("query_skill_evolution_evidence", { input });
+  },
+
+  getSkillEvolutionSeedLineage(seedId, input) {
+    return invoke("get_skill_evolution_seed_lineage", { seedId, input });
+  },
+
+  purgeSkillEvolutionEvidence(input) {
+    return invoke("purge_skill_evolution_evidence", { input });
   },
 
   async getUsageStatistics(input) {

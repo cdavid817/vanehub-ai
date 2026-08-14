@@ -11,6 +11,7 @@ import { agentService as defaultAgentService } from "../../../services/runtime-a
 import type { OnePieceProviderProfile, OnePieceProviderProfiles } from "../../../types/agent";
 import { OnePieceProfileActionDialog, type OnePieceProfileAction } from "./onepiece-profile-action-dialog";
 import { OnePieceProviderDialog } from "./onepiece-provider-dialog";
+import { OnePieceToolReadiness } from "./onepiece-tool-readiness";
 
 const queryKey = ["agents", "onepiece-provider-profiles"] as const;
 
@@ -81,6 +82,8 @@ export function OnePieceConfigurationPanel({ onChanged, searchTerm = "", service
           <p className="text-xs text-muted-foreground sm:ml-auto">{ready ? t("onepiece.ready") : t("onepiece.notReady")}</p>
         </div>
       </section>
+
+      <OnePieceToolReadiness service={service} />
 
       <section aria-labelledby="onepiece-providers-heading">
         <div className="mb-3"><h3 className="font-semibold" id="onepiece-providers-heading">{t("onepiece.providers.title")}</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">{t("onepiece.providers.description")}</p></div>

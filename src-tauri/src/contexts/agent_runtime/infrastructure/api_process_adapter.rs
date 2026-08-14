@@ -7,26 +7,34 @@ use super::tools::{
     execute_edit, execute_file, execute_glob, execute_grep, execute_shell, GrepRequest,
     ToolExecutionOutcome, OUTPUT_MODE_FILES,
 };
+use super::SqliteNativeToolRepository;
 use super::{anthropic_provider, model_context_catalog, openai_compatible_provider};
 use crate::contexts::agent_runtime::application::{
-    code_intelligence_tool_definitions, plan_mode_tool_catalog, recall_tool_definition,
-    search_code_tool_definition, tool_catalog, AgentChatConfiguration, AgentClockPort,
-    AgentCodeIntelligenceContext, AgentCodeIntelligencePort, AgentCodeRetrievalOutcome,
-    AgentCoreInstructionsPort, AgentDocumentInput, AgentDocumentPositionInput, AgentLog,
-    AgentLogLevel, AgentLoggingPort, AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage,
-    AgentPermissionPort, AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway,
-    AgentRetrievalOutcome, AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort,
-    AgentSkillReadRequest, AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway,
-    ApiCredentialPort, ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput,
-    ContextAnalysisService, ContextQualityRecorder, ConversationHistoryPort,
-    GenerationProcessEvent, GenerationProcessFailure, GenerationProcessRequest, MemorySource,
-    PersonalizationSettings, ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess,
-    ToolApprovalDecision, ToolApprovalPort, ToolDefinition, ToolUseBlock, WorkflowLaunchOutcome,
-    WorkflowLaunchRequest, EDIT_TOOL_NAME, FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME,
-    FIND_REFERENCES_TOOL_NAME, GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME,
-    GREP_TOOL_NAME, INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME,
-    LOAD_SKILL_TOOL_NAME, MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME,
-    REMEMBER_TOOL_NAME, SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
+    code_intelligence_tool_definitions, delegate_utility_skill_tool_definition,
+    plan_mode_tool_catalog, recall_tool_definition, search_code_tool_definition, tool_catalog,
+    AgentChatConfiguration, AgentClockPort, AgentCodeIntelligenceContext,
+    AgentCodeIntelligencePort, AgentCodeRetrievalOutcome, AgentCoreInstructionsPort,
+    AgentDocumentInput, AgentDocumentPositionInput, AgentLog, AgentLogLevel, AgentLoggingPort,
+    AgentMcpToolPort, AgentMemory, AgentMemoryPort, AgentMessage, AgentPermissionPort,
+    AgentPersonalizationPort, AgentProcessEventSink, AgentProcessGateway, AgentRetrievalOutcome,
+    AgentRetrievalPort, AgentRuntimeApplicationError, AgentSkillPort, AgentSkillReadRequest,
+    AgentWorkspaceMutation, AgentWorkspaceMutationPort, ApiAgentGateway, ApiCredentialPort,
+    ApiProviderConfig, BoundSkillPrompt, ContextAnalysisInput, ContextAnalysisService,
+    ContextQualityRecorder, ConversationHistoryPort, ExistingToolHandler,
+    ExistingToolHandlerRegistry, GenerationProcessEvent, GenerationProcessFailure,
+    GenerationProcessRequest, MemorySource, NativeToolAuthorizationStatus,
+    NativeToolDispatchRequest, NativeToolDispatcher, NativeToolExecutionContext,
+    NativeToolExecutionMode, NativeToolProgress, NativeToolProgressPhase, NativeToolProgressSink,
+    NativeToolRegistry, NativeToolResultEnvelope, NativeToolResultStatus, PersonalizationSettings,
+    ProcessStopInitiator, ReportedUsageTotals, StartedGenerationProcess, StoredToolOperation,
+    StoredToolOperationStatus, ToolApprovalDecision, ToolApprovalPort, ToolDefinition,
+    ToolEligibilityContext, ToolUseBlock, UtilityDelegationApplicationService,
+    WorkflowLaunchOutcome, WorkflowLaunchRequest, DELEGATE_UTILITY_SKILL_TOOL_NAME, EDIT_TOOL_NAME,
+    FILE_TOOL_NAME, FIND_DEFINITION_TOOL_NAME, FIND_REFERENCES_TOOL_NAME,
+    GET_DIAGNOSTICS_TOOL_NAME, GET_HOVER_TOOL_NAME, GLOB_TOOL_NAME, GREP_TOOL_NAME,
+    INTERFACE_FORMAT_OPENAI_COMPATIBLE, LIST_SKILLS_TOOL_NAME, LOAD_SKILL_TOOL_NAME,
+    MCP_TOOL_NAME_PREFIX, READ_SKILL_RESOURCE_TOOL_NAME, RECALL_TOOL_NAME, REMEMBER_TOOL_NAME,
+    SEARCH_CODE_TOOL_NAME, SHELL_TOOL_NAME,
 };
 use crate::contexts::agent_runtime::domain::{
     build_optimization_plan, select_authoritative_compaction, verify_optimization_candidate,
@@ -35,14 +43,21 @@ use crate::contexts::agent_runtime::domain::{
     ContextAssessmentReason, ContextAssessmentTriggerSource, ContextCompactionEvidence,
     ContextOptimizationBudget, ContextQualityAssessment, ContextQualityAssessmentInput,
     ContextQualityAssessmentRecord, ContextSnapshot, FallbackReason, OptimizationActionKind,
-    OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor,
-    AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
+    OptimizationOutcome, RetentionClass, SemanticClass, UsageAnchor, UtilityDelegationLimits,
+    UtilityDelegationRequest, AUTOMATIC_COMPACTION_POLICY_VERSION, CONTEXT_OPTIMIZER_VERSION,
     CONTEXT_QUALITY_HISTORY_HARD_LIMIT, CONTEXT_VERIFIER_VERSION, STRUCTURED_SUMMARY_PROMPT,
 };
 use crate::contexts::permissions::domain::{Action, Effect, Resource};
 use crate::contexts::sessions::api::{
     AccountingUnit, MeasurementKind, MeasurementQuality, NewModelInvocation, NewUsageObservation,
     SessionsApi, TokenDimensions, TokenOverlap, UsageInteractionKind, UsagePurpose, UsageStatus,
+};
+use crate::contexts::skill_evolution_evidence::application::{
+    NativeExecutionFact, RuntimeEvidenceProjector,
+};
+use crate::contexts::skill_evolution_evidence::domain::{
+    EnvelopeCommon, FailureClass, ObservedSkillRevision, OperationClass, SafeCounts,
+    SkillAssociationKind, SourceFidelity, TerminalOutcome,
 };
 use crate::platform::filesystem::BoundedFilesystem;
 use crate::platform::network::blocking_http_client;
@@ -57,6 +72,8 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
+use tauri::Emitter;
 
 const HISTORY_LIMIT: i64 = 50;
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -89,6 +106,60 @@ type PendingApprovals = Arc<Mutex<HashMap<String, mpsc::Sender<ToolApprovalDecis
 /// formats need to build a reply turn from.
 type ExecutedToolCall = (ToolUseBlock, String, bool);
 
+#[derive(Debug, Clone, Copy)]
+struct EvidenceToolCounts {
+    attempts: u32,
+    failures: u32,
+}
+
+struct EvidenceCountingSink {
+    inner: Arc<dyn AgentProcessEventSink>,
+    attempts: AtomicU64,
+    failures: AtomicU64,
+}
+
+impl EvidenceCountingSink {
+    fn new(inner: Arc<dyn AgentProcessEventSink>) -> Self {
+        Self {
+            inner,
+            attempts: AtomicU64::new(0),
+            failures: AtomicU64::new(0),
+        }
+    }
+
+    fn counts(&self) -> EvidenceToolCounts {
+        EvidenceToolCounts {
+            attempts: self
+                .attempts
+                .load(Ordering::Relaxed)
+                .min(u64::from(u32::MAX)) as u32,
+            failures: self
+                .failures
+                .load(Ordering::Relaxed)
+                .min(u64::from(u32::MAX)) as u32,
+        }
+    }
+}
+
+impl AgentProcessEventSink for EvidenceCountingSink {
+    fn handle(&self, event: GenerationProcessEvent) -> Result<(), AgentRuntimeApplicationError> {
+        if let GenerationProcessEvent::ToolLifecycle(tool) = &event {
+            if matches!(
+                tool.phase,
+                crate::contexts::agent_runtime::application::ToolLifecyclePhase::Completed
+                    | crate::contexts::agent_runtime::application::ToolLifecyclePhase::Failed
+            ) {
+                self.attempts.fetch_add(1, Ordering::Relaxed);
+            }
+            if tool.phase == crate::contexts::agent_runtime::application::ToolLifecyclePhase::Failed
+            {
+                self.failures.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.inner.handle(event)
+    }
+}
+
 #[cfg(test)]
 struct NoopWorkspaceMutationPort;
 
@@ -120,8 +191,13 @@ pub(crate) struct RuntimeAgentApiAdapter {
     personalization: Arc<dyn AgentPersonalizationPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     generations: Arc<Mutex<HashMap<String, ManagedApiGeneration>>>,
     ids: Arc<AtomicU64>,
+    evidence: RuntimeEvidenceProjector,
+    utility_delegation: Option<UtilityDelegationApplicationService>,
 }
 
 struct ManagedApiGeneration {
@@ -208,9 +284,27 @@ impl RuntimeAgentApiAdapter {
             personalization,
             context_quality: None,
             accounting: None,
+            native_tools: NativeToolRegistry::empty(),
+            native_tool_operations: None,
+            native_tool_events: None,
             generations: Arc::new(Mutex::new(HashMap::new())),
             ids: Arc::new(AtomicU64::new(0)),
+            evidence: RuntimeEvidenceProjector::disabled(),
+            utility_delegation: None,
         }
+    }
+
+    pub(crate) fn with_evidence(mut self, evidence: RuntimeEvidenceProjector) -> Self {
+        self.evidence = evidence;
+        self
+    }
+
+    pub(crate) fn with_utility_delegation(
+        mut self,
+        service: UtilityDelegationApplicationService,
+    ) -> Self {
+        self.utility_delegation = Some(service);
+        self
     }
 
     pub(crate) fn with_accounting(mut self, accounting: SessionsApi) -> Self {
@@ -223,6 +317,21 @@ impl RuntimeAgentApiAdapter {
         recorder: Arc<ContextQualityRecorder>,
     ) -> Self {
         self.context_quality = Some(recorder);
+        self
+    }
+
+    pub(crate) fn with_native_tool_registry(mut self, native_tools: NativeToolRegistry) -> Self {
+        self.native_tools = native_tools;
+        self
+    }
+
+    pub(crate) fn with_native_tool_operations(
+        mut self,
+        repository: Arc<SqliteNativeToolRepository>,
+        app: tauri::AppHandle,
+    ) -> Self {
+        self.native_tool_operations = Some(repository);
+        self.native_tool_events = Some(app);
         self
     }
 }
@@ -312,7 +421,12 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
         let workspace_mutations = self.workspace_mutations.clone();
         let personalization = self.personalization.clone();
         let context_quality = self.context_quality.clone();
+        let evidence = self.evidence.clone();
+        let utility_delegation = self.utility_delegation.clone();
         let accounting = self.accounting.clone();
+        let native_tools = self.native_tools.clone();
+        let native_tool_operations = self.native_tool_operations.clone();
+        let native_tool_events = self.native_tool_events.clone();
         thread::spawn(move || {
             run_generation(
                 request,
@@ -333,8 +447,13 @@ impl AgentProcessGateway for RuntimeAgentApiAdapter {
                 personalization,
                 context_quality,
                 accounting,
+                native_tools,
+                native_tool_operations,
+                native_tool_events,
                 sink,
                 pending_approvals,
+                evidence,
+                utility_delegation,
             );
             if let Ok(mut generations) = generations.lock() {
                 generations.remove(&process_id);
@@ -410,16 +529,23 @@ fn run_generation(
     personalization: Arc<dyn AgentPersonalizationPort>,
     context_quality: Option<Arc<ContextQualityRecorder>>,
     accounting: Option<SessionsApi>,
+    native_tools: NativeToolRegistry,
+    native_tool_operations: Option<Arc<SqliteNativeToolRepository>>,
+    native_tool_events: Option<tauri::AppHandle>,
     sink: Arc<dyn AgentProcessEventSink>,
     pending_approvals: PendingApprovals,
+    evidence: RuntimeEvidenceProjector,
+    utility_delegation: Option<UtilityDelegationApplicationService>,
 ) {
+    let mut observed_skill_revisions = Vec::new();
+    let counting_sink = EvidenceCountingSink::new(sink.clone());
     let terminal = execute_with_code_intelligence(
         &request,
         cancelled,
         credentials.as_ref(),
         config.as_ref(),
         history.as_ref(),
-        sink.as_ref(),
+        &counting_sink,
         &pending_approvals,
         logging.as_ref(),
         clock.as_ref(),
@@ -433,7 +559,20 @@ fn run_generation(
         workspace_mutations.as_ref(),
         personalization.as_ref(),
         context_quality.as_deref(),
+        utility_delegation.as_ref(),
+        &mut observed_skill_revisions,
         accounting.as_ref(),
+        &native_tools,
+        native_tool_operations.as_deref(),
+        native_tool_events.as_ref(),
+    );
+    project_native_outcomes(
+        &evidence,
+        &request,
+        &terminal,
+        observed_skill_revisions,
+        counting_sink.counts(),
+        clock.now(),
     );
     if let GenerationProcessEvent::Failed(failure) = &terminal {
         let _ = logging.record(AgentLog {
@@ -450,6 +589,65 @@ fn run_generation(
         });
     }
     let _ = sink.handle(terminal);
+}
+
+fn project_native_outcomes(
+    evidence: &RuntimeEvidenceProjector,
+    request: &GenerationProcessRequest,
+    terminal: &GenerationProcessEvent,
+    observed_skill_revisions: Vec<ObservedSkillRevision>,
+    tools: EvidenceToolCounts,
+    occurred_at: String,
+) {
+    let (outcome, failure_class) = match terminal {
+        GenerationProcessEvent::Completed(_) => (TerminalOutcome::Succeeded, None),
+        GenerationProcessEvent::Failed(_) => (TerminalOutcome::Failed, Some(FailureClass::Agent)),
+        _ => (TerminalOutcome::Incomplete, Some(FailureClass::Agent)),
+    };
+    let common = EnvelopeCommon {
+        source_event_id: format!(
+            "native:{}:generation",
+            request.execution_context.run_id.as_str()
+        ),
+        occurred_at: occurred_at.clone(),
+        stable_agent_id: Some(request.agent.id.clone()),
+        session_id: Some(request.session.id.clone()),
+        message_id: Some(request.message_id.clone()),
+        run_id: Some(request.execution_context.run_id.as_str().to_string()),
+        attempt_id: Some(request.operation_id.clone()),
+        workspace: evidence.workspace_scope(request.session.folder.as_deref()),
+        fidelity: SourceFidelity::Native,
+        observed_skill_revisions,
+    };
+    let _ = evidence.native(NativeExecutionFact {
+        common: common.clone(),
+        operation_class: OperationClass::Generation,
+        outcome,
+        failure_class,
+        safe_counts: SafeCounts {
+            attempts: 1,
+            failures: u32::from(outcome == TerminalOutcome::Failed),
+        },
+    });
+    if tools.attempts > 0 {
+        let mut tool_common = common;
+        tool_common.source_event_id =
+            format!("native:{}:tools", request.execution_context.run_id.as_str());
+        let _ = evidence.native(NativeExecutionFact {
+            common: tool_common,
+            operation_class: OperationClass::Tool,
+            outcome: if tools.failures == 0 {
+                TerminalOutcome::Succeeded
+            } else {
+                TerminalOutcome::Failed
+            },
+            failure_class: (tools.failures > 0).then_some(FailureClass::Tool),
+            safe_counts: SafeCounts {
+                attempts: tools.attempts,
+                failures: tools.failures,
+            },
+        });
+    }
 }
 
 /// Provider-agnostic knobs from `AgentChatConfiguration` that map onto a single generation
@@ -876,6 +1074,7 @@ fn execute(
     let code_intelligence = super::RuntimeAgentCodeIntelligenceAdapter::new(Arc::new(
         super::UnavailableAgentCodeIntelligenceResponder,
     ));
+    let mut ignored_observations = Vec::new();
     execute_with_code_intelligence(
         request,
         cancelled,
@@ -895,6 +1094,11 @@ fn execute(
         &code_intelligence,
         &NOOP_WORKSPACE_MUTATIONS,
         personalization,
+        None,
+        None,
+        &mut ignored_observations,
+        None,
+        &NativeToolRegistry::empty(),
         None,
         None,
     )
@@ -921,7 +1125,12 @@ fn execute_with_code_intelligence(
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
     personalization: &dyn AgentPersonalizationPort,
     context_quality: Option<&ContextQualityRecorder>,
+    utility_delegation: Option<&UtilityDelegationApplicationService>,
+    observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
     accounting: Option<&SessionsApi>,
+    native_tools: &NativeToolRegistry,
+    native_tool_operations: Option<&SqliteNativeToolRepository>,
+    native_tool_events: Option<&tauri::AppHandle>,
 ) -> GenerationProcessEvent {
     let agent_id = request.agent.id.as_str();
     let api_key = match credentials.fetch(agent_id) {
@@ -953,6 +1162,7 @@ fn execute_with_code_intelligence(
         logging,
         clock,
         request,
+        observed_skill_revisions,
     );
     let recent = match history.recent_messages(&request.session.id, HISTORY_LIMIT) {
         Ok(messages) => messages,
@@ -1001,7 +1211,7 @@ fn execute_with_code_intelligence(
     let code_intelligence_available = code_intelligence_context
         .as_ref()
         .is_some_and(|context| code_intelligence.is_available(context));
-    let tools = resolve_tool_catalog_with_code_intelligence(
+    let mut tools = resolve_tool_catalog_with_code_intelligence(
         request,
         mcp,
         logging,
@@ -1010,6 +1220,23 @@ fn execute_with_code_intelligence(
         retrieval_available,
         code_search_available,
         code_intelligence_available,
+    );
+    if utility_delegation.is_some() && !plan_mode {
+        tools.push(delegate_utility_skill_tool_definition());
+    }
+    tools.extend(
+        native_tools.eligible_tool_definitions(&ToolEligibilityContext {
+            agent_id: request.agent.id.clone(),
+            session_id: request.session.id.clone(),
+            generation_id: request.operation_id.clone(),
+            canonical_workspace: request.session.folder.as_deref().map(Into::into),
+            execution_mode: if plan_mode {
+                NativeToolExecutionMode::Plan
+            } else {
+                NativeToolExecutionMode::Execute
+            },
+            readiness: native_tools.readiness_snapshot(),
+        }),
     );
     let generation_options = generation_options_from_configuration(
         &request.configuration,
@@ -1274,6 +1501,41 @@ fn execute_with_code_intelligence(
                 return failed_non_retryable("Generation was cancelled.");
             }
             let input = tool_use.input.clone().unwrap_or(Value::Null);
+            if native_tools.handler(&tool_use.name).is_some() {
+                let outcome = match execute_registered_native_tool(
+                    &mut tool_use,
+                    &input,
+                    request,
+                    cancelled.clone(),
+                    native_tools,
+                    native_tool_operations,
+                    native_tool_events,
+                    permissions,
+                    pending_approvals,
+                    sink,
+                    plan_mode,
+                ) {
+                    Ok(outcome) => outcome,
+                    Err(failure) => return failure,
+                };
+                if cancelled.load(Ordering::SeqCst) {
+                    return failed_non_retryable("Generation was cancelled.");
+                }
+                tool_use.status = if outcome.is_error {
+                    "failed".to_owned()
+                } else {
+                    "completed".to_owned()
+                };
+                tool_use.output = Some(Value::String(outcome.output.clone()));
+                if sink
+                    .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+                    .is_err()
+                {
+                    return failed_retryable("Agent generation event handling failed.");
+                }
+                executed.push((tool_use, outcome.output, outcome.is_error));
+                continue;
+            }
             let (permission_action, permission_resource) =
                 permission_action_and_resource(&tool_use.name, &input);
             let project_key = request.session.folder.as_deref().unwrap_or("");
@@ -1374,6 +1636,8 @@ fn execute_with_code_intelligence(
                     workspace_mutations,
                     plan_mode,
                     skills,
+                    utility_delegation,
+                    request,
                 )
             };
             if cancelled.load(Ordering::SeqCst) {
@@ -1643,6 +1907,33 @@ fn resolve_system_prompt(
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
 ) -> Option<String> {
+    let mut ignored_observations = Vec::new();
+    resolve_system_prompt_with_observations(
+        agent_id,
+        core_instructions,
+        personalization,
+        skills,
+        memories,
+        logging,
+        clock,
+        request,
+        &mut ignored_observations,
+    )
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn resolve_system_prompt_with_observations(
+    agent_id: &str,
+    core_instructions: &dyn AgentCoreInstructionsPort,
+    personalization: &dyn AgentPersonalizationPort,
+    skills: &dyn AgentSkillPort,
+    memories: &dyn AgentMemoryPort,
+    logging: &dyn AgentLoggingPort,
+    clock: &dyn AgentClockPort,
+    request: &GenerationProcessRequest,
+    observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
+) -> Option<String> {
     let personalization_settings =
         resolve_personalization_settings(personalization, logging, clock, request);
     resolve_system_prompt_with_settings(
@@ -1654,6 +1945,7 @@ fn resolve_system_prompt(
         logging,
         clock,
         request,
+        observed_skill_revisions,
     )
 }
 
@@ -1667,6 +1959,7 @@ fn resolve_system_prompt_with_settings(
     logging: &dyn AgentLoggingPort,
     clock: &dyn AgentClockPort,
     request: &GenerationProcessRequest,
+    observed_skill_revisions: &mut Vec<ObservedSkillRevision>,
 ) -> Option<String> {
     let custom_instructions_section = format_custom_instructions_section(personalization_settings);
     let core_section = match core_instructions.instructions_for(agent_id) {
@@ -1708,7 +2001,16 @@ fn resolve_system_prompt_with_settings(
         .bound_skill_prompts(agent_id, request.session.folder.as_deref())
     {
         Ok(prompts) if prompts.is_empty() => None,
-        Ok(prompts) => format_system_prompt(&prompts, logging, clock, request),
+        Ok(prompts) => {
+            let observed_at = clock.now();
+            observed_skill_revisions.extend(prompts.iter().map(|prompt| ObservedSkillRevision {
+                skill_id: prompt.id.clone(),
+                revision: prompt.revision.clone(),
+                association_kind: SkillAssociationKind::Injected,
+                observed_at: observed_at.clone(),
+            }));
+            format_system_prompt(&prompts, logging, clock, request)
+        }
         Err(error) => {
             let _ = logging.record(AgentLog {
                 level: AgentLogLevel::Warn,
@@ -3298,6 +3600,328 @@ fn execute_skill_read(
     }
 }
 
+struct NativeToolOperationRecorder {
+    repository: Option<SqliteNativeToolRepository>,
+    events: Option<tauri::AppHandle>,
+    record: Mutex<StoredToolOperation>,
+}
+
+impl std::fmt::Debug for NativeToolOperationRecorder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeToolOperationRecorder")
+            .finish_non_exhaustive()
+    }
+}
+
+impl NativeToolOperationRecorder {
+    fn new(
+        repository: Option<&SqliteNativeToolRepository>,
+        events: Option<&tauri::AppHandle>,
+        request: &GenerationProcessRequest,
+        tool_use: &ToolUseBlock,
+    ) -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        let recorder = Self {
+            repository: repository.cloned(),
+            events: events.cloned(),
+            record: Mutex::new(StoredToolOperation {
+                contract_version: 1,
+                id: tool_use.id.clone(),
+                session_id: request.session.id.clone(),
+                generation_id: request.operation_id.clone(),
+                tool_name: tool_use.name.clone(),
+                status: StoredToolOperationStatus::Queued,
+                progress_sequence: 0,
+                progress_message: None,
+                result_artifact_ids: Vec::new(),
+                error_code: None,
+                created_at: now.clone(),
+                updated_at: now,
+            }),
+        };
+        recorder.persist();
+        recorder
+    }
+
+    fn transition(
+        &self,
+        status: StoredToolOperationStatus,
+        message: Option<String>,
+        artifact_ids: Vec<String>,
+        error_code: Option<String>,
+    ) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record.progress_sequence.saturating_add(1);
+            record.status = status;
+            record.progress_message = message;
+            record.result_artifact_ids = artifact_ids;
+            record.error_code = error_code;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+
+    fn persist(&self) {
+        let Ok(record) = self.record.lock().map(|record| record.clone()) else {
+            return;
+        };
+        if let Some(repository) = &self.repository {
+            let _ = repository.save_operation(&record);
+        }
+        if let Some(events) = &self.events {
+            let _ = events.emit("builtin-tool-operation", operation_event(&record));
+        }
+    }
+}
+
+impl NativeToolProgressSink for NativeToolOperationRecorder {
+    fn publish(&self, progress: NativeToolProgress) {
+        if let Ok(mut record) = self.record.lock() {
+            record.progress_sequence = record
+                .progress_sequence
+                .saturating_add(1)
+                .max(progress.sequence.saturating_add(2));
+            record.status = if progress.phase == NativeToolProgressPhase::AwaitingHuman {
+                StoredToolOperationStatus::AwaitingHuman
+            } else {
+                StoredToolOperationStatus::Running
+            };
+            record.progress_message = progress.message;
+            record.updated_at = chrono::Utc::now().to_rfc3339();
+        }
+        self.persist();
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
+fn execute_registered_native_tool(
+    tool_use: &mut ToolUseBlock,
+    input: &Value,
+    request: &GenerationProcessRequest,
+    cancelled: Arc<AtomicBool>,
+    registry: &NativeToolRegistry,
+    operations: Option<&SqliteNativeToolRepository>,
+    events: Option<&tauri::AppHandle>,
+    permissions: &dyn AgentPermissionPort,
+    pending_approvals: &PendingApprovals,
+    sink: &dyn AgentProcessEventSink,
+    plan_mode: bool,
+) -> Result<ToolExecutionOutcome, GenerationProcessEvent> {
+    let recorder = Arc::new(NativeToolOperationRecorder::new(
+        operations, events, request, tool_use,
+    ));
+    let authority = ToolEligibilityContext {
+        agent_id: request.agent.id.clone(),
+        session_id: request.session.id.clone(),
+        generation_id: request.operation_id.clone(),
+        canonical_workspace: request.session.folder.as_deref().map(Into::into),
+        execution_mode: if plan_mode {
+            NativeToolExecutionMode::Plan
+        } else {
+            NativeToolExecutionMode::Execute
+        },
+        readiness: registry.readiness_snapshot(),
+    };
+    let execution = NativeToolExecutionContext {
+        call_id: tool_use.id.clone(),
+        session_id: authority.session_id.clone(),
+        generation_id: authority.generation_id.clone(),
+        agent_id: authority.agent_id.clone(),
+        canonical_workspace: authority.canonical_workspace.clone(),
+        deadline: Instant::now() + REQUEST_TIMEOUT,
+        cancelled: cancelled.clone(),
+        progress: recorder.clone(),
+    };
+    let dispatcher = NativeToolDispatcher::new(registry.clone());
+    let prepared = match dispatcher.prepare(NativeToolDispatchRequest {
+        tool_name: tool_use.name.clone(),
+        input: input.clone(),
+        authority,
+        execution,
+    }) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let project_key = request.session.folder.as_deref().unwrap_or("");
+    let mut witness = match dispatcher.authorize(&prepared, permissions, project_key) {
+        Ok(witness) => witness,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    if witness.status == NativeToolAuthorizationStatus::AwaitingApproval {
+        recorder.transition(
+            StoredToolOperationStatus::AwaitingApproval,
+            None,
+            Vec::new(),
+            None,
+        );
+        tool_use.status = "awaiting_approval".to_owned();
+        if sink
+            .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+            .is_err()
+        {
+            return Err(failed_retryable("Agent generation event handling failed."));
+        }
+        match await_approval(&tool_use.id, &cancelled, pending_approvals) {
+            ApprovalOutcome::Approved => {
+                witness.status = NativeToolAuthorizationStatus::Allowed;
+            }
+            ApprovalOutcome::Denied => {
+                recorder.transition(
+                    StoredToolOperationStatus::Failed,
+                    None,
+                    Vec::new(),
+                    Some("permission_denied".to_owned()),
+                );
+                return Ok(native_dispatch_error("Denied by user.".to_owned()));
+            }
+            ApprovalOutcome::Cancelled => {
+                recorder.transition(
+                    StoredToolOperationStatus::Cancelled,
+                    None,
+                    Vec::new(),
+                    Some("cancelled".to_owned()),
+                );
+                return Err(failed_non_retryable(
+                    "Generation was cancelled while a tool call was awaiting approval.",
+                ));
+            }
+        }
+    }
+    recorder.transition(StoredToolOperationStatus::Running, None, Vec::new(), None);
+    tool_use.status = "running".to_owned();
+    if sink
+        .handle(GenerationProcessEvent::ToolUse(tool_use.clone()))
+        .is_err()
+    {
+        return Err(failed_retryable("Agent generation event handling failed."));
+    }
+    let result = match dispatcher.execute_authorized(prepared, &witness) {
+        Ok(result) => result,
+        Err(error) => {
+            recorder.transition(
+                StoredToolOperationStatus::Failed,
+                None,
+                Vec::new(),
+                Some(error.code.as_str().to_owned()),
+            );
+            return Ok(native_dispatch_error(error.safe_message));
+        }
+    };
+    let is_error = result.status != NativeToolResultStatus::Succeeded;
+    recorder.transition(
+        stored_status(&result),
+        None,
+        artifact_ids(&result),
+        result.error_code.map(|code| code.as_str().to_owned()),
+    );
+    let output = match (result.output, result.safe_error) {
+        (Some(value), _) => serde_json::to_string(&value)
+            .unwrap_or_else(|_| "The native tool result could not be encoded.".to_owned()),
+        (None, Some(message)) => message,
+        (None, None) => "The native tool returned no result.".to_owned(),
+    };
+    Ok(ToolExecutionOutcome { output, is_error })
+}
+
+fn stored_status(result: &NativeToolResultEnvelope) -> StoredToolOperationStatus {
+    match result.status {
+        NativeToolResultStatus::Succeeded => StoredToolOperationStatus::Succeeded,
+        NativeToolResultStatus::Cancelled => StoredToolOperationStatus::Cancelled,
+        _ => StoredToolOperationStatus::Failed,
+    }
+}
+
+fn artifact_ids(result: &NativeToolResultEnvelope) -> Vec<String> {
+    fn visit(value: &Value, ids: &mut Vec<String>) {
+        if ids.len() >= 64 {
+            return;
+        }
+        match value {
+            Value::String(value) if value.starts_with("artifact-") => {
+                if !ids.contains(value) {
+                    ids.push(value.clone());
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, ids)),
+            Value::Object(values) => values.values().for_each(|value| visit(value, ids)),
+            _ => {}
+        }
+    }
+
+    let mut ids = Vec::new();
+    if let Some(output) = &result.output {
+        visit(output, &mut ids);
+    }
+    ids
+}
+
+fn operation_event(record: &StoredToolOperation) -> Value {
+    let progress = record.progress_message.as_ref().map(|message| {
+        json!({
+            "phase": message,
+            "completedUnits": record.progress_sequence,
+            "totalUnits": Value::Null,
+            "messageCode": Value::Null
+        })
+    });
+    json!({
+        "kind": "snapshot",
+        "operation": {
+            "id": record.id,
+            "agentId": "onepiece",
+            "sessionId": record.session_id,
+            "capability": native_tool_capability(&record.tool_name),
+            "operation": record.tool_name,
+            "status": match record.status {
+                StoredToolOperationStatus::AwaitingApproval => "queued",
+                other => other.as_str(),
+            },
+            "progress": progress,
+            "artifactIds": record.result_artifact_ids,
+            "errorCode": record.error_code,
+            "simulated": false,
+            "createdAt": record.created_at,
+            "updatedAt": record.updated_at
+        }
+    })
+}
+
+fn native_tool_capability(tool_name: &str) -> &'static str {
+    match tool_name {
+        "browser" => "browser",
+        "web_search" | "web_fetch" => "web",
+        "code_execution" => "code_execution",
+        "ocr" => "ocr",
+        "artifact" => "artifact",
+        "delegate_cli" | "apply_delegation_changes" => "delegation",
+        _ => "filesystem",
+    }
+}
+
+fn native_dispatch_error(message: String) -> ToolExecutionOutcome {
+    ToolExecutionOutcome {
+        output: message,
+        is_error: true,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn execute_tool_call(
@@ -3371,7 +3995,12 @@ fn execute_tool_call_with_runtime_ports(
     workspace_mutations: &dyn AgentWorkspaceMutationPort,
     plan_mode: bool,
     skills: &dyn AgentSkillPort,
+    utility_delegation: Option<&UtilityDelegationApplicationService>,
+    generation: &GenerationProcessRequest,
 ) -> ToolExecutionOutcome {
+    if name == DELEGATE_UTILITY_SKILL_TOOL_NAME {
+        return execute_utility_delegation(input, cancelled, utility_delegation, generation);
+    }
     execute_tool_call_impl(
         name,
         input,
@@ -3386,6 +4015,90 @@ fn execute_tool_call_with_runtime_ports(
         plan_mode,
         skills,
     )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UtilityDelegationToolInput {
+    skill_id: String,
+    task: String,
+    duration_ms: Option<u64>,
+    tool_calls: Option<u32>,
+    approvals: Option<u32>,
+    result_chars: Option<usize>,
+}
+
+fn execute_utility_delegation(
+    input: &Value,
+    cancelled: Arc<AtomicBool>,
+    service: Option<&UtilityDelegationApplicationService>,
+    generation: &GenerationProcessRequest,
+) -> ToolExecutionOutcome {
+    let Some(service) = service else {
+        return ToolExecutionOutcome {
+            output: json!({"status":"refused","reason":"native-runtime-unavailable"}).to_string(),
+            is_error: true,
+        };
+    };
+    let parsed: UtilityDelegationToolInput = match serde_json::from_value(input.clone()) {
+        Ok(value) => value,
+        Err(_) => {
+            return ToolExecutionOutcome {
+                output: json!({"status":"refused","reason":"invalid-input"}).to_string(),
+                is_error: true,
+            }
+        }
+    };
+    let defaults = UtilityDelegationLimits::default();
+    let limits = match UtilityDelegationLimits::bounded(
+        parsed.duration_ms.unwrap_or(defaults.duration_ms),
+        parsed.tool_calls.unwrap_or(defaults.tool_calls),
+        parsed.approvals.unwrap_or(defaults.approvals),
+        parsed.result_chars.unwrap_or(defaults.result_chars),
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            return ToolExecutionOutcome {
+                output: json!({"status":"refused","reason":"invalid-limits"}).to_string(),
+                is_error: true,
+            }
+        }
+    };
+    let request = UtilityDelegationRequest {
+        agent_id: generation.agent.id.clone(),
+        skill_id: parsed.skill_id,
+        task: parsed.task,
+        parent_run_id: generation.execution_context.run_id.as_str().to_string(),
+        parent_span_id: generation.execution_context.span_id.as_str().to_string(),
+        session_id: generation.session.id.clone(),
+        message_id: generation.message_id.clone(),
+        canonical_workspace: generation.session.folder.clone(),
+        depth: 0,
+        limits,
+    };
+    match service.execute(request, cancelled) {
+        Ok(result) => ToolExecutionOutcome {
+            output: json!({
+                "status": result.terminal.as_str(),
+                "delegationId": result.delegation_id,
+                "attemptId": result.attempt_id,
+                "skillId": result.skill_id,
+                "revision": result.revision,
+                "summary": result.summary,
+                "durationMs": result.duration_ms,
+                "toolCount": result.counts.tool_calls,
+                "approvalCount": result.counts.approvals,
+                "limitReason": result.limit_reason,
+            })
+            .to_string(),
+            is_error: result.terminal
+                != crate::contexts::agent_runtime::domain::UtilityDelegationTerminal::Succeeded,
+        },
+        Err(_) => ToolExecutionOutcome {
+            output: json!({"status":"refused","reason":"utility-resolution-failed"}).to_string(),
+            is_error: true,
+        },
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3463,27 +4176,25 @@ fn execute_tool_call_impl(
     plan_mode: bool,
     skills: &dyn AgentSkillPort,
 ) -> ToolExecutionOutcome {
-    if matches!(
-        name,
-        LIST_SKILLS_TOOL_NAME | LOAD_SKILL_TOOL_NAME | READ_SKILL_RESOURCE_TOOL_NAME
-    ) {
+    let registered_handler = ExistingToolHandlerRegistry::resolve(name);
+    if registered_handler == Some(ExistingToolHandler::SkillRead) {
         return execute_skill_read(name, input, workspace_folder, skills);
     }
     // `remember` has no dependency on a workspace folder — unlike shell/file, it only ever
     // touches this app's own storage — so it's handled before the workspace-folder gate below,
     // and a folder-less session can still save agent-global memories (`add-agent-cross-session-memory`).
     // It is also the one tool plan mode never restricts — see `tool_catalog::plan_mode_tool_catalog`.
-    if name == REMEMBER_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Remember) {
         return execute_remember(input, agent_id, workspace_folder, memories, retrieval);
     }
     // `recall` is handled in the same spot for the same reason: it only ever reads this app's own
     // storage, never the workspace filesystem, so it needs neither a workspace folder nor a
     // plan-mode restriction. It also needs no `agent_id`/`workspace_folder`: memories are one
     // host-level shared pool (`agent-memory-shared-pool`), so there is no slice of it to name.
-    if name == RECALL_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::Recall) {
         return execute_recall(input, retrieval);
     }
-    if name == SEARCH_CODE_TOOL_NAME {
+    if registered_handler == Some(ExistingToolHandler::SearchCode) {
         let Some(folder) = workspace_folder else {
             return ToolExecutionOutcome {
                 output: "Code search is unavailable because this session has no workspace folder."
@@ -3504,24 +4215,24 @@ fn execute_tool_call_impl(
     // is *told* it can do. This is the actual enforcement boundary: nothing stops a model from
     // requesting a tool/operation it was never offered (hallucination, or prompt injection from
     // earlier tool output), so every one of these is re-checked here regardless of the catalog.
-    if plan_mode && name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Mcp) {
         return plan_mode_denial("MCP tools");
     }
     // MCP tools are similarly folder-independent: a user-scoped MCP server has no project
     // affiliation at all, so a folder-less session can still reach it (`add-agent-mcp-tools`).
     // `mcp.call_tool` re-derives visibility itself (`workspace_folder.unwrap_or_default()` mirrors
     // the CLI relay's own `project_path.unwrap_or_default()` precedent), so no separate check here.
-    if name.starts_with(MCP_TOOL_NAME_PREFIX) {
+    if registered_handler == Some(ExistingToolHandler::Mcp) {
         let outcome = mcp.call_tool(workspace_folder.unwrap_or_default(), name, input, cancelled);
         return ToolExecutionOutcome {
             output: outcome.output,
             is_error: outcome.is_error,
         };
     }
-    if plan_mode && name == SHELL_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Shell) {
         return plan_mode_denial("Shell commands");
     }
-    if plan_mode && name == EDIT_TOOL_NAME {
+    if plan_mode && registered_handler == Some(ExistingToolHandler::Edit) {
         return plan_mode_denial("Editing files");
     }
     let Some(folder) = workspace_folder else {
@@ -3530,13 +4241,7 @@ fn execute_tool_call_impl(
             is_error: true,
         };
     };
-    if matches!(
-        name,
-        FIND_DEFINITION_TOOL_NAME
-            | FIND_REFERENCES_TOOL_NAME
-            | GET_HOVER_TOOL_NAME
-            | GET_DIAGNOSTICS_TOOL_NAME
-    ) {
+    if registered_handler == Some(ExistingToolHandler::CodeIntelligence) {
         let Some(code_intelligence) = code_intelligence else {
             return ToolExecutionOutcome {
                 output: "Code intelligence is unavailable for this session.".to_owned(),
@@ -3545,15 +4250,15 @@ fn execute_tool_call_impl(
         };
         return execute_code_intelligence_tool(name, input, folder, cancelled, code_intelligence);
     }
-    match name {
-        SHELL_TOOL_NAME => {
+    match registered_handler {
+        Some(ExistingToolHandler::Shell) => {
             let command = input
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             execute_shell(command, folder, cancelled)
         }
-        FILE_TOOL_NAME => {
+        Some(ExistingToolHandler::File) => {
             let operation = input
                 .get("operation")
                 .and_then(Value::as_str)
@@ -3580,7 +4285,7 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        GREP_TOOL_NAME => {
+        Some(ExistingToolHandler::Grep) => {
             let context = match parse_optional_non_negative_integer_arg(input, "context") {
                 Ok(context) => context.unwrap_or(0),
                 Err(outcome) => return outcome,
@@ -3612,7 +4317,7 @@ fn execute_tool_call_impl(
                 cancelled,
             )
         }
-        GLOB_TOOL_NAME => execute_glob(
+        Some(ExistingToolHandler::Glob) => execute_glob(
             input
                 .get("pattern")
                 .and_then(Value::as_str)
@@ -3621,7 +4326,7 @@ fn execute_tool_call_impl(
             folder,
             cancelled,
         ),
-        EDIT_TOOL_NAME => {
+        Some(ExistingToolHandler::Edit) => {
             let path = input
                 .get("path")
                 .and_then(Value::as_str)
@@ -3647,8 +4352,8 @@ fn execute_tool_call_impl(
             }
             outcome
         }
-        other => ToolExecutionOutcome {
-            output: format!("Unknown tool \"{other}\"."),
+        _ => ToolExecutionOutcome {
+            output: format!("Unknown tool \"{name}\"."),
             is_error: true,
         },
     }
@@ -3942,10 +4647,125 @@ mod tests {
     use crate::contexts::execution_observability::api::CapturePolicy;
     use crate::contexts::execution_observability::application::ExecutionIdentityPort;
     use crate::contexts::execution_observability::infrastructure::RandomExecutionIdentity;
+    use crate::contexts::skill_evolution_evidence::application::{
+        EvidenceProjectionSink, ProjectionDisposition,
+    };
+    use crate::contexts::skill_evolution_evidence::domain::EvidenceSourceEnvelope;
     use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct CapturedEvidence(Mutex<Vec<EvidenceSourceEnvelope>>);
+
+    impl EvidenceProjectionSink for CapturedEvidence {
+        fn submit(&self, envelope: EvidenceSourceEnvelope) -> ProjectionDisposition {
+            self.0.lock().expect("evidence").push(envelope);
+            ProjectionDisposition::Accepted
+        }
+    }
+
+    #[test]
+    fn native_terminal_projection_keeps_exact_skill_revisions_and_safe_tool_counts() {
+        let capture = Arc::new(CapturedEvidence::default());
+        let projector = RuntimeEvidenceProjector::enabled(capture.clone(), &[9_u8; 32]);
+        let request = sample_request("api");
+        project_native_outcomes(
+            &projector,
+            &request,
+            &GenerationProcessEvent::Completed(None),
+            vec![ObservedSkillRevision {
+                skill_id: "reviewer".to_string(),
+                revision: "revision-reviewer".to_string(),
+                association_kind: SkillAssociationKind::Injected,
+                observed_at: "2026-08-13T10:00:00Z".to_string(),
+            }],
+            EvidenceToolCounts {
+                attempts: 3,
+                failures: 1,
+            },
+            "2026-08-13T10:01:00Z".to_string(),
+        );
+
+        let envelopes = capture.0.lock().expect("evidence");
+        assert_eq!(envelopes.len(), 2);
+        assert!(envelopes.iter().all(|envelope| envelope.validate().is_ok()));
+        assert!(envelopes
+            .iter()
+            .all(|envelope| envelope.common().observed_skill_revisions.len() == 1));
+        assert!(matches!(
+            &envelopes[1],
+            EvidenceSourceEnvelope::NativeExecution {
+                operation_class: OperationClass::Tool,
+                safe_counts: SafeCounts {
+                    attempts: 3,
+                    failures: 1
+                },
+                ..
+            }
+        ));
+    }
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn native_tool_operation_event_projects_frontend_contract() {
+        let record = StoredToolOperation {
+            contract_version: 1,
+            id: "call-1".to_owned(),
+            session_id: "session-1".to_owned(),
+            generation_id: "generation-1".to_owned(),
+            tool_name: "web_fetch".to_owned(),
+            status: StoredToolOperationStatus::AwaitingApproval,
+            progress_sequence: 2,
+            progress_message: Some("approval".to_owned()),
+            result_artifact_ids: vec!["artifact-1".to_owned()],
+            error_code: None,
+            created_at: "100".to_owned(),
+            updated_at: "101".to_owned(),
+        };
+
+        let event = operation_event(&record);
+
+        assert_eq!(
+            event.pointer("/kind").and_then(Value::as_str),
+            Some("snapshot")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/capability")
+                .and_then(Value::as_str),
+            Some("web")
+        );
+        assert_eq!(
+            event.pointer("/operation/status").and_then(Value::as_str),
+            Some("queued")
+        );
+        assert_eq!(
+            event
+                .pointer("/operation/artifactIds/0")
+                .and_then(Value::as_str),
+            Some("artifact-1")
+        );
+    }
+
+    #[test]
+    fn native_tool_result_collects_unique_bounded_artifact_ids() {
+        let result = NativeToolResultEnvelope {
+            contract_version: 1,
+            status: NativeToolResultStatus::Succeeded,
+            output: Some(json!({
+                "artifact_id": "artifact-1",
+                "nested": ["artifact-1", {"id": "artifact-2"}],
+                "untrusted": "not-an-artifact"
+            })),
+            error_code: None,
+            safe_error: None,
+            truncated: false,
+            metadata: BTreeMap::new(),
+        };
+
+        assert_eq!(artifact_ids(&result), vec!["artifact-1", "artifact-2"]);
+    }
 
     #[derive(Default)]
     struct FakeCredentials {
@@ -5796,6 +6616,60 @@ mod tests {
         assert!(outcome.is_error);
     }
 
+    struct NativeOcrPort;
+
+    impl crate::contexts::agent_runtime::application::OcrInferencePort for NativeOcrPort {
+        fn execute_ocr(
+            &self,
+            _: crate::contexts::agent_runtime::application::NativeToolPortRequest,
+        ) -> crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+            crate::contexts::agent_runtime::application::NativeToolResultEnvelope {
+                contract_version: 1,
+                status: NativeToolResultStatus::Succeeded,
+                output: Some(json!({"text": "native-ocr"})),
+                error_code: None,
+                safe_error: None,
+                truncated: false,
+                metadata: BTreeMap::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn registered_native_tool_uses_dispatcher_and_production_tool_loop_projection() {
+        let registry = NativeToolRegistry::try_new(vec![Arc::new(
+            crate::contexts::agent_runtime::application::OcrNativeToolHandler::new(Arc::new(
+                NativeOcrPort,
+            )),
+        )])
+        .expect("registry");
+        let mut tool_use = ToolUseBlock {
+            id: "call-ocr-1".to_owned(),
+            name: "ocr".to_owned(),
+            input: None,
+            output: None,
+            status: "pending".to_owned(),
+        };
+        let request = onepiece_request();
+        let outcome = execute_registered_native_tool(
+            &mut tool_use,
+            &json!({"artifact_id": "artifact-source", "languages": ["en"]}),
+            &request,
+            not_cancelled(),
+            &registry,
+            None,
+            None,
+            &FakePermissions::with_override(Action::new("ocr.read"), Effect::Allow),
+            &no_pending_approvals(),
+            &CapturingSink::default(),
+            false,
+        )
+        .expect("dispatch");
+        assert!(!outcome.is_error);
+        assert!(outcome.output.contains("native-ocr"));
+        assert_eq!(tool_use.status, "running");
+    }
+
     #[test]
     fn execute_persists_a_completed_skill_tool_result_and_continues_the_plan_mode_loop() {
         let first_response = sse_body(&[
@@ -7634,11 +8508,13 @@ mod tests {
                 id: "first".to_string(),
                 name: "First".to_string(),
                 body: "Do the first thing.".to_string(),
+                revision: "revision-first".to_string(),
             },
             BoundSkillPrompt {
                 id: "second".to_string(),
                 name: "Second".to_string(),
                 body: "Do the second thing.".to_string(),
+                revision: "revision-second".to_string(),
             },
         ];
         let request = sample_request("api");
@@ -7655,11 +8531,13 @@ mod tests {
                 id: "oversized".to_string(),
                 name: "Oversized".to_string(),
                 body: "x".repeat(SKILL_PER_ITEM_CHARACTER_BUDGET + 1),
+                revision: "revision-oversized".to_string(),
             },
             BoundSkillPrompt {
                 id: "healthy".to_string(),
                 name: "Healthy".to_string(),
                 body: "Keep this.".to_string(),
+                revision: "revision-healthy".to_string(),
             },
         ];
         let request = sample_request("api");
@@ -7681,16 +8559,19 @@ mod tests {
                 id: "first".to_string(),
                 name: "First".to_string(),
                 body: "a".repeat(7_000),
+                revision: "revision-first".to_string(),
             },
             BoundSkillPrompt {
                 id: "second".to_string(),
                 name: "Second".to_string(),
                 body: "b".repeat(7_000),
+                revision: "revision-second".to_string(),
             },
             BoundSkillPrompt {
                 id: "third".to_string(),
                 name: "Third".to_string(),
                 body: "c".repeat(3_000),
+                revision: "revision-third".to_string(),
             },
         ];
         let request = sample_request("api");
@@ -7735,6 +8616,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &FakeMemories::default(),
             &NoopLogging,
@@ -7772,6 +8654,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &memories,
             &NoopLogging,
@@ -7821,6 +8704,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &memories,
             &NoopLogging,
@@ -7851,6 +8735,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &memories,
             &NoopLogging,
@@ -7878,6 +8763,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &memories,
             &logging,
@@ -7903,21 +8789,25 @@ mod tests {
                 id: "oversized".to_string(),
                 name: "Oversized".to_string(),
                 body: "x".repeat(8_001),
+                revision: "revision-oversized".to_string(),
             },
             BoundSkillPrompt {
                 id: "first".to_string(),
                 name: "First".to_string(),
                 body: "a".repeat(7_990),
+                revision: "revision-first".to_string(),
             },
             BoundSkillPrompt {
                 id: "second".to_string(),
                 name: "Second".to_string(),
                 body: "b".repeat(7_989),
+                revision: "revision-second".to_string(),
             },
             BoundSkillPrompt {
                 id: "no-room".to_string(),
                 name: "NoRoom".to_string(),
                 body: "c".to_string(),
+                revision: "revision-no-room".to_string(),
             },
         ];
         let section = format_system_prompt(&prompts, &logging, &FixedClock, &request)
@@ -9808,6 +10698,7 @@ mod tests {
                 id: "reviewer".to_string(),
                 name: "Reviewer".to_string(),
                 body: "Review the diff.".to_string(),
+                revision: "revision-reviewer".to_string(),
             }])),
             &PanicsOnListMemories,
             &NoopLogging,

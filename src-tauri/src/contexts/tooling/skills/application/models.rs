@@ -513,6 +513,21 @@ pub(crate) struct SkillPromptForAgent {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) body: String,
+    pub(crate) revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UtilitySkillExecutionSnapshot {
+    pub(crate) id: String,
+    pub(crate) revision: String,
+    pub(crate) instructions: String,
+    pub(crate) workspace_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UtilitySkillResolutionOutcome {
+    Resolved(UtilitySkillExecutionSnapshot),
+    Refused(SkillAccessRefusal),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

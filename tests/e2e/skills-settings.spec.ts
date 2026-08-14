@@ -26,6 +26,14 @@ test.describe("Skills management", () => {
     await expect(systemSkill.getByRole("button", { name: "Edit Skill" })).toHaveCount(0);
     await expect(systemSkill.getByRole("button", { name: "Delete Skill" })).toHaveCount(0);
 
+    const webUtility = page.locator('article[data-skill-id="code-security-scan"]');
+    await expect(webUtility).toContainText("Utility");
+    await expect(webUtility).toContainText("Delegation unavailable");
+    await webUtility.getByRole("button", { name: /View details for/ }).click();
+    const utilityInspector = page.getByRole("complementary", { name: /details/ });
+    await expect(utilityInspector).toContainText("Utility delegation is unavailable in this runtime");
+    await utilityInspector.getByRole("button", { name: "Close Skill details" }).click();
+
     const migratedOverride = page.locator('article[data-skill-id="readme-generation"]');
     await expect(migratedOverride).toHaveCount(1);
     const detailsToggle = migratedOverride.getByRole("button", { name: /View details for/ });
@@ -35,6 +43,16 @@ test.describe("Skills management", () => {
     const inspector = page.getByRole("complementary", { name: /details/ });
     await expect(inspector).toContainText("Project > User > Registry > System");
     await expect(inspector.getByRole("heading", { name: "Definition precedence" })).toBeVisible();
+    await expect(inspector.getByRole("heading", { name: "Evolution evidence" })).toBeVisible();
+    await expect(inspector).toContainText("Target selection and Skill modification are not active");
+    await inspector.getByRole("button", { name: "Inspect lineage" }).click();
+    await expect(inspector.getByRole("region", { name: "Candidate seed lineage" })).toBeVisible();
+    const purgeEvidence = inspector.getByRole("button", { name: "Purge this Skill's evidence" });
+    await purgeEvidence.click();
+    const purgeDialog = page.getByRole("dialog", { name: "Purge evolution evidence?" });
+    await expect(purgeDialog).toContainText("Source conversations, traces, logs, usage, Skills, and Overlays remain unchanged");
+    await page.keyboard.press("Escape");
+    await expect(purgeEvidence).toBeFocused();
     await expect(inspector.locator('[data-definition-state="effective"]')).toHaveCount(1);
     await expect(inspector.locator('[data-definition-state="shadowed"]')).toHaveCount(1);
     const inspectorBox = await inspector.boundingBox();

@@ -36,6 +36,8 @@ const loadLoopCenter: LazyFeatureLoader<LoopCenterProps> = () => import("../loop
 type PlanCenterProps = { onRunAssociated?: (runId: string) => void; originatingSessionId?: string | null; requestedRunId?: string | null };
 const loadPlanCenter: LazyFeatureLoader<PlanCenterProps> = () => import("../plan-center/plan-center")
   .then((module) => ({ default: module.PlanCenter }));
+const loadWorkBoard: LazyFeatureLoader<Record<string, never>> = () => import("../work-board/work-board")
+  .then((module) => ({ default: module.WorkBoard }));
 
 export function clampSessionSidebarWidth(width: number) {
   return Math.min(maxSessionSidebarWidth, Math.max(minSessionSidebarWidth, Math.round(width)));
@@ -109,9 +111,10 @@ export function MainLayout({
   const [contextPanel, setContextPanel] = useState<ContextPanelState | null>(null);
   const [createSessionOpen, setCreateSessionOpen] = useState(openCreateSession);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const [destination, setDestination] = useState<"sessions" | "loops" | "plans">("sessions");
+  const [destination, setDestination] = useState<"sessions" | "loops" | "plans" | "todo-board">("sessions");
   const [loopCenterVisited, setLoopCenterVisited] = useState(false);
   const [planCenterVisited, setPlanCenterVisited] = useState(false);
+  const [workBoardVisited, setWorkBoardVisited] = useState(false);
   const [planInspectionRunId, setPlanInspectionRunId] = useState<string | null>(null);
   const [loopInspection, setLoopInspection] = useState<LoopInspectionContext | null>(null);
   const [sessionActivationKey, setSessionActivationKey] = useState(0);
@@ -239,6 +242,7 @@ export function MainLayout({
               loops: t("layout.activityBar.loops"),
               plans: t("layout.activityBar.plans"),
               scheduledTasks: t("layout.activityBar.scheduledTasks"),
+              todoBoard: t("layout.activityBar.todoBoard"),
               settings: t("layout.activityBar.settings"),
               help: t("layout.activityBar.help"),
             }}
@@ -253,6 +257,7 @@ export function MainLayout({
               setDestination("plans");
             }}
             onScheduledTasks={() => setScheduledTasksOpen(true)}
+            onTodoBoard={() => { setWorkBoardVisited(true); setDestination("todo-board"); }}
             onSessions={() => {
               if (destination !== "sessions") setDestination("sessions");
               else if (conversationFocusMode) setConversationFocusMode(false);
@@ -382,6 +387,13 @@ export function MainLayout({
               requestedTab={loopInspection?.target.surface === "usage" ? "usage" : requestedInfoTab}
             />
           </div>
+          <section
+            aria-label={t("layout.activityBar.todoBoard")}
+            className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "todo-board" ? "flex" : "hidden")}
+            id="todo-board"
+          >
+            {workBoardVisited ? <LazyFeature className="h-full min-h-0 flex-1" componentProps={{}} loader={loadWorkBoard} /> : null}
+          </section>
           <section
             aria-label={t("layout.activityBar.loops")}
             className={cn("min-h-0 min-w-0 flex-1 p-2", destination === "loops" ? "flex" : "hidden")}

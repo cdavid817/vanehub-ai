@@ -73,6 +73,8 @@ pub(crate) struct SessionRecord {
     pub(crate) interaction_mode: String,
     pub(crate) workspace: SessionWorkspace,
     pub(crate) runtime_session_id: Option<String>,
+    pub(crate) execution_origin_kind: String,
+    pub(crate) execution_origin_id: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }

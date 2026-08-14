@@ -1294,6 +1294,7 @@ pub(crate) struct BoundSkillPrompt {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) body: String,
+    pub(crate) revision: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

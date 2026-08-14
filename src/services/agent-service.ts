@@ -45,9 +45,95 @@ import type {
   SessionSearchInput,
   SessionSearchResult,
   ScheduledTask,
+  ScheduledTaskRun,
   WorkflowState,
 } from "../types/agent";
-import type { ChatConfig, ChatMessage, ChatStreamEvent, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+import type { ChatConfig, ChatMessage, ChatStreamEvent, MessageFeedback, SaveMessageFeedbackInput, SendMessageInput, SessionUsageSummary, UsageStatistics, UsageStatisticsRange } from "../types/chat";
+
+export interface EvidenceQueryInput {
+  workspace?: string;
+  skillId?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface EvidenceSignalSummary {
+  signalId: string;
+  sourceKind: string;
+  category: string;
+  polarity: string;
+  severity: string;
+  attribution: string;
+  attributionRationale: string;
+  sourceFidelity: string;
+  sourceAgentId?: string;
+  extractorId: string;
+  extractorVersion: number;
+  safeSummary: string;
+  occurredAt: string;
+  sanitizerVersion: number;
+  associationTruncatedCount: number;
+  sourceLinkTruncatedCount: number;
+}
+
+export interface EvidenceSeedSummary {
+  seedId: string;
+  category: string;
+  readiness: string;
+  readinessReason: string;
+  safeSummary: string;
+  signalCount: number;
+  truncatedSignalCount: number;
+  independentRunCount: number;
+  hasRecovery: boolean;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+  createdAt: string;
+}
+
+export interface EvidencePipelineSummary {
+  collectionEnabled: boolean;
+  status: "healthy" | "degraded" | "disabled";
+  queueDepth: number;
+  failureCount: number;
+}
+
+export interface EvidenceOverview {
+  signalCount: number;
+  seedCount: number;
+  firstOccurredAt?: string;
+  lastOccurredAt?: string;
+  distributions: Record<string, Record<string, number>>;
+  signals: EvidenceSignalSummary[];
+  seeds: EvidenceSeedSummary[];
+  nextCursor?: string;
+  pipeline: EvidencePipelineSummary;
+  retentionDays: number;
+  signalQuota: number;
+  seedQuota: number;
+  byteQuota: number;
+  droppedCount: number;
+  expiredCount: number;
+}
+
+export interface EvidenceSeedLineage {
+  seed: EvidenceSeedSummary;
+  signals: EvidenceSignalSummary[];
+}
+
+export interface PurgeEvidenceInput {
+  operationId: string;
+  workspace?: string;
+  skillId: string;
+  confirmed: boolean;
+}
+
+export interface PurgeEvidenceOutcome {
+  operationId: string;
+  deletedSignals: number;
+  deletedSeeds: number;
+  deletedFeedback: number;
+}
 import type {
   TokenUsageDetailsPage,
   TokenUsageDetailsQuery,
@@ -174,8 +260,9 @@ import type {
   ContextQualitySummary,
   ContextQualitySummaryQuery,
 } from "../types/context-quality";
+import type { BuiltinToolService } from "./builtin-tool-service";
 
-export interface AgentService {
+export interface AgentService extends BuiltinToolService {
   openExternalUrl(url: string): Promise<void>;
   listAgents(capabilityTag?: string): Promise<AgentRegistryEntry[]>;
   registerApiAgent(input: RegisterApiAgentInput): Promise<AgentRegistryEntry>;
@@ -276,6 +363,7 @@ export interface AgentService {
   getAutomaticArchivalSettings(): Promise<AutomaticArchivalSettings>;
   saveAutomaticArchivalSettings(input: AutomaticArchivalSettings): Promise<AutomaticArchivalSettings>;
   listScheduledTasks(): Promise<ScheduledTask[]>;
+  listScheduledTaskRuns(taskId: string): Promise<ScheduledTaskRun[]>;
   createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTask>;
   setScheduledTaskEnabled(input: SetScheduledTaskEnabledInput): Promise<ScheduledTask>;
   deleteScheduledTask(taskId: string): Promise<void>;
@@ -312,6 +400,10 @@ export interface AgentService {
   exportSession(input: ExportSessionInput): Promise<SessionExportResult>;
   sendMessage(input: SendMessageInput): Promise<ChatMessage>;
   listMessages(input: { sessionId: string; limit?: number; beforeId?: string }): Promise<ChatMessage[]>;
+  saveMessageFeedback(input: SaveMessageFeedbackInput): Promise<MessageFeedback>;
+  querySkillEvolutionEvidence(input: EvidenceQueryInput): Promise<EvidenceOverview>;
+  getSkillEvolutionSeedLineage(seedId: string, input: EvidenceQueryInput): Promise<EvidenceSeedLineage | null>;
+  purgeSkillEvolutionEvidence(input: PurgeEvidenceInput): Promise<PurgeEvidenceOutcome>;
   getUsageStatistics(input: { range: UsageStatisticsRange }): Promise<UsageStatistics>;
   getSessionUsageSummary(sessionId: string): Promise<SessionUsageSummary>;
   getTokenUsageSummary(input: TokenUsageSummaryQuery): Promise<TokenUsageSummary>;

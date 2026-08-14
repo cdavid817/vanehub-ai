@@ -36,4 +36,14 @@ pub(crate) enum AgentRuntimeDomainError {
     InvalidExpertRole(String),
     #[error("invalid Agent provider capability declaration: {0}.")]
     InvalidProviderCapability(String),
+    #[error("invalid Utility delegation value: {0}.")]
+    InvalidUtilityDelegationValue(&'static str),
+    #[error("Utility delegation limit exceeds host policy: {0}.")]
+    InvalidUtilityDelegationLimit(&'static str),
+    #[error("nested Utility delegation is not supported.")]
+    NestedUtilityDelegation,
+    #[error("Utility Skill revision changed before admission.")]
+    StaleUtilityRevision,
+    #[error("Cannot transition Utility delegation from '{from}' to '{to}'.")]
+    InvalidUtilityDelegationTransition { from: String, to: String },
 }

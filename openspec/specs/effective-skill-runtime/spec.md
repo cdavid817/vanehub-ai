@@ -2,11 +2,9 @@
 
 ## Purpose
 Defines the effective Skill catalog and safe read-only loading behavior used by agents and management surfaces across project, user, registry, and system layers.
-
 ## Requirements
-
 ### Requirement: Independent Skill classification dimensions
-The system SHALL represent each Skill with an independent `type`, `delivery`, `layer`, `origin`, trust state, and availability state. `type` SHALL be `role` or `utility`; `delivery` SHALL be `eager` or `on-demand`; and `layer` SHALL be `project`, `user`, `registry`, or `system`.
+The system SHALL represent each Skill with an independent `type`, `delivery`, `layer`, `origin`, trust state, and availability state. `type` SHALL be `role` or `utility`; `delivery` SHALL be `eager` or `on-demand`; and `layer` SHALL be `project`, `user`, `registry`, or `system`. Utility availability SHALL reflect whether the active runtime can delegate that effective definition and SHALL remain independent from Role Skill loading.
 
 #### Scenario: Explicit role metadata
 - **WHEN** a valid Skill declares `type: role` and `delivery: on-demand`
@@ -17,9 +15,14 @@ The system SHALL represent each Skill with an independent `type`, `delivery`, `l
 - **THEN** the system SHALL classify it as a `role` Skill with `eager` delivery
 - **AND** SHALL identify that classification as a compatibility default
 
+#### Scenario: Utility execution supported
+- **WHEN** a valid Utility Skill is effective and the active native runtime supports delegated execution
+- **THEN** the catalog SHALL expose it as available for delegation
+- **AND** the system SHALL NOT inject or load it as a Role Skill
+
 #### Scenario: Utility execution unavailable
-- **WHEN** a Skill declares `type: utility` before delegated Utility execution is available
-- **THEN** the catalog SHALL expose the Skill with an unavailable reason
+- **WHEN** a Utility Skill is viewed through a runtime that cannot delegate it
+- **THEN** the catalog SHALL retain the Skill with a runtime-specific unavailable reason
 - **AND** the system SHALL NOT inject or execute it as a Role Skill
 
 ### Requirement: Four-layer effective Skill resolution
@@ -147,3 +150,14 @@ Skill discovery, resolution, loading, migration, and usage diagnostics SHALL use
 - **WHEN** a Skill package fails validation
 - **THEN** the system SHALL log a safe Skill identity, layer, operation, and reason code at the appropriate level
 - **AND** SHALL omit the package body and sensitive path data
+
+### Requirement: Fixed Utility delegation discovery
+Native API Agents that support Utility delegation SHALL discover eligible effective Utility Skills through bounded metadata and SHALL invoke them only through the fixed delegation operation. The existing `load_skill` operation SHALL continue to refuse Utility instruction bodies.
+
+#### Scenario: List delegatable Utility
+- **WHEN** a supported native API Agent lists Skills in an active workspace
+- **THEN** eligible Utility entries SHALL identify delegation as their supported operation without returning instruction bodies
+
+#### Scenario: Utility load remains refused
+- **WHEN** an Agent calls `load_skill` for an otherwise delegatable Utility Skill
+- **THEN** the system SHALL return a structured refusal directing the Agent to the delegation operation

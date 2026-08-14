@@ -1110,6 +1110,8 @@ fn session_record(
             ..Default::default()
         },
         runtime_session_id: None,
+        execution_origin_kind: "user".to_string(),
+        execution_origin_id: None,
         created_at: "2026-07-01T00:00:00+00:00".to_string(),
         updated_at: "2026-07-01T00:00:00+00:00".to_string(),
     }

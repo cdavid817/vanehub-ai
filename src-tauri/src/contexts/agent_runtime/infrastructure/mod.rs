@@ -24,6 +24,7 @@ mod context_reduction_tests;
 mod core_instructions;
 mod credential_aware_registry;
 mod events;
+mod evidence_gateway;
 mod expert_role_repository;
 mod generation_coordinator;
 mod loop_execution_coordinator;
@@ -36,12 +37,19 @@ mod loop_repository_views;
 mod loop_scheduler;
 mod loop_schema;
 mod loop_verification_process;
+mod manual_native_tool_adapter;
+mod manual_native_tool_control;
 mod mcp_tool_gateway;
 mod memory_extraction_gateway;
 mod memory_repository;
 mod memory_schema;
 mod message_terminal_completions;
 mod model_context_catalog;
+mod native_tool_logging;
+#[cfg(test)]
+mod native_tool_provider_parity_tests;
+mod native_tool_repository;
+mod native_tool_schema;
 mod onepiece_model_discovery;
 #[cfg(test)]
 mod onepiece_planning;
@@ -64,6 +72,8 @@ mod terminal_usage_ledger;
 mod terminal_wrapper;
 mod tool_call_accumulator;
 mod tools;
+mod unavailable_native_tool_port;
+mod utility_delegation;
 
 pub(crate) use api_credentials::OsApiCredentialAdapter;
 pub(crate) use api_process_adapter::RuntimeAgentApiAdapter;
@@ -78,6 +88,7 @@ pub(crate) use context_quality_repository::SqliteContextQualityRepository;
 pub(crate) use core_instructions::NativeAgentCoreInstructionsAdapter;
 pub(crate) use credential_aware_registry::CredentialAwareAgentRegistry;
 pub(crate) use events::{AgentCompletionHook, TauriAgentRuntimeEventAdapter};
+pub(crate) use evidence_gateway::RuntimeLoopVerificationEvidenceAdapter;
 pub(crate) use expert_role_repository::SqliteExpertRoleRepository;
 pub(crate) use generation_coordinator::InMemoryGenerationCoordinator;
 pub(crate) use loop_execution_coordinator::InMemoryLoopExecutionCoordinator;
@@ -87,16 +98,25 @@ pub(crate) use loop_repository::SqliteLoopRepository;
 pub(crate) use loop_scheduler::NativeLoopScheduler;
 pub(crate) use loop_schema::apply_loop_schema;
 pub(crate) use loop_verification_process::StructuredLoopVerificationProcess;
+pub(crate) use manual_native_tool_adapter::{
+    ManualNativeToolAuthorityAdapter, ManualNativeToolOperationAdapter,
+};
+pub(crate) use manual_native_tool_control::ManualNativeToolControl;
 pub(crate) use mcp_tool_gateway::RuntimeAgentMcpToolAdapter;
 pub(crate) use memory_extraction_gateway::RuntimeAgentMemoryExtractionAdapter;
 pub(crate) use memory_repository::SqliteAgentMemoryRepository;
 pub(crate) use memory_schema::{apply_memory_schema, apply_memory_shared_pool_schema};
 pub(crate) use message_terminal_completions::InMemoryAgentMessageTerminalCompletions;
+#[allow(unused_imports)]
+pub(crate) use native_tool_logging::NativeToolLogger;
+pub(crate) use native_tool_repository::SqliteNativeToolRepository;
+pub(crate) use native_tool_schema::apply_native_tool_schema;
 pub(crate) use onepiece_model_discovery::HttpOnePieceModelDiscoveryAdapter;
 pub(crate) use permission_adapter::PermissionsPortAdapter;
 pub(crate) use personalization_gateway::RuntimeAgentPersonalizationAdapter;
 pub(crate) use process_adapter::{
     ManagedMcpRelayPort, PreparedMcpRelay, RuntimeAgentProcessAdapter,
+    RuntimeProcessEvidenceDependencies,
 };
 pub(crate) use prompt_gateway::RuntimeEffectivePromptAdapter;
 pub(crate) use runtime_support::{
@@ -116,6 +136,8 @@ pub(crate) use skill_gateway::RuntimeAgentSkillAdapter;
 pub(crate) use sqlite_repository::SqliteAgentRuntimeRepository;
 pub(crate) use terminal_observability::TerminalExecutionObservability;
 pub(crate) use terminal_process::PortablePtyAgentTerminalRuntime;
+pub(crate) use unavailable_native_tool_port::UnavailableNativeToolPort;
+pub(crate) use utility_delegation::{NativeUtilityChildExecutor, RuntimeUtilityLifecycleProjector};
 
 #[cfg(test)]
 mod tests;

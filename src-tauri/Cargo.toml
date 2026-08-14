@@ -31,7 +31,7 @@ axum = "0.8"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 rmcp = { version = "3.0.1", default-features = false, features = ["client", "transport-child-process", "client-side-sse", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 http = "1"
 opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "logs"] }
@@ -41,6 +41,8 @@ opentelemetry-semantic-conventions = { version = "=0.32.1", features = ["semconv
 opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics", "logs"] }
 tauri-plugin-dialog = "2"
 reqwest = { version = "0.13", features = ["blocking", "json", "socks"] }
+flate2 = "1.1"
+html5ever = "0.38"
 russh = { version = "=0.62.5", default-features = false, features = ["ring"] }
 async-trait = "0.1"
 base64 = "0.23"
@@ -50,6 +52,7 @@ prost = "0.14"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 rand = "0.10"
 sha2 = "0.11"
+hmac = "0.13"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 tokio-rustls = "0.26"
@@ -81,7 +84,16 @@ tree-sitter-typescript = "=0.23.2"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "=0.38.2"
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]

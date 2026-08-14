@@ -11,6 +11,8 @@ use crate::contexts::sessions::api::{
     SessionSeat, SessionSeatRoleSnapshot, SessionUsageStatistics, SessionsError,
     UsageStatisticsRange,
 };
+use crate::contexts::skill_evolution_evidence::api::FeedbackSummary;
+use std::collections::BTreeMap;
 
 pub(super) fn recovery_report_to_dto(
     report: &DomainSessionRecoveryReport,
@@ -159,6 +161,10 @@ pub(super) fn session_to_dto(session: SessionRecord) -> Result<dto::Session, Ses
                 .connector_id()
                 .and_then(ConnectorKind::parse),
         },
+        execution_origin: dto::SessionExecutionOrigin {
+            kind: session.execution_origin_kind,
+            id: session.execution_origin_id,
+        },
         pinned: session.aggregate.is_pinned(),
         archived: session.aggregate.is_archived(),
         created_at: session.created_at,
@@ -302,6 +308,7 @@ pub(super) fn message_to_dto(record: MessageRecord) -> dto::ChatMessage {
         updated_at: record.updated_at,
         session_sequence: record.message.session_sequence(),
         execution_run_id: record.message.execution_run_id().map(str::to_string),
+        feedback: None,
     }
 }
 
@@ -345,6 +352,34 @@ fn role_snapshot_to_dto(snapshot: SessionSeatRoleSnapshot) -> dto::SessionSeatRo
 
 pub(super) fn messages_to_dto(records: Vec<MessageRecord>) -> Vec<dto::ChatMessage> {
     records.into_iter().map(message_to_dto).collect()
+}
+
+pub(super) fn message_ids(records: &[MessageRecord]) -> Vec<String> {
+    records
+        .iter()
+        .map(|record| record.message.id().as_str().to_string())
+        .collect()
+}
+
+pub(super) fn messages_to_dto_with_feedback(
+    records: Vec<MessageRecord>,
+    feedback: &BTreeMap<String, FeedbackSummary>,
+) -> Vec<dto::ChatMessage> {
+    messages_to_dto(records)
+        .into_iter()
+        .map(|mut message| {
+            message.feedback = feedback
+                .get(&message.id)
+                .map(|summary| dto::MessageFeedback {
+                    state: summary
+                        .state
+                        .map(|state| format!("{state:?}").to_lowercase()),
+                    revision: summary.revision,
+                    correction_note: summary.sanitized_note.clone(),
+                });
+            message
+        })
+        .collect()
 }
 
 pub(super) fn export_format(format: dto::SessionExportFormat) -> SessionExportFormat {
@@ -888,6 +923,8 @@ mod tests {
                 ..Default::default()
             },
             runtime_session_id: None,
+            execution_origin_kind: "user".to_string(),
+            execution_origin_id: None,
             created_at: "100".to_string(),
             updated_at: "101".to_string(),
         };

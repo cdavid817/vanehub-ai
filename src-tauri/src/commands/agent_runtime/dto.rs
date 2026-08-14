@@ -433,6 +433,16 @@ pub(crate) struct ChatMessage {
     pub(crate) updated_at: String,
     pub(crate) session_sequence: u64,
     pub(crate) execution_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) feedback: Option<MessageFeedback>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MessageFeedback {
+    pub(crate) state: Option<String>,
+    pub(crate) revision: u64,
+    pub(crate) correction_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
