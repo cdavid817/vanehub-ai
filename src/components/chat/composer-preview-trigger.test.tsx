@@ -40,10 +40,10 @@ const agent: AgentRegistryEntry = {
   agentOrigin: "builtin",
 };
 
-function renderComposer(value: string) {
+function renderComposer(value: string, sessionId = "session-1") {
   const onAddFileReference = vi.fn<(candidate: FileSearchMatch, range: MentionLineRange) => void>();
   const onChange = vi.fn<(next: string) => void>();
-  render(
+  const element = (activeSession: string) => (
     <ChatInputBox
       agents={[agent]}
       availableModes={["inherit"]}
@@ -67,11 +67,16 @@ function renderComposer(value: string) {
       onRemoveFileReference={vi.fn()}
       onStop={vi.fn()}
       onSubmit={vi.fn()}
-      sessionId="session-1"
+      sessionId={activeSession}
       value={value}
-    />,
+    />
   );
-  return { onAddFileReference, onChange };
+  const view = render(element(sessionId));
+  return {
+    onAddFileReference,
+    onChange,
+    switchSession: (next: string) => view.rerender(element(next)),
+  };
 }
 
 describe("composer preview trigger", () => {
@@ -128,6 +133,28 @@ describe("composer preview trigger", () => {
     await waitFor(() => expect(screen.queryByTestId("preview-line-1")).toBeNull());
     expect(onAddFileReference).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("closes the preview when the session changes", async () => {
+    const { onAddFileReference, switchSession } = renderComposer("@utils");
+    fireEvent.click(screen.getByText("src/utils.rs"));
+    await waitFor(() => expect(screen.getByTestId("preview-line-1")).toBeTruthy());
+
+    expect(readSessionFile).toHaveBeenCalledWith("session-1", "src/utils.rs");
+    switchSession("session-2");
+
+    // Asserting on the read, not on the dialog disappearing: the dialog is lazy-loaded, so
+    // it blinks out during any re-render and a "no longer visible" check passes even when
+    // the preview is still pending. What must not happen is the old path being re-read
+    // against the new session — that is what silently shows a different file.
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+    expect(readSessionFile).not.toHaveBeenCalledWith("session-2", expect.anything());
+    expect(readSessionFile).toHaveBeenCalledTimes(1);
+    // And the dialog itself is gone: a preview belonging to another session must not stay
+    // on screen offering to attach a file the user is no longer looking at. The wait above
+    // is what makes this meaningful — the lazy dialog would have had time to come back.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onAddFileReference).not.toHaveBeenCalled();
   });
 
   it("confines focus to the dialog while it is open", async () => {

@@ -108,7 +108,7 @@ export function ChatInputBox({
       attachReference(candidate, mentionRange);
       return;
     }
-    if (sessionId) setPendingPreview(candidate);
+    if (sessionId) setPendingPreview({ candidate, sessionId });
     else attachReference(candidate, {});
   }
 
@@ -116,6 +116,14 @@ export function ChatInputBox({
     onChange(applyMention(mentionHandle));
     textAreaRef.current?.focus();
   }
+
+  // A pending preview belongs to the session it was opened from. Left alone across a
+  // session switch it would keep the dialog open and re-read the old path against the new
+  // session — which silently shows a different file whenever both sessions happen to
+  // contain that path.
+  useEffect(() => {
+    setPendingPreview(null);
+  }, [sessionId, setPendingPreview]);
 
   useEffect(() => {
     const element = textAreaRef.current;
@@ -127,20 +135,20 @@ export function ChatInputBox({
 
   return (
     <div className="shrink-0 bg-transparent px-3 py-3">
-      {pendingPreview && sessionId ? (
+      {pendingPreview && pendingPreview.sessionId === sessionId ? (
         <LazyFeature
           componentProps={{
-            name: pendingPreview.name,
+            name: pendingPreview.candidate.name,
             onAttach: (range: MentionLineRange) => {
-              attachReference(pendingPreview, range);
+              attachReference(pendingPreview.candidate, range);
               setPendingPreview(null);
             },
             onCancel: () => {
               setPendingPreview(null);
               textAreaRef.current?.focus();
             },
-            path: pendingPreview.path,
-            sessionId,
+            path: pendingPreview.candidate.path,
+            sessionId: pendingPreview.sessionId,
           }}
           loader={loadPreviewDialog}
         />

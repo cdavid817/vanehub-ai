@@ -12,6 +12,17 @@ import type { FileSearchMatch } from "../types/session-workspace";
 const SUGGESTION_LIMIT = 8;
 
 /**
+ * A candidate chosen but not yet resolved, tagged with the session it was chosen in.
+ * The tag is what lets the composer refuse to render it against a different session:
+ * clearing it from an effect is too late, because the render that already happened has
+ * handed the stale path to the dialog with the new session's id.
+ */
+export interface PendingPreview {
+  candidate: FileSearchMatch;
+  sessionId: string;
+}
+
+/**
  * Composer completion state. File candidates arrive already ranked and bounded by the
  * native runtime, so this only removes what is already attached; participant candidates
  * are in-memory and still filtered here.
@@ -29,7 +40,7 @@ export function useComposerMention({
   participantMentions: SeatMentionOption[];
   value: string;
 }) {
-  const [pendingPreview, setPendingPreview] = useState<FileSearchMatch | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const token = composerMentionToken(value);
   const parsed = token === null ? null : parseComposerMention(token);
   const mentionQuery = parsed?.path.toLowerCase() ?? null;
